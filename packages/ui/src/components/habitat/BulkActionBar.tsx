@@ -1,0 +1,172 @@
+import { useState } from 'react';
+import { useBoardStore } from '../../store/habitatStore.js';
+import { api } from '../../api/index.js';
+import { notify } from '../../lib/toast.js';
+import { X, Trash2, ArrowRight, Gauge } from 'lucide-react';
+import type { FeatureWithProgress, TaskPriority } from '../../types/index.js';
+
+interface BulkActionBarProps {
+  boardId: string;
+}
+
+type BulkOperation = 'priority' | 'move' | 'delete';
+
+export function BulkActionBar({ boardId }: BulkActionBarProps) {
+  const { selectedFeatureIds, setBulkSelectMode, clearFeatureSelection, updateFeature, removeFeature, columns } =
+    useBoardStore();
+  const [operation, setOperation] = useState<BulkOperation>('priority');
+  const [targetColumnId, setTargetColumnId] = useState('');
+  const [priority, setPriority] = useState<TaskPriority>('medium');
+  const [isApplying, setIsApplying] = useState(false);
+
+  async function handleApply() {
+    if (selectedFeatureIds.length === 0) return;
+    if (operation === 'move' && !targetColumnId) {
+      notify.warning('Please select a target column');
+      return;
+    }
+    setIsApplying(true);
+
+    let successCount = 0;
+    let failureCount = 0;
+    const errors: string[] = [];
+
+    try {
+      if (operation === 'delete') {
+        const results = await Promise.allSettled(
+          selectedFeatureIds.map((id) => api.features.delete(id))
+        );
+        results.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            successCount++;
+          } else {
+            failureCount++;
+            errors.push(result.reason?.message ?? 'Unknown error');
+          }
+        });
+        if (successCount > 0) {
+          selectedFeatureIds.forEach((id) => removeFeature(id));
+        }
+      } else {
+        const updatePromises = selectedFeatureIds.map(async (id) => {
+          if (operation === 'priority') {
+            const { feature } = await api.features.update(id, { priority });
+            return feature;
+          } else {
+            const { feature } = await api.features.move(id, { columnId: targetColumnId });
+            return feature;
+          }
+        });
+
+        const results = await Promise.allSettled(updatePromises);
+        results.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            successCount++;
+            updateFeature(result.value as FeatureWithProgress);
+          } else {
+            failureCount++;
+            errors.push(result.reason?.message ?? 'Unknown error');
+          }
+        });
+      }
+
+      notify.success(
+        `${successCount} feature${successCount !== 1 ? 's' : ''} ${operation === 'delete' ? 'deleted' : 'updated'}`
+      );
+      if (failureCount > 0) {
+        notify.warning(`${failureCount} failed: ${errors[0]}`);
+      }
+      clearFeatureSelection();
+      setBulkSelectMode(false);
+    } catch (err) {
+      notify.error((err as Error).message);
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  function handleCancel() {
+    clearFeatureSelection();
+    setBulkSelectMode(false);
+  }
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-sm">
+      <span className="text-sm font-medium">
+        {selectedFeatureIds.length} feature{selectedFeatureIds.length !== 1 ? 's' : ''} selected
+      </span>
+
+      <div className="h-4 w-px bg-border" />
+
+      <select
+        value={operation}
+        onChange={(e) => setOperation(e.target.value as BulkOperation)}
+        className="rounded border bg-background px-2 py-1 text-sm"
+      >
+        <option value="priority">Set Priority</option>
+        <option value="move">Move to Column</option>
+        <option value="delete">Delete</option>
+      </select>
+
+      {operation === 'priority' && (
+        <select
+          value={priority}
+          onChange={(e) => setPriority(e.target.value as TaskPriority)}
+          className="rounded border bg-background px-2 py-1 text-sm"
+        >
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      )}
+
+      {operation === 'move' && (
+        <select
+          value={targetColumnId}
+          onChange={(e) => setTargetColumnId(e.target.value)}
+          className="rounded border bg-background px-2 py-1 text-sm"
+        >
+          <option value="">Select column...</option>
+          {columns.map((col) => (
+            <option key={col.id} value={col.id}>{col.name}</option>
+          ))}
+        </select>
+      )}
+
+      <div className="flex items-center gap-2 ml-auto">
+        <button
+          type="button"
+          onClick={handleCancel}
+          className="flex items-center gap-1 rounded px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleApply}
+          disabled={isApplying || selectedFeatureIds.length === 0 || (operation === 'move' && !targetColumnId)}
+          className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {operation === 'delete' ? (
+            <>
+              <Trash2 className="h-4 w-4" />
+              {isApplying ? 'Deleting...' : 'Delete'}
+            </>
+          ) : operation === 'priority' ? (
+            <>
+              <Gauge className="h-4 w-4" />
+              {isApplying ? 'Setting...' : 'Apply'}
+            </>
+          ) : (
+            <>
+              <ArrowRight className="h-4 w-4" />
+              {isApplying ? 'Moving...' : 'Move'}
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}

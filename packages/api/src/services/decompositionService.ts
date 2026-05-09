@@ -1,0 +1,161 @@
+import { getLLMConfig, callLLM, LLMMessage } from '../lib/llm.js';
+import * as taskRepo from '../repositories/task.js';
+import * as featureRepo from '../repositories/feature.js';
+
+export interface TaskProposal {
+  id: string;
+  title: string;
+  description?: string;
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  order: number;
+  estimatedMinutes?: number;
+}
+
+export interface DecompositionResult {
+  proposals: TaskProposal[];
+  parentFeature: { id: string; title: string };
+}
+
+const SYSTEM_PROMPT = `You are a feature decomposition assistant. Your job is to break down features into smaller, actionable tasks that agents can execute independently.
+
+Rules:
+- Generate 3-8 tasks
+- Each task should be completable in 1-4 hours
+- Use verb-noun format for titles (e.g., "Implement authentication middleware", "Write unit tests for API endpoints")
+- Do NOT add requirements not in the original feature
+- Each task title should be clear and actionable
+- Tasks should be ordered logically (dependencies first)
+- Assign estimated minutes for each task
+- Consider the acceptance criteria when generating tasks
+
+Output ONLY valid JSON in this exact format:
+{
+  "tasks": [
+    { "title": "Task title here", "description": "Optional description", "priority": "medium", "estimatedMinutes": 120 }
+  ]
+}
+
+priority must be one of: low, medium, high, critical`;
+
+function buildUserMessage(featureTitle: string, featureDescription: string, acceptanceCriteria: string): string {
+  let message = `Break down this feature into tasks:\n\nTitle: ${featureTitle}\n\nDescription: ${featureDescription || '(no description)'}`;
+
+  if (acceptanceCriteria) {
+    message += `\n\nAcceptance Criteria:\n${acceptanceCriteria}`;
+  }
+
+  if (featureDescription.length < 20) {
+    message += '\n\nNote: The description is very short, so results may be limited.';
+  }
+
+  return message;
+}
+
+export async function decomposeFeature(featureId: string): Promise<DecompositionResult> {
+  const config = getLLMConfig();
+  if (!config) {
+    throw new Error('AI decomposition not configured. Set LLM_API_KEY environment variable.');
+  }
+
+  const feature = featureRepo.getFeatureById(featureId);
+  if (!feature) {
+    throw new Error('Feature not found');
+  }
+
+  if (!feature.description || feature.description.trim().length === 0) {
+    throw new Error('Add a description before decomposing');
+  }
+
+  const messages: LLMMessage[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: buildUserMessage(feature.title, feature.description, feature.acceptanceCriteria) },
+  ];
+
+  let llmResponse;
+  try {
+    llmResponse = await callLLM(messages, config);
+  } catch (error) {
+    throw error;
+  }
+
+  const result: DecompositionResult = { proposals: [], parentFeature: { id: feature.id, title: feature.title } };
+
+  try {
+    const text = llmResponse.content;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Could not understand AI response. Try again.');
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const taskList = parsed.tasks || [];
+
+    if (!Array.isArray(taskList) || taskList.length === 0) {
+      throw new Error('AI did not return any tasks. Try again with a more detailed description.');
+    }
+
+    const validPriorities = ['low', 'medium', 'high', 'critical'];
+
+    result.proposals = taskList.slice(0, 20).map((task: any, index: number) => ({
+      id: `prop-${Date.now()}-${index}`,
+      title: task.title || 'Untitled task',
+      description: task.description,
+      priority: validPriorities.includes(task.priority) ? task.priority : 'medium',
+      order: index,
+      estimatedMinutes: task.estimatedMinutes || null,
+    }));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error('Could not understand AI response. Try again.');
+    }
+    throw error;
+  }
+
+  return result;
+}
+
+export async function decomposeTask(taskId: string): Promise<DecompositionResult> {
+  const config = getLLMConfig();
+  if (!config) {
+    throw new Error('AI decomposition not configured. Set LLM_API_KEY environment variable.');
+  }
+
+  const task = taskRepo.getTaskById(taskId);
+  if (!task) {
+    throw new Error('Task not found');
+  }
+
+  if (!task.description || task.description.trim().length === 0) {
+    throw new Error('Add a description before decomposing');
+  }
+
+  const messages: LLMMessage[] = [
+    { role: 'system', content: `You are a task decomposition assistant. Break down tasks into subtasks. Output JSON with a "tasks" array containing {title, description, priority, estimatedMinutes}.` },
+    { role: 'user', content: `Break down this task:\n\nTitle: ${task.title}\n\nDescription: ${task.description}` },
+  ];
+
+  const llmResponse = await callLLM(messages, config);
+  const result: DecompositionResult = { proposals: [], parentFeature: { id: task.featureId, title: task.title } };
+
+  try {
+    const text = llmResponse.content;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Could not understand AI response.');
+    const parsed = JSON.parse(jsonMatch[0]);
+    const taskList = parsed.tasks || [];
+    const validPriorities = ['low', 'medium', 'high', 'critical'];
+    result.proposals = taskList.slice(0, 20).map((t: any, index: number) => ({
+      id: `prop-${Date.now()}-${index}`,
+      title: t.title || 'Untitled',
+      description: t.description,
+      priority: validPriorities.includes(t.priority) ? t.priority : 'medium',
+      order: index,
+      estimatedMinutes: t.estimatedMinutes || null,
+    }));
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('Could not understand AI response.');
+    throw error;
+  }
+
+  return result;
+}

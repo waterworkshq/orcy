@@ -1,0 +1,47 @@
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+*.log
+packages/*/dist/
+packages/*/node_modules/
+
+# Debug/local artifacts
+body.json
+diagnose-api.ps1
+start-api.ps1
+test-agent.ps1
+test-presence.ps1
+test-request.ps1
+
+# Generated test artifacts
+playwright-report/
+test-results/
+coverage/
+
+# TypeScript compiler artifacts (emitted when tsc runs without --noEmit)
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Bun package manager artifacts
+bun.lock
+bunfig.toml
+
+# Opencode local memory/cache
+.opencode/
+
+# Other Dev Deps
+.todos/
+.serena/
+.gitnexus
+.claude/
+docs/plans/
+docs/archive/
+docs/superpowers/plans/
+.compozy/
+.kilo/

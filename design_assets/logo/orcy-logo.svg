@@ -1,0 +1,50 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Circular Badge Background -->
+  <circle cx="256" cy="256" r="240" fill="#2a5f73" />
+  
+  <g clip-path="url(#circleClip)">
+    <clipPath id="circleClip">
+      <circle cx="256" cy="256" r="240" />
+    </clipPath>
+    
+    <!-- Circular Wordmark -->
+    <path id="wordmarkArc" d="M 92 256 A 164 164 0 0 1 420 256" fill="none" />
+    <text fill="#e4ecf4" font-family="'Space Grotesk', sans-serif" font-weight="bold" font-size="80" letter-spacing="24">
+      <textPath href="#wordmarkArc" startOffset="50%" text-anchor="middle">orcy</textPath>
+    </text>
+
+    <!-- Cute Orca breaching from the bottom -->
+    <ellipse cx="256" cy="380" rx="160" ry="140" fill="#111a24" />
+    
+    <!-- White Belly -->
+    <ellipse cx="256" cy="450" rx="140" ry="100" fill="#e4ecf4" />
+    
+    <!-- Pectoral Fins (Waving!) -->
+    <ellipse cx="100" cy="360" rx="60" ry="25" transform="rotate(-30 100 360)" fill="#111a24" />
+    <ellipse cx="412" cy="360" rx="60" ry="25" transform="rotate(30 412 360)" fill="#111a24" />
+    
+    <!-- Eye Patches -->
+    <ellipse cx="160" cy="260" rx="30" ry="15" transform="rotate(20 160 260)" fill="#e4ecf4" />
+    <ellipse cx="352" cy="260" rx="30" ry="15" transform="rotate(-20 352 260)" fill="#e4ecf4" />
+    
+    <!-- Eyes -->
+    <ellipse cx="200" cy="300" rx="14" ry="20" fill="#e4ecf4" />
+    <ellipse cx="203" cy="300" rx="8" ry="12" fill="#060a0e" />
+    <circle cx="205" cy="295" r="3" fill="#e4ecf4" />
+    
+    <ellipse cx="312" cy="300" rx="14" ry="20" fill="#e4ecf4" />
+    <ellipse cx="309" cy="300" rx="8" ry="12" fill="#060a0e" />
+    <circle cx="307" cy="295" r="3" fill="#e4ecf4" />
+    
+    <!-- Smile -->
+    <path d="M 230 330 Q 256 360 282 330" stroke="#fa746f" stroke-width="6" stroke-linecap="round" fill="none" />
+    
+    <!-- Blush -->
+    <ellipse cx="170" cy="330" rx="16" ry="8" fill="#fa746f" opacity="0.8" />
+    <ellipse cx="342" cy="330" rx="16" ry="8" fill="#fa746f" opacity="0.8" />
+    
+    <!-- Water Waves in foreground -->
+    <path d="M -50 400 Q 64 360 128 400 T 256 400 T 384 400 T 512 400 T 640 400 L 640 512 L -50 512 Z" fill="#1e4858" />
+    <path d="M -50 440 Q 64 400 128 440 T 256 440 T 384 440 T 512 440 T 640 440 L 640 512 L -50 512 Z" fill="#060a0e" opacity="0.4" />
+  </g>
+</svg>

@@ -1,0 +1,46 @@
+{
+  "name": "orcy",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build:installer": "pnpm --filter @orcy/installer build",
+    "dev:installer": "pnpm --filter @orcy/installer dev",
+    "dev:api": "DB_PATH=./orcy-dev.db pnpm --filter @orcy/api dev",
+    "dev:ui": "pnpm --filter @orcy/ui dev",
+    "dev:mcp": "pnpm --filter @orcy/mcp dev",
+    "dev": "DB_PATH=./orcy-dev.db pnpm dev:api & pnpm dev:ui & wait",
+    "build": "pnpm -r build",
+    "start:api": "node packages/api/dist/index.js",
+    "start:ui": "pnpm --filter @orcy/ui preview",
+    "prod": "pnpm build && pnpm start:api & pnpm start:ui",
+    "build:api": "pnpm --filter @orcy/api build",
+    "build:ui": "pnpm --filter @orcy/ui build",
+    "build:mcp": "pnpm --filter @orcy/mcp build",
+    "build:cli": "pnpm --filter @orcy/cli build",
+    "dev:cli": "pnpm --filter @orcy/cli dev",
+    "setup": "tsx scripts/setup.ts",
+    "deploy:ui": "pnpm build:ui && cp -r packages/ui/dist/* ~/.orcy/ui/",
+    "test": "pnpm -r test",
+    "test:api": "pnpm --filter @orcy/api test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "db:seed": "DB_PATH=./orcy-dev.db tsx scripts/seed.ts",
+    "db:reset-password": "tsx scripts/reset-password.ts"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "hono": "^4.12.16",
+    "@hono/node-server": "^1.19.13",
+    "postcss": "^8.5.13",
+    "esbuild": "^0.27.7"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}

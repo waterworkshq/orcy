@@ -1,0 +1,435 @@
+import * as taskRepo from '../../repositories/task.js';
+import * as featureRepo from '../../repositories/feature.js';
+import * as agentRepo from '../../repositories/agent.js';
+import * as eventRepo from '../../repositories/event.js';
+import { sseBroadcaster } from '../../sse/broadcaster.js';
+import * as watcherService from '../watcherService.js';
+import * as retryService from '../retryService.js';
+import * as gitWorktreeService from '../gitWorktreeService.js';
+import * as pluginManager from '../../plugins/pluginManager.js';
+import * as featureService from '../featureService.js';
+import * as timeTrackingService from '../timeTrackingService.js';
+import * as qualityGateService from '../qualityGateService.js';
+import * as dependencyService from '../dependencyService.js';
+import type { Task, Artifact } from '../../models/index.js';
+import {
+  validateTransition,
+  mergeArtifacts,
+  validateAgentCapabilities,
+} from './helpers.js';
+import { logger } from '../../lib/logger.js';
+
+function getBoardId(task: Task): string {
+  return taskRepo.getBoardIdForTask(task.id) ?? '';
+}
+
+export function withFeatureRecalc<T>(
+  taskId: string,
+  featureId: string,
+  fn: () => T
+): T | undefined {
+  try {
+    return fn();
+  } catch (err) {
+    logger.error(
+      { err, taskId, featureId },
+      'Feature recalculation failed'
+    );
+  }
+}
+
+export function claimTask(taskId: string, agentId: string): { success: true; task: Task } | { success: false; reason: string; message?: string; missingCapabilities?: string[] } {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return { success: false, reason: 'not_found' };
+
+  if (current.requiredCapabilities && current.requiredCapabilities.length > 0) {
+    const agent = agentRepo.getAgentById(agentId);
+    if (!agent) return { success: false, reason: 'not_found' };
+
+    const missing = validateAgentCapabilities(
+      agent.capabilities || [],
+      current.requiredCapabilities as string[]
+    );
+
+    if (missing.length > 0) {
+      return {
+        success: false,
+        reason: 'capability_mismatch',
+        message: `Agent lacks required capabilities: ${missing.join(', ')}`,
+        missingCapabilities: missing,
+      };
+    }
+  }
+
+  const result = taskRepo.claimTask(taskId, agentId);
+
+  if (result.success) {
+    const boardId = getBoardId(result.task);
+
+    eventRepo.createEvent({
+      taskId,
+      actorType: 'agent',
+      actorId: agentId,
+      action: 'claimed',
+      toStatus: 'claimed',
+    });
+
+    sseBroadcaster.publish(boardId, {
+      type: 'task.claimed',
+      data: { taskId, agentId },
+    });
+    sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
+    if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.claimed');
+
+    const agent = agentRepo.getAgentById(agentId);
+    if (agent) {
+      pluginManager.emitTaskClaimed(result.task, agent).catch(() => {});
+    }
+
+    withFeatureRecalc(taskId, current.featureId, () => {
+      featureService.recalculateFeatureStatus(current.featureId);
+    });
+  }
+
+  return result;
+}
+
+export function startTask(taskId: string, agentId: string): Task | null {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return null;
+
+  if (current.assignedAgentId !== agentId) return null;
+
+  if (!validateTransition(current.status, 'in_progress')) return null;
+
+  const task = taskRepo.startTask(taskId, agentId);
+  if (!task) return null;
+
+  try {
+    qualityGateService.ensureTaskChecklists(taskId);
+  } catch (err) {
+    logger.warn({ err, taskId }, 'Failed to ensure task quality checklists');
+  }
+
+  const boardId = getBoardId(task);
+
+  eventRepo.createEvent({
+    taskId,
+    actorType: 'agent',
+    actorId: agentId,
+    action: 'started',
+    toStatus: 'in_progress',
+  });
+
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return task;
+}
+
+export function submitTask(
+  taskId: string,
+  agentId: string,
+  result: string,
+  artifacts: Artifact[]
+): { task: Task | null; error?: string; missingQualityItems?: { category: string; missingItems: string[] }[] } {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return { task: null };
+
+  if (current.assignedAgentId !== agentId) return { task: null };
+
+  if (!validateTransition(current.status, 'submitted')) return { task: null };
+
+  const qualityValidation = qualityGateService.validateQualityGates(taskId);
+  if (!qualityValidation.passed) {
+    return {
+      task: null,
+      error: 'QUALITY_GATES_NOT_MET',
+      missingQualityItems: qualityValidation.failures,
+    };
+  }
+
+  const task = taskRepo.submitTask(taskId, agentId, result, artifacts);
+  if (!task) return { task: null };
+
+  const boardId = getBoardId(task);
+
+  try {
+    timeTrackingService.recordWork(taskId, agentId, 0, 'submitted');
+  } catch {}
+
+  eventRepo.createEvent({
+    taskId,
+    actorType: 'agent',
+    actorId: agentId,
+    action: 'submitted',
+    toStatus: 'submitted',
+    metadata: { result },
+  });
+
+  sseBroadcaster.publish(boardId, {
+    type: 'task.submitted',
+    data: { taskId, agentId },
+  });
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.submitted');
+  pluginManager.emitTaskSubmitted(task).catch(() => {});
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return { task };
+}
+
+export function completeTask(
+  taskId: string,
+  agentId: string,
+  reviewNote?: string,
+  artifacts?: Artifact[],
+  skipQualityGates?: boolean
+): { task: Task | null; error?: string; blockedBy?: { taskId: string; title: string; status: string }[]; missingQualityItems?: { category: string; missingItems: string[] }[] } {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return { task: null };
+
+  if (current.assignedAgentId !== agentId) return { task: null };
+
+  if (current.status !== 'submitted' && current.status !== 'approved') return { task: null };
+
+  const depValidation = dependencyService.validateTaskCompletion(taskId);
+  if (!depValidation.canComplete) {
+    return {
+      task: null,
+      error: 'TASK_BLOCKED_BY_DEPENDENCIES',
+      blockedBy: depValidation.blockedBy,
+    };
+  }
+
+  if (!skipQualityGates) {
+    const qualityValidation = qualityGateService.validateQualityGates(taskId);
+    if (!qualityValidation.passed) {
+      return {
+        task: null,
+        error: 'QUALITY_GATES_NOT_MET',
+        missingQualityItems: qualityValidation.failures,
+      };
+    }
+  }
+
+  timeTrackingService.calculateAndSetCompletionMetrics(taskId);
+
+  mergeArtifacts(taskId, current, artifacts);
+
+  if (reviewNote) {
+    const existingResult = current.result || '';
+    const separator = existingResult ? '\n\n---\n\nReview: ' : 'Review: ';
+    taskRepo.updateTask(taskId, { result: existingResult + separator + reviewNote });
+  }
+
+  const task = taskRepo.markTaskDone(taskId);
+  if (!task) return { task: null };
+
+  const boardId = getBoardId(task);
+  const metadata = { reviewNote, isSelfApproval: true };
+
+  eventRepo.createEvent({
+    taskId,
+    actorType: 'agent',
+    actorId: agentId,
+    action: 'completed',
+    toStatus: 'done',
+    metadata,
+  });
+
+  sseBroadcaster.publish(boardId, {
+    type: 'task.completed',
+    data: { taskId },
+  });
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+
+  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.completed');
+  pluginManager.emitTaskApproved(task).catch(() => {});
+
+  unblockDependents(taskId);
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return { task };
+}
+
+export function approveTask(taskId: string, reviewerId: string): Task | null {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return null;
+
+  if (!validateTransition(current.status, 'approved')) return null;
+
+  const task = taskRepo.approveTask(taskId);
+  if (!task) return null;
+
+  try {
+    timeTrackingService.calculateAndSetCompletionMetrics(taskId);
+  } catch {}
+
+  const boardId = getBoardId(task);
+
+  eventRepo.createEvent({
+    taskId,
+    actorType: 'human',
+    actorId: reviewerId,
+    action: 'approved',
+    toStatus: 'approved',
+  });
+
+  sseBroadcaster.publish(boardId, {
+    type: 'task.approved',
+    data: { taskId, reviewerId },
+  });
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.approved');
+
+  pluginManager.emitTaskApproved(task).catch(() => {});
+
+  unblockDependents(taskId);
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return task;
+}
+
+export function rejectTask(taskId: string, reviewerId: string, reason: string): Task | null {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return null;
+
+  if (!validateTransition(current.status, 'rejected')) return null;
+
+  const task = taskRepo.rejectTask(taskId, reason);
+  if (!task) return null;
+
+  const boardId = getBoardId(task);
+
+  eventRepo.createEvent({
+    taskId,
+    actorType: 'human',
+    actorId: reviewerId,
+    action: 'rejected',
+    toStatus: 'rejected',
+    metadata: { reason },
+  });
+
+  sseBroadcaster.publish(boardId, {
+    type: 'task.rejected',
+    data: { taskId, reason },
+  });
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.rejected');
+
+  if (retryService.shouldRetry(task)) {
+    retryService.scheduleRetry(task);
+  } else if (retryService.getEffectivePolicy(task)?.escalateToHuman) {
+    retryService.escalateToHuman(task);
+  }
+
+  pluginManager.emitTaskRejected(task, reason).catch(() => {});
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return task;
+}
+
+export function releaseTask(taskId: string, actorId: string, reason: string): Task | null {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return null;
+
+  if (current.status !== 'claimed' && current.status !== 'in_progress') return null;
+
+  if (current.assignedAgentId && current.assignedAgentId !== actorId) return null;
+
+  const task = taskRepo.releaseTask(taskId, reason);
+  if (!task) return null;
+
+  const boardId = getBoardId(task);
+
+  eventRepo.createEvent({
+    taskId,
+    actorType: current.assignedAgentId ? 'agent' : 'human',
+    actorId,
+    action: 'released',
+    fromStatus: current.status,
+    toStatus: 'pending',
+    metadata: { reason },
+  });
+
+  sseBroadcaster.publish(boardId, {
+    type: 'task.released',
+    data: { taskId, reason },
+  });
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.released');
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return task;
+}
+
+export function failTask(taskId: string, actorId: string, actorType: 'agent' | 'system', reason: string): Task | null {
+  const current = taskRepo.getTaskById(taskId);
+  if (!current) return null;
+
+  if (!validateTransition(current.status, 'failed')) return null;
+
+  if (actorType === 'agent' && current.assignedAgentId !== actorId) return null;
+
+  const task = taskRepo.failTask(taskId, reason);
+  if (!task) return null;
+
+  const boardId = getBoardId(task);
+
+  eventRepo.createEvent({
+    taskId,
+    actorType,
+    actorId,
+    action: 'failed',
+    toStatus: 'failed',
+    metadata: { reason },
+  });
+
+  sseBroadcaster.publish(boardId, {
+    type: 'task.failed',
+    data: { taskId, reason },
+  });
+  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.failed');
+
+  if (retryService.shouldRetry(task)) {
+    retryService.scheduleRetry(task);
+  } else if (retryService.getEffectivePolicy(task)?.escalateToHuman) {
+    retryService.escalateToHuman(task);
+  }
+
+  withFeatureRecalc(taskId, current.featureId, () => {
+    featureService.recalculateFeatureStatus(current.featureId);
+  });
+  return task;
+}
+
+function unblockDependents(completedTaskId: string): void {
+  const dependents = taskRepo.getTasksByDependency(completedTaskId);
+  for (const dependent of dependents) {
+    if (taskRepo.areAllDependenciesMet(dependent.id) && dependent.status === 'pending') {
+      const boardId = getBoardId(dependent);
+      eventRepo.createEvent({
+        taskId: dependent.id,
+        actorType: 'system',
+        actorId: 'system',
+        action: 'dependency_resolved',
+        metadata: { unblockedBy: completedTaskId },
+      });
+      sseBroadcaster.publish(boardId, { type: 'task.updated', data: dependent });
+    }
+  }
+}

@@ -1,0 +1,1 @@
+// no setup needed - using vitest globals

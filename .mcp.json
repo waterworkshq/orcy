@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "orcy": {
+      "command": "node",
+      "args": ["packages/mcp/dist/index.js"],
+      "env": {
+        "ORCY_AGENT_ID": "your-agent-uuid",
+        "ORCY_API_KEY": "your-api-key"
+      }
+    }
+  }
+}

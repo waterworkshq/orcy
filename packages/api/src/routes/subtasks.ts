@@ -1,0 +1,75 @@
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import * as subtaskService from '../services/subtaskService.js';
+import { agentAuth } from '../middleware/auth.js';
+
+/**
+ * Subtask CRUD — create, list, update, and delete subtasks attached to a task.
+ */
+export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
+  /** GET /tasks/:taskId/subtasks - List subtasks for a task. Auth: agentAuth. Returns subtask array */
+  fastify.get<{ Params: { taskId: string } }>(
+    '/tasks/:taskId/subtasks',
+    { preHandler: agentAuth },
+    async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
+      return subtaskService.getSubtasks(request.params.taskId);
+    }
+  );
+
+  /** POST /tasks/:taskId/subtasks - Create a subtask. Auth: agentAuth. Returns { subtask } or 404 */
+  fastify.post<{ Params: { taskId: string }; Body: { title: string; order?: number; assigneeId?: string } }>(
+    '/tasks/:taskId/subtasks',
+    { preHandler: agentAuth },
+    async (request: FastifyRequest<{ Params: { taskId: string }; Body: { title: string; order?: number; assigneeId?: string } }>, reply: FastifyReply) => {
+      const parsed = request.body;
+      if (!parsed.title || parsed.title.trim().length === 0) {
+        reply.code(400).send({ error: 'Title is required' });
+        return;
+      }
+
+      const subtask = subtaskService.createSubtask(request.params.taskId, {
+        title: parsed.title.trim(),
+        order: parsed.order,
+        assigneeId: parsed.assigneeId,
+      });
+
+      if (!subtask) {
+        reply.code(404).send({ error: 'Task not found' });
+        return;
+      }
+
+      reply.code(201).send({ subtask });
+    }
+  );
+
+  /** PATCH /tasks/:taskId/subtasks/:subtaskId - Update a subtask. Auth: agentAuth. Returns { subtask } or 404 */
+  fastify.patch<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } }>(
+    '/tasks/:taskId/subtasks/:subtaskId',
+    { preHandler: agentAuth },
+    async (request: FastifyRequest<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } }>, reply: FastifyReply) => {
+      const subtask = subtaskService.updateSubtask(request.params.subtaskId, request.body);
+
+      if (!subtask) {
+        reply.code(404).send({ error: 'Subtask not found' });
+        return;
+      }
+
+      return { subtask };
+    }
+  );
+
+  /** DELETE /tasks/:taskId/subtasks/:subtaskId - Delete a subtask. Auth: agentAuth. Returns 204 or 404 */
+  fastify.delete<{ Params: { taskId: string; subtaskId: string } }>(
+    '/tasks/:taskId/subtasks/:subtaskId',
+    { preHandler: agentAuth },
+    async (request: FastifyRequest<{ Params: { taskId: string; subtaskId: string } }>, reply: FastifyReply) => {
+      const success = subtaskService.deleteSubtask(request.params.subtaskId);
+
+      if (!success) {
+        reply.code(404).send({ error: 'Subtask not found' });
+        return;
+      }
+
+      reply.code(204).send();
+    }
+  );
+}
