@@ -39,6 +39,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
     cycleTimeMinutes: null,
     leadTimeMinutes: null,
     estimationAccuracy: null,
+    labels: [],
     ...overrides,
   } as Task;
 }

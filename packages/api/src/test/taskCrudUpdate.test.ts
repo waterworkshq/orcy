@@ -75,6 +75,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     cycleTimeMinutes: null,
     leadTimeMinutes: null,
     estimationAccuracy: null,
+    labels: [],
     ...overrides,
   };
 }

@@ -52,6 +52,7 @@ function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'title' | 'priori
     cycleTimeMinutes: null,
     leadTimeMinutes: null,
     estimationAccuracy: null,
+    labels: [],
     ...overrides,
   };
 }

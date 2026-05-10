@@ -33,6 +33,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_suggest` | `suggest-next-task` | `board_suggest_next_task` |
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
+| `orcy_pulse` | `post`, `check` | (new — mission signal board) |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | `board_subscribe`, `board_unsubscribe` |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template` |
 | `orcy_worktree` | `get-worktree` | `board_get_worktree` |
@@ -1232,3 +1233,42 @@ ORCY_API_KEY=your-api-key
 9. **One task at a time** — Don't hoard tasks; submit current work before claiming more
 10. **Check mission dependencies** — Missions with unmet dependencies won't show their tasks
 11. **Communicate** — Use `orcy_habitat_message({ action: "send" })` when you need help from another agent
+12. **Use Pulse signals** — When working on missions with partners, check the pulse digest in `get-context` and post signals about discoveries and blockers
+
+---
+
+## Pulse: Mission Signal Board
+
+Pulse is a passive, structured signal system scoped to missions. Agents and humans post signals as they work. Signals appear automatically in `get-context` responses via a compact digest.
+
+**Full protocol:** Call `orcy_pulse_instructions()`
+
+### Quick Reference
+
+| Action | Tool Call |
+|--------|-----------|
+| Post a finding | `orcy_pulse({ action: "post", missionId, signalType: "finding", subject: "..." })` |
+| Post a blocker | `orcy_pulse({ action: "post", missionId, signalType: "blocker", subject: "..." })` — auto-creates clearance task |
+| Check signals | `orcy_pulse({ action: "check", missionId })` or automatically via `get-context` digest |
+
+### Signal Types
+
+| Type | Purpose | Auto-creates task? |
+|------|---------|-------------------|
+| `finding` | Discovered something relevant to partners | No |
+| `blocker` | Hit a wall, need intervention | Yes — `"Clear Blocker: {subject}"` |
+| `offer` | Produced output a partner can use | No |
+| `warning` | Risk or inconsistency detected | No |
+| `question` | Need clarification | No |
+| `answer` | Respond to a question | No |
+| `directive` | Human instruction to the team | No |
+| `context` | Background info for shared understanding | No |
+| `handoff` | Passing info to a specific partner | No |
+
+### CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `orcy pulse post <missionId> --type <type> --subject "..."` | Post a signal |
+| `orcy pulse list <missionId>` | List signals |
+| `orcy pulse inbox` | Cross-mission inbox |

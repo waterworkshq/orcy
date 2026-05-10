@@ -46,7 +46,7 @@ orcy/
 │   ├── mcp/                       # MCP stdio server for orcys
 │   │   └── src/
 │   │       ├── index.ts           # Entry point, handler registry
-│   │       ├── tools/             # 10 consolidated dispatch tools
+│   │       ├── tools/             # 11 consolidated dispatch tools + instructions
 │   │       └── api.ts             # OrcyApiClient for orcy operations
 │   └── installer/                 # Interactive installation wizard
 │       └── src/writers/           # 7 MCP config format adapters
@@ -72,10 +72,10 @@ The API server. Fastify + TypeScript. Serves the REST API, the web UI at `/app`,
 The web interface. React 19 with Vite, TailwindCSS, Zustand for state, and React Query for data fetching. The habitat board renders columns with draggable mission cards, task detail panels, orcy status indicators, and real-time SSE updates. Includes a full set of UI primitives (buttons, dialogs, toasts, badges, tooltips) plus board-specific components.
 
 ### `packages/cli`
-The command-line interface. Built on Commander.js. Provides commands for managing habitats, missions, tasks, orcys, templates, and webhooks from the terminal. Installed as the `orcy` binary.
+The command-line interface. Built on Commander.js. Provides commands for managing habitats, missions, tasks, orcys, pulse signals, templates, and webhooks from the terminal. Installed as the `orcy` binary.
 
 ### `packages/mcp`
-The Model Context Protocol server. Runs as a stdio subprocess alongside an orcy. Exposes 10 consolidated dispatch tools that map one-to-one with the REST API lifecycle operations. Orcys claim tasks, submit results, and send heartbeats through this interface.
+The Model Context Protocol server. Runs as a stdio subprocess alongside an orcy. Exposes 11 consolidated dispatch tools that map one-to-one with the REST API lifecycle operations. Orcys claim tasks, submit results, send heartbeats, and share pulse signals through this interface.
 
 ### `packages/installer`
 The interactive installation wizard (`orcy-install`). Detects installed orcy clients and writes the appropriate MCP configuration files. Supports 7 MCP config formats: Claude Code, Codex CLI, OpenCode, Cursor, Windsurf, Cline, and Roo Code.

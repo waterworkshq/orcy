@@ -14,6 +14,8 @@ export * from './habitat.js';
 export * from './webhook.js';
 export * from './template.js';
 export * from './messaging.js';
+export * from './pulse.js';
+export * from './pulse-skill.js';
 export * from './subscription.js';
 export * from './worktree.js';
 export * from './suggest.js';
@@ -58,10 +60,15 @@ import {
   MESSAGE_DISPATCH_HANDLER,
 } from './message-dispatch.js';
 import {
+  PULSE_DISPATCH_TOOL,
+  PULSE_DISPATCH_HANDLER,
+} from './pulse-dispatch.js';
+import {
   SUBSCRIPTION_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_HANDLER,
 } from './subscription-dispatch.js';
 import { ORCY_INITIAL_INSTRUCTIONS_TOOL } from './instructions.js';
+import { PULSE_SKILL_TOOL } from './pulse-skill.js';
 
 // Re-export dispatch handlers for consumers (src/index.ts, tests)
 export {
@@ -73,6 +80,7 @@ export {
   SUGGEST_DISPATCH_HANDLER,
   WORKTREE_DISPATCH_HANDLER,
   MESSAGE_DISPATCH_HANDLER,
+  PULSE_DISPATCH_HANDLER,
   SUBSCRIPTION_DISPATCH_HANDLER,
 };
 export {
@@ -84,11 +92,13 @@ export {
   SUGGEST_DISPATCH_TOOL,
   WORKTREE_DISPATCH_TOOL,
   MESSAGE_DISPATCH_TOOL,
+  PULSE_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_TOOL,
 };
 
 export const ALL_TOOLS: Tool[] = [
   ORCY_INITIAL_INSTRUCTIONS_TOOL,
+  PULSE_SKILL_TOOL,
   HABITAT_DISPATCH_TOOL,
   MISSION_DISPATCH_TOOL,
   TASK_DISPATCH_TOOL,
@@ -97,5 +107,6 @@ export const ALL_TOOLS: Tool[] = [
   SUGGEST_DISPATCH_TOOL,
   WORKTREE_DISPATCH_TOOL,
   MESSAGE_DISPATCH_TOOL,
+  PULSE_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_TOOL,
 ];

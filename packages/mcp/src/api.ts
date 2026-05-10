@@ -32,6 +32,10 @@ import type {
   FeatureDetailsResponse,
   ListFeaturesResponse,
   ListTasksInFeatureResponse,
+  Pulse,
+  PulseDigest,
+  PostPulseResponse,
+  ListPulsesResponse,
 } from './types.js';
 import { logger } from './logger.js';
 
@@ -280,7 +284,6 @@ export class KanbanApiClient {
   async getFeatureContext(featureId: string): Promise<FeatureContext> {
     const details = await this.getFeatureDetails(featureId);
 
-    // Resolve dependency/blocking feature IDs into full Feature objects
     const depIds = details.dependencies?.dependsOn ?? [];
     const blockIds = details.dependencies?.blocks ?? [];
 
@@ -289,7 +292,7 @@ export class KanbanApiClient {
       try {
         const res = await this.getFeature(id);
         if (res.feature) dependencies.push(res.feature);
-      } catch { /* dependency may have been deleted */ }
+      } catch { }
     }
 
     const blocking: Feature[] = [];
@@ -297,8 +300,13 @@ export class KanbanApiClient {
       try {
         const res = await this.getFeature(id);
         if (res.feature) blocking.push(res.feature);
-      } catch { /* blocked feature may have been deleted */ }
+      } catch { }
     }
+
+    let pulseDigest: PulseDigest | undefined;
+    try {
+      pulseDigest = await this.getPulseDigest(featureId);
+    } catch { }
 
     return {
       feature: details.feature,
@@ -312,7 +320,63 @@ export class KanbanApiClient {
       })),
       dependencies,
       blocking,
+      pulse: pulseDigest,
     };
+  }
+
+  async postPulse(missionId: string, input: {
+    signalType: string;
+    subject: string;
+    body?: string;
+    taskId?: string;
+    toAgentName?: string;
+    toAgentId?: string;
+    replyToId?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<PostPulseResponse> {
+    return this.request<PostPulseResponse>('POST', `/api/missions/${missionId}/pulse`, input);
+  }
+
+  async getPulses(missionId: string, filters?: {
+    signalType?: string;
+    isAuto?: boolean;
+    since?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ListPulsesResponse> {
+    const params = new URLSearchParams();
+    if (filters?.signalType) params.set('signalType', filters.signalType);
+    if (filters?.isAuto !== undefined) params.set('isAuto', String(filters.isAuto));
+    if (filters?.since) params.set('since', filters.since);
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
+    const query = params.toString();
+    return this.request<ListPulsesResponse>('GET', `/api/missions/${missionId}/pulse${query ? `?${query}` : ''}`);
+  }
+
+  async getPulseDigest(missionId: string): Promise<PulseDigest> {
+    return this.request<PulseDigest>('GET', `/api/missions/${missionId}/pulse/digest`);
+  }
+
+  async getPulseInbox(filters?: {
+    signalType?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ListPulsesResponse> {
+    const params = new URLSearchParams();
+    if (filters?.signalType) params.set('signalType', filters.signalType);
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
+    const query = params.toString();
+    return this.request<ListPulsesResponse>('GET', `/api/pulse/inbox${query ? `?${query}` : ''}`);
+  }
+
+  async deletePulse(pulseId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/pulse/${pulseId}`);
+  }
+
+  async getPulseReplies(pulseId: string): Promise<{ replies: Pulse[] }> {
+    return this.request<{ replies: Pulse[] }>('GET', `/api/pulse/${pulseId}/replies`);
   }
 
   async getFeatureProgress(featureId: string): Promise<FeatureProgressResponse> {

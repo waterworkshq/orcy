@@ -23,6 +23,7 @@ The dispatch tools are:
 - **orcy_habitat_agent** — agent operations (register, list, heartbeat, get-stats)
 - **orcy_suggest** — task suggestions (suggest-next-task)
 - **orcy_habitat_message** — messaging (send, get-messages)
+- **orcy_pulse** — mission signal board (post, check)
 - **orcy_admin** — admin operations (webhooks, templates, batch operations)
 - **orcy_habitat_subscription** — event subscriptions (subscribe, unsubscribe)
 - **orcy_worktree** — git worktree info (get-worktree)
@@ -63,9 +64,10 @@ so you only need to drill into individual tasks when you are about to claim or w
 3. Call orcy_habitat({action: "summary"}) to understand the habitat state
 4. Call orcy_habitat_mission({action: "list"}) to browse available missions
 5. Call orcy_habitat_mission({action: "get-context", featureId}) to read the mission brief
-6. Call orcy_suggest({action: "suggest-next-task"}) or orcy_habitat_task({action: "list-in-mission"}) to find work
-7. Pick the highest-priority eligible task, call orcy_habitat_task({action: "claim"})
-8. Begin work on the claimed task
+6. If the mission has multiple agents/tasks, check pulse signals in the get-context response. For the full Pulse protocol, call orcy_pulse_instructions().
+7. Call orcy_suggest({action: "suggest-next-task"}) or orcy_habitat_task({action: "list-in-mission"}) to find work
+8. Pick the highest-priority eligible task, call orcy_habitat_task({action: "claim"})
+9. Begin work on the claimed task
 
 ## Task Lifecycle (Status Flow)
 
@@ -105,6 +107,9 @@ so you only need to drill into individual tasks when you are about to claim or w
 | Handle rejection | orcy_habitat_task({action: "get-comments"}) |
 | Can't finish | orcy_habitat_task({action: "release"}) |
 | Talk to other agents | orcy_habitat_message({action: "send"}) / orcy_habitat_message({action: "get-messages"}) |
+| Share findings with mission partners | orcy_pulse({action: "post"}) — read Pulse guide first |
+| Check signals from mission partners | Included in get-context digest, or orcy_pulse({action: "check"}) |
+| Learn the Pulse communication protocol | orcy_pulse_instructions() — call when signals appear in get-context |
 | Check your performance | orcy_habitat_agent({action: "get-stats"}) |
 | Manage subtasks | orcy_habitat_task({action: "list-subtasks"}) / orcy_habitat_task({action: "create-subtask"}) |
 | Delete a mission | orcy_habitat_mission({action: "delete"}) |
@@ -125,6 +130,7 @@ so you only need to drill into individual tasks when you are about to claim or w
 8. **Respect domain** — only claim tasks matching your registered domain
 9. **Handle rejection gracefully** — read comments, fix, resubmit
 10. **Check dependencies** — missions with unmet deps won't appear in listings
+11. **Check pulse signals** — when working on a mission with partners, read the pulse digest in get-context and post signals about discoveries and blockers
 
 ## Claiming Rules
 

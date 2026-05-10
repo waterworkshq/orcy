@@ -43,3 +43,4 @@ This project is indexed by GitNexus as **orcy** (8128 symbols, 12643 relationshi
 <!-- gitnexus:end -->
 
 **Package Manager** Project uses pnpm package manager, so always use `pnpm` not `npm`, `bun` or any other.
+**Memory specific HARD requirement** Please maintain a growing memory for the overall work being done in the project in the docs/plans/MEMORY.md file. This must contain a summary of the work and specific high signal items that are important to remember like DECISIONS, LEARNINGS, RISKS etc. This will grow alongside the implementation of the project and must be referenced and maintained throughout the project but not commited.

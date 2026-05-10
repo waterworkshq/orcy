@@ -5,6 +5,21 @@ import { fileURLToPath } from 'node:url';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
 
+/**
+ * Skill Deployment System
+ *
+ * Skills in `../skills/<name>/SKILL.md` are copied to ~/.claude/skills/ (and other
+ * agent roots) during installation. Agents discover Orcy's capabilities through
+ * these files at startup.
+ *
+ * To add a new skill:
+ * 1. Create skills/<name>/SKILL.md with YAML frontmatter
+ * 2. Add <name> to the return array in determineSkillsToInstall()
+ * 3. If it's an MCP tool, update markdown-injector.ts and orcy-mcp-usage/SKILL.md
+ *
+ * See skills/README.md for full documentation.
+ */
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function getInstallerDir(): string {
@@ -14,9 +29,9 @@ export function getInstallerDir(): string {
 export function determineSkillsToInstall(components: string[]): string[] {
   const hasCli = components.includes('cli');
   const hasMcp = components.includes('mcp');
-  if (hasCli && hasMcp) return ['orcy-overview', 'orcy-cli-usage', 'orcy-mcp-usage'];
+  if (hasCli && hasMcp) return ['orcy-overview', 'orcy-cli-usage', 'orcy-mcp-usage', 'orcy-pulse'];
   if (hasCli) return ['orcy-overview', 'orcy-cli-usage'];
-  if (hasMcp) return ['orcy-overview', 'orcy-mcp-usage'];
+  if (hasMcp) return ['orcy-overview', 'orcy-mcp-usage', 'orcy-pulse'];
   return ['orcy-overview'];
 }
 

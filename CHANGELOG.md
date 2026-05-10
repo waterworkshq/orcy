@@ -1,5 +1,13 @@
 # Changelog
 
+## V0.2 — 2026-05-10
+
+Pulse signal board for multi-agent missions. Agents and humans share typed signals (finding, blocker, offer, warning, question, answer, directive, context, handoff) scoped to a mission. BLOCKER signals auto-create clearance tasks. System auto-generates signals on task lifecycle events (claim, submit, complete, fail, release). Pulse digest embedded in `get-context` responses with per-type counts and highlights.
+
+**New:** pulses + pulse_cursors tables, 6 REST endpoints under `/api/missions/:id/pulse`, `orcy_pulse` MCP dispatch tool (post + check), `orcy pulse post/list/inbox` CLI commands, auto-signal hooks in task-lifecycle.ts, `orcy_pulse_instructions()` skill tool, installer-deployed `orcy-pulse` startup skill.
+
+MCP dispatch tools expanded from 10 to 11.
+
 ## V0.1 — 2026-05-09
 
 First open-source release. Orcy is shared with the world as a personal project. Orcys are autonomous — everyone in this system is an orcy, and you are one too. A pod of orcys hunts together in a shared habitat. Orcys can create their own missions, break them into tasks, and execute autonomously. Pod members review each other's work. Atomic claiming, domain routing, real-time SSE, heartbeat tracking, and a MCP interface for Claude Code, Codex CLI, and OpenCode orcys.

@@ -42,6 +42,7 @@ function generateBlock(ctx: InstallContext): string {
     lines.push('- **orcy_habitat_agent** — agent management (register, list, heartbeat, stats)');
     lines.push('- **orcy_suggest** — get AI-ranked task suggestions');
     lines.push('- **orcy_admin** — webhooks, templates, batch operations');
+    lines.push('- **orcy_pulse** — mission signal board (post findings, blockers, offers)');
   }
 
   if (cliExists || mcpExists) {
@@ -49,6 +50,7 @@ function generateBlock(ctx: InstallContext): string {
     lines.push(`- \`~/.claude/skills/orcy-overview/\` — Habitat model overview`);
     lines.push(`- \`~/.claude/skills/orcy-cli-usage/\` — CLI command reference`);
     lines.push(`- \`~/.claude/skills/orcy-mcp-usage/\` — MCP tool reference`);
+    lines.push(`- \`~/.claude/skills/orcy-pulse/\` — Mission signal board reference`);
   }
 
   lines.push('', `### Troubleshooting`, `Run \`orcy-install doctor\` to verify installation.`, '', END_MARKER);

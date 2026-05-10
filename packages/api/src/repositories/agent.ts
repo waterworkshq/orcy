@@ -75,6 +75,12 @@ export function listAgents(): AgentPublic[] {
   return db.select(agentPublicFields).from(agents).orderBy(sql`${agents.createdAt} DESC`).all();
 }
 
+export function getAgentByName(name: string): AgentPublic | null {
+  const db = getDb();
+  const rows = db.select(agentPublicFields).from(agents).where(eq(agents.name, name)).all();
+  return rows.length > 0 ? rows[0] : null;
+}
+
 export function getAgentByApiKey(plainKey: string): AgentPublic | null {
   const db = getDb();
   const hash = hashApiKey(plainKey);

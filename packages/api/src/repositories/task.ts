@@ -8,6 +8,7 @@ export interface CreateTaskInput {
   featureId: string;
   title: string;
   description?: string;
+  labels?: string[];
   priority?: TaskPriority;
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
@@ -67,6 +68,7 @@ export function createTask(input: CreateTaskInput): Task {
     requiredDomain: input.requiredDomain ?? null,
     requiredCapabilities: input.requiredCapabilities ?? [],
     status: 'pending',
+    labels: input.labels ?? [],
     order,
     createdBy: input.createdBy,
     estimatedMinutes: input.estimatedMinutes ?? null,

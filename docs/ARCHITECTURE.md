@@ -11,7 +11,7 @@ This document covers the system architecture, design decisions, key flows, and i
 │  AI Agent (Claude Code / Codex / OpenCode)               │
 │  MCP stdio transport                                     │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  MCP Server (10 dispatch tools)                      │   │
+│  │  MCP Server (11 dispatch tools)                      │   │
 │  │  Features: list │ create │ get_context │ delete  │   │
 │  │  Tasks: claim │ submit │ update │ heartbeat     │   │
 │  └────────────────────┬─────────────────────────────┘   │
@@ -61,7 +61,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | File | Responsibility |
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
-| `src/tools/index.ts` | All tool exports + 10 consolidated dispatch tools |
+| `src/tools/index.ts` | All tool exports + 11 consolidated dispatch tools |
 | `src/tools/board-dispatch.ts` | Board dispatch: list, find, summary, metrics, settings |
 | `src/tools/feature-dispatch.ts` | Feature dispatch: list, create, delete, archive, get-context |
 | `src/tools/task-dispatch.ts` | Task dispatch: claim, submit, complete, release, update, comments |
@@ -357,7 +357,7 @@ Similarly, `GET /features/:id/details` returns feature + tasks + events + progre
 
 ### MCP Tool Architecture (Consolidated Dispatch Pattern)
 
-The MCP server exposes **10 consolidated dispatch tools**. Each tool accepts an `action` parameter to route to specific operations:
+The MCP server exposes **11 consolidated dispatch tools**. Each tool accepts an `action` parameter to route to specific operations:
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
@@ -367,10 +367,40 @@ The MCP server exposes **10 consolidated dispatch tools**. Each tool accepts an 
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task suggestions |
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
+| `orcy_pulse` | `post`, `check` | Mission signal board — post findings, blockers, directives; check partner signals |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time notifications |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, ... | Admin operations |
 | `orcy_worktree` | `get-worktree` | Git worktree info |
 | `orcy_instructions` | (tool) | Returns orcy skill guide |
+
+### Pulse Signal Architecture
+
+Pulse adds a structured signal layer on top of the existing task state machine. Signals flow as follows:
+
+```
+Agent / Human
+  │
+  ├─► orcy_pulse({action: "post", missionId, signalType, subject})
+  │     │
+  │     ├─► POST /api/missions/:id/pulse
+  │     │     ├─► INSERT INTO pulses (missionId, boardId, fromType, signalType, ...)
+  │     │     ├─► IF signalType = 'blocker' → taskService.createTask("Clear Blocker: ...")
+  │     │     └─► SSE broadcast: pulse.signal_posted
+  │     │
+  │     └─► Other agents discover via:
+  │           ├─► mission_get_context() — pulse digest (counts + highlights)
+  │           └─► orcy_pulse({action: "check", missionId}) — full signal list
+  │
+  └─► System auto-generates signals on task lifecycle events:
+        ├─► claim → CONTEXT: "{agent} claimed '{title}'"
+        ├─► submit → OFFER: "Results for '{title}' available"
+        ├─► complete → CONTEXT: "{agent} completed '{title}'"
+        ├─► fail → WARNING: "Task '{title}' failed: {reason}"
+        ├─► release → CONTEXT: "Task '{title}' released"
+        └─► blocker clearance done → CONTEXT: "Blocker cleared: {subject}"
+```
+
+**Key tables:** `pulses` (signal storage with deep-linking to missions, tasks, and other pulses) and `pulse_cursors` (per-reader per-mission last-checked timestamp). See [DATABASE.md](DATABASE.md) for the full schema.
 
 ---
 

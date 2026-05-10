@@ -8,6 +8,8 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import {
   ALL_TOOLS,
   orcyInstructions,
+  PULSE_SKILL_TOOL,
+  orcyPulseInstructions,
   HABITAT_DISPATCH_HANDLER,
   MISSION_DISPATCH_HANDLER,
   TASK_DISPATCH_HANDLER,
@@ -16,6 +18,7 @@ import {
   SUGGEST_DISPATCH_HANDLER,
   WORKTREE_DISPATCH_HANDLER,
   MESSAGE_DISPATCH_HANDLER,
+  PULSE_DISPATCH_HANDLER,
   SUBSCRIPTION_DISPATCH_HANDLER,
 } from './tools/index.js';
 import { KanbanApiClient } from './api.js';
@@ -89,12 +92,18 @@ const handleOrcyInstructions: ToolHandler = () =>
     content: [{ type: 'text' as const, text: orcyInstructions() }],
   });
 
+const handleOrcyPulseInstructions: ToolHandler = () =>
+  Promise.resolve({
+    content: [{ type: 'text' as const, text: orcyPulseInstructions() }],
+  });
+
 // ---------------------------------------------------------------------------
 // Handler registry
 // ---------------------------------------------------------------------------
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_instructions: handleOrcyInstructions,
+  orcy_pulse_instructions: handleOrcyPulseInstructions,
   orcy_habitat: HABITAT_DISPATCH_HANDLER,
   orcy_habitat_mission: MISSION_DISPATCH_HANDLER,
   orcy_habitat_task: TASK_DISPATCH_HANDLER,
@@ -103,6 +112,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_suggest: SUGGEST_DISPATCH_HANDLER,
   orcy_worktree: WORKTREE_DISPATCH_HANDLER,
   orcy_habitat_message: MESSAGE_DISPATCH_HANDLER,
+  orcy_pulse: PULSE_DISPATCH_HANDLER,
   orcy_habitat_subscription: SUBSCRIPTION_DISPATCH_HANDLER,
 };
 

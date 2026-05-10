@@ -75,6 +75,7 @@ export interface FeatureContext {
   }>;
   dependencies: Feature[];
   blocking: Feature[];
+  pulse?: PulseDigest;
 }
 
 export type TaskStatus =
@@ -251,6 +252,54 @@ export interface ListSubtasksResponse {
   subtasks: Subtask[];
   total: number;
   completedCount: number;
+}
+
+export type SignalType =
+  | 'finding' | 'blocker' | 'offer' | 'warning'
+  | 'question' | 'answer' | 'directive' | 'context' | 'handoff';
+
+export interface Pulse {
+  id: string;
+  missionId: string;
+  boardId: string;
+  fromType: 'human' | 'agent' | 'system';
+  fromId: string;
+  toType: 'human' | 'agent' | null;
+  toId: string | null;
+  signalType: SignalType;
+  subject: string;
+  body: string;
+  taskId: string | null;
+  replyToId: string | null;
+  linkedTaskId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  pinned: number;
+  isAuto: boolean;
+}
+
+export interface PulseDigest {
+  summary: string;
+  newSinceLastCheck: number;
+  counts: Record<SignalType, number>;
+  highlights: Array<{
+    id: string;
+    signalType: SignalType;
+    from: { type: string; name: string };
+    subject: string;
+    linkedTaskId?: string;
+    createdAt: string;
+  }>;
+}
+
+export interface PostPulseResponse {
+  pulse: Pulse;
+  linkedTask?: Task;
+}
+
+export interface ListPulsesResponse {
+  pulses: Pulse[];
+  total: number;
 }
 
 export interface AgentMessage {

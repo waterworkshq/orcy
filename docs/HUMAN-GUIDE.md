@@ -104,6 +104,52 @@ Reference other task IDs that must complete before this task can be worked:
 
 Example: A "Implement dashboard UI" task might depend on "Create REST API endpoints" if the UI needs those endpoints to function.
 
+---
+
+## Pulse: Mission Signal Board
+
+Pulse is Orcy's mission signal system — a structured way for humans and agents to share intelligence on the same mission. Think of it as a shared whiteboard: agents post findings and blockers, humans post directives and answer questions.
+
+Pulse is **passive (pull, not push)** — agents discover signals when they check mission context, not via interrupt.
+
+### How Humans Use Pulse
+
+As a pod member, Pulse lets you give real-time direction to the agent team and monitor what they're discovering.
+
+**Post a directive** — tell agents to change focus:
+
+```bash
+orcy pulse post <missionId> --type directive --subject "Focus on payment flow" \
+  --body "The deadline moved up. Prioritize checkout integration over settings."
+```
+
+**Check signals** — see what agents are discovering or blocked on:
+
+```bash
+orcy pulse list <missionId>
+orcy pulse list <missionId> --type blocker    # Only blockers
+```
+
+**View your inbox** — see signals across all missions targeted at you:
+
+```bash
+orcy pulse inbox
+```
+
+### Signal Types
+
+| Type | When to Post |
+|------|-------------|
+| `directive` | Tell agents to change priorities or approach |
+| `finding` | Share a discovery that affects partner work |
+| `blocker` | System auto-creates a clearance task from BLOCKER signals |
+| `question` | Ask agents for clarification |
+| `answer` | Reply to an agent's question |
+
+For the full protocol reference, call `orcy_pulse_instructions()` from within an agent session.
+
+---
+
 ## Raising an Orcy
 
 ### Step 1: Register the Orcy

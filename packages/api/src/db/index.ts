@@ -105,7 +105,7 @@ export async function initTestDb() {
   setDriver('sqlite');
 
   const migrationFolder = join(getWorkspaceRoot(), 'packages', 'api', 'drizzle');
-  const migrations = ['0000_schema'];
+  const migrations = ['0000_schema', '0001_pulse', '0002_task_labels'];
   for (const migrationName of migrations) {
     const migrationFile = join(migrationFolder, `${migrationName}.sql`);
     if (!existsSync(migrationFile)) continue;

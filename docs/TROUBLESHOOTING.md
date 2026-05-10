@@ -12,6 +12,7 @@ Common issues, error messages, and debugging procedures for Orcy.
 - [MCP Server Issues](#mcp-server-issues)
 - [UI Issues](#ui-issues)
 - [Agent Issues](#agent-issues)
+- [Pulse / Mission Signals](#pulse--mission-signals)
 - [Error Code Reference](#error-code-reference)
 - [FAQ](#faq)
 
@@ -301,6 +302,36 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 - Send heartbeats every 5 minutes: `board_agent({ action: 'heartbeat' })`
 - Include `taskId` in heartbeat to confirm active work
 - The stale timeout (30 min) is hardcoded in `packages/api/src/index.ts` (`releaseStaleTasks(30)`) — there is no environment variable to change it
+
+---
+
+## Pulse / Mission Signals
+
+### Pulse signals not appearing in get-context
+
+**Symptom:** `mission_get_context()` returns a response without a `pulse` field.
+
+**Check:**
+1. The migration must have run — verify `pulses` and `pulse_cursors` tables exist: `sqlite3 ~/.orcy/orcy.db ".tables" | grep pulse`
+2. If you upgraded from an older version, run the pending migration via drizzle-kit: `pnpm --filter @orcy/api drizzle-kit migrate`
+3. No signals posted yet? That's expected — the `pulse` field is `undefined` when there are zero signals, not an empty object
+
+### Blocker auto-task not created
+
+**Symptom:** Posted a BLOCKER signal but no `"Clear Blocker: ..."` task appeared.
+
+**Check:**
+1. Archived missions do not auto-create clearance tasks — check if the mission is archived via `orcy_habitat_mission({action: "list", isArchived: true})`
+2. The block is wrapped in a try/catch — check the API server logs for errors during task creation: `grep "blocker" ~/.orcy/logs/*.log`
+3. If the task service was unavailable (e.g., transient DB error), the BLOCKER signal was still created — you can manually create the clearance task
+
+### `orcy pulse` command not found
+
+**Symptom:** `orcy pulse post ...` returns "unknown command".
+
+**Check:**
+1. Update the CLI: `npm install -g @orcy/cli@latest` or re-run the installer
+2. The pulse CLI commands were added in a recent version — older CLI builds don't have them
 
 ---
 

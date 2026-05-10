@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (25 tables)
+### Entity-Relationship Diagram (34 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -633,6 +633,55 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
 **Indexes:** `idx_agent_messages_to_agent`, `idx_agent_messages_from_agent`, `idx_agent_messages_board`, `idx_agent_messages_task`, `idx_agent_messages_read`
+
+#### `pulses`
+
+Mission-scoped structured signals for agent-to-agent and human-to-agent communication. Separate from `agent_messages` — pulses are typed broadcasts with deep-linking to tasks and other pulses.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Pulse identifier (UUID) |
+| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Mission scope |
+| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Board (denormalized for V2 habitat queries) |
+| `from_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Author type |
+| `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
+| `to_type` | TEXT | CHECK (IN 'human','agent') | Target type (NULL = broadcast) |
+| `to_id` | TEXT | | Target identifier (NULL = broadcast) |
+| `signal_type` | TEXT | NOT NULL CHECK (IN 9 types) | finding, blocker, offer, warning, question, answer, directive, context, handoff |
+| `subject` | TEXT | NOT NULL | Brief signal subject |
+| `body` | TEXT | NOT NULL DEFAULT '' | Full signal body |
+| `task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Related task |
+| `reply_to_id` | TEXT | | Parent pulse for threaded replies (self-ref, no FK) |
+| `linked_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Auto-created blocker clearance task |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' | Freeform JSON metadata |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `pinned` | INTEGER | NOT NULL DEFAULT 0 | V2-ready — pinned signals |
+| `is_auto` | INTEGER | NOT NULL DEFAULT 0 | System-generated (1) vs intentional (0) |
+
+**Indexes:** `idx_pulses_mission`, `idx_pulses_board`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`
+
+**Deep Linking:**
+
+```
+Pulse ──mission_id──→ Feature (Mission)
+      ──board_id────→ Board (Habitat)
+      ──task_id─────→ Task (source)
+      ──linked_task_id → Task (blocker clearance)
+      ──reply_to_id───→ Pulse (thread parent)
+```
+
+#### `pulse_cursors`
+
+Lightweight read-tracking: one row per reader per mission storing the last-checked timestamp. Used to calculate `newSinceLastCheck` in the pulse digest.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Mission scope |
+| `reader_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Reader type |
+| `reader_id` | TEXT | NOT NULL | Reader identifier |
+| `last_checked_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last check timestamp |
+
+**Primary Key:** `(mission_id, reader_type, reader_id)`
 
 #### `organizations`
 

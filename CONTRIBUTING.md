@@ -98,7 +98,7 @@ Each package is self-contained with its own `package.json`, `tsconfig.json`, and
 
 ### MCP (`packages/mcp`)
 
-- **Tool definitions** in `src/tools/index.ts` — 10 consolidated dispatch tools (board, board_feature, board_task, etc.)
+- **Tool definitions** in `src/tools/index.ts` — 11 consolidated dispatch tools (orcy_habitat, orcy_habitat_mission, orcy_habitat_task, orcy_habitat_agent, orcy_habitat_message, orcy_pulse, orcy_admin, etc.)
 - **API client** in `src/api.ts` — `OrcyApiClient` class wraps REST calls
 - **Types** in `src/types.ts` — mirrors API response types
 - **Entry point** in `src/index.ts` — wires MCP SDK to tool implementations

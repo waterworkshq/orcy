@@ -13,7 +13,7 @@ import type { Task, TaskStatus } from '../../models/index.js';
 import { formatClonedTitle } from './helpers.js';
 import { logger } from '../../lib/logger.js';
 
-export function createTask(input: { featureId: string; title: string; description?: string; priority?: import('../../models/index.js').TaskPriority; requiredDomain?: string | null; requiredCapabilities?: string[]; createdBy: string; order?: number; estimatedMinutes?: number | null }): Task {
+export function createTask(input: { featureId: string; title: string; description?: string; labels?: string[]; priority?: import('../../models/index.js').TaskPriority; requiredDomain?: string | null; requiredCapabilities?: string[]; createdBy: string; order?: number; estimatedMinutes?: number | null }): Task {
   const task = taskRepo.createTask(input);
 
   const feature = featureRepo.getFeatureById(input.featureId);

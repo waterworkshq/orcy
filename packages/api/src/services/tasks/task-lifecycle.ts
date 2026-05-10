@@ -18,6 +18,7 @@ import {
   validateAgentCapabilities,
 } from './helpers.js';
 import { logger } from '../../lib/logger.js';
+import * as pulseService from '../pulseService.js';
 
 function getBoardId(task: Task): string {
   return taskRepo.getBoardIdForTask(task.id) ?? '';
@@ -88,6 +89,13 @@ export function claimTask(taskId: string, agentId: string): { success: true; tas
 
     withFeatureRecalc(taskId, current.featureId, () => {
       featureService.recalculateFeatureStatus(current.featureId);
+    });
+
+    pulseService.emitAutoSignal({
+      featureId: result.task.featureId,
+      signalType: 'context',
+      subject: `${agent?.name ?? agentId} claimed '${result.task.title}'`,
+      taskId: result.task.id,
     });
   }
 
@@ -180,6 +188,14 @@ export function submitTask(
   withFeatureRecalc(taskId, current.featureId, () => {
     featureService.recalculateFeatureStatus(current.featureId);
   });
+
+  pulseService.emitAutoSignal({
+    featureId: current.featureId,
+    signalType: 'offer',
+    subject: `Results for '${task.title}' available for review`,
+    taskId: task.id,
+  });
+
   return { task };
 }
 
@@ -256,6 +272,25 @@ export function completeTask(
   withFeatureRecalc(taskId, current.featureId, () => {
     featureService.recalculateFeatureStatus(current.featureId);
   });
+
+  const resolvingAgent = agentRepo.getAgentById(agentId);
+  pulseService.emitAutoSignal({
+    featureId: current.featureId,
+    signalType: 'context',
+    subject: `${resolvingAgent?.name ?? agentId} completed '${current.title}'`,
+    taskId: current.id,
+  });
+
+  if (current.labels?.includes('blocker-clearance')) {
+    const clearedSubject = current.title.replace(/^Clear Blocker:\s*/, '');
+    pulseService.emitAutoSignal({
+      featureId: current.featureId,
+      signalType: 'context',
+      subject: `Blocker cleared: ${clearedSubject}`,
+      taskId: current.id,
+    });
+  }
+
   return { task };
 }
 
@@ -373,6 +408,14 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   withFeatureRecalc(taskId, current.featureId, () => {
     featureService.recalculateFeatureStatus(current.featureId);
   });
+
+  pulseService.emitAutoSignal({
+    featureId: current.featureId,
+    signalType: 'context',
+    subject: `Task '${task.title}' released, available for claim`,
+    taskId: task.id,
+  });
+
   return task;
 }
 
@@ -414,6 +457,14 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
   withFeatureRecalc(taskId, current.featureId, () => {
     featureService.recalculateFeatureStatus(current.featureId);
   });
+
+  pulseService.emitAutoSignal({
+    featureId: current.featureId,
+    signalType: 'warning',
+    subject: `Task '${task.title}' failed: ${reason}`,
+    taskId: task.id,
+  });
+
   return task;
 }
 
