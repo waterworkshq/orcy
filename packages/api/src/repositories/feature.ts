@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { features, featureDependencies, columns } from '../db/schema.js';
 import { eq, and, or, not, inArray, sql, count, max, asc, desc, isNotNull, notInArray } from 'drizzle-orm';
+import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Feature, FeatureStatus, TaskPriority } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 
@@ -141,7 +142,7 @@ export function getFeaturesByBoardId(
     .get();
   const total = countResult?.total ?? 0;
 
-  const priorityOrder = sql`CASE ${features.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
+  const priorityOrder = priorityOrderExpr(features.priority);
 
   const query = db.select().from(features).where(where).orderBy(asc(features.displayOrder), priorityOrder, asc(features.createdAt));
   const results = filters?.limit !== undefined

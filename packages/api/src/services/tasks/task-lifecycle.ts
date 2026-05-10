@@ -166,7 +166,9 @@ export function submitTask(
 
   try {
     timeTrackingService.recordWork(taskId, agentId, 0, 'submitted');
-  } catch {}
+  } catch (err) {
+    logger.warn({ err, taskId }, 'Failed to record work time');
+  }
 
   eventRepo.createEvent({
     taskId,
@@ -305,7 +307,9 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
 
   try {
     timeTrackingService.calculateAndSetCompletionMetrics(taskId);
-  } catch {}
+  } catch (err) {
+    logger.warn({ err, taskId }, 'Failed to calculate completion metrics');
+  }
 
   const boardId = getBoardId(task);
 

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import * as dns from 'dns';
 import { classifyPosture } from './security.js';
+import { logger } from '../lib/logger.js';
 
 const DEFAULT_SLACK_TIMESTAMP_SKEW_SECONDS = 60 * 5;
 
@@ -111,8 +112,9 @@ export async function validateOutboundUrl(url: string): Promise<UrlValidationRes
         return { valid: false, reason: `Hostname "${hostname}" resolves to private/internal IP "${ip}"` };
       }
     }
-  } catch {
-    // DNS resolution failed — let the request through since literal checks passed
+  } catch (err) {
+    logger.warn({ err, hostname }, 'DNS resolution failed during SSRF check');
+    return { valid: false, reason: 'DNS resolution failed' };
   }
 
   if (scheme !== 'https') {

@@ -77,9 +77,9 @@ export async function humanAuth(
     };
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
-      reply.code(401).send({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
+      return reply.code(401).send({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
     } else {
-      reply.code(401).send({ error: 'Invalid token' });
+      return reply.code(401).send({ error: 'Invalid token' });
     }
   }
 }
@@ -97,7 +97,7 @@ export async function registrationAuth(
 
   const token = request.headers['x-registration-token'] as string | undefined;
   if (!token || token !== secret) {
-    reply.code(403).send({ error: 'Invalid registration token' });
+    return reply.code(403).send({ error: 'Invalid registration token' });
   }
 }
 
@@ -148,9 +148,9 @@ export async function sseAuth(
     };
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
-      reply.code(401).send({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
+      return reply.code(401).send({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
     } else {
-      reply.code(401).send({ error: 'Invalid token' });
+      return reply.code(401).send({ error: 'Invalid token' });
     }
   }
 }

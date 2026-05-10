@@ -75,19 +75,9 @@ export function computeCurrentStreak(rows: { action: string }[]): number {
   return currentStreak;
 }
 
-export function getDateThresholds(): {
-  todayStart: string;
-  weekStart: string;
-  monthStart: string;
-} {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const monthStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  return { todayStart, weekStart, monthStart };
-}
+export type DateWindowMode = 'rolling' | 'calendar';
 
-export function getBoardDateThresholds(): {
+export function getDateThresholds(mode: DateWindowMode = 'rolling'): {
   todayStart: string;
   weekStart: string;
   monthStart: string;
@@ -95,6 +85,9 @@ export function getBoardDateThresholds(): {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const monthStart =
+    mode === 'calendar'
+      ? new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+      : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
   return { todayStart, weekStart, monthStart };
 }

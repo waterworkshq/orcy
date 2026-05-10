@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { taskDependencies, featureDependencies, tasks, features } from '../db/schema.js';
 import { eq, and, notInArray, inArray } from 'drizzle-orm';
 import type { DependencyValidationResult } from '../models/index.js';
+import { logger } from '../lib/logger.js';
 
 export function addTaskDependency(taskId: string, dependsOnId: string): { success: boolean; reason?: string } {
   if (taskId === dependsOnId) {
@@ -19,8 +20,12 @@ export function addTaskDependency(taskId: string, dependsOnId: string): { succes
       dependsOnId,
     }).run();
     return { success: true };
-  } catch {
-    return { success: false, reason: 'already_exists' };
+  } catch (err: any) {
+    if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return { success: false, reason: 'already_exists' };
+    }
+    logger.error({ err, taskId, dependsOnId }, 'Unexpected DB error adding task dependency');
+    throw err;
   }
 }
 
@@ -31,7 +36,8 @@ export function removeTaskDependency(taskId: string, dependsOnId: string): boole
       .where(and(eq(taskDependencies.taskId, taskId), eq(taskDependencies.dependsOnId, dependsOnId)))
       .run();
     return true;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, taskId, dependsOnId }, 'Failed to remove task dependency');
     return false;
   }
 }
@@ -117,8 +123,12 @@ export function addFeatureDependency(featureId: string, dependsOnId: string): { 
       dependsOnId,
     }).run();
     return { success: true };
-  } catch {
-    return { success: false, reason: 'already_exists' };
+  } catch (err: any) {
+    if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return { success: false, reason: 'already_exists' };
+    }
+    logger.error({ err, featureId, dependsOnId }, 'Unexpected DB error adding feature dependency');
+    throw err;
   }
 }
 
@@ -129,7 +139,8 @@ export function removeFeatureDependency(featureId: string, dependsOnId: string):
       .where(and(eq(featureDependencies.featureId, featureId), eq(featureDependencies.dependsOnId, dependsOnId)))
       .run();
     return true;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, featureId, dependsOnId }, 'Failed to remove feature dependency');
     return false;
   }
 }

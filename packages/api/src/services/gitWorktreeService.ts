@@ -131,7 +131,8 @@ export function createWorktree(
     const entry = { path: worktreePath, branch: branchName, repoRoot: repoPath };
     activeWorktrees.set(taskId, entry);
     return entry;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, taskId, branchName, worktreePath }, 'Git worktree creation failed');
     try {
       const listing = gitExec(['branch', '--list', branchName], repoPath).trim();
       if (listing) {
@@ -140,8 +141,8 @@ export function createWorktree(
         activeWorktrees.set(taskId, entry);
         return entry;
       }
-    } catch (err) {
-      logger.warn({ err, branchName, repoPath }, 'Failed fallback worktree creation from existing branch');
+    } catch (fallbackErr) {
+      logger.warn({ err: fallbackErr, branchName, repoPath }, 'Failed fallback worktree creation from existing branch');
     }
 
     return null;
@@ -170,7 +171,8 @@ export function removeWorktree(taskId: string): boolean {
 
     activeWorktrees.delete(taskId);
     return true;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, taskId }, 'Git worktree removal failed');
     activeWorktrees.delete(taskId);
     return false;
   }

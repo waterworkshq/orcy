@@ -2,7 +2,7 @@ import { getDb } from '../../db/index.js';
 import { taskEvents, tasks, features, agents, columns } from '../../db/schema.js';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
-import { computeCycleTimeStats, computeBoardThroughput, getBoardDateThresholds } from './stats-helpers.js';
+import { computeCycleTimeStats, computeBoardThroughput, getDateThresholds } from './stats-helpers.js';
 import type { ActorType, EventAction, TaskStatus } from '../../models/index.js';
 
 const fromColumns = alias(columns, 'from_columns');
@@ -194,7 +194,7 @@ export function getBoardStats(boardId: string): BoardStats {
     }
   }
 
-  const { todayStart, weekStart, monthStart } = getBoardDateThresholds();
+  const { todayStart, weekStart, monthStart } = getDateThresholds('calendar');
 
   const throughputRows = db
     .select({ ts: taskEvents.timestamp })

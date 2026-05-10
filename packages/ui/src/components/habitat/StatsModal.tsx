@@ -4,6 +4,7 @@ import { api } from '../../api/index.js';
 import type { BoardStats, BoardTimeMetrics, FeatureWithProgress } from '../../types/index.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
+import { StatCard } from '../ui/StatCard.js';
 import { X, Clock, TrendingUp, AlertTriangle, CheckCircle, AlertCircle, Layers, Timer } from 'lucide-react';
 
 interface StatsModalProps {
@@ -122,52 +123,24 @@ export function StatsModal({ boardId, onClose }: StatsModalProps) {
           <div className="space-y-4">
             {/* Feature-level stats */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card>
-                <CardHeader className="p-3 pb-1">
-                  <CardTitle className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Layers className="h-3 w-3" />
-                    Missions
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <p className="text-2xl font-bold">{totalFeatures}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {doneFeatures} done · {inProgressFeatures} in progress
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-1">
-                  <CardTitle className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <CheckCircle className="h-3 w-3" />
-                    Completion
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <p className="text-2xl font-bold">
-                    {totalFeatures > 0 ? Math.round((doneFeatures / totalFeatures) * 100) : 0}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {doneFeatures}/{totalFeatures} missions
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-1">
-                  <CardTitle className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <AlertTriangle className="h-3 w-3" />
-                    Blocked
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <p className="text-2xl font-bold">{blockedFeatures}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {totalFeatures - blockedFeatures} dependencies met
-                  </p>
-                </CardContent>
-              </Card>
+              <StatCard
+                icon={Layers}
+                label="Missions"
+                value={totalFeatures}
+                subtitle={`${doneFeatures} done · ${inProgressFeatures} in progress`}
+              />
+              <StatCard
+                icon={CheckCircle}
+                label="Completion"
+                value={totalFeatures > 0 ? `${Math.round((doneFeatures / totalFeatures) * 100)}%` : '0%'}
+                subtitle={`${doneFeatures}/${totalFeatures} missions`}
+              />
+              <StatCard
+                icon={AlertTriangle}
+                label="Blocked"
+                value={blockedFeatures}
+                subtitle={`${totalFeatures - blockedFeatures} dependencies met`}
+              />
             </div>
 
             {/* Feature status distribution */}
@@ -184,52 +157,24 @@ export function StatsModal({ boardId, onClose }: StatsModalProps) {
 
             {/* Task-level stats (existing) */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Card>
-                <CardHeader className="p-3 pb-1">
-                  <CardTitle className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    Avg Cycle
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <p className="text-2xl font-bold">
-                    {stats.cycleTime.averageMinutes > 0
-                      ? formatMinutes(stats.cycleTime.averageMinutes)
-                      : '—'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    median {formatMinutes(stats.cycleTime.medianMinutes)} · {stats.cycleTime.count} tasks
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-1">
-                  <CardTitle className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <TrendingUp className="h-3 w-3" />
-                    Throughput
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <p className="text-2xl font-bold">{stats.throughput.thisWeek}</p>
-                  <p className="text-xs text-muted-foreground">
-                    this week · {stats.throughput.thisMonth} this month
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="p-3 pb-1">
-                  <CardTitle className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <CheckCircle className="h-3 w-3" />
-                    Today
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  <p className="text-2xl font-bold">{stats.throughput.today}</p>
-                  <p className="text-xs text-muted-foreground">completed</p>
-                </CardContent>
-              </Card>
+              <StatCard
+                icon={Clock}
+                label="Avg Cycle"
+                value={stats.cycleTime.averageMinutes > 0 ? formatMinutes(stats.cycleTime.averageMinutes) : '—'}
+                subtitle={`median ${formatMinutes(stats.cycleTime.medianMinutes)} · ${stats.cycleTime.count} tasks`}
+              />
+              <StatCard
+                icon={TrendingUp}
+                label="Throughput"
+                value={stats.throughput.thisWeek}
+                subtitle={`this week · ${stats.throughput.thisMonth} this month`}
+              />
+              <StatCard
+                icon={CheckCircle}
+                label="Today"
+                value={stats.throughput.today}
+                subtitle="completed"
+              />
             </div>
 
             <Card>

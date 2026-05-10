@@ -1,8 +1,10 @@
 import { getDb } from '../db/index.js';
 import { tasks, taskDependencies, features, featureDependencies } from '../db/schema.js';
 import { eq, and, or, not, lt, gt, isNull, isNotNull, sql, count, notInArray, notExists, inArray, max, asc, desc, like } from 'drizzle-orm';
+import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Task, TaskStatus, TaskPriority, Artifact, RetryPolicy } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
+import { logger } from '../lib/logger.js';
 
 export interface CreateTaskInput {
   featureId: string;
@@ -198,7 +200,7 @@ export function getAvailableTasksForAgent(
     conditions.push(eq(tasks.priority, filters.priority));
   }
 
-  const priorityOrder = sql`CASE ${tasks.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
+  const priorityOrder = priorityOrderExpr(tasks.priority);
 
   return filters?.limit
     ? db.select().from(tasks).where(and(...conditions)).orderBy(priorityOrder, asc(tasks.createdAt)).limit(filters.limit).all() as Task[]
@@ -308,7 +310,8 @@ export function claimTask(taskId: string, agentId: string): { success: true; tas
       const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
       return { success: true as const, task: updated! };
     });
-  } catch {
+  } catch (err) {
+    logger.warn({ err, taskId, agentId }, 'Transaction failed during claimTask');
     return { success: false, reason: 'already_claimed' };
   }
 }
@@ -345,7 +348,8 @@ export function claimDelegatedTask(taskId: string, agentId: string): { success: 
       const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
       return { success: true as const, task: updated! };
     });
-  } catch {
+  } catch (err) {
+    logger.warn({ err, taskId, agentId }, 'Transaction failed during claimDelegatedTask');
     return { success: false, reason: 'claim_failed' };
   }
 }
@@ -581,7 +585,7 @@ export function getTasksByBoardId(
     .get();
   const total = countResult?.total ?? 0;
 
-  const priorityOrder = sql`CASE ${tasks.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`;
+  const priorityOrder = priorityOrderExpr(tasks.priority);
 
   const results = filters?.limit !== undefined
     ? db.select().from(tasks).where(where).orderBy(priorityOrder, asc(tasks.createdAt)).limit(filters.limit).offset(filters?.offset ?? 0).all()

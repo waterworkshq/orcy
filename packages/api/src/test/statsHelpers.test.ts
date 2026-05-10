@@ -7,7 +7,6 @@ import {
   boardFilter,
   resolveDateWindow,
   getDateThresholds,
-  getBoardDateThresholds,
 } from '../repositories/events/stats-helpers.js';
 
 describe('stats-helpers', () => {
@@ -197,12 +196,18 @@ describe('stats-helpers', () => {
     });
   });
 
-  describe('getBoardDateThresholds', () => {
+  describe('getDateThresholds calendar mode', () => {
     it('returns three valid ISO date strings', () => {
-      const result = getBoardDateThresholds();
+      const result = getDateThresholds('calendar');
       expect(result.todayStart).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(result.weekStart).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(result.monthStart).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    });
+
+    it('monthStart is first day of current month in calendar mode', () => {
+      const result = getDateThresholds('calendar');
+      const now = new Date();
+      expect(result.monthStart).toBe(new Date(now.getFullYear(), now.getMonth(), 1).toISOString());
     });
   });
 });

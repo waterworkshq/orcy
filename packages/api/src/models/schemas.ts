@@ -1,5 +1,18 @@
 import { z } from 'zod';
 
+const artifactSchema = z.object({
+  type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
+  url: z.string(),
+  description: z.string(),
+  createdAt: z.string().optional(),
+});
+
+const importArtifactSchema = z.object({
+  type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
+  url: z.string(),
+  description: z.string(),
+});
+
 export const exportQuerySchema = z.object({
   include: z.string().optional().default('columns,features,comments,templates,webhooks'),
   format: z.enum(['full', 'features-only']).optional().default('full'),
@@ -90,11 +103,7 @@ export const importBoardSchema = z.object({
         requiredDomain: z.string().nullable().optional(),
         requiredCapabilities: z.array(z.string()).optional().default([]),
         result: z.string().nullable().optional(),
-        artifacts: z.array(z.object({
-          type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
-          url: z.string(),
-          description: z.string(),
-        })).optional().default([]),
+        artifacts: z.array(importArtifactSchema).optional().default([]),
         createdBy: z.string().optional().default('human'),
         createdAt: z.string().optional(),
       })).optional().default([]),
@@ -216,12 +225,7 @@ export const updateTaskSchema = z.object({
   requiredCapabilities: z.array(z.string()).optional(),
   status: z.enum(['pending', 'claimed', 'in_progress', 'submitted', 'approved', 'rejected', 'done', 'failed']).optional(),
   result: z.string().nullable().optional(),
-  artifacts: z.array(z.object({
-    type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
-    url: z.string(),
-    description: z.string(),
-    createdAt: z.string().optional(),
-  })).optional(),
+  artifacts: z.array(artifactSchema).optional(),
   rejectedCount: z.number().int().min(0).optional(),
   rejectionReason: z.string().nullable().optional(),
   version: z.number().int().optional(),
@@ -252,22 +256,12 @@ export const failTaskSchema = z.object({
 
 export const submitTaskSchema = z.object({
   result: z.string().min(1).max(10000),
-  artifacts: z.array(z.object({
-    type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
-    url: z.string(),
-    description: z.string(),
-    createdAt: z.string().optional(),
-  })).optional().default([]),
+  artifacts: z.array(artifactSchema).optional().default([]),
 });
 
 export const completeTaskSchema = z.object({
   reviewNote: z.string().min(1).max(10000).optional(),
-  artifacts: z.array(z.object({
-    type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
-    url: z.string(),
-    description: z.string(),
-    createdAt: z.string().optional(),
-  })).optional().default([]),
+  artifacts: z.array(artifactSchema).optional().default([]),
 });
 
 export const delegateTaskSchema = z.object({

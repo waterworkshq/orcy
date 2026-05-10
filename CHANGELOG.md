@@ -1,5 +1,13 @@
 # Changelog
 
+## V0.2.1 — 2026-05-10
+
+refactors: security fix for SSRF DNS bypass, missing returns in auth middleware, error propagation in dependency service, and 5 deduplication extractions.
+
+**Security:** SSRF validation now fails closed on DNS resolution failure (`integrationSecurity.ts`). Missing `return` statements fixed in `humanAuth`, `registrationAuth`, and `sseAuth` middleware — preventing downstream handler execution after 401/403 responses. Silent catch blocks replaced with structured logging in `dependencyService`, `task-lifecycle`, `task` repository, and `gitWorktreeService`.
+
+**Deduplication:** Extracted `priorityOrderExpr` SQL utility to `db/sql-helpers.ts` (4 call sites). Consolidated `artifactSchema` in `models/schemas.ts` (4 schemas). Merged `getDateThresholds` and `getBoardDateThresholds` into single function with `DateWindowMode` parameter. Removed duplicate `useFeatureDetails` hook. Extracted `StatCard` component from `StatsModal.tsx`.
+
 ## V0.2 — 2026-05-10
 
 Pulse signal board for multi-agent missions. Agents and humans share typed signals (finding, blocker, offer, warning, question, answer, directive, context, handoff) scoped to a mission. BLOCKER signals auto-create clearance tasks. System auto-generates signals on task lifecycle events (claim, submit, complete, fail, release). Pulse digest embedded in `get-context` responses with per-type counts and highlights.

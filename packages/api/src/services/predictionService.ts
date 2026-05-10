@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { tasks, agents, taskEvents, taskDependencies, features } from '../db/schema.js';
 import { eq, and, sql, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { dateDayExpr } from '../db/dialect-helpers.js';
+import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { TaskPriority, TaskStatus } from '../models/index.js';
 
 export interface VelocityMetrics {
@@ -140,7 +141,7 @@ export function estimateCompletionDates(boardId: string, velocity: VelocityMetri
     )
   )
   .orderBy(
-    sql`CASE ${tasks.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
+    priorityOrderExpr(tasks.priority),
     tasks.createdAt
   )
   .all();
