@@ -13,6 +13,7 @@ import type {
 } from '../models/schemas.js';
 import { agentAuth, registrationAuth, humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
+import { badRequest, notFound } from '../errors.js';
 import { getSuggestionsForAgent } from '../services/taskSuggestion.js';
 
 /**
@@ -37,8 +38,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Body: CreateAgentInput }>, reply: FastifyReply) => {
       const parsed = createAgentSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const { agent, plainApiKey } = agentService.createAgent(parsed.data);
@@ -53,8 +53,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const result = agentService.getAgentWithTask(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Agent not found' });
-        return;
+        throw notFound('Agent not found');
       }
       return result;
     }
@@ -67,14 +66,12 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateAgentInput }>, reply: FastifyReply) => {
       const parsed = updateAgentSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const agent = agentService.updateAgent(request.params.id, parsed.data);
       if (!agent) {
-        reply.code(404).send({ error: 'Agent not found' });
-        return;
+        throw notFound('Agent not found');
       }
       return { agent };
     }
@@ -97,15 +94,13 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string }; Body: HeartbeatInput }>, reply: FastifyReply) => {
       const parsed = heartbeatSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const agentId = request.agent?.id ?? request.params.id;
       const result = agentService.heartbeat(agentId, parsed.data.taskId);
       if (!result) {
-        reply.code(404).send({ error: 'Agent not found' });
-        return;
+        throw notFound('Agent not found');
       }
       return result;
     }
@@ -118,8 +113,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const stats = getAgentStats(request.params.id);
       if (!stats) {
-        reply.code(404).send({ error: 'Agent not found' });
-        return;
+        throw notFound('Agent not found');
       }
       return stats;
     }
@@ -137,8 +131,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const query = request.query as { boardId?: string; limit?: string };
       if (!query.boardId) {
-        reply.code(400).send({ error: 'boardId query parameter is required' });
-        return;
+        throw badRequest('boardId query parameter is required');
       }
       const limit = Math.min(Math.max(parseInt(query.limit ?? '5', 10) || 5, 1), 20);
       return getSuggestionsForAgent(query.boardId, request.params.id, limit);

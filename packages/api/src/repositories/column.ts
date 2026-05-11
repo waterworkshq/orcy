@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { columns, features } from '../db/schema.js';
+import { columns, features } from '../db/schema/index.js';
 import { eq, and, max, count } from 'drizzle-orm';
 import type { Column } from '../models/index.js';
 import { v4 as uuid } from 'uuid';

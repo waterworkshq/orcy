@@ -7,6 +7,7 @@ import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
 import { requireBoardAccess } from '../middleware/team.js';
 import * as anomalyService from '../services/anomalyService.js';
 import { redactSensitiveHeaders } from '../config/integrationSecurity.js';
+import { notFound, badRequest } from '../errors.js';
 
 const boardIdParamsSchema = z.object({ id: z.string() });
 
@@ -18,8 +19,7 @@ export async function boardExportRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const result = boardService.exportBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
 
       const parsed = request.query;
@@ -62,12 +62,11 @@ export async function boardExportRoutes(fastify: FastifyInstance): Promise<void>
       try {
         const result = boardService.importBoard(request.body as unknown as boardService.BoardExportData);
         if (!result) {
-          reply.code(400).send({ error: 'Import failed' });
-          return;
+          throw badRequest('Import failed');
         }
         reply.code(201).send({ board: result.board, columns: result.columns, imported: result.imported, warnings: result.warnings });
       } catch (err) {
-        reply.code(400).send({ error: (err as Error).message });
+        throw badRequest((err as Error).message);
       }
     }
   );
@@ -79,19 +78,17 @@ export async function boardExportRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const boardResult = boardService.getBoard(request.params.id);
       if (!boardResult) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
 
       try {
         const result = boardService.importBoard(request.body as unknown as boardService.BoardExportData, request.params.id);
         if (!result) {
-          reply.code(400).send({ error: 'Import failed' });
-          return;
+          throw badRequest('Import failed');
         }
         reply.code(201).send({ board: result.board, columns: result.columns, imported: result.imported, warnings: result.warnings });
       } catch (err) {
-        reply.code(400).send({ error: (err as Error).message });
+        throw badRequest((err as Error).message);
       }
     }
   );
@@ -103,8 +100,7 @@ export async function boardExportRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       const anomalies = anomalyService.detectAnomalies(request.params.id);
       return { anomalies };

@@ -13,6 +13,7 @@ import { getBoardById } from '../repositories/board.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { validateOutboundUrl, filterUnsafeHeaders } from '../config/integrationSecurity.js';
+import { badRequest, notFound, internalError } from '../errors.js';
 
 interface CreateWebhookBody {
   boardId: string | null;
@@ -67,34 +68,29 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
       const { boardId, name, url, format = 'standard', events = [], headers = {} } = request.body;
 
       if (!name || !url) {
-        reply.code(400).send({ error: 'name and url are required' });
-        return;
+        throw badRequest('name and url are required');
       }
 
       const urlValidation = await validateOutboundUrl(url);
       if (!urlValidation.valid) {
-        reply.code(400).send({ error: `Unsafe webhook URL: ${urlValidation.reason}` });
-        return;
+        throw badRequest(`Unsafe webhook URL: ${urlValidation.reason}`);
       }
 
       const headerFilter = filterUnsafeHeaders(headers);
       if (headerFilter.blocked.length > 0) {
-        reply.code(400).send({ error: `Blocked custom headers: ${headerFilter.blocked.join(', ')}. Remove sensitive headers or request explicit allowlisting.` });
-        return;
+        throw badRequest(`Blocked custom headers: ${headerFilter.blocked.join(', ')}. Remove sensitive headers or request explicit allowlisting.`);
       }
 
       if (boardId) {
         const board = getBoardById(boardId);
         if (!board) {
-          reply.code(404).send({ error: 'Board not found' });
-          return;
+          throw notFound('Board not found');
         }
       }
 
       for (const event of events) {
         if (!VALID_EVENTS.includes(event)) {
-          reply.code(400).send({ error: `Invalid event type: ${event}` });
-          return;
+          throw badRequest(`Invalid event type: ${event}`);
         }
       }
 
@@ -124,15 +120,13 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
 
       const existing = getWebhookSubscriptionById(id);
       if (!existing) {
-        reply.code(404).send({ error: 'Webhook subscription not found' });
-        return;
+        throw notFound('Webhook subscription not found');
       }
 
       if (updates.events) {
         for (const event of updates.events) {
           if (!VALID_EVENTS.includes(event)) {
-            reply.code(400).send({ error: `Invalid event type: ${event}` });
-            return;
+            throw badRequest(`Invalid event type: ${event}`);
           }
         }
       }
@@ -140,24 +134,21 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
       if (updates.url) {
         const urlValidation = await validateOutboundUrl(updates.url);
         if (!urlValidation.valid) {
-          reply.code(400).send({ error: `Unsafe webhook URL: ${urlValidation.reason}` });
-          return;
+          throw badRequest(`Unsafe webhook URL: ${urlValidation.reason}`);
         }
       }
 
       if (updates.headers) {
         const headerFilter = filterUnsafeHeaders(updates.headers);
         if (headerFilter.blocked.length > 0) {
-          reply.code(400).send({ error: `Blocked custom headers: ${headerFilter.blocked.join(', ')}. Remove sensitive headers or request explicit allowlisting.` });
-          return;
+          throw badRequest(`Blocked custom headers: ${headerFilter.blocked.join(', ')}. Remove sensitive headers or request explicit allowlisting.`);
         }
         updates.headers = headerFilter.headers;
       }
 
       const success = updateWebhookSubscription(id, updates);
       if (!success) {
-        reply.code(500).send({ error: 'Failed to update subscription' });
-        return;
+        throw internalError('Failed to update subscription');
       }
 
       const updated = getWebhookSubscriptionById(id)!;
@@ -177,14 +168,12 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
 
       const existing = getWebhookSubscriptionById(id);
       if (!existing) {
-        reply.code(404).send({ error: 'Webhook subscription not found' });
-        return;
+        throw notFound('Webhook subscription not found');
       }
 
       const success = deleteWebhookSubscription(id);
       if (!success) {
-        reply.code(500).send({ error: 'Failed to delete subscription' });
-        return;
+        throw internalError('Failed to delete subscription');
       }
 
       return { success: true };
@@ -200,8 +189,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
 
       const subscription = getWebhookSubscriptionById(id);
       if (!subscription) {
-        reply.code(404).send({ error: 'Webhook subscription not found' });
-        return;
+        throw notFound('Webhook subscription not found');
       }
 
       const result = await sendTestWebhook(subscription);
@@ -223,14 +211,12 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
 
       const existing = getWebhookSubscriptionById(id);
       if (!existing) {
-        reply.code(404).send({ error: 'Webhook subscription not found' });
-        return;
+        throw notFound('Webhook subscription not found');
       }
 
       const newSecret = rotateWebhookSecret(id);
       if (!newSecret) {
-        reply.code(500).send({ error: 'Failed to rotate secret' });
-        return;
+        throw internalError('Failed to rotate secret');
       }
 
       return { secret: newSecret };
@@ -247,8 +233,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
 
       const subscription = getWebhookSubscriptionById(id);
       if (!subscription) {
-        reply.code(404).send({ error: 'Webhook subscription not found' });
-        return;
+        throw notFound('Webhook subscription not found');
       }
 
       const deliveries = getDeliveriesForSubscription(id, limit);

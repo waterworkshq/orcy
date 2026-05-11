@@ -27,7 +27,7 @@ describe('Realtime Auth Middleware', () => {
       const { request, reply, sent } = mockReqRes();
       await authenticateRealtime(request, reply);
       expect(sent.code).toBe(401);
-      expect(sent.body.error).toBe('Authentication required');
+      expect(sent.body.error).toBe('Missing authentication token');
     });
 
     it('authenticates via agent API key header', async () => {

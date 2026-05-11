@@ -3,6 +3,7 @@ import * as templateRepo from '../repositories/template.js';
 import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { z } from 'zod';
+import { badRequest, notFound, forbidden } from '../errors.js';
 
 const createTemplateSchema = z.object({
   name: z.string().min(1).max(100),
@@ -47,8 +48,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { boardId: string }; Body: z.infer<typeof createTemplateSchema> }>, reply: FastifyReply) => {
       const parsed = createTemplateSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const userId = request.user?.id ?? 'anonymous';
@@ -76,8 +76,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof updateTemplateSchema> }>, reply: FastifyReply) => {
       const parsed = updateTemplateSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const template = templateRepo.updateTemplate(request.params.id, {
@@ -91,8 +90,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       if (!template) {
-        reply.code(404).send({ error: 'Template not found' });
-        return;
+        throw notFound('Template not found');
       }
 
       return { template };
@@ -106,19 +104,16 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const template = templateRepo.getTemplateById(request.params.id);
       if (!template) {
-        reply.code(404).send({ error: 'Template not found' });
-        return;
+        throw notFound('Template not found');
       }
 
       if (template.isDefault) {
-        reply.code(403).send({ error: 'Cannot delete default template' });
-        return;
+        throw forbidden('Cannot delete default template');
       }
 
       const deleted = templateRepo.deleteTemplate(request.params.id);
       if (!deleted) {
-        reply.code(404).send({ error: 'Template not found' });
-        return;
+        throw notFound('Template not found');
       }
 
       reply.code(204).send();
@@ -132,8 +127,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const template = templateRepo.getTemplateById(request.params.id);
       if (!template) {
-        reply.code(404).send({ error: 'Template not found' });
-        return;
+        throw notFound('Template not found');
       }
 
       templateRepo.incrementUsageCount(request.params.id);

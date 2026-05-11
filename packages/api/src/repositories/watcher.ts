@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskWatchers } from '../db/schema.js';
+import { taskWatchers } from '../db/schema/index.js';
 import { eq, and, asc, desc } from 'drizzle-orm';
 import type { TaskWatcher } from '../models/index.js';
 

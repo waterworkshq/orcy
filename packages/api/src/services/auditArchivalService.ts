@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { boards, taskEvents, tasks, features } from '../db/schema.js';
+import { boards, taskEvents, tasks, features } from '../db/schema/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';

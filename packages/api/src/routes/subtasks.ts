@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as subtaskService from '../services/subtaskService.js';
 import { agentAuth } from '../middleware/auth.js';
+import { badRequest, notFound } from '../errors.js';
 
 /**
  * Subtask CRUD — create, list, update, and delete subtasks attached to a task.
@@ -22,8 +23,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { taskId: string }; Body: { title: string; order?: number; assigneeId?: string } }>, reply: FastifyReply) => {
       const parsed = request.body;
       if (!parsed.title || parsed.title.trim().length === 0) {
-        reply.code(400).send({ error: 'Title is required' });
-        return;
+        throw badRequest('Title is required');
       }
 
       const subtask = subtaskService.createSubtask(request.params.taskId, {
@@ -33,8 +33,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
       });
 
       if (!subtask) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       reply.code(201).send({ subtask });
@@ -45,12 +44,11 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } }>(
     '/tasks/:taskId/subtasks/:subtaskId',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } } }, reply: FastifyReply) => {
       const subtask = subtaskService.updateSubtask(request.params.subtaskId, request.body);
 
       if (!subtask) {
-        reply.code(404).send({ error: 'Subtask not found' });
-        return;
+        throw notFound('Subtask not found');
       }
 
       return { subtask };
@@ -65,8 +63,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
       const success = subtaskService.deleteSubtask(request.params.subtaskId);
 
       if (!success) {
-        reply.code(404).send({ error: 'Subtask not found' });
-        return;
+        throw notFound('Subtask not found');
       }
 
       reply.code(204).send();

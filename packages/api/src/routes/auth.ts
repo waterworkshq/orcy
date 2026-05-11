@@ -4,9 +4,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { users } from '../db/schema/index.js';
 import { eq, sql } from 'drizzle-orm';
-import { humanAuth, getJwtSecret } from '../middleware/auth.js';
+import { humanAuth } from '../middleware/auth.js';
+import { getJwtSecret } from '../middleware/jwt-verification.js';
+import { badRequest, unauthorized, forbidden } from '../errors.js';
 
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -34,8 +36,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Body: z.infer<typeof loginSchema> }>, reply: FastifyReply) => {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Invalid request' });
-        return;
+        throw badRequest('Invalid request');
       }
 
       const { username, password } = parsed.data;
@@ -49,14 +50,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       }).from(users).where(eq(users.username, username)).get();
 
       if (!row) {
-        reply.code(401).send({ error: 'Invalid credentials' });
-        return;
+        throw unauthorized('Invalid credentials', 'INVALID_CREDENTIALS');
       }
 
       const valid = await bcrypt.compare(password, row.passwordHash);
       if (!valid) {
-        reply.code(401).send({ error: 'Invalid credentials' });
-        return;
+        throw unauthorized('Invalid credentials', 'INVALID_CREDENTIALS');
       }
 
       const token = jwt.sign(
@@ -94,8 +93,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/auth/register', async (request: FastifyRequest, reply: FastifyReply) => {
     const parsed = registerSchema.safeParse(request.body);
     if (!parsed.success) {
-      reply.code(400).send({ error: 'Invalid request' });
-      return;
+      throw badRequest('Invalid request');
     }
 
     const { username, password, displayName } = parsed.data;
@@ -109,8 +107,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       const countResult = db.select({ count: sql<number>`COUNT(*)` }).from(users).get();
       if ((countResult?.count ?? 0) > 0) {
         db.run(sql`ROLLBACK`);
-        reply.code(403).send({ error: 'Setup already completed' });
-        return;
+        throw forbidden('Setup already completed', 'SETUP_ALREADY_COMPLETED');
       }
 
       db.insert(users).values({
@@ -172,8 +169,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = changePasswordSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Invalid request' });
-        return;
+        throw badRequest('Invalid request');
       }
 
       const user = request.user!;
@@ -182,14 +178,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
       const row = db.select({ id: users.id, passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id)).get();
       if (!row) {
-        reply.code(401).send({ error: 'User not found' });
-        return;
+        throw unauthorized('User not found');
       }
 
       const valid = await bcrypt.compare(currentPassword, row.passwordHash);
       if (!valid) {
-        reply.code(401).send({ error: 'Current password is incorrect' });
-        return;
+        throw unauthorized('Current password is incorrect', 'INVALID_CREDENTIALS');
       }
 
       const newHash = await bcrypt.hash(newPassword, 10);
@@ -205,8 +199,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = updateProfileSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Invalid request' });
-        return;
+        throw badRequest('Invalid request');
       }
 
       const user = request.user!;

@@ -3,13 +3,13 @@ import * as prRepo from '../repositories/pullRequest.js';
 import * as githubService from '../services/githubWebhook.js';
 import * as gitlabService from '../services/gitlabWebhook.js';
 import { humanAuth } from '../middleware/auth.js';
-import { isRemotePosture } from '../config/integrationSecurity.js';
 import {
-  lookupBoardIdBySecret,
-  hasAnySecretsConfigured,
-  findBoardIdByGithubSignature,
-  hasGithubSecretsConfigured,
-} from '../services/boardSecretCache.js';
+  createCodeReviewSecretSource,
+  handleGitHubWebhook,
+  handleGitLabWebhook,
+} from '../services/webhooks/webhook-secret-verification.js';
+
+const secretSource = createCodeReviewSecretSource();
 
 export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
@@ -20,35 +20,21 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
       const body = request.body as Record<string, unknown>;
       const rawBody = (request.rawBody ?? JSON.stringify(body)) as string;
 
-      if (!event) {
-        reply.code(400).send({ error: 'Missing X-GitHub-Event header' });
+      const result = handleGitHubWebhook(
+        secretSource,
+        { body, rawBody, event, signature },
+        {
+          pull_request: (b) => githubService.handlePullRequestEvent(b as Parameters<typeof githubService.handlePullRequestEvent>[0]),
+          pull_request_review: (b) => githubService.handlePullRequestReviewEvent(b as Parameters<typeof githubService.handlePullRequestReviewEvent>[0]),
+        },
+        { failClosed: true },
+      );
+
+      if (result.statusCode !== 200) {
+        reply.code(result.statusCode).send(result.body);
         return;
       }
-
-      const repo = (body as { repository?: { full_name?: string } })?.repository?.full_name;
-
-      let matched = false;
-
-      if (signature) {
-        matched = findBoardIdByGithubSignature(rawBody, signature) !== null;
-      }
-
-      if (!matched && (hasGithubSecretsConfigured() || isRemotePosture())) {
-        reply.code(401).send({ error: 'Invalid or missing signature' });
-        return;
-      }
-
-      if (event === 'pull_request') {
-        const result = githubService.handlePullRequestEvent(body as unknown as Parameters<typeof githubService.handlePullRequestEvent>[0]);
-        return result;
-      }
-
-      if (event === 'pull_request_review') {
-        const result = githubService.handlePullRequestReviewEvent(body as unknown as Parameters<typeof githubService.handlePullRequestReviewEvent>[0]);
-        return result;
-      }
-
-      return { status: 'ignored', event };
+      return result.body;
     }
   );
 
@@ -59,36 +45,21 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
       const body = request.body as Record<string, unknown>;
       const objectKind = body.object_kind as string | undefined;
 
-      if (!objectKind) {
-        reply.code(400).send({ error: 'Missing object_kind' });
+      const result = handleGitLabWebhook(
+        secretSource,
+        { body, providedToken, objectKind },
+        {
+          merge_request: (b) => gitlabService.handleMergeRequestEvent(b as Parameters<typeof gitlabService.handleMergeRequestEvent>[0]),
+          note: (b) => gitlabService.handleNoteEvent(b as Parameters<typeof gitlabService.handleNoteEvent>[0]),
+        },
+        { failClosed: true },
+      );
+
+      if (result.statusCode !== 200) {
+        reply.code(result.statusCode).send(result.body);
         return;
       }
-
-      let matched = false;
-
-      if (providedToken) {
-        const boardId = lookupBoardIdBySecret(providedToken);
-        if (boardId) {
-          matched = true;
-        }
-      }
-
-      if (!matched && (hasAnySecretsConfigured() || isRemotePosture())) {
-        reply.code(401).send({ error: 'Invalid or missing token' });
-        return;
-      }
-
-      if (objectKind === 'merge_request') {
-        const result = gitlabService.handleMergeRequestEvent(body as unknown as Parameters<typeof gitlabService.handleMergeRequestEvent>[0]);
-        return result;
-      }
-
-      if (objectKind === 'note') {
-        const result = gitlabService.handleNoteEvent(body as unknown as Parameters<typeof gitlabService.handleNoteEvent>[0]);
-        return result;
-      }
-
-      return { status: 'ignored', objectKind };
+      return result.body;
     }
   );
 

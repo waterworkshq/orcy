@@ -12,7 +12,6 @@ const AUTH_FUNCTION_NAMES = new Set([
   'agentAuth',
   'humanAuth',
   'agentOrHumanAuth',
-  'sseAuth',
   'registrationAuth',
   'authenticateRealtime',
 ]);

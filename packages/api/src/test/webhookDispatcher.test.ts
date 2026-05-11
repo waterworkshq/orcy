@@ -27,7 +27,7 @@ vi.mock('../db/index.js', () => {
   return { getDb: vi.fn(() => mockDb) };
 });
 
-vi.mock('../db/schema.js', () => ({
+vi.mock('../db/schema/index.js', () => ({
   boards: { id: 'id', name: 'name' },
   webhookSubscriptions: {
     id: 'id', boardId: 'boardId', name: 'name', url: 'url',

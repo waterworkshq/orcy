@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as prefRepo from '../repositories/notificationPreferences.js';
 import * as userRepo from '../repositories/user.js';
 import { humanAuth } from '../middleware/auth.js';
+import { badRequest } from '../errors.js';
 import { z } from 'zod';
 
 const preferencesSchema = z.object({
@@ -36,8 +37,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const userId = request.user!.id;
@@ -52,8 +52,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = updateEmailSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const userId = request.user!.id;
@@ -78,8 +77,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
     async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const userId = request.user!.id;

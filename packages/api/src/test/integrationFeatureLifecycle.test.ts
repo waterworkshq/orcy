@@ -9,7 +9,7 @@ import * as featureService from '../services/featureService.js';
 import * as boardService from '../services/boardService.js';
 import { getTaskDetails } from '../services/tasks/task-details.js';
 import { claimTask, startTask, submitTask, approveTask } from '../services/tasks/task-lifecycle.js';
-import { featureDependencies } from '../db/schema.js';
+import { featureDependencies } from '../db/schema/index.js';
 import { eq, sql } from 'drizzle-orm';
 
 async function setupBoard() {

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as commentService from '../services/commentService.js';
 import { agentAuth, agentOrHumanAuth } from '../middleware/auth.js';
+import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
 import { z } from 'zod';
 
 const createCommentSchema = z.object({
@@ -27,14 +28,12 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: agentAuth },
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof createCommentSchema> }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       const parsed = createCommentSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const authorType = request.agent ? 'agent' as const : 'human' as const;
@@ -52,9 +51,9 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err) {
         const error = err as Error;
         if (error.message === 'Task not found') {
-          reply.code(404).send({ error: 'Task not found' });
+          throw notFound('Task not found');
         } else if (error.message === 'Parent comment not found' || error.message === 'Parent comment belongs to a different task') {
-          reply.code(400).send({ error: error.message });
+          throw badRequest(error.message);
         } else {
           throw err;
         }
@@ -69,8 +68,7 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, reply: FastifyReply) => {
       const parsed = commentsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Invalid query', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Invalid query', parsed.error.flatten());
       }
 
       const result = commentService.getComments(
@@ -88,14 +86,12 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: agentAuth },
     async (request: FastifyRequest<{ Params: { id: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       const parsed = updateCommentSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const authorType = request.agent ? 'agent' as const : 'human' as const;
@@ -109,16 +105,15 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
           parsed.data.content
         );
         if (!comment) {
-          reply.code(404).send({ error: 'Comment not found' });
-          return;
+          throw notFound('Comment not found');
         }
         return { comment };
       } catch (err) {
         const error = err as Error;
         if (error.message === 'Comment not found') {
-          reply.code(404).send({ error: 'Comment not found' });
+          throw notFound('Comment not found');
         } else if (error.message === 'Not authorized to edit this comment') {
-          reply.code(403).send({ error: 'Not authorized to edit this comment' });
+          throw forbidden('Not authorized to edit this comment');
         } else {
           throw err;
         }
@@ -132,8 +127,7 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: agentAuth },
     async (request: FastifyRequest<{ Params: { id: string; commentId: string } }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       const authorType = request.agent ? 'agent' as const : 'human' as const;
@@ -145,9 +139,9 @@ export async function commentRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err) {
         const error = err as Error;
         if (error.message === 'Comment not found') {
-          reply.code(404).send({ error: 'Comment not found' });
+          throw notFound('Comment not found');
         } else if (error.message === 'Not authorized to delete this comment') {
-          reply.code(403).send({ error: 'Not authorized to delete this comment' });
+          throw forbidden('Not authorized to delete this comment');
         } else {
           throw err;
         }

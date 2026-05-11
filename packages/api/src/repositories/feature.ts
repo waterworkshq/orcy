@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { features, featureDependencies, columns } from '../db/schema.js';
+import { features, featureDependencies, columns } from '../db/schema/index.js';
 import { eq, and, or, not, inArray, sql, count, max, asc, desc, isNotNull, notInArray } from 'drizzle-orm';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Feature, FeatureStatus, TaskPriority } from '../models/index.js';

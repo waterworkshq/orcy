@@ -116,7 +116,7 @@ vi.mock('drizzle-orm', () => ({
   sql: (strings: any, ...values: any[]) => ({ _type: 'sql', strings, values }),
 }));
 
-vi.mock('../db/schema.js', () => ({
+vi.mock('../db/schema/index.js', () => ({
   chatIntegrations: {
     id: 'id',
     boardId: 'boardId',

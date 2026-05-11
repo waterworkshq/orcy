@@ -1,8 +1,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { getDb } from '../db/index.js';
-import { agents } from '../db/schema.js';
+import { agents } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../lib/logger.js';
+import { rateLimited } from '../errors.js';
 
 interface RateLimitEntry {
   timestamps: number[];
@@ -81,6 +82,6 @@ export async function perAgentRateLimit(
     const oldestInWindow = entry.timestamps[0];
     const retryAfterSeconds = Math.ceil((oldestInWindow + WINDOW_MS - now) / 1000);
     reply.header('Retry-After', retryAfterSeconds);
-    reply.code(429).send({ error: 'Too many requests', code: 'RATE_LIMITED' });
+    throw rateLimited();
   }
 }

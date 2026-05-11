@@ -1,4 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { unauthorized, forbidden } from '../errors.js';
 
 /**
  * Role constants for human users: admin > editor > viewer.
@@ -13,16 +14,13 @@ export type HumanRole = 'admin' | 'editor' | 'viewer';
 export function requireRole(...allowedRoles: HumanRole[]) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
-      reply.code(401).send({ error: 'Authentication required' });
-      return;
+      throw unauthorized('Authentication required');
     }
     if (!allowedRoles.includes(request.user.role as HumanRole)) {
-      reply.code(403).send({
-        error: 'Insufficient permissions',
+      throw forbidden('Insufficient permissions', 'INSUFFICIENT_PERMISSIONS', {
         required: allowedRoles,
         current: request.user.role,
       });
-      return;
     }
   };
 }

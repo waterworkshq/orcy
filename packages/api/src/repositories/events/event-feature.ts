@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { featureEvents, features } from '../../db/schema.js';
+import { featureEvents, features } from '../../db/schema/index.js';
 import { eq, and, count, asc, desc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { FeatureEvent, ActorType, FeatureEventAction, FeatureStatus } from '../../models/index.js';

@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { teams, teamMembers } from '../db/schema.js';
+import { teams, teamMembers } from '../db/schema/index.js';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 

@@ -3,6 +3,7 @@ import * as qualityGateService from '../services/qualityGateService.js';
 import * as qualityRepo from '../repositories/qualityGate.js';
 import * as taskRepo from '../repositories/task.js';
 import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
+import { notFound, badRequest } from '../errors.js';
 
 export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>(
@@ -11,8 +12,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
       return qualityGateService.getQualityReport(request.params.id);
     }
@@ -21,7 +21,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.put<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } }>(
     '/tasks/:id/quality-checklist/:checklistId/items/:itemId',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } } }, reply: FastifyReply) => {
       const result = qualityGateService.updateChecklistItem(
         request.params.id,
         request.params.checklistId,
@@ -29,8 +29,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
         request.body
       );
       if (!result) {
-        reply.code(404).send({ error: 'Checklist item not found' });
-        return;
+        throw notFound('Checklist item not found');
       }
       return result;
     }
@@ -42,8 +41,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
       return qualityGateService.validateQualityGates(request.params.id);
     }
@@ -55,8 +53,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
       return qualityGateService.getApprovalStatus(request.params.id);
     }
@@ -72,8 +69,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
     async (request: FastifyRequest<{ Body: { name: string; description?: string; category: string; isRequired?: boolean; items: { title: string; description?: string; required?: boolean }[] } }>, reply: FastifyReply) => {
       const { name, description, category, isRequired, items } = request.body;
       if (!name || !category || !items || items.length === 0) {
-        reply.code(400).send({ error: 'name, category, and items are required' });
-        return;
+        throw badRequest('name, category, and items are required');
       }
       const template = qualityRepo.createTemplate({ name, description, category, isRequired, items });
       return { template };

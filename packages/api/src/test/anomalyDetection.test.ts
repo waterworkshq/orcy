@@ -5,7 +5,7 @@ import * as columnRepo from '../repositories/column.js';
 import * as taskRepo from '../repositories/task.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
-import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema.js';
+import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import {
   detectStaleInProgress,

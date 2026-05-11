@@ -3,7 +3,7 @@ import * as taskRepo from '../repositories/task.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import { getDb } from '../db/index.js';
-import { tasks, features } from '../db/schema.js';
+import { tasks, features } from '../db/schema/index.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import type { Task, Agent } from '../models/index.js';
 

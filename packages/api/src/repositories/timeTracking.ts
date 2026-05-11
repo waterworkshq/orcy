@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskTimeRecords, tasks, features, agents } from '../db/schema.js';
+import { taskTimeRecords, tasks, features, agents } from '../db/schema/index.js';
 import { eq, and, sql, count, avg, sum, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { TaskTimeRecord, BoardMetrics } from '../models/index.js';

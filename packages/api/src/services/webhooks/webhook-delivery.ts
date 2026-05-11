@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { webhookDeliveries, webhookSubscriptions } from '../../db/schema.js';
+import { webhookDeliveries, webhookSubscriptions } from '../../db/schema/index.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { signPayload } from '../../utils/webhookSigning.js';

@@ -3,6 +3,7 @@ import multipart from '@fastify/multipart';
 import * as attachmentRepo from '../repositories/attachment.js';
 import * as fileStorage from '../services/fileStorage.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
+import { badRequest, notFound, forbidden, payloadTooLarge } from '../errors.js';
 import { getPrincipalFromRequest } from '../middleware/taskAuth.js';
 import { authorizeAttachmentAccess, encodeContentDisposition } from '../middleware/attachmentAuth.js';
 import { getTaskById } from '../repositories/task.js';
@@ -23,21 +24,18 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
     async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
       const task = getTaskById(request.params.taskId);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const data = await request.file();
       if (!data) {
-        reply.code(400).send({ error: 'No file uploaded' });
-        return;
+        throw badRequest('No file uploaded');
       }
 
       const buffer = await data.toBuffer();
 
       if (buffer.length > MAX_UPLOAD_SIZE_BYTES) {
-        reply.code(413).send({ error: `File size exceeds ${MAX_UPLOAD_SIZE_MB}MB limit` });
-        return;
+        throw payloadTooLarge(`File size exceeds ${MAX_UPLOAD_SIZE_MB}MB limit`);
       }
 
       const uploadedBy = request.agent?.id ?? request.user?.id ?? null;
@@ -63,8 +61,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
     async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
       const task = getTaskById(request.params.taskId);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const attachments = attachmentRepo.getAttachmentsByTaskId(request.params.taskId);
@@ -78,25 +75,19 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const attachment = attachmentRepo.getAttachmentById(request.params.id);
       if (!attachment) {
-        reply.code(404).send({ error: 'Attachment not found' });
-        return;
+        throw notFound('Attachment not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const authResult = authorizeAttachmentAccess(attachment, principal, 'read');
       if (!authResult.allowed) {
-        reply.code(403).send({ error: authResult.reason });
-        return;
+        throw forbidden(authResult.reason);
       }
 
-      try {
-        const stream = fileStorage.readFile(attachment.filename);
-        reply.header('Content-Type', attachment.mimeType);
-        reply.header('Content-Disposition', encodeContentDisposition(attachment.originalName));
-        reply.send(stream);
-      } catch {
-        reply.code(404).send({ error: 'File not found on disk' });
-      }
+      const stream = fileStorage.readFile(attachment.filename);
+      reply.header('Content-Type', attachment.mimeType);
+      reply.header('Content-Disposition', encodeContentDisposition(attachment.originalName));
+      return reply.send(stream);
     }
   );
 
@@ -106,21 +97,18 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const attachment = attachmentRepo.getAttachmentById(request.params.id);
       if (!attachment) {
-        reply.code(404).send({ error: 'Attachment not found' });
-        return;
+        throw notFound('Attachment not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const authResult = authorizeAttachmentAccess(attachment, principal, 'delete');
       if (!authResult.allowed) {
-        reply.code(403).send({ error: authResult.reason });
-        return;
+        throw forbidden(authResult.reason);
       }
 
       const success = attachmentRepo.deleteAttachment(request.params.id);
       if (!success) {
-        reply.code(404).send({ error: 'Attachment not found' });
-        return;
+        throw notFound('Attachment not found');
       }
 
       reply.code(204).send();

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { joinBoard, leaveBoard, setViewingTask, getBoardPresence } from '../sse/presence.js';
 import type { PresenceType } from '../models/index.js';
+import { badRequest } from '../errors.js';
 
 interface JoinBody {
   sessionId: string;
@@ -41,8 +42,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Body: JoinBody }>, reply: FastifyReply) => {
       const { sessionId, type, boardId, userId, userName, agentId, agentName } = request.body;
       if (!sessionId || !type || !boardId) {
-        reply.code(400).send({ error: 'sessionId, type, and boardId are required' });
-        return;
+        throw badRequest('sessionId, type, and boardId are required');
       }
       joinBoard(boardId, { sessionId, type, boardId, userId, userName, agentId, agentName, viewingTaskId: null });
       return { success: true };
@@ -55,8 +55,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Body: HeartbeatBody }>, reply: FastifyReply) => {
       const { sessionId, boardId, viewingTaskId } = request.body;
       if (!sessionId || !boardId) {
-        reply.code(400).send({ error: 'sessionId and boardId are required' });
-        return;
+        throw badRequest('sessionId and boardId are required');
       }
       setViewingTask(boardId, sessionId, viewingTaskId ?? null);
       return { success: true };
@@ -69,8 +68,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Body: LeaveBody }>, reply: FastifyReply) => {
       const { sessionId, boardId } = request.body;
       if (!sessionId || !boardId) {
-        reply.code(400).send({ error: 'sessionId and boardId are required' });
-        return;
+        throw badRequest('sessionId and boardId are required');
       }
       leaveBoard(boardId, sessionId);
       return { success: true };

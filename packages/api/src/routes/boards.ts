@@ -9,6 +9,7 @@ import { agentOrHumanAuth, humanAuth, agentAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { requireBoardAccess } from '../middleware/team.js';
 import { listTeamsByUserId } from '../repositories/team.js';
+import { notFound } from '../errors.js';
 
 const boardIdParamsSchema = z.object({ id: z.string() });
 
@@ -67,8 +68,7 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       return result;
     }
@@ -81,8 +81,7 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const board = boardService.updateBoard(request.params.id, request.body as Parameters<typeof boardService.updateBoard>[1]);
       if (!board) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       return { board };
     }

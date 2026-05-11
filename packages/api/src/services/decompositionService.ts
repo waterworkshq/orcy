@@ -1,6 +1,7 @@
 import { getLLMConfig, callLLM, LLMMessage } from '../lib/llm.js';
 import * as taskRepo from '../repositories/task.js';
 import * as featureRepo from '../repositories/feature.js';
+import { badRequest, notFound, serviceUnavailable } from '../errors.js';
 
 export interface TaskProposal {
   id: string;
@@ -54,16 +55,16 @@ function buildUserMessage(featureTitle: string, featureDescription: string, acce
 export async function decomposeFeature(featureId: string): Promise<DecompositionResult> {
   const config = getLLMConfig();
   if (!config) {
-    throw new Error('AI decomposition not configured. Set LLM_API_KEY environment variable.');
+    throw serviceUnavailable('AI decomposition not configured. Set LLM_API_KEY environment variable.');
   }
 
   const feature = featureRepo.getFeatureById(featureId);
   if (!feature) {
-    throw new Error('Feature not found');
+    throw notFound('Feature not found');
   }
 
   if (!feature.description || feature.description.trim().length === 0) {
-    throw new Error('Add a description before decomposing');
+    throw badRequest('Add a description before decomposing');
   }
 
   const messages: LLMMessage[] = [
@@ -84,14 +85,14 @@ export async function decomposeFeature(featureId: string): Promise<Decomposition
     const text = llmResponse.content;
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('Could not understand AI response. Try again.');
+      throw badRequest('Could not understand AI response. Try again.');
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
     const taskList = parsed.tasks || [];
 
     if (!Array.isArray(taskList) || taskList.length === 0) {
-      throw new Error('AI did not return any tasks. Try again with a more detailed description.');
+      throw badRequest('AI did not return any tasks. Try again with a more detailed description.');
     }
 
     const validPriorities = ['low', 'medium', 'high', 'critical'];
@@ -106,7 +107,7 @@ export async function decomposeFeature(featureId: string): Promise<Decomposition
     }));
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw new Error('Could not understand AI response. Try again.');
+      throw badRequest('Could not understand AI response. Try again.');
     }
     throw error;
   }
@@ -117,16 +118,16 @@ export async function decomposeFeature(featureId: string): Promise<Decomposition
 export async function decomposeTask(taskId: string): Promise<DecompositionResult> {
   const config = getLLMConfig();
   if (!config) {
-    throw new Error('AI decomposition not configured. Set LLM_API_KEY environment variable.');
+    throw serviceUnavailable('AI decomposition not configured. Set LLM_API_KEY environment variable.');
   }
 
   const task = taskRepo.getTaskById(taskId);
   if (!task) {
-    throw new Error('Task not found');
+    throw notFound('Task not found');
   }
 
   if (!task.description || task.description.trim().length === 0) {
-    throw new Error('Add a description before decomposing');
+    throw badRequest('Add a description before decomposing');
   }
 
   const messages: LLMMessage[] = [
@@ -140,7 +141,7 @@ export async function decomposeTask(taskId: string): Promise<DecompositionResult
   try {
     const text = llmResponse.content;
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Could not understand AI response.');
+    if (!jsonMatch) throw badRequest('Could not understand AI response.');
     const parsed = JSON.parse(jsonMatch[0]);
     const taskList = parsed.tasks || [];
     const validPriorities = ['low', 'medium', 'high', 'critical'];
@@ -153,7 +154,7 @@ export async function decomposeTask(taskId: string): Promise<DecompositionResult
       estimatedMinutes: t.estimatedMinutes || null,
     }));
   } catch (error) {
-    if (error instanceof SyntaxError) throw new Error('Could not understand AI response.');
+    if (error instanceof SyntaxError) throw badRequest('Could not understand AI response.');
     throw error;
   }
 

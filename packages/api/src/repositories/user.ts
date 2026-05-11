@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { users } from '../db/schema/index.js';
 import { eq, sql } from 'drizzle-orm';
 
 export interface UserLookup {

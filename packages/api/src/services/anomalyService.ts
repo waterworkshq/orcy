@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { tasks, features, agents, users, taskEvents } from '../db/schema.js';
+import { tasks, features, agents, users, taskEvents } from '../db/schema/index.js';
 import { eq, and, sql, isNotNull, notInArray, inArray, desc, ne } from 'drizzle-orm';
 import { cycleTimeMinutes } from '../db/dialect-helpers.js';
 import * as boardRepo from '../repositories/board.js';

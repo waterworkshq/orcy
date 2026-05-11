@@ -173,10 +173,10 @@ describe('requireBoardAccess', () => {
     expect(summaryRoute).toBeDefined();
     const preHandlerNames = summaryRoute!.preHandler.map((h: any) => h.name || String(h));
     expect(preHandlerNames.length).toBeGreaterThanOrEqual(2);
-    const hasRequireBoardAccess = summaryRoute!.preHandler.some(
-      (h: any) => h.name === 'requireBoardAccess' || String(h).includes('requireBoardAccess')
+    const hasBoardAccess = summaryRoute!.preHandler.some(
+      (h: any) => h.name === 'authorizeBoardAccess' || h.name === 'requireBoardAccess'
     );
-    expect(hasRequireBoardAccess).toBe(true);
+    expect(hasBoardAccess).toBe(true);
   });
 
   it('non-member human cannot access summary of team-scoped board', async () => {

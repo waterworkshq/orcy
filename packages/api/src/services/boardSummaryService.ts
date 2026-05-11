@@ -4,7 +4,7 @@ import * as featureRepo from '../repositories/feature.js';
 import * as eventRepo from '../repositories/event.js';
 import * as agentRepo from '../repositories/agent.js';
 import { getDb } from '../db/index.js';
-import { tasks, features, columns, agents, taskEvents, featureEvents } from '../db/schema.js';
+import { tasks, features, columns, agents, taskEvents, featureEvents } from '../db/schema/index.js';
 import { eq, and, sql, desc, asc, count, inArray, isNotNull } from 'drizzle-orm';
 import type { FeatureStatus, TaskStatus } from '../models/index.js';
 

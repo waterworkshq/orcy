@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { boards } from '../db/schema.js';
+import { boards } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import type { SSEEvent } from '../models/index.js';
 import { getTaskById } from '../repositories/task.js';

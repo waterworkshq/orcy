@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import * as schema from '../db/schema.js';
-import { users } from '../db/schema.js';
+import * as schema from '../db/schema/index.js';
+import { users } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 

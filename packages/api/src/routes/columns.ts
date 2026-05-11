@@ -6,6 +6,7 @@ import * as boardRepo from '../repositories/board.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
+import { notFound, badRequest, conflict } from '../errors.js';
 
 export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { boardId: string }; Body: CreateColumnInput }>(
@@ -14,14 +15,12 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { boardId: string }; Body: CreateColumnInput }>, reply: FastifyReply) => {
       const board = boardRepo.getBoardById(request.params.boardId);
       if (!board) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
 
       const parsed = createColumnSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const column = columnRepo.createColumn({
@@ -40,14 +39,12 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateColumnInput }>, reply: FastifyReply) => {
       const parsed = updateColumnSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const column = columnRepo.updateColumn(request.params.id, parsed.data);
       if (!column) {
-        reply.code(404).send({ error: 'Column not found' });
-        return;
+        throw notFound('Column not found');
       }
       sseBroadcaster.publish(column.boardId, { type: 'column.updated', data: column });
       return { column };
@@ -60,15 +57,13 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const column = columnRepo.getColumnById(request.params.id);
       if (!column) {
-        reply.code(404).send({ error: 'Column not found' });
-        return;
+        throw notFound('Column not found');
       }
 
       try {
         columnRepo.deleteColumn(request.params.id);
       } catch (err) {
-        reply.code(409).send({ error: (err as Error).message });
-        return;
+        throw conflict((err as Error).message);
       }
 
       sseBroadcaster.publish(column.boardId, {

@@ -5,10 +5,8 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { validatorCompiler, serializerCompiler } from 'fastify-type-provider-zod';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
-import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyRawBody from 'fastify-raw-body';
-import path from 'node:path';
 import fs from 'node:fs';
 import { ORCY_PATHS } from '@orcy/shared';
 import { boardRoutes } from './routes/boards.js';
@@ -39,22 +37,16 @@ import { organizationRoutes } from './routes/organizations.js';
 import { timeTrackingRoutes } from './routes/timeTracking.js';
 import { dependencyRoutes } from './routes/dependencies.js';
 import { qualityGateRoutes } from './routes/qualityGates.js';
-import { sseBroadcaster } from './sse/broadcaster.js';
-import { releaseStaleTasks } from './services/agentService.js';
-import { startRetryProcessor as startTaskRetryProcessor } from './services/retryService.js';
 import { rebuildCache as rebuildBoardSecretCache } from './services/boardSecretCache.js';
-import { startPresenceCleanup } from './sse/presence.js';
-import { scanAllBoards } from './services/anomalyService.js';
-import { archiveAllBoards, archiveOldEvents } from './services/auditArchivalService.js';
+import { archiveOldEvents } from './services/auditArchivalService.js';
 import { seedDefaultTemplates as seedQualityTemplates } from './services/qualityGateService.js';
-import { initDb, getDb } from './db/index.js';
-import { tasks, features } from './db/schema.js';
-import { and, or, sql, notInArray, eq } from 'drizzle-orm';
-import { nowExpr } from './db/dialect-helpers.js';
+import { startAllSchedulers } from './services/scheduler.js';
+import { initDb } from './db/index.js';
 
 import { registerErrorHandler } from './errors/plugin.js';
 import { perAgentRateLimit } from './middleware/rateLimit.js';
-import { humanAuth, setJwtSecret } from './middleware/auth.js';
+import { humanAuth } from './middleware/auth.js';
+import { setJwtSecret } from './middleware/jwt-verification.js';
 import * as pluginManager from './plugins/pluginManager.js';
 import { assertSecurityConfigOrExit } from './config/security.js';
 
@@ -83,26 +75,6 @@ fastify.setSerializerCompiler(serializerCompiler);
 const corsOrigin = process.env.CORS_ORIGIN ?? false;
 await fastify.register(cors, { origin: corsOrigin });
 await fastify.register(helmet, { contentSecurityPolicy: false });
-await fastify.register(rateLimit, {
-  max: 100,
-  timeWindow: '1 minute',
-  keyGenerator: (request) => {
-    const agentKey = request.headers['x-agent-api-key'] as string | undefined;
-    if (agentKey) return `agent:${agentKey}`;
-    return `ip:${request.ip}`;
-  },
-  addHeadersOnExceeding: {
-    'x-ratelimit-limit': true,
-    'x-ratelimit-remaining': true,
-    'x-ratelimit-reset': true,
-  },
-  addHeaders: {
-    'x-ratelimit-limit': true,
-    'x-ratelimit-remaining': true,
-    'x-ratelimit-reset': true,
-    'retry-after': true,
-  },
-});
 await registerErrorHandler(fastify);
 
 await fastify.register(fastifyRawBody, {
@@ -193,6 +165,7 @@ await fastify.register(async (f) => {
 }, { prefix: '/api' });
 
 await fastify.register(async (f) => {
+  f.addHook('preHandler', perAgentRateLimit);
   await f.register(sseRoutes);
   await f.register(presenceRoutes);
 }, { prefix: '/sse' });
@@ -214,85 +187,17 @@ if (fs.existsSync(uiPath)) {
   });
 }
 
-// Release tasks that have been idle for more than 30 minutes back to the board pool
-const staleTaskInterval = setInterval(() => {
-  try {
-    releaseStaleTasks(30);
-  } catch (err) {
-    fastify.log.error({ err }, 'Error releasing stale tasks');
-  }
-}, 60_000);
+const schedulers = startAllSchedulers(fastify);
 
-// Clean up presence entries that have not been seen for 60s
-const presenceCleanupInterval = startPresenceCleanup(60_000);
-
-// Detect tasks that have passed their due date or SLA deadline and emit overdue events
-const overdueCheckInterval = setInterval(() => {
-  try {
-    const db = getDb();
-    const nowSql = nowExpr();
-    const overdueRows = db.select({ id: tasks.id, boardId: features.boardId })
-      .from(tasks)
-      .innerJoin(features, eq(tasks.featureId, features.id))
-      .where(
-        and(
-          notInArray(tasks.status, ['done', 'approved', 'failed']),
-          or(sql`${features.dueAt} < ${nowSql}`, sql`${features.slaDeadlineAt} < ${nowSql}`)
-        )
-      )
-      .all();
-    if (overdueRows.length > 0) {
-      const now = new Date().toISOString();
-      for (const row of overdueRows) {
-        sseBroadcaster.publish(row.boardId, {
-          type: 'task.overdue',
-          data: { taskId: row.id, boardId: row.boardId, detectedAt: now },
-        });
-      }
-    }
-  } catch (err) {
-    fastify.log.error({ err }, 'Error checking overdue tasks');
-  }
-}, 60_000);
-
-// Process pending retry tasks (rejected tasks with next_retry_at <= now)
-const taskRetryInterval = startTaskRetryProcessor(30_000);
-
-// Periodically scan all boards for anomalies
-const anomalyScanInterval = setInterval(() => {
-  try {
-    scanAllBoards();
-  } catch (err) {
-    fastify.log.error({ err }, 'Error scanning for anomalies');
-  }
-}, 5 * 60_000);
-
-// Daily audit log archival — archive old events for all boards
-const auditArchivalInterval = setInterval(() => {
-  try {
-    const results = archiveAllBoards();
-    if (results.length > 0) {
-      fastify.log.info({ results }, 'Audit archival completed');
-    }
-  } catch (err) {
-    fastify.log.error({ err }, 'Error archiving old events');
-  }
-}, 24 * 60 * 60_000);
-
-// Graceful shutdown — persist DB immediately on SIGTERM/SIGINT, then exit
 const shutdown = async () => {
+  await fastify.close();
   process.exit(0);
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 fastify.addHook('onClose', async () => {
-  clearInterval(staleTaskInterval);
-  clearInterval(presenceCleanupInterval);
-  clearInterval(overdueCheckInterval);
-  clearInterval(taskRetryInterval);
-  clearInterval(anomalyScanInterval);
-  clearInterval(auditArchivalInterval);
+  schedulers.stop();
 });
 
 await initDb();

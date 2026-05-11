@@ -28,6 +28,7 @@ import type {
 import { agentAuth, humanAuth } from '../../middleware/auth.js';
 import { authorizeTaskAction, getPrincipalFromRequest } from '../../middleware/taskAuth.js';
 import type { Task, Artifact } from '../../models/index.js';
+import { notFound, unauthorized, forbidden, conflict, badRequest, internalError, unprocessableEntity } from '../../errors.js';
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -38,43 +39,37 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
-      const agentId = request.agent!.id;
       if (!request.agent) {
-        reply.code(401).send({ error: 'Agent authentication required' });
-        return;
+        throw unauthorized('Agent authentication required');
       }
+      const agentId = request.agent.id;
 
       if (task.requiredDomain && request.agent.domain !== task.requiredDomain && request.agent.domain !== 'fullstack') {
-        reply.code(403).send({ error: 'Domain mismatch' });
-        return;
+        throw forbidden('Domain mismatch');
       }
 
       if (task.requiredCapabilities && task.requiredCapabilities.length > 0) {
         const agentCaps = new Set((request.agent.capabilities || []).map(c => c.toLowerCase()));
         const missing = (task.requiredCapabilities as string[]).filter(c => !agentCaps.has(c.toLowerCase()));
         if (missing.length > 0) {
-          reply.code(403).send({ error: 'Capability mismatch', missingCapabilities: missing });
-          return;
+          throw forbidden('Capability mismatch', undefined, { missingCapabilities: missing });
         }
       }
 
       if (task.delegatedToAgentId === agentId && (task.status === 'claimed' || task.status === 'in_progress')) {
         const result = taskService.claimDelegatedTask(request.params.id, agentId);
         if (!result.success) {
-          reply.code(409).send({ error: result.reason, message: result.message });
-          return;
+          throw conflict(result.reason, { message: result.message });
         }
         return { task: result.task };
       }
 
       const result = taskService.claimTask(request.params.id, agentId);
       if (!result.success) {
-        reply.code(409).send({ error: result.reason, missingCapabilities: result.missingCapabilities });
-        return;
+        throw conflict(result.reason, { missingCapabilities: result.missingCapabilities });
       }
       return { task: result.task };
     }
@@ -86,22 +81,19 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const agentId = request.agent!.id;
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'start');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const result = taskService.startTask(request.params.id, agentId);
       if (!result) {
-        reply.code(409).send({ error: 'Cannot start task in current state' });
-        return;
+        throw conflict('Cannot start task in current state');
       }
       return { task: result };
     }
@@ -113,23 +105,20 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'approve');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const reviewerId = request.user!.id;
       const approved = taskService.approveTask(request.params.id, reviewerId);
 
       if (!approved) {
-        reply.code(400).send({ error: 'Task cannot be approved in current state' });
-        return;
+        throw badRequest('Task cannot be approved in current state');
       }
       return { task: approved };
     }
@@ -141,15 +130,13 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'reject');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const parsed = request.body;
@@ -157,8 +144,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const rejected = taskService.rejectTask(request.params.id, reviewerId, parsed.reason);
 
       if (!rejected) {
-        reply.code(400).send({ error: 'Task cannot be rejected in current state' });
-        return;
+        throw badRequest('Task cannot be rejected in current state');
       }
       return { task: rejected };
     }
@@ -170,15 +156,13 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'release');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const actorId = request.agent!.id;
@@ -186,8 +170,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const released = taskService.releaseTask(request.params.id, actorId, parsed.reason ?? '');
 
       if (!released) {
-        reply.code(409).send({ error: 'Cannot release task in current state' });
-        return;
+        throw conflict('Cannot release task in current state');
       }
       return { task: released };
     }
@@ -199,15 +182,13 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'fail');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const agentId = request.agent!.id;
@@ -220,8 +201,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       );
 
       if (!failed) {
-        reply.code(409).send({ error: 'Cannot fail task in current state' });
-        return;
+        throw conflict('Cannot fail task in current state');
       }
       return { task: failed };
     }
@@ -233,15 +213,13 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'submit');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const agentId = request.agent!.id;
@@ -255,12 +233,10 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       );
 
       if (!submitted.task) {
-        const statusCode = submitted.error === 'QUALITY_GATES_NOT_MET' ? 422 : 409;
-        reply.code(statusCode).send({
-          error: submitted.error ?? 'Cannot submit task in current state',
-          missingQualityItems: submitted.missingQualityItems,
-        });
-        return;
+        if (submitted.error === 'QUALITY_GATES_NOT_MET') {
+          throw unprocessableEntity(submitted.error ?? 'Cannot submit task in current state', 'QUALITY_GATES_NOT_MET', { missingQualityItems: submitted.missingQualityItems });
+        }
+        throw conflict(submitted.error ?? 'Cannot submit task in current state', { missingQualityItems: submitted.missingQualityItems });
       }
 
       return {
@@ -281,15 +257,13 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'complete');
       if (!auth.allowed) {
-        reply.code(403).send({ error: auth.reason });
-        return;
+        throw forbidden(auth.reason);
       }
 
       const agentId = request.agent!.id;
@@ -303,15 +277,24 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       );
 
       if (!result.task) {
-        const statusCode = result.error === 'TASK_BLOCKED_BY_DEPENDENCIES' ? 422
-          : result.error === 'QUALITY_GATES_NOT_MET' ? 422
-          : 409;
-        reply.code(statusCode).send({
-          error: result.error ?? 'Cannot complete task in current state. Task must be in submitted status.',
-          blockedBy: result.blockedBy,
-          missingQualityItems: result.missingQualityItems,
-        });
-        return;
+        if (result.error === 'TASK_BLOCKED_BY_DEPENDENCIES') {
+          throw unprocessableEntity(
+            result.error ?? 'Cannot complete task in current state. Task must be in submitted status.',
+            'TASK_BLOCKED',
+            { blockedBy: result.blockedBy }
+          );
+        }
+        if (result.error === 'QUALITY_GATES_NOT_MET') {
+          throw unprocessableEntity(
+            result.error ?? 'Cannot complete task in current state. Task must be in submitted status.',
+            'QUALITY_GATES_NOT_MET',
+            { missingQualityItems: result.missingQualityItems }
+          );
+        }
+        throw conflict(
+          result.error ?? 'Cannot complete task in current state. Task must be in submitted status.',
+          { blockedBy: result.blockedBy, missingQualityItems: result.missingQualityItems }
+        );
       }
 
       return {
@@ -334,19 +317,16 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     async (request, reply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       if (task.status !== 'failed') {
-        reply.code(400).send({ error: 'Task must be in failed status to retry' });
-        return;
+        throw badRequest('Task must be in failed status to retry');
       }
 
       const retried = retryService.executeRetry(task);
       if (!retried) {
-        reply.code(500).send({ error: 'Failed to execute retry' });
-        return;
+        throw internalError('Failed to execute retry');
       }
       return { task: retried };
     }
@@ -357,11 +337,10 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
     { schema: { params: taskParamsSchema }, preHandler: agentAuth },
     async (request, reply) => {
       if (!request.agent) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
-      reply.code(403).send({ error: 'Unblock is an internal-only action' });
+      throw forbidden('Unblock is an internal-only action');
     }
   );
 }

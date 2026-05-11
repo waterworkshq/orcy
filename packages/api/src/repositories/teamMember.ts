@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { teamMembers, boards } from '../db/schema.js';
+import { teamMembers, boards } from '../db/schema/index.js';
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 

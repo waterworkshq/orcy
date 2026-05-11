@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { chatIntegrations } from '../db/schema.js';
+import { chatIntegrations } from '../db/schema/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 

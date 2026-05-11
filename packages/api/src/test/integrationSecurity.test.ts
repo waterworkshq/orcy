@@ -52,7 +52,7 @@ vi.mock('drizzle-orm', () => ({
   count: () => 'count',
 }));
 
-vi.mock('../db/schema.js', () => ({
+vi.mock('../db/schema/index.js', () => ({
   boards: { id: 'id', name: 'name', codeReviewSettings: 'codeReviewSettings', ciCdSettings: 'ciCdSettings' },
   tasks: { id: 'id', boardId: 'boardId', title: 'title', status: 'status', artifacts: 'artifacts', featureId: 'featureId' },
   agents: { id: 'id', name: 'name' },

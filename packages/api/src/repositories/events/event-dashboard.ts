@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { taskEvents, tasks, features, agents, columns, boards, webhookDeliveries } from '../../db/schema.js';
+import { taskEvents, tasks, features, agents, columns, boards, webhookDeliveries } from '../../db/schema/index.js';
 import { eq, and, isNotNull, sql, count, desc, asc, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { cycleTimeMinutes } from '../../db/dialect-helpers.js';

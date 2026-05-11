@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskDependencies, featureDependencies, tasks, features } from '../db/schema.js';
+import { taskDependencies, featureDependencies, tasks, features } from '../db/schema/index.js';
 import { eq, and, notInArray, inArray } from 'drizzle-orm';
 import type { DependencyValidationResult } from '../models/index.js';
 import { logger } from '../lib/logger.js';

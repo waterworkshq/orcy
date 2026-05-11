@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { features, featureDependencies, featureEvents, featureWatchers, featureTemplates, tasks } from '../db/schema.js';
+import { features, featureDependencies, featureEvents, featureWatchers, featureTemplates, tasks } from '../db/schema/index.js';
 import type { FeatureStatus, FeatureEventAction, Feature, FeatureWatcher, FeatureEvent, FeatureTemplate } from '../models/index.js';
 
 describe('Schema: Features Table', () => {

@@ -6,7 +6,7 @@ import * as taskRepo from '../repositories/task.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as eventRepo from '../repositories/event.js';
-import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema.js';
+import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import {
   assignTask,

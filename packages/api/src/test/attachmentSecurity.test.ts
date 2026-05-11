@@ -9,6 +9,7 @@ import * as attachmentRepo from '../repositories/attachment.js';
 import { attachmentRoutes } from '../routes/attachments.js';
 import { authorizeAttachmentAccess } from '../middleware/attachmentAuth.js';
 import { getPrincipalFromRequest } from '../middleware/taskAuth.js';
+import { isAppError } from '../errors.js';
 
 function mockReqRes(overrides: Record<string, any> = {}) {
   const request: any = {
@@ -25,8 +26,22 @@ function mockReqRes(overrides: Record<string, any> = {}) {
     code: vi.fn((c: number) => { sent.code = c; return reply; }),
     send: vi.fn((b: any) => { sent.body = b; return reply; }),
     header: vi.fn(() => reply),
+    status: vi.fn((c: number) => { sent.code = c; return reply; }),
   };
   return { request, reply, sent };
+}
+
+async function callHandler(handler: any, request: any, reply: any, sent: any): Promise<void> {
+  try {
+    await handler(request, reply);
+  } catch (err: unknown) {
+    if (isAppError(err)) {
+      sent.code = err.statusCode;
+      sent.body = { error: err.message, code: err.code, details: err.details };
+      return;
+    }
+    throw err;
+  }
 }
 
 type RouteHandler = (req: any, reply: any) => Promise<void>;
@@ -317,14 +332,12 @@ describe('Attachment Security', () => {
       });
 
       const handler = findRoute(routes, 'DELETE', '/attachments/:id');
-
       const { request, reply, sent } = mockReqRes({
         params: { id: attachment.id },
-        agent: { id: agent2Id, name: 'agent-b' },
+        agent: { id: agent2Id, name: 'agent-b', domain: 'backend' },
       });
 
-      await handler(request, reply);
-
+      await callHandler(handler, request, reply, sent);
       expect(sent.code).toBe(403);
       expect(attachmentRepo.getAttachmentById(attachment.id)).not.toBeNull();
     });

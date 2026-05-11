@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { taskEvents } from '../../db/schema.js';
+import { taskEvents } from '../../db/schema/index.js';
 import { eq, and, count, asc, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { TaskEvent, ActorType, EventAction, TaskStatus } from '../../models/index.js';

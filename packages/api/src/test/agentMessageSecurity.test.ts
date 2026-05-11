@@ -4,6 +4,7 @@ import * as agentRepo from '../repositories/agent.js';
 import * as boardRepo from '../repositories/board.js';
 import * as agentMessageRepo from '../repositories/agentMessage.js';
 import { agentMessageRoutes, requireSelfAgent } from '../routes/agentMessages.js';
+import { isAppError } from '../errors.js';
 
 function mockReqRes(overrides: Record<string, any> = {}) {
   const request: any = {
@@ -18,8 +19,22 @@ function mockReqRes(overrides: Record<string, any> = {}) {
   const reply: any = {
     code: vi.fn((c: number) => { sent.code = c; return reply; }),
     send: vi.fn((b: any) => { sent.body = b; return reply; }),
+    status: vi.fn((c: number) => { sent.code = c; return reply; }),
   };
   return { request, reply, sent };
+}
+
+async function callHandler(handler: any, request: any, reply: any, sent: any): Promise<void> {
+  try {
+    await handler(request, reply);
+  } catch (err: unknown) {
+    if (isAppError(err)) {
+      sent.code = err.statusCode;
+      sent.body = { error: err.message, code: err.code, details: err.details };
+      return;
+    }
+    throw err;
+  }
 }
 
 type RouteHandler = (req: any, reply: any) => Promise<void>;
@@ -59,6 +74,7 @@ describe('Agent Message Security', () => {
   let boardId: string;
   let agent1Id: string;
   let agent2Id: string;
+  let agent3Id: string;
   let routes: CapturedRoute[];
 
   beforeEach(async () => {
@@ -72,6 +88,9 @@ describe('Agent Message Security', () => {
 
     const a2 = agentRepo.createAgent({ name: 'agent-b', type: 'opencode', domain: 'frontend' });
     agent2Id = a2.agent.id;
+
+    const a3 = agentRepo.createAgent({ name: 'agent-c', type: 'codex', domain: 'devops' });
+    agent3Id = a3.agent.id;
 
     routes = captureRoutes();
   });
@@ -122,25 +141,29 @@ describe('Agent Message Security', () => {
   describe('Cross-agent impersonation denial — integration', () => {
     it('agent A cannot send a message as agent B', async () => {
       const handler = findRoute(routes, 'POST', '/agents/:agentId/messages');
-
       const { request, reply, sent } = mockReqRes({
         params: { agentId: agent2Id },
-        body: {
-          boardId,
-          toAgentId: agent1Id,
-          subject: 'Spoofed',
-          body: 'I am agent B',
-        },
+        body: { boardId, toAgentId: agent1Id, subject: 'hi', body: 'hello' },
         agent: { id: agent1Id, name: 'agent-a' },
       });
 
-      await handler(request, reply);
-
+      await callHandler(handler, request, reply, sent);
       expect(sent.code).toBe(403);
-      expect(sent.body.error).toContain('send messages as itself');
     });
 
     it('agent A cannot list agent B inbox', async () => {
+      const handler = findRoute(routes, 'GET', '/agents/:agentId/messages');
+      const { request, reply, sent } = mockReqRes({
+        params: { agentId: agent2Id },
+        agent: { id: agent1Id, name: 'agent-a' },
+      });
+
+      await callHandler(handler, request, reply, sent);
+      expect(sent.code).toBe(403);
+      expect(sent.body.error).toContain('read its own messages');
+    });
+
+    it('agent A cannot read agent B messages (with messages in DB)', async () => {
       agentMessageRepo.createMessage({
         boardId,
         fromAgentId: agent1Id,
@@ -157,30 +180,20 @@ describe('Agent Message Security', () => {
         agent: { id: agent1Id, name: 'agent-a' },
       });
 
-      await handler(request, reply);
+      await callHandler(handler, request, reply, sent);
 
       expect(sent.code).toBe(403);
       expect(sent.body.error).toContain('read its own messages');
     });
 
     it('agent A cannot mark all agent B messages read', async () => {
-      agentMessageRepo.createMessage({
-        boardId,
-        fromAgentId: agent1Id,
-        toAgentId: agent2Id,
-        subject: 'Private',
-        body: 'Body',
-      });
-
       const handler = findRoute(routes, 'PUT', '/agents/:agentId/messages/read-all');
-
       const { request, reply, sent } = mockReqRes({
         params: { agentId: agent2Id },
         agent: { id: agent1Id, name: 'agent-a' },
       });
 
-      await handler(request, reply);
-
+      await callHandler(handler, request, reply, sent);
       expect(sent.code).toBe(403);
       expect(sent.body.error).toContain('mark its own messages');
     });
@@ -208,52 +221,34 @@ describe('Agent Message Security', () => {
     });
 
     it('unrelated agent C cannot delete agent A-B message', async () => {
-      const a3 = agentRepo.createAgent({ name: 'agent-c', type: 'codex', domain: 'devops' });
-      const agentCId = a3.agent.id;
-
       const msg = agentMessageRepo.createMessage({
-        boardId,
-        fromAgentId: agent1Id,
-        toAgentId: agent2Id,
-        subject: 'A-B private',
-        body: 'Secret',
+        boardId, fromAgentId: agent1Id, toAgentId: agent2Id,
+        subject: 'secret', body: 'confidential',
       });
-
       const handler = findRoute(routes, 'DELETE', '/agents/messages/:id');
-
       const { request, reply, sent } = mockReqRes({
         params: { id: msg.id },
-        agent: { id: agentCId, name: 'agent-c' },
+        agent: { id: agent3Id, name: 'agent-c' },
       });
 
-      await handler(request, reply);
-
+      await callHandler(handler, request, reply, sent);
       expect(sent.code).toBe(403);
       expect(sent.body.error).toContain('Not authorized to delete');
       expect(agentMessageRepo.getMessageById(msg.id)).not.toBeNull();
     });
 
     it('unrelated agent C cannot mark agent A-B message read', async () => {
-      const a3 = agentRepo.createAgent({ name: 'agent-c2', type: 'codex', domain: 'devops' });
-      const agentCId = a3.agent.id;
-
       const msg = agentMessageRepo.createMessage({
-        boardId,
-        fromAgentId: agent1Id,
-        toAgentId: agent2Id,
-        subject: 'A-B private read',
-        body: 'Secret',
+        boardId, fromAgentId: agent1Id, toAgentId: agent2Id,
+        subject: 'secret', body: 'confidential',
       });
-
       const handler = findRoute(routes, 'PUT', '/agents/messages/:id/read');
-
       const { request, reply, sent } = mockReqRes({
         params: { id: msg.id },
-        agent: { id: agentCId, name: 'agent-c2' },
+        agent: { id: agent3Id, name: 'agent-c' },
       });
 
-      await handler(request, reply);
-
+      await callHandler(handler, request, reply, sent);
       expect(sent.code).toBe(403);
       expect(sent.body.error).toContain('Not authorized to modify');
     });

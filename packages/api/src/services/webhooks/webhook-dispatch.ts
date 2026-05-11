@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { webhookSubscriptions } from '../../db/schema.js';
+import { webhookSubscriptions } from '../../db/schema/index.js';
 import { eq, or, and, isNull } from 'drizzle-orm';
 import type { SSEEvent } from '../../models/index.js';
 import { v4 as uuid } from 'uuid';

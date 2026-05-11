@@ -7,6 +7,7 @@ import * as taskService from '../services/tasks/index.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
 import { logger } from '../lib/logger.js';
+import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
 
 function resolveAgentName(name: string): string | null {
   const agent = agentRepo.getAgentByName(name);
@@ -30,25 +31,21 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       const body = request.body as { signalType?: string; subject?: string; body?: string; taskId?: string; toAgentId?: string; toAgentName?: string; replyToId?: string; metadata?: Record<string, unknown> };
 
       if (!body.signalType || !body.subject) {
-        reply.code(400).send({ error: 'Missing required fields: signalType, subject' });
-        return;
+        throw badRequest('Missing required fields: signalType, subject');
       }
 
       if (!VALID_SIGNAL_TYPES.includes(body.signalType as any)) {
-        reply.code(400).send({ error: `Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}` });
-        return;
+        throw badRequest(`Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
       }
 
       const mission = featureRepo.getFeatureById(missionId);
       if (!mission) {
-        reply.code(404).send({ error: 'Mission not found' });
-        return;
+        throw notFound('Mission not found');
       }
 
       const caller = getCallerInfo(request);
       if (!caller) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       let toType: 'human' | 'agent' | undefined;
@@ -60,8 +57,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       } else if (body.toAgentName) {
         const resolved = resolveAgentName(body.toAgentName);
         if (!resolved) {
-          reply.code(404).send({ error: `Agent not found: ${body.toAgentName}` });
-          return;
+          throw notFound(`Agent not found: ${body.toAgentName}`);
         }
         toType = 'agent';
         toId = resolved;
@@ -70,8 +66,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.replyToId) {
         const parent = pulseRepo.getPulseById(body.replyToId);
         if (!parent) {
-          reply.code(404).send({ error: 'Reply target pulse not found' });
-          return;
+          throw notFound('Reply target pulse not found');
         }
       }
 
@@ -137,8 +132,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const mission = featureRepo.getFeatureById(missionId);
       if (!mission) {
-        reply.code(404).send({ error: 'Mission not found' });
-        return;
+        throw notFound('Mission not found');
       }
 
       return pulseRepo.getPulsesByMission(missionId, {
@@ -159,14 +153,12 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const mission = featureRepo.getFeatureById(missionId);
       if (!mission) {
-        reply.code(404).send({ error: 'Mission not found' });
-        return;
+        throw notFound('Mission not found');
       }
 
       const caller = getCallerInfo(request);
       if (!caller) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       return pulseRepo.getPulseDigest(missionId, caller.type, caller.id);
@@ -181,8 +173,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const caller = getCallerInfo(request);
       if (!caller) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       return pulseRepo.getPulsesByTarget(caller.type, caller.id, {
@@ -201,19 +192,16 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const pulse = pulseRepo.getPulseById(id);
       if (!pulse) {
-        reply.code(404).send({ error: 'Pulse not found' });
-        return;
+        throw notFound('Pulse not found');
       }
 
       const caller = getCallerInfo(request);
       if (!caller) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       if (pulse.fromId !== caller.id) {
-        reply.code(403).send({ error: 'Only the author can delete a signal' });
-        return;
+        throw forbidden('Only the author can delete a signal');
       }
 
       pulseRepo.deletePulse(id);
@@ -229,8 +217,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const pulse = pulseRepo.getPulseById(id);
       if (!pulse) {
-        reply.code(404).send({ error: 'Pulse not found' });
-        return;
+        throw notFound('Pulse not found');
       }
 
       return { replies: pulseRepo.getReplies(id) };

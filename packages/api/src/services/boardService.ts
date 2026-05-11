@@ -7,6 +7,7 @@ import * as templateRepo from '../repositories/template.js';
 import * as eventRepo from '../repositories/event.js';
 import * as savedFilterRepo from '../repositories/savedFilter.js';
 import { getWebhookSubscriptions, createWebhookSubscription } from './webhookDispatcher.js';
+import { badRequest } from '../errors.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as pluginManager from '../plugins/pluginManager.js';
 import { rebuildCache as rebuildBoardSecretCache } from './boardSecretCache.js';
@@ -307,7 +308,7 @@ export function importBoard(
   const warnings: string[] = [];
 
   if (data.version !== 1 && data.version !== 2) {
-    throw new Error(`Unsupported export version: ${data.version}`);
+    throw badRequest(`Unsupported export version: ${data.version}`);
   }
 
   const { board: boardData } = data;

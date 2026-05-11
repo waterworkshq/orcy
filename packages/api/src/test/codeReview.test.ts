@@ -131,7 +131,7 @@ vi.mock('drizzle-orm', () => ({
   count: () => 'count',
 }));
 
-vi.mock('../db/schema.js', () => ({
+vi.mock('../db/schema/index.js', () => ({
   pullRequests: {
     id: 'id',
     taskId: 'taskId',

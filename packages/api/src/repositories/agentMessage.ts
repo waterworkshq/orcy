@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { agentMessages } from '../db/schema.js';
+import { agentMessages } from '../db/schema/index.js';
 import { eq, and, isNull, sql, count } from 'drizzle-orm';
 
 import { v4 as uuid } from 'uuid';

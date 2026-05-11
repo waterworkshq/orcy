@@ -6,7 +6,7 @@ vi.mock('../db/index.js', () => ({
   closeDb: vi.fn(),
 }));
 
-vi.mock('../db/schema.js', () => ({
+vi.mock('../db/schema/index.js', () => ({
   taskWatchers: {},
 }));
 

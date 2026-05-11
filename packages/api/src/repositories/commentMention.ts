@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
-import { taskCommentMentions } from '../db/schema.js';
+import { taskCommentMentions } from '../db/schema/index.js';
 import { eq, inArray, asc } from 'drizzle-orm';
 import type { TaskCommentMention } from '../models/index.js';
 

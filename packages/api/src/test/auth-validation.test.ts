@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 import { hashApiKey } from '../repositories/agent.js';
 import { initTestDb, closeDb } from '../db/index.js';
 import { authRoutes } from '../routes/auth.js';
-import { users } from '../db/schema.js';
+import { users } from '../db/schema/index.js';
 import { sql } from 'drizzle-orm';
 
 const JWT_SECRET = 'dev-secret-change-in-production';

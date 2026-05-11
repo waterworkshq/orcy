@@ -9,6 +9,7 @@ import * as gitWorktreeService from '../../services/gitWorktreeService.js';
 import { eventsQuerySchema } from '../../models/schemas.js';
 import type { EventsQueryInput } from '../../models/schemas.js';
 import { agentAuth, humanAuth, agentOrHumanAuth } from '../../middleware/auth.js';
+import { notFound, badRequest, serviceUnavailable, internalError } from '../../errors.js';
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -33,13 +34,11 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       if (!task.description || task.description.trim().length === 0) {
-        reply.code(400).send({ error: 'Add a description before decomposing' });
-        return;
+        throw badRequest('Add a description before decomposing');
       }
 
       try {
@@ -48,15 +47,14 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Decomposition failed';
         if (message.includes('not configured')) {
-          reply.code(503).send({ error: message });
+          throw serviceUnavailable(message);
         } else if (message.includes('not found')) {
-          reply.code(404).send({ error: message });
+          throw notFound(message);
         } else if (message.includes('description')) {
-          reply.code(400).send({ error: message });
+          throw badRequest(message);
         } else {
-          reply.code(500).send({ error: message });
+          throw internalError(message);
         }
-        return;
       }
     }
   );
@@ -67,8 +65,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
 
       const boardId = taskRepo.getBoardIdForTask(task.id);
@@ -86,8 +83,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user?.id;
       const result = await taskService.getTaskDetails(request.params.id, userId);
       if (!result) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
       return result;
     }

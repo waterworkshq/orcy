@@ -17,6 +17,7 @@ import {
 } from '../models/schemas.js';
 import { agentOrHumanAuth, agentAuth, humanAuth } from '../middleware/auth.js';
 import { requireBoard } from './middleware/preHandlers.js';
+import { badRequest, notFound, forbidden, conflict, internalError, AppError } from '../errors.js';
 
 const featureParamsSchema = z.object({ boardId: z.string() });
 const idParamsSchema = z.object({ id: z.string() });
@@ -55,8 +56,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
       const parsed = request.query;
       const board = boardRepo.getBoardById(request.params.boardId);
       if (!board) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
 
       const result = featureService.listFeatures(request.params.boardId, {
@@ -77,8 +77,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const feature = featureService.getFeatureWithProgress(request.params.id);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
       return { feature };
     }
@@ -90,8 +89,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const feature = featureService.getFeatureWithProgress(request.params.id);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
 
       const tasks = taskRepo.getTasksByFeatureId(request.params.id);
@@ -126,25 +124,24 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
 
       const feature = featureRepo.getFeatureById(request.params.id);
       if (feature?.isArchived) {
-        reply.code(403).send({ error: 'Cannot modify an archived feature' });
-        return;
+        throw forbidden('Cannot modify an archived feature');
       }
 
       const result = featureService.updateFeature(request.params.id, parsed, actorId);
       if (!result.success) {
         if (result.notFound) {
-          reply.code(404).send({ error: 'Feature not found' });
+          throw notFound('Feature not found');
         } else if (result.versionMismatch) {
-          reply.code(409)
-            .header('Retry-After', '5')
-            .header('X-Current-Version', String(result.currentVersion))
-            .send({
-              error: 'Version conflict',
-              currentVersion: result.currentVersion,
-              yourVersion: parsed.version,
-            });
+          reply.header('Retry-After', '5');
+          reply.header('X-Current-Version', String(result.currentVersion));
+          throw new AppError(409, 'VERSION_CONFLICT', 'Version conflict', {
+            currentVersion: result.currentVersion,
+            yourVersion: parsed.version,
+          });
+        } else if (result.archived) {
+          throw forbidden('Cannot modify an archived feature');
         }
-        return;
+        throw internalError('Failed to update feature');
       }
       return { feature: result.feature };
     }
@@ -157,10 +154,10 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const result = featureService.archiveFeature(request.params.id, actorId);
       if (!result.success) {
-        if (result.reason === 'not_found') return reply.code(404).send({ error: 'Feature not found' });
-        if (result.reason === 'not_done') return reply.code(400).send({ error: 'Only completed features can be archived' });
-        if (result.reason === 'already_archived') return reply.code(400).send({ error: 'Feature is already archived' });
-        return reply.code(500).send({ error: 'Failed to archive feature' });
+        if (result.reason === 'not_found') throw notFound('Feature not found');
+        if (result.reason === 'not_done') throw badRequest('Only completed features can be archived');
+        if (result.reason === 'already_archived') throw badRequest('Feature is already archived');
+        throw internalError('Failed to archive feature');
       }
       return { feature: result.feature };
     }
@@ -173,9 +170,9 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const result = featureService.unarchiveFeature(request.params.id, actorId);
       if (!result.success) {
-        if (result.reason === 'not_found') return reply.code(404).send({ error: 'Feature not found' });
-        if (result.reason === 'not_archived') return reply.code(400).send({ error: 'Feature is not archived' });
-        return reply.code(500).send({ error: 'Failed to unarchive feature' });
+        if (result.reason === 'not_found') throw notFound('Feature not found');
+        if (result.reason === 'not_archived') throw badRequest('Feature is not archived');
+        throw internalError('Failed to unarchive feature');
       }
       return { feature: result.feature };
     }
@@ -188,11 +185,11 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
       const result = featureService.deleteFeature(request.params.id);
       if (!result.success) {
         if (result.reason === 'not_found') {
-          reply.code(404).send({ error: 'Feature not found' });
+          throw notFound('Feature not found');
         } else if (result.reason === 'has_dependents') {
-          reply.code(409).send({ error: 'Feature has dependent features', dependents: true });
+          throw conflict('Feature has dependent features', { dependents: true });
         }
-        return;
+        throw internalError('Failed to delete feature');
       }
       reply.code(204).send();
     }
@@ -208,8 +205,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
 
       const feature = featureService.moveFeatureToColumn(request.params.id, parsed.columnId, actorId, actorType);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
       return { feature };
     }
@@ -221,8 +217,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const feature = featureRepo.getFeatureById(request.params.id);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
 
       const tasks = taskRepo.getTasksByFeatureId(request.params.id);
@@ -237,12 +232,10 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
       const parsed = request.body;
       const feature = featureRepo.getFeatureById(request.params.id);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
       if (feature.isArchived) {
-        reply.code(403).send({ error: 'Cannot add tasks to an archived feature' });
-        return;
+        throw forbidden('Cannot add tasks to an archived feature');
       }
 
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
@@ -269,8 +262,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const feature = featureRepo.getFeatureById(request.params.id);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
 
       const tasks = taskRepo.getTasksByFeatureId(request.params.id);
@@ -295,30 +287,15 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const feature = featureRepo.getFeatureById(request.params.id);
       if (!feature) {
-        reply.code(404).send({ error: 'Feature not found' });
-        return;
+        throw notFound('Feature not found');
       }
 
       if (!feature.description || feature.description.trim().length === 0) {
-        reply.code(400).send({ error: 'Add a description before decomposing' });
-        return;
+        throw badRequest('Add a description before decomposing');
       }
 
-      try {
-        const result = await decompositionService.decomposeFeature(request.params.id);
-        return result;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Decomposition failed';
-        if (message.includes('not configured')) {
-          reply.code(503).send({ error: message });
-        } else if (message.includes('not found')) {
-          reply.code(404).send({ error: message });
-        } else if (message.includes('description')) {
-          reply.code(400).send({ error: message });
-        } else {
-          reply.code(500).send({ error: message });
-        }
-      }
+      const result = await decompositionService.decomposeFeature(request.params.id);
+      return result;
     }
   );
 }

@@ -7,6 +7,7 @@ import { verifySlackRequest, verifySlackRequestWithTimestamp, parseSlackCommand 
 import { verifyDiscordRequest } from '../services/discordService.js';
 import { executeCommand, sendTestMessage } from '../services/chatService.js';
 import { isRemotePosture, validateOutboundUrl } from '../config/integrationSecurity.js';
+import { badRequest, notFound, unauthorized, internalError } from '../errors.js';
 
 interface CreateIntegrationBody {
   provider: 'slack' | 'discord';
@@ -37,8 +38,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       const { boardId } = request.params;
       const board = getBoardById(boardId);
       if (!board) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       const integrations = getIntegrationsByBoard(boardId);
       return integrations.map(i => ({
@@ -56,32 +56,27 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       const { provider, webhookUrl, channelId, botToken, events } = request.body;
 
       if (!provider || !webhookUrl) {
-        reply.code(400).send({ error: 'provider and webhookUrl are required' });
-        return;
+        throw badRequest('provider and webhookUrl are required');
       }
 
       if (provider !== 'slack' && provider !== 'discord') {
-        reply.code(400).send({ error: 'provider must be slack or discord' });
-        return;
+        throw badRequest('provider must be slack or discord');
       }
 
       const urlValidation = await validateOutboundUrl(webhookUrl);
       if (!urlValidation.valid) {
-        reply.code(400).send({ error: `Unsafe webhook URL: ${urlValidation.reason}` });
-        return;
+        throw badRequest(`Unsafe webhook URL: ${urlValidation.reason}`);
       }
 
       const board = getBoardById(boardId);
       if (!board) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
 
       if (events) {
         for (const event of events) {
           if (!VALID_CHAT_EVENTS.includes(event)) {
-            reply.code(400).send({ error: `Invalid event type: ${event}` });
-            return;
+            throw badRequest(`Invalid event type: ${event}`);
           }
         }
       }
@@ -108,15 +103,13 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
       const existing = getIntegrationById(id);
       if (!existing) {
-        reply.code(404).send({ error: 'Integration not found' });
-        return;
+        throw notFound('Integration not found');
       }
 
       if (updates.events) {
         for (const event of updates.events) {
           if (!VALID_CHAT_EVENTS.includes(event)) {
-            reply.code(400).send({ error: `Invalid event type: ${event}` });
-            return;
+            throw badRequest(`Invalid event type: ${event}`);
           }
         }
       }
@@ -124,15 +117,13 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       if (updates.webhookUrl) {
         const urlValidation = await validateOutboundUrl(updates.webhookUrl);
         if (!urlValidation.valid) {
-          reply.code(400).send({ error: `Unsafe webhook URL: ${urlValidation.reason}` });
-          return;
+          throw badRequest(`Unsafe webhook URL: ${urlValidation.reason}`);
         }
       }
 
       const success = updateIntegration(id, updates);
       if (!success) {
-        reply.code(500).send({ error: 'Failed to update integration' });
-        return;
+        throw internalError('Failed to update integration');
       }
 
       const updated = getIntegrationById(id)!;
@@ -150,13 +141,11 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       const { id } = request.params;
       const existing = getIntegrationById(id);
       if (!existing) {
-        reply.code(404).send({ error: 'Integration not found' });
-        return;
+        throw notFound('Integration not found');
       }
       const success = deleteIntegration(id);
       if (!success) {
-        reply.code(500).send({ error: 'Failed to delete integration' });
-        return;
+        throw internalError('Failed to delete integration');
       }
       return { success: true };
     }
@@ -169,8 +158,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       const { id } = request.params;
       const integration = getIntegrationById(id);
       if (!integration) {
-        reply.code(404).send({ error: 'Integration not found' });
-        return;
+        throw notFound('Integration not found');
       }
 
       const result = await sendTestMessage(integration.webhookUrl, integration.provider);
@@ -189,12 +177,10 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       if (signingSecret) {
         const result = verifySlackRequestWithTimestamp(signature, timestamp, rawBody, signingSecret);
         if (!result.valid) {
-          reply.code(401).send({ error: result.reason ?? 'Invalid signature' });
-          return;
+          throw unauthorized(result.reason ?? 'Invalid signature');
         }
       } else if (isRemotePosture()) {
-        reply.code(401).send({ error: 'Slack signing secret not configured' });
-        return;
+        throw unauthorized('Slack signing secret not configured');
       }
 
       const payload = request.body as {
@@ -236,12 +222,10 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
 
       if (publicKey) {
         if (!verifyDiscordRequest(signature, timestamp, rawBody, publicKey)) {
-          reply.code(401).send({ error: 'Invalid signature' });
-          return;
+          throw unauthorized('Invalid signature');
         }
       } else if (isRemotePosture()) {
-        reply.code(401).send({ error: 'Discord public key not configured' });
-        return;
+        throw unauthorized('Discord public key not configured');
       }
 
       const payload = request.body as {
@@ -276,7 +260,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
         return;
       }
 
-      reply.code(400).send({ error: 'Unknown interaction type' });
+      throw badRequest('Unknown interaction type');
     }
   );
 }

@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { pullRequests } from '../db/schema.js';
+import { pullRequests } from '../db/schema/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { PullRequest } from '../models/index.js';

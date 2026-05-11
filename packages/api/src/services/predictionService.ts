@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { tasks, agents, taskEvents, taskDependencies, features } from '../db/schema.js';
+import { tasks, agents, taskEvents, taskDependencies, features } from '../db/schema/index.js';
 import { eq, and, sql, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { dateDayExpr } from '../db/dialect-helpers.js';
 import { priorityOrderExpr } from '../db/sql-helpers.js';

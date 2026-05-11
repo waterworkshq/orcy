@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { notificationPreferences } from '../db/schema.js';
+import { notificationPreferences } from '../db/schema/index.js';
 import { eq, isNull, and } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 

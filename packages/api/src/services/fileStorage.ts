@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync, createReadStream, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
+import { notFound } from '../errors.js';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
@@ -34,7 +35,7 @@ export function getFilePath(storedName: string): string {
 export function readFile(storedName: string): NodeJS.ReadableStream {
   const filePath = getFilePath(storedName);
   if (!existsSync(filePath)) {
-    throw new Error('File not found on disk');
+    throw notFound('File not found on disk');
   }
   return createReadStream(filePath);
 }

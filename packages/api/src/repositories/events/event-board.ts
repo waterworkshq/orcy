@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { taskEvents, tasks, features, agents, columns } from '../../db/schema.js';
+import { taskEvents, tasks, features, agents, columns } from '../../db/schema/index.js';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
 import { computeCycleTimeStats, computeBoardThroughput, getDateThresholds } from './stats-helpers.js';

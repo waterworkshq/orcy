@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as taskRepo from '../../repositories/task.js';
 import * as watcherService from '../../services/watcherService.js';
 import { humanAuth } from '../../middleware/auth.js';
+import { notFound, internalError } from '../../errors.js';
 
 export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { id: string } }>(
@@ -15,9 +16,9 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
       } catch (err) {
         const msg = (err as Error).message;
         if (msg === 'Task not found') {
-          reply.code(404).send({ error: msg });
+          throw notFound(msg);
         } else {
-          reply.code(500).send({ error: msg });
+          throw internalError(msg);
         }
       }
     }
@@ -30,8 +31,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
       const userId = request.user!.id;
       const removed = watcherService.unwatchTask(request.params.id, userId);
       if (!removed) {
-        reply.code(404).send({ error: 'Not watching this task' });
-        return;
+        throw notFound('Not watching this task');
       }
       reply.code(204).send();
     }
@@ -43,8 +43,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
-        reply.code(404).send({ error: 'Task not found' });
-        return;
+        throw notFound('Task not found');
       }
       const watchers = watcherService.getWatchers(request.params.id);
       const isCurrentlyWatching = watcherService.isWatching(request.params.id, request.user!.id);

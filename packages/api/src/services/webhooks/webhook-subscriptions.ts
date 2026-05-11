@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { webhookSubscriptions } from '../../db/schema.js';
+import { webhookSubscriptions } from '../../db/schema/index.js';
 import { eq, or, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { generateSecret } from '../../utils/webhookSigning.js';

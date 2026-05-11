@@ -6,6 +6,7 @@ import * as agentService from '../../services/agentService.js';
 import { delegateTaskSchema } from '../../models/schemas.js';
 import type { DelegateTaskInput } from '../../models/schemas.js';
 import { agentAuth } from '../../middleware/auth.js';
+import { badRequest, notFound, forbidden, conflict } from '../../errors.js';
 
 const taskParamsSchema = z.object({ id: z.string() });
 
@@ -23,8 +24,7 @@ export async function taskDelegationRoutes(fastify: FastifyInstance): Promise<vo
       const parsed = request.body;
       const fromAgentId = request.agent?.id ?? (request.body as { agentId?: string })?.agentId ?? request.user?.id;
       if (!fromAgentId) {
-        reply.code(400).send({ error: 'Agent ID required' });
-        return;
+        throw badRequest('Agent ID required');
       }
 
       const result = taskService.delegateTask(
@@ -36,8 +36,9 @@ export async function taskDelegationRoutes(fastify: FastifyInstance): Promise<vo
 
       if (!result.success) {
         const statusCode = delegateErrorToStatus(result.reason);
-        reply.code(statusCode).send({ error: result.reason, message: result.message });
-        return;
+        if (statusCode === 404) throw notFound(result.reason, { message: result.message });
+        if (statusCode === 403) throw forbidden(result.reason, undefined, { message: result.message });
+        throw conflict(result.reason, { message: result.message });
       }
 
       return { task: result.task };

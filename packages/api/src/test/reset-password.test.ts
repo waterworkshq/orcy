@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 import { initTestDb, closeDb, getDb } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { users } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import { resetPassword, ResetPasswordError } from '../lib/reset-password.js';
 

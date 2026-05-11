@@ -1,7 +1,7 @@
 import * as qualityRepo from '../repositories/qualityGate.js';
 import * as taskRepo from '../repositories/task.js';
 import { getDb } from '../db/index.js';
-import { taskDependencies, tasks } from '../db/schema.js';
+import { taskDependencies, tasks } from '../db/schema/index.js';
 import { eq, and, notInArray, count } from 'drizzle-orm';
 import type { TaskQualityReport, ApprovalStatus } from '../models/index.js';
 

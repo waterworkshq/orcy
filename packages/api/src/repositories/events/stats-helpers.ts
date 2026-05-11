@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { features } from '../../db/schema.js';
+import { features } from '../../db/schema/index.js';
 
 export function boardFilter(boardId: string | undefined) {
   return boardId ? eq(features.boardId, boardId) : sql`1=1`;

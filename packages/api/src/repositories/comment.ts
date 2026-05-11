@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskComments } from '../db/schema.js';
+import { taskComments } from '../db/schema/index.js';
 import { eq, desc, asc, sql, count } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import * as commentMentionRepo from './commentMention.js';

@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { tasks, taskEvents } from '../db/schema.js';
+import { tasks, taskEvents } from '../db/schema/index.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import * as agentRepo from '../repositories/agent.js';
 import * as taskRepo from '../repositories/task.js';

@@ -4,6 +4,7 @@ import * as userRepo from '../repositories/user.js';
 import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { getTaskById, getBoardIdForTask } from '../repositories/task.js';
+import { notFound, forbidden, badRequest } from '../errors.js';
 
 const MENTION_REGEX = /(^|\s)@([a-zA-Z0-9._-]{1,50})\b/g;
 
@@ -62,16 +63,16 @@ export function addComment(
 ) {
   const task = getTaskById(taskId);
   if (!task) {
-    throw new Error('Task not found');
+    throw notFound('Task not found');
   }
 
   if (parentId) {
     const parent = commentRepo.getCommentById(parentId);
     if (!parent) {
-      throw new Error('Parent comment not found');
+      throw notFound('Parent comment not found');
     }
     if (parent.taskId !== taskId) {
-      throw new Error('Parent comment belongs to a different task');
+      throw badRequest('Parent comment belongs to a different task');
     }
   }
 
@@ -151,11 +152,11 @@ export function editComment(
 ) {
   const comment = commentRepo.getCommentById(commentId);
   if (!comment) {
-    throw new Error('Comment not found');
+    throw notFound('Comment not found');
   }
 
   if (comment.authorType !== authorType || comment.authorId !== authorId) {
-    throw new Error('Not authorized to edit this comment');
+    throw forbidden('Not authorized to edit this comment');
   }
 
   return commentRepo.updateComment(commentId, content);
@@ -175,11 +176,11 @@ export function removeComment(
 ) {
   const comment = commentRepo.getCommentById(commentId);
   if (!comment) {
-    throw new Error('Comment not found');
+    throw notFound('Comment not found');
   }
 
   if (comment.authorType !== authorType || comment.authorId !== authorId) {
-    throw new Error('Not authorized to delete this comment');
+    throw forbidden('Not authorized to delete this comment');
   }
 
   const task = getTaskById(comment.taskId);

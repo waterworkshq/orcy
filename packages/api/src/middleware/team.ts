@@ -1,33 +1,9 @@
+export { authorizeBoardAccess as requireBoardAccess } from './realtimeAuth.js';
+
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { isTeamMemberByBoardId, getMember } from '../repositories/teamMember.js';
 import { getTeamById } from '../repositories/team.js';
-import { getBoardById } from '../repositories/board.js';
-
-export async function requireBoardAccess(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
-  const boardId = (request.params as { id: string }).id;
-  if (!boardId) return;
-
-  const board = getBoardById(boardId);
-  if (!board) {
-    reply.code(404).send({ error: 'Board not found' });
-    return;
-  }
-
-  if (request.agent) return;
-
-  if (request.user) {
-    if (!board.teamId) return;
-    const isMember = isTeamMemberByBoardId(boardId, request.user.id);
-    if (isMember) return;
-    reply.code(403).send({ error: 'You do not have access to this board' });
-    return;
-  }
-
-  reply.code(401).send({ error: 'Authentication required' });
-}
+import { unauthorized, forbidden, badRequest, notFound } from '../errors.js';
 
 export async function teamBoardAccess(
   request: FastifyRequest,
@@ -47,7 +23,7 @@ export async function teamBoardAccess(
 
   if (!board.teamId) return;
 
-  reply.code(403).send({ error: 'You do not have access to this board' });
+  throw forbidden('You do not have access to this board', 'BOARD_ACCESS_DENIED');
 }
 
 export async function teamAdminOrOwner(
@@ -55,22 +31,19 @@ export async function teamAdminOrOwner(
   reply: FastifyReply
 ): Promise<void> {
   if (!request.user) {
-    reply.code(401).send({ error: 'Authentication required' });
-    return;
+    throw unauthorized('Authentication required');
   }
 
   const teamId = (request.params as { id: string }).id;
   if (!teamId) {
-    reply.code(400).send({ error: 'Team ID required' });
-    return;
+    throw badRequest('Team ID required');
   }
 
   if (request.user.role === 'admin') return;
 
   const member = getMember(teamId, request.user.id);
   if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
-    reply.code(403).send({ error: 'Team admin or owner role required' });
-    return;
+    throw forbidden('Team admin or owner role required');
   }
 }
 
@@ -83,7 +56,6 @@ export async function teamExists(
 
   const team = getTeamById(teamId);
   if (!team) {
-    reply.code(404).send({ error: 'Team not found' });
-    return;
+    throw notFound('Team not found');
   }
 }

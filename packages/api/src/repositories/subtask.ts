@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskSubtasks } from '../db/schema.js';
+import { taskSubtasks } from '../db/schema/index.js';
 import { eq, sql, inArray, asc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 

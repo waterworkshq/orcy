@@ -107,7 +107,7 @@ vi.mock('drizzle-orm', () => ({
   },
 }));
 
-vi.mock('../db/schema.js', () => ({
+vi.mock('../db/schema/index.js', () => ({
   savedFilters: {
     id: 'id',
     boardId: 'boardId',

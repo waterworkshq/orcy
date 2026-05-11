@@ -1,5 +1,23 @@
 # Changelog
 
+## V0.5.0 — 2026-05-11
+
+API internal refactors: JWT extraction, schema split, scheduler extraction, webhook dedup, rate limiter unification, board access consolidation, and AppError migration. 7 independent refactors within `packages/api/`, zero cross-package changes. Net reduction: ~1400 lines removed.
+
+**JWT verification.** Extracted `extractAndVerifyJwt()` into `jwt-verification.ts`, eliminating 4 copies of JWT verify + payload mapping + TokenExpiredError handling across `auth.ts` and `realtimeAuth.ts`. `getJwtSecret`/`setJwtSecret` moved alongside to eliminate circular import. `sseAuth` removed — dead code not imported by any route.
+
+**Schema split.** Split 917-line `db/schema.ts` (36 tables, 34 relations) into 10 domain files under `db/schema/`: board, task, agent, user, webhook, pulse, cicd, quality, relations, and barrel index. All 48 import sites continue to resolve via the barrel re-export.
+
+**Scheduler extraction.** Moved 6 `setInterval` handlers (stale task release, presence cleanup, overdue detection, retry processor, anomaly scanning, audit archival) from `index.ts` into `services/scheduler.ts`. Returns `{ stop() }` handle registered via `onClose` hook for clean shutdown.
+
+**Webhook dedup.** Extracted shared `WebhookSecretSource` interface and platform-specific factory functions (`createCodeReviewSecretSource`, `createCiCdSecretSource`) into `webhook-secret-verification.ts`. `handleGitHubWebhook` and `handleGitLabWebhook` eliminate ~50 lines of duplicated verification logic between `codeReviewWebhooks.ts` and `ciCdWebhooks.ts`.
+
+**Rate limiter unification.** Removed redundant `@fastify/rate-limit` global plugin (IP-based, 100 req/min). `perAgentRateLimit` middleware handles all scenarios: per-agent (DB-configurable 60 req/min), per-human (500 req/min), and per-IP fallback.
+
+**Board access unification.** `requireBoardAccess` replaced with a re-export of `authorizeBoardAccess` (handles both `params.id` and `params.boardId`). All 8 caller sites preserved via re-export alias.
+
+**AppError migration.** Migrated 241+ manual `reply.code().send({error})` calls across 27 route files, 33 inline error sends in middleware, and 29 `throw new Error()` in services to centralized `AppError` with structured error codes. Error handler plugin (`errors/plugin.ts`) formats all `AppError` variants into consistent `{error, code, details}` JSON responses with per-request structured logging.
+
 ## V0.4.0 — 2026-05-11
 
 Shared types package and shared API client. Eliminates 20+ duplicated type definitions across 3 packages and consolidates 3 independent HTTP client implementations.

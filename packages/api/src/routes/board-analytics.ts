@@ -9,6 +9,7 @@ import { getEventsByBoardId } from '../repositories/event.js';
 import * as capacityService from '../services/capacityService.js';
 import * as predictionService from '../services/predictionService.js';
 import * as boardSummaryService from '../services/boardSummaryService.js';
+import { notFound } from '../errors.js';
 
 const boardIdParamsSchema = z.object({ id: z.string() });
 
@@ -20,8 +21,7 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       const stats = boardService.getBoardStats(request.params.id);
       return stats;
@@ -45,8 +45,7 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
       });
 
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
 
       return result;
@@ -60,8 +59,7 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       const parsed = request.query;
       const { limit, offset, action, actorType, actorId, since } = parsed;
@@ -82,8 +80,7 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       const report = capacityService.getCapacityReport(request.params.id);
       return report;
@@ -97,8 +94,7 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       return predictionService.getPredictions(request.params.id);
     }
@@ -111,8 +107,7 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const result = boardService.getBoard(request.params.id);
       if (!result) {
-        reply.code(404).send({ error: 'Board not found' });
-        return;
+        throw notFound('Board not found');
       }
       const days = request.query.days ?? 30;
       return predictionService.getBurndown(request.params.id, days);

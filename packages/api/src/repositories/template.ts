@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { featureTemplates } from '../db/schema.js';
+import { featureTemplates } from '../db/schema/index.js';
 import { eq, or, isNull, sql, desc, asc } from 'drizzle-orm';
 import type { FeatureTemplate, TaskPriority } from '../models/index.js';
 import { v4 as uuid } from 'uuid';

@@ -3,6 +3,7 @@ import * as agentMessageRepo from '../repositories/agentMessage.js';
 import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { agentAuth } from '../middleware/auth.js';
+import { unauthorized, forbidden, notFound, badRequest } from '../errors.js';
 
 export function requireSelfAgent(request: FastifyRequest, agentId: string): boolean {
   return request.agent?.id === agentId;
@@ -17,19 +18,16 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
       const body = request.body;
 
       if (!request.agent || !requireSelfAgent(request, agentId)) {
-        reply.code(403).send({ error: 'Agent can only send messages as itself' });
-        return;
+        throw forbidden('Agent can only send messages as itself');
       }
 
       if (!body.subject || !body.body || !body.toAgentId || !body.boardId) {
-        reply.code(400).send({ error: 'Missing required fields: boardId, toAgentId, subject, body' });
-        return;
+        throw badRequest('Missing required fields: boardId, toAgentId, subject, body');
       }
 
       const toAgent = agentRepo.getAgentById(body.toAgentId);
       if (!toAgent) {
-        reply.code(404).send({ error: 'Recipient agent not found' });
-        return;
+        throw notFound('Recipient agent not found');
       }
 
       const authenticatedAgentId = request.agent.id;
@@ -71,8 +69,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
       const { agentId } = request.params;
 
       if (!request.agent || !requireSelfAgent(request, agentId)) {
-        reply.code(403).send({ error: 'Agent can only read its own messages' });
-        return;
+        throw forbidden('Agent can only read its own messages');
       }
 
       const query = request.query as { unreadOnly?: string; taskId?: string; limit?: string; offset?: string };
@@ -95,25 +92,21 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: agentAuth },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       if (!request.agent) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       const message = agentMessageRepo.getMessageById(request.params.id);
       if (!message) {
-        reply.code(404).send({ error: 'Message not found' });
-        return;
+        throw notFound('Message not found');
       }
 
       if (message.toAgentId !== request.agent.id && message.fromAgentId !== request.agent.id) {
-        reply.code(403).send({ error: 'Not authorized to modify this message' });
-        return;
+        throw forbidden('Not authorized to modify this message');
       }
 
       const updated = agentMessageRepo.markAsRead(request.params.id);
       if (!updated) {
-        reply.code(404).send({ error: 'Message not found or already read' });
-        return;
+        throw notFound('Message not found or already read');
       }
       return { message: updated };
     }
@@ -124,8 +117,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: agentAuth },
     async (request: FastifyRequest<{ Params: { agentId: string } }>, reply: FastifyReply) => {
       if (!request.agent || !requireSelfAgent(request, request.params.agentId)) {
-        reply.code(403).send({ error: 'Agent can only mark its own messages as read' });
-        return;
+        throw forbidden('Agent can only mark its own messages as read');
       }
 
       const count = agentMessageRepo.markAllAsRead(request.params.agentId);
@@ -138,19 +130,16 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: agentAuth },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       if (!request.agent) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
 
       const message = agentMessageRepo.getMessageById(request.params.id);
       if (!message) {
-        reply.code(404).send({ error: 'Message not found' });
-        return;
+        throw notFound('Message not found');
       }
 
       if (message.toAgentId !== request.agent.id && message.fromAgentId !== request.agent.id) {
-        reply.code(403).send({ error: 'Not authorized to delete this message' });
-        return;
+        throw forbidden('Not authorized to delete this message');
       }
 
       agentMessageRepo.deleteMessage(request.params.id);

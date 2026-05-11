@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { boards, columns, features } from '../db/schema.js';
+import { boards, columns, features } from '../db/schema/index.js';
 import { eq, and, like, or, isNull, inArray, sql, desc } from 'drizzle-orm';
 import type { Board, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings } from '../models/index.js';
 import { v4 as uuid } from 'uuid';

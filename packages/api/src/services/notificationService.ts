@@ -8,7 +8,7 @@ import * as userRepo from '../repositories/user.js';
 import * as watcherRepo from '../repositories/watcher.js';
 import * as emailService from './emailService.js';
 import { getDb } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { users } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 
 export type NotificationEventType = 'task.assigned' | 'task.submitted' | 'task.approved' | 'task.rejected' | 'task.overdue' | 'comment.mentioned' | 'task.watching';

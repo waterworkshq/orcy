@@ -1,10 +1,10 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import jwt from 'jsonwebtoken';
 import * as agentService from '../services/agentService.js';
 import { getBoardById } from '../repositories/board.js';
 import { isTeamMemberByBoardId } from '../repositories/teamMember.js';
 import type { HumanRole } from './auth.js';
-import { getJwtSecret } from './auth.js';
+import { extractAndVerifyJwt } from './jwt-verification.js';
+import { unauthorized, forbidden, notFound } from '../errors.js';
 
 const MAX_QUERY_TOKEN_AGE_SECONDS = 30;
 
@@ -24,57 +24,20 @@ export async function authenticateRealtime(
       request.agent = agent;
       return;
     }
-    reply.code(401).send({ error: 'Invalid agent API key' });
-    return;
+    throw unauthorized('Invalid agent API key', 'INVALID_API_KEY');
   }
 
-  const authHeader = request.headers.authorization;
-  let token: string | undefined;
-  let fromQuery = false;
+  const { user, error } = extractAndVerifyJwt(request, {
+    allowBearer: true,
+    allowQueryToken: true,
+    maxQueryTokenAgeSeconds: MAX_QUERY_TOKEN_AGE_SECONDS,
+  });
 
-  if (authHeader?.startsWith('Bearer ')) {
-    token = authHeader.slice(7);
+  if (error) {
+    throw unauthorized(error.message, error.code ?? 'UNAUTHORIZED');
   }
 
-  if (!token) {
-    const query = request.query as { token?: string };
-    if (query?.token) {
-      token = query.token;
-      fromQuery = true;
-    }
-  }
-
-  if (!token) {
-    reply.code(401).send({ error: 'Authentication required' });
-    return;
-  }
-
-  try {
-    const payload = jwt.verify(token, getJwtSecret(), {
-      issuer: 'orcy',
-    }) as { sub: string; username: string; role: string; iat?: number };
-
-    if (fromQuery && payload.iat) {
-      const tokenAge = Math.floor(Date.now() / 1000) - payload.iat;
-      if (tokenAge > MAX_QUERY_TOKEN_AGE_SECONDS) {
-        reply.code(401).send({ error: 'Query token expired', code: 'TOKEN_EXPIRED' });
-        return;
-      }
-    }
-
-    request.user = {
-      id: payload.sub,
-      username: payload.username,
-      role: payload.role as HumanRole,
-      type: 'human',
-    };
-  } catch (err) {
-    if (err instanceof jwt.TokenExpiredError) {
-      reply.code(401).send({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
-    } else {
-      reply.code(401).send({ error: 'Invalid token' });
-    }
-  }
+  request.user = { ...user!, role: user!.role as HumanRole };
 }
 
 export async function authorizeBoardAccess(
@@ -86,8 +49,7 @@ export async function authorizeBoardAccess(
 
   const board = getBoardById(boardId);
   if (!board) {
-    reply.code(404).send({ error: 'Board not found' });
-    return;
+    throw notFound('Board not found');
   }
 
   if (request.agent) return;
@@ -96,9 +58,8 @@ export async function authorizeBoardAccess(
     if (!board.teamId) return;
     const isMember = isTeamMemberByBoardId(boardId, request.user.id);
     if (isMember) return;
-    reply.code(403).send({ error: 'You do not have access to this board' });
-    return;
+    throw forbidden('You do not have access to this board', 'BOARD_ACCESS_DENIED');
   }
 
-  reply.code(401).send({ error: 'Authentication required' });
+  throw unauthorized('Authentication required');
 }

@@ -5,6 +5,7 @@ import * as teamRepo from '../repositories/team.js';
 import * as memberRepo from '../repositories/teamMember.js';
 import { humanAuth } from '../middleware/auth.js';
 import { teamAdminOrOwner, teamExists } from '../middleware/team.js';
+import { badRequest, notFound, conflict, unauthorized } from '../errors.js';
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -32,14 +33,12 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = createOrgSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const existing = orgRepo.getOrganizationBySlug(parsed.data.slug);
       if (existing) {
-        reply.code(409).send({ error: 'Organization slug already exists' });
-        return;
+        throw conflict('Organization slug already exists');
       }
 
       const org = orgRepo.createOrganization(parsed.data);
@@ -53,8 +52,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
-        reply.code(404).send({ error: 'Organization not found' });
-        return;
+        throw notFound('Organization not found');
       }
       return { organization: org };
     }
@@ -74,14 +72,12 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof createTeamSchema> }>, reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
-        reply.code(404).send({ error: 'Organization not found' });
-        return;
+        throw notFound('Organization not found');
       }
 
       const parsed = createTeamSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const team = teamRepo.createTeam({
@@ -108,8 +104,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
-        reply.code(404).send({ error: 'Organization not found' });
-        return;
+        throw notFound('Organization not found');
       }
       return { teams: teamRepo.listTeamsByOrganization(org.id) };
     }
@@ -121,8 +116,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const team = teamRepo.getTeamById(request.params.id);
       if (!team) {
-        reply.code(404).send({ error: 'Team not found' });
-        return;
+        throw notFound('Team not found');
       }
       return { team };
     }
@@ -143,14 +137,12 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof addMemberSchema> }>, reply: FastifyReply) => {
       const parsed = addMemberSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const existing = memberRepo.getMember(request.params.id, parsed.data.userId);
       if (existing) {
-        reply.code(409).send({ error: 'User is already a member of this team' });
-        return;
+        throw conflict('User is already a member of this team');
       }
 
       const member = memberRepo.addMember({
@@ -186,14 +178,12 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     async (request: FastifyRequest<{ Params: { id: string; userId: string }; Body: z.infer<typeof updateMemberRoleSchema> }>, reply: FastifyReply) => {
       const parsed = updateMemberRoleSchema.safeParse(request.body);
       if (!parsed.success) {
-        reply.code(400).send({ error: 'Validation failed', details: parsed.error.flatten() });
-        return;
+        throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const member = memberRepo.updateMemberRole(request.params.id, request.params.userId, parsed.data.role);
       if (!member) {
-        reply.code(404).send({ error: 'Member not found' });
-        return;
+        throw notFound('Member not found');
       }
       return { member };
     }
@@ -204,8 +194,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: humanAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) {
-        reply.code(401).send({ error: 'Authentication required' });
-        return;
+        throw unauthorized('Authentication required');
       }
       return { teams: teamRepo.listTeamsByUserId(request.user.id) };
     }

@@ -4,7 +4,7 @@ import {
   qualityChecklistItems,
   taskQualityChecklists,
   taskQualityChecklistItems,
-} from '../db/schema.js';
+} from '../db/schema/index.js';
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type {
