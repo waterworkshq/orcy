@@ -42,5 +42,7 @@ This project is indexed by GitNexus as **orcy** (8356 symbols, 13482 relationshi
 
 <!-- gitnexus:end -->
 
+**Releases** Managed via `release-it` + `git-cliff`. Run `pnpm release` (patch), `pnpm release:minor`, or `pnpm release:major` to auto-bump version, generate CHANGELOG.md (3 entries max), tag, push, and create GitHub Release. Do not manually create tags or releases. Use `pnpm release:dry` to preview. Config: `.release-it.json`, `cliff.toml`.
+
 **Package Manager** Project uses pnpm package manager, so always use `pnpm` not `npm`, `bun` or any other.
 **Memory specific HARD requirement** Please maintain a growing memory for the overall work being done in the project in the docs/plans/MEMORY.md file. This must contain a summary of the work and specific high signal items that are important to remember like DECISIONS, LEARNINGS, RISKS etc. This will grow alongside the implementation of the project and must be referenced and maintained throughout the project but not commited.
