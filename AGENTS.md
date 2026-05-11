@@ -42,6 +42,8 @@ This project is indexed by GitNexus as **orcy** (8356 symbols, 13482 relationshi
 
 <!-- gitnexus:end -->
 
+**Roadmap & README** On every feature completion, move the delivered release from "Upcoming" to "Delivered" in `docs/ROADMAP.md` and update the "What's Next" table in `README.md` to reflect current state. The roadmap is a living document — stale roadmap misleads everyone.
+
 **Releases** Managed via `release-it` + `git-cliff`. Run `pnpm release` (patch), `pnpm release:minor`, or `pnpm release:major` to auto-bump version, generate CHANGELOG.md (3 entries max), tag, push, and create GitHub Release. Do not manually create tags or releases. Use `pnpm release:dry` to preview. Config: `.release-it.json`, `cliff.toml`.
 
 **Package Manager** Project uses pnpm package manager, so always use `pnpm` not `npm`, `bun` or any other.
