@@ -1,5 +1,6 @@
 import type { KanbanApiClient } from '../api.js';
-import type { Task, TaskEvent, TaskComment, AgentMessage } from '../types.js';
+import type { Task, TaskEvent, TaskComment } from '@orcy/shared';
+import type { AgentMessage } from '../types.js';
 
 export interface EnrichedTask extends Task {
   assignedAgentName?: string | null;

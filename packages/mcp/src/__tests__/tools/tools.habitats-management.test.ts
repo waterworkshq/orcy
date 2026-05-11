@@ -143,7 +143,7 @@ describe('admin dispatch list-templates', () => {
         descriptionPattern: 'Bug fix template',
         priority: 'high' as const,
         labels: ['bug'],
-        domain: null,
+        requiredDomain: null,
         createdAt: '2026-04-10T10:00:00Z',
         updatedAt: '2026-04-10T10:00:00Z',
       },
@@ -170,7 +170,7 @@ describe('admin dispatch create-template', () => {
       descriptionPattern: 'Feature description',
       priority: 'medium' as const,
       labels: ['feature'],
-      domain: 'backend',
+      requiredDomain: 'backend',
       createdAt: '2026-04-10T10:00:00Z',
       updatedAt: '2026-04-10T10:00:00Z',
     };
@@ -186,6 +186,7 @@ describe('admin dispatch create-template', () => {
       labels: ['feature'],
       domain: 'backend',
     });
+
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.template.id).toBe('tpl-1');
@@ -196,7 +197,7 @@ describe('admin dispatch create-template', () => {
       descriptionPattern: 'Feature description',
       priority: 'medium',
       labels: ['feature'],
-      domain: 'backend',
+      requiredDomain: 'backend',
     });
   });
 

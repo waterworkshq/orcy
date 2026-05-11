@@ -24,6 +24,10 @@ const mockFeatures: FeatureWithProgress[] = [
     slaDeadlineAt: null,
     createdBy: '',
     version: 1,
+    actualMinutes: null,
+    plannedMinutes: null,
+    planningAccuracy: null,
+    completedAt: null,
     isArchived: false,
     progress: {
       total: 3,
@@ -60,6 +64,10 @@ const mockArchivedFeatures: FeatureWithProgress[] = [
     slaDeadlineAt: null,
     createdBy: '',
     version: 1,
+    actualMinutes: null,
+    plannedMinutes: null,
+    planningAccuracy: null,
+    completedAt: null,
     isArchived: true,
     progress: {
       total: 2,
@@ -93,6 +101,10 @@ const mockArchivedFeatures: FeatureWithProgress[] = [
     slaDeadlineAt: null,
     createdBy: '',
     version: 1,
+    actualMinutes: null,
+    plannedMinutes: null,
+    planningAccuracy: null,
+    completedAt: null,
     isArchived: true,
     progress: {
       total: 1,

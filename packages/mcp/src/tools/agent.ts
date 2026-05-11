@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
-import type { Agent } from '../types.js';
+import type { Agent } from '@orcy/shared';
 import { AGENT_STATUSES, AGENT_TYPES } from './constants.js';
 
 export const BOARD_REGISTER_AGENT_TOOL: Tool = {

@@ -34,6 +34,7 @@ const makeTask = (id: string, featureId: string) => ({
   retryPolicy: null,
   retryCount: 0,
   nextRetryAt: null,
+  labels: [],
 });
 
 const makeFeature = (id: string, columnId: string): Feature => ({
@@ -57,6 +58,10 @@ const makeFeature = (id: string, columnId: string): Feature => ({
   updatedAt: '2026-04-10T00:00:00.000Z',
   version: 1,
   isArchived: false,
+  actualMinutes: null,
+  plannedMinutes: null,
+  planningAccuracy: null,
+  completedAt: null,
 });
 
 const paginationFor = (features: Feature[] = []) => ({

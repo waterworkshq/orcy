@@ -97,6 +97,7 @@ function makeTask(overrides: Partial<Task> & { id: string }): Task {
     retryPolicy: null,
     retryCount: 0,
     nextRetryAt: null,
+    labels: [],
     ...overrides,
   };
 }

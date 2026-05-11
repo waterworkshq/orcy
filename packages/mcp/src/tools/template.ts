@@ -88,7 +88,7 @@ export async function boardCreateTemplate(
     descriptionPattern: args.descriptionPattern,
     priority: args.priority,
     labels: args.labels,
-    domain: args.domain,
+    requiredDomain: args.domain,
   });
   return { template: result.template };
 }

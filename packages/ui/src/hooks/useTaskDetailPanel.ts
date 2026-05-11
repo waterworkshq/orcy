@@ -333,6 +333,7 @@ export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {
     try {
       await api.tasks.update(task.id, {
         ...editForm,
+        labels: editForm.labels.split(',').map(l => l.trim()).filter(Boolean),
         estimatedMinutes: editEstimatedMinutes ? parseInt(editEstimatedMinutes, 10) : null,
         retryPolicy: retryForm.maxRetries ? {
           maxRetries: parseInt(retryForm.maxRetries, 10),
@@ -353,7 +354,7 @@ export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {
         await api.features.update(task.featureId, featureUpdate);
       }
 
-      updateTask({ ...task, ...editForm } as Task);
+      updateTask({ ...task, ...editForm, labels: editForm.labels.split(',').map(l => l.trim()).filter(Boolean) } as Task);
       notify.success('Task updated');
       setIsEditing(false);
     } catch (err) {

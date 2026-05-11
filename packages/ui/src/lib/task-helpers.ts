@@ -72,7 +72,7 @@ export function initEditForm(task: Task) {
     title: task.title,
     description: task.description,
     priority: task.priority,
-    labels: '',
+    labels: (task.labels ?? []).join(', '),
     requiredDomain: task.requiredDomain || '',
     requiredCapabilities: task.requiredCapabilities ?? [],
   };

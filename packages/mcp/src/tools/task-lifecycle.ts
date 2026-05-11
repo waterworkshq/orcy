@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
-import type { Task } from '../types.js';
+import type { Task } from '@orcy/shared';
 import { enrichTaskWithAgentName } from './enrichment.js';
 import { ARTIFACT_SCHEMA_FRAGMENT, TASK_UPDATE_STATUSES } from './constants.js';
 

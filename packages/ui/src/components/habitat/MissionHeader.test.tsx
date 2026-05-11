@@ -52,6 +52,10 @@ function makeFeature(
     createdAt: new Date(Date.now() - 3600_000).toISOString(),
     updatedAt: new Date().toISOString(),
     version: 1,
+    actualMinutes: null,
+    plannedMinutes: null,
+    planningAccuracy: null,
+    completedAt: null,
     isArchived: false,
     progress: {
       total: 4,

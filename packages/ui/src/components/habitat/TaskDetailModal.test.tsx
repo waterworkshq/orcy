@@ -120,6 +120,7 @@ const baseTask: Task = {
   retryPolicy: null,
   retryCount: 0,
   nextRetryAt: null,
+  labels: [],
 };
 
 const baseAgent: Agent = {
@@ -133,6 +134,8 @@ const baseAgent: Agent = {
   createdAt: '2024-01-01T00:00:00Z',
   lastHeartbeat: '2024-03-20T12:00:00Z',
   metadata: {},
+  apiKeyHash: 'test-hash',
+  rateLimitPerMinute: null,
 };
 
 describe('TaskDetailModal', () => {

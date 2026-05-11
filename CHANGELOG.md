@@ -1,5 +1,13 @@
 # Changelog
 
+## V0.4.0 — 2026-05-11
+
+Shared types package and shared API client. Eliminates 20+ duplicated type definitions across 3 packages and consolidates 3 independent HTTP client implementations.
+
+**Shared types.** Moved 61 canonical domain types from `api/src/models/index.ts` into `@orcy/shared/src/types/` organized by domain (agent, board, feature, task, events, settings, stats, quality, batch, webhook). API models becomes a 1-line re-export barrel for backward compatibility. Fixed all known type drift: MCP `Task` gains 8 missing fields (labels, retryPolicy, delegation, time metrics), UI `Task` gains `labels`, MCP `FeatureTemplate.domain` renamed to `requiredDomain`, MCP/UI `Board` gains settings fields, `EventAction` gains 4 missing variants (cloned, retry_scheduled, retry_executed, escalated). Net reduction: -1627 lines of duplicated type definitions.
+
+**Shared API client.** Extracted retry/backoff/timeout/error logic from MCP's 1053-line `KanbanApiClient` into `@orcy/shared/src/api-client.ts` (172 lines). CLI client replaced — now has retry support with exponential backoff + jitter, `Retry-After` header parsing, and 30s timeout per attempt. MCP client delegates HTTP transport to shared while keeping all 40+ typed methods. `KanbanApiError` re-exported as `ApiClientError` alias for backward compatibility. UI client untouched (different auth model).
+
 ## V0.3.0 — 2026-05-10
 
 foundation refactors: shared config package, ID normalization, and CLI error handling.

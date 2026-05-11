@@ -36,6 +36,7 @@ function makeTask(overrides: Partial<Task> & { id: string; featureId: string }):
     retryPolicy: null,
     retryCount: 0,
     nextRetryAt: null,
+    labels: [],
     ...overrides,
   };
 }

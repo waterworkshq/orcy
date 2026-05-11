@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
-import type { Agent } from '../types.js';
+import type { Agent } from '@orcy/shared';
 import { enrichMessagesWithFromAgentNames } from './enrichment.js';
 import { MESSAGE_TYPES, MESSAGE_PRIORITIES } from './constants.js';
 

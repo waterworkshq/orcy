@@ -16,6 +16,8 @@ function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
     createdAt: new Date().toISOString(),
     lastHeartbeat: new Date().toISOString(),
     metadata: {},
+    apiKeyHash: 'test-hash',
+    rateLimitPerMinute: null,
     ...overrides,
   };
 }

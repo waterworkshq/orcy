@@ -44,6 +44,7 @@ const makeTask = (id: string): Task => ({
   retryPolicy: null,
   retryCount: 0,
   nextRetryAt: null,
+  labels: [],
 });
 
 describe('modalStore', () => {

@@ -83,7 +83,6 @@ describe('Schema: Tasks Table Modifications', () => {
     expect(t.boardId).toBeUndefined();
     expect(t.columnId).toBeUndefined();
     expect(t.displayOrder).toBeUndefined();
-    expect(t.labels).toBeUndefined();
     expect(t.dependsOn).toBeUndefined();
     expect(t.blocks).toBeUndefined();
     expect(t.dueAt).toBeUndefined();

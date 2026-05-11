@@ -24,6 +24,10 @@ function makeFeature(overrides: Partial<FeatureWithProgress> & { id: string }): 
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     version: 1,
+    actualMinutes: null,
+    plannedMinutes: null,
+    planningAccuracy: null,
+    completedAt: null,
     isArchived: false,
     progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0 },
     ...overrides,
@@ -61,6 +65,7 @@ function makeTask(overrides: Partial<Task> & { id: string; featureId: string }):
     retryPolicy: null,
     retryCount: 0,
     nextRetryAt: null,
+    labels: [],
     ...overrides,
   };
 }

@@ -1,66 +1,45 @@
-export interface Task {
-  id: string;
-  featureId: string;
-  title: string;
-  description: string;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  assignedAgentId: string | null;
-  requiredDomain: string | null;
-  requiredCapabilities: string[];
-  status: TaskStatus;
-  claimedAt: string | null;
-  startedAt: string | null;
-  submittedAt: string | null;
-  completedAt: string | null;
-  rejectedCount: number;
-  rejectionReason: string | null;
-  result: string | null;
-  artifacts: Artifact[];
-  order: number;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  estimatedMinutes: number | null;
-}
+import type {
+  Task,
+  TaskStatus,
+  Artifact,
+  Agent,
+  Board,
+  Column,
+  Feature,
+  FeatureStatus,
+  FeatureWithProgress,
+  FeatureEvent,
+  FeatureTemplate,
+  TaskEvent,
+  TaskComment,
+  Subtask,
+  ActorType,
+  FeatureEventAction,
+} from '@orcy/shared';
 
-export type FeatureStatus = 'not_started' | 'in_progress' | 'review' | 'done' | 'failed';
+export type {
+  Task,
+  TaskStatus,
+  Artifact,
+  Agent,
+  Board,
+  Column,
+  Feature,
+  FeatureStatus,
+  FeatureWithProgress,
+  FeatureEvent,
+  FeatureTemplate,
+  TaskEvent,
+  TaskComment,
+  Subtask,
+  ActorType,
+  FeatureEventAction,
+};
 
-export interface Feature {
-  id: string;
-  boardId: string;
-  columnId: string;
-  title: string;
-  description: string;
-  acceptanceCriteria: string;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  labels: string[];
-  status: FeatureStatus;
-  displayOrder: number;
-  dependsOn: string[];
-  blocks: string[];
-  dueAt: string | null;
-  slaMinutes: number | null;
-  slaDeadlineAt: string | null;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  isArchived: boolean;
-}
-
-export interface FeatureWithProgress extends Feature {
-  progress: {
-    total: number;
-    pending: number;
-    claimed: number;
-    inProgress: number;
-    submitted: number;
-    approved: number;
-    done: number;
-    failed: number;
-    rejected: number;
-  };
+export interface ListSubtasksResponse {
+  subtasks: Subtask[];
+  total: number;
+  completedCount: number;
 }
 
 export interface FeatureContext {
@@ -76,62 +55,6 @@ export interface FeatureContext {
   dependencies: Feature[];
   blocking: Feature[];
   pulse?: PulseDigest;
-}
-
-export type TaskStatus =
-  | 'pending'
-  | 'claimed'
-  | 'in_progress'
-  | 'submitted'
-  | 'approved'
-  | 'rejected'
-  | 'done'
-  | 'failed';
-
-export interface Artifact {
-  type: 'file' | 'pr' | 'commit' | 'log' | 'screenshot';
-  url: string;
-  description: string;
-  createdAt?: string;
-}
-
-export interface Agent {
-  id: string;
-  name: string;
-  type: 'claude-code' | 'codex' | 'opencode';
-  domain: string;
-  capabilities: string[];
-  status: 'idle' | 'working' | 'offline';
-  currentTaskId: string | null;
-  createdAt: string;
-  lastHeartbeat: string;
-  metadata: Record<string, unknown>;
-}
-
-export interface Board {
-  id: string;
-  name: string;
-  description: string;
-  columns: Column[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Column {
-  id: string;
-  boardId: string;
-  name: string;
-  order: number;
-  wipLimit: number | null;
-  autoAdvance: boolean;
-  requiresClaim: boolean;
-  nextColumnId: string | null;
-  isTerminal: boolean;
-}
-
-export interface BoardContext {
-  name: string;
-  columns: { name: string; taskCount: number }[];
 }
 
 export interface TaskContext {
@@ -212,46 +135,9 @@ export interface AgentStatusResponse {
   taskStatus: string | null;
 }
 
-export interface TaskEvent {
-  id: string;
-  taskId: string;
-  actorType: 'human' | 'agent' | 'system';
-  actorId: string;
-  action: string;
-  fromColumnId: string | null;
-  toColumnId: string | null;
-  fromStatus: string | null;
-  toStatus: string | null;
-  metadata: Record<string, unknown>;
-  timestamp: string;
-}
-
-export interface TaskComment {
-  id: string;
-  taskId: string;
-  parentId: string | null;
-  authorType: 'human' | 'agent';
-  authorId: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Subtask {
-  id: string;
-  taskId: string;
-  title: string;
-  completed: boolean;
-  order: number;
-  assigneeId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ListSubtasksResponse {
-  subtasks: Subtask[];
-  total: number;
-  completedCount: number;
+export interface BoardContext {
+  name: string;
+  columns: { name: string; taskCount: number }[];
 }
 
 export type SignalType =
@@ -345,19 +231,6 @@ export interface CreateWebhookResponse {
   webhook: Webhook;
 }
 
-export interface FeatureTemplate {
-  id: string;
-  boardId: string;
-  name: string;
-  titlePattern: string;
-  descriptionPattern: string;
-  priority: 'low' | 'medium' | 'high' | 'critical' | null;
-  labels: string[];
-  domain: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ListTemplatesResponse {
   templates: FeatureTemplate[];
 }
@@ -438,20 +311,6 @@ export interface FeatureDetailsResponse {
   events: FeatureEvent[];
   progress: { completed: number; total: number; percentage: number; byStatus: Record<string, number> };
   dependencies: { dependsOn: string[]; blocks: string[] };
-}
-
-export interface FeatureEvent {
-  id: string;
-  featureId: string;
-  actorType: 'human' | 'agent' | 'system';
-  actorId: string;
-  action: string;
-  fromColumnId: string | null;
-  toColumnId: string | null;
-  fromStatus: string | null;
-  toStatus: string | null;
-  metadata: Record<string, unknown>;
-  timestamp: string;
 }
 
 export interface BoardSummary {

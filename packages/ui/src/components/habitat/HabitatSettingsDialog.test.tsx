@@ -136,6 +136,10 @@ const mockBoard: Board = {
   retrySettings: null,
   anomalySettings: null,
   autoAssignSettings: null,
+  codeReviewSettings: null,
+  ciCdSettings: null,
+  gitWorktreeSettings: null,
+  eventRetentionDays: null,
   createdAt: '2024-01-01',
   updatedAt: '2024-01-01',
 };

@@ -1,5 +1,5 @@
 import type { KanbanApiClient } from '../api.js';
-import type { Agent } from '../types.js';
+import type { Agent } from '@orcy/shared';
 
 const SIGNAL_TYPES = [
   'finding', 'blocker', 'offer', 'warning',

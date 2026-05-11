@@ -2,6 +2,15 @@ import type {
   Task,
   Agent,
   Board,
+  TaskStatus,
+  TaskEvent,
+  TaskComment,
+  Subtask,
+  FeatureTemplate,
+  Feature,
+  FeatureWithProgress,
+} from '@orcy/shared';
+import type {
   ClaimTaskResponse,
   SubmitTaskResponse,
   CompleteTaskResponse,
@@ -9,24 +18,17 @@ import type {
   HeartbeatResponse,
   AgentStatusResponse,
   TaskContext,
-  TaskStatus,
-  TaskEvent,
-  TaskComment,
-  Subtask,
   ListSubtasksResponse,
   SendMessageResponse,
   ListMessagesResponse,
   Webhook,
   ListWebhooksResponse,
   CreateWebhookResponse,
-  FeatureTemplate,
   ListTemplatesResponse,
   CreateTemplateResponse,
   BoardSettings,
   AgentStats,
   BoardSummary,
-  Feature,
-  FeatureWithProgress,
   FeatureContext,
   FeatureProgressResponse,
   FeatureDetailsResponse,
@@ -38,26 +40,23 @@ import type {
   ListPulsesResponse,
 } from './types.js';
 import { logger } from './logger.js';
-import { getOrcyConfig, normalizeTaskId } from '@orcy/shared';
+import { getOrcyConfig, normalizeTaskId, createApiClient, ApiClientError } from '@orcy/shared';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_RETRIES = 3;
-const DEFAULT_BASE_DELAY = 1000;
-const DEFAULT_MAX_DELAY = 30_000;
+export { ApiClientError as KanbanApiError } from '@orcy/shared';
 
 export class KanbanApiClient {
+  private transport: ReturnType<typeof createApiClient>;
   private baseUrl: string;
-  private timeoutMs: number;
-  private maxRetries: number;
-  private baseDelay: number;
-  private maxDelay: number;
 
   constructor(baseUrl: string, timeoutMs?: number, options?: { maxRetries?: number; baseDelay?: number; maxDelay?: number }) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.timeoutMs = timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
-    this.baseDelay = options?.baseDelay ?? DEFAULT_BASE_DELAY;
-    this.maxDelay = options?.maxDelay ?? DEFAULT_MAX_DELAY;
+    this.transport = createApiClient({
+      baseUrl,
+      timeoutMs: timeoutMs ?? 30_000,
+      maxRetries: options?.maxRetries ?? 3,
+      baseDelay: options?.baseDelay ?? 1_000,
+      maxDelay: options?.maxDelay ?? 30_000,
+    });
   }
 
   getBaseUrl(): string {
@@ -72,114 +71,12 @@ export class KanbanApiClient {
     };
   }
 
-  private isRetryable(err: unknown): boolean {
-    if (err instanceof DOMException && err.name === 'AbortError') return false;
-    if (err instanceof TypeError && err.message.includes('fetch')) return true;
-    if (err instanceof KanbanApiError) {
-      const status = err.status;
-      if (status === 429 || status === 502 || status === 503) return true;
-      if (status >= 400 && status < 500) return false;
-      if (status >= 500) return true;
-    }
-    if (err instanceof Error && !(err instanceof KanbanApiError)) return true;
-    return false;
-  }
-
-  private getRetryDelay(attempt: number, response?: Response): number {
-    if (response) {
-      const retryAfter = response.headers.get('Retry-After');
-      if (retryAfter) {
-        const seconds = Number(retryAfter);
-        if (!isNaN(seconds) && seconds > 0) return Math.min(seconds * 1000, this.maxDelay);
-        const date = new Date(retryAfter);
-        if (!isNaN(date.getTime())) {
-          const diff = date.getTime() - Date.now();
-          if (diff > 0) return Math.min(diff, this.maxDelay);
-        }
-      }
-    }
-    const delay = this.baseDelay * Math.pow(2, attempt);
-    const jitter = delay * (0.5 + Math.random() * 0.5);
-    return Math.min(jitter, this.maxDelay);
-  }
-
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<T> {
-    const { apiKey, agentId } = this.getCredentials();
-    const url = `${this.baseUrl}${path}`;
-    let lastError: unknown;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      const headers: Record<string, string> = {
-        'X-Agent-API-Key': apiKey,
-      };
-      if (body !== undefined) {
-        headers['Content-Type'] = 'application/json';
-      }
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
-      const startTime = Date.now();
-      logger.debug('http_request', { method, url, attempt });
-      try {
-        const response = await fetch(url, {
-          method,
-          headers,
-          body: body !== undefined ? JSON.stringify(body) : undefined,
-          signal: controller.signal,
-        });
-        const duration = Date.now() - startTime;
-
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => '');
-          logger.error('http_error', { method, url, status: response.status, duration, error: errorText || response.statusText, attempt });
-          const error = new KanbanApiError(response.status, errorText || response.statusText);
-          if (attempt < this.maxRetries && this.isRetryable(error)) {
-            const delay = this.getRetryDelay(attempt, response);
-            logger.info('http_retry', { method, url, attempt, delay });
-            clearTimeout(timeoutId);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            lastError = error;
-            continue;
-          }
-          throw error;
-        }
-
-        logger.info('http_response', { method, url, status: response.status, duration, attempt });
-        return response.json() as Promise<T>;
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          const duration = Date.now() - startTime;
-          logger.error('http_timeout', { method, url, duration, attempt });
-          const timeoutError = new KanbanApiError(408, `Request to ${path} timed out after ${this.timeoutMs}ms`);
-          if (attempt < this.maxRetries && this.isRetryable(timeoutError)) {
-            const delay = this.getRetryDelay(attempt);
-            logger.info('http_retry', { method, url, attempt, delay });
-            clearTimeout(timeoutId);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            lastError = timeoutError;
-            continue;
-          }
-          throw timeoutError;
-        }
-        if (err instanceof KanbanApiError) {
-          throw err;
-        }
-        if (attempt < this.maxRetries && this.isRetryable(err)) {
-          const delay = this.getRetryDelay(attempt);
-          logger.info('http_retry', { method, url, attempt, delay });
-          clearTimeout(timeoutId);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          lastError = err;
-          continue;
-        }
-        throw err;
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    }
-    throw lastError;
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const { apiKey } = this.getCredentials();
+    return this.transport.request<T>(method, path, {
+      body,
+      headers: { 'X-Agent-API-Key': apiKey },
+    });
   }
 
   async listFeatures(
@@ -621,7 +518,7 @@ export class KanbanApiClient {
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
       logger.error('http_error', { method: 'POST', url, status: response.status, duration, error: errorText || response.statusText });
-      throw new KanbanApiError(response.status, errorText || response.statusText);
+      throw new ApiClientError(response.status, errorText || response.statusText);
     }
     logger.info('http_response', { method: 'POST', url, status: response.status, duration });
     return response.json() as Promise<{ agent: Agent; apiKey: string }>;
@@ -851,7 +748,7 @@ export class KanbanApiClient {
       descriptionPattern?: string;
       priority?: 'low' | 'medium' | 'high' | 'critical';
       labels?: string[];
-      domain?: string;
+      requiredDomain?: string;
     }
   ): Promise<CreateTemplateResponse> {
     return this.request<CreateTemplateResponse>('POST', `/api/boards/${boardId}/templates`, input);
@@ -1039,15 +936,5 @@ export class KanbanApiClient {
       operation: 'delete',
       payload: {},
     });
-  }
-}
-
-export class KanbanApiError extends Error {
-  constructor(
-    public status: number,
-    public message: string
-  ) {
-    super(`Kanban API error ${status}: ${message}`);
-    this.name = 'KanbanApiError';
   }
 }

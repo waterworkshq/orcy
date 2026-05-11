@@ -33,6 +33,10 @@ function makeFeature(
     updatedAt: new Date().toISOString(),
     version: 1,
     isArchived: false,
+    actualMinutes: null,
+    plannedMinutes: null,
+    planningAccuracy: null,
+    completedAt: null,
     progress: {
       total: 4,
       pending: 1,
@@ -81,6 +85,7 @@ function makeTask(
     retryPolicy: null,
     retryCount: 0,
     nextRetryAt: null,
+    labels: [],
     ...overrides,
   };
 }
