@@ -1,9 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   SUBSCRIPTION_DISPATCH_HANDLER,
   WORKTREE_DISPATCH_HANDLER,
 } from '../../tools/index.js';
 import { createMockClient } from '../__fixtures__/mock-client.js';
+import { resetConfig } from '@orcy/shared';
+
+afterEach(() => {
+  resetConfig();
+});
 
 describe('subscription dispatch subscribe', () => {
   it('throws when ORCY_AGENT_ID not set', async () => {

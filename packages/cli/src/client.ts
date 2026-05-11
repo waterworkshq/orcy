@@ -1,8 +1,11 @@
-const API_URL = process.env.ORCY_API_URL ?? 'http://localhost:3000';
+import { getOrcyConfig } from '@orcy/shared';
+
+const config = getOrcyConfig();
+const API_URL = config.apiUrl;
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const apiKey = process.env.ORCY_API_KEY ?? '';
-  const agentId = process.env.ORCY_AGENT_ID ?? '';
+  const apiKey = config.apiKey;
+  const agentId = config.agentId;
   const url = `${API_URL.replace(/\/$/, '')}${path}`;
   const headers: Record<string, string> = {};
   if (apiKey) headers['X-Agent-API-Key'] = apiKey;

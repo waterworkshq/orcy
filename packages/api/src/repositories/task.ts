@@ -5,6 +5,7 @@ import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Task, TaskStatus, TaskPriority, Artifact, RetryPolicy } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 import { logger } from '../lib/logger.js';
+import { normalizeTaskId } from '@orcy/shared';
 
 export interface CreateTaskInput {
   featureId: string;
@@ -88,7 +89,7 @@ export function getTaskByTitle(featureId: string, title: string): Task | null {
 
 export function getTaskById(id: string): Task | null {
   const db = getDb();
-  const normalized = id.startsWith('feat-') ? id.slice(5) : id;
+  const normalized = normalizeTaskId(id);
   return db.select().from(tasks).where(eq(tasks.id, normalized)).get() as Task ?? null;
 }
 

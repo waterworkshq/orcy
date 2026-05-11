@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { ORCY_PATHS } from '@orcy/shared';
 
-const ORCY_HOME = path.join(os.homedir(), '.orcy');
-const MANIFEST_PATH = path.join(ORCY_HOME, 'install-manifest.json');
+const MANIFEST_PATH = path.join(ORCY_PATHS.home, 'install-manifest.json');
 
 export interface ManifestEntry {
   path: string;

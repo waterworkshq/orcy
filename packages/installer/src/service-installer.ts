@@ -2,12 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
 
-const ORCY_HOME = path.join(os.homedir(), '.orcy');
-const PID_FILE = path.join(ORCY_HOME, 'run', 'api.pid');
-const WRAPPER_SCRIPT = path.join(ORCY_HOME, 'bin', 'orcy-api-wrapper');
+const PID_FILE = path.join(ORCY_PATHS.run, 'api.pid');
+const WRAPPER_SCRIPT = path.join(ORCY_PATHS.bin, 'orcy-api-wrapper');
 
 function createWrapperScript(ctx: InstallContext): string {
   const apiScript = path.join(ctx.orcyHome, 'bin', 'orcy-api');

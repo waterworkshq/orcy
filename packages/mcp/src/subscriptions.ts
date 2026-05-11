@@ -1,5 +1,6 @@
 import { logger } from './logger.js';
 import type { KanbanApiClient } from './api.js';
+import { getOrcyConfig } from '@orcy/shared';
 
 interface Subscription {
   boardId: string;
@@ -192,8 +193,9 @@ function startEventPolling(client: KanbanApiClient, subscription: Subscription):
 }
 
 function getCredentials(): { apiKey: string; agentId: string } {
+  const config = getOrcyConfig();
   return {
-    apiKey: process.env.ORCY_API_KEY ?? '',
-    agentId: process.env.ORCY_AGENT_ID ?? '',
+    apiKey: config.apiKey,
+    agentId: config.agentId,
   };
 }

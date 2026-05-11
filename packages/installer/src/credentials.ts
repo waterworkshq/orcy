@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';
 import type { McpServerBlock } from './writers/index.js';
 import { record } from './manifest.js';
@@ -12,7 +13,7 @@ export interface Credentials {
   agentName: string;
 }
 
-const CREDENTIALS_PATH = path.join(os.homedir(), '.orcy', 'credentials.json');
+const CREDENTIALS_PATH = ORCY_PATHS.credentialsFile;
 
 function isValidCredentials(data: unknown): data is Credentials {
   if (!data || typeof data !== 'object') return false;
@@ -104,7 +105,7 @@ export function generateMcpServerBlock(creds: Credentials, ctx: InstallContext):
     },
   };
   const pathDirs = (process.env.PATH || '').split(':');
-  const mcpNodeModules = path.join(os.homedir(), '.orcy', 'node_modules', '@orcy', 'mcp', 'dist', 'index.js');
+  const mcpNodeModules = path.join(ORCY_PATHS.home, 'node_modules', '@orcy', 'mcp', 'dist', 'index.js');
   const onPath = pathDirs.some(d => fs.existsSync(path.join(d, 'orcy-mcp')));
   if (!onPath && fs.existsSync(mcpNodeModules)) {
     block.command = 'node';

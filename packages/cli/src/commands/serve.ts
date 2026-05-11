@@ -2,10 +2,10 @@ import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { ORCY_PATHS } from '@orcy/shared';
 
-const ORCY_HOME = path.join(os.homedir(), '.orcy');
-const PID_FILE = path.join(ORCY_HOME, 'run', 'api.pid');
-const LOG_FILE = path.join(ORCY_HOME, 'logs', 'api.log');
+const PID_FILE = path.join(ORCY_PATHS.run, 'api.pid');
+const LOG_FILE = path.join(ORCY_PATHS.logs, 'api.log');
 
 interface ResolvedApi {
   execPath: string;
@@ -14,8 +14,8 @@ interface ResolvedApi {
 
 function findOrcyApi(): ResolvedApi {
   const candidates: { path: string; isNodeScript: boolean }[] = [
-    { path: path.join(os.homedir(), '.orcy', 'node_modules', '@orcy', 'api', 'dist', 'index.js'), isNodeScript: true },
-    { path: path.join(os.homedir(), '.orcy', 'bin', 'orcy-api'), isNodeScript: false },
+    { path: path.join(ORCY_PATHS.home, 'node_modules', '@orcy', 'api', 'dist', 'index.js'), isNodeScript: true },
+    { path: path.join(ORCY_PATHS.bin, 'orcy-api'), isNodeScript: false },
     { path: path.join(os.homedir(), '.local', 'bin', 'orcy-api'), isNodeScript: false },
   ];
   for (const c of candidates) {

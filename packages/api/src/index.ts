@@ -9,8 +9,8 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyRawBody from 'fastify-raw-body';
 import path from 'node:path';
-import os from 'node:os';
 import fs from 'node:fs';
+import { ORCY_PATHS } from '@orcy/shared';
 import { boardRoutes } from './routes/boards.js';
 import { boardAnalyticsRoutes } from './routes/board-analytics.js';
 import { boardExportRoutes } from './routes/board-export.js';
@@ -201,7 +201,7 @@ await fastify.register(async (f) => {
 // are sent to the SPA instead.
 fastify.get('/', async (_request, reply) => reply.redirect('/app/'));
 
-const uiPath = process.env.ORCY_UI_PATH || path.join(os.homedir(), '.orcy', 'ui');
+const uiPath = process.env.ORCY_UI_PATH || ORCY_PATHS.ui;
 if (fs.existsSync(uiPath)) {
   await fastify.register(fastifyStatic, {
     root: uiPath,

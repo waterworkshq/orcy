@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';
 
 export function generateSecret(length = 32): string {
@@ -63,7 +64,7 @@ export function generateEnvFile(ctx: InstallContext, config: EnvConfig): void {
 }
 
 export function readRegistrationToken(): string | null {
-  const envPath = path.join(os.homedir(), '.orcy', '.env');
+  const envPath = ORCY_PATHS.envFile;
   if (!fs.existsSync(envPath)) return null;
   const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
   for (const line of lines) {

@@ -19,6 +19,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@orcy/shared": "workspace:*",
     "commander": "^13.1.0"
   },
   "devDependencies": {

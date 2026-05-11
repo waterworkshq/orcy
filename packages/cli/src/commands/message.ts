@@ -1,4 +1,6 @@
 import { api } from '../client.js';
+import { getOrcyConfig } from '@orcy/shared';
+import { withErrorHandling } from '../error-handler.js';
 
 export function registerMessageCommands(program: any) {
   const msg = program.command('message').description('Agent message operations');
@@ -13,7 +15,7 @@ export function registerMessageCommands(program: any) {
     .option('--task-id <id>', 'Optional task UUID to scope the message')
     .option('--message-type <type>', 'Message type: info, request, response, alert')
     .option('--priority <priority>', 'Priority: low, normal, high, urgent')
-    .action(async (boardId: string, subject: string, body: string, options: any) => {
+    .action(withErrorHandling(async (boardId: string, subject: string, body: string, options: any) => {
       let toAgentId = options.toAgentId;
       if (!toAgentId && options.toAgentName) {
         const agents = await api.get<any>(`/api/agents?name=${encodeURIComponent(options.toAgentName)}`);
@@ -23,7 +25,8 @@ export function registerMessageCommands(program: any) {
         toAgentId = found.agent?.id ?? found.id;
       }
       if (!toAgentId) throw new Error('Either --to-agent-id or --to-agent-name must be provided');
-      const agentId = process.env.ORCY_AGENT_ID ?? '';
+      const config = getOrcyConfig();
+      const agentId = config.agentId;
       const result = await api.post<any>(`/api/agents/${agentId}/messages`, {
         boardId,
         toAgentId,
@@ -34,7 +37,7 @@ export function registerMessageCommands(program: any) {
         priority: options.priority ?? 'normal',
       });
       console.log(JSON.stringify(result, null, 2));
-    });
+    }));
 
   msg.command('get-messages')
     .description('List messages addressed to you')
@@ -42,8 +45,9 @@ export function registerMessageCommands(program: any) {
     .option('--task-id <id>', 'Filter by task')
     .option('--limit <n>', 'Max messages', '50')
     .option('--offset <n>', 'Messages to skip', '0')
-    .action(async (options: { unreadOnly?: boolean; taskId?: string; limit: string; offset: string }) => {
-      const agentId = process.env.ORCY_AGENT_ID ?? '';
+    .action(withErrorHandling(async (options: { unreadOnly?: boolean; taskId?: string; limit: string; offset: string }) => {
+      const config = getOrcyConfig();
+      const agentId = config.agentId;
       const params = new URLSearchParams();
       if (options.unreadOnly) params.set('unreadOnly', 'true');
       if (options.taskId) params.set('taskId', options.taskId);
@@ -51,5 +55,5 @@ export function registerMessageCommands(program: any) {
       params.set('offset', options.offset);
       const result = await api.get<any>(`/api/agents/${agentId}/messages?${params}`);
       console.log(JSON.stringify(result, null, 2));
-    });
+    }));
 }

@@ -38,6 +38,7 @@ import type {
   ListPulsesResponse,
 } from './types.js';
 import { logger } from './logger.js';
+import { getOrcyConfig, normalizeTaskId } from '@orcy/shared';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 3;
@@ -63,14 +64,11 @@ export class KanbanApiClient {
     return this.baseUrl;
   }
 
-  private normalizeTaskId(id: string): string {
-    return id.startsWith('feat-') ? id.slice(5) : id;
-  }
-
   private getCredentials(): { apiKey: string; agentId: string } {
+    const config = getOrcyConfig();
     return {
-      apiKey: process.env.ORCY_API_KEY ?? '',
-      agentId: process.env.ORCY_AGENT_ID ?? '',
+      apiKey: config.apiKey,
+      agentId: config.agentId,
     };
   }
 
@@ -386,7 +384,7 @@ export class KanbanApiClient {
   async claimTask(
     taskId: string
   ): Promise<ClaimTaskResponse | { success: false; reason: string; message: string; missingCapabilities?: string[] }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     const { apiKey, agentId: _agentId } = this.getCredentials();
     const url = `${this.baseUrl}/api/tasks/${taskId}/claim`;
     const headers: Record<string, string> = {
@@ -430,7 +428,7 @@ export class KanbanApiClient {
   }
 
   async startTask(taskId: string): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('POST', `/api/tasks/${taskId}/start`);
   }
 
@@ -439,7 +437,7 @@ export class KanbanApiClient {
     status: TaskStatus,
     options?: { result?: string; artifacts?: Task['artifacts'] }
   ): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('PATCH', `/api/tasks/${taskId}`, {
       status,
       ...(options?.result !== undefined && { result: options.result }),
@@ -448,7 +446,7 @@ export class KanbanApiClient {
   }
 
   async failTask(taskId: string, reason: string): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('POST', `/api/tasks/${taskId}/fail`, {
       reason,
     });
@@ -459,7 +457,7 @@ export class KanbanApiClient {
     result: string,
     artifacts?: Task['artifacts']
   ): Promise<SubmitTaskResponse> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<SubmitTaskResponse>('POST', `/api/tasks/${taskId}/submit`, {
       result,
       artifacts: artifacts ?? [],
@@ -471,7 +469,7 @@ export class KanbanApiClient {
     reviewNote?: string,
     artifacts?: Task['artifacts']
   ): Promise<CompleteTaskResponse> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<CompleteTaskResponse>('POST', `/api/tasks/${taskId}/complete`, {
       reviewNote,
       artifacts: artifacts ?? [],
@@ -479,19 +477,19 @@ export class KanbanApiClient {
   }
 
   async getTaskContext(taskId: string): Promise<TaskContext> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<TaskContext>('GET', `/api/tasks/${taskId}`);
   }
 
   async releaseTask(taskId: string, reason: string): Promise<ReleaseTaskResponse> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<ReleaseTaskResponse>('POST', `/api/tasks/${taskId}/release`, {
       reason,
     });
   }
 
   async retryTask(taskId: string): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('POST', `/api/tasks/${taskId}/retry`);
   }
 
@@ -536,7 +534,7 @@ export class KanbanApiClient {
   }
 
   async getTask(taskId: string): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('GET', `/api/tasks/${taskId}`);
   }
 
@@ -558,7 +556,7 @@ export class KanbanApiClient {
     taskId: string,
     options?: { limit?: number; offset?: number }
   ): Promise<{ events: TaskEvent[]; total: number }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
@@ -581,7 +579,7 @@ export class KanbanApiClient {
       estimatedMinutes?: number | null;
     }
   ): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('PATCH', `/api/tasks/${taskId}`, {
       title: input.title,
       description: input.description,
@@ -594,7 +592,7 @@ export class KanbanApiClient {
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     await this.request<void>('DELETE', `/api/tasks/${taskId}`);
   }
 
@@ -646,7 +644,7 @@ export class KanbanApiClient {
     toAgentId: string,
     reason?: string
   ): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('POST', `/api/tasks/${taskId}/delegate`, {
       toAgentId,
       reason,
@@ -657,7 +655,7 @@ export class KanbanApiClient {
     taskId: string,
     options?: { includeSubtasks?: boolean; includeComments?: boolean }
   ): Promise<{ task: Task }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ task: Task }>('POST', `/api/tasks/${taskId}/clone`, {
       includeSubtasks: options?.includeSubtasks ?? false,
       includeComments: options?.includeComments ?? false,
@@ -668,7 +666,7 @@ export class KanbanApiClient {
     taskId: string,
     options?: { limit?: number; offset?: number }
   ): Promise<{ comments: TaskComment[]; total: number }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
@@ -684,7 +682,7 @@ export class KanbanApiClient {
     content: string,
     parentId?: string
   ): Promise<{ comment: TaskComment }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ comment: TaskComment }>(
       'POST',
       `/api/tasks/${taskId}/comments`,
@@ -696,7 +694,7 @@ export class KanbanApiClient {
   }
 
   async listSubtasks(taskId: string): Promise<ListSubtasksResponse> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<ListSubtasksResponse>('GET', `/api/tasks/${taskId}/subtasks`);
   }
 
@@ -704,7 +702,7 @@ export class KanbanApiClient {
     taskId: string,
     input: { title: string; order?: number; assigneeId?: string }
   ): Promise<{ subtask: Subtask }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ subtask: Subtask }>('POST', `/api/tasks/${taskId}/subtasks`, {
       title: input.title,
       ...(input.order !== undefined && { order: input.order }),
@@ -717,7 +715,7 @@ export class KanbanApiClient {
     subtaskId: string,
     input: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null }
   ): Promise<{ subtask: Subtask }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request<{ subtask: Subtask }>(
       'PATCH',
       `/api/tasks/${taskId}/subtasks/${subtaskId}`,
@@ -731,7 +729,7 @@ export class KanbanApiClient {
   }
 
   async deleteSubtask(taskId: string, subtaskId: string): Promise<void> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     await this.request<void>('DELETE', `/api/tasks/${taskId}/subtasks/${subtaskId}`);
   }
 
@@ -891,7 +889,7 @@ export class KanbanApiClient {
   }
 
   async getWorktree(taskId: string): Promise<{ worktree: { path: string; branch: string; repoRoot: string } | null; enabled: boolean }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     try {
       return await this.request<{ worktree: { path: string; branch: string; repoRoot: string } | null; enabled: boolean }>(
         'GET',
@@ -911,7 +909,7 @@ export class KanbanApiClient {
     estimationAccuracy: number | null;
     heartbeatHistory: { id: string; taskId: string; agentId: string | null; minutesSpent: number; recordedAt: string; statusDuringWork: string }[];
   }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('GET', `/api/tasks/${taskId}/time-report`);
   }
 
@@ -929,12 +927,12 @@ export class KanbanApiClient {
   }
 
   async addTaskDependency(taskId: string, dependsOnTaskId: string): Promise<{ success: boolean }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('POST', `/api/tasks/${taskId}/dependencies`, { dependsOnTaskId });
   }
 
   async removeTaskDependency(taskId: string, depId: string): Promise<{ success: boolean }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('DELETE', `/api/tasks/${taskId}/dependencies/${depId}`);
   }
 
@@ -942,7 +940,7 @@ export class KanbanApiClient {
     dependsOn: { taskId: string; title: string; status: string; completedAt: string | null }[];
     blocking: { taskId: string; title: string; status: string }[];
   }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('GET', `/api/tasks/${taskId}/dependencies`);
   }
 
@@ -953,7 +951,7 @@ export class KanbanApiClient {
     blockedBy: { taskId: string; title: string; status: string }[];
     blocking: { taskId: string; title: string; status: string }[];
   }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('GET', `/api/tasks/${taskId}/blocked-status`);
   }
 
@@ -964,7 +962,7 @@ export class KanbanApiClient {
     checklists: { id: string; templateId: string; templateName: string; category: string; required: boolean; status: string; progress: { total: number; completed: number }; items: { id: string; title: string; required: boolean; isCompleted: boolean; completedBy: string | null; completedAt: string | null; evidenceUrl: string | null; notes: string }[] }[];
     missingRequirements: { category: string; missingItems: string[] }[];
   }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('GET', `/api/tasks/${taskId}/quality-checklist`);
   }
 
@@ -974,12 +972,12 @@ export class KanbanApiClient {
     itemId: string,
     input: { isCompleted?: boolean; evidenceUrl?: string; notes?: string }
   ): Promise<{ id: string; checklistId: string; itemId: string; isCompleted: boolean; completedBy: string | null; completedAt: string | null; evidenceUrl: string | null; notes: string }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('PUT', `/api/tasks/${taskId}/quality-checklist/${checklistId}/items/${itemId}`, input);
   }
 
   async validateQualityGates(taskId: string): Promise<{ passed: boolean; failures: { category: string; missingItems: string[] }[] }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('POST', `/api/tasks/${taskId}/quality-checklist/validate`);
   }
 
@@ -992,7 +990,7 @@ export class KanbanApiClient {
       timeTracking: { status: string };
     };
   }> {
-    taskId = this.normalizeTaskId(taskId);
+    taskId = normalizeTaskId(taskId);
     return this.request('GET', `/api/tasks/${taskId}/approval-status`);
   }
 

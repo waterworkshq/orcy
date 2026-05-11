@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { ORCY_PATHS } from '@orcy/shared';
 import { execSync } from 'node:child_process';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
@@ -11,15 +12,14 @@ export const SENTINEL_START_FISH = '# >>> orcy PATH >>>';
 export const SENTINEL_END_FISH = '# <<< orcy PATH <<<';
 
 export function getComponentBinPath(component: 'cli' | 'api' | 'mcp'): string {
-  const home = os.homedir();
-  const base = path.join(home, '.orcy', 'node_modules', '@orcy', component, 'dist', 'index.js');
+  const base = path.join(ORCY_PATHS.home, 'node_modules', '@orcy', component, 'dist', 'index.js');
   if (fs.existsSync(base)) return base;
-  return path.join(home, '.orcy', 'bin', component === 'cli' ? 'orcy' : `orcy-${component}`);
+  return path.join(ORCY_PATHS.bin, component === 'cli' ? 'orcy' : `orcy-${component}`);
 }
 
 function resolveActualBin(component: 'cli' | 'api' | 'mcp'): string | null {
   const candidates = [
-    path.join(os.homedir(), '.orcy', 'node_modules', '@orcy', component, 'dist', 'index.js'),
+    path.join(ORCY_PATHS.home, 'node_modules', '@orcy', component, 'dist', 'index.js'),
     path.join(os.homedir(), '.local', 'bin', component === 'cli' ? 'orcy' : `orcy-${component}`),
   ];
   for (const c of candidates) {

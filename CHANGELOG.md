@@ -1,5 +1,15 @@
 # Changelog
 
+## V0.3.0 — 2026-05-10
+
+foundation refactors: shared config package, ID normalization, and CLI error handling.
+
+**New: `@orcy/shared` package**. Created `packages/shared/` with `getOrcyConfig()`, `ORCY_PATHS`, and `normalizeTaskId()`. Centralized 45 scattered `process.env.ORCY_*` reads and 12 hardcoded `~/.orcy` paths into a single config module with dotenv support. Fixed the port 3000/4000 mismatch bug — installer now defaults to `http://localhost:3000` consistent with CLI and MCP.
+
+**ID normalization**. Extracted `normalizeTaskId()` to `@orcy/shared/src/id.ts`. Replaced 30+ copy-pasted `startsWith('feat-')` instances across CLI, MCP and API.
+
+**CLI error handling**. Added `withErrorHandling()` wrapper to 48 action handlers across 9 command files. Users now see human-readable messages (auth failure, not found, server error, connection refused) instead of raw Node.js stack traces.
+
 ## V0.2.1 — 2026-05-10
 
 refactors: security fix for SSRF DNS bypass, missing returns in auth middleware, error propagation in dependency service, and 5 deduplication extractions.

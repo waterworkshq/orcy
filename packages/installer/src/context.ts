@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { ORCY_PATHS, getOrcyConfig } from '@orcy/shared';
 
 export interface InstallContext {
   orcyHome: string;
@@ -15,14 +16,14 @@ export interface InstallContext {
 
 export function getContext(): InstallContext {
   const homeDir = os.homedir();
-  const orcyHome = path.join(homeDir, '.orcy');
+  const config = getOrcyConfig();
   return {
-    orcyHome,
-    binDir: path.join(orcyHome, 'bin'),
-    uiDir: path.join(orcyHome, 'ui'),
-    runDir: path.join(orcyHome, 'run'),
-    logsDir: path.join(orcyHome, 'logs'),
-    apiUrl: process.env.ORCY_API_URL || 'http://127.0.0.1:4000',
+    orcyHome: ORCY_PATHS.home,
+    binDir: ORCY_PATHS.bin,
+    uiDir: ORCY_PATHS.ui,
+    runDir: ORCY_PATHS.run,
+    logsDir: ORCY_PATHS.logs,
+    apiUrl: config.apiUrl,
     platform: os.platform(),
     shell: path.basename(process.env.SHELL || 'bash'),
     homeDir,

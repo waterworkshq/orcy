@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -23,30 +20,10 @@ import {
 } from './tools/index.js';
 import { KanbanApiClient } from './api.js';
 import { setNotificationSender, cleanupAll as cleanupSubscriptions } from './subscriptions.js';
+import { getOrcyConfig } from '@orcy/shared';
 import { logger } from './logger.js';
 
-function resolveApiUrl(): string {
-  const explicit = process.env.ORCY_API_URL;
-  if (explicit) return explicit;
-
-  const orcyEnvPath = path.join(os.homedir(), '.orcy', '.env');
-  try {
-    const content = fs.readFileSync(orcyEnvPath, 'utf-8');
-    const vars: Record<string, string> = {};
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const idx = trimmed.indexOf('=');
-      if (idx > 0) vars[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
-    }
-    if (vars['ORCY_API_URL']) return vars['ORCY_API_URL'];
-    if (vars['HOST'] && vars['PORT']) return `http://${vars['HOST']}:${vars['PORT']}`;
-  } catch {}
-
-  return 'http://localhost:3000';
-}
-
-const ORCY_API_URL = resolveApiUrl();
+const ORCY_API_URL = getOrcyConfig().apiUrl;
 
 const client = new KanbanApiClient(ORCY_API_URL);
 

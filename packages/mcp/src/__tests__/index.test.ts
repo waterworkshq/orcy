@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { getCurrentAgentId } from '../tools/agent-id.js';
 import { createDispatchHandler } from '../tools/dispatch-utils.js';
+import { resetConfig } from '@orcy/shared';
 
 describe('getCurrentAgentId', () => {
   const originalAgentId = process.env.ORCY_AGENT_ID;
 
   afterEach(() => {
     process.env.ORCY_AGENT_ID = originalAgentId ?? '';
+    resetConfig();
   });
 
   it('returns env var value when set', () => {

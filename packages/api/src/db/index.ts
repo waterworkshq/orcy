@@ -3,7 +3,7 @@ import * as schema from './schema.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, readFileSync, mkdirSync } from 'fs';
-import { homedir } from 'os';
+import { ORCY_PATHS } from '@orcy/shared';
 import { createHash } from 'crypto';
 import { setDriver } from './dialect-helpers.js';
 import bcrypt from 'bcryptjs';
@@ -31,11 +31,10 @@ export function getWorkspaceRoot(): string {
 }
 
 export function getDefaultDbPath(): string {
-  const orcyDir = join(homedir(), '.orcy');
-  if (!existsSync(orcyDir)) {
-    mkdirSync(orcyDir, { recursive: true });
+  if (!existsSync(ORCY_PATHS.home)) {
+    mkdirSync(ORCY_PATHS.home, { recursive: true });
   }
-  return join(orcyDir, 'orcy.db');
+  return ORCY_PATHS.databaseFile;
 }
 
 let _drizzleDb: DrizzleDb | null = null;
