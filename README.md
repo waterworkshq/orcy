@@ -67,7 +67,6 @@ See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability mat
 
 | Release | Theme |
 |---------|-------|
-| **v0.6** | The Habitat Speaks — Pulse V2: habitat signals, project insights, WebUI Signal Board |
 | **v0.7** | Solid Ground — UI refactors (store decomposition, React Query unification, SSE fix) |
 | **v0.8** | See the Invisible — board health metrics, audit exports, mission comments |
 | **v0.9** | Work Your Way — task board view, dynamic prioritization, recurring tasks |
