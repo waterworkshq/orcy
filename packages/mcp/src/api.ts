@@ -32,6 +32,7 @@ import type {
   FeatureContext,
   FeatureProgressResponse,
   FeatureDetailsResponse,
+  ProjectInsight,
   ListFeaturesResponse,
   ListTasksInFeatureResponse,
   Pulse,
@@ -43,6 +44,16 @@ import { logger } from './logger.js';
 import { getOrcyConfig, normalizeTaskId, createApiClient, ApiClientError } from '@orcy/shared';
 
 export { ApiClientError as KanbanApiError } from '@orcy/shared';
+
+function buildRelevanceTags(feature: Feature): string[] {
+  const tags: string[] = [];
+  if (feature.labels) {
+    for (const label of feature.labels) {
+      tags.push(`label:${label}`);
+    }
+  }
+  return tags;
+}
 
 export class KanbanApiClient {
   private transport: ReturnType<typeof createApiClient>;
@@ -203,6 +214,14 @@ export class KanbanApiClient {
       pulseDigest = await this.getPulseDigest(featureId);
     } catch { }
 
+    let projectInsights: ProjectInsight[] = [];
+    try {
+      const tags = buildRelevanceTags(details.feature);
+      if (tags.length > 0) {
+        projectInsights = await this.getRelevantInsights(details.feature.boardId, tags);
+      }
+    } catch { }
+
     return {
       feature: details.feature,
       tasks: details.tasks.map(t => ({
@@ -216,6 +235,7 @@ export class KanbanApiClient {
       dependencies,
       blocking,
       pulse: pulseDigest,
+      projectInsights,
     };
   }
 
@@ -304,6 +324,39 @@ export class KanbanApiClient {
 
   async getHabitatPulseDigest(boardId: string): Promise<PulseDigest> {
     return this.request<PulseDigest>('GET', `/api/boards/${boardId}/pulse/digest`);
+  }
+
+  async promoteInsight(boardId: string, input: {
+    sourcePulseId: string;
+    relevanceTags?: string[];
+    subject?: string;
+    body?: string;
+  }): Promise<{ insight: ProjectInsight }> {
+    return this.request<{ insight: ProjectInsight }>('POST', `/api/boards/${boardId}/insights`, input);
+  }
+
+  async getInsights(boardId: string, filters?: {
+    signalType?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ insights: ProjectInsight[]; total: number }> {
+    const params = new URLSearchParams();
+    if (filters?.signalType) params.set('signalType', filters.signalType);
+    if (filters?.isActive !== undefined) params.set('isActive', String(filters.isActive));
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
+    const query = params.toString();
+    return this.request<{ insights: ProjectInsight[]; total: number }>('GET', `/api/boards/${boardId}/insights${query ? `?${query}` : ''}`);
+  }
+
+  async deactivateInsight(boardId: string, insightId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/boards/${boardId}/insights/${insightId}`);
+  }
+
+  async getRelevantInsights(boardId: string, tags: string[]): Promise<ProjectInsight[]> {
+    const { insights } = await this.getInsights(boardId, { isActive: true, limit: 100 });
+    return insights.filter(i => i.relevanceTags.some(t => tags.includes(t))).slice(0, 5);
   }
 
   async getFeatureProgress(featureId: string): Promise<FeatureProgressResponse> {

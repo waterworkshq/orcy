@@ -105,4 +105,62 @@ export function registerPulseCommands(program: any) {
         process.exit(1);
       }
     });
+
+  const insights = pulse.command('insights').description('Project insights management');
+
+  insights.command('list')
+    .description('List project insights for a habitat')
+    .argument('<boardId>', 'Board/habitat UUID')
+    .option('--type <type>', 'Filter by signal type')
+    .option('--limit <n>', 'Max insights', '20')
+    .action(async (boardId: string, options: any) => {
+      const params = new URLSearchParams();
+      if (options.type) params.set('signalType', options.type);
+      if (options.limit) params.set('limit', options.limit);
+      const query = params.toString();
+
+      try {
+        const result = await api.get<any>(`/api/boards/${boardId}/insights${query ? `?${query}` : ''}`);
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err: any) {
+        console.error(`Failed to list insights: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  insights.command('promote')
+    .description('Promote a signal to a persistent project insight')
+    .argument('<pulseId>', 'Pulse signal UUID to promote')
+    .requiredOption('--board <boardId>', 'Board/habitat UUID')
+    .option('--tags <tags>', 'Comma-separated relevance tags')
+    .option('--subject <subject>', 'Override subject (defaults to source pulse)')
+    .option('--body <body>', 'Override body (defaults to source pulse)')
+    .action(async (pulseId: string, options: any) => {
+      const body: Record<string, any> = { sourcePulseId: pulseId };
+      if (options.tags) body.relevanceTags = options.tags.split(',');
+      if (options.subject) body.subject = options.subject;
+      if (options.body) body.body = options.body;
+
+      try {
+        const result = await api.post<any>(`/api/boards/${options.board}/insights`, body);
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err: any) {
+        console.error(`Failed to promote insight: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  insights.command('deactivate')
+    .description('Deactivate a project insight')
+    .argument('<insightId>', 'Insight UUID')
+    .requiredOption('--board <boardId>', 'Board/habitat UUID')
+    .action(async (insightId: string, options: any) => {
+      try {
+        const result = await api.delete<any>(`/api/boards/${options.board}/insights/${insightId}`);
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err: any) {
+        console.error(`Failed to deactivate insight: ${err.message}`);
+        process.exit(1);
+      }
+    });
 }

@@ -5,12 +5,14 @@ import { agents, agentMessages } from './agent.js';
 import { users, notificationPreferences, organizations, teams, teamMembers } from './user.js';
 import { webhookSubscriptions, webhookDeliveries } from './webhook.js';
 import { pulses, pulseCursors } from './pulse.js';
+import { projectInsights } from './insight.js';
 import { pullRequests, pipelineEvents } from './cicd.js';
 import { qualityChecklistTemplates, qualityChecklistItems, taskQualityChecklists, taskQualityChecklistItems } from './quality.js';
 
 export const boardsRelations = relations(boards, ({ many, one }) => ({
   columns: many(columns),
   features: many(features),
+  insights: many(projectInsights),
   team: one(teams, {
     fields: [boards.teamId],
     references: [teams.id],
@@ -357,5 +359,16 @@ export const taskQualityChecklistItemsRelations = relations(taskQualityChecklist
   item: one(qualityChecklistItems, {
     fields: [taskQualityChecklistItems.itemId],
     references: [qualityChecklistItems.id],
+  }),
+}));
+
+export const boardsProjectInsightsRelations = relations(projectInsights, ({ one }) => ({
+  board: one(boards, {
+    fields: [projectInsights.boardId],
+    references: [boards.id],
+  }),
+  sourcePulse: one(pulses, {
+    fields: [projectInsights.sourcePulseId],
+    references: [pulses.id],
   }),
 }));

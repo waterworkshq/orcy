@@ -55,6 +55,7 @@ export interface FeatureContext {
   dependencies: Feature[];
   blocking: Feature[];
   pulse?: PulseDigest;
+  projectInsights?: ProjectInsight[];
 }
 
 export interface TaskContext {
@@ -179,6 +180,21 @@ export interface PulseDigest {
     linkedTaskId?: string;
     createdAt: string;
   }>;
+}
+
+export interface ProjectInsight {
+  id: string;
+  boardId: string;
+  sourcePulseId: string | null;
+  sourceMission: string | null;
+  signalType: SignalType;
+  subject: string;
+  body: string;
+  relevanceTags: string[];
+  promotedBy: string;
+  promotedAt: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export interface PostPulseResponse {

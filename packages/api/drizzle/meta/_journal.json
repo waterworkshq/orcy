@@ -29,6 +29,13 @@
       "when": 1778460000000,
       "tag": "0003_pulse_v2_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1778470000000,
+      "tag": "0004_project_insights",
+      "breakpoints": true
     }
   ]
 }

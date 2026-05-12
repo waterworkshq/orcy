@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
 import { pulsePost, pulseCheck } from './pulse.js';
+import { pulsePromote } from './pulse-promote.js';
 
 export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_pulse',
@@ -12,8 +13,9 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
     'offer results, ask questions, or issue directives. Use action="check" to read signals ' +
     'filtered by mission or signal type. When no missionId is provided, returns your cross-mission inbox. ' +
     'Use scope="habitat" with boardId to post or read habitat-level signals visible across all missions. ' +
+    'Use action="promote" to promote a valuable signal to a persistent project insight. ' +
     'Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.',
-  actions: ['post', 'check'],
+  actions: ['post', 'check', 'promote'],
   sharedParams: {
     missionId: {
       type: 'string',
@@ -66,12 +68,22 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
       type: 'number',
       description: 'Pagination offset (action=check)',
     },
+    pulseId: {
+      type: 'string',
+      description: 'Pulse ID to promote to insight (action=promote)',
+    },
+    relevanceTags: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Tags for insight relevance matching, e.g. ["domain:backend", "label:auth"] (action=promote)',
+    },
   },
 });
 
 export const PULSE_ACTIONS: Record<string, Handler> = {
   'post': pulsePost,
   'check': pulseCheck,
+  'promote': pulsePromote,
 };
 
 export const PULSE_DISPATCH_HANDLER = createDispatchHandler(PULSE_ACTIONS);
