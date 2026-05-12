@@ -81,7 +81,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
       const principal = getPrincipalFromRequest(request);
       const authResult = authorizeAttachmentAccess(attachment, principal, 'read');
       if (!authResult.allowed) {
-        throw forbidden(authResult.reason);
+        throw forbidden(authResult.reason ?? 'Access denied');
       }
 
       const stream = fileStorage.readFile(attachment.filename);
@@ -103,7 +103,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
       const principal = getPrincipalFromRequest(request);
       const authResult = authorizeAttachmentAccess(attachment, principal, 'delete');
       if (!authResult.allowed) {
-        throw forbidden(authResult.reason);
+        throw forbidden(authResult.reason ?? 'Access denied');
       }
 
       const success = attachmentRepo.deleteAttachment(request.params.id);

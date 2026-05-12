@@ -28,7 +28,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
   fastify.post<{ Params: { boardId: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
     '/boards/:boardId/saved-filters',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string }; Body: { name: string; filterConfig: Record<string, unknown> } } }, reply: FastifyReply) => {
+    async (request, reply) => {
       const parsed = createSavedFilterSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -49,7 +49,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
   fastify.put<{ Params: { id: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
     '/saved-filters/:id',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: { name: string; filterConfig: Record<string, unknown> } } }, reply: FastifyReply) => {
+    async (request, reply) => {
       const parsed = updateSavedFilterSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());

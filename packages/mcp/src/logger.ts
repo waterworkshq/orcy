@@ -29,7 +29,7 @@ function formatMessage(level: LogLevel, message: string, data?: Record<string, u
     level,
     ts: new Date().toISOString(),
     msg: message,
-    ...(data ?? {}),
+    ...data,
   };
   return JSON.stringify(entry);
 }

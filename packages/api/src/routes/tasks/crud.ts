@@ -50,6 +50,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
         } else if (result.versionMismatch) {
           throw conflict('Version conflict', { currentVersion: result.currentVersion, yourVersion: parsed.version });
         }
+        throw badRequest('Update failed');
       }
       return { task: result.task };
     }

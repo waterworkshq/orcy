@@ -21,7 +21,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.put<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } }>(
     '/tasks/:id/quality-checklist/:checklistId/items/:itemId',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } } }, reply: FastifyReply) => {
+    async (request, reply) => {
       const result = qualityGateService.updateChecklistItem(
         request.params.id,
         request.params.checklistId,
@@ -66,7 +66,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.post<{ Body: { name: string; description?: string; category: string; isRequired?: boolean; items: { title: string; description?: string; required?: boolean }[] } }>(
     '/quality/templates',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Body: { name: string; description?: string; category: string; isRequired?: boolean; items: { title: string; description?: string; required?: boolean }[] } }>, reply: FastifyReply) => {
+    async (request, reply) => {
       const { name, description, category, isRequired, items } = request.body;
       if (!name || !category || !items || items.length === 0) {
         throw badRequest('name, category, and items are required');

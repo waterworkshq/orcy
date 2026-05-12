@@ -7,7 +7,7 @@ import { getBoardIdForTask } from '../repositories/task.js';
 import type { GitWorktreeSettings } from '../models/index.js';
 import { logger } from '../lib/logger.js';
 
-const SAFE_BRANCH_RE = /^[a-zA-Z0-9._\/-]+$/;
+const SAFE_BRANCH_RE = /^[a-zA-Z0-9._/-]+$/;
 const ABSOLUTE_PATH_RE = /^\//;
 
 const activeWorktrees = new Map<string, { path: string; branch: string; repoRoot: string }>();

@@ -26,7 +26,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
       const result = dependencyService.addTaskDependency(request.params.id, dependsOnTaskId);
       if (!result.success) {
-        throw conflict(result.reason);
+        throw conflict(result.reason ?? 'Conflict');
       }
 
       return { success: true };
@@ -89,7 +89,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
 
       const result = dependencyService.addFeatureDependency(request.params.id, dependsOnFeatureId);
       if (!result.success) {
-        throw conflict(result.reason);
+        throw conflict(result.reason ?? 'Conflict');
       }
       return { success: true };
     }

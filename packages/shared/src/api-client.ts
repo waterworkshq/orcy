@@ -92,7 +92,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const headers: Record<string, string> = {
-        ...(options?.headers ?? {}),
+        ...options?.headers,
       };
       if (options?.body !== undefined) {
         headers['Content-Type'] = 'application/json';

@@ -88,7 +88,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'start');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const result = taskService.startTask(request.params.id, agentId);
@@ -111,7 +111,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'approve');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const reviewerId = request.user!.id;
@@ -136,7 +136,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'reject');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const parsed = request.body;
@@ -162,7 +162,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'release');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const actorId = request.agent!.id;
@@ -188,7 +188,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'fail');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const agentId = request.agent!.id;
@@ -219,7 +219,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'submit');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const agentId = request.agent!.id;
@@ -263,7 +263,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
       const principal = getPrincipalFromRequest(request);
       const auth = authorizeTaskAction(task, principal, 'complete');
       if (!auth.allowed) {
-        throw forbidden(auth.reason);
+        throw forbidden(auth.reason ?? 'Forbidden');
       }
 
       const agentId = request.agent!.id;

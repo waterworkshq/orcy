@@ -23,10 +23,12 @@ test-results/
 coverage/
 
 # TypeScript compiler artifacts (emitted when tsc runs without --noEmit)
-*.js
 *.js.map
-*.d.ts
 *.d.ts.map
+packages/*/dist/*.js
+packages/*/dist/*.d.ts
+packages/*/dist/**/*.js
+packages/*/dist/**/*.d.ts
 
 # Bun package manager artifacts
 bun.lock

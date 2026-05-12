@@ -72,12 +72,7 @@ export async function decomposeFeature(featureId: string): Promise<Decomposition
     { role: 'user', content: buildUserMessage(feature.title, feature.description, feature.acceptanceCriteria) },
   ];
 
-  let llmResponse;
-  try {
-    llmResponse = await callLLM(messages, config);
-  } catch (error) {
-    throw error;
-  }
+  const llmResponse = await callLLM(messages, config);
 
   const result: DecompositionResult = { proposals: [], parentFeature: { id: feature.id, title: feature.title } };
 
