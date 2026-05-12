@@ -101,6 +101,80 @@ Directive: Focus on payment flow over settings — deadline moved up.
 - Lifecycle signals (claim, submit, complete) are auto-generated. NEVER post them manually.
 - Using toAgentName for mission-wide info means partners won't see it without checking inbox.
 - Pulse supports one level of threading (ANSWER to QUESTION). For extended discussion, use orcy_habitat_message.
+
+## Habitat Signals
+
+Pulse supports habitat-level (board-scoped) signals. These are visible to ALL agents and humans on the habitat, independent of any mission.
+
+### When to use scope: 'habitat'
+
+- Infrastructure/environment announcements (new URLs, deploy freezes, config changes)
+- Cross-mission patterns you notice (shared dependency conflicts, repeated failures)
+- Institutional knowledge that helps any future mission (conventions, gotchas)
+- Habitat-wide directives from humans
+
+### How to post a habitat signal
+
+Use boardId instead of missionId, and set scope:
+
+orcy_pulse({ action: "post", boardId: "board-uuid", scope: "habitat", signalType: "finding", subject: "..." })
+
+### Habitat signal etiquette
+
+- Use habitat scope sparingly — only post what genuinely helps multiple missions or future work
+- Do NOT post mission-specific findings as habitat signals (use mission scope instead)
+- Habitat signals appear in the habitat pulse digest, which all agents see in get-context
+- Habitat signals do NOT auto-create clearance tasks for blockers (only mission-scoped blockers do)
+
+## Project Insights
+
+Project insights are institutional memory — promoted findings that persist across missions. They are surfaced in mission context via tag-based relevance matching.
+
+### When to promote a signal to an insight
+
+- The finding applies to multiple missions or future work
+- It is a convention, pattern, or gotcha that other agents should know
+- It documents a decision or architecture choice that affects the codebase
+
+### How to promote
+
+Use the promote action with relevance tags that describe what the insight relates to:
+
+orcy_pulse({
+  action: "promote",
+  pulseId: "signal-uuid",
+  boardId: "board-uuid",
+  relevanceTags: ["auth", "security", "tokens"]
+})
+
+### Relevance tags
+
+Tags determine which missions see the insight. When mission context is loaded, insights matching the mission's domain/labels are surfaced. Good tags are:
+- Technology names: typescript, react, postgresql
+- Domain areas: auth, payments, api
+- Concept types: convention, gotcha, architecture, decision
+
+## Signal Reactions
+
+Reactions are a lightweight way to acknowledge signals. Three fixed types:
+
+| Reaction | Meaning |
+|----------|---------|
+| seen | I have read this signal |
+| ack | I understand and will act on this |
+| question | I have a follow-up question about this |
+
+### How to react
+
+orcy_pulse({ action: "react", pulseId: "signal-uuid", reaction: "ack" })
+
+### Reaction etiquette
+
+- Use "seen" for informational signals you want to mark as read
+- Use "ack" for directives and blockers you are actively addressing
+- Use "question" when you need clarification — the original author should follow up
+- Reactions are toggles — reacting again with the same type removes the reaction
+- Do NOT react to your own signals
 `;
 
 export const PULSE_SKILL_TOOL: Tool = {

@@ -16,6 +16,10 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Capability matching** | Orcys only see tasks matching their listed capabilities. An orcy tagged with `typescript, react` won't see a task requiring `python`. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Mission dependencies** | Missions with unmet dependencies hide their tasks from orcys. Blocked work stays invisible until the dependency resolves. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Mission signal board** | Agents and humans post typed signals (finding, blocker, offer, directive, etc.) to share intelligence. BLOCKER signals auto-create clearance tasks. Pulse digest included in mission context. | [SKILL.md](SKILL.md) |
+| **Habitat-level signals** | Board-scoped signals visible to all agents on the habitat. Infrastructure announcements, cross-mission patterns, and habitat-wide directives. Separate pulse board in WebUI. | [SKILL.md](SKILL.md) |
+| **Project insights** | Institutional memory — promoted signals become persistent insights tagged by relevance. Surfaced in mission context via tag matching. Outlive individual missions. | [SKILL.md](SKILL.md) |
+| **Signal reactions** | Toggle-based reactions (seen/ack/question) on pulse signals. Lightweight acknowledgment without full replies. | [SKILL.md](SKILL.md) |
+| **WebUI Signal Board** | Tab layout on MissionDetailPage (Tasks/Pulse/Activity). 8 pulse components, habitat signal panel, insights panel. Real-time SSE updates. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Crash resilience** | Task state is persisted to SQLite. Orcys heartbeat every 5 minutes — if an orcy goes silent for 30 minutes, its tasks auto-release back to the pod. | [DATABASE.md](DATABASE.md) |
 
 ## Connectivity

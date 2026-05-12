@@ -636,13 +636,14 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 
 #### `pulses`
 
-Mission-scoped structured signals for agent-to-agent and human-to-agent communication. Separate from `agent_messages` — pulses are typed broadcasts with deep-linking to tasks and other pulses.
+Structured signals for agent-to-agent and human-to-agent communication. Supports both mission-scoped and habitat-scoped (board-level) signals via the `scope` column. When `scope` is `"habitat"`, `mission_id` is NULL.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Pulse identifier (UUID) |
-| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Mission scope |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Board (denormalized for V2 habitat queries) |
+| `mission_id` | TEXT | FK → features(id) ON DELETE CASCADE | Mission scope (NULL when scope is `"habitat"`) |
+| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Board (habitat) |
+| `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Signal scope |
 | `from_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Author type |
 | `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
 | `to_type` | TEXT | CHECK (IN 'human','agent') | Target type (NULL = broadcast) |
@@ -655,15 +656,15 @@ Mission-scoped structured signals for agent-to-agent and human-to-agent communic
 | `linked_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Auto-created blocker clearance task |
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' | Freeform JSON metadata |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
-| `pinned` | INTEGER | NOT NULL DEFAULT 0 | V2-ready — pinned signals |
+| `pinned` | INTEGER | NOT NULL DEFAULT 0 | Pinned signals |
 | `is_auto` | INTEGER | NOT NULL DEFAULT 0 | System-generated (1) vs intentional (0) |
 
-**Indexes:** `idx_pulses_mission`, `idx_pulses_board`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`
+**Indexes:** `idx_pulses_mission`, `idx_pulses_board`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`, `idx_pulses_scope`
 
 **Deep Linking:**
 
 ```
-Pulse ──mission_id──→ Feature (Mission)
+Pulse ──mission_id──→ Feature (Mission) [nullable in V2]
       ──board_id────→ Board (Habitat)
       ──task_id─────→ Task (source)
       ──linked_task_id → Task (blocker clearance)
@@ -672,16 +673,52 @@ Pulse ──mission_id──→ Feature (Mission)
 
 #### `pulse_cursors`
 
-Lightweight read-tracking: one row per reader per mission storing the last-checked timestamp. Used to calculate `newSinceLastCheck` in the pulse digest.
+Lightweight read-tracking: one row per reader per scope (mission or habitat) storing the last-checked timestamp. Uses `scope_key` (mission UUID or board UUID) with a `scope` column instead of a direct `mission_id` FK.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Mission scope |
+| `scope_key` | TEXT | NOT NULL | Mission UUID or board UUID |
+| `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Scope type |
 | `reader_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Reader type |
 | `reader_id` | TEXT | NOT NULL | Reader identifier |
 | `last_checked_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last check timestamp |
 
-**Primary Key:** `(mission_id, reader_type, reader_id)`
+**Primary Key:** `(scope_key, scope, reader_type, reader_id)`
+
+#### `project_insights`
+
+Institutional memory for a habitat. Insights are promoted from high-value pulse signals or created manually. Persist across missions and are surfaced in mission context via tag-based relevance matching.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Insight identifier (UUID) |
+| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Habitat (board) |
+| `title` | TEXT | NOT NULL | Insight title |
+| `body` | TEXT | NOT NULL DEFAULT '' | Full insight body |
+| `source` | TEXT | NOT NULL DEFAULT 'manual' CHECK (IN 'signal','manual','auto') | How the insight was created |
+| `source_pulse_id` | TEXT | FK → pulses(id) ON DELETE SET NULL | Originating pulse signal (if promoted) |
+| `relevance_tags` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of tag strings for relevance matching |
+| `created_by` | TEXT | NOT NULL | Creator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_insights_board`, `idx_insights_source_pulse`
+
+#### `pulse_reactions`
+
+Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions are toggled — posting the same reaction again removes it.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Reaction identifier (UUID) |
+| `pulse_id` | TEXT | NOT NULL FK → pulses(id) ON DELETE CASCADE | Target signal |
+| `reactor_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Reactor type |
+| `reactor_id` | TEXT | NOT NULL | Reactor identifier |
+| `reaction` | TEXT | NOT NULL CHECK (IN 'seen','ack','question') | Reaction type |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+
+**Unique constraint:** `(pulse_id, reactor_type, reactor_id, reaction)`
+**Indexes:** `idx_pulse_reactions_pulse`
 
 #### `organizations`
 

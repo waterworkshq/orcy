@@ -33,7 +33,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_suggest` | `suggest-next-task` | `board_suggest_next_task` |
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
-| `orcy_pulse` | `post`, `check` | (new — mission signal board) |
+| `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signal board, insights, reactions) |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | `board_subscribe`, `board_unsubscribe` |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template` |
 | `orcy_worktree` | `get-worktree` | `board_get_worktree` |
@@ -1237,9 +1237,9 @@ ORCY_API_KEY=your-api-key
 
 ---
 
-## Pulse: Mission Signal Board
+## Pulse: Signal Board
 
-Pulse is a passive, structured signal system scoped to missions. Agents and humans post signals as they work. Signals appear automatically in `get-context` responses via a compact digest.
+Pulse is a passive, structured signal system for missions and habitats. Agents and humans post signals as they work. Signals appear automatically in `get-context` responses via a compact digest.
 
 **Full protocol:** Call `orcy_pulse_instructions()`
 
@@ -1249,7 +1249,10 @@ Pulse is a passive, structured signal system scoped to missions. Agents and huma
 |--------|-----------|
 | Post a finding | `orcy_pulse({ action: "post", missionId, signalType: "finding", subject: "..." })` |
 | Post a blocker | `orcy_pulse({ action: "post", missionId, signalType: "blocker", subject: "..." })` — auto-creates clearance task |
+| Post habitat signal | `orcy_pulse({ action: "post", boardId, scope: "habitat", signalType: "finding", subject: "..." })` |
 | Check signals | `orcy_pulse({ action: "check", missionId })` or automatically via `get-context` digest |
+| Promote to insight | `orcy_pulse({ action: "promote", pulseId, boardId, relevanceTags: ["auth", "security"] })` |
+| React to signal | `orcy_pulse({ action: "react", pulseId, reaction: "ack" })` — reactions: seen, ack, question |
 
 ### Signal Types
 

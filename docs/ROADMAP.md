@@ -5,8 +5,6 @@
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
 
-Effort estimates stripped — you work at lightning speed and I can't predict your velocity.
-
 ---
 
 ## Delivered
@@ -17,31 +15,17 @@ Effort estimates stripped — you work at lightning speed and I can't predict yo
 | v0.3 | Fix foundations: shared config, ID normalization, CLI error handling |
 | v0.4 | Stop type drift: shared types package, shared API client |
 | v0.5 | Clean API internals: JWT extraction, schema split, scheduler, webhook dedup, rate limiter unification, board access consolidation, AppError migration |
+| v0.6 | Pulse — habitat-level signals, project insights (institutional memory), signal reactions, WebUI Signal Board tab, habitat + insights panels |
 
 ---
 
 ## Upcoming
 
-### v0.6.0 — "The Habitat Speaks"
-
-Pulse V2. Communication in Orcy is now complete — mission-scoped (V1) and habitat-wide, visible in CLI and WebUI, with institutional memory through project insights.
-
-| Phase | What |
-|-------|------|
-| 1 | Habitat-level signals — scope column, board-level CRUD, MCP + CLI |
-| 2 | Project insights — new table, tag-based relevance, promote from pulse |
-| 3 | WebUI Signal Board — tab refactor, 7 components, SSE |
-| 4 | Signal reactions — seen/ack/question toggles |
-| 5 | Habitat + Insights UI — panels in habitat view |
-| 6 | Docs |
-
-**Why standalone:** Fully specified, fully additive, ready now. Nothing else should share the risk window.
-
 ---
 
 ### v0.7.0 — "Solid Ground"
 
-Phase 3 UI refactors. The UI grew fast through v0.1–v0.2 feature work. Clean the foundation before the next wave of UI features.
+Phase 3 UI refactors. Clean the foundation before the next wave of UI features.
 
 | Order | Refactor | Depends on |
 |-------|----------|------------|
@@ -53,7 +37,7 @@ Phase 3 UI refactors. The UI grew fast through v0.1–v0.2 feature work. Clean t
 | 6 | Decompose useTaskDetailPanel (463-line hook → 8 composable hooks) | 5 |
 | 7 | Unify data fetching to React Query (3 patterns → 1) | 5, 6 |
 
-**Why standalone:** Zero user-facing features. If bundled, the refactors become invisible work. Standalone signals code health is a first-class concern. Also isolates breakage — if something breaks, there's nothing else in the release to confuse the root cause.
+**Why standalone:** Zero user-facing features. If bundled, the refactors become invisible work. Standalone signals code health is a first-class concern.
 
 ---
 
@@ -133,7 +117,7 @@ Daemon & Cron Automation. Agents run themselves — no more manual launch.
 | Daemon | Local background process spawns and manages agent sessions |
 | Cron Scheduler | Server-side scheduler nudges agents to work on a schedule |
 
-**Why separate:** Largest single feature since the original build. Pulse V2 proves the signal model the daemon depends on — let it bake first.
+**Why separate:** Largest single feature since the original build. Pulse proves the signal model the daemon depends on — let it bake first.
 
 ---
 
@@ -141,4 +125,4 @@ Daemon & Cron Automation. Agents run themselves — no more manual launch.
 
 Dynamic Habitat Skills. Each habitat auto-generates a living skill document from high-strength pulse signals — findings, patterns, decisions that multiple agents confirmed.
 
-**Why last:** Depends on Pulse V2 project insights existing and accumulating real data. Premature without usage patterns to tune the signal strength scoring against.
+**Why last:** Depends on Pulse project insights existing and accumulating real data. Premature without usage patterns to tune the signal strength scoring against.
