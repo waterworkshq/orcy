@@ -20,6 +20,8 @@ import { HelpContent } from '../ui/HelpContent.js';
 import { BulkActionBar } from './BulkActionBar.js';
 import { MobileNav } from './MobileNav.js';
 import { Plus, Users, BarChart3, Settings, HelpCircle, Activity, Eye, CheckSquare, Square, Menu, GitBranch } from 'lucide-react';
+import { HabitatPulsePanel } from './HabitatPulsePanel.js';
+import { InsightsPanel } from './InsightsPanel.js';
 import type { Column } from '../../types/index.js';
 import { useRegisterDrawerBridge } from '../layout/DrawerBridgeContext.js';
 import { SkeletonCard } from '../ui/SkeletonCard.js';
@@ -409,6 +411,11 @@ export function BoardPage() {
         )}
 
         <FilterBar focusSearchRef={searchRef} />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+          <HabitatPulsePanel boardId={boardId} />
+          <InsightsPanel boardId={boardId} />
+        </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <Board onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
