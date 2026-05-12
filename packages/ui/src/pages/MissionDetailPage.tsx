@@ -23,6 +23,7 @@ import { RiskAnalysisSidebar } from '../components/habitat/RiskAnalysisSidebar.j
 import { CodeReviewSection } from '../components/habitat/CodeReviewSection.js';
 import { AgentReasoningTrace } from '../components/habitat/AgentReasoningTrace.js';
 import { CommentInputBar } from '../components/habitat/CommentInputBar.js';
+import { PulseBoard } from '../components/habitat/PulseBoard.js';
 import type {
   Task,
   FeatureWithProgress,
@@ -223,11 +224,7 @@ export function FeatureDetailPage() {
               </div>
             )}
 
-            {activeTab === 'pulse' && (
-              <div className="flex items-center justify-center h-64 text-[var(--on-surface-variant)]">
-                Pulse board will render here (Phase 3b)
-              </div>
-            )}
+            {activeTab === 'pulse' && id && <PulseBoard missionId={id} />}
 
             {activeTab === 'activity' && (
               <div className="p-6">
