@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { queryKeys } from '../lib/queryKeys.js';
 import { Button } from '../components/ui/Button.js';
 import {
   ArrowLeft,
   AlertCircle,
+  Radio,
+  Activity,
+  ListTodo,
 } from 'lucide-react';
 import {
   FeatureHeader,
@@ -127,6 +130,8 @@ function ErrorView({
 
 export function FeatureDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [activeTab, setActiveTab] = useState<'tasks' | 'pulse' | 'activity'>('tasks');
+  const queryClient = useQueryClient();
 
   const {
     data,
@@ -137,6 +142,13 @@ export function FeatureDetailPage() {
     queryFn: () => api.features.details(id!),
     enabled: !!id,
     staleTime: 30 * 1000,
+  });
+
+  const pulseDigest = useQuery({
+    queryKey: ['pulse', 'digest', id],
+    queryFn: () => api.pulse.digest(id!),
+    enabled: !!id && activeTab === 'pulse',
+    staleTime: 10 * 1000,
   });
 
   if (isLoading) {
@@ -158,6 +170,12 @@ export function FeatureDetailPage() {
 
   const { feature, tasks, events, progress, dependencies } = data;
 
+  const tabs = [
+    { key: 'tasks' as const, label: 'Tasks', icon: ListTodo },
+    { key: 'pulse' as const, label: 'Pulse', icon: Radio },
+    { key: 'activity' as const, label: 'Activity', icon: Activity },
+  ];
+
   return (
     <div className="h-full flex flex-col bg-[var(--surface)]">
       <div className="flex flex-1 min-h-0">
@@ -166,25 +184,67 @@ export function FeatureDetailPage() {
         <section className="flex-1 flex flex-col min-w-0">
           <FeatureHeader feature={feature} />
 
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="max-w-4xl mx-auto space-y-6">
-              <FeatureMetrics
-                progress={progress}
-                tasks={tasks}
-                dependencies={dependencies}
-              />
-
-              <CodeReviewSection tasks={tasks} />
-
-              <AgentReasoningTrace tasks={tasks} />
-
-              <FeatureTaskKanban tasks={tasks} />
-
-              {events.length > 0 && <FeatureActivity events={events} />}
-            </div>
+          <div className="flex border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/50">
+            {tabs.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`flex items-center gap-2 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors relative ${
+                  activeTab === key
+                    ? 'text-[var(--primary)]'
+                    : 'text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+                {activeTab === key && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--primary)]" />
+                )}
+              </button>
+            ))}
           </div>
 
-          <CommentInputBar tasks={tasks} />
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === 'tasks' && (
+              <div className="p-6">
+                <div className="max-w-4xl mx-auto space-y-6">
+                  <FeatureMetrics
+                    progress={progress}
+                    tasks={tasks}
+                    dependencies={dependencies}
+                  />
+
+                  <CodeReviewSection tasks={tasks} />
+
+                  <AgentReasoningTrace tasks={tasks} />
+
+                  <FeatureTaskKanban tasks={tasks} />
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'pulse' && (
+              <div className="flex items-center justify-center h-64 text-[var(--on-surface-variant)]">
+                Pulse board will render here (Phase 3b)
+              </div>
+            )}
+
+            {activeTab === 'activity' && (
+              <div className="p-6">
+                <div className="max-w-4xl mx-auto">
+                  {events.length > 0 ? (
+                    <FeatureActivity events={events} />
+                  ) : (
+                    <div className="flex items-center justify-center h-32 text-[var(--on-surface-variant)] text-sm">
+                      No activity yet
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {activeTab === 'tasks' && <CommentInputBar tasks={tasks} />}
         </section>
 
         <RiskAnalysisSidebar

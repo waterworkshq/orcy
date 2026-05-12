@@ -48,6 +48,11 @@ import type {
   TaskTimeReport,
   BoardTimeMetrics,
   TaskBlockedStatus,
+  Pulse,
+  PulseDigest,
+  PostPulseInput,
+  PulseReactionCounts,
+  ProjectInsight,
 } from '../types/index.js';
 
 const BASE = '/api';
@@ -808,6 +813,54 @@ export const api = {
       }),
     removeFeatureDependency: (featureId: string, depId: string) =>
       request<{ success: boolean }>(`/features/${featureId}/dependencies/${depId}`, { method: 'DELETE' }),
+  },
+
+  pulse: {
+    listByMission: (missionId: string, params?: Record<string, string | number>) => {
+      const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+      return request<{ pulses: Pulse[]; total: number }>(`/missions/${missionId}/pulse${qs}`);
+    },
+    listByBoard: (boardId: string, params?: Record<string, string | number>) => {
+      const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+      return request<{ pulses: Pulse[]; total: number }>(`/boards/${boardId}/pulse${qs}`);
+    },
+    post: (missionId: string, body: PostPulseInput) =>
+      request<{ pulse: Pulse }>(`/missions/${missionId}/pulse`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    postHabitat: (boardId: string, body: PostPulseInput) =>
+      request<{ pulse: Pulse }>(`/boards/${boardId}/pulse`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    digest: (missionId: string) =>
+      request<PulseDigest>(`/missions/${missionId}/pulse/digest`),
+    habitatDigest: (boardId: string) =>
+      request<PulseDigest>(`/boards/${boardId}/pulse/digest`),
+    delete: (id: string) =>
+      request<void>(`/pulse/${id}`, { method: 'DELETE' }),
+    replies: (id: string) =>
+      request<{ replies: Pulse[] }>(`/pulse/${id}/replies`),
+    react: (id: string, reaction: string) =>
+      request<{ added: boolean; counts: PulseReactionCounts }>(`/pulse/${id}/react`, {
+        method: 'POST',
+        body: JSON.stringify({ reaction }),
+      }),
+  },
+
+  insights: {
+    list: (boardId: string, params?: Record<string, string | number>) => {
+      const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+      return request<{ insights: ProjectInsight[]; total: number }>(`/boards/${boardId}/insights${qs}`);
+    },
+    promote: (boardId: string, body: { sourcePulseId: string; relevanceTags?: string[]; subject?: string; body?: string }) =>
+      request<{ insight: ProjectInsight }>(`/boards/${boardId}/insights`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deactivate: (boardId: string, id: string) =>
+      request<{ success: boolean }>(`/boards/${boardId}/insights/${id}`, { method: 'DELETE' }),
   },
 };
 

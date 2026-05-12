@@ -420,3 +420,73 @@ export interface Notification {
   timestamp: string;
   read: boolean;
 }
+
+export type SignalType = 'finding' | 'blocker' | 'offer' | 'warning'
+  | 'question' | 'answer' | 'directive' | 'context' | 'handoff';
+
+export type PulseScope = 'mission' | 'habitat';
+
+export interface Pulse {
+  id: string;
+  missionId: string | null;
+  boardId: string;
+  scope: PulseScope;
+  fromType: 'human' | 'agent' | 'system';
+  fromId: string;
+  toType: 'human' | 'agent' | null;
+  toId: string | null;
+  signalType: SignalType;
+  subject: string;
+  body: string;
+  taskId: string | null;
+  replyToId: string | null;
+  linkedTaskId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  pinned: number;
+  isAuto: boolean;
+}
+
+export interface PulseDigest {
+  summary: string;
+  newSinceLastCheck: number;
+  counts: Record<SignalType, number>;
+  highlights: Array<{
+    id: string;
+    signalType: SignalType;
+    from: { type: string; name: string };
+    subject: string;
+    linkedTaskId?: string;
+    createdAt: string;
+  }>;
+}
+
+export interface PostPulseInput {
+  signalType: SignalType;
+  subject: string;
+  body?: string;
+  toAgentName?: string;
+  taskId?: string;
+  replyToId?: string;
+}
+
+export interface PulseReactionCounts {
+  seen: number;
+  ack: number;
+  question: number;
+}
+
+export interface ProjectInsight {
+  id: string;
+  boardId: string;
+  sourcePulseId: string | null;
+  sourceMission: string | null;
+  signalType: SignalType;
+  subject: string;
+  body: string;
+  relevanceTags: string[];
+  promotedBy: string;
+  promotedAt: string;
+  isActive: boolean;
+  createdAt: string;
+}
