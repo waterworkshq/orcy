@@ -6,6 +6,7 @@ import { users, notificationPreferences, organizations, teams, teamMembers } fro
 import { webhookSubscriptions, webhookDeliveries } from './webhook.js';
 import { pulses, pulseCursors } from './pulse.js';
 import { projectInsights } from './insight.js';
+import { pulseReactions } from './reaction.js';
 import { pullRequests, pipelineEvents } from './cicd.js';
 import { qualityChecklistTemplates, qualityChecklistItems, taskQualityChecklists, taskQualityChecklistItems } from './quality.js';
 
@@ -269,6 +270,7 @@ export const pulsesRelations = relations(pulses, ({ one, many }) => ({
     relationName: 'pulseThread',
   }),
   replies: many(pulses, { relationName: 'pulseThread' }),
+  reactions: many(pulseReactions),
 }));
 
 export const pulseCursorsRelations = relations(pulseCursors, ({ one }) => ({
@@ -369,6 +371,13 @@ export const boardsProjectInsightsRelations = relations(projectInsights, ({ one 
   }),
   sourcePulse: one(pulses, {
     fields: [projectInsights.sourcePulseId],
+    references: [pulses.id],
+  }),
+}));
+
+export const pulsesReactionsRelations = relations(pulseReactions, ({ one }) => ({
+  pulse: one(pulses, {
+    fields: [pulseReactions.pulseId],
     references: [pulses.id],
   }),
 }));

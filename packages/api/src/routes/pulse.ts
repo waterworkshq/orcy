@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as pulseRepo from '../repositories/pulse.js';
+import * as reactionRepo from '../repositories/pulseReaction.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
@@ -327,6 +328,45 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       return pulseRepo.getHabitatPulseDigest(boardId, caller.type, caller.id);
+    }
+  );
+
+  fastify.post(
+    '/pulse/:id/react',
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const { id } = (request.params as { id: string });
+      const body = request.body as { reaction?: string };
+
+      if (!body.reaction) {
+        throw badRequest('Missing required field: reaction');
+      }
+
+      const validReactions = ['seen', 'ack', 'question'];
+      if (!validReactions.includes(body.reaction)) {
+        throw badRequest(`Invalid reaction. Must be one of: ${validReactions.join(', ')}`);
+      }
+
+      const pulse = pulseRepo.getPulseById(id);
+      if (!pulse) {
+        throw notFound('Pulse not found');
+      }
+
+      const caller = getCallerInfo(request);
+      if (!caller) {
+        throw unauthorized('Authentication required');
+      }
+
+      const result = reactionRepo.toggleReaction({
+        pulseId: id,
+        reactorType: caller.type,
+        reactorId: caller.id,
+        reaction: body.reaction as reactionRepo.ReactionType,
+      });
+
+      const counts = reactionRepo.getReactionCounts(id);
+
+      reply.code(200).send({ ...result, counts });
     }
   );
 }

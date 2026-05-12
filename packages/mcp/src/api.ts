@@ -359,6 +359,10 @@ export class KanbanApiClient {
     return insights.filter(i => i.relevanceTags.some(t => tags.includes(t))).slice(0, 5);
   }
 
+  async reactToPulse(pulseId: string, reaction: string): Promise<{ added: boolean; counts: Record<string, number> }> {
+    return this.request<{ added: boolean; counts: Record<string, number> }>('POST', `/api/pulse/${pulseId}/react`, { reaction });
+  }
+
   async getFeatureProgress(featureId: string): Promise<FeatureProgressResponse> {
     return this.request<FeatureProgressResponse>('GET', `/api/features/${featureId}/progress`);
   }

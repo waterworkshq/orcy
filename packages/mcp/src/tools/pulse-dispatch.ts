@@ -2,6 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
 import { pulsePost, pulseCheck } from './pulse.js';
 import { pulsePromote } from './pulse-promote.js';
+import { pulseReact } from './pulse-react.js';
 
 export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_pulse',
@@ -15,7 +16,7 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
     'Use scope="habitat" with boardId to post or read habitat-level signals visible across all missions. ' +
     'Use action="promote" to promote a valuable signal to a persistent project insight. ' +
     'Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.',
-  actions: ['post', 'check', 'promote'],
+  actions: ['post', 'check', 'promote', 'react'],
   sharedParams: {
     missionId: {
       type: 'string',
@@ -77,6 +78,11 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
       items: { type: 'string' },
       description: 'Tags for insight relevance matching, e.g. ["domain:backend", "label:auth"] (action=promote)',
     },
+    reaction: {
+      type: 'string',
+      enum: ['seen', 'ack', 'question'],
+      description: 'Reaction type to toggle (action=react)',
+    },
   },
 });
 
@@ -84,6 +90,7 @@ export const PULSE_ACTIONS: Record<string, Handler> = {
   'post': pulsePost,
   'check': pulseCheck,
   'promote': pulsePromote,
+  'react': pulseReact,
 };
 
 export const PULSE_DISPATCH_HANDLER = createDispatchHandler(PULSE_ACTIONS);
