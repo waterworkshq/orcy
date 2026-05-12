@@ -1,9 +1,12 @@
 [changelog]
 header = """# Changelog\n\n> Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).\n"""
 body = """
-{% if version %}## {{ version | trim_start_matches(pat="v") }}{% if timestamp %} — {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}{% else %}## Unreleased{% endif %}\n
+{% if version %}## {{ version | trim_start_matches(pat="v") }}{% if timestamp %} — {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}{% else %}## Unreleased{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
 {% for commit in commits %}
 - {{ commit.message | split(pat="\n") | first | trim }}{% endfor %}
+{% endfor %}
 """
 trim = false
 
@@ -15,8 +18,9 @@ commit_parsers = [
   { message = "^fix", group = "Bug Fixes" },
   { message = "^refactor", group = "Refactors" },
   { message = "^perf", group = "Performance" },
+  { message = "^chore\\(release\\)", group = "Release" },
   { message = "^chore", group = "Chores" },
-  { message = "^docs", group = "Style & Docs" },
-  { message = "^style", group = "Style & Docs" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^style", group = "Style" },
   { message = "^test", group = "Tests" },
 ]
