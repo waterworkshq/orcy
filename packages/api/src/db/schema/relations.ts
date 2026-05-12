@@ -45,7 +45,6 @@ export const featuresRelations = relations(features, ({ one, many }) => ({
   dependencies: many(featureDependencies, { relationName: 'featureDeps' }),
   dependents: many(featureDependencies, { relationName: 'featureDependents' }),
   pulses: many(pulses),
-  pulseCursors: many(pulseCursors),
 }));
 
 export const featureDependenciesRelations = relations(featureDependencies, ({ one }) => ({
@@ -272,7 +271,7 @@ export const pulsesRelations = relations(pulses, ({ one, many }) => ({
 
 export const pulseCursorsRelations = relations(pulseCursors, ({ one }) => ({
   mission: one(features, {
-    fields: [pulseCursors.missionId],
+    fields: [pulseCursors.scopeKey],
     references: [features.id],
   }),
 }));

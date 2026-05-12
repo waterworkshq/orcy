@@ -7,10 +7,13 @@ export type SignalType =
   | 'finding' | 'blocker' | 'offer' | 'warning'
   | 'question' | 'answer' | 'directive' | 'context' | 'handoff';
 
+export type PulseScope = 'mission' | 'habitat';
+
 export interface Pulse {
   id: string;
-  missionId: string;
+  missionId: string | null;
   boardId: string;
+  scope: PulseScope;
   fromType: 'human' | 'agent' | 'system';
   fromId: string;
   toType: 'human' | 'agent' | null;
@@ -28,8 +31,9 @@ export interface Pulse {
 }
 
 export interface CreatePulseInput {
-  missionId: string;
+  missionId?: string;
   boardId: string;
+  scope?: PulseScope;
   fromType: 'human' | 'agent' | 'system';
   fromId: string;
   toType?: 'human' | 'agent';
@@ -60,6 +64,7 @@ export interface PulseDigest {
 
 export interface PulseFilters {
   signalType?: SignalType;
+  scope?: PulseScope;
   isAuto?: boolean;
   since?: string;
   limit?: number;
@@ -69,8 +74,9 @@ export interface PulseFilters {
 function rowToPulse(row: Record<string, unknown>): Pulse {
   return {
     id: row.id as string,
-    missionId: row.mission_id as string,
+    missionId: (row.mission_id as string | null) ?? null,
     boardId: row.board_id as string,
+    scope: (row.scope as PulseScope) ?? 'mission',
     fromType: row.from_type as 'human' | 'agent' | 'system',
     fromId: row.from_id as string,
     toType: (row.to_type as 'human' | 'agent' | null) ?? null,
@@ -94,14 +100,27 @@ const ALL_SIGNAL_TYPES: SignalType[] = [
 ];
 
 export function createPulse(input: CreatePulseInput): Pulse {
+  const scope = input.scope ?? 'mission';
+
+  if (scope === 'mission' && !input.missionId) {
+    throw new Error('missionId is required for mission-scoped signals');
+  }
+  if (scope === 'habitat' && input.missionId) {
+    throw new Error('missionId must not be provided for habitat-scoped signals');
+  }
+  if (scope === 'habitat' && !input.boardId) {
+    throw new Error('boardId is required for habitat-scoped signals');
+  }
+
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
   db.insert(pulses).values({
     id,
-    missionId: input.missionId,
+    missionId: input.missionId ?? null,
     boardId: input.boardId,
+    scope,
     fromType: input.fromType,
     fromId: input.fromId,
     toType: input.toType ?? null,
@@ -132,8 +151,46 @@ export function getPulsesByMission(
   filters?: PulseFilters
 ): { pulses: Pulse[]; total: number } {
   const db = getDb();
-  const conditions = [eq(pulses.missionId, missionId)];
+  const conditions = [eq(pulses.missionId, missionId), eq(pulses.scope, 'mission')];
 
+  if (filters?.signalType) {
+    conditions.push(eq(pulses.signalType, filters.signalType));
+  }
+  if (filters?.isAuto !== undefined) {
+    conditions.push(eq(pulses.isAuto, filters.isAuto));
+  }
+  if (filters?.since) {
+    conditions.push(gt(pulses.createdAt, filters.since));
+  }
+
+  const where = and(...conditions);
+
+  const totalRows = db.select({ total: count() }).from(pulses).where(where).all();
+  const total = totalRows[0]?.total ?? 0;
+
+  const limit = filters?.limit ?? 50;
+  const offset = filters?.offset ?? 0;
+
+  const rows = db.select().from(pulses)
+    .where(where)
+    .orderBy(desc(pulses.createdAt))
+    .limit(limit)
+    .offset(offset)
+    .all();
+
+  return { pulses: rows.map(rowToPulse), total };
+}
+
+export function getPulsesByBoard(
+  boardId: string,
+  filters?: PulseFilters
+): { pulses: Pulse[]; total: number } {
+  const db = getDb();
+  const conditions = [eq(pulses.boardId, boardId)];
+
+  if (filters?.scope) {
+    conditions.push(eq(pulses.scope, filters.scope));
+  }
   if (filters?.signalType) {
     conditions.push(eq(pulses.signalType, filters.signalType));
   }
@@ -288,14 +345,14 @@ export function deletePulse(id: string): boolean {
 }
 
 export function getCursor(
-  missionId: string,
+  scopeKey: string,
   readerType: 'human' | 'agent',
   readerId: string
 ): string | null {
   const db = getDb();
   const rows = db.select().from(pulseCursors).where(
     and(
-      eq(pulseCursors.missionId, missionId),
+      eq(pulseCursors.scopeKey, scopeKey),
       eq(pulseCursors.readerType, readerType),
       eq(pulseCursors.readerId, readerId)
     )
@@ -304,25 +361,27 @@ export function getCursor(
 }
 
 export function updateCursor(
-  missionId: string,
+  scopeKey: string,
   readerType: 'human' | 'agent',
-  readerId: string
+  readerId: string,
+  scope: PulseScope = 'mission'
 ): void {
   const db = getDb();
   const now = new Date().toISOString();
-  const existing = getCursor(missionId, readerType, readerId);
+  const existing = getCursor(scopeKey, readerType, readerId);
 
   if (existing) {
     db.update(pulseCursors).set({ lastCheckedAt: now }).where(
       and(
-        eq(pulseCursors.missionId, missionId),
+        eq(pulseCursors.scopeKey, scopeKey),
         eq(pulseCursors.readerType, readerType),
         eq(pulseCursors.readerId, readerId)
       )
     ).run();
   } else {
     db.insert(pulseCursors).values({
-      missionId,
+      scopeKey,
+      scope,
       readerType,
       readerId,
       lastCheckedAt: now,
@@ -372,12 +431,87 @@ export function getPulseDigest(
     createdAt: p.createdAt,
   }));
 
-  updateCursor(missionId, readerType, readerId);
+  updateCursor(missionId, readerType, readerId, 'mission');
 
   return {
     summary,
     newSinceLastCheck,
     counts,
+    highlights,
+  };
+}
+
+export function getHabitatPulseDigest(
+  boardId: string,
+  readerType: 'human' | 'agent',
+  readerId: string
+): PulseDigest {
+  const cursor = getCursor(boardId, readerType, readerId);
+  const sinceEpoch = cursor ?? '1970-01-01T00:00:00.000Z';
+
+  const db = getDb();
+  const newRows = db.select({ total: count() }).from(pulses).where(
+    and(
+      eq(pulses.boardId, boardId),
+      eq(pulses.scope, 'habitat'),
+      gt(pulses.createdAt, sinceEpoch)
+    )
+  ).all();
+  const newSinceLastCheck = newRows[0]?.total ?? 0;
+
+  const counts: Record<string, number> = {};
+  for (const t of ALL_SIGNAL_TYPES) counts[t] = 0;
+  const typeRows = db.select({
+    signalType: pulses.signalType,
+    total: count(),
+  }).from(pulses)
+    .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat')))
+    .groupBy(pulses.signalType)
+    .all();
+  for (const row of typeRows) counts[row.signalType] = row.total;
+
+  const highlightConditions = [
+    eq(pulses.signalType, 'directive'),
+    eq(pulses.signalType, 'blocker'),
+  ] as const;
+
+  let highlightRows;
+  if (readerType && readerId) {
+    const targeting = and(eq(pulses.toType, readerType), eq(pulses.toId, readerId));
+    highlightRows = db.select().from(pulses)
+      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), or(...highlightConditions, targeting)))
+      .orderBy(desc(pulses.createdAt)).limit(20).all();
+  } else {
+    highlightRows = db.select().from(pulses)
+      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), or(...highlightConditions)))
+      .orderBy(desc(pulses.createdAt)).limit(20).all();
+  }
+
+  const latestRows = db.select().from(pulses).where(
+    and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), eq(pulses.isAuto, false))
+  ).orderBy(desc(pulses.createdAt)).limit(1).all();
+
+  const highlights = highlightRows.map(p => ({
+    id: (p as any).id,
+    signalType: (p as any).signal_type as SignalType,
+    from: { type: (p as any).from_type, name: (p as any).from_id },
+    subject: (p as any).subject,
+    createdAt: (p as any).created_at,
+  }));
+
+  const totalSignals = Object.values(counts).reduce((a, b) => a + b, 0);
+  const latestPulse = latestRows.length > 0 ? rowToPulse(latestRows[0]) : null;
+  const otherCount = latestPulse ? Math.max(0, totalSignals - (counts[latestPulse.signalType] ?? 0)) : 0;
+  const summary = latestPulse
+    ? `${latestPulse.subject}${otherCount > 0 ? `. ${otherCount} more signals.` : '.'}`
+    : 'No habitat signals yet.';
+
+  updateCursor(boardId, readerType, readerId, 'habitat');
+
+  return {
+    summary,
+    newSinceLastCheck,
+    counts: counts as Record<SignalType, number>,
     highlights,
   };
 }

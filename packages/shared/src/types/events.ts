@@ -64,7 +64,7 @@ export type SSEEvent =
   | { type: 'presence.refresh'; data: { boardId: string; presence: PresenceEntry } }
   | { type: 'presence.summary'; data: { boardId: string; viewers: PresenceEntry[] } }
   | { type: 'agent.message_received'; data: { messageId: string; fromAgentId: string; fromAgentName: string; toAgentId: string; subject: string; messageType: string; priority: string; taskId: string | null; boardId: string } }
-  | { type: 'pulse.signal_posted'; data: { pulseId: string; missionId: string; signalType: string; fromType: string; fromId: string; subject: string } }
+  | { type: 'pulse.signal_posted'; data: { pulseId: string; missionId: string | null; signalType: string; fromType: string; fromId: string; subject: string } }
   | { type: 'task.retry_scheduled'; data: { taskId: string; nextRetryAt: string; retryCount: number } }
   | { type: 'task.retry_executed'; data: { taskId: string; retryCount: number } }
   | { type: 'task.escalated'; data: { taskId: string; retryCount: number; reason: string } }

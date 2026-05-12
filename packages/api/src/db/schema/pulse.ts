@@ -5,10 +5,11 @@ import { tasks } from './task.js';
 
 export const pulses = sqliteTable('pulses', {
   id: text('id').primaryKey(),
-  missionId: text('mission_id').notNull()
+  missionId: text('mission_id')
     .references(() => features.id, { onDelete: 'cascade' }),
   boardId: text('board_id').notNull()
     .references(() => boards.id, { onDelete: 'cascade' }),
+  scope: text('scope', { enum: ['mission', 'habitat'] }).notNull().default('mission'),
   fromType: text('from_type', { enum: ['human', 'agent', 'system'] }).notNull(),
   fromId: text('from_id').notNull(),
   toType: text('to_type', { enum: ['human', 'agent'] }),
@@ -32,6 +33,8 @@ export const pulses = sqliteTable('pulses', {
 }, (table) => [
   index('idx_pulses_mission').on(table.missionId),
   index('idx_pulses_board').on(table.boardId),
+  index('idx_pulses_scope').on(table.scope),
+  index('idx_pulses_board_scope').on(table.boardId, table.scope),
   index('idx_pulses_signal_type').on(table.signalType),
   index('idx_pulses_from').on(table.fromType, table.fromId),
   index('idx_pulses_to').on(table.toType, table.toId),
@@ -41,12 +44,12 @@ export const pulses = sqliteTable('pulses', {
 ]);
 
 export const pulseCursors = sqliteTable('pulse_cursors', {
-  missionId: text('mission_id').notNull()
-    .references(() => features.id, { onDelete: 'cascade' }),
+  scopeKey: text('scope_key').notNull(),
+  scope: text('scope', { enum: ['mission', 'habitat'] }).notNull().default('mission'),
   readerType: text('reader_type', { enum: ['human', 'agent'] }).notNull(),
   readerId: text('reader_id').notNull(),
   lastCheckedAt: text('last_checked_at').notNull()
     .default(sql`(datetime('now'))`),
 }, (table) => [
-  primaryKey({ columns: [table.missionId, table.readerType, table.readerId] }),
+  primaryKey({ columns: [table.scopeKey, table.readerType, table.readerId] }),
 ]);

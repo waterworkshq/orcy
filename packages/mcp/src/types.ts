@@ -144,10 +144,13 @@ export type SignalType =
   | 'finding' | 'blocker' | 'offer' | 'warning'
   | 'question' | 'answer' | 'directive' | 'context' | 'handoff';
 
+export type PulseScope = 'mission' | 'habitat';
+
 export interface Pulse {
   id: string;
-  missionId: string;
+  missionId: string | null;
   boardId: string;
+  scope: PulseScope;
   fromType: 'human' | 'agent' | 'system';
   fromId: string;
   toType: 'human' | 'agent' | null;
