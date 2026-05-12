@@ -223,4 +223,110 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       return { replies: pulseRepo.getReplies(id) };
     }
   );
+
+  fastify.post(
+    '/boards/:boardId/pulse',
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const { boardId } = (request.params as { boardId: string });
+      const body = request.body as { signalType?: string; subject?: string; body?: string; taskId?: string; toAgentId?: string; toAgentName?: string; replyToId?: string; metadata?: Record<string, unknown> };
+
+      if (!body.signalType || !body.subject) {
+        throw badRequest('Missing required fields: signalType, subject');
+      }
+
+      if (!VALID_SIGNAL_TYPES.includes(body.signalType as any)) {
+        throw badRequest(`Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
+      }
+
+      const caller = getCallerInfo(request);
+      if (!caller) {
+        throw unauthorized('Authentication required');
+      }
+
+      let toType: 'human' | 'agent' | undefined;
+      let toId: string | undefined;
+
+      if (body.toAgentId) {
+        toType = 'agent';
+        toId = body.toAgentId;
+      } else if (body.toAgentName) {
+        const resolved = resolveAgentName(body.toAgentName);
+        if (!resolved) {
+          throw notFound(`Agent not found: ${body.toAgentName}`);
+        }
+        toType = 'agent';
+        toId = resolved;
+      }
+
+      if (body.replyToId) {
+        const parent = pulseRepo.getPulseById(body.replyToId);
+        if (!parent) {
+          throw notFound('Reply target pulse not found');
+        }
+      }
+
+      const pulse = pulseRepo.createPulse({
+        boardId,
+        scope: 'habitat',
+        fromType: caller.type,
+        fromId: caller.id,
+        toType,
+        toId,
+        signalType: body.signalType as pulseRepo.SignalType,
+        subject: body.subject,
+        body: body.body ?? '',
+        taskId: body.taskId ?? undefined,
+        replyToId: body.replyToId ?? undefined,
+        metadata: body.metadata ?? undefined,
+      });
+
+      try {
+        sseBroadcaster.publish(boardId, {
+          type: 'pulse.signal_posted',
+          data: {
+            pulseId: pulse.id,
+            missionId: pulse.missionId,
+            signalType: pulse.signalType,
+            fromType: pulse.fromType,
+            fromId: pulse.fromId,
+            subject: pulse.subject,
+          },
+        });
+      } catch { /* SSE failure should not break signal creation */ }
+
+      reply.code(201).send({ pulse });
+    }
+  );
+
+  fastify.get(
+    '/boards/:boardId/pulse',
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const { boardId } = (request.params as { boardId: string });
+      const query = request.query as { signalType?: string; scope?: string; limit?: string; offset?: string };
+
+      return pulseRepo.getPulsesByBoard(boardId, {
+        signalType: query.signalType as pulseRepo.SignalType | undefined,
+        scope: query.scope as pulseRepo.PulseScope | undefined,
+        limit: query.limit ? parseInt(query.limit, 10) : undefined,
+        offset: query.offset ? parseInt(query.offset, 10) : undefined,
+      });
+    }
+  );
+
+  fastify.get(
+    '/boards/:boardId/pulse/digest',
+    { preHandler: agentOrHumanAuth },
+    async (request, reply) => {
+      const { boardId } = (request.params as { boardId: string });
+
+      const caller = getCallerInfo(request);
+      if (!caller) {
+        throw unauthorized('Authentication required');
+      }
+
+      return pulseRepo.getHabitatPulseDigest(boardId, caller.type, caller.id);
+    }
+  );
 }
