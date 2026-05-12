@@ -6,17 +6,27 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_pulse',
   description:
     'Mission Pulse operations: post structured signals (finding, blocker, offer, warning, ' +
-    'question, answer, directive, context, handoff) to the mission pulse board, ' +
+    'question, answer, directive, context, handoff) to the mission or habitat pulse board, ' +
     'or check the pulse board for signals from mission partners. ' +
     'Use action="post" to share discoveries, report blockers (auto-creates clearance tasks), ' +
     'offer results, ask questions, or issue directives. Use action="check" to read signals ' +
     'filtered by mission or signal type. When no missionId is provided, returns your cross-mission inbox. ' +
+    'Use scope="habitat" with boardId to post or read habitat-level signals visible across all missions. ' +
     'Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.',
   actions: ['post', 'check'],
   sharedParams: {
     missionId: {
       type: 'string',
-      description: 'Mission ID (required for post, optional for check)',
+      description: 'Mission ID (required for post with mission scope, optional for check)',
+    },
+    boardId: {
+      type: 'string',
+      description: 'Board/habitat ID (required when scope="habitat")',
+    },
+    scope: {
+      type: 'string',
+      enum: ['mission', 'habitat'],
+      description: 'Signal scope: "mission" (default) or "habitat" for board-wide signals',
     },
     signalType: {
       type: 'string',

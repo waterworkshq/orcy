@@ -274,6 +274,38 @@ export class KanbanApiClient {
     return this.request<{ replies: Pulse[] }>('GET', `/api/pulse/${pulseId}/replies`);
   }
 
+  async postHabitatPulse(boardId: string, input: {
+    signalType: string;
+    subject: string;
+    body?: string;
+    taskId?: string;
+    toAgentName?: string;
+    toAgentId?: string;
+    replyToId?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<PostPulseResponse> {
+    return this.request<PostPulseResponse>('POST', `/api/boards/${boardId}/pulse`, input);
+  }
+
+  async getHabitatPulses(boardId: string, filters?: {
+    signalType?: string;
+    scope?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ListPulsesResponse> {
+    const params = new URLSearchParams();
+    if (filters?.signalType) params.set('signalType', filters.signalType);
+    if (filters?.scope) params.set('scope', filters.scope);
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.offset) params.set('offset', String(filters.offset));
+    const query = params.toString();
+    return this.request<ListPulsesResponse>('GET', `/api/boards/${boardId}/pulse${query ? `?${query}` : ''}`);
+  }
+
+  async getHabitatPulseDigest(boardId: string): Promise<PulseDigest> {
+    return this.request<PulseDigest>('GET', `/api/boards/${boardId}/pulse/digest`);
+  }
+
   async getFeatureProgress(featureId: string): Promise<FeatureProgressResponse> {
     return this.request<FeatureProgressResponse>('GET', `/api/features/${featureId}/progress`);
   }
