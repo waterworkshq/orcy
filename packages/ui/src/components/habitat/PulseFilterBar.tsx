@@ -1,34 +1,7 @@
 import React from 'react';
 import { X, Eye, EyeOff } from 'lucide-react';
 import type { SignalType } from '../../types/index.js';
-
-const SIGNAL_TYPES: SignalType[] = [
-  'finding', 'blocker', 'offer', 'warning', 'question', 'answer', 'directive', 'context', 'handoff',
-];
-
-const SIGNAL_COLORS: Record<SignalType, string> = {
-  finding: 'var(--primary)',
-  blocker: 'var(--error)',
-  offer: 'var(--tertiary)',
-  warning: 'hsl(40,90%,55%)',
-  question: 'var(--secondary)',
-  answer: 'var(--secondary)',
-  directive: 'hsl(280,70%,60%)',
-  context: 'var(--on-surface-variant)',
-  handoff: 'hsl(200,70%,60%)',
-};
-
-const SIGNAL_LABELS: Record<SignalType, string> = {
-  finding: 'Finding',
-  blocker: 'Blocker',
-  offer: 'Offer',
-  warning: 'Warning',
-  question: 'Question',
-  answer: 'Answer',
-  directive: 'Directive',
-  context: 'Context',
-  handoff: 'Handoff',
-};
+import { SIGNAL_TYPES, SIGNAL_LABELS, SIGNAL_COLORS } from '../../lib/signalConfig.js';
 
 interface PulseFilterBarProps {
   activeTypes: SignalType[];

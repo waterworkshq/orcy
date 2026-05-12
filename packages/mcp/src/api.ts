@@ -290,8 +290,8 @@ export class KanbanApiClient {
     await this.request<void>('DELETE', `/api/pulse/${pulseId}`);
   }
 
-  async getPulseReplies(pulseId: string): Promise<{ replies: Pulse[] }> {
-    return this.request<{ replies: Pulse[] }>('GET', `/api/pulse/${pulseId}/replies`);
+  async getPulseReplies(pulseId: string): Promise<{ items: Pulse[] }> {
+    return this.request<{ items: Pulse[] }>('GET', `/api/pulse/${pulseId}/replies`);
   }
 
   async postHabitatPulse(boardId: string, input: {
@@ -589,28 +589,14 @@ export class KanbanApiClient {
     capabilities?: string[];
   }): Promise<{ agent: Agent; apiKey: string }> {
     const registrationToken = process.env.ORCY_REGISTRATION_TOKEN ?? '';
-    const url = `${this.baseUrl}/api/agents`;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = {};
     if (registrationToken) {
       headers['X-Registration-Token'] = registrationToken;
     }
-    const startTime = Date.now();
-    logger.debug('http_request', { method: 'POST', url });
-    const response = await fetch(url, {
-      method: 'POST',
+    return this.transport.request<{ agent: Agent; apiKey: string }>('POST', '/api/agents', {
+      body: input,
       headers,
-      body: JSON.stringify(input),
     });
-    const duration = Date.now() - startTime;
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      logger.error('http_error', { method: 'POST', url, status: response.status, duration, error: errorText || response.statusText });
-      throw new ApiClientError(response.status, errorText || response.statusText);
-    }
-    logger.info('http_response', { method: 'POST', url, status: response.status, duration });
-    return response.json() as Promise<{ agent: Agent; apiKey: string }>;
   }
 
   async createBoard(input: {

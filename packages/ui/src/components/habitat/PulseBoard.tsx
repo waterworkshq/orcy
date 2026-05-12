@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { api } from '../../api/index.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { PulseFilterBar } from './PulseFilterBar.js';
 import { PulseTimeline } from './PulseTimeline.js';
 import { PulseComposeDialog } from './PulseComposeDialog.js';
-import type { SignalType, SSEEvent } from '../../types/index.js';
+import type { SignalType } from '../../types/index.js';
 
 const PAGE_SIZE = 20;
 
@@ -19,17 +19,14 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
   const [activeTypes, setActiveTypes] = useState<SignalType[]>([]);
   const [hideAuto, setHideAuto] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
-  const [page, setPage] = useState(0);
-  const handleSSEEvent = useBoardStore((s) => s.handleSSEEvent);
 
-  const queryKey = ['pulses', missionId, { activeTypes, hideAuto, page }];
-
-  const { data, isLoading } = useQuery({
-    queryKey,
-    queryFn: () => {
+  const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
+    initialPageParam: 0,
+    queryKey: queryKeys.pulse.byMission(missionId),
+    queryFn: ({ pageParam = 0 }) => {
       const params: Record<string, string | number> = {
         limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
+        offset: (pageParam as number) * PAGE_SIZE,
       };
       if (activeTypes.length > 0) {
         params.signalTypes = activeTypes.join(',');
@@ -39,46 +36,26 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
       }
       return api.pulse.listByMission(missionId, params);
     },
+    getNextPageParam: (lastPage, allPages) => {
+      if (!lastPage || !lastPage.items) return undefined;
+      return lastPage.items.length < PAGE_SIZE ? undefined : allPages.length;
+    },
     staleTime: 15 * 1000,
   });
 
-  const pulses = data?.pulses ?? [];
-  const total = data?.total ?? 0;
-  const hasMore = pulses.length < total;
-
-  React.useEffect(() => {
-    function handleSSE(e: MessageEvent) {
-      try {
-        const event = JSON.parse(e.data) as SSEEvent;
-        if (event.type === 'pulse.signal_posted') {
-          handleSSEEvent(event);
-          queryClient.invalidateQueries({ queryKey: ['pulses', missionId] });
-        }
-      } catch {}
-    }
-
-    const boardId = pulses[0]?.boardId;
-    if (!boardId) return;
-
-    const es = new EventSource(`/sse/boards/${boardId}/stream`);
-    es.addEventListener('message', handleSSE);
-    return () => {
-      es.removeEventListener('message', handleSSE);
-      es.close();
-    };
-  }, [missionId, pulses, queryClient, handleSSEEvent]);
+  const pulses = data?.pages.flatMap(page => page.items) ?? [];
+  const total = data?.pages[0]?.total ?? 0;
+  const hasMore = hasNextPage;
 
   const toggleType = useCallback((type: SignalType) => {
     setActiveTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
-    setPage(0);
   }, []);
 
   const clearAll = useCallback(() => {
     setActiveTypes([]);
     setHideAuto(false);
-    setPage(0);
   }, []);
 
   return (
@@ -87,7 +64,7 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
         activeTypes={activeTypes}
         onToggleType={toggleType}
         hideAuto={hideAuto}
-        onToggleHideAuto={() => { setHideAuto(!hideAuto); setPage(0); }}
+        onToggleHideAuto={() => { setHideAuto(!hideAuto); }}
         resultCount={total}
         onClearAll={clearAll}
       />
@@ -98,8 +75,8 @@ export function PulseBoard({ missionId }: PulseBoardProps) {
           isLoading={isLoading}
           missionId={missionId}
           hasMore={hasMore}
-          onLoadMore={() => setPage((p) => p + 1)}
-          loadingMore={false}
+            onLoadMore={() => fetchNextPage()}
+            loadingMore={isFetchingNextPage}
         />
       </div>
 

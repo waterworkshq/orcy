@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Lightbulb, Loader2 } from 'lucide-react';
 import { api } from '../../api/index.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { InsightCard } from './InsightCard.js';
 
 interface InsightsPanelProps {
@@ -12,12 +13,12 @@ export function InsightsPanel({ boardId }: InsightsPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['insights', boardId],
+    queryKey: queryKeys.insights.byBoard(boardId),
     queryFn: () => api.insights.list(boardId),
     staleTime: 30 * 1000,
   });
 
-  const insights = data?.insights ?? [];
+  const insights = data?.items ?? [];
 
   return (
     <div className="glass-panel rounded-lg border border-[var(--outline-variant)] overflow-hidden">

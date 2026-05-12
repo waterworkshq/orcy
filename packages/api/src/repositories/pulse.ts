@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { pulses, pulseCursors } from '../db/schema/index.js';
-import { eq, and, or, lt, gt, count, desc, sql } from 'drizzle-orm';
+import { eq, and, or, lt, gt, count, desc, sql, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 export type SignalType =
@@ -64,6 +64,7 @@ export interface PulseDigest {
 
 export interface PulseFilters {
   signalType?: SignalType;
+  signalTypes?: SignalType[];
   scope?: PulseScope;
   isAuto?: boolean;
   since?: string;
@@ -116,7 +117,7 @@ export function createPulse(input: CreatePulseInput): Pulse {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(pulses).values({
+  const rows = db.insert(pulses).values({
     id,
     missionId: input.missionId ?? null,
     boardId: input.boardId,
@@ -135,9 +136,9 @@ export function createPulse(input: CreatePulseInput): Pulse {
     createdAt: now,
     pinned: 0,
     isAuto: input.isAuto ?? false,
-  }).run();
+  }).returning().all();
 
-  return getPulseById(id)!;
+  return rows.length > 0 ? rowToPulse(rows[0]) : getPulseById(id)!;
 }
 
 export function getPulseById(id: string): Pulse | null {
@@ -153,7 +154,9 @@ export function getPulsesByMission(
   const db = getDb();
   const conditions = [eq(pulses.missionId, missionId), eq(pulses.scope, 'mission')];
 
-  if (filters?.signalType) {
+  if (filters?.signalTypes && filters.signalTypes.length > 0) {
+    conditions.push(inArray(pulses.signalType, filters.signalTypes));
+  } else if (filters?.signalType) {
     conditions.push(eq(pulses.signalType, filters.signalType));
   }
   if (filters?.isAuto !== undefined) {
@@ -173,7 +176,7 @@ export function getPulsesByMission(
 
   const rows = db.select().from(pulses)
     .where(where)
-    .orderBy(desc(pulses.createdAt))
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
     .limit(limit)
     .offset(offset)
     .all();
@@ -191,7 +194,9 @@ export function getPulsesByBoard(
   if (filters?.scope) {
     conditions.push(eq(pulses.scope, filters.scope));
   }
-  if (filters?.signalType) {
+  if (filters?.signalTypes && filters.signalTypes.length > 0) {
+    conditions.push(inArray(pulses.signalType, filters.signalTypes));
+  } else if (filters?.signalType) {
     conditions.push(eq(pulses.signalType, filters.signalType));
   }
   if (filters?.isAuto !== undefined) {
@@ -211,7 +216,7 @@ export function getPulsesByBoard(
 
   const rows = db.select().from(pulses)
     .where(where)
-    .orderBy(desc(pulses.createdAt))
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
     .limit(limit)
     .offset(offset)
     .all();
@@ -230,7 +235,9 @@ export function getPulsesByTarget(
     eq(pulses.toId, targetId),
   ];
 
-  if (filters?.signalType) {
+  if (filters?.signalTypes && filters.signalTypes.length > 0) {
+    conditions.push(inArray(pulses.signalType, filters.signalTypes));
+  } else if (filters?.signalType) {
     conditions.push(eq(pulses.signalType, filters.signalType));
   }
   if (filters?.since) {
@@ -247,7 +254,7 @@ export function getPulsesByTarget(
 
   const rows = db.select().from(pulses)
     .where(where)
-    .orderBy(desc(pulses.createdAt))
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
     .limit(limit)
     .offset(offset)
     .all();
@@ -266,7 +273,7 @@ export function getPulseCountsByMission(missionId: string): Record<SignalType, n
     signalType: pulses.signalType,
     total: count(),
   }).from(pulses)
-    .where(eq(pulses.missionId, missionId))
+    .where(and(eq(pulses.missionId, missionId), eq(pulses.scope, 'mission')))
     .groupBy(pulses.signalType)
     .all();
 
@@ -282,6 +289,7 @@ export function getNewPulseCount(missionId: string, since: string): number {
   const rows = db.select({ total: count() }).from(pulses).where(
     and(
       eq(pulses.missionId, missionId),
+      eq(pulses.scope, 'mission'),
       gt(pulses.createdAt, since)
     )
   ).all();
@@ -294,16 +302,20 @@ export function getHighlightPulses(
   readerId?: string
 ): Pulse[] {
   const db = getDb();
-  const missionEq = eq(pulses.missionId, missionId);
+  const missionEq = and(eq(pulses.missionId, missionId), eq(pulses.scope, 'mission'));
 
-  const highlightConditions = [
+  const highlightTypes = or(
     eq(pulses.signalType, 'directive'),
     eq(pulses.signalType, 'blocker'),
-  ] as const;
+  );
 
   if (readerType && readerId) {
-    const targeting = and(eq(pulses.toType, readerType), eq(pulses.toId, readerId));
-    const where = and(missionEq, or(...highlightConditions, targeting));
+    const targeting = and(
+      or(eq(pulses.signalType, 'directive'), eq(pulses.signalType, 'blocker')),
+      eq(pulses.toType, readerType),
+      eq(pulses.toId, readerId),
+    );
+    const where = and(missionEq, or(highlightTypes, targeting));
     const rows = db.select().from(pulses)
       .where(where)
       .orderBy(desc(pulses.createdAt))
@@ -312,7 +324,7 @@ export function getHighlightPulses(
     return rows.map(rowToPulse);
   }
 
-  const where = and(missionEq, or(...highlightConditions));
+  const where = and(missionEq, highlightTypes);
   const rows = db.select().from(pulses)
     .where(where)
     .orderBy(desc(pulses.createdAt))
@@ -327,6 +339,7 @@ export function getLatestSummaryPulse(missionId: string): Pulse | null {
   const rows = db.select().from(pulses).where(
     and(
       eq(pulses.missionId, missionId),
+      eq(pulses.scope, 'mission'),
       eq(pulses.isAuto, false)
     )
   ).orderBy(desc(pulses.createdAt))
@@ -368,25 +381,12 @@ export function updateCursor(
 ): void {
   const db = getDb();
   const now = new Date().toISOString();
-  const existing = getCursor(scopeKey, readerType, readerId);
-
-  if (existing) {
-    db.update(pulseCursors).set({ lastCheckedAt: now }).where(
-      and(
-        eq(pulseCursors.scopeKey, scopeKey),
-        eq(pulseCursors.readerType, readerType),
-        eq(pulseCursors.readerId, readerId)
-      )
-    ).run();
-  } else {
-    db.insert(pulseCursors).values({
-      scopeKey,
-      scope,
-      readerType,
-      readerId,
-      lastCheckedAt: now,
-    }).run();
-  }
+  db.insert(pulseCursors).values({ scopeKey, scope, readerType, readerId, lastCheckedAt: now })
+    .onConflictDoUpdate({
+      target: [pulseCursors.scopeKey, pulseCursors.readerType, pulseCursors.readerId],
+      set: { lastCheckedAt: now },
+    })
+    .run();
 }
 
 export function getReplies(pulseId: string): Pulse[] {
@@ -470,20 +470,24 @@ export function getHabitatPulseDigest(
     .all();
   for (const row of typeRows) counts[row.signalType] = row.total;
 
-  const highlightConditions = [
+  const highlightTypes = or(
     eq(pulses.signalType, 'directive'),
     eq(pulses.signalType, 'blocker'),
-  ] as const;
+  );
 
   let highlightRows;
   if (readerType && readerId) {
-    const targeting = and(eq(pulses.toType, readerType), eq(pulses.toId, readerId));
+    const targeting = and(
+      or(eq(pulses.signalType, 'directive'), eq(pulses.signalType, 'blocker')),
+      eq(pulses.toType, readerType),
+      eq(pulses.toId, readerId),
+    );
     highlightRows = db.select().from(pulses)
-      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), or(...highlightConditions, targeting)))
+      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), or(highlightTypes, targeting)))
       .orderBy(desc(pulses.createdAt)).limit(20).all();
   } else {
     highlightRows = db.select().from(pulses)
-      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), or(...highlightConditions)))
+      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), highlightTypes))
       .orderBy(desc(pulses.createdAt)).limit(20).all();
   }
 
@@ -491,12 +495,13 @@ export function getHabitatPulseDigest(
     and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), eq(pulses.isAuto, false))
   ).orderBy(desc(pulses.createdAt)).limit(1).all();
 
-  const highlights = highlightRows.map(p => ({
-    id: (p as any).id,
-    signalType: (p as any).signal_type as SignalType,
-    from: { type: (p as any).from_type, name: (p as any).from_id },
-    subject: (p as any).subject,
-    createdAt: (p as any).created_at,
+  const highlights = highlightRows.map(p => rowToPulse(p)).map(p => ({
+    id: p.id,
+    signalType: p.signalType,
+    from: { type: p.fromType, name: p.fromId },
+    subject: p.subject,
+    linkedTaskId: p.linkedTaskId ?? undefined,
+    createdAt: p.createdAt,
   }));
 
   const totalSignals = Object.values(counts).reduce((a, b) => a + b, 0);

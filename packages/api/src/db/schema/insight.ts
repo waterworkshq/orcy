@@ -17,7 +17,7 @@ export const projectInsights = sqliteTable('project_insights', {
     .notNull().$defaultFn(() => []),
   promotedBy: text('promoted_by').notNull(),
   promotedAt: text('promoted_at').notNull(),
-  isActive: integer('is_active').notNull().default(1),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_insights_board').on(table.boardId),

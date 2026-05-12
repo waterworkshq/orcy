@@ -818,11 +818,11 @@ export const api = {
   pulse: {
     listByMission: (missionId: string, params?: Record<string, string | number>) => {
       const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
-      return request<{ pulses: Pulse[]; total: number }>(`/missions/${missionId}/pulse${qs}`);
+      return request<{ items: Pulse[]; total: number }>(`/missions/${missionId}/pulse${qs}`);
     },
     listByBoard: (boardId: string, params?: Record<string, string | number>) => {
       const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
-      return request<{ pulses: Pulse[]; total: number }>(`/boards/${boardId}/pulse${qs}`);
+      return request<{ items: Pulse[]; total: number }>(`/boards/${boardId}/pulse${qs}`);
     },
     post: (missionId: string, body: PostPulseInput) =>
       request<{ pulse: Pulse }>(`/missions/${missionId}/pulse`, {
@@ -841,7 +841,7 @@ export const api = {
     delete: (id: string) =>
       request<void>(`/pulse/${id}`, { method: 'DELETE' }),
     replies: (id: string) =>
-      request<{ replies: Pulse[] }>(`/pulse/${id}/replies`),
+      request<{ items: Pulse[] }>(`/pulse/${id}/replies`),
     react: (id: string, reaction: string) =>
       request<{ added: boolean; counts: PulseReactionCounts }>(`/pulse/${id}/react`, {
         method: 'POST',
@@ -852,7 +852,7 @@ export const api = {
   insights: {
     list: (boardId: string, params?: Record<string, string | number>) => {
       const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
-      return request<{ insights: ProjectInsight[]; total: number }>(`/boards/${boardId}/insights${qs}`);
+      return request<{ items: ProjectInsight[]; total: number }>(`/boards/${boardId}/insights${qs}`);
     },
     promote: (boardId: string, body: { sourcePulseId: string; relevanceTags?: string[]; subject?: string; body?: string }) =>
       request<{ insight: ProjectInsight }>(`/boards/${boardId}/insights`, {

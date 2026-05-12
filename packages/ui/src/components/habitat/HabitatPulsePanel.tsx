@@ -2,9 +2,10 @@ import React, { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Plus, Loader2 } from 'lucide-react';
 import { api } from '../../api/index.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { PulseFilterBar } from './PulseFilterBar.js';
 import { PulseSignalCard } from './PulseSignalCard.js';
-import { PulseComposeDialog } from './PulseComposeDialog.js';
+import { SIGNAL_LABELS, SIGNAL_COLORS } from '../../lib/signalConfig.js';
 import type { SignalType, PostPulseInput } from '../../types/index.js';
 
 interface HabitatPulsePanelProps {
@@ -18,7 +19,7 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
   const [hideAuto, setHideAuto] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
 
-  const queryKey = ['habitatPulses', boardId, { activeTypes, hideAuto }];
+  const queryKey = [...queryKeys.pulse.byBoard(boardId), { activeTypes, hideAuto }];
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -35,7 +36,7 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
     staleTime: 30 * 1000,
   });
 
-  const pulses = data?.pulses ?? [];
+  const pulses = data?.items ?? [];
   const total = data?.total ?? 0;
 
   const filtered = pulses.filter((p) => !p.replyToId);
@@ -118,6 +119,7 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
                   key={pulse.id}
                   pulse={pulse}
                   missionId={pulse.missionId ?? boardId}
+                  boardId={boardId}
                 />
               ))
             )}
@@ -139,20 +141,26 @@ function HabitatPulseComposeDialog({ boardId, open, onClose }: { boardId: string
   const [signalType, setSignalType] = useState<SignalType>('finding');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setSignalType('finding');
       setSubject('');
       setBody('');
+      setError(null);
     }
   }, [open]);
 
   const mutation = useMutation({
     mutationFn: (input: PostPulseInput) => api.pulse.postHabitat(boardId, input),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['habitatPulses', boardId] });
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
       onClose();
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to post signal');
     },
   });
 
@@ -180,14 +188,7 @@ function HabitatPulseComposeDialog({ boardId, open, onClose }: { boardId: string
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
-            {([
-              { type: 'finding' as SignalType, label: 'Finding', color: 'var(--primary)' },
-              { type: 'blocker' as SignalType, label: 'Blocker', color: 'var(--error)' },
-              { type: 'warning' as SignalType, label: 'Warning', color: 'hsl(40,90%,55%)' },
-              { type: 'directive' as SignalType, label: 'Directive', color: 'hsl(280,70%,60%)' },
-              { type: 'context' as SignalType, label: 'Context', color: 'var(--on-surface-variant)' },
-              { type: 'question' as SignalType, label: 'Question', color: 'var(--secondary)' },
-            ]).map(({ type, label, color }) => (
+            {(['finding', 'blocker', 'warning', 'directive', 'context', 'question'] as SignalType[]).map((type) => (
               <button
                 key={type}
                 type="button"
@@ -196,12 +197,12 @@ function HabitatPulseComposeDialog({ boardId, open, onClose }: { boardId: string
                   signalType === type ? 'ring-1' : 'bg-[var(--surface-container)] text-[var(--on-surface-variant)]'
                 }`}
                 style={signalType === type ? {
-                  backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
-                  color: color,
-                  borderColor: color,
+                  backgroundColor: `color-mix(in srgb, ${SIGNAL_COLORS[type]} 15%, transparent)`,
+                  color: SIGNAL_COLORS[type],
+                  borderColor: SIGNAL_COLORS[type],
                 } : undefined}
               >
-                {label}
+                {SIGNAL_LABELS[type]}
               </button>
             ))}
           </div>
@@ -222,6 +223,10 @@ function HabitatPulseComposeDialog({ boardId, open, onClose }: { boardId: string
             rows={3}
             className="w-full bg-[var(--surface-container)] border border-[var(--outline-variant)] rounded-lg px-3 py-2 text-sm text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)] focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)] resize-none"
           />
+
+          {error && (
+            <p className="text-[11px] text-[var(--error)]">{error}</p>
+          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <button

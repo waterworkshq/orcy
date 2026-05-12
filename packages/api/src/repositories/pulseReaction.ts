@@ -22,36 +22,34 @@ export function toggleReaction(input: {
 }): { added: boolean } {
   const db = getDb();
 
-  const existing = db.select().from(pulseReactions).where(
-    and(
-      eq(pulseReactions.pulseId, input.pulseId),
-      eq(pulseReactions.reactorType, input.reactorType),
-      eq(pulseReactions.reactorId, input.reactorId),
-      eq(pulseReactions.reaction, input.reaction),
-    )
-  ).all();
+  const conditions = and(
+    eq(pulseReactions.pulseId, input.pulseId),
+    eq(pulseReactions.reactorType, input.reactorType),
+    eq(pulseReactions.reactorId, input.reactorId),
+    eq(pulseReactions.reaction, input.reaction),
+  );
+
+  const existing = db.select().from(pulseReactions).where(conditions).all();
 
   if (existing.length > 0) {
-    db.delete(pulseReactions).where(
-      and(
-        eq(pulseReactions.pulseId, input.pulseId),
-        eq(pulseReactions.reactorType, input.reactorType),
-        eq(pulseReactions.reactorId, input.reactorId),
-        eq(pulseReactions.reaction, input.reaction),
-      )
-    ).run();
+    db.delete(pulseReactions).where(conditions).run();
     return { added: false };
   }
 
-  db.insert(pulseReactions).values({
-    id: uuid(),
-    pulseId: input.pulseId,
-    reactorType: input.reactorType,
-    reactorId: input.reactorId,
-    reaction: input.reaction,
-  }).run();
-
-  return { added: true };
+  try {
+    db.insert(pulseReactions).values({
+      id: uuid(),
+      pulseId: input.pulseId,
+      reactorType: input.reactorType,
+      reactorId: input.reactorId,
+      reaction: input.reaction,
+    }).run();
+    return { added: true };
+  } catch {
+    // Race: a concurrent insert created the row before us → toggle off
+    db.delete(pulseReactions).where(conditions).run();
+    return { added: false };
+  }
 }
 
 export function getReactionCounts(pulseId: string): Record<ReactionType, number> {

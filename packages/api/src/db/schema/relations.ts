@@ -273,13 +273,6 @@ export const pulsesRelations = relations(pulses, ({ one, many }) => ({
   reactions: many(pulseReactions),
 }));
 
-export const pulseCursorsRelations = relations(pulseCursors, ({ one }) => ({
-  mission: one(features, {
-    fields: [pulseCursors.scopeKey],
-    references: [features.id],
-  }),
-}));
-
 export const pullRequestsRelations = relations(pullRequests, ({ one }) => ({
   task: one(tasks, {
     fields: [pullRequests.taskId],

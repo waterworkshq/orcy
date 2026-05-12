@@ -11,6 +11,10 @@ export function getJwtSecret(): string {
   if (_jwtSecret) return _jwtSecret;
   const env = process.env.JWT_SECRET;
   if (env) return env;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set in production');
+  }
+  console.warn('WARNING: Using default JWT secret. Set JWT_SECRET for production.');
   return 'dev-secret-change-in-production';
 }
 
@@ -46,18 +50,22 @@ export function extractAndVerifyJwt(
 
   if (!token && allowQueryToken) {
     token = (request.query as Record<string, string>)['token'];
-    if (token && maxQueryTokenAgeSeconds) {
-      const decoded = jwt.decode(token) as { iat?: number } | null;
-      if (decoded?.iat && Date.now() / 1000 - decoded.iat > maxQueryTokenAgeSeconds) {
-        return { error: { message: 'Query token expired', code: 'TOKEN_EXPIRED' } };
-      }
-    }
   }
 
   if (!token) return { error: { message: 'Missing authentication token' } };
 
   try {
-    const payload = jwt.verify(token, getJwtSecret(), { issuer: 'orcy' }) as Record<string, unknown>;
+    const payload = jwt.verify(token, getJwtSecret(), {
+      issuer: 'orcy',
+      clockTolerance: 30,
+    }) as Record<string, unknown>;
+
+    if (maxQueryTokenAgeSeconds && typeof payload.iat === 'number') {
+      if (Date.now() / 1000 - payload.iat > maxQueryTokenAgeSeconds) {
+        return { error: { message: 'Query token expired', code: 'TOKEN_EXPIRED' } };
+      }
+    }
+
     return {
       user: {
         id: payload.sub as string,

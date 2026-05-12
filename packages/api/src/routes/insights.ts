@@ -3,15 +3,15 @@ import * as insightRepo from '../repositories/insight.js';
 import * as pulseRepo from '../repositories/pulse.js';
 import * as featureRepo from '../repositories/feature.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
-import { badRequest, notFound, unauthorized } from '../errors.js';
+import { badRequest, notFound, unauthorized, forbidden } from '../errors.js';
+import { getCallerInfo } from './pulse-shared.js';
 
-function getCallerInfo(request: FastifyRequest): { type: 'human' | 'agent'; id: string } | null {
-  if (request.agent) return { type: 'agent', id: request.agent.id };
-  if (request.user) return { type: 'human', id: request.user.id };
-  return null;
+function validateIso8601(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (isNaN(parsed)) throw badRequest('Invalid since parameter: must be ISO 8601');
+  return new Date(parsed).toISOString();
 }
-
-const VALID_SIGNAL_TYPES = ['finding', 'blocker', 'offer', 'warning', 'question', 'answer', 'directive', 'context', 'handoff'] as const;
 
 export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
@@ -33,6 +33,16 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
       const sourcePulse = pulseRepo.getPulseById(body.sourcePulseId);
       if (!sourcePulse) {
         throw notFound('Source pulse not found');
+      }
+
+      if (body.subject !== undefined && (typeof body.subject !== 'string' || body.subject.length > 500)) {
+        throw badRequest('Subject must be a string up to 500 characters');
+      }
+      if (body.body !== undefined && typeof body.body !== 'string') {
+        throw badRequest('Body must be a string');
+      }
+      if (body.body !== undefined && body.body.length > 50_000) {
+        throw badRequest('Body exceeds maximum length');
       }
 
       if (sourcePulse.boardId !== boardId) {
@@ -67,12 +77,14 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
       const { boardId } = (request.params as { boardId: string });
       const query = request.query as { signalType?: string; isActive?: string; limit?: string; offset?: string };
 
-      return insightRepo.getInsightsByBoard(boardId, {
+      const result = insightRepo.getInsightsByBoard(boardId, {
         signalType: query.signalType as pulseRepo.SignalType | undefined,
         isActive: query.isActive !== undefined ? query.isActive === 'true' : undefined,
         limit: query.limit ? parseInt(query.limit, 10) : undefined,
         offset: query.offset ? parseInt(query.offset, 10) : undefined,
       });
+
+      return { items: result.insights, total: result.total };
     }
   );
 
@@ -80,11 +92,24 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
     '/boards/:boardId/insights/:id',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { id } = (request.params as { id: string });
+      const { boardId, id } = (request.params as { boardId: string; id: string });
+
+      const caller = getCallerInfo(request);
+      if (!caller) {
+        throw unauthorized('Authentication required');
+      }
 
       const insight = insightRepo.getInsightById(id);
       if (!insight) {
         throw notFound('Insight not found');
+      }
+
+      if (insight.boardId !== boardId) {
+        throw notFound('Insight not found');
+      }
+
+      if (insight.promotedBy !== caller.id) {
+        throw forbidden('Only the promoter can deactivate an insight');
       }
 
       insightRepo.deactivateInsight(id);

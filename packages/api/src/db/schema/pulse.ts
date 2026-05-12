@@ -41,6 +41,7 @@ export const pulses = sqliteTable('pulses', {
   index('idx_pulses_task').on(table.taskId),
   index('idx_pulses_created').on(table.createdAt),
   index('idx_pulses_reply_to').on(table.replyToId),
+  index('idx_pulses_thread').on(table.replyToId, table.createdAt),
 ]);
 
 export const pulseCursors = sqliteTable('pulse_cursors', {

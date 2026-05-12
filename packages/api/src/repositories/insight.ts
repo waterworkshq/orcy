@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { projectInsights } from '../db/schema/index.js';
-import { eq, and, count, desc } from 'drizzle-orm';
+import { eq, and, count, desc, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { SignalType } from './pulse.js';
 
@@ -49,7 +49,7 @@ function rowToInsight(row: Record<string, unknown>): ProjectInsight {
     relevanceTags: (row.relevance_tags as string[]) ?? [],
     promotedBy: row.promoted_by as string,
     promotedAt: row.promoted_at as string,
-    isActive: (row.is_active as number) === 1,
+    isActive: row.is_active as boolean,
     createdAt: row.created_at as string,
   };
 }
@@ -70,7 +70,7 @@ export function createInsight(input: CreateInsightInput): ProjectInsight {
     relevanceTags: input.relevanceTags ?? [],
     promotedBy: input.promotedBy,
     promotedAt: now,
-    isActive: 1,
+    isActive: true,
     createdAt: now,
   }).run();
 
@@ -91,7 +91,7 @@ export function getInsightsByBoard(boardId: string, filters?: InsightFilters): {
     conditions.push(eq(projectInsights.signalType, filters.signalType));
   }
   if (filters?.isActive !== undefined) {
-    conditions.push(eq(projectInsights.isActive, filters.isActive ? 1 : 0));
+    conditions.push(eq(projectInsights.isActive, filters.isActive));
   }
 
   const where = and(...conditions);
@@ -117,21 +117,27 @@ export function deactivateInsight(id: string): boolean {
   const insight = getInsightById(id);
   if (!insight) return false;
 
-  db.update(projectInsights).set({ isActive: 0 }).where(eq(projectInsights.id, id)).run();
+  db.update(projectInsights).set({ isActive: false }).where(eq(projectInsights.id, id)).run();
   return true;
 }
 
 export function getRelevantInsights(boardId: string, tags: string[], limit = 5): ProjectInsight[] {
+  if (tags.length === 0) return [];
   const db = getDb();
+
+  const tagConditions = sql.join(
+    tags.map(t => sql`EXISTS (SELECT 1 FROM json_each(${projectInsights.relevanceTags}) WHERE value = ${t})`),
+    sql` OR `,
+  );
+
   const rows = db.select().from(projectInsights)
     .where(and(
       eq(projectInsights.boardId, boardId),
-      eq(projectInsights.isActive, 1),
+      eq(projectInsights.isActive, true),
+      tagConditions,
     ))
+    .limit(limit)
     .all();
 
-  const all = rows.map(rowToInsight);
-  return all
-    .filter(i => i.relevanceTags.some(t => tags.includes(t)))
-    .slice(0, limit);
+  return rows.map(rowToInsight);
 }

@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api } from '../../api/index.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import type { SignalType, PostPulseInput } from '../../types/index.js';
 
 const SIGNAL_OPTIONS: Array<{ type: SignalType; label: string; icon: LucideIcon; color: string }> = [
@@ -59,11 +60,17 @@ export function PulseComposeDialog({ missionId, open, onClose }: PulseComposeDia
     }
   }, [open]);
 
+  const [error, setError] = useState<string | null>(null);
+
   const mutation = useMutation({
     mutationFn: (input: PostPulseInput) => api.pulse.post(missionId, input),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pulses', missionId] });
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byMission(missionId) });
       onClose();
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to post signal');
     },
   });
 
@@ -154,6 +161,9 @@ export function PulseComposeDialog({ missionId, open, onClose }: PulseComposeDia
                 className="w-full bg-[var(--surface-container)] border border-[var(--outline-variant)] rounded-lg px-3 py-2 text-sm text-[var(--on-surface)] placeholder:text-[var(--on-surface-variant)] focus:ring-1 focus:ring-[var(--primary)] focus:border-[var(--primary)] resize-none"
               />
             </div>
+            {error && (
+              <p className="text-[11px] text-[var(--error)]">{error}</p>
+            )}
           </DialogContent>
 
           <DialogFooter className="mt-4">

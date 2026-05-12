@@ -68,7 +68,9 @@ export function registerPulseCommands(program: any) {
 
       try {
         if (options.habitat) {
-          const result = await api.get<any>(`/api/boards/${options.habitat}/pulse${query ? `?${query}` : ''}`);
+          params.set('scope', 'habitat');
+          const fullQuery = params.toString();
+          const result = await api.get<any>(`/api/boards/${options.habitat}/pulse${fullQuery ? `?${fullQuery}` : ''}`);
           console.log(JSON.stringify(result, null, 2));
         } else if (missionId) {
           const result = await api.get<any>(`/api/missions/${missionId}/pulse${query ? `?${query}` : ''}`);

@@ -46,4 +46,14 @@ export const queryKeys = {
   attachments: {
     list: (taskId: string) => ['attachments', 'list', taskId] as const,
   },
+  pulse: {
+    all: ['pulses'] as const,
+    byMission: (missionId: string) => ['pulses', missionId] as const,
+    byBoard: (boardId: string) => ['habitatPulses', boardId] as const,
+    replies: (pulseId: string) => ['pulseReplies', pulseId] as const,
+  },
+  insights: {
+    all: ['insights'] as const,
+    byBoard: (boardId: string) => ['insights', boardId] as const,
+  },
 };

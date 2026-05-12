@@ -20,7 +20,7 @@ export function PulseReplyThread({ pulse, missionId, replyCount }: PulseReplyThr
     enabled: expanded,
   });
 
-  const replies = data?.replies ?? [];
+  const replies = data?.items ?? [];
   const count = replyCount ?? replies.length;
 
   if (count === 0 && !expanded) return null;

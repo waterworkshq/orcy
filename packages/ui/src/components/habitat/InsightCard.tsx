@@ -2,31 +2,9 @@ import React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { EyeOff, Tag } from 'lucide-react';
 import { api } from '../../api/index.js';
-import type { ProjectInsight, SignalType } from '../../types/index.js';
-
-const SIGNAL_COLORS: Record<SignalType, string> = {
-  finding: 'var(--primary)',
-  blocker: 'var(--error)',
-  offer: 'var(--tertiary)',
-  warning: 'hsl(40,90%,55%)',
-  question: 'var(--secondary)',
-  answer: 'var(--secondary)',
-  directive: 'hsl(280,70%,60%)',
-  context: 'var(--on-surface-variant)',
-  handoff: 'hsl(200,70%,60%)',
-};
-
-const SIGNAL_LABELS: Record<SignalType, string> = {
-  finding: 'Finding',
-  blocker: 'Blocker',
-  offer: 'Offer',
-  warning: 'Warning',
-  question: 'Question',
-  answer: 'Answer',
-  directive: 'Directive',
-  context: 'Context',
-  handoff: 'Handoff',
-};
+import { queryKeys } from '../../lib/queryKeys.js';
+import type { ProjectInsight } from '../../types/index.js';
+import { SIGNAL_LABELS, SIGNAL_COLORS } from '../../lib/signalConfig.js';
 
 interface InsightCardProps {
   insight: ProjectInsight;
@@ -39,7 +17,10 @@ export function InsightCard({ insight, boardId }: InsightCardProps) {
   const deactivateMutation = useMutation({
     mutationFn: () => api.insights.deactivate(boardId, insight.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['insights', boardId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.insights.byBoard(boardId) });
+    },
+    onError: (err: Error) => {
+      console.error('Failed to deactivate insight:', err.message);
     },
   });
 

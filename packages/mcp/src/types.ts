@@ -200,10 +200,11 @@ export interface ProjectInsight {
 export interface PostPulseResponse {
   pulse: Pulse;
   linkedTask?: Task;
+  blockerTaskCreated?: boolean;
 }
 
 export interface ListPulsesResponse {
-  pulses: Pulse[];
+  items: Pulse[];
   total: number;
 }
 
