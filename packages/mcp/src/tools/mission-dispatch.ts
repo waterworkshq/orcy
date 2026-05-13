@@ -7,13 +7,15 @@ import {
   missionArchive,
   missionUnarchive,
   missionGetContext,
+  missionGetComments,
+  missionAddComment,
 } from './mission.js';
 import { PRIORITY_LEVELS } from './constants.js';
 
 export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_habitat_mission',
-  description: 'Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context',
-  actions: ['list', 'create', 'delete', 'archive', 'unarchive', 'get-context'],
+  description: 'Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment',
+  actions: ['list', 'create', 'delete', 'archive', 'unarchive', 'get-context', 'get-comments', 'add-comment'],
   sharedParams: {
     boardId: { type: 'string', description: 'Habitat UUID (used with action=list, action=create)' },
     featureId: { type: 'string', description: 'Mission UUID (used with action=delete, action=archive, action=unarchive, action=get-context)' },
@@ -36,6 +38,8 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
       description: 'Filter by mission status (action=list)',
     },
     limit: { type: 'number', description: 'Maximum number of missions to return (action=list)' },
+    content: { type: 'string', description: 'Comment text (action=add-comment)' },
+    parentId: { type: 'string', description: 'Optional parent comment UUID to reply to (action=add-comment)' },
   },
 });
 
@@ -46,6 +50,8 @@ export const MISSION_ACTIONS: Record<string, Handler> = {
   'archive': missionArchive,
   'unarchive': missionUnarchive,
   'get-context': missionGetContext,
+  'get-comments': missionGetComments,
+  'add-comment': missionAddComment,
 };
 
 export const MISSION_DISPATCH_HANDLER = createDispatchHandler(MISSION_ACTIONS);

@@ -5,6 +5,7 @@ import type {
   TaskStatus,
   TaskEvent,
   TaskComment,
+  FeatureComment,
   Subtask,
   FeatureTemplate,
   Feature,
@@ -658,6 +659,35 @@ export class KanbanApiClient {
     return this.request<{ comment: TaskComment }>(
       'POST',
       `/api/tasks/${taskId}/comments`,
+      {
+        content,
+        ...(parentId !== undefined && { parentId }),
+      }
+    );
+  }
+
+  async getFeatureComments(
+    featureId: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<{ comments: FeatureComment[]; total: number }> {
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.offset !== undefined) params.set('offset', String(options.offset));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request<{ comments: FeatureComment[]; total: number }>(
+      'GET',
+      `/api/features/${featureId}/comments${query}`
+    );
+  }
+
+  async addFeatureComment(
+    featureId: string,
+    content: string,
+    parentId?: string
+  ): Promise<{ comment: FeatureComment }> {
+    return this.request<{ comment: FeatureComment }>(
+      'POST',
+      `/api/features/${featureId}/comments`,
       {
         content,
         ...(parentId !== undefined && { parentId }),

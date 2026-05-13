@@ -90,6 +90,35 @@ export const featureWatchers = sqliteTable('feature_watchers', {
   index('idx_feature_watchers_user').on(table.userId),
 ]);
 
+const featureCommentsColumns = {
+  id: text('id').primaryKey(),
+  featureId: text('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+  parentId: text('parent_id').references((): ReturnType<typeof text> => featureComments.id as ReturnType<typeof text>, { onDelete: 'cascade' }),
+  authorType: text('author_type', { enum: ['human', 'agent'] }).notNull(),
+  authorId: text('author_id').notNull(),
+  content: text('content').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+};
+
+export const featureComments = sqliteTable('feature_comments', featureCommentsColumns, (table) => [
+  index('idx_feature_comments_feature_id').on(table.featureId, table.createdAt),
+  index('idx_feature_comments_parent').on(table.parentId),
+]);
+
+export const featureCommentMentions = sqliteTable('feature_comment_mentions', {
+  id: text('id').primaryKey(),
+  commentId: text('comment_id').notNull().references(() => featureComments.id, { onDelete: 'cascade' }),
+  mentionedType: text('mentioned_type', { enum: ['human', 'agent'] }).notNull(),
+  mentionedId: text('mentioned_id').notNull(),
+  mentionText: text('mention_text').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_feature_mentions_comment_id').on(table.commentId),
+  index('idx_feature_mentions_target').on(table.mentionedType, table.mentionedId),
+  uniqueIndex('idx_feature_mentions_unique').on(table.commentId, table.mentionedType, table.mentionedId, table.mentionText),
+]);
+
 const columnsColumns = {
   id: text('id').primaryKey(),
   boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),

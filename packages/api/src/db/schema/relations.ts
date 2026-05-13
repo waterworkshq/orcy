@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { boards, columns, features, featureDependencies, featureEvents, featureWatchers, featureTemplates, savedFilters, chatIntegrations } from './board.js';
+import { boards, columns, features, featureDependencies, featureEvents, featureWatchers, featureTemplates, savedFilters, chatIntegrations, featureComments, featureCommentMentions } from './board.js';
 import { tasks, taskEvents, taskComments, taskSubtasks, taskWatchers, taskCommentMentions, taskAttachments, taskTimeRecords } from './task.js';
 import { agents, agentMessages } from './agent.js';
 import { users, notificationPreferences, organizations, teams, teamMembers } from './user.js';
@@ -48,6 +48,7 @@ export const featuresRelations = relations(features, ({ one, many }) => ({
   dependencies: many(featureDependencies, { relationName: 'featureDeps' }),
   dependents: many(featureDependencies, { relationName: 'featureDependents' }),
   pulses: many(pulses),
+  comments: many(featureComments),
 }));
 
 export const featureDependenciesRelations = relations(featureDependencies, ({ one }) => ({
@@ -78,6 +79,27 @@ export const featureWatchersRelations = relations(featureWatchers, ({ one }) => 
   user: one(users, {
     fields: [featureWatchers.userId],
     references: [users.id],
+  }),
+}));
+
+export const featureCommentsRelations = relations(featureComments, ({ one, many }) => ({
+  feature: one(features, {
+    fields: [featureComments.featureId],
+    references: [features.id],
+  }),
+  parent: one(featureComments, {
+    fields: [featureComments.parentId],
+    references: [featureComments.id],
+    relationName: 'featureCommentReplies',
+  }),
+  replies: many(featureComments, { relationName: 'featureCommentReplies' }),
+  mentions: many(featureCommentMentions),
+}));
+
+export const featureCommentMentionsRelations = relations(featureCommentMentions, ({ one }) => ({
+  comment: one(featureComments, {
+    fields: [featureCommentMentions.commentId],
+    references: [featureComments.id],
   }),
 }));
 
@@ -125,6 +147,7 @@ export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
 
 export const usersRelations = relations(users, ({ many }) => ({
   comments: many(taskComments),
+  featureComments: many(featureComments),
   watchers: many(taskWatchers),
   featureWatchers: many(featureWatchers),
   notificationPreferences: many(notificationPreferences),

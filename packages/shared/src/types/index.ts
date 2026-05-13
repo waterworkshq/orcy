@@ -4,7 +4,7 @@ export type { Agent, AgentStats, AllAgentStats } from './agent.js';
 export type { Board, Column, BoardStats, BoardExport } from './board.js';
 
 export type { FeatureStatus, FeatureEventAction } from './feature.js';
-export type { Feature, FeatureWithProgress, FeatureEvent, FeatureTemplate, FeatureWatcher } from './feature.js';
+export type { Feature, FeatureWithProgress, FeatureEvent, FeatureTemplate, FeatureWatcher, FeatureComment, FeatureCommentMention } from './feature.js';
 
 export type { TaskPriority, TaskStatus } from './task.js';
 export type { Task, TaskEvent, TaskComment, TaskCommentMention, Artifact, RetryPolicy, TaskWatcher, Subtask, CrossBoardDependency, PullRequest } from './task.js';

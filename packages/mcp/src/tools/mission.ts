@@ -342,3 +342,74 @@ export async function missionUnarchive(
   const result = await client.unarchiveFeature(args.featureId);
   return { success: true, feature: result.feature };
 }
+
+export const MISSION_GET_COMMENTS_TOOL: Tool = {
+  name: 'mission_get_comments',
+  description:
+    'Get comments on a mission, sorted newest first. ' +
+    'Use this to read discussion, feedback, or conversation history about the mission as a whole.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      featureId: {
+        type: 'string',
+        description: 'Mission ID',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum comments to return (default 50, max 100)',
+        minimum: 1,
+        maximum: 100,
+      },
+      offset: {
+        type: 'number',
+        description: 'Number of comments to skip (for pagination)',
+        minimum: 0,
+      },
+    },
+    required: ['featureId'],
+  },
+};
+
+export async function missionGetComments(
+  client: KanbanApiClient,
+  args: { featureId: string; limit?: number; offset?: number }
+) {
+  return client.getFeatureComments(args.featureId, {
+    limit: args.limit ?? 50,
+    offset: args.offset ?? 0,
+  });
+}
+
+export const MISSION_ADD_COMMENT_TOOL: Tool = {
+  name: 'mission_add_comment',
+  description:
+    'Add a comment to a mission. Use this to discuss scope, design decisions, or provide feedback at the mission level.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      featureId: {
+        type: 'string',
+        description: 'Mission ID',
+      },
+      content: {
+        type: 'string',
+        description: 'Comment text (1-5000 characters)',
+        minLength: 1,
+        maxLength: 5000,
+      },
+      parentId: {
+        type: 'string',
+        description: 'Optional UUID of the parent comment to reply to',
+      },
+    },
+    required: ['featureId', 'content'],
+  },
+};
+
+export async function missionAddComment(
+  client: KanbanApiClient,
+  args: { featureId: string; content: string; parentId?: string }
+) {
+  return client.addFeatureComment(args.featureId, args.content, args.parentId);
+}

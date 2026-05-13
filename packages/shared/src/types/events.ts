@@ -2,7 +2,7 @@ import type { AgentStatus } from './agent.js';
 import type { Anomaly } from './settings.js';
 import type { Task, TaskStatus } from './task.js';
 import type { TaskComment } from './task.js';
-import type { Feature, FeatureStatus } from './feature.js';
+import type { Feature, FeatureStatus, FeatureComment } from './feature.js';
 import type { Column } from './board.js';
 import type { Subtask } from './task.js';
 
@@ -74,7 +74,10 @@ export type SSEEvent =
   | { type: 'feature.moved'; data: { featureId: string; fromColumnId: string; toColumnId: string } }
   | { type: 'feature.status_changed'; data: { featureId: string; fromStatus: FeatureStatus; toStatus: FeatureStatus } }
   | { type: 'feature.deleted'; data: { featureId: string } }
-  | { type: 'feature.progress'; data: { featureId: string; completed: number; total: number } };
+  | { type: 'feature.progress'; data: { featureId: string; completed: number; total: number } }
+  | { type: 'feature.commented'; data: { featureId: string; comment: FeatureComment } }
+  | { type: 'feature.comment_deleted'; data: { featureId: string; commentId: string } }
+  | { type: 'feature.mentioned'; data: { featureId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; boardId: string } };
 
 export type PresenceEvent =
   | { type: 'presence.joined'; data: { boardId: string; presence: PresenceEntry } }

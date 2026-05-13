@@ -88,3 +88,25 @@ export interface FeatureWatcher {
   userId: string;
   createdAt: string;
 }
+
+export interface FeatureComment {
+  id: string;
+  featureId: string;
+  parentId: string | null;
+  authorType: 'human' | 'agent';
+  authorId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  mentions?: FeatureCommentMention[];
+}
+
+export interface FeatureCommentMention {
+  id: string;
+  commentId: string;
+  mentionedType: 'human' | 'agent';
+  mentionedId: string;
+  mentionText: string;
+  createdAt: string;
+  mentionedName?: string;
+}

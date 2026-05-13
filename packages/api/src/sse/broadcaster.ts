@@ -100,6 +100,16 @@ class SSEBroadcaster {
         }
         break;
 
+      case 'feature.mentioned':
+        if (event.data.mentionedType === 'human') {
+          this.notifySafe('comment.mentioned', boardId, {
+            featureId: event.data.featureId,
+            mentionedUserId: event.data.mentionedId,
+            mentionedByName: event.data.mentionedName,
+          }, 'comment.mentioned');
+        }
+        break;
+
       case 'task.watcher_notify':
         this.notifySafe('task.watching', boardId, {
           taskId: event.data.taskId,
