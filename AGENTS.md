@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **orcy** (8626 symbols, 13867 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **orcy** (8672 symbols, 13926 relationships, 299 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -48,3 +48,5 @@ This project is indexed by GitNexus as **orcy** (8626 symbols, 13867 relationshi
 
 **Package Manager** Project uses pnpm package manager, so always use `pnpm` not `npm`, `bun` or any other.
 **Memory specific HARD requirement** Please maintain a growing memory for the overall work being done in the project in the docs/plans/MEMORY.md file. This must contain a summary of the work and specific high signal items that are important to remember like DECISIONS, LEARNINGS, RISKS etc. This will grow alongside the implementation of the project and must be referenced and maintained throughout the project but not commited.
+
+**Dont rush into making commits.** The commits have to be stritcly given permission for before you start making them or if they are a part of the plan.

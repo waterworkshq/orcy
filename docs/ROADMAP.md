@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.6.0 | **Updated:** 2026-05-12
+> **Version:** v0.7.1 | **Updated:** 2026-05-13
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -15,7 +15,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.3 | Fix foundations: shared config, ID normalization, CLI error handling |
 | v0.4 | Stop type drift: shared types package, shared API client |
 | v0.5 | Clean API internals: JWT extraction, schema split, scheduler, webhook dedup, rate limiter unification, board access consolidation, AppError migration |
-| v0.6 | Pulse — habitat-level signals, project insights (institutional memory), signal reactions, WebUI Signal Board tab, habitat + insights panels |
+| v0.7 | Solid Ground: Phase 3 UI refactors — consolidated formatting/badge utilities, fixed SSE notifications, extracted AgentCard, decomposed habitatStore (7 slices) and useTaskDetailPanel (8 hooks), fixed FilterBar auth bypass (6 of 7 planned refactors; R17 React Query unification deferred) |
 
 ---
 
@@ -23,25 +23,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ---
 
-### v0.7.0 — "Solid Ground"
-
-Phase 3 UI refactors. Clean the foundation before the next wave of UI features.
-
-| Order | Refactor | Depends on |
-|-------|----------|------------|
-| 1 | Consolidate formatting utilities (5 copies of formatRelativeTime, etc.) | — |
-| 2 | Consolidate status badge maps (10+ duplicate mappings) | — |
-| 3 | Fix SSE notifications (replace fragile monkey-patch with subscription) | — |
-| 4 | Extract AgentCard component (130 lines × 2) | 1 |
-| 5 | Decompose habitatStore (671-line monolith → 7 domain slices) | 3 |
-| 6 | Decompose useTaskDetailPanel (463-line hook → 8 composable hooks) | 5 |
-| 7 | Unify data fetching to React Query (3 patterns → 1) | 5, 6 |
-
-**Why standalone:** Zero user-facing features. If bundled, the refactors become invisible work. Standalone signals code health is a first-class concern.
-
----
-
-### v0.8.0 — "See the Invisible"
+### v0.8.0
 
 Three features that give humans visibility into what the pod is doing.
 
