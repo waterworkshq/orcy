@@ -3,12 +3,17 @@
     "after:bump": "pnpm exec git-cliff --tag v${version} -o CHANGELOG.md && node scripts/trim-changelog.mjs"
   },
   "git": {
-    "tagName": "v${version}",
-    "commitMessage": "chore(release): v${version}"
+    "commitMessage": "chore(release): v${version}",
+    "tagName": "v${version}"
   },
   "github": {
     "release": true,
-    "releaseName": "V${version}",
-    "releaseNotes": "pnpm exec git-cliff -s header ${latestTag}..v${version}"
+    "releaseName": "v${version}",
+    "releaseNotes": "pnpm exec git-cliff ${latestTag}..v${version}"
+  },
+  "plugins": {
+    "@release-it/conventional-changelog": {
+      "preset": "conventionalcommits"
+    }
   }
 }

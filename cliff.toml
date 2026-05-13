@@ -5,7 +5,11 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group }}
 {% for commit in commits %}
-- {{ commit.message | split(pat="\n") | first | trim }}{% endfor %}
+#### {{ commit.message | trim }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/waterworkshq/orcy/commit/{{ commit.id }}))
+{% if commit.body %}
+{% for line in commit.body | split(pat="\\n") %}{% set trimmed = line | trim | trim_start_matches(pat="- ") | trim %}{% if trimmed != "" %}{{ loop.index }}. {{ trimmed }}{% endif %}
+{% endfor %}{% endif %}
+{% endfor %}
 {% endfor %}
 """
 trim = false
