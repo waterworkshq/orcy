@@ -40,6 +40,7 @@ export function HealthScoreWidget({ boardId }: HealthScoreWidgetProps) {
 
   useEffect(() => {
     if (!boardId) return;
+    if (!api.health) return;
     setLoading(true);
     api.health.get(boardId)
       .then(data => setHealth(data))
