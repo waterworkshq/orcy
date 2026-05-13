@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.7.1 | **Updated:** 2026-05-13
+> **Version:** v0.8.0 | **Updated:** 2026-05-13
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -15,25 +15,13 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.3 | Fix foundations: shared config, ID normalization, CLI error handling |
 | v0.4 | Stop type drift: shared types package, shared API client |
 | v0.5 | Clean API internals: JWT extraction, schema split, scheduler, webhook dedup, rate limiter unification, board access consolidation, AppError migration |
-| v0.7 | Solid Ground: Phase 3 UI refactors — consolidated formatting/badge utilities, fixed SSE notifications, extracted AgentCard, decomposed habitatStore (7 slices) and useTaskDetailPanel (8 hooks), fixed FilterBar auth bypass (6 of 7 planned refactors; R17 React Query unification deferred) |
+| v0.6 | Pulse — habitat-level signals, project insights (institutional memory), signal reactions, WebUI Signal Board tab, habitat + insights panels |
+| v0.7 | Solid Ground: Phase 3 UI refactors — consolidated formatting/badge utilities, fixed SSE notifications, extracted AgentCard, decomposed habitatStore (7 slices) and useTaskDetailPanel (8 hooks), fixed FilterBar auth bypass (6 of 7 planned refactors; R16 React Query unification deferred) |
+| v0.8 | See the Invisible — board health metrics (0-100 composite score, A-F grade, 5 dimensions), audit log exports (streaming CSV/JSON/JSONL), feature-level comments (threaded discussion on missions) |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.8.0
-
-Three features that give humans visibility into what the pod is doing.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Board Health Metrics | "Is my pod healthy?" → composite 0-100 score from 5 dimensions |
-| Audit Log Exports | "Show me what happened last week" → streaming CSV/JSON/JSONL |
-| Feature Level Comments | "Why did you do it that way?" → threaded discussion on missions |
-
-**Why together:** Visibility theme. Share UI patterns. Zero code dependencies — can be parallelized. No breaking changes.
 
 ---
 
