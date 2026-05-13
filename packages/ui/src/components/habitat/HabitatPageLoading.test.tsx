@@ -17,6 +17,8 @@ vi.mock('../../api/index.js', () => ({
   },
 }));
 
+vi.mock('./HabitatPulsePanel.js', () => ({ HabitatPulsePanel: () => null }));
+vi.mock('./InsightsPanel.js', () => ({ InsightsPanel: () => null }));
 vi.mock('../../hooks/useSSE.js', () => ({ useSSE: vi.fn() }));
 vi.mock('../../hooks/useSSENotifications.js', () => ({ useSSENotifications: vi.fn() }));
 vi.mock('../../hooks/usePresence.js', () => ({ usePresence: vi.fn() }));
