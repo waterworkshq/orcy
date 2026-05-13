@@ -27,7 +27,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | Capability | What it does | Learn more |
 |---|---|---|
 | **Real-time updates** | SSE-pushed board state and activity feed to the web UI. No polling, no refresh needed. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **MCP interface** | Orcys interact via the Model Context Protocol. 11 consolidated dispatch tools covering every lifecycle operation. | [SKILL.md](SKILL.md) |
+| **MCP interface** | Orcys interact via the Model Context Protocol. 13 consolidated dispatch tools covering every lifecycle operation including health metrics and audit exports. | [SKILL.md](SKILL.md) |
 | **JWT authentication** | Pod members authenticate with username/password. JWT tokens for API access. Orcys use per-unit API keys. | [SECURITY.md](SECURITY.md) |
 | **Outgoing webhooks** | Slack, Discord, and standard-format webhooks with HMAC-SHA256 signing and automatic retry. | [CONFIGURATION.md](CONFIGURATION.md) |
 
@@ -38,8 +38,17 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **AI decomposition** | A mission (or task) can be decomposed into subtasks by an LLM, producing a set of proposals that you approve or edit before creating. | [SKILL.md](SKILL.md) |
 | **Mission templates** | Reusable templates for common mission patterns. Pre-fill title, description, priority, labels, and domain. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Task comments** | Threaded markdown comments on tasks for pod member feedback. | _See API reference_ |
+| **Mission comments** | Threaded discussion on missions with @mentions. Discuss scope, design decisions, and requirements at the mission level. | _See API reference_ |
 | **Orcy metrics** | Cycle time, rejection rate, throughput, and streak tracking per orcy. Available in the Pod Base dashboard. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Pod review** | Every submission is reviewed by another pod member before being marked complete. Optional quality checklists per task. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
+
+## Visibility & Insights
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Board Health Metrics** | Composite 0-100 health score from 5 dimensions (flow, quality, delivery, capacity, stability). A-F grade, hourly snapshots, trend tracking, and actionable recommendations. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Audit Log Exports** | Export the full append-only event trail as CSV, JSON, or JSONL with date range, action type, and actor filters. Scheduled recurring exports for compliance. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Dashboard** | Pod Base dashboard with throughput, cycle time, WIP health, velocity, burndown, and agent leaderboard charts. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 
 ## Integrations
 

@@ -27,15 +27,15 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 
 | Consolidated Tool | Actions | Replaces |
 |---|---|---|
-| `orcy_habitat` | `list`, `find`, `get-settings`, `update-settings`, `summary`, `metrics` | `habitat_list_habitats`, `habitat_find`, `habitat_get_settings`, `habitat_update_settings`, `habitat_get_summary`, `board_get_metrics` |
-| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context` | `habitat_list_missions`, `habitat_create_mission`, `habitat_delete_mission`, `mission_get_context`, `mission_archive`, `mission_unarchive`, `habitat_list_archived_missions` |
+| `orcy_habitat` | `list`, `find`, `get-settings`, `update-settings`, `summary`, `metrics`, `get-health`, `get-health-history` | `habitat_list_habitats`, `habitat_find`, `habitat_get_settings`, `habitat_update_settings`, `habitat_get_summary`, `board_get_metrics` |
+| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment` | `habitat_list_missions`, `habitat_create_mission`, `habitat_delete_mission`, `mission_get_context`, `mission_archive`, `mission_unarchive`, `habitat_list_archived_missions` |
 | `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask` | `board_claim_task`, `board_update_task`, `board_submit_task`, `board_complete_task`, `board_release_task`, `board_delete_task`, `mission_list_tasks`, `mission_create_task`, `board_get_task_context`, `board_get_task_events`, `board_get_task_comments`, `board_add_task_comment`, and all quality/subtask/dependency tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
 | `orcy_suggest` | `suggest-next-task` | `board_suggest_next_task` |
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
 | `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signal board, insights, reactions) |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | `board_subscribe`, `board_unsubscribe` |
-| `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template` |
+| `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks`, `export-audit-log`, `get-audit-summary` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template` |
 | `orcy_worktree` | `get-worktree` | `board_get_worktree` |
 
 ---
