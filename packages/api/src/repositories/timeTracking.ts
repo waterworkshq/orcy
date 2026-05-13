@@ -61,9 +61,10 @@ export function getLatestTimeRecord(taskId: string): TaskTimeRecord | null {
 export function getBoardMetrics(boardId: string): BoardMetrics {
   const db = getDb();
 
-  const boardFeatures = db.select({ id: features.id }).from(features)
+  const boardFeatures = db.select({ id: features.id, dueAt: features.dueAt }).from(features)
     .where(eq(features.boardId, boardId)).all();
   const featureIds = boardFeatures.map(f => f.id);
+  const featureMap = new Map(boardFeatures.map(f => [f.id, f]));
 
   if (featureIds.length === 0) {
     return {
@@ -106,8 +107,9 @@ export function getBoardMetrics(boardId: string): BoardMetrics {
 
   const onTimeTasks = completedTasks.filter(t => {
     if (!t.completedAt) return false;
-    const feat = boardFeatures.find(f => f.id === t.featureId);
-    return feat !== undefined;
+    const feature = featureMap.get(t.featureId);
+    if (!feature?.dueAt) return true;
+    return new Date(t.completedAt) <= new Date(feature.dueAt);
   });
 
   const allAgents = db.select().from(agents).all();

@@ -14,7 +14,8 @@ import { eq } from 'drizzle-orm';
 export type NotificationEventType = 'task.assigned' | 'task.submitted' | 'task.approved' | 'task.rejected' | 'task.overdue' | 'comment.mentioned' | 'task.watching';
 
 export type NotificationEventData = {
-  taskId: string;
+  taskId?: string;
+  featureId?: string;
   actorId?: string;
   reason?: string;
   mentionedUserId?: string;
@@ -91,7 +92,7 @@ export async function processEvent(
 ): Promise<void> {
   if (!emailService.isConfigured()) return;
 
-  const task = taskRepo.getTaskById(data.taskId);
+  const task = data.taskId ? taskRepo.getTaskById(data.taskId) : null;
   if (!task) return;
 
   const feature = task.featureId ? featureRepo.getFeatureById(task.featureId) : null;
@@ -176,6 +177,7 @@ export async function processEvent(
       break;
     }
     case 'task.watching': {
+      if (!data.taskId) break;
       const watcherUserIds = watcherRepo.getWatcherUserIdsForTask(data.taskId);
       for (const userId of watcherUserIds) {
         if (userId === data.actorId) continue;
