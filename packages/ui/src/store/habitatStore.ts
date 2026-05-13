@@ -90,6 +90,7 @@ interface BoardState {
 
   collapsedColumns: Record<string, boolean>;
   toggleColumnCollapsed: (columnId: string) => void;
+  clearWipAlert: (columnId: string) => void;
 
   /** Dispatches an SSEEvent to the appropriate state mutation. */
   handleSSEEvent: (event: SSEEvent) => void;
@@ -235,6 +236,9 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   removeColumn: (columnId) =>
     set((state) => ({
       columns: state.columns.filter((c) => c.id !== columnId),
+      columnPagination: Object.fromEntries(
+        Object.entries(state.columnPagination).filter(([id]) => id !== columnId)
+      ),
     })),
 
   updateBoard: (board) =>
