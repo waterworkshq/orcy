@@ -174,7 +174,7 @@ export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {
     setIsEditing(true);
   }
 
-  async function handleAddSubtask(e: any) {
+  async function handleAddSubtask(e: React.FormEvent) {
     e.preventDefault();
     if (!task || !newSubtaskTitle.trim()) return;
     setAddingSubtask(true);
@@ -354,7 +354,8 @@ export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {
         await api.features.update(task.featureId, featureUpdate);
       }
 
-      updateTask({ ...task, ...editForm, labels: editForm.labels.split(',').map(l => l.trim()).filter(Boolean) } as Task);
+      const updatedLabels = editForm.labels.split(',').map(l => l.trim()).filter(Boolean);
+      updateTask({ ...task, ...editForm, labels: updatedLabels });
       notify.success('Task updated');
       setIsEditing(false);
     } catch (err) {
