@@ -122,7 +122,7 @@ describe('FeatureMetrics', () => {
         in_progress: 3,
         submitted: 1,
         approved: 1,
-        rejected: 0,
+        rejected: 0, percentage: 0,
         done: 4,
         failed: 1,
       },

@@ -38,7 +38,7 @@ const mockFeatures: FeatureWithProgress[] = [
       approved: 0,
       done: 1,
       failed: 0,
-      rejected: 0,
+      rejected: 0, percentage: 0,
     },
   },
 ];
@@ -78,7 +78,7 @@ const mockArchivedFeatures: FeatureWithProgress[] = [
       approved: 0,
       done: 2,
       failed: 0,
-      rejected: 0,
+      rejected: 0, percentage: 0,
     },
   },
   {
@@ -115,7 +115,7 @@ const mockArchivedFeatures: FeatureWithProgress[] = [
       approved: 0,
       done: 0,
       failed: 1,
-      rejected: 0,
+      rejected: 0, percentage: 0,
     },
   },
 ];

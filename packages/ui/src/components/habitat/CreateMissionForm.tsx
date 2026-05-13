@@ -92,7 +92,7 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
         ...result.feature,
         progress: {
           total: 0, pending: 0, claimed: 0, inProgress: 0,
-          submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0,
+          submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0,
         },
       });
       notify.success(`Mission "${title.trim()}" created`);

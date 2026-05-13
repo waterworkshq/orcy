@@ -165,7 +165,7 @@ describe('BulkActionBar', () => {
         createdAt: '2024-01-01',
         updatedAt: '2024-01-01',
         version: 1,
-        progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0 },
+        progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0 },
       };
 
       mockUpdate.mockResolvedValue({ feature: updatedFeature });
@@ -253,7 +253,7 @@ describe('BulkActionBar', () => {
         createdAt: '2024-01-01',
         updatedAt: '2024-01-01',
         version: 1,
-        progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0 },
+        progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0 },
       };
 
       mockMove.mockResolvedValue({ feature: movedFeature });

@@ -53,6 +53,7 @@ import type {
   PostPulseInput,
   PulseReactionCounts,
   ProjectInsight,
+  FeatureComment,
 } from '../types/index.js';
 
 const BASE = '/api';
@@ -574,6 +575,30 @@ export const api = {
       }),
     delete: (taskId: string, commentId: string) =>
       request<void>(`/tasks/${taskId}/comments/${commentId}`, { method: 'DELETE' }),
+  },
+
+  featureComments: {
+    list: (featureId: string, filters?: { limit?: number; offset?: number }) => {
+      const params = new URLSearchParams();
+      if (filters?.limit) params.set('limit', String(filters.limit));
+      if (filters?.offset) params.set('offset', String(filters.offset));
+      const qs = params.toString();
+      return request<{ comments: FeatureComment[]; total: number }>(
+        `/features/${featureId}/comments${qs ? `?${qs}` : ''}`
+      );
+    },
+    create: (featureId: string, data: { content: string; parentId?: string }) =>
+      request<{ comment: FeatureComment }>(`/features/${featureId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (featureId: string, commentId: string, data: { content: string }) =>
+      request<{ comment: FeatureComment }>(`/features/${featureId}/comments/${commentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (featureId: string, commentId: string) =>
+      request<void>(`/features/${featureId}/comments/${commentId}`, { method: 'DELETE' }),
   },
 
   /** Task templates — create, apply, and track usage. */

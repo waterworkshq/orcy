@@ -10,6 +10,7 @@ import {
   Radio,
   Activity,
   ListTodo,
+  MessageSquare,
 } from 'lucide-react';
 import {
   FeatureHeader,
@@ -23,6 +24,7 @@ import { RiskAnalysisSidebar } from '../components/habitat/RiskAnalysisSidebar.j
 import { CodeReviewSection } from '../components/habitat/CodeReviewSection.js';
 import { AgentReasoningTrace } from '../components/habitat/AgentReasoningTrace.js';
 import { CommentInputBar } from '../components/habitat/CommentInputBar.js';
+import { FeatureCommentSection } from '../components/habitat/FeatureCommentSection.js';
 import { PulseBoard } from '../components/habitat/PulseBoard.js';
 import type {
   Task,
@@ -131,7 +133,7 @@ function ErrorView({
 
 export function FeatureDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState<'tasks' | 'pulse' | 'activity'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'pulse' | 'activity' | 'comments'>('tasks');
   const queryClient = useQueryClient();
 
   const {
@@ -174,6 +176,7 @@ export function FeatureDetailPage() {
   const tabs = [
     { key: 'tasks' as const, label: 'Tasks', icon: ListTodo },
     { key: 'pulse' as const, label: 'Pulse', icon: Radio },
+    { key: 'comments' as const, label: 'Comments', icon: MessageSquare },
     { key: 'activity' as const, label: 'Activity', icon: Activity },
   ];
 
@@ -225,6 +228,10 @@ export function FeatureDetailPage() {
             )}
 
             {activeTab === 'pulse' && id && <PulseBoard missionId={id} />}
+
+            {activeTab === 'comments' && id && (
+              <FeatureCommentSection featureId={id} />
+            )}
 
             {activeTab === 'activity' && (
               <div className="p-6">

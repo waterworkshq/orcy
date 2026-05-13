@@ -50,7 +50,7 @@ function makeFeatureWithProgress(overrides: {
       approved: 0,
       done: 1,
       failed: 0,
-      rejected: 0,
+      rejected: 0, percentage: 0,
     },
   };
 }

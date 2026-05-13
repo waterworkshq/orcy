@@ -139,7 +139,7 @@ describe('board store SSE feature.created', () => {
     expect(added.id).toBe('feat-new');
     expect(added.progress).toEqual({
       total: 0, pending: 0, claimed: 0, inProgress: 0,
-      submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0,
+      submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0,
     });
   });
 
@@ -193,7 +193,7 @@ describe('board store SSE targeted column invalidation', () => {
   });
 
   it('preserves progress when handling feature.updated', () => {
-    const progress = { total: 5, pending: 1, claimed: 0, inProgress: 2, submitted: 0, approved: 0, done: 2, failed: 0, rejected: 0 };
+    const progress = { total: 5, pending: 1, claimed: 0, inProgress: 2, submitted: 0, approved: 0, done: 2, failed: 0, rejected: 0, percentage: 0 };
     useBoardStore.setState({
       features: [{ ...makeFeature('feat-1', 'col-1'), progress } as any],
       tasks: [],
@@ -243,7 +243,7 @@ describe('board store SSE targeted column invalidation', () => {
 
   it('only invalidates affected column on feature.progress', () => {
     useBoardStore.setState({
-      features: [{ ...makeFeature('feat-1', 'col-1'), progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0 } } as any],
+      features: [{ ...makeFeature('feat-1', 'col-1'), progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0 } } as any],
       columnPagination: {
         'col-1': paginationFor(),
         'col-2': paginationFor(),
@@ -262,7 +262,7 @@ describe('board store SSE targeted column invalidation', () => {
     useBoardStore.setState({
       features: [{
         ...makeFeature('feat-1', 'col-1'),
-        progress: { total: 4, pending: 1, claimed: 1, inProgress: 0, submitted: 0, approved: 0, done: 2, failed: 0, rejected: 0 },
+        progress: { total: 4, pending: 1, claimed: 1, inProgress: 0, submitted: 0, approved: 0, done: 2, failed: 0, rejected: 0, percentage: 0 },
       } as any],
       columnPagination: {
         'col-1': paginationFor(),
