@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
 import { MarkdownContent } from '../ui/MarkdownContent.js';
+import { useFeatureComments } from '../../lib/useHabitatData.js';
 import type { FeatureComment } from '../../types/index.js';
 
 interface FeatureCommentSectionProps {
@@ -13,31 +14,19 @@ interface FeatureCommentSectionProps {
 }
 
 export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps) {
+  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading, refetch } = useFeatureComments(featureId);
   const [comments, setComments] = useState<FeatureComment[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [replyingTo, setReplyingTo] = useState<{ id: string } | null>(null);
 
-  async function loadComments() {
-    setLoading(true);
-    try {
-      const result = await api.featureComments.list(featureId);
-      setComments(result.comments);
-      setLoaded(true);
-    } catch (err) {
-      notify.error((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   React.useEffect(() => {
-    loadComments();
-  }, [featureId]);
+    setComments(commentsData.comments);
+    setLoaded(true);
+  }, [commentsData.comments]);
 
   async function handleSubmit() {
     if (!content.trim()) return;

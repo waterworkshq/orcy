@@ -15,7 +15,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
 import { formatMinutes } from '../../lib/formatting.js';
-import type { CapacityReport, AgentCapacity } from '../../types/index.js';
+import { useBoardCapacity } from '../../lib/useHabitatData.js';
+import type { AgentCapacity } from '../../types/index.js';
 
 interface CapacityChartProps {
   boardId?: string;
@@ -92,24 +93,8 @@ function UtilizationBar({ data }: { data: AgentCapacity[] }) {
 }
 
 export function CapacityChart({ boardId }: CapacityChartProps) {
-  const [report, setReport] = React.useState<CapacityReport | null>(null);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
-  const loadCapacity = React.useCallback(() => {
-    if (!boardId) return;
-    setLoading(true);
-    setError(null);
-    api.boards
-      .capacity(boardId)
-      .then(setReport)
-      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load capacity'))
-      .finally(() => setLoading(false));
-  }, [boardId]);
-
-  React.useEffect(() => {
-    loadCapacity();
-  }, [loadCapacity]);
+  const { data: report, isLoading: loading, error: queryError, refetch } = useBoardCapacity(boardId);
+  const error = queryError ? (queryError as Error).message : null;
 
   if (!boardId) {
     return (
@@ -305,7 +290,7 @@ export function CapacityChart({ boardId }: CapacityChartProps) {
       )}
 
       <div className="flex justify-end">
-        <Button variant="outline" size="sm" onClick={loadCapacity} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>

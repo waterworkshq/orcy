@@ -1,54 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { api } from '../api/index.js';
 import { DashboardCharts } from '../components/dashboard/DashboardCharts.js';
 import { PredictionSection } from '../components/dashboard/PredictionSection.js';
 import { Button } from '../components/ui/Button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.js';
 import { LayoutGrid, ArrowLeft, Loader2 } from 'lucide-react';
-import type { DashboardStats, PredictionResponse, BurndownResponse } from '../types/index.js';
+import { useDashboardStats, useBoardPredictions, useBoardBurndown } from '../lib/useHabitatData.js';
 
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const period = (searchParams.get('period') as '7d' | '30d' | '90d') || '30d';
   const boardId = searchParams.get('boardId') || undefined;
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [predictions, setPredictions] = useState<PredictionResponse | null>(null);
-  const [burndown, setBurndown] = useState<BurndownResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: stats, isLoading: loading, error: statsError } = useDashboardStats();
+  const { data: predictions } = useBoardPredictions(boardId);
+  const { data: burndown } = useBoardBurndown(boardId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
 
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-
-    const promises: Promise<void>[] = [];
-
-    promises.push(
-      api.dashboard
-        .get({ period, boardId })
-        .then(setStats)
-        .catch((err) => { throw err; })
-    );
-
-    if (boardId) {
-      promises.push(
-        api.boards.predictions(boardId)
-          .then(setPredictions)
-          .catch(() => { setPredictions(null); })
-      );
-      promises.push(
-        api.boards.burndown(boardId, period === '7d' ? 7 : period === '90d' ? 90 : 30)
-          .then(setBurndown)
-          .catch(() => { setBurndown(null); })
-      );
-    }
-
-    Promise.all(promises)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load dashboard'))
-      .finally(() => setLoading(false));
-  }, [period, boardId]);
+  const error = statsError ? (statsError as Error).message : null;
 
   const handlePeriodChange = (value: string) => {
     setSearchParams((prev) => {
