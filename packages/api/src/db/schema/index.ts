@@ -1,4 +1,4 @@
-export { boards, features, featureDependencies, featureEvents, featureWatchers, columns, featureTemplates, savedFilters, chatIntegrations, featureComments, featureCommentMentions, auditExportSchedules } from './board.js';
+export { boards, features, featureDependencies, featureEvents, featureWatchers, columns, featureTemplates, savedFilters, chatIntegrations, featureComments, featureCommentMentions, auditExportSchedules, boardHealthSnapshots } from './board.js';
 export { tasks, taskEvents, taskDependencies, taskComments, taskSubtasks, taskWatchers, taskCommentMentions, taskAttachments, taskTimeRecords } from './task.js';
 export { agents, agentMessages } from './agent.js';
 export { users, organizations, teams, teamMembers, notificationPreferences } from './user.js';

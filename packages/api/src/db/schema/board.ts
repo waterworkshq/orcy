@@ -202,3 +202,18 @@ export const auditExportSchedules = sqliteTable('audit_export_schedules', {
   index('idx_audit_schedules_board').on(table.boardId),
   index('idx_audit_schedules_next').on(table.nextRunAt),
 ]);
+
+export const boardHealthSnapshots = sqliteTable('board_health_snapshots', {
+  id: text('id').primaryKey(),
+  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  score: integer('score').notNull(),
+  grade: text('grade', { enum: ['A', 'B', 'C', 'D', 'F'] }).notNull(),
+  dimensions: text('dimensions').notNull(),
+  metrics: text('metrics').notNull(),
+  recommendations: text('recommendations').notNull().default('[]'),
+  snapshotAt: text('snapshot_at').notNull().default(sql`(datetime('now'))`),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_health_snapshots_board').on(table.boardId),
+  index('idx_health_snapshots_time').on(table.boardId, table.snapshotAt),
+]);

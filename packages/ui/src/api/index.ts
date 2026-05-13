@@ -916,6 +916,22 @@ export const api = {
     },
   },
 
+  health: {
+    get: (boardId: string) =>
+      request<{
+        boardId: string;
+        score: number;
+        grade: string;
+        dimensions: Record<string, { score: number } & Record<string, number>>;
+        recommendations: string[];
+        snapshotAt: string;
+      }>(`/boards/${boardId}/health`),
+    history: (boardId: string, days?: number) => {
+      const params = days ? `?days=${days}` : '';
+      return request<{ snapshots: Array<{ score: number; grade: string; snapshotAt: string }> }>(`/boards/${boardId}/health/history${params}`);
+    },
+  },
+
   insights: {
     list: (boardId: string, params?: Record<string, string | number>) => {
       const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';

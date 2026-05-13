@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { HealthScoreWidget } from './HealthScoreWidget.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { useSSE } from '../../hooks/useSSE.js';
@@ -253,6 +254,7 @@ export function BoardPage() {
               </Link>
               <span className="text-on-surface-variant text-xs">/</span>
               <span className="text-xs font-medium text-on-surface truncate">{board?.name ?? 'Habitat'}</span>
+              {boardId && <HealthScoreWidget boardId={boardId} />}
               {board && (
                 <button
                   type="button"

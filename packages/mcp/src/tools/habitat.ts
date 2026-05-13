@@ -152,3 +152,53 @@ export async function habitatGetSummary(
     includeDigest: args.includeDigest,
   });
 }
+
+export const HABITAT_GET_HEALTH_TOOL: Tool = {
+  name: 'habitat_get_health',
+  description: 'Get the current board health score (0-100) with a breakdown across 5 dimensions: flow, quality, delivery, capacity, and stability. Includes A-F grade and actionable recommendations.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      boardId: {
+        type: 'string',
+        description: 'The UUID of the Orcy habitat',
+      },
+    },
+    required: ['boardId'],
+  },
+};
+
+export async function habitatGetHealth(
+  client: KanbanApiClient,
+  args: { boardId: string }
+) {
+  return client.getBoardHealth(args.boardId);
+}
+
+export const HABITAT_GET_HEALTH_HISTORY_TOOL: Tool = {
+  name: 'habitat_get_health_history',
+  description: 'Get board health history over time. Returns snapshots with scores for trend tracking.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      boardId: {
+        type: 'string',
+        description: 'The UUID of the Orcy habitat',
+      },
+      days: {
+        type: 'number',
+        description: 'Number of days of history to return (default: 30, max: 365)',
+        minimum: 1,
+        maximum: 365,
+      },
+    },
+    required: ['boardId'],
+  },
+};
+
+export async function habitatGetHealthHistory(
+  client: KanbanApiClient,
+  args: { boardId: string; days?: number }
+) {
+  return client.getBoardHealthHistory(args.boardId, args.days);
+}

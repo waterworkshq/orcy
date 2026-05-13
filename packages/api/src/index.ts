@@ -23,6 +23,9 @@ import { webhookRoutes } from './routes/webhookOutgoing.js';
 import { commentRoutes } from './routes/comments.js';
 import { featureCommentRoutes } from './routes/featureComments.js';
 import { auditExportRoutes } from './routes/auditExport.js';
+import { boardHealthRoutes } from './routes/boardHealth.js';
+import * as boardRepo from './repositories/board.js';
+import * as boardHealthService from './services/boardHealthService.js';
 import { templateRoutes } from './routes/templates.js';
 import { subtaskRoutes } from './routes/subtasks.js';
 import { presenceRoutes } from './routes/presence.js';
@@ -119,6 +122,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(commentRoutes);
   await f.register(featureCommentRoutes);
   await f.register(auditExportRoutes);
+  await f.register(boardHealthRoutes);
   await f.register(subtaskRoutes);
   await f.register(templateRoutes);
   await f.register(webhookRoutes);
@@ -195,6 +199,21 @@ if (fs.existsSync(uiPath)) {
 
 const schedulers = startAllSchedulers(fastify);
 
+const healthSnapshotInterval = setInterval(async () => {
+  try {
+    const boards = boardRepo.listBoards();
+    for (const board of boards) {
+      try {
+        boardHealthService.calculateHealth(board.id);
+      } catch (err) {
+        fastify.log.error({ err, boardId: board.id }, 'Health snapshot failed');
+      }
+    }
+  } catch (err) {
+    fastify.log.error({ err }, 'Health snapshot scan failed');
+  }
+}, 60 * 60_000);
+
 const shutdown = async () => {
   await fastify.close();
   process.exit(0);
@@ -204,6 +223,7 @@ process.on('SIGINT', shutdown);
 
 fastify.addHook('onClose', async () => {
   schedulers.stop();
+  clearInterval(healthSnapshotInterval);
 });
 
 await initDb();

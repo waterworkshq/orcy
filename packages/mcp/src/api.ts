@@ -733,6 +733,23 @@ export class KanbanApiClient {
     );
   }
 
+  async getBoardHealth(boardId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      'GET',
+      `/api/boards/${boardId}/health`
+    );
+  }
+
+  async getBoardHealthHistory(boardId: string, days?: number): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams();
+    if (days) params.set('days', String(days));
+    const qs = params.toString();
+    return this.request<Record<string, unknown>>(
+      'GET',
+      `/api/boards/${boardId}/health/history${qs ? `?${qs}` : ''}`
+    );
+  }
+
   async listSubtasks(taskId: string): Promise<ListSubtasksResponse> {
     taskId = normalizeTaskId(taskId);
     return this.request<ListSubtasksResponse>('GET', `/api/tasks/${taskId}/subtasks`);
