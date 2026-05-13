@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert, CheckCircle2, Circle, Link2 } from 'lucide-react';
 import type { TaskQualityReport, QualityChecklist } from '../../types/index.js';
+import { QUALITY_STATUS_BADGE } from '../../lib/status-maps.js';
 
 interface TaskQualityChecklistProps {
   taskId: string;
@@ -8,13 +9,6 @@ interface TaskQualityChecklistProps {
   loading: boolean;
   onToggleItem: (checklistId: string, itemId: string, isCompleted: boolean) => Promise<void>;
 }
-
-const statusColors: Record<string, string> = {
-  passed: 'glass-badge glass-badge-done',
-  blocked: 'glass-badge glass-badge-blocked',
-  in_progress: 'glass-badge glass-badge-review',
-  pending: 'glass-badge glass-badge-low',
-};
 
 function ChecklistProgress({ checklist }: { checklist: QualityChecklist }) {
   const { completed, total } = checklist.progress;
@@ -72,7 +66,7 @@ export function TaskQualityChecklist({
       <h4 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
         <ShieldCheck className="h-3 w-3" />
         Quality Gates
-        <span className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${statusColors[report.overallStatus]}`}>
+        <span className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${QUALITY_STATUS_BADGE[report.overallStatus]}`}>
           {statusLabel}
         </span>
       </h4>

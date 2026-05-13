@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { DependencyGraph } from './DependencyGraph.js';
 import { Button } from '../ui/Button.js';
 import { X, GitBranch, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { FEATURE_STATUS_DOT } from '../../lib/status-maps.js';
 
 interface DependencyGraphModalProps {
   boardId: string;
@@ -9,12 +10,12 @@ interface DependencyGraphModalProps {
   onSelectFeature: (featureId: string) => void;
 }
 
-const statusColors = [
-  { label: 'Pending', color: 'bg-[var(--badge-low)]' },
-  { label: 'In Progress', color: 'bg-[var(--badge-active)]' },
-  { label: 'Review', color: 'bg-[var(--badge-review)]' },
-  { label: 'Done', color: 'bg-[var(--badge-done)]' },
-  { label: 'Failed', color: 'bg-[var(--badge-blocked)]' },
+const statusLegend = [
+  { label: 'Pending', color: FEATURE_STATUS_DOT.not_started },
+  { label: 'In Progress', color: FEATURE_STATUS_DOT.in_progress },
+  { label: 'Review', color: FEATURE_STATUS_DOT.review },
+  { label: 'Done', color: FEATURE_STATUS_DOT.done },
+  { label: 'Failed', color: FEATURE_STATUS_DOT.failed },
   { label: 'Unmet dep.', color: 'border-2 border-dashed border-[var(--badge-review)] bg-transparent' },
 ];
 
@@ -29,7 +30,7 @@ export function DependencyGraphModal({ boardId, onClose, onSelectFeature }: Depe
           </div>
           <div className="flex items-center gap-4 relative z-10">
             <div className="hidden md:flex items-center gap-3">
-              {statusColors.map((s) => (
+              {statusLegend.map((s) => (
                 <div key={s.label} className="flex items-center gap-1.5">
                   <div className={`h-3 w-3 rounded-full ${s.color}`} />
                   <span className="text-xs text-on-surface-variant">{s.label}</span>

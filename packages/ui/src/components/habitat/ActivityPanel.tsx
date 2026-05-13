@@ -4,6 +4,7 @@ import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
+import { SEVERITY_BADGE } from '../../lib/status-maps.js';
 import { CheckCircle, XCircle, User, Circle, ArrowRight, Clock, AlertTriangle } from 'lucide-react';
 import type { EnrichedBoardEvent, EventAction, Anomaly } from '../../types/index.js';
 
@@ -242,13 +243,12 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
               </h3>
             </div>
             {anomalies.map((anomaly, i) => {
-              const severityColors: Record<string, string> = { low: 'glass-badge glass-badge-low', medium: 'glass-badge glass-badge-medium', high: 'glass-badge glass-badge-high', critical: 'glass-badge glass-badge-critical' };
               return (
                 <div key={i} className="flex items-start gap-3 px-4 py-3 border-b bg-destructive/5">
                   <AlertTriangle className={`h-4 w-4 mt-0.5 ${anomaly.severity === 'critical' ? 'text-red-500' : anomaly.severity === 'high' ? 'text-orange-500' : anomaly.severity === 'medium' ? 'text-amber-500' : 'text-blue-500'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${severityColors[anomaly.severity] ?? ''}`}>
+                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${SEVERITY_BADGE[anomaly.severity] ?? ''}`}>
                         {anomaly.severity}
                       </span>
                       <span className="text-xs text-muted-foreground">{anomaly.type.replace(/_/g, ' ')}</span>

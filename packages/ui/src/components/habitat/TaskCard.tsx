@@ -8,8 +8,9 @@ import { Tooltip } from '../ui/Tooltip.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { api } from '../../api/index.js';
+import { truncateId, formatDueDate, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, TASK_STATUS_VARIANT } from '../../lib/formatting.js';
 import type { Task } from '../../types/index.js';
-import { GripVertical, Link2, Eye, Calendar, Clock, AlertTriangle, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { GripVertical, Link2, Eye, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 interface TaskCardProps {
   task: Task;
@@ -18,36 +19,11 @@ interface TaskCardProps {
   qualityStatus?: 'passed' | 'blocked' | null;
 }
 
-const priorityVariant: Record<string, 'critical' | 'high' | 'medium' | 'low'> = {
-  critical: 'critical',
-  high: 'high',
-  medium: 'medium',
-  low: 'low',
-};
-
-const statusVariant: Record<string, 'pending' | 'claimed' | 'in_progress' | 'submitted' | 'approved' | 'rejected' | 'done' | 'failed'> = {
-  pending: 'pending',
-  claimed: 'claimed',
-  in_progress: 'in_progress',
-  submitted: 'submitted',
-  approved: 'approved',
-  rejected: 'rejected',
-  done: 'done',
-  failed: 'failed',
-};
-
 const priorityTooltip: Record<string, string> = {
   critical: 'Critical priority - claim first',
   high: 'High priority - claim after critical',
   medium: 'Medium priority',
   low: 'Low priority - claim last',
-};
-
-const priorityBorderClass: Record<string, string> = {
-  critical: 'border-l-[3px] border-l-[var(--badge-critical)]',
-  high: 'border-l-[3px] border-l-[var(--badge-high)]',
-  medium: 'border-l-[3px] border-l-[var(--badge-medium)]',
-  low: 'border-l-[3px] border-l-[var(--badge-low)]',
 };
 
 const statusTooltip: Record<string, string> = {
@@ -83,37 +59,6 @@ function AgentAvatar({ agentId }: { agentId: string }) {
   );
 }
 
-function truncateId(id: string, prefix: string): string {
-  const hash = id.includes('-') ? id.slice(id.indexOf('-') + 1) : id;
-  return `${prefix}-${hash.slice(0, 6)}`;
-}
-
-function formatDueDate(task: { dueAt: string | null; slaDeadlineAt: string | null; dueDateStatus?: string }): { text: string; color: string; icon: React.ReactNode } | null {
-  const deadline = task.slaDeadlineAt ?? task.dueAt;
-  if (!deadline) return null;
-  let status = task.dueDateStatus ?? 'ok';
-  if (!task.dueDateStatus) {
-    const ms = new Date(deadline).getTime() - Date.now();
-    status = ms < 0 ? 'overdue' : ms < 3600000 ? 'approaching' : 'ok';
-  }
-  const date = new Date(deadline);
-  const isToday = new Date().toDateString() === date.toDateString();
-  const text = isToday
-    ? `Today ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const colors: Record<string, string> = {
-    overdue: 'text-[var(--badge-blocked-text)]',
-    approaching: 'text-[var(--badge-review-text)]',
-    ok: 'text-on-surface-variant',
-  };
-  const icons: Record<string, React.ReactNode> = {
-    overdue: React.createElement(AlertTriangle, { className: 'w-3 h-3' }),
-    approaching: React.createElement(Clock, { className: 'w-3 h-3' }),
-    ok: React.createElement(Calendar, { className: 'w-3 h-3' }),
-  };
-  return { text, color: colors[status] ?? colors.ok, icon: icons[status] ?? icons.ok };
-}
-
 /**
  * Renders a single task card showing title, priority, status, assignee,
  * and live presence indicators. Click opens the detail panel.
@@ -126,7 +71,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
     shallow
   );
   const [animKey, setAnimKey] = useState(0);
-  const borderClass = priorityBorderClass[task.priority] ?? priorityBorderClass.medium;
+  const borderClass = PRIORITY_BORDER_CLASS[task.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   const { data: qualityReport } = useQuery({
     queryKey: ['task-quality', task.id],
@@ -167,7 +112,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
           </span>
           {!isBulkSelectMode && (
             <Tooltip content={priorityTooltip[task.priority] ?? ''} position="top">
-              <Badge variant={priorityVariant[task.priority] ?? 'medium'}>
+              <Badge variant={PRIORITY_VARIANT[task.priority] ?? 'medium'}>
                 {task.priority}
               </Badge>
             </Tooltip>
@@ -178,7 +123,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Tooltip content={statusTooltip[task.status] ?? ''} position="top">
-            <Badge variant={statusVariant[task.status] ?? 'default'}>
+            <Badge variant={TASK_STATUS_VARIANT[task.status] ?? 'default'}>
               {task.status.replace('_', ' ')}
             </Badge>
           </Tooltip>

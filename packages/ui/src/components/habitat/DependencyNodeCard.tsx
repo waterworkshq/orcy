@@ -1,12 +1,13 @@
 import { clsx } from 'clsx';
 import type { FeatureStatus } from '../../types/index.js';
+import { FEATURE_STATUS_DOT } from '../../lib/status-maps.js';
 
 const statusDotColor: Record<FeatureStatus, string> = {
-  not_started: 'bg-[var(--badge-low)]',
-  in_progress: 'bg-[var(--badge-active)]',
-  review: 'bg-[var(--badge-review)]',
-  done: 'bg-[var(--badge-done)]',
-  failed: 'bg-[var(--badge-blocked)]',
+  not_started: FEATURE_STATUS_DOT.not_started,
+  in_progress: FEATURE_STATUS_DOT.in_progress,
+  review: FEATURE_STATUS_DOT.review,
+  done: FEATURE_STATUS_DOT.done,
+  failed: FEATURE_STATUS_DOT.failed,
 };
 
 export interface DependencyNodeCardProps {

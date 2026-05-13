@@ -7,27 +7,13 @@ import { Badge } from '../ui/Badge.js';
 import { Tooltip } from '../ui/Tooltip.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import type { FeatureWithProgress } from '../../types/index.js';
-import { GripVertical, Link2, Calendar, Clock, AlertTriangle } from 'lucide-react';
+import { GripVertical, Link2 } from 'lucide-react';
+import { truncateId, formatDueDate, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, FEATURE_STATUS_VARIANT } from '../../lib/formatting.js';
 
 interface FeatureCardProps {
   feature: FeatureWithProgress;
   isDragOverlay?: boolean;
 }
-
-const priorityVariant: Record<string, 'critical' | 'high' | 'medium' | 'low'> = {
-  critical: 'critical',
-  high: 'high',
-  medium: 'medium',
-  low: 'low',
-};
-
-const featureStatusVariant: Record<string, string> = {
-  not_started: 'pending',
-  in_progress: 'in_progress',
-  review: 'submitted',
-  done: 'done',
-  failed: 'failed',
-};
 
 const priorityTooltip: Record<string, string> = {
   critical: 'Critical priority',
@@ -35,44 +21,6 @@ const priorityTooltip: Record<string, string> = {
   medium: 'Medium priority',
   low: 'Low priority',
 };
-
-const priorityBorderClass: Record<string, string> = {
-  critical: 'border-l-[3px] border-l-[var(--badge-critical)]',
-  high: 'border-l-[3px] border-l-[var(--badge-high)]',
-  medium: 'border-l-[3px] border-l-[var(--badge-medium)]',
-  low: 'border-l-[3px] border-l-[var(--badge-low)]',
-};
-
-function truncateId(id: string, prefix: string): string {
-  const hash = id.includes('-') ? id.slice(id.indexOf('-') + 1) : id;
-  return `${prefix}-${hash.slice(0, 6)}`;
-}
-
-function formatDueDate(feature: { dueAt: string | null; slaDeadlineAt: string | null; dueDateStatus?: string }): { text: string; color: string; icon: React.ReactNode } | null {
-  const deadline = feature.slaDeadlineAt ?? feature.dueAt;
-  if (!deadline) return null;
-  let status = feature.dueDateStatus ?? 'ok';
-  if (!feature.dueDateStatus) {
-    const ms = new Date(deadline).getTime() - Date.now();
-    status = ms < 0 ? 'overdue' : ms < 3600000 ? 'approaching' : 'ok';
-  }
-  const date = new Date(deadline);
-  const isToday = new Date().toDateString() === date.toDateString();
-  const text = isToday
-    ? `Today ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const colors: Record<string, string> = {
-    overdue: 'text-[var(--badge-blocked-text)]',
-    approaching: 'text-[var(--badge-review-text)]',
-    ok: 'text-[var(--on-surface-variant)]',
-  };
-  const icons: Record<string, React.ReactNode> = {
-    overdue: React.createElement(AlertTriangle, { className: 'w-3 h-3' }),
-    approaching: React.createElement(Clock, { className: 'w-3 h-3' }),
-    ok: React.createElement(Calendar, { className: 'w-3 h-3' }),
-  };
-  return { text, color: colors[status] ?? colors.ok, icon: icons[status] ?? icons.ok };
-}
 
 function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   const navigate = useNavigate();
@@ -110,7 +58,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   const total = feature.progress.total;
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  const borderClass = priorityBorderClass[feature.priority] ?? priorityBorderClass.medium;
+  const borderClass = PRIORITY_BORDER_CLASS[feature.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   function handleCardClick(e: React.MouseEvent) {
     if (isBulkSelectMode) {
@@ -168,11 +116,11 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
 
       <div className="flex items-center gap-1.5 mt-2">
         <Tooltip content={priorityTooltip[feature.priority] ?? ''} position="top">
-          <Badge variant={priorityVariant[feature.priority] ?? 'medium'}>
+          <Badge variant={PRIORITY_VARIANT[feature.priority] ?? 'medium'}>
             {feature.priority}
           </Badge>
         </Tooltip>
-        <Badge variant={(featureStatusVariant[feature.status] ?? 'pending') as any}>
+        <Badge variant={(FEATURE_STATUS_VARIANT[feature.status] ?? 'pending') as any}>
           {feature.status.replace('_', ' ')}
         </Badge>
       </div>

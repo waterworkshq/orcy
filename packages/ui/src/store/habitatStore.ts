@@ -33,6 +33,7 @@ interface BoardState {
   isBulkSelectMode: boolean;
   selectedFeatureIds: string[];
   notifications: Notification[];
+  recentSSEEvents: SSEEvent[];
 
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
@@ -131,6 +132,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
   isBulkSelectMode: false,
   selectedFeatureIds: [],
   notifications: [],
+  recentSSEEvents: [],
   collapsedColumns: {},
 
   setBoard: (board, columns, features) =>
@@ -393,6 +395,7 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
   handleSSEEvent: (event) => {
     const state = get();
+    set({ recentSSEEvents: [...state.recentSSEEvents.slice(-99), event] });
     switch (event.type) {
 
       // --- Feature lifecycle events ---

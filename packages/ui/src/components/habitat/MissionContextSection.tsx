@@ -1,6 +1,7 @@
 import React from 'react';
 import { DetailCard } from '../ui/DetailCard.js';
 import { FileStack, Layers } from 'lucide-react';
+import { FEATURE_STATUS_BADGE, getStatusBadge } from '../../lib/status-maps.js';
 
 interface FeatureContextData {
   id: string;
@@ -29,13 +30,7 @@ export function FeatureContextSection({ feature, onSelectFeature }: FeatureConte
         >
           <div className="flex items-center justify-between">
             <span className="font-medium text-sm">{feature.title}</span>
-            <span className={`text-xs px-2 py-0.5 rounded ${
-              feature.status === 'done' ? 'glass-badge glass-badge-done' :
-              feature.status === 'in_progress' ? 'glass-badge glass-badge-active' :
-              feature.status === 'review' ? 'glass-badge glass-badge-review' :
-              feature.status === 'failed' ? 'glass-badge glass-badge-blocked' :
-              'glass-badge glass-badge-low'
-            }`}>
+            <span className={`text-xs px-2 py-0.5 rounded ${getStatusBadge(FEATURE_STATUS_BADGE, feature.status)}`}>
               {feature.status.replace('_', ' ')}
             </span>
           </div>

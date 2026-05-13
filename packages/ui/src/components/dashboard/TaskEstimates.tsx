@@ -1,5 +1,6 @@
 import React from 'react';
 import type { TaskEstimate } from '../../types/index.js';
+import { PRIORITY_BADGE } from '../../lib/status-maps.js';
 
 interface TaskEstimatesProps {
   estimates: TaskEstimate[];
@@ -9,13 +10,6 @@ const confidenceColors: Record<string, string> = {
   high: 'text-green-600 dark:text-green-400',
   medium: 'text-yellow-600 dark:text-yellow-400',
   low: 'text-red-600 dark:text-red-400',
-};
-
-const priorityBadge: Record<string, string> = {
-  critical: 'glass-badge glass-badge-critical',
-  high: 'glass-badge glass-badge-high',
-  medium: 'glass-badge glass-badge-medium',
-  low: 'glass-badge glass-badge-low',
 };
 
 export function TaskEstimates({ estimates }: TaskEstimatesProps) {
@@ -47,7 +41,7 @@ export function TaskEstimates({ estimates }: TaskEstimatesProps) {
                 {est.taskTitle}
               </td>
               <td className="py-2 px-3">
-                <span className={`text-xs px-2 py-0.5 rounded-full ${priorityBadge[est.priority] ?? ''}`}>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${PRIORITY_BADGE[est.priority] ?? ''}`}>
                   {est.priority}
                 </span>
               </td>

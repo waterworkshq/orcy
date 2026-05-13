@@ -3,6 +3,7 @@ import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Check, Trash2, X } from 'lucide-react';
 import { useBoardStore } from '../../store/habitatStore.js';
+import { formatRelativeTime } from '../../lib/formatting.js';
 import type { Notification } from '../../types/index.js';
 
 interface NotificationDropdownProps {
@@ -11,15 +12,7 @@ interface NotificationDropdownProps {
 }
 
 function formatTimestamp(ts: string): string {
-  const date = new Date(ts);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return date.toLocaleDateString();
+  return formatRelativeTime(ts, { maxGranularity: 'hours', fallbackToDate: true });
 }
 
 function NotificationItem({

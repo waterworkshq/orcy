@@ -1,6 +1,7 @@
 import React from 'react';
 import { DetailCard } from '../ui/DetailCard.js';
 import { Users } from 'lucide-react';
+import { TASK_STATUS_BADGE, getStatusBadge } from '../../lib/status-maps.js';
 
 interface SiblingTask {
   id: string;
@@ -32,16 +33,7 @@ export function SiblingTasksSection({ siblingTasks, onSelectTask }: SiblingTasks
               {task.result && (
                 <span className="text-xs text-green-600" title="Has result">✓</span>
               )}
-              <span className={`text-xs px-2 py-0.5 rounded ${
-                task.status === 'done' ? 'glass-badge glass-badge-done' :
-                task.status === 'approved' ? 'glass-badge glass-badge-done' :
-                task.status === 'rejected' ? 'glass-badge glass-badge-blocked' :
-                task.status === 'failed' ? 'glass-badge glass-badge-blocked' :
-                task.status === 'submitted' ? 'glass-badge glass-badge-review' :
-                task.status === 'in_progress' ? 'glass-badge glass-badge-active' :
-                task.status === 'claimed' ? 'glass-badge glass-badge-active' :
-                'glass-badge glass-badge-low'
-              }`}>
+              <span className={`text-xs px-2 py-0.5 rounded ${getStatusBadge(TASK_STATUS_BADGE, task.status)}`}>
                 {task.status.replace('_', ' ')}
               </span>
             </div>

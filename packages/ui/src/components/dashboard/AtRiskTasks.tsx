@@ -1,17 +1,11 @@
 import React from 'react';
 import { AlertTriangle, Clock, Lock, AlertCircle } from 'lucide-react';
 import type { AtRiskTask } from '../../types/index.js';
+import { SEVERITY_BADGE } from '../../lib/status-maps.js';
 
 interface AtRiskTasksProps {
   tasks: AtRiskTask[];
 }
-
-const severityColors: Record<string, string> = {
-  critical: 'glass-badge glass-badge-critical',
-  high: 'glass-badge glass-badge-high',
-  medium: 'glass-badge glass-badge-medium',
-  low: 'glass-badge glass-badge-low',
-};
 
 const reasonIcons: Record<string, React.ReactNode> = {
   overdue_prediction: <AlertTriangle className="h-4 w-4" />,
@@ -41,7 +35,7 @@ export function AtRiskTasks({ tasks }: AtRiskTasksProps) {
       {tasks.map((task) => (
         <div
           key={`${task.taskId}-${task.reason}`}
-          className={`flex items-start gap-3 p-3 rounded-lg border ${severityColors[task.severity] ?? ''}`}
+          className={`flex items-start gap-3 p-3 rounded-lg border ${SEVERITY_BADGE[task.severity] ?? ''}`}
         >
           <div className="mt-0.5 shrink-0">
             {reasonIcons[task.reason]}
@@ -55,12 +49,7 @@ export function AtRiskTasks({ tasks }: AtRiskTasksProps) {
             </div>
             <p className="text-xs mt-0.5 opacity-80">{task.details}</p>
           </div>
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-            task.severity === 'critical' ? 'glass-badge glass-badge-critical' :
-            task.severity === 'high' ? 'glass-badge glass-badge-high' :
-            task.severity === 'medium' ? 'glass-badge glass-badge-medium' :
-            'glass-badge glass-badge-low'
-          }`}>
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SEVERITY_BADGE[task.severity] ?? 'glass-badge glass-badge-low'}`}>
             {task.severity}
           </span>
         </div>

@@ -6,19 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { StatCard } from '../ui/StatCard.js';
 import { X, Clock, TrendingUp, AlertTriangle, CheckCircle, AlertCircle, Layers, Timer } from 'lucide-react';
+import { formatMinutes } from '../../lib/formatting.js';
 
 interface StatsModalProps {
   boardId: string;
   onClose: () => void;
-}
-
-function formatMinutes(minutes: number): string {
-  if (minutes < 60) return `${Math.round(minutes)}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  if (hours < 24) return `${hours}h ${mins}m`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
 }
 
 function FeatureStatusBar({ features }: { features: FeatureWithProgress[] }) {

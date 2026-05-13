@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { formatRelativeTime } from '../../lib/formatting.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
@@ -82,17 +83,7 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
   }
 
   function formatTime(dateStr: string): string {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
+    return formatRelativeTime(dateStr, { fallbackToDate: true });
   }
 
   function isEdited(createdAt: string, updatedAt: string): boolean {

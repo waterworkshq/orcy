@@ -14,6 +14,7 @@ import { AlertTriangle, CheckCircle2, Lightbulb, Users, Loader2 } from 'lucide-r
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
+import { formatMinutes } from '../../lib/formatting.js';
 import type { CapacityReport, AgentCapacity } from '../../types/index.js';
 
 interface CapacityChartProps {
@@ -25,14 +26,6 @@ function getUtilizationColor(utilization: number, overCapacity: boolean): string
   if (utilization >= 80) return 'var(--badge-medium)';
   if (utilization >= 50) return 'var(--primary)';
   return 'var(--badge-done)';
-}
-
-function formatCycleTime(minutes: number): string {
-  if (minutes === 0) return '-';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}h ${mins}m`;
 }
 
 function UtilizationBar({ data }: { data: AgentCapacity[] }) {
@@ -280,7 +273,7 @@ export function CapacityChart({ boardId }: CapacityChartProps) {
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right text-gray-600 dark:text-gray-300">{agent.completedLast7d}</td>
-                      <td className="py-3 px-3 text-right text-gray-600 dark:text-gray-300">{formatCycleTime(agent.avgCycleMinutes)}</td>
+                      <td className="py-3 px-3 text-right text-gray-600 dark:text-gray-300">{formatMinutes(agent.avgCycleMinutes, { showZeroAs: '-' })}</td>
                     </tr>
                   ))}
                 </tbody>

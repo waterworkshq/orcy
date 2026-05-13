@@ -1,14 +1,8 @@
 import type { Task, TaskEvent, Agent } from '../types/index.js';
+import { formatDurationMs } from './formatting.js';
+import { TASK_STATUS_BADGE, getStatusBadge } from './status-maps.js';
 
-// --- formatDuration ---
-export function formatDuration(ms: number): string {
-  if (ms < 60000) return '< 1m';
-  const mins = Math.floor(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ${mins % 60}m`;
-  return `${Math.floor(hrs / 24)}d ${hrs % 24}h`;
-}
+export const formatDuration = formatDurationMs;
 
 // --- formatTimestamp ---
 export function formatTimestamp(iso: string | null): string {
@@ -33,17 +27,7 @@ export function getActorDisplayName(
 export function getStatusBadgeClass(
   status: Task['status']
 ): string {
-  switch (status) {
-    case 'pending': return 'glass-badge glass-badge-low';
-    case 'claimed': return 'glass-badge glass-badge-active';
-    case 'in_progress': return 'glass-badge glass-badge-active';
-    case 'submitted': return 'glass-badge glass-badge-review';
-    case 'approved': return 'glass-badge glass-badge-done';
-    case 'rejected': return 'glass-badge glass-badge-blocked';
-    case 'done': return 'glass-badge glass-badge-done';
-    case 'failed': return 'glass-badge glass-badge-blocked';
-    default: return 'glass-badge glass-badge-low';
-  }
+  return getStatusBadge(TASK_STATUS_BADGE, status);
 }
 
 // --- getTimeComparisonClass ---
