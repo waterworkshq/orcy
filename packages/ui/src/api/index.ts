@@ -721,6 +721,20 @@ export const api = {
       }),
   },
 
+  savedFilters: {
+    list: (boardId: string) =>
+      request<{ savedFilters: Record<string, unknown>[] }>(
+        `/boards/${boardId}/saved-filters`
+      ).then((r) => r.savedFilters),
+    create: (boardId: string, data: { name: string; filterConfig: Record<string, unknown> }) =>
+      request<{ savedFilter: Record<string, unknown> }>(
+        `/boards/${boardId}/saved-filters`,
+        { method: 'POST', body: JSON.stringify(data) }
+      ).then((r) => r.savedFilter),
+    delete: (id: string) =>
+      request<{ success: boolean }>(`/saved-filters/${id}`, { method: 'DELETE' }),
+  },
+
   organizations: {
     list: () =>
       request<{ organizations: Organization[] }>('/organizations').then(r => r.organizations),

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal } from 'lucide-react';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
+import { api } from '../../api/index.js';
 
 interface SavedFilter {
   id: string;
@@ -41,10 +42,9 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
 
   const boardId = board?.id;
   useEffect(() => {
-    if (!boardId) return;
-    fetch(`/api/boards/${boardId}/saved-filters`)
-      .then((r) => r.json())
-      .then((data) => setSavedFilters(data.savedFilters ?? []))
+    if (!boardId || !api.savedFilters) return;
+    api.savedFilters.list(boardId)
+      .then((filters) => setSavedFilters(filters as unknown as SavedFilter[]))
       .catch(() => {});
   }, [boardId]);
 
@@ -84,17 +84,10 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
     if (searchParams.get('columnId')) config.columnId = searchParams.get('columnId');
 
     try {
-      const res = await fetch(`/api/boards/${board.id}/saved-filters`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: saveName.trim(), filterConfig: config }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSavedFilters((prev) => [...prev, data.savedFilter]);
-        setSaveName('');
-        setShowSaveInput(false);
-      }
+      const filter = await api.savedFilters.create(board.id, { name: saveName.trim(), filterConfig: config });
+      setSavedFilters((prev) => [...prev, filter as unknown as SavedFilter]);
+      setSaveName('');
+      setShowSaveInput(false);
     } catch (err) {
       console.warn('[FilterBar] Failed to save filter:', err);
     }
@@ -102,10 +95,8 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
 
   async function handleDelete(id: string) {
     try {
-      const res = await fetch(`/api/saved-filters/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setSavedFilters((prev) => prev.filter((f) => f.id !== id));
-      }
+      await api.savedFilters.delete(id);
+      setSavedFilters((prev) => prev.filter((f) => f.id !== id));
     } catch (err) {
       console.warn('[FilterBar] Failed to delete saved filter:', err);
     }
