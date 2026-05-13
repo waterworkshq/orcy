@@ -2,12 +2,22 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.6.2 — 2026-05-13
+
+### Bug Fixes
+
+- fix type safety in useTaskDetailPanel (e: any -> FormEvent, remove as Task cast)
+
 ## 0.6.1 — 2026-05-13
 
 ### Bug Fixes
 
 - group changelog entries by conventional commit type
 - add clearWipAlert to BoardState interface and clean pagination on column removal
+
+### Release
+
+- v0.6.1
 
 ## 0.6.0 — 2026-05-12
 
@@ -37,9 +47,3 @@
 
 - setup release-it with git-cliff for automated releases
 - v0.6.0
-
-## 0.5.0 — 2026-05-11
-
-### Refactors
-
-- extract JWT verification and unify board access middleware
