@@ -888,6 +888,34 @@ export const api = {
       }),
   },
 
+  audit: {
+    export: (boardId: string, params: Record<string, string>) => {
+      const qs = new URLSearchParams(params).toString();
+      return request<string>(`/boards/${boardId}/audit/export?${qs}`);
+    },
+    summary: (boardId: string, params?: { since?: string; until?: string }) => {
+      const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';
+      return request<{
+        totalEvents: number;
+        byAction: Record<string, number>;
+        byActorType: Record<string, number>;
+        byDay: { date: string; count: number }[];
+        topFeatures: { featureId: string; featureTitle: string; count: number }[];
+      }>(`/boards/${boardId}/audit/summary${qs}`);
+    },
+    schedules: {
+      list: (boardId: string) =>
+        request<{ schedules: Array<{ id: string; name: string; format: string; schedule: string; enabled: boolean; lastRunAt: string | null; nextRunAt: string }> }>(`/boards/${boardId}/audit/schedules`),
+      create: (boardId: string, data: { name: string; format: string; filters?: Record<string, unknown>; schedule: string }) =>
+        request<{ schedule: unknown }>(`/boards/${boardId}/audit/schedule`, {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+      delete: (scheduleId: string) =>
+        request<void>(`/audit/schedules/${scheduleId}`, { method: 'DELETE' }),
+    },
+  },
+
   insights: {
     list: (boardId: string, params?: Record<string, string | number>) => {
       const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : '';

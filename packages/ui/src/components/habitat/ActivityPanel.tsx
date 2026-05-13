@@ -5,8 +5,9 @@ import { api } from '../../api/index.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { SEVERITY_BADGE } from '../../lib/status-maps.js';
-import { CheckCircle, XCircle, User, Circle, ArrowRight, Clock, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, User, Circle, ArrowRight, Clock, AlertTriangle, Download } from 'lucide-react';
 import type { EnrichedBoardEvent, EventAction, Anomaly } from '../../types/index.js';
+import { AuditExportModal } from './AuditExportModal.js';
 
 interface ActivityPanelProps {
   onClose: () => void;
@@ -133,6 +134,7 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [auditExportOpen, setAuditExportOpen] = useState(false);
 
   const boardId = board?.id;
   const limit = 50;
@@ -213,10 +215,19 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
     : boardEvents.filter(e => actionFilters[filter].includes(e.action));
 
   return (
+    <>
     <Drawer open={true} onClose={onClose} className="w-full max-w-md flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <h2 className="font-semibold">Activity Feed</h2>
-        <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        <div className="flex items-center gap-2">
+          {boardId && (
+            <Button variant="ghost" size="sm" onClick={() => setAuditExportOpen(true)} title="Export Audit Log">
+              <Download className="h-3.5 w-3.5 mr-1" />
+              Export
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 px-4 py-2 border-b overflow-x-auto">
@@ -285,5 +296,13 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
         )}
       </div>
     </Drawer>
+    {boardId && (
+      <AuditExportModal
+        boardId={boardId}
+        open={auditExportOpen}
+        onClose={() => setAuditExportOpen(false)}
+      />
+    )}
+    </>
   );
 }

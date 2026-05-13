@@ -22,6 +22,7 @@ import { authRoutes } from './routes/auth.js';
 import { webhookRoutes } from './routes/webhookOutgoing.js';
 import { commentRoutes } from './routes/comments.js';
 import { featureCommentRoutes } from './routes/featureComments.js';
+import { auditExportRoutes } from './routes/auditExport.js';
 import { templateRoutes } from './routes/templates.js';
 import { subtaskRoutes } from './routes/subtasks.js';
 import { presenceRoutes } from './routes/presence.js';
@@ -117,6 +118,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(authRoutes);
   await f.register(commentRoutes);
   await f.register(featureCommentRoutes);
+  await f.register(auditExportRoutes);
   await f.register(subtaskRoutes);
   await f.register(templateRoutes);
   await f.register(webhookRoutes);

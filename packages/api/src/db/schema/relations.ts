@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { boards, columns, features, featureDependencies, featureEvents, featureWatchers, featureTemplates, savedFilters, chatIntegrations, featureComments, featureCommentMentions } from './board.js';
+import { boards, columns, features, featureDependencies, featureEvents, featureWatchers, featureTemplates, savedFilters, chatIntegrations, featureComments, featureCommentMentions, auditExportSchedules } from './board.js';
 import { tasks, taskEvents, taskComments, taskSubtasks, taskWatchers, taskCommentMentions, taskAttachments, taskTimeRecords } from './task.js';
 import { agents, agentMessages } from './agent.js';
 import { users, notificationPreferences, organizations, teams, teamMembers } from './user.js';
@@ -395,5 +395,12 @@ export const pulsesReactionsRelations = relations(pulseReactions, ({ one }) => (
   pulse: one(pulses, {
     fields: [pulseReactions.pulseId],
     references: [pulses.id],
+  }),
+}));
+
+export const auditExportSchedulesRelations = relations(auditExportSchedules, ({ one }) => ({
+  board: one(boards, {
+    fields: [auditExportSchedules.boardId],
+    references: [boards.id],
   }),
 }));

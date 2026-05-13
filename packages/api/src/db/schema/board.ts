@@ -183,3 +183,22 @@ export const chatIntegrations = sqliteTable('chat_integrations', {
   index('idx_chat_integrations_provider').on(table.provider),
   index('idx_chat_integrations_enabled').on(table.enabled),
 ]);
+
+export const auditExportSchedules = sqliteTable('audit_export_schedules', {
+  id: text('id').primaryKey(),
+  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  format: text('format', { enum: ['csv', 'json', 'jsonl'] }).notNull(),
+  filters: text('filters', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
+  schedule: text('schedule').notNull(),
+  destination: text('destination').notNull().default('local'),
+  destinationConfig: text('destination_config', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  lastRunAt: text('last_run_at'),
+  nextRunAt: text('next_run_at').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_audit_schedules_board').on(table.boardId),
+  index('idx_audit_schedules_next').on(table.nextRunAt),
+]);

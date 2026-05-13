@@ -695,6 +695,44 @@ export class KanbanApiClient {
     );
   }
 
+  async exportAuditLog(
+    boardId: string,
+    options: {
+      format: 'csv' | 'json' | 'jsonl';
+      since?: string;
+      until?: string;
+      actions?: string;
+      actorType?: string;
+      actorId?: string;
+      entityTypes?: string;
+    }
+  ): Promise<string> {
+    const params = new URLSearchParams({ format: options.format });
+    if (options.since) params.set('since', options.since);
+    if (options.until) params.set('until', options.until);
+    if (options.actions) params.set('actions', options.actions);
+    if (options.actorType) params.set('actorType', options.actorType);
+    if (options.actorId) params.set('actorId', options.actorId);
+    if (options.entityTypes) params.set('entityTypes', options.entityTypes);
+
+    return this.request<string>('GET', `/api/boards/${boardId}/audit/export?${params.toString()}`);
+  }
+
+  async getAuditSummary(
+    boardId: string,
+    options?: { since?: string; until?: string }
+  ): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams();
+    if (options?.since) params.set('since', options.since);
+    if (options?.until) params.set('until', options.until);
+    const qs = params.toString();
+
+    return this.request<Record<string, unknown>>(
+      'GET',
+      `/api/boards/${boardId}/audit/summary${qs ? `?${qs}` : ''}`
+    );
+  }
+
   async listSubtasks(taskId: string): Promise<ListSubtasksResponse> {
     taskId = normalizeTaskId(taskId);
     return this.request<ListSubtasksResponse>('GET', `/api/tasks/${taskId}/subtasks`);

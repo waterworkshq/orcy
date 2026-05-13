@@ -3,11 +3,12 @@ import { createDispatchTool, createDispatchHandler, type Handler } from './dispa
 import { boardListWebhooks, boardCreateWebhook, boardDeleteWebhook } from './webhook.js';
 import { boardListTemplates, boardCreateTemplate, boardDeleteTemplate } from './template.js';
 import { boardBatchAssignTasks, boardBatchSetTaskPriority, boardBatchDeleteTasks } from './task-batch.js';
+import { adminExportAuditLog, adminGetAuditSummary } from './audit.js';
 import { PRIORITY_LEVELS, WEBHOOK_FORMATS } from './constants.js';
 
 export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_admin',
-  description: 'Admin operations: webhooks (list, create, delete), templates (list, create, delete), batch operations (assign-tasks, set-priority, delete-tasks)',
+  description: 'Admin operations: webhooks (list, create, delete), templates (list, create, delete), batch operations (assign-tasks, set-priority, delete-tasks), audit (export-audit-log, get-audit-summary)',
   actions: [
     'list-webhooks',
     'create-webhook',
@@ -18,6 +19,8 @@ export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
     'batch-assign-tasks',
     'batch-set-priority',
     'batch-delete-tasks',
+    'export-audit-log',
+    'get-audit-summary',
   ],
   sharedParams: {
     boardId: { type: 'string', description: 'The UUID of the Orcy habitat (webhooks, templates, batch operations)' },
@@ -69,6 +72,8 @@ export const ADMIN_ACTIONS: Record<string, Handler> = {
   'batch-assign-tasks': boardBatchAssignTasks,
   'batch-set-priority': boardBatchSetTaskPriority,
   'batch-delete-tasks': boardBatchDeleteTasks,
+  'export-audit-log': adminExportAuditLog,
+  'get-audit-summary': adminGetAuditSummary,
 };
 
 export const ADMIN_DISPATCH_HANDLER = createDispatchHandler(ADMIN_ACTIONS);
