@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys.js';
-import { useBoardStore } from '../store/habitatStore.js';
 import { api } from '../api/index.js';
 import { notify } from '../lib/toast.js';
 import type { Task } from '../types/index.js';

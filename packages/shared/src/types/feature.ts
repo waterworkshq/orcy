@@ -48,6 +48,7 @@ export interface FeatureWithProgress extends Feature {
     done: number;
     failed: number;
     rejected: number;
+    percentage: number;
   };
 }
 

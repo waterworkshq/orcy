@@ -25,7 +25,7 @@ export function useTaskDependencies(selectedTaskId: string | null): UseTaskDepen
       if (msg.includes('409') || msg.toLowerCase().includes('circular')) {
         notify.error('Cannot add: would create a circular dependency');
       } else {
-        throw err;
+        notify.error(msg || 'Failed to add dependency');
       }
     } finally {
       setAddingDep(false);

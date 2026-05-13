@@ -5,7 +5,6 @@
  * Composed from 7 domain slices + 1 SSE handler slice.
  */
 import { create } from 'zustand';
-import type { SSEEvent, EnrichedBoardEvent } from '../types/index.js';
 import { createThemeSlice, type ThemeSlice } from './slices/themeSlice.js';
 import { createBoardSlice, type BoardSlice } from './slices/boardSlice.js';
 import { createFeatureSlice, type FeatureSlice } from './slices/featureSlice.js';
@@ -15,10 +14,7 @@ import { createPresenceSlice, type PresenceSlice } from './slices/presenceSlice.
 import { createUiSlice, type UiSlice } from './slices/uiSlice.js';
 import { createSseHandlerSlice, type SseHandlerSlice } from './slices/sseHandler.js';
 
-export type BoardState = ThemeSlice & BoardSlice & FeatureSlice & TaskSlice & AgentSlice & PresenceSlice & UiSlice & SseHandlerSlice & {
-  recentSSEEvents: SSEEvent[];
-  boardEvents: EnrichedBoardEvent[];
-};
+export type BoardState = ThemeSlice & BoardSlice & FeatureSlice & TaskSlice & AgentSlice & PresenceSlice & UiSlice & SseHandlerSlice;
 
 export const useBoardStore = create<BoardState>()((...a) => ({
   ...createThemeSlice(...a),
