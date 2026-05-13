@@ -2,6 +2,12 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.7.1 — 2026-05-13
+
+### Bug Fixes
+
+- resolve review findings - unhandled rejection in useTaskDependencies, add percentage to FeatureWithProgress type, remove redundant type declarations and unused imports
+
 ## 0.7.0 — 2026-05-13
 
 ### Refactors
@@ -15,9 +21,3 @@
 ### Bug Fixes
 
 - skip chore(release) commits in changelog to eliminate redundant Release entries
-
-## 0.6.4 — 2026-05-13
-
-### Bug Fixes
-
-- mock PulsePanel and InsightsPanel in BoardPage tests to fix QueryClient errors
