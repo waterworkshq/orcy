@@ -262,6 +262,7 @@ export const submitTaskSchema = z.object({
 export const completeTaskSchema = z.object({
   reviewNote: z.string().min(1).max(10000).optional(),
   artifacts: z.array(artifactSchema).optional().default([]),
+  skipQualityGates: z.boolean().optional().default(false),
 });
 
 export const delegateTaskSchema = z.object({

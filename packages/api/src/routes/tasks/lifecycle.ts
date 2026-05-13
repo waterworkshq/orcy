@@ -273,7 +273,8 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
         request.params.id,
         agentId,
         parsed.reviewNote,
-        parsed.artifacts as Artifact[]
+        parsed.artifacts as Artifact[],
+        parsed.skipQualityGates
       );
 
       if (!result.task) {

@@ -21,7 +21,12 @@ import { logger } from '../../lib/logger.js';
 import * as pulseService from '../pulseService.js';
 
 function getBoardId(task: Task): string {
-  return taskRepo.getBoardIdForTask(task.id) ?? '';
+  const boardId = taskRepo.getBoardIdForTask(task.id);
+  if (!boardId) {
+    logger.warn({ taskId: task.id }, 'Task has no associated board');
+    return '';
+  }
+  return boardId;
 }
 
 export function withFeatureRecalc<T>(
