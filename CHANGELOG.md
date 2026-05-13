@@ -14,16 +14,8 @@
 
 - log warning on orphaned task, expose skipQualityGates in complete endpoint
 
-### Release
-
-- v0.6.3
-
 ## 0.6.2 — 2026-05-13
 
 ### Bug Fixes
 
 - fix type safety in useTaskDetailPanel (e: any -> FormEvent, remove as Task cast)
-
-### Release
-
-- v0.6.2
