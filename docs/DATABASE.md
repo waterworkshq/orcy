@@ -236,6 +236,7 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 | `event_retention_days` | INTEGER | DEFAULT 90 | Days to retain task events |
 | `ci_cd_settings` | TEXT | JSON | CI/CD integration settings |
 | `git_worktree_settings` | TEXT | JSON | Git worktree configuration |
+| `prioritization_settings` | TEXT | JSON, nullable | Dynamic prioritization rules configuration (`PrioritizationSettings | null`) |
 | `team_id` | TEXT | FK → teams(id) ON DELETE SET NULL | Owning team |
 
 **Indexes:** `idx_boards_name`, `idx_boards_team_id`
@@ -868,6 +869,39 @@ Per-task completion status of individual checklist items.
 | `notes` | TEXT | NOT NULL DEFAULT '' | Free-text notes |
 
 **Index:** `idx_task_quality_items_checklist(checklist_id)`
+
+#### `scheduled_tasks`
+
+Recurring scheduled creation of features and tasks from templates. Supports cron expressions, fixed intervals, and one-time schedules.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Scheduled task identifier (UUID) |
+| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent board |
+| `template_id` | TEXT | FK → feature_templates(id) ON DELETE SET NULL | Feature template reference (nullable) |
+| `name` | TEXT | NOT NULL | Schedule display name |
+| `description` | TEXT | NOT NULL DEFAULT '' | Schedule description |
+| `schedule_type` | TEXT | NOT NULL CHECK (IN 'once','interval','cron') | Schedule type |
+| `cron_expression` | TEXT | DEFAULT NULL | Cron expression (when schedule_type is `cron`) |
+| `interval_minutes` | INTEGER | DEFAULT NULL | Interval in minutes (when schedule_type is `interval`) |
+| `scheduled_at` | TEXT | DEFAULT NULL | One-time run time (when schedule_type is `once`) |
+| `timezone` | TEXT | NOT NULL DEFAULT 'UTC' | Timezone for schedule evaluation |
+| `feature_title` | TEXT | NOT NULL | Title for created features |
+| `feature_description` | TEXT | NOT NULL DEFAULT '' | Description for created features |
+| `feature_priority` | TEXT | NOT NULL DEFAULT 'medium' CHECK (IN 'low','medium','high','critical') | Priority for created features |
+| `feature_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of label strings |
+| `feature_domain` | TEXT | DEFAULT NULL | Domain for created features |
+| `tasks_template` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of child task definitions |
+| `enabled` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Whether schedule is active |
+| `last_run_at` | TEXT | DEFAULT NULL | Last execution timestamp |
+| `next_run_at` | TEXT | NOT NULL | Next scheduled execution |
+| `run_count` | INTEGER | NOT NULL DEFAULT 0 | Total executions |
+| `last_created_feature_id` | TEXT | DEFAULT NULL | UUID of last created feature |
+| `created_by` | TEXT | NOT NULL | Creator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_scheduled_tasks_board(board_id)`, `idx_scheduled_tasks_next(next_run_at)`, `idx_scheduled_tasks_enabled(enabled)`
 
 ---
 

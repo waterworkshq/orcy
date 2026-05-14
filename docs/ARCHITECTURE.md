@@ -11,9 +11,11 @@ This document covers the system architecture, design decisions, key flows, and i
 │  AI Agent (Claude Code / Codex / OpenCode)               │
 │  MCP stdio transport                                     │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  MCP Server (11 dispatch tools)                      │   │
+│  │  MCP Server (16 dispatch tools)                      │   │
 │  │  Features: list │ create │ get_context │ delete  │   │
 │  │  Tasks: claim │ submit │ update │ heartbeat     │   │
+│  │  Rules: get │ update │ evaluate                │   │
+│  │  Scheduled: list │ create │ run                 │   │
 │  └────────────────────┬─────────────────────────────┘   │
 │                       │ HTTP (X-Agent-API-Key)           │
 └───────────────────────┼──────────────────────────────────┘
@@ -23,6 +25,8 @@ This document covers the system architecture, design decisions, key flows, and i
 ┌──────────────────────────────────────────────────────────┐
 │  Board → Features → Tasks → Subtasks                     │
 │  Features flow through columns, tasks have state machine  │
+│  Background intervals: stale detection, health snapshots, │
+│    prioritization evaluation (5min), scheduled tasks (1m) │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -35,7 +39,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
 | Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes `features.ts` for 13 feature endpoints |
-| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts` for status derivation engine and column auto-advancement |
+| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts` for status derivation engine, `prioritizationService.ts` for rule evaluation, `scheduledTaskService.ts` for recurring task execution |
 | Repositories | `src/repositories/` | Drizzle-backed data access (board, feature, task, column, agent, comment, template, webhook, event-feature) |
 | Models | `src/models/` | TypeScript types, Zod schemas. Includes `Feature`, `FeatureWithProgress`, `FeatureStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
@@ -61,7 +65,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | File | Responsibility |
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
-| `src/tools/index.ts` | All tool exports + 11 consolidated dispatch tools |
+| `src/tools/index.ts` | All tool exports + 11 dispatch tool files (16 tools including prioritization and scheduled task actions) |
 | `src/tools/board-dispatch.ts` | Board dispatch: list, find, summary, metrics, settings |
 | `src/tools/feature-dispatch.ts` | Feature dispatch: list, create, delete, archive, get-context |
 | `src/tools/task-dispatch.ts` | Task dispatch: claim, submit, complete, release, update, comments |
@@ -357,11 +361,11 @@ Similarly, `GET /features/:id/details` returns feature + tasks + events + progre
 
 ### MCP Tool Architecture (Consolidated Dispatch Pattern)
 
-The MCP server exposes **11 consolidated dispatch tools**. Each tool accepts an `action` parameter to route to specific operations:
+The MCP server exposes **11 dispatch tool modules** containing 16+ actions (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each tool accepts an `action` parameter to route to specific operations:
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
-| `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `update-settings` | Habitat-level operations |
+| `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `update-settings`, `get-health`, `get-health-history`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations + prioritization rules |
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context` | Mission CRUD + context |
 | `orcy_habitat_task` | `list-in-mission`, `claim`, `submit`, `complete`, `release`, `get-context`, `get-comments`, ... | Task lifecycle + details |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
@@ -369,7 +373,7 @@ The MCP server exposes **11 consolidated dispatch tools**. Each tool accepts an 
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
 | `orcy_pulse` | `post`, `check` | Mission signal board — post findings, blockers, directives; check partner signals |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time notifications |
-| `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, ... | Admin operations |
+| `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | Admin operations + scheduled tasks |
 | `orcy_worktree` | `get-worktree` | Git worktree info |
 | `orcy_instructions` | (tool) | Returns orcy skill guide |
 
@@ -572,3 +576,93 @@ Configuration is in `packages/api/src/index.ts`:
 
 - Stale threshold: 30 minutes (hardcoded in `releaseStaleTasks(30)`)
 - Check interval: 60 seconds (`setInterval(..., 60_000)`)
+
+---
+
+## Prioritization Service
+
+Dynamic prioritization rules engine that auto-recalculates task priority based on configurable conditions. Follows the `anomalyService` pattern: per-type evaluator functions + aggregator + SSE broadcast.
+
+### Architecture
+
+```
+prioritizationService.ts
+├── evaluateCondition(task, rule, context) — recursive, handles all 10 condition types + And/Or
+├── evaluateRules(boardId) — aggregates all rule evaluations for a board
+├── applyPrioritization(boardId) — orchestrator: fetch tasks, evaluate, apply actions, broadcast SSE
+└── applyAllBoards() — batch iterator for background interval
+```
+
+### Condition Types
+
+| Type | Evaluates |
+|------|-----------|
+| `overdue` | Task's feature past `dueAt` |
+| `sla_approaching` | Feature `slaDeadlineAt` within threshold |
+| `due_soon` | Feature `dueAt` within threshold |
+| `pending_duration` | Task pending longer than threshold |
+| `dependency_count` | Task blocked by N tasks |
+| `rejection_count` | Task rejected N times |
+| `feature_status` | Parent feature has specific status |
+| `agent_idle` | No agent activity for N minutes |
+| `label_match` | Feature has matching labels |
+| `priority_is` | Task has specific priority |
+| `and` / `or` | Compound conditions |
+
+### Rule Actions
+
+| Action | Effect |
+|--------|--------|
+| `set_priority` | Set task priority to specific level |
+| `bump_priority` | Increase priority by N levels |
+| `add_label` | Add label to feature |
+| `set_score_bonus` | Boost sorting score |
+
+### Background Interval
+
+Prioritization rules evaluate every 5 minutes via `scheduler.ts`:
+
+- Interval: 300,000ms (5 minutes)
+- Only evaluates boards with `prioritizationSettings.enabled: true`
+- Skips tasks in terminal states (`done`, `failed`)
+- Broadcasts `task.priority_changed` SSE event when priority changes
+
+### SSE Events
+
+| Event | Trigger | Payload |
+|-------|---------|---------|
+| `task.priority_changed` | Rule engine adjusts priority | `{ taskId, ruleName, score }` |
+
+---
+
+## Scheduled Task Service
+
+Recurring scheduled creation of features and tasks from templates. Follows the `retryService` pattern with background polling.
+
+### Architecture
+
+```
+scheduledTaskService.ts
+├── processDueScheduledTasks() — polls for due tasks and executes them
+├── executeScheduledTask(scheduledTask) — creates feature + tasks from template
+├── calculateNextRun(scheduledTask) — computes nextRunAt using cron-parser
+└── CRUD operations — create, update, delete, enable, disable
+```
+
+### Background Interval
+
+Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
+
+- Interval: 60,000ms (1 minute)
+- Polls `scheduled_tasks` where `nextRunAt <= now` AND `enabled = true`
+- Each execution: creates feature from template → creates child tasks → updates `lastRunAt`/`nextRunAt`/`runCount`
+- Catches up on missed executions after restart (polls all due, not just current tick)
+- Wired to also process audit export schedules in the same polling loop
+
+### SSE Events
+
+| Event | Trigger | Payload |
+|-------|---------|---------|
+| `scheduled_task.executed` | Scheduled task creates feature | `{ scheduleId, featureId, featureTitle }` |
+| `scheduled_task.failed` | Execution fails | `{ scheduleId, error }` |
+| `scheduled_task.created` | New schedule configured | `{ scheduleId, name }` |

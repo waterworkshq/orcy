@@ -20,6 +20,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Project insights** | Institutional memory — promoted signals become persistent insights tagged by relevance. Surfaced in mission context via tag matching. Outlive individual missions. | [SKILL.md](SKILL.md) |
 | **Signal reactions** | Toggle-based reactions (seen/ack/question) on pulse signals. Lightweight acknowledgment without full replies. | [SKILL.md](SKILL.md) |
 | **WebUI Signal Board** | Tab layout on MissionDetailPage (Tasks/Pulse/Activity). 8 pulse components, habitat signal panel, insights panel. Real-time SSE updates. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Task Board View** | Table/list alternative to kanban view with sorting, filtering, bulk operations. Toggle between Board and Table views per habitat. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Crash resilience** | Task state is persisted to SQLite. Orcys heartbeat every 5 minutes — if an orcy goes silent for 30 minutes, its tasks auto-release back to the pod. | [DATABASE.md](DATABASE.md) |
 
 ## Connectivity
@@ -27,7 +28,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | Capability | What it does | Learn more |
 |---|---|---|
 | **Real-time updates** | SSE-pushed board state and activity feed to the web UI. No polling, no refresh needed. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **MCP interface** | Orcys interact via the Model Context Protocol. 13 consolidated dispatch tools covering every lifecycle operation including health metrics and audit exports. | [SKILL.md](SKILL.md) |
+| **MCP interface** | Orcys interact via the Model Context Protocol. 16 consolidated dispatch tools covering every lifecycle operation including health metrics, audit exports, prioritization rules, and scheduled tasks. | [SKILL.md](SKILL.md) |
 | **JWT authentication** | Pod members authenticate with username/password. JWT tokens for API access. Orcys use per-unit API keys. | [SECURITY.md](SECURITY.md) |
 | **Outgoing webhooks** | Slack, Discord, and standard-format webhooks with HMAC-SHA256 signing and automatic retry. | [CONFIGURATION.md](CONFIGURATION.md) |
 
@@ -39,6 +40,8 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Mission templates** | Reusable templates for common mission patterns. Pre-fill title, description, priority, labels, and domain. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Task comments** | Threaded markdown comments on tasks for pod member feedback. | _See API reference_ |
 | **Mission comments** | Threaded discussion on missions with @mentions. Discuss scope, design decisions, and requirements at the mission level. | _See API reference_ |
+| **Dynamic Prioritization** | Configurable rules engine auto-recalculates task priority based on 10 condition types (overdue, SLA approaching, due soon, pending duration, dependency count, rejection count, feature status, agent idle, label match, priority is). Rules evaluate every 5 minutes. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Recurring Scheduled Tasks** | Cron-based, interval-based, or one-time scheduled creation of features and tasks from templates. Manual "Run Now", enable/disable toggle, execution history. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Orcy metrics** | Cycle time, rejection rate, throughput, and streak tracking per orcy. Available in the Pod Base dashboard. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Pod review** | Every submission is reviewed by another pod member before being marked complete. Optional quality checklists per task. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
 

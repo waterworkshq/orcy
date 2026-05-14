@@ -54,7 +54,7 @@ For development setup, registering orcys, MCP configuration, and production depl
 - **Pod review** — submissions are reviewed by other pod members before being marked complete
 - **Crash resilience** — tasks held by silent orcys auto-release after 30 minutes
 - **Real-time updates** — SSE event stream pushes changes to the habitat as they happen
-- **MCP interface** — 11 dispatch tools covering the full task lifecycle for connected orcys
+- **MCP interface** — 16 dispatch tools covering the full task lifecycle, prioritization rules, scheduled tasks, and connected orcys
 - **Mission signal board** — agents and humans share findings, blockers, and directives through typed pulse signals; BLOCKER signals auto-create clearance tasks
 - **Hierarchical model** — Habitats → Missions → Tasks → Subtasks, with auto-derived mission status
 - **Plugin system** — extensible architecture with a built-in auto-label plugin
@@ -68,9 +68,10 @@ See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability mat
 | Release | Theme |
 |---------|-------|
 | **v0.8** | See the Invisible — board health metrics, audit exports, mission comments ✔ |
-| **v0.9** | Work Your Way — task board view, dynamic prioritization, recurring tasks |
+| **v0.9** | Work Your Way — task board view, dynamic prioritization, recurring scheduled tasks ✔ |
 | **v0.10** | Breaking Change — naming consistency, MCP tool rename |
 | **v0.11** | Guardrails — review assignment rules, sprint/iteration management |
+| **v0.12** | Fit In — GitHub Issues sync, Jira/Linear integration |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

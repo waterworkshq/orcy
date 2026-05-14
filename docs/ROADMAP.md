@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.8.0 | **Updated:** 2026-05-13
+> **Version:** v0.9.0 | **Updated:** 2026-05-13
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -18,24 +18,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.6 | Pulse — habitat-level signals, project insights (institutional memory), signal reactions, WebUI Signal Board tab, habitat + insights panels |
 | v0.7 | Solid Ground: Phase 3 UI refactors — consolidated formatting/badge utilities, fixed SSE notifications, extracted AgentCard, decomposed habitatStore (7 slices) and useTaskDetailPanel (8 hooks), fixed FilterBar auth bypass (6 of 7 planned refactors; R16 React Query unification deferred) |
 | v0.8 | See the Invisible — board health metrics (0-100 composite score, A-F grade, 5 dimensions), audit log exports (streaming CSV/JSON/JSONL), feature-level comments (threaded discussion on missions) |
+| v0.9 | Work Your Way — task board view (table/list with sorting, filtering, bulk ops), dynamic prioritization rules engine (10 condition types, auto-recalculates priority), recurring scheduled tasks (cron/interval/one-time, template-based feature creation) |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.9.0 — "Work Your Way"
-
-Flexibility in how tasks flow through the system.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Task Board View | "Kanban isn't always the answer" → table/list with sorting, filtering, bulk ops |
-| Dynamic Prioritization | "This should have been urgent yesterday" → rules engine auto-recalculates priority |
-| Recurring Scheduled Tasks | "We do this every sprint" → cron-based task creation from templates |
-
-**Why together:** Workflow flexibility theme. Touch similar code paths (task queries, column logic). Prioritization rules benefit from previewing effects in the Task Board View. Recurring tasks share the template system that prioritization references.
 
 ---
 
@@ -60,8 +47,10 @@ Structure around how work moves through the pod.
 |---------|-------------------|
 | Review Assignment Rules | "I keep reviewing my own PRs" → domain routing, anti-self-review |
 | Sprint / Iteration Management | "What are we doing this sprint?" → time-boxed sprints, burndown, carry-over |
+| Dynamic Prioritization polish | Visual rule builder (replace JSON editor), email notifications for priority changes |
+| Mobile table view | "I need to check tasks from my phone" → card-based responsive table fallback for the Task Board View |
 
-**Why together:** Both add governance to team workflow. Independent but share a theme. Sprint management at 9d is the flagship.
+**Why together:** Governance theme. Review rules and sprint management add structure to work flow. Prioritization polish and mobile table view build on v0.9.0's foundation — completing the priority lifecycle (configure rules visually, get notified) and extending the table view to all devices.
 
 ---
 

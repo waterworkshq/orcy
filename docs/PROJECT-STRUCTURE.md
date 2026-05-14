@@ -22,8 +22,8 @@ orcy/
 │   │   ├── src/
 │   │   │   ├── db/schema.ts       # Drizzle ORM schema
 │   │   │   ├── db/drizzle/        # Drizzle schema
-│   │   │   ├── routes/            # REST endpoints (28 route files)
-│   │   │   ├── services/          # Business logic (36 service files)
+│   │   │   ├── routes/            # REST endpoints (30+ route files)
+│   │   │   ├── services/          # Business logic (40+ service files)
 │   │   │   ├── repositories/      # Drizzle-backed data access
 │   │   │   ├── models/            # TypeScript types + Zod schemas
 │   │   │   ├── middleware/        # Authentication and RBAC
