@@ -43,6 +43,8 @@ import { organizationRoutes } from './routes/organizations.js';
 import { timeTrackingRoutes } from './routes/timeTracking.js';
 import { dependencyRoutes } from './routes/dependencies.js';
 import { qualityGateRoutes } from './routes/qualityGates.js';
+import { prioritizationRoutes } from './routes/prioritization.js';
+import { scheduledTaskRoutes } from './routes/scheduledTasks.js';
 import { rebuildCache as rebuildBoardSecretCache } from './services/boardSecretCache.js';
 import { archiveOldEvents } from './services/auditArchivalService.js';
 import { seedDefaultTemplates as seedQualityTemplates } from './services/qualityGateService.js';
@@ -140,6 +142,8 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(timeTrackingRoutes);
   await f.register(dependencyRoutes);
   await f.register(qualityGateRoutes);
+  await f.register(prioritizationRoutes);
+  await f.register(scheduledTaskRoutes);
 }
 
 await fastify.register(async (f) => {
@@ -197,6 +201,25 @@ if (fs.existsSync(uiPath)) {
   });
 }
 
+await initDb();
+if (!process.env.DB_PATH && process.env.NODE_ENV !== 'production') {
+  const defaultPath = (await import('./db/index.js')).getDefaultDbPath();
+  console.warn(`WARNING: No DB_PATH set. API is using production database at: ${defaultPath}`);
+  console.warn('Set DB_PATH env var to a different path to keep dev/test data separate.');
+}
+
+try {
+  rebuildBoardSecretCache();
+} catch (err) {
+  fastify.log.error({ err }, 'Failed to rebuild board secret cache');
+}
+
+try {
+  seedQualityTemplates();
+} catch (err) {
+  fastify.log.error({ err }, 'Failed to seed quality templates');
+}
+
 const schedulers = startAllSchedulers(fastify);
 
 const healthSnapshotInterval = setInterval(async () => {
@@ -225,25 +248,6 @@ fastify.addHook('onClose', async () => {
   schedulers.stop();
   clearInterval(healthSnapshotInterval);
 });
-
-await initDb();
-if (!process.env.DB_PATH && process.env.NODE_ENV !== 'production') {
-  const defaultPath = (await import('./db/index.js')).getDefaultDbPath();
-  console.warn(`WARNING: No DB_PATH set. API is using production database at: ${defaultPath}`);
-  console.warn('Set DB_PATH env var to a different path to keep dev/test data separate.');
-}
-
-try {
-  rebuildBoardSecretCache();
-} catch (err) {
-  fastify.log.error({ err }, 'Failed to rebuild board secret cache');
-}
-
-try {
-  seedQualityTemplates();
-} catch (err) {
-  fastify.log.error({ err }, 'Failed to seed quality templates');
-}
 
 try {
   await pluginManager.loadPlugins();

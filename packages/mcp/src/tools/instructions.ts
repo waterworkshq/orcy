@@ -17,14 +17,14 @@ All Orcy tools use a dispatch pattern: each tool accepts an \`action\` parameter
 For example, \`orcy_habitat_task({action: "claim", taskId})\` claims a task.
 
 The dispatch tools are:
-- **orcy_habitat** — habitat-level operations (list, find, get-settings, update-settings, summary, metrics)
+- **orcy_habitat** — habitat-level operations (list, find, get-settings, update-settings, summary, metrics, get-health, get-health-history, get-rules, update-rules, evaluate-rules)
 - **orcy_habitat_mission** — mission operations (list, create, delete, archive, unarchive, get-context)
 - **orcy_habitat_task** — task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment), quality (get-quality-checklist, update-quality-checklist-item, validate-quality-gates), subtasks (list-subtasks, create-subtask, delete-subtask)
 - **orcy_habitat_agent** — agent operations (register, list, heartbeat, get-stats)
 - **orcy_suggest** — task suggestions (suggest-next-task)
 - **orcy_habitat_message** — messaging (send, get-messages)
 - **orcy_pulse** — mission signal board (post, check)
-- **orcy_admin** — admin operations (webhooks, templates, batch operations)
+- **orcy_admin** — admin operations (webhooks, templates, batch operations, scheduled tasks: list-scheduled-tasks, create-scheduled-task, run-scheduled-task, get-scheduled-task, update-scheduled-task, delete-scheduled-task, toggle-scheduled-task)
 - **orcy_habitat_subscription** — event subscriptions (subscribe, unsubscribe)
 - **orcy_worktree** — git worktree info (get-worktree)
 

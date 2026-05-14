@@ -4,6 +4,8 @@ import { startRetryProcessor as startTaskRetryProcessor } from './retryService.j
 import { startPresenceCleanup } from '../sse/presence.js';
 import { scanAllBoards } from './anomalyService.js';
 import { archiveAllBoards, archiveOldEvents } from './auditArchivalService.js';
+import { applyAllBoards } from './prioritizationService.js';
+import { startScheduledTaskProcessor as startScheduledTaskPoller } from './scheduledTaskService.js';
 import { getDb } from '../db/index.js';
 import { tasks, features } from '../db/schema/index.js';
 import { and, or, sql, notInArray, eq } from 'drizzle-orm';
@@ -71,6 +73,19 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
       fastify.log.error({ err }, 'Error archiving old events');
     }
   }, 24 * 60 * 60_000));
+
+  intervals.push(setInterval(() => {
+    try {
+      const results = applyAllBoards();
+      if (results.length > 0) {
+        fastify.log.info({ count: results.length }, 'Prioritization evaluation completed');
+      }
+    } catch (err) {
+      fastify.log.error({ err }, 'Error applying prioritization rules');
+    }
+  }, 5 * 60_000));
+
+  intervals.push(startScheduledTaskPoller(60_000));
 
   return {
     stop() {

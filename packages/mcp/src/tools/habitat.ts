@@ -202,3 +202,24 @@ export async function habitatGetHealthHistory(
 ) {
   return client.getBoardHealthHistory(args.boardId, args.days);
 }
+
+export async function habitatGetRules(
+  client: KanbanApiClient,
+  args: { boardId: string }
+) {
+  return client.getPrioritizationRules(args.boardId);
+}
+
+export async function habitatUpdateRules(
+  client: KanbanApiClient,
+  args: { boardId: string; rules: Record<string, unknown> }
+) {
+  return client.updatePrioritizationRules(args.boardId, args.rules);
+}
+
+export async function habitatEvaluateRules(
+  client: KanbanApiClient,
+  args: { boardId: string }
+) {
+  return client.evaluatePrioritizationRules(args.boardId);
+}

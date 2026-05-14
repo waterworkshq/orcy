@@ -1097,4 +1097,75 @@ export class KanbanApiClient {
       payload: {},
     });
   }
+
+  async getPrioritizationRules(boardId: string): Promise<{ rules: Record<string, unknown> }> {
+    return this.request<{ rules: Record<string, unknown> }>('GET', `/api/boards/${boardId}/rules`);
+  }
+
+  async updatePrioritizationRules(boardId: string, rules: Record<string, unknown>): Promise<{ rules: Record<string, unknown> }> {
+    return this.request<{ rules: Record<string, unknown> }>('PUT', `/api/boards/${boardId}/rules`, rules);
+  }
+
+  async evaluatePrioritizationRules(boardId: string): Promise<{ evaluation: Record<string, unknown> }> {
+    return this.request<{ evaluation: Record<string, unknown> }>('POST', `/api/boards/${boardId}/rules/evaluate`);
+  }
+
+  async listScheduledTasks(boardId: string): Promise<{ scheduledTasks: any[] }> {
+    return this.request<{ scheduledTasks: any[] }>('GET', `/api/boards/${boardId}/scheduled-tasks`);
+  }
+
+  async createScheduledTask(
+    boardId: string,
+    input: {
+      name: string;
+      description?: string;
+      scheduleType: 'once' | 'interval' | 'cron';
+      cronExpression?: string;
+      intervalMinutes?: number;
+      timezone?: string;
+      featureTitle: string;
+      featureDescription?: string;
+      featurePriority?: 'low' | 'medium' | 'high' | 'critical';
+      featureLabels?: string[];
+      featureDomain?: string;
+      tasksTemplate?: Array<{
+        title: string;
+        description?: string;
+        priority?: 'low' | 'medium' | 'high' | 'critical';
+        requiredDomain?: string;
+        requiredCapabilities?: string[];
+        estimatedMinutes?: number;
+        order?: number;
+      }>;
+    }
+  ): Promise<{ scheduledTask: any }> {
+    return this.request<{ scheduledTask: any }>('POST', `/api/boards/${boardId}/scheduled-tasks`, input);
+  }
+
+  async getScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
+    return this.request<{ scheduledTask: any }>('GET', `/api/scheduled-tasks/${scheduledTaskId}`);
+  }
+
+  async updateScheduledTask(
+    scheduledTaskId: string,
+    input: Record<string, unknown>
+  ): Promise<{ scheduledTask: any }> {
+    return this.request<{ scheduledTask: any }>('PATCH', `/api/scheduled-tasks/${scheduledTaskId}`, input);
+  }
+
+  async deleteScheduledTask(scheduledTaskId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/scheduled-tasks/${scheduledTaskId}`);
+  }
+
+  async runScheduledTask(scheduledTaskId: string): Promise<{ success: boolean; featureId?: string; error?: string }> {
+    return this.request<{ success: boolean; featureId?: string; error?: string }>('POST', `/api/scheduled-tasks/${scheduledTaskId}/run`);
+  }
+
+  async enableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
+    return this.request<{ scheduledTask: any }>('POST', `/api/scheduled-tasks/${scheduledTaskId}/enable`);
+  }
+
+  async disableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
+    return this.request<{ scheduledTask: any }>('POST', `/api/scheduled-tasks/${scheduledTaskId}/disable`);
+  }
 }

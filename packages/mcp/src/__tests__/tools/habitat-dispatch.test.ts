@@ -8,7 +8,7 @@ describe('HABITAT_DISPATCH_TOOL', () => {
     expect(HABITAT_DISPATCH_TOOL.name).toBe('orcy_habitat');
   });
 
-  it('includes all 6 actions in the enum', () => {
+  it('includes all actions in the enum', () => {
     const actionProp = HABITAT_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
@@ -19,6 +19,11 @@ describe('HABITAT_DISPATCH_TOOL', () => {
       'update-settings',
       'summary',
       'metrics',
+      'get-health',
+      'get-health-history',
+      'get-rules',
+      'update-rules',
+      'evaluate-rules',
     ]);
   });
 
@@ -52,8 +57,20 @@ describe('HABITAT_ACTIONS', () => {
     expect(HABITAT_ACTIONS['metrics']).toBe(lifecycleGaps.habitatGetMetrics);
   });
 
-  it('has exactly 6 actions', () => {
-    expect(Object.keys(HABITAT_ACTIONS)).toHaveLength(6);
+  it('routes get-rules to habitatGetRules', () => {
+    expect(HABITAT_ACTIONS['get-rules']).toBe(habitat.habitatGetRules);
+  });
+
+  it('routes update-rules to habitatUpdateRules', () => {
+    expect(HABITAT_ACTIONS['update-rules']).toBe(habitat.habitatUpdateRules);
+  });
+
+  it('routes evaluate-rules to habitatEvaluateRules', () => {
+    expect(HABITAT_ACTIONS['evaluate-rules']).toBe(habitat.habitatEvaluateRules);
+  });
+
+  it('has exactly 11 actions', () => {
+    expect(Object.keys(HABITAT_ACTIONS)).toHaveLength(11);
   });
 
   it('every action maps to a function', () => {
