@@ -544,9 +544,23 @@ export function getTasksPendingRetry(): Task[] {
     .all() as Task[];
 }
 
+export type TaskSortField = 'priority' | 'title' | 'status' | 'createdAt' | 'updatedAt' | 'assignedAgentId' | 'estimatedMinutes';
+
+export interface TaskListFilters {
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  search?: string;
+  assignedAgentId?: string | null;
+  limit?: number;
+  offset?: number;
+  isArchived?: boolean;
+  sortBy?: TaskSortField;
+  sortDirection?: 'asc' | 'desc';
+}
+
 export function getTasksByBoardId(
   boardId: string,
-  filters?: { status?: TaskStatus; priority?: TaskPriority; search?: string; assignedAgentId?: string | null; limit?: number; offset?: number; isArchived?: boolean }
+  filters?: TaskListFilters
 ): { tasks: Task[]; total: number } {
   const db = getDb();
 
@@ -586,11 +600,28 @@ export function getTasksByBoardId(
     .get();
   const total = countResult?.total ?? 0;
 
-  const priorityOrder = priorityOrderExpr(tasks.priority);
+  const sortColumnMap: Record<TaskSortField, unknown> = {
+    priority: priorityOrderExpr(tasks.priority),
+    title: tasks.title,
+    status: tasks.status,
+    createdAt: tasks.createdAt,
+    updatedAt: tasks.updatedAt,
+    assignedAgentId: tasks.assignedAgentId,
+    estimatedMinutes: tasks.estimatedMinutes,
+  };
+
+  const directionFn = filters?.sortDirection === 'desc' ? desc : asc;
+
+  let orderByClauses: unknown[];
+  if (filters?.sortBy && filters.sortBy in sortColumnMap) {
+    orderByClauses = [directionFn(sortColumnMap[filters.sortBy] as any)];
+  } else {
+    orderByClauses = [priorityOrderExpr(tasks.priority), asc(tasks.createdAt)];
+  }
 
   const results = filters?.limit !== undefined
-    ? db.select().from(tasks).where(where).orderBy(priorityOrder, asc(tasks.createdAt)).limit(filters.limit).offset(filters?.offset ?? 0).all()
-    : db.select().from(tasks).where(where).orderBy(priorityOrder, asc(tasks.createdAt)).all();
+    ? db.select().from(tasks).where(where).orderBy(...orderByClauses as any).limit(filters.limit).offset(filters?.offset ?? 0).all()
+    : db.select().from(tasks).where(where).orderBy(...orderByClauses as any).all();
 
   return { tasks: results as Task[], total };
 }

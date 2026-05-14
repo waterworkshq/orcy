@@ -10,6 +10,7 @@ export const queryKeys = {
     anomalies: (boardId: string) => [...queryKeys.boards.all, 'anomalies', boardId] as const,
     capacity: (boardId: string) => [...queryKeys.boards.all, 'capacity', boardId] as const,
     metrics: (boardId: string) => [...queryKeys.boards.all, 'metrics', boardId] as const,
+    tasks: (boardId: string, filters?: Record<string, unknown>) => [...queryKeys.boards.all, 'tasks', boardId, filters] as const,
   },
   features: {
     all: ['features'] as const,
@@ -84,5 +85,9 @@ export const queryKeys = {
   },
   user: {
     profile: () => ['user', 'profile'] as const,
+  },
+  scheduledTasks: {
+    list: (boardId: string) => ['scheduledTasks', boardId] as const,
+    detail: (id: string) => ['scheduledTasks', 'detail', id] as const,
   },
 };

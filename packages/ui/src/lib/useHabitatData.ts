@@ -184,6 +184,27 @@ export function useBoardCapacity(boardId: string | undefined) {
   });
 }
 
+export interface BoardTasksFilters {
+  status?: string;
+  priority?: string;
+  search?: string;
+  assignedAgentId?: string;
+  isArchived?: boolean;
+  limit?: number;
+  offset?: number;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
+export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksFilters) {
+  return useQuery({
+    queryKey: queryKeys.boards.tasks(boardId ?? '', filters as Record<string, unknown>),
+    queryFn: () => api.boards.tasks(boardId!, filters),
+    enabled: !!boardId,
+    staleTime: 30 * 1000,
+  });
+}
+
 export function useBoardTimeMetrics(boardId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.boards.metrics(boardId ?? ''),
