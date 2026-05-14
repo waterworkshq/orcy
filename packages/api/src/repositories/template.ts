@@ -1,8 +1,10 @@
 import { getDb } from '../db/index.js';
-import { featureTemplates } from '../db/schema/index.js';
-import { eq, or, isNull, sql, desc, asc } from 'drizzle-orm';
-import type { FeatureTemplate, TaskPriority } from '../models/index.js';
+import { featureTemplates, features, tasks, columns } from '../db/schema/index.js';
+import { eq, or, isNull, sql, desc, asc, max } from 'drizzle-orm';
+import type { FeatureTemplate, TaskPriority, TaskTemplateEntry } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
+import * as featureRepo from './feature.js';
+import * as taskRepo from './task.js';
 
 export interface CreateTemplateInput {
   boardId: string | null;
@@ -13,6 +15,7 @@ export interface CreateTemplateInput {
   labels?: string[];
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
+  tasksTemplate?: TaskTemplateEntry[];
   isDefault?: boolean;
   createdBy: string;
 }
@@ -25,6 +28,7 @@ export interface UpdateTemplateInput {
   labels?: string[];
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
+  tasksTemplate?: TaskTemplateEntry[];
 }
 
 export function createTemplate(input: CreateTemplateInput): FeatureTemplate {
@@ -42,6 +46,7 @@ export function createTemplate(input: CreateTemplateInput): FeatureTemplate {
     labels: input.labels ?? [],
     requiredDomain: input.requiredDomain ?? null,
     requiredCapabilities: input.requiredCapabilities ?? [],
+    tasksTemplate: input.tasksTemplate ?? [],
     isDefault: input.isDefault ?? false,
     usageCount: 0,
     createdBy: input.createdBy,
@@ -95,6 +100,7 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): FeatureT
   if (input.labels !== undefined) set.labels = input.labels;
   if (input.requiredDomain !== undefined) set.requiredDomain = input.requiredDomain;
   if (input.requiredCapabilities !== undefined) set.requiredCapabilities = input.requiredCapabilities;
+  if (input.tasksTemplate !== undefined) set.tasksTemplate = input.tasksTemplate;
 
   if (Object.keys(set).length === 0) return existing;
 
@@ -124,6 +130,113 @@ export function incrementUsageCount(id: string): void {
     .set({ usageCount: sql`${featureTemplates.usageCount} + 1` })
     .where(eq(featureTemplates.id, id))
     .run();
+}
+
+export interface ApplyTemplateOverrides {
+  title?: string;
+  description?: string;
+  priority?: TaskPriority;
+  labels?: string[];
+}
+
+export interface ApplyTemplateResult {
+  feature: ReturnType<typeof featureRepo.getFeatureById> & {};
+  tasks: ReturnType<typeof taskRepo.getTasksByFeatureId>;
+}
+
+export function applyTemplate(
+  templateId: string,
+  boardId: string,
+  overrides?: ApplyTemplateOverrides,
+  createdBy?: string,
+): ApplyTemplateResult | null {
+  const template = getTemplateById(templateId);
+  if (!template) return null;
+
+  const db = getDb();
+  const actor = createdBy ?? 'system';
+  const now = new Date().toISOString();
+  const featureId = uuid();
+
+  const columnId = db
+    .select()
+    .from(columns)
+    .where(eq(columns.boardId, boardId))
+    .orderBy(columns.order)
+    .all()[0]?.id;
+  if (!columnId) throw new Error('Board has no columns');
+
+  const maxOrder = db
+    .select({ value: max(features.displayOrder) })
+    .from(features)
+    .where(eq(features.columnId, columnId))
+    .get();
+  const displayOrder = (maxOrder?.value ?? -1) + 1;
+
+  const createdTaskIds: string[] = [];
+  const tasksTemplate = template.tasksTemplate ?? [];
+
+  db.transaction((tx) => {
+    tx.insert(features).values({
+      id: featureId,
+      boardId,
+      columnId,
+      title: overrides?.title ?? template.titlePattern,
+      description: overrides?.description ?? template.descriptionPattern,
+      acceptanceCriteria: '',
+      priority: overrides?.priority ?? template.priority,
+      labels: overrides?.labels ?? template.labels,
+      status: 'not_started',
+      displayOrder,
+      dependsOn: [],
+      blocks: [],
+      dueAt: null,
+      slaMinutes: null,
+      createdBy: actor,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    }).run();
+
+    for (let i = 0; i < tasksTemplate.length; i++) {
+      const entry = tasksTemplate[i];
+      const taskId = uuid();
+      const taskOrder = entry.order ?? i;
+
+      tx.insert(tasks).values({
+        id: taskId,
+        featureId,
+        title: entry.title,
+        description: entry.description ?? '',
+        priority: entry.priority ?? 'medium',
+        requiredDomain: entry.requiredDomain ?? null,
+        requiredCapabilities: entry.requiredCapabilities ?? [],
+        status: 'pending',
+        labels: [],
+        order: taskOrder,
+        createdBy: actor,
+        estimatedMinutes: entry.estimatedMinutes ?? null,
+        createdAt: now,
+        updatedAt: now,
+      }).run();
+      createdTaskIds.push(taskId);
+    }
+
+    tx.update(featureTemplates)
+      .set({ usageCount: sql`${featureTemplates.usageCount} + 1` })
+      .where(eq(featureTemplates.id, templateId))
+      .run();
+  });
+
+  const createdFeature = featureRepo.getFeatureById(featureId)!;
+  const createdTasks = createdTaskIds
+    .map(id => taskRepo.getTaskById(id))
+    .filter((t): t is NonNullable<typeof t> => t !== null);
+
+  return {
+    feature: createdFeature,
+    tasks: createdTasks,
+  };
 }
 
 export function seedGlobalTemplates(): void {

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as templateRepo from '../repositories/template.js';
+import * as featureRepo from '../repositories/feature.js';
 import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { z } from 'zod';
@@ -25,6 +26,13 @@ const updateTemplateSchema = z.object({
   labels: z.array(z.string()).optional(),
   requiredDomain: z.string().nullable().optional(),
   requiredCapabilities: z.array(z.string()).optional(),
+});
+
+const applyTemplateSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(5000).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  labels: z.array(z.string()).optional(),
 });
 
 /**
@@ -132,6 +140,37 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
 
       templateRepo.incrementUsageCount(request.params.id);
       return { success: true };
+    }
+  );
+
+  /** POST /features/:id/apply-template/:templateId - Apply template to create feature+tasks. Auth: humanAuth. Returns { feature, tasks } */
+  fastify.post<{ Params: { id: string; templateId: string }; Body: z.infer<typeof applyTemplateSchema> }>(
+    '/features/:id/apply-template/:templateId',
+    { preHandler: humanAuth },
+    async (request: FastifyRequest<{ Params: { id: string; templateId: string }; Body: z.infer<typeof applyTemplateSchema> }>, reply: FastifyReply) => {
+      const parsed = applyTemplateSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        throw badRequest('Validation failed', parsed.error.flatten());
+      }
+
+      const existingFeature = featureRepo.getFeatureById(request.params.id);
+      if (!existingFeature) {
+        throw notFound('Feature not found');
+      }
+
+      const userId = request.user?.id ?? 'anonymous';
+      const result = templateRepo.applyTemplate(
+        request.params.templateId,
+        existingFeature.boardId,
+        parsed.data,
+        userId,
+      );
+
+      if (!result) {
+        throw notFound('Template not found');
+      }
+
+      reply.code(201).send({ feature: result.feature, tasks: result.tasks });
     }
   );
 }
