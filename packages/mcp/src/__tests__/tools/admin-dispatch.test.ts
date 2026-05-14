@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as webhook from '../../tools/webhook.js';
 import * as template from '../../tools/template.js';
 import * as taskBatch from '../../tools/task-batch.js';
+import * as scheduledTask from '../../tools/scheduled-task.js';
 import { ADMIN_DISPATCH_TOOL, ADMIN_ACTIONS } from '../../tools/admin-dispatch.js';
 
 describe('ADMIN_DISPATCH_TOOL', () => {
@@ -9,7 +10,7 @@ describe('ADMIN_DISPATCH_TOOL', () => {
     expect(ADMIN_DISPATCH_TOOL.name).toBe('orcy_admin');
   });
 
-  it('includes all 9 actions in the enum', () => {
+  it('includes all 18 actions in the enum', () => {
     const actionProp = ADMIN_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
@@ -23,6 +24,15 @@ describe('ADMIN_DISPATCH_TOOL', () => {
       'batch-assign-tasks',
       'batch-set-priority',
       'batch-delete-tasks',
+      'export-audit-log',
+      'get-audit-summary',
+      'list-scheduled-tasks',
+      'create-scheduled-task',
+      'run-scheduled-task',
+      'get-scheduled-task',
+      'update-scheduled-task',
+      'delete-scheduled-task',
+      'toggle-scheduled-task',
     ]);
   });
 
@@ -73,9 +83,39 @@ describe('ADMIN_ACTIONS — batch actions', () => {
   });
 });
 
+describe('ADMIN_ACTIONS — scheduled task actions', () => {
+  it('routes list-scheduled-tasks to adminListScheduledTasks', () => {
+    expect(ADMIN_ACTIONS['list-scheduled-tasks']).toBe(scheduledTask.adminListScheduledTasks);
+  });
+
+  it('routes create-scheduled-task to adminCreateScheduledTask', () => {
+    expect(ADMIN_ACTIONS['create-scheduled-task']).toBe(scheduledTask.adminCreateScheduledTask);
+  });
+
+  it('routes run-scheduled-task to adminRunScheduledTask', () => {
+    expect(ADMIN_ACTIONS['run-scheduled-task']).toBe(scheduledTask.adminRunScheduledTask);
+  });
+
+  it('routes get-scheduled-task to adminGetScheduledTask', () => {
+    expect(ADMIN_ACTIONS['get-scheduled-task']).toBe(scheduledTask.adminGetScheduledTask);
+  });
+
+  it('routes update-scheduled-task to adminUpdateScheduledTask', () => {
+    expect(ADMIN_ACTIONS['update-scheduled-task']).toBe(scheduledTask.adminUpdateScheduledTask);
+  });
+
+  it('routes delete-scheduled-task to adminDeleteScheduledTask', () => {
+    expect(ADMIN_ACTIONS['delete-scheduled-task']).toBe(scheduledTask.adminDeleteScheduledTask);
+  });
+
+  it('routes toggle-scheduled-task to adminToggleScheduledTask', () => {
+    expect(ADMIN_ACTIONS['toggle-scheduled-task']).toBe(scheduledTask.adminToggleScheduledTask);
+  });
+});
+
 describe('ADMIN_ACTIONS — completeness', () => {
-  it('has exactly 9 actions', () => {
-    expect(Object.keys(ADMIN_ACTIONS)).toHaveLength(9);
+  it('has exactly 18 actions', () => {
+    expect(Object.keys(ADMIN_ACTIONS)).toHaveLength(18);
   });
 
   it('every action maps to a function', () => {
