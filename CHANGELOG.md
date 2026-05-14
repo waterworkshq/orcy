@@ -2,6 +2,24 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.9.1 — 2026-05-14
+
+### Bug Fixes
+
+#### restore API.md and add missing v0.8.0+v0.9.0 endpoint documentation ([`46856ae`](https://github.com/waterworkshq/orcy/commit/46856ae7fabbd99802556a4f6992fd5bba9d4104))
+
+1. Restore 2071 lines of API docs accidentally deleted in v0.9.0 release
+2. Add Board Health section (GET /boards/:id/health, /health/history)
+3. Add Board Tasks section (GET /boards/:id/tasks with sort/filter)
+4. Add Prioritization section (rules CRUD + evaluate + report)
+5. Add Scheduled Tasks section (8 endpoints: CRUD + run/enable/disable)
+6. Add Feature Comments section (4 endpoints)
+7. Add Audit Log Export section (export + summary + schedules)
+8. Add apply-template route to Features section
+9. Add 11 new SSE events (priority_changed, scheduled_task.*, feature.comment*)
+
+
+
 ## 0.9.0 — 2026-05-14
 
 ### Bug Fixes
@@ -245,11 +263,3 @@
 1. Update git-cliff command in release-it.json to remove header flag
 2. Add conventional-changelog plugin to release-it configuration
 3. Enhance cliff.toml changelog format with commit links and body formatting
-
-
-
-## 0.7.1 — 2026-05-13
-
-### Bug Fixes
-
-#### resolve review findings - unhandled rejection in useTaskDependencies, add percentage to FeatureWithProgress type, remove redundant type declarations and unused imports ([`651a6fa`](https://github.com/waterworkshq/orcy/commit/651a6fa74cb8cc94db3250bea125f66b666ebe04))
