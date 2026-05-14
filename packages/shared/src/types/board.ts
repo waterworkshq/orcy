@@ -1,5 +1,5 @@
 import type { RetryPolicy } from './task.js';
-import type { AnomalySettings, AutoAssignSettings, CodeReviewSettings, CiCdSettings, GitWorktreeSettings } from './settings.js';
+import type { AnomalySettings, AutoAssignSettings, CodeReviewSettings, CiCdSettings, GitWorktreeSettings, PrioritizationSettings } from './settings.js';
 import type { TaskPriority } from './task.js';
 import type { FeatureStatus } from './feature.js';
 import type { Artifact } from './task.js';
@@ -28,6 +28,7 @@ export interface Board {
   codeReviewSettings: CodeReviewSettings | null;
   ciCdSettings: CiCdSettings | null;
   gitWorktreeSettings: GitWorktreeSettings | null;
+  prioritizationSettings: PrioritizationSettings | null;
   eventRetentionDays: number | null;
   createdAt: string;
   updatedAt: string;

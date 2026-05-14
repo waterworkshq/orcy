@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import type { RetryPolicy, AnomalySettings, AutoAssignSettings, CodeReviewSettings, CiCdSettings, GitWorktreeSettings } from '../../models/index.js';
+import type { RetryPolicy, AnomalySettings, AutoAssignSettings, CodeReviewSettings, CiCdSettings, GitWorktreeSettings, PrioritizationSettings, TaskTemplateEntry, TaskPriority, ScheduleType } from '../../models/index.js';
 import { teams } from './user.js';
 import { users } from './user.js';
 
@@ -17,6 +17,7 @@ export const boards = sqliteTable('boards', {
   eventRetentionDays: integer('event_retention_days').default(90),
   ciCdSettings: text('ci_cd_settings', { mode: 'json' }).$type<CiCdSettings | null>(),
   gitWorktreeSettings: text('git_worktree_settings', { mode: 'json' }).$type<GitWorktreeSettings | null>(),
+  prioritizationSettings: text('prioritization_settings', { mode: 'json' }).$type<PrioritizationSettings | null>(),
   teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
 }, (table) => [
   index('idx_boards_name').on(table.name),
@@ -54,6 +55,7 @@ export const features = sqliteTable('features', {
   index('idx_features_priority').on(table.priority),
   index('idx_features_column_order').on(table.columnId, table.displayOrder),
   index('idx_features_due_at').on(table.dueAt),
+  index('idx_features_sla_deadline_at').on(table.slaDeadlineAt),
 ]);
 
 export const featureDependencies = sqliteTable('feature_dependencies', {
@@ -151,7 +153,7 @@ export const featureTemplates = sqliteTable('feature_templates', {
   usageCount: integer('usage_count').notNull().default(0),
   createdBy: text('created_by').notNull(),
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
-  tasksTemplate: text('tasks_template', { mode: 'json' }).$type<unknown[]>().notNull().$defaultFn(() => []),
+  tasksTemplate: text('tasks_template', { mode: 'json' }).$type<TaskTemplateEntry[]>().notNull().$defaultFn(() => []),
 }, (table) => [
   index('idx_templates_board').on(table.boardId),
   index('idx_templates_default').on(table.isDefault),
@@ -201,6 +203,37 @@ export const auditExportSchedules = sqliteTable('audit_export_schedules', {
 }, (table) => [
   index('idx_audit_schedules_board').on(table.boardId),
   index('idx_audit_schedules_next').on(table.nextRunAt),
+]);
+
+export const scheduledTasks = sqliteTable('scheduled_tasks', {
+  id: text('id').primaryKey(),
+  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  templateId: text('template_id').references(() => featureTemplates.id, { onDelete: 'set null' }),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  scheduleType: text('schedule_type', { enum: ['once', 'interval', 'cron'] }).$type<ScheduleType>().notNull(),
+  cronExpression: text('cron_expression'),
+  intervalMinutes: integer('interval_minutes'),
+  scheduledAt: text('scheduled_at'),
+  timezone: text('timezone').notNull().default('UTC'),
+  featureTitle: text('feature_title').notNull(),
+  featureDescription: text('feature_description').notNull().default(''),
+  featurePriority: text('feature_priority').$type<TaskPriority>().notNull().default('medium'),
+  featureLabels: text('feature_labels', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
+  featureDomain: text('feature_domain'),
+  tasksTemplate: text('tasks_template', { mode: 'json' }).$type<TaskTemplateEntry[]>().notNull().$defaultFn(() => []),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  lastRunAt: text('last_run_at'),
+  nextRunAt: text('next_run_at').notNull(),
+  runCount: integer('run_count').notNull().default(0),
+  lastCreatedFeatureId: text('last_created_feature_id'),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_scheduled_tasks_board').on(table.boardId),
+  index('idx_scheduled_tasks_next').on(table.nextRunAt),
+  index('idx_scheduled_tasks_enabled').on(table.enabled),
 ]);
 
 export const boardHealthSnapshots = sqliteTable('board_health_snapshots', {

@@ -43,6 +43,13 @@
       "when": 1778480000000,
       "tag": "0005_pulse_reactions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778718444384,
+      "tag": "0006_supreme_stranger",
+      "breakpoints": true
     }
   ]
 }

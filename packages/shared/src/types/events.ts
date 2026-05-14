@@ -77,7 +77,11 @@ export type SSEEvent =
   | { type: 'feature.progress'; data: { featureId: string; completed: number; total: number } }
   | { type: 'feature.commented'; data: { featureId: string; comment: FeatureComment } }
   | { type: 'feature.comment_deleted'; data: { featureId: string; commentId: string } }
-  | { type: 'feature.mentioned'; data: { featureId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; boardId: string } };
+  | { type: 'feature.mentioned'; data: { featureId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; boardId: string } }
+  | { type: 'task.priority_changed'; data: { taskId: string; ruleName: string; score: number } }
+  | { type: 'scheduled_task.executed'; data: { scheduleId: string; featureId: string; featureTitle: string } }
+  | { type: 'scheduled_task.failed'; data: { scheduleId: string; error: string } }
+  | { type: 'scheduled_task.created'; data: { scheduleId: string; name: string } };
 
 export type PresenceEvent =
   | { type: 'presence.joined'; data: { boardId: string; presence: PresenceEntry } }

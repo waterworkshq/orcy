@@ -52,3 +52,39 @@ export interface CiCdSettings {
   gitlabSecret: string | null;
   taskPattern: string;
 }
+
+export interface PrioritizationSettings {
+  enabled: boolean;
+  evaluateIntervalMinutes: number;
+  rules: PrioritizationRule[];
+  fallbackToManual: boolean;
+}
+
+export interface PrioritizationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  condition: PrioritizationRuleCondition;
+  action: PrioritizationRuleAction;
+  priority: number;
+}
+
+export type PrioritizationRuleCondition =
+  | { type: 'overdue'; byDays?: number }
+  | { type: 'sla_approaching'; withinHours: number }
+  | { type: 'due_soon'; withinDays: number }
+  | { type: 'pending_duration'; greaterThanHours: number }
+  | { type: 'dependency_count'; greaterThan: number; direction: 'blocking' | 'blocked_by' }
+  | { type: 'rejection_count'; greaterThan: number }
+  | { type: 'feature_status'; status: string }
+  | { type: 'agent_idle'; greaterThanMinutes: number }
+  | { type: 'label_match'; labels: string[] }
+  | { type: 'priority_is'; priority: string }
+  | { type: 'and'; conditions: PrioritizationRuleCondition[] }
+  | { type: 'or'; conditions: PrioritizationRuleCondition[] };
+
+export type PrioritizationRuleAction =
+  | { type: 'set_priority'; value: string }
+  | { type: 'bump_priority'; value: number }
+  | { type: 'add_label'; value: string }
+  | { type: 'set_score_bonus'; value: number };

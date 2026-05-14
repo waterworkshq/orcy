@@ -4,6 +4,16 @@ import type { ActorType } from './events.js';
 export { TaskPriority };
 export { ActorType };
 
+export interface TaskTemplateEntry {
+  title: string;
+  description?: string;
+  priority?: TaskPriority;
+  requiredDomain?: string;
+  requiredCapabilities?: string[];
+  estimatedMinutes?: number;
+  order?: number;
+}
+
 export type FeatureStatus = 'not_started' | 'in_progress' | 'review' | 'done' | 'failed';
 
 export type FeatureEventAction =
@@ -80,7 +90,7 @@ export interface FeatureTemplate {
   usageCount: number;
   createdBy: string;
   createdAt: string;
-  tasksTemplate: unknown[];
+  tasksTemplate: TaskTemplateEntry[];
 }
 
 export interface FeatureWatcher {
@@ -109,4 +119,33 @@ export interface FeatureCommentMention {
   mentionText: string;
   createdAt: string;
   mentionedName?: string;
+}
+
+export type ScheduleType = 'once' | 'interval' | 'cron';
+
+export interface ScheduledTask {
+  id: string;
+  boardId: string;
+  templateId: string | null;
+  name: string;
+  description: string;
+  scheduleType: ScheduleType;
+  cronExpression: string | null;
+  intervalMinutes: number | null;
+  scheduledAt: string | null;
+  timezone: string;
+  featureTitle: string;
+  featureDescription: string;
+  featurePriority: TaskPriority;
+  featureLabels: string[];
+  featureDomain: string | null;
+  tasksTemplate: TaskTemplateEntry[];
+  enabled: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  runCount: number;
+  lastCreatedFeatureId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
