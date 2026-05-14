@@ -127,6 +127,15 @@ vi.mock('./settings/AutoAssignTab.js', () => ({
   }),
 }));
 
+vi.mock('./settings/PrioritizationTab.js', () => ({
+  PrioritizationTab: React.forwardRef(function PrioritizationTab(props: any, ref: any) {
+    React.useImperativeHandle(ref, () => ({
+      save: async () => {},
+    }));
+    return <div data-testid="prioritization-tab">PrioritizationTab</div>;
+  }),
+}));
+
 const mockBoard: Board = {
   id: 'b1',
   name: 'Test Board',
@@ -136,6 +145,7 @@ const mockBoard: Board = {
   retrySettings: null,
   anomalySettings: null,
   autoAssignSettings: null,
+  prioritizationSettings: null,
   codeReviewSettings: null,
   ciCdSettings: null,
   gitWorktreeSettings: null,

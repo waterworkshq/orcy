@@ -8,13 +8,15 @@ import { ChatIntegrationsTab } from './settings/ChatIntegrationsTab.js';
 import { RetryPolicyTab, type RetryPolicyTabHandle } from './settings/RetryPolicyTab.js';
 import { AnomalyDetectionTab, type AnomalyDetectionTabHandle } from './settings/AnomalyDetectionTab.js';
 import { AutoAssignTab, type AutoAssignTabHandle } from './settings/AutoAssignTab.js';
+import { PrioritizationTab, type PrioritizationTabHandle } from './settings/PrioritizationTab.js';
+import { ScheduledTasksTab } from './settings/ScheduledTasksTab.js';
 import { ExportBoardDialog } from './ExportHabitatDialog.js';
 import { ImportBoardDialog } from './ImportHabitatDialog.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import type { Board } from '../../types/index.js';
 
-type SettingsTab = 'general' | 'notifications' | 'chat' | 'retry' | 'anomaly' | 'auto_assign';
+type SettingsTab = 'general' | 'notifications' | 'chat' | 'retry' | 'anomaly' | 'auto_assign' | 'prioritization' | 'scheduled_tasks';
 
 const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: 'general', label: 'General' },
@@ -23,6 +25,8 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: 'retry', label: 'Retry Policy' },
   { key: 'anomaly', label: 'Anomaly Detection' },
   { key: 'auto_assign', label: 'Auto-Assign' },
+  { key: 'prioritization', label: 'Prioritization' },
+  { key: 'scheduled_tasks', label: 'Scheduled Tasks' },
 ];
 
 const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
@@ -31,6 +35,7 @@ const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
   retry: 'Save Retry Policy',
   anomaly: 'Save Anomaly Settings',
   auto_assign: 'Save Auto-Assign Settings',
+  prioritization: 'Save Prioritization Rules',
 };
 
 interface BoardSettingsDialogProps {
@@ -53,6 +58,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
   const retryRef = useRef<RetryPolicyTabHandle>(null);
   const anomalyRef = useRef<AnomalyDetectionTabHandle>(null);
   const autoAssignRef = useRef<AutoAssignTabHandle>(null);
+  const prioritizationRef = useRef<PrioritizationTabHandle>(null);
 
   const handleTabSavingChange = useCallback((saving: boolean) => {
     setTabSaving(saving);
@@ -65,6 +71,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
       case 'retry': return retryRef;
       case 'anomaly': return anomalyRef;
       case 'auto_assign': return autoAssignRef;
+      case 'prioritization': return prioritizationRef;
       default: return { current: null };
     }
   }
@@ -149,6 +156,18 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
           />
+        )}
+        {activeTab === 'prioritization' && (
+          <PrioritizationTab
+            ref={prioritizationRef}
+            boardId={board.id}
+            boardPrioritizationSettings={board.prioritizationSettings}
+            onUpdate={onUpdate}
+            onSavingChange={handleTabSavingChange}
+          />
+        )}
+        {activeTab === 'scheduled_tasks' && (
+          <ScheduledTasksTab boardId={board.id} />
         )}
       </DialogContent>
       <DialogFooter>

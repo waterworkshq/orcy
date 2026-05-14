@@ -28,6 +28,7 @@ import type {
   Anomaly,
   AnomalySettings,
   AutoAssignSettings,
+  PrioritizationSettings,
   CapacityReport,
   PredictionResponse,
   BurndownResponse,
@@ -54,6 +55,8 @@ import type {
   PulseReactionCounts,
   ProjectInsight,
   FeatureComment,
+  ScheduledTask,
+  TaskTemplateEntry,
 } from '../types/index.js';
 
 const BASE = '/api';
@@ -182,7 +185,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: { name?: string; description?: string; retrySettings?: import('../types/index.js').RetryPolicy | null; anomalySettings?: AnomalySettings | null; autoAssignSettings?: AutoAssignSettings | null }) =>
+    update: (id: string, data: { name?: string; description?: string; retrySettings?: import('../types/index.js').RetryPolicy | null; anomalySettings?: AnomalySettings | null; autoAssignSettings?: AutoAssignSettings | null; prioritizationSettings?: PrioritizationSettings | null }) =>
       request<{ board: Board }>(`/boards/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
@@ -238,12 +241,50 @@ export const api = {
       }>(`/boards/${boardId}/import`, { method: 'POST', body: JSON.stringify(data) }),
     anomalies: (boardId: string) =>
       request<{ anomalies: Anomaly[] }>(`/boards/${boardId}/anomalies`),
+    getPrioritizationRules: (boardId: string) =>
+      request<{ rules: PrioritizationSettings }>(`/boards/${boardId}/rules`),
+    updatePrioritizationRules: (boardId: string, data: { enabled?: boolean; rules?: PrioritizationSettings['rules']; evaluateIntervalMinutes?: number; fallbackToManual?: boolean }) =>
+      request<{ rules: PrioritizationSettings }>(`/boards/${boardId}/rules`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    evaluatePrioritizationRules: (boardId: string) =>
+      request<{ results: unknown }>(`/boards/${boardId}/rules/evaluate`, { method: 'POST' }),
     capacity: (boardId: string) =>
       request<CapacityReport>(`/boards/${boardId}/capacity`),
     predictions: (boardId: string) =>
       request<PredictionResponse>(`/boards/${boardId}/predictions`),
     burndown: (boardId: string, days?: number) =>
       request<BurndownResponse>(`/boards/${boardId}/burndown?days=${days ?? 30}`),
+    tasks: (
+      boardId: string,
+      filters?: {
+        status?: string;
+        priority?: string;
+        search?: string;
+        assignedAgentId?: string;
+        isArchived?: boolean;
+        limit?: number;
+        offset?: number;
+        sortBy?: string;
+        sortDir?: 'asc' | 'desc';
+      }
+    ) => {
+      const params = new URLSearchParams();
+      if (filters?.status) params.set('status', filters.status);
+      if (filters?.priority) params.set('priority', filters.priority);
+      if (filters?.search) params.set('search', filters.search);
+      if (filters?.assignedAgentId) params.set('assignedAgentId', filters.assignedAgentId);
+      if (filters?.isArchived !== undefined) params.set('isArchived', String(filters.isArchived));
+      if (filters?.limit !== undefined) params.set('limit', String(filters.limit));
+      if (filters?.offset !== undefined) params.set('offset', String(filters.offset));
+      if (filters?.sortBy) params.set('sortBy', filters.sortBy);
+      if (filters?.sortDir) params.set('sortDir', filters.sortDir);
+      const qs = params.toString();
+      return request<{ tasks: Task[]; total: number }>(
+        `/boards/${boardId}/tasks${qs ? `?${qs}` : ''}`
+      );
+    },
   },
 
   /**
@@ -914,6 +955,67 @@ export const api = {
       delete: (scheduleId: string) =>
         request<void>(`/audit/schedules/${scheduleId}`, { method: 'DELETE' }),
     },
+  },
+
+  scheduledTasks: {
+    list: (boardId: string) =>
+      request<{ scheduledTasks: ScheduledTask[] }>(`/boards/${boardId}/scheduled-tasks`),
+    get: (id: string) =>
+      request<{ scheduledTask: ScheduledTask }>(`/scheduled-tasks/${id}`),
+    create: (boardId: string, data: {
+      name: string;
+      description?: string;
+      templateId?: string | null;
+      scheduleType: 'once' | 'interval' | 'cron';
+      cronExpression?: string | null;
+      intervalMinutes?: number | null;
+      scheduledAt?: string | null;
+      timezone?: string;
+      featureTitle: string;
+      featureDescription?: string;
+      featurePriority?: import('../types/index.js').TaskPriority;
+      featureLabels?: string[];
+      featureDomain?: string | null;
+      tasksTemplate?: TaskTemplateEntry[];
+    }) =>
+      request<{ scheduledTask: ScheduledTask }>(`/boards/${boardId}/scheduled-tasks`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: {
+      name?: string;
+      description?: string;
+      scheduleType?: 'once' | 'interval' | 'cron';
+      cronExpression?: string | null;
+      intervalMinutes?: number | null;
+      scheduledAt?: string | null;
+      timezone?: string;
+      featureTitle?: string;
+      featureDescription?: string;
+      featurePriority?: import('../types/index.js').TaskPriority;
+      featureLabels?: string[];
+      featureDomain?: string | null;
+      tasksTemplate?: TaskTemplateEntry[];
+      enabled?: boolean;
+    }) =>
+      request<{ scheduledTask: ScheduledTask }>(`/scheduled-tasks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    delete: (id: string) =>
+      request<void>(`/scheduled-tasks/${id}`, { method: 'DELETE' }),
+    run: (id: string) =>
+      request<{ success: boolean; featureId?: string; error?: string }>(`/scheduled-tasks/${id}/run`, {
+        method: 'POST',
+      }),
+    enable: (id: string) =>
+      request<{ scheduledTask: ScheduledTask }>(`/scheduled-tasks/${id}/enable`, {
+        method: 'POST',
+      }),
+    disable: (id: string) =>
+      request<{ scheduledTask: ScheduledTask }>(`/scheduled-tasks/${id}/disable`, {
+        method: 'POST',
+      }),
   },
 
   health: {

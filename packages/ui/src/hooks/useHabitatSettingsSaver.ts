@@ -17,6 +17,7 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
     retrySettings?: import('../types/index.js').RetryPolicy | null;
     anomalySettings?: import('../types/index.js').AnomalySettings | null;
     autoAssignSettings?: import('../types/index.js').AutoAssignSettings | null;
+    prioritizationSettings?: import('../types/index.js').PrioritizationSettings | null;
   }, successMessage: string) => {
     setSaving(true);
     try {

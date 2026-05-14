@@ -50,6 +50,13 @@ import type {
   CodeReviewSettings,
   CiCdSettings,
   GitWorktreeSettings,
+  PrioritizationSettings,
+  PrioritizationRule,
+  PrioritizationRuleCondition,
+  PrioritizationRuleAction,
+  ScheduledTask,
+  ScheduleType,
+  TaskTemplateEntry,
 } from '@orcy/shared';
 
 export type {
@@ -104,6 +111,13 @@ export type {
   CodeReviewSettings,
   CiCdSettings,
   GitWorktreeSettings,
+  PrioritizationSettings,
+  PrioritizationRule,
+  PrioritizationRuleCondition,
+  PrioritizationRuleAction,
+  ScheduledTask,
+  ScheduleType,
+  TaskTemplateEntry,
 };
 
 export interface EnrichedBoardEvent {
