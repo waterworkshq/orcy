@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { boards, columns, features } from '../db/schema/index.js';
 import { eq, and, like, or, isNull, inArray, sql, desc } from 'drizzle-orm';
-import type { Board, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings } from '../models/index.js';
+import type { Board, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings, PrioritizationSettings } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 
 export interface CreateBoardInput {
@@ -18,6 +18,7 @@ export interface UpdateBoardInput {
   autoAssignSettings?: AutoAssignSettings | null;
   gitWorktreeSettings?: GitWorktreeSettings | null;
   eventRetentionDays?: number;
+  prioritizationSettings?: PrioritizationSettings | null;
 }
 
 export function createBoard(input: CreateBoardInput): Board {
@@ -83,6 +84,7 @@ export function updateBoard(id: string, input: UpdateBoardInput): Board | null {
   if (input.autoAssignSettings !== undefined) values.autoAssignSettings = input.autoAssignSettings;
   if (input.gitWorktreeSettings !== undefined) values.gitWorktreeSettings = input.gitWorktreeSettings;
   if (input.eventRetentionDays !== undefined) values.eventRetentionDays = input.eventRetentionDays;
+  if (input.prioritizationSettings !== undefined) values.prioritizationSettings = input.prioritizationSettings;
 
   db.update(boards)
     .set(values)

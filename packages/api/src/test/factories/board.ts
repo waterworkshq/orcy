@@ -18,6 +18,7 @@ export function makeBoard(overrides: Partial<Board> = {}): Board {
     codeReviewSettings: null,
     ciCdSettings: null,
     gitWorktreeSettings: null,
+    prioritizationSettings: null,
     eventRetentionDays: null,
     createdAt: now,
     updatedAt: now,
