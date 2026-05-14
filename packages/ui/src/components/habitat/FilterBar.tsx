@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal } from 'lucide-react';
+import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal, LayoutGrid, AlignJustify } from 'lucide-react';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
 import { api } from '../../api/index.js';
@@ -59,11 +59,16 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
   }
 
   function clearFilters() {
-    setSearchParams(new URLSearchParams());
+    const next = new URLSearchParams();
+    const view = searchParams.get('view');
+    if (view) next.set('view', view);
+    setSearchParams(next);
   }
 
   function applySavedFilter(filter: SavedFilter) {
     const next = new URLSearchParams();
+    const view = searchParams.get('view');
+    if (view) next.set('view', view);
     const config = filter.filterConfig;
     if (config.search) next.set('search', config.search as string);
     if (config.priority) next.set('priority', config.priority as string);
@@ -102,7 +107,7 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
     }
   }
 
-  const hasFilters = searchParams.toString().length > 0;
+  const hasFilters = Array.from(searchParams.keys()).some((k) => k !== 'view');
   const selectedAgentId = searchParams.get('assignedAgentId');
 
   return (
@@ -178,6 +183,35 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
             {s.replace('_', ' ')}
           </button>
         ))}
+      </div>
+
+      <div className="flex rounded-md border border-outline-variant overflow-hidden">
+        <button
+          type="button"
+          onClick={() => updateFilter('view', null)}
+          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors ${
+            (searchParams.get('view') ?? 'board') === 'board'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+          data-testid="view-toggle-board"
+        >
+          <LayoutGrid className="h-3.5 w-3.5" />
+          Board
+        </button>
+        <button
+          type="button"
+          onClick={() => updateFilter('view', 'table')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors border-l border-outline-variant ${
+            searchParams.get('view') === 'table'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+          data-testid="view-toggle-table"
+        >
+          <AlignJustify className="h-3.5 w-3.5" />
+          Table
+        </button>
       </div>
 
       <div ref={viewsRef} className="relative">

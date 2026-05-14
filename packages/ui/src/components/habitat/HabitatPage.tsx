@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { HealthScoreWidget } from './HealthScoreWidget.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
@@ -19,6 +19,7 @@ import { Button } from '../ui/Button.js';
 import { HelpDrawer } from '../ui/HelpDrawer.js';
 import { HelpContent } from '../ui/HelpContent.js';
 import { BulkActionBar } from './BulkActionBar.js';
+import { TaskTableView } from './TaskTableView.js';
 import { MobileNav } from './MobileNav.js';
 import { Plus, Users, BarChart3, Settings, HelpCircle, Activity, Eye, CheckSquare, Square, Menu, GitBranch } from 'lucide-react';
 import { HabitatPulsePanel } from './HabitatPulsePanel.js';
@@ -42,7 +43,9 @@ const PAGE_SIZE = 50;
 export function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>();
   const navigate = useNavigate();
-  const { board, setBoard, setAgents, isLoading, setLoading, setError, updateColumn, updateBoard, addColumn, removeColumn, columns, columnPagination, setColumnPagination, setColumnLoadingMore, clearColumnPagination, presence, isBulkSelectMode, setBulkSelectMode } =
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get('view') ?? 'board';
+  const { board, setBoard, setAgents, isLoading, setLoading, setError, updateColumn, updateBoard, addColumn, removeColumn, columns, columnPagination, setColumnPagination, setColumnLoadingMore, clearColumnPagination, presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } =
     useBoardStore();
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateFeature, setShowCreateFeature] = useState(false);
@@ -120,6 +123,14 @@ export function BoardPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showCreateTask, showCreateFeature, showAgentPanel, showStats, showBoardSettings, showCreateColumn, helpOpen, settingsColumn, showDepGraph]);
+
+  const prevViewRef = useRef(view);
+  useEffect(() => {
+    if (prevViewRef.current !== view) {
+      clearTaskSelection();
+    }
+    prevViewRef.current = view;
+  }, [view, clearTaskSelection]);
 
   const loadColumnTasks = useCallback(async (colId: string, offset: number = 0) => {
     if (!boardId) return;
@@ -420,7 +431,11 @@ export function BoardPage() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          <Board onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
+          {view === 'table' && boardId ? (
+            <TaskTableView boardId={boardId} />
+          ) : (
+            <Board onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
+          )}
         </div>
 
         {isBulkSelectMode && boardId && (

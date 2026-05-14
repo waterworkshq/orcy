@@ -9,6 +9,8 @@ export interface UiSlice {
   selectedFeatureIds: string[];
   notifications: Notification[];
   collapsedColumns: Record<string, boolean>;
+  isTaskBulkSelectMode: boolean;
+  selectedTaskIds: string[];
   setSelectedFeature: (featureId: string | null) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -20,6 +22,10 @@ export interface UiSlice {
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
   toggleColumnCollapsed: (columnId: string) => void;
+  setTaskBulkSelectMode: (enabled: boolean) => void;
+  toggleTaskSelection: (taskId: string) => void;
+  clearTaskSelection: () => void;
+  selectTaskIds: (taskIds: string[]) => void;
 }
 
 export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
@@ -30,6 +36,8 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   selectedFeatureIds: [],
   notifications: [],
   collapsedColumns: {},
+  isTaskBulkSelectMode: false,
+  selectedTaskIds: [],
 
   setSelectedFeature: (featureId) => set({ selectedFeatureId: featureId }),
   setLoading: (isLoading) => set({ isLoading }),
@@ -73,4 +81,18 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
         [columnId]: !state.collapsedColumns[columnId],
       },
     })),
+
+  setTaskBulkSelectMode: (enabled) =>
+    set({ isTaskBulkSelectMode: enabled, selectedTaskIds: [] }),
+
+  toggleTaskSelection: (taskId) =>
+    set((state) => ({
+      selectedTaskIds: state.selectedTaskIds.includes(taskId)
+        ? state.selectedTaskIds.filter((id) => id !== taskId)
+        : [...state.selectedTaskIds, taskId],
+    })),
+
+  clearTaskSelection: () => set({ selectedTaskIds: [] }),
+
+  selectTaskIds: (taskIds) => set({ selectedTaskIds: taskIds }),
 });
