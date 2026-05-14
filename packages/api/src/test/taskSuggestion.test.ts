@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { Task, TaskPriority, Feature } from '../models/index.js';
-import { scoreTask } from '../services/taskScoring.js';
+import type { Task, TaskPriority, Feature, Agent } from '../models/index.js';
+import { scoreTask, computeSlaUrgencyWeight } from '../services/taskScoring.js';
 
 const mockGetFeatureById = vi.hoisted(() => vi.fn<(featureId: string) => Feature | null>().mockReturnValue(null));
 
@@ -146,5 +146,55 @@ describe('taskSuggestion scoring factors', () => {
     const scorePoor = scoreTask(poorlyMatched, 'backend', ['typescript', 'node']);
 
     expect(scoreWell).toBeGreaterThan(scorePoor);
+  });
+});
+
+describe('SLA urgency is not double-counted', () => {
+  it('computeSlaUrgencyWeight returns correct values for each threshold', () => {
+    expect(computeSlaUrgencyWeight(null)).toBe(0);
+    expect(computeSlaUrgencyWeight(new Date(Date.now() + 10 * 86400000).toISOString())).toBe(0);
+    expect(computeSlaUrgencyWeight(new Date(Date.now() - 1).toISOString())).toBe(35);
+    expect(computeSlaUrgencyWeight(new Date(Date.now() + 12 * 3600000).toISOString())).toBe(28);
+    expect(computeSlaUrgencyWeight(new Date(Date.now() + 2 * 86400000).toISOString())).toBe(18);
+    expect(computeSlaUrgencyWeight(new Date(Date.now() + 5 * 86400000).toISOString())).toBe(8);
+  });
+
+  it('scoreTask already includes SLA urgency weight', () => {
+    const now = new Date().toISOString();
+    const breachedSla = new Date(Date.now() - 1000).toISOString();
+    mockGetFeatureById.mockImplementation((id: string) => {
+      if (id === 'feat-sla') return makeFeature({ slaDeadlineAt: breachedSla });
+      return makeFeature({ slaDeadlineAt: null });
+    });
+
+    const slaTask = makeTask({
+      id: 'sla', title: 'sla', priority: 'medium', createdAt: now, featureId: 'feat-sla',
+    });
+    const noSlaTask = makeTask({
+      id: 'nosla', title: 'nosla', priority: 'medium', createdAt: now, featureId: 'feat-nosla',
+    });
+
+    const scoreDiff = scoreTask(slaTask) - scoreTask(noSlaTask);
+    expect(scoreDiff).toBe(35);
+  });
+
+  it('scoreTask SLA contribution is exactly computeSlaUrgencyWeight output', () => {
+    const now = new Date().toISOString();
+    const within24h = new Date(Date.now() + 12 * 3600000).toISOString();
+    mockGetFeatureById.mockImplementation((id: string) => {
+      if (id === 'feat-sla') return makeFeature({ slaDeadlineAt: within24h });
+      return makeFeature({ slaDeadlineAt: null });
+    });
+
+    const slaTask = makeTask({
+      id: 'sla', title: 'sla', priority: 'low', createdAt: now, featureId: 'feat-sla',
+    });
+    const noSlaTask = makeTask({
+      id: 'nosla', title: 'nosla', priority: 'low', createdAt: now, featureId: 'feat-nosla',
+    });
+
+    const expectedWeight = computeSlaUrgencyWeight(within24h);
+    const scoreDiff = scoreTask(slaTask) - scoreTask(noSlaTask);
+    expect(scoreDiff).toBe(expectedWeight);
   });
 });

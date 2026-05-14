@@ -1,4 +1,4 @@
-import { scoreTask } from './taskScoring.js';
+import { scoreTask, computeSlaUrgencyWeight, PRIORITY_WEIGHTS, computeCapabilityWeight } from './taskScoring.js';
 import * as taskRepo from '../repositories/task.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
@@ -13,6 +13,7 @@ const MS_PER_DAY = 86_400_000;
 export interface SuggestionFactors {
   priorityWeight: number;
   urgencyWeight: number;
+  slaUrgencyWeight: number;
   capabilityWeight: number;
   dependencyBonus: number;
   specializationBonus: number;
@@ -89,9 +90,10 @@ function scoreWithFactors(
   const baseScore = scoreTask(task, agent.domain, agent.capabilities);
 
   const factors: SuggestionFactors = {
-    priorityWeight: getPriorityContribution(task),
+    priorityWeight: PRIORITY_WEIGHTS[task.priority] ?? 20,
     urgencyWeight: 0,
-    capabilityWeight: getCapabilityContribution(task, agent.domain, agent.capabilities),
+    slaUrgencyWeight: 0,
+    capabilityWeight: computeCapabilityWeight(task, agent.domain, agent.capabilities),
     dependencyBonus: 0,
     specializationBonus: 0,
     workloadPenalty: 0,
@@ -99,6 +101,23 @@ function scoreWithFactors(
   };
 
   let totalScore = baseScore;
+
+  const feature = task.featureId ? featureRepo.getFeatureById(task.featureId) : null;
+  const slaDeadline = feature?.slaDeadlineAt ?? null;
+  const slaWeight = computeSlaUrgencyWeight(slaDeadline);
+  if (slaWeight > 0) {
+    factors.slaUrgencyWeight = slaWeight;
+    const ms = slaDeadline ? new Date(slaDeadline).getTime() - Date.now() : 0;
+    if (ms < 0) {
+      reasons.push('SLA breached');
+    } else if (ms < MS_PER_DAY) {
+      reasons.push('SLA deadline within 24h');
+    } else if (ms < 3 * MS_PER_DAY) {
+      reasons.push('SLA deadline within 3 days');
+    } else {
+      reasons.push('SLA deadline within 7 days');
+    }
+  }
 
   const workloadTotal = claimedCount + inProgressCount;
   if (workloadTotal > 1) {
@@ -135,23 +154,6 @@ function scoreWithFactors(
     reasons,
     factors,
   };
-}
-
-function getPriorityContribution(task: Task): number {
-  const weights: Record<string, number> = { critical: 40, high: 30, medium: 20, low: 10 };
-  return weights[task.priority] ?? 20;
-}
-
-function getCapabilityContribution(task: Task, domain?: string, capabilities?: string[]): number {
-  if (!domain && !capabilities) return 0;
-  let weight = 0;
-  if (domain && task.requiredDomain && task.requiredDomain === domain) weight += 10;
-  if (capabilities && task.requiredCapabilities && task.requiredCapabilities.length > 0) {
-    const agentCapSet = new Set(capabilities.map(c => c.toLowerCase()));
-    const matched = task.requiredCapabilities.filter(c => agentCapSet.has(c.toLowerCase()));
-    weight += Math.min(matched.length * 5, 10);
-  }
-  return weight;
 }
 
 function computeStalePickupBonus(task: Task): number {

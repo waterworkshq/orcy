@@ -1,7 +1,7 @@
 import type { Task, TaskPriority } from '../models/index.js';
 import * as featureRepo from '../repositories/feature.js';
 
-const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
+export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
   critical: 40,
   high: 30,
   medium: 20,
@@ -11,6 +11,7 @@ const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
 const MS_PER_DAY = 86_400_000;
 const MAX_AGE_WEIGHT = 10;
 const AGE_WEIGHT_PER_DAY = 0.5;
+const SLA_URGENCY_WEIGHT_MAX = 35;
 
 export function scoreTask(
   task: Task,
@@ -20,13 +21,14 @@ export function scoreTask(
   const priorityWeight = PRIORITY_WEIGHTS[task.priority] ?? 20;
   const feature = task.featureId ? featureRepo.getFeatureById(task.featureId) : null;
   const urgencyWeight = computeUrgencyWeight(feature?.dueAt ?? null);
+  const slaUrgencyWeight = computeSlaUrgencyWeight(feature?.slaDeadlineAt ?? null);
   const ageWeight = computeAgeWeight(task.createdAt);
   const capabilityWeight = computeCapabilityWeight(
     task,
     agentDomain,
     agentCapabilities
   );
-  return priorityWeight + urgencyWeight + ageWeight + capabilityWeight;
+  return priorityWeight + urgencyWeight + slaUrgencyWeight + ageWeight + capabilityWeight;
 }
 
 function computeUrgencyWeight(dueAt: string | null): number {
@@ -39,12 +41,22 @@ function computeUrgencyWeight(dueAt: string | null): number {
   return 0;
 }
 
+export function computeSlaUrgencyWeight(slaDeadlineAt: string | null): number {
+  if (!slaDeadlineAt) return 0;
+  const ms = new Date(slaDeadlineAt).getTime() - Date.now();
+  if (ms < 0) return SLA_URGENCY_WEIGHT_MAX;
+  if (ms < MS_PER_DAY) return 28;
+  if (ms < 3 * MS_PER_DAY) return 18;
+  if (ms < 7 * MS_PER_DAY) return 8;
+  return 0;
+}
+
 function computeAgeWeight(createdAt: string): number {
   const days = (Date.now() - new Date(createdAt).getTime()) / MS_PER_DAY;
   return Math.min(days * AGE_WEIGHT_PER_DAY, MAX_AGE_WEIGHT);
 }
 
-function computeCapabilityWeight(
+export function computeCapabilityWeight(
   task: Task,
   agentDomain?: string,
   agentCapabilities?: string[]

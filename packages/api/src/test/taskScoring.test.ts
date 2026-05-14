@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { scoreTask, sortTasksBySmartScore } from '../services/taskScoring.js';
+import { scoreTask, sortTasksBySmartScore, PRIORITY_WEIGHTS, computeCapabilityWeight } from '../services/taskScoring.js';
 import type { TaskPriority, Feature } from '../models/index.js';
 import { makeTask } from './factories/task.js';
 import { makeFeature } from './factories/feature.js';
@@ -140,6 +140,70 @@ describe('taskScoring', () => {
     });
   });
 
+  describe('scoreTask - SLA urgency weights', () => {
+    const base = { id: '1', title: 't', priority: 'medium' as TaskPriority, createdAt: new Date().toISOString() };
+
+    it('adds 35 for breached SLA (deadline in past)', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() - 86400000).toISOString() }));
+      const task = makeTask({ ...base });
+      const score = scoreTask(task);
+      expect(score).toBeGreaterThanOrEqual(55);
+    });
+
+    it('adds 28 for SLA deadline within 24h', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 3600000).toISOString() }));
+      const task = makeTask({ ...base });
+      const score = scoreTask(task);
+      expect(score).toBeGreaterThanOrEqual(48);
+    });
+
+    it('adds 18 for SLA deadline within 3 days', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 2 * 86400000).toISOString() }));
+      const task = makeTask({ ...base });
+      const score = scoreTask(task);
+      expect(score).toBeGreaterThanOrEqual(38);
+    });
+
+    it('adds 8 for SLA deadline within 7 days', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 5 * 86400000).toISOString() }));
+      const task = makeTask({ ...base });
+      const score = scoreTask(task);
+      expect(score).toBeGreaterThanOrEqual(28);
+    });
+
+    it('adds 0 for SLA deadline far in the future', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 30 * 86400000).toISOString() }));
+      const task = makeTask({ ...base });
+      const score = scoreTask(task);
+      expect(score).toBeLessThan(21);
+    });
+
+    it('adds 0 for null slaDeadlineAt', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: null }));
+      const task = makeTask({ ...base });
+      const score = scoreTask(task);
+      expect(score).toBeLessThan(21);
+    });
+
+    it('null slaDeadlineAt does not affect total score', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: null, dueAt: null }));
+      const task = makeTask({ ...base, priority: 'medium' });
+      const score = scoreTask(task);
+      expect(score).toBeGreaterThanOrEqual(20);
+      expect(score).toBeLessThan(21);
+    });
+
+    it('SLA and due urgency weights stack', () => {
+      mockGetFeatureById.mockReturnValue(makeFeature({
+        dueAt: new Date(Date.now() - 86400000).toISOString(),
+        slaDeadlineAt: new Date(Date.now() - 86400000).toISOString(),
+      }));
+      const task = makeTask({ ...base, priority: 'medium' });
+      const score = scoreTask(task);
+      expect(score).toBeGreaterThanOrEqual(85);
+    });
+  });
+
   describe('sortTasksBySmartScore', () => {
     it('sorts tasks by score descending', () => {
       const now = new Date().toISOString();
@@ -191,6 +255,46 @@ describe('taskScoring', () => {
       const originalOrder = tasks.map(t => t.id);
       sortTasksBySmartScore(tasks);
       expect(tasks.map(t => t.id)).toEqual(originalOrder);
+    });
+  });
+
+  describe('exported PRIORITY_WEIGHTS', () => {
+    it('contains all priority levels', () => {
+      expect(Object.keys(PRIORITY_WEIGHTS)).toEqual(['critical', 'high', 'medium', 'low']);
+    });
+
+    it('values match scoreTask base contributions', () => {
+      const now = new Date().toISOString();
+      for (const [priority, weight] of Object.entries(PRIORITY_WEIGHTS)) {
+        const task = makeTask({ id: priority, title: priority, priority: priority as TaskPriority, createdAt: now });
+        const score = scoreTask(task);
+        expect(score).toBeGreaterThanOrEqual(weight);
+        expect(score).toBeLessThan(weight + 1);
+      }
+    });
+  });
+
+  describe('exported computeCapabilityWeight', () => {
+    const base = { id: '1', title: 't', priority: 'low' as TaskPriority, createdAt: new Date().toISOString() };
+
+    it('returns 10 for domain match', () => {
+      const task = makeTask({ ...base, requiredDomain: 'backend' });
+      expect(computeCapabilityWeight(task, 'backend')).toBe(10);
+    });
+
+    it('returns 0 for domain mismatch', () => {
+      const task = makeTask({ ...base, requiredDomain: 'backend' });
+      expect(computeCapabilityWeight(task, 'frontend')).toBe(0);
+    });
+
+    it('returns 0 when no agent info provided', () => {
+      const task = makeTask({ ...base, requiredDomain: 'backend', requiredCapabilities: ['typescript'] });
+      expect(computeCapabilityWeight(task)).toBe(0);
+    });
+
+    it('returns 5 per matched capability up to 10', () => {
+      const task = makeTask({ ...base, requiredCapabilities: ['typescript', 'react'] });
+      expect(computeCapabilityWeight(task, undefined, ['typescript', 'react'])).toBe(10);
     });
   });
 });
