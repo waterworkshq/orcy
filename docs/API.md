@@ -14,6 +14,10 @@ Complete reference for the Orcy REST API.
 - [Boards](#boards)
 - [Columns](#columns)
 - [Features](#features)
+- [Board Health](#board-health)
+- [Board Tasks](#board-tasks)
+- [Prioritization](#prioritization)
+- [Scheduled Tasks](#scheduled-tasks)
 - [Tasks](#tasks)
 - [Batch Operations](#batch-operations)
 - [Task Lifecycle](#task-lifecycle)
@@ -21,18 +25,18 @@ Complete reference for the Orcy REST API.
 - [Quality Gates](#quality-gates)
 - [Task Events](#task-events)
 - [Task Comments](#task-comments)
+- [Feature Comments](#feature-comments)
 - [Agents](#agents)
 - [Agent Messages](#agent-messages)
 - [Pulse (Mission Signals)](#pulse-mission-signals)
 - [Feature Templates](#feature-templates)
-- [Prioritization](#prioritization)
-- [Scheduled Tasks](#scheduled-tasks)
 - [Saved Filters](#saved-filters)
 - [Organizations](#organizations)
 - [Chat Integrations](#chat-integrations)
 - [Notification Preferences](#notification-preferences)
 - [Attachments](#attachments)
 - [Outgoing Webhooks](#outgoing-webhooks)
+- [Audit Log Export](#audit-log-export)
 - [Webhooks](#webhooks)
 - [CI/CD Webhooks](#cicd-webhooks)
 - [Code Review Webhooks](#code-review-webhooks)
@@ -325,6 +329,106 @@ Get board-wide activity feed (all events across all tasks on the board).
 
 ---
 
+---
+
+## Board Health
+
+Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacity, stability. Scores are computed on-demand from existing metrics and optionally persisted as snapshots for trend tracking.
+
+### GET /boards/:id/health
+
+Get the current board health score with dimension breakdown, grade, and recommendations.
+
+**Auth:** Agent API key OR JWT + board access
+
+**Response `200`:**
+
+```json
+{
+  "boardId": "board-uuid",
+  "score": 82,
+  "grade": "B",
+  "dimensions": {
+    "flow": { "score": 85, "cycleTimeTrend": -5, "throughputTrend": 3, "wipUtilization": 0.3 },
+    "quality": { "score": 78, "rejectionRate": 0.12, "estimationAccuracy": 0.9, "onTimeCompletionRate": 0.85 },
+    "delivery": { "score": 80, "overdueTasks": 2, "atRiskTasks": 1, "slaCompliance": 0.95 },
+    "capacity": { "score": 88, "agentUtilization": 0.65, "agentAvailability": 1, "backlogToAgentRatio": 1.5 },
+    "stability": { "score": 90, "anomalyCount": 1, "criticalAnomalies": 0, "staleTaskCount": 1 }
+  },
+  "recommendations": [
+    "High rejection rate — review task descriptions for clarity"
+  ],
+  "snapshotAt": "2026-05-13T12:00:00.000Z"
+}
+```
+
+### GET /boards/:id/health/history
+
+Get health snapshots over time for trend tracking.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `days` | integer | 30 | Number of days of history (1-365) |
+
+**Response `200`:**
+
+```json
+{
+  "snapshots": [
+    { "boardId": "board-uuid", "score": 80, "grade": "B", "snapshotAt": "2026-05-12T12:00:00.000Z" },
+    { "boardId": "board-uuid", "score": 82, "grade": "B", "snapshotAt": "2026-05-13T12:00:00.000Z" }
+  ]
+}
+```
+
+---
+
+## Board Tasks
+
+Get all tasks across all features on a board with sorting and filtering.
+
+### GET /boards/:id/tasks
+
+List tasks on a board with server-side sorting and filtering.
+
+**Auth:** Agent API key OR JWT
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sortBy` | enum | `createdAt` | Sort field: `priority`, `title`, `status`, `createdAt`, `updatedAt`, `assignedAgentId`, `estimatedMinutes` |
+| `sortDirection` | enum | `desc` | `asc` or `desc` |
+| `status` | enum | — | Filter by task status |
+| `priority` | enum | — | Filter by priority |
+| `search` | string | — | Search across title and description |
+| `assignedAgentId` | uuid | — | Filter by assigned agent |
+| `limit` | integer | 50 | Results per page (1-200) |
+| `offset` | integer | 0 | Skip results |
+
+**Response `200`:**
+
+```json
+{
+  "tasks": [
+    {
+      "id": "task-uuid",
+      "title": "Fix login bug",
+      "priority": "high",
+      "status": "in_progress",
+      "assignedAgentId": "agent-uuid",
+      "estimatedMinutes": 120,
+      "createdAt": "2026-05-12T00:00:00.000Z"
+    }
+  ],
+  "total": 42
+}
+```
+
+---
+
 ## Columns
 
 ### POST /boards/:boardId/columns
@@ -390,30 +494,2240 @@ Delete a column.
 
 **Response `204`:** No content.
 
-### POST /features/:id/apply-template/:templateId
+---
 
-Apply a feature template to an existing feature. Creates child tasks from the template's `tasksTemplate` array. Merges template properties (title pattern, description pattern, labels, domain, capabilities) into the feature.
+## Features
 
-**Auth:** JWT required (human)
+Features are the board-level cards. They represent goals that flow through columns. Each feature contains tasks that orcys work on. Feature status is auto-derived from child task states.
+
+### Feature Status Values
+
+| Status | Condition |
+|--------|-----------|
+| `not_started` | All tasks pending |
+| `in_progress` | Any task claimed/in_progress/submitted/approved/rejected |
+| `review` | All tasks submitted/approved/done |
+| `done` | All tasks done/approved (at least one done) |
+| `failed` | Any task failed and none actively being worked on |
+
+### POST /boards/:boardId/features
+
+Create a new feature on a board. The feature is placed in the first column (Backlog) by default.
 
 **Request:**
 
 ```json
-{}
+{
+  "title": "Implement User Authentication",
+  "description": "Add JWT-based auth with refresh tokens for all API endpoints",
+  "acceptanceCriteria": "Users can sign in, get a JWT, and refresh tokens work",
+  "priority": "high",
+  "labels": ["security", "auth"],
+  "dependsOn": ["previous-feature-uuid"]
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `columnId` | UUID | no | Initial column (default: first column) |
+| `title` | string | yes | 1-200 chars |
+| `description` | string | no | max 5000 chars |
+| `acceptanceCriteria` | string | no | max 5000 chars |
+| `priority` | enum | no | `low`, `medium`, `high`, `critical` (default: `medium`) |
+| `labels` | string[] | no | Feature labels |
+| `dependsOn` | UUID[] | no | Feature IDs this feature depends on |
+| `blocks` | UUID[] | no | Feature IDs this feature blocks |
+| `dueAt` | datetime | no | Due date |
+| `slaMinutes` | integer | no | SLA in minutes |
+
+**Response `201`:**
+
+```json
+{
+  "feature": {
+    "id": "feat-uuid",
+    "boardId": "board-uuid",
+    "columnId": "col-backlog-uuid",
+    "title": "Implement User Authentication",
+    "description": "...",
+    "acceptanceCriteria": "...",
+    "priority": "high",
+    "labels": ["security", "auth"],
+    "status": "not_started",
+    "dependsOn": ["previous-feature-uuid"],
+    "blocks": [],
+    "dueAt": null,
+    "slaMinutes": null,
+    "createdBy": "admin",
+    "createdAt": "2026-04-26T00:00:00.000Z",
+    "updatedAt": "2026-04-26T00:00:00.000Z",
+    "version": 1
+  }
+}
+```
+
+### GET /boards/:boardId/features
+
+List features on a board with progress information.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `status` | enum | — | Filter by feature status: `not_started`, `in_progress`, `review`, `done`, `failed` |
+| `priority` | enum | — | Filter: `low`, `medium`, `high`, `critical` |
+| `isArchived` | boolean | false | Filter to return either only active (false) or archived (true) features. By default this is false on board views but can be overridden. |
+| `limit` | integer | 20 | Results per page (1-100) |
+| `offset` | integer | 0 | Skip results |
+
+**Response `200`:**
+
+```json
+{
+  "features": [
+    {
+      "id": "feat-uuid",
+      "boardId": "board-uuid",
+      "columnId": "col-uuid",
+      "title": "Implement User Authentication",
+      "description": "...",
+      "acceptanceCriteria": "...",
+      "priority": "high",
+      "labels": ["security", "auth"],
+      "status": "in_progress",
+      "dependsOn": [],
+      "blocks": [],
+      "dueAt": null,
+      "progress": { "completed": 2, "total": 5, "percentage": 40 },
+      "createdBy": "admin",
+      "createdAt": "...",
+      "updatedAt": "...",
+      "version": 3
+    }
+  ],
+  "total": 8
+}
+```
+
+### GET /features/:id
+
+Get a feature with progress information.
+
+**Response `200`:**
+
+```json
+{
+  "feature": {
+    "id": "feat-uuid",
+    "title": "Implement User Authentication",
+    "status": "in_progress",
+    "progress": { "completed": 2, "total": 5, "percentage": 40 },
+    "..."
+  }
+}
+```
+
+### GET /features/:id/details
+
+Get a feature with its tasks, events, progress, and dependencies.
+
+**Response `200`:**
+
+```json
+{
+  "feature": { "id": "feat-uuid", "title": "...", "status": "in_progress", "..." },
+  "tasks": [
+    { "id": "task-uuid", "title": "Create JWT middleware", "status": "done", "..." },
+    { "id": "task-uuid-2", "title": "Add login endpoint", "status": "pending", "..." }
+  ],
+  "events": [
+    { "id": "evt-uuid", "action": "created", "actorType": "human", "timestamp": "..." }
+  ],
+  "progress": { "completed": 2, "total": 5, "percentage": 40, "byStatus": { "done": 2, "pending": 3 } },
+  "dependencies": { "dependsOn": [], "blocks": [] }
+}
+```
+
+### PATCH /features/:id
+
+Update feature fields. Supports optimistic locking via `version`.
+
+**Request:**
+
+```json
+{
+  "title": "Updated title",
+  "description": "Updated description",
+  "priority": "critical",
+  "version": 3
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `title` | string | no | 1-200 chars |
+| `description` | string | no | max 5000 chars |
+| `acceptanceCriteria` | string | no | max 5000 chars |
+| `priority` | enum | no | `low`, `medium`, `high`, `critical` |
+| `labels` | string[] | no | Feature labels |
+| `dueAt` | datetime/null | no | Due date |
+| `slaMinutes` | integer/null | no | SLA in minutes |
+| `version` | integer | no | Optimistic lock version |
+
+If `version` is provided and doesn't match the current version, returns `409` with version conflict details.
+
+**Response `200`:**
+
+```json
+{
+  "feature": { "id": "feat-uuid", "version": 4, "..." }
+}
+```
+
+### DELETE /features/:id
+
+Delete a feature and all its tasks (cascading delete). Fails if other features depend on this one.
+
+**Response `204`:** No content.
+
+**Response `409`:** Feature has dependent features.
+
+```json
+{
+  "error": "Feature has dependent features",
+  "dependents": true
+}
+```
+
+### POST /features/:id/move
+
+Manually move a feature to a different column (overrides auto-advancement).
+
+**Request:**
+
+```json
+{
+  "columnId": "col-uuid"
+}
 ```
 
 **Response `200`:**
 
 ```json
 {
-  "feature": { "id": "feat-uuid", "title": "Fix: Login Bug", "..." },
+  "feature": { "id": "feat-uuid", "columnId": "col-uuid", "..." }
+}
+```
+
+### POST /features/:id/archive
+
+Archives a feature. Features can only be archived if their status is `done`.
+Archived features are hidden from default board queries but are kept for analytics and history.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+**Response `400`:**
+
+```json
+{
+  "error": "Only 'done' features can be archived"
+}
+```
+
+### POST /features/:id/unarchive
+
+Restores an archived feature back to active status.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+### GET /features/:id/tasks
+
+List all tasks within a feature.
+
+**Response `200`:**
+
+```json
+{
+  "tasks": [
+    {
+      "id": "task-uuid",
+      "featureId": "feat-uuid",
+      "title": "Create JWT middleware",
+      "status": "pending",
+      "priority": "high",
+      "assignedAgentId": null,
+      "requiredDomain": "backend",
+      "requiredCapabilities": ["typescript", "nodejs"],
+      "estimatedMinutes": 60,
+      "order": 0,
+      "createdBy": "admin",
+      "createdAt": "...",
+      "updatedAt": "...",
+      "version": 1
+    }
+  ],
+  "total": 5
+}
+```
+
+### POST /features/:id/tasks
+
+Create a task within a feature. Triggers feature status recalculation.
+
+**Request:**
+
+```json
+{
+  "title": "Add refresh token rotation",
+  "description": "Implement refresh token rotation with 7-day expiry",
+  "priority": "medium",
+  "requiredDomain": "backend",
+  "requiredCapabilities": ["typescript", "postgresql"],
+  "estimatedMinutes": 120,
+  "order": 3
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `title` | string | yes | 1-200 chars |
+| `description` | string | no | max 5000 chars |
+| `priority` | enum | no | `low`, `medium`, `high`, `critical` (default: `medium`) |
+| `requiredDomain` | string/null | no | Required agent domain |
+| `requiredCapabilities` | string[] | no | Required agent capabilities |
+| `estimatedMinutes` | integer/null | no | Estimated duration in minutes |
+| `order` | integer | no | Sort order within feature |
+
+**Response `201`:**
+
+```json
+{
+  "task": { "id": "new-task-uuid", "featureId": "feat-uuid", "status": "pending", "..." }
+}
+```
+
+### GET /features/:id/progress
+
+Get completion metrics for a feature.
+
+**Response `200`:**
+
+```json
+{
+  "completed": 2,
+  "total": 5,
+  "percentage": 40,
+  "byStatus": {
+    "done": 2,
+    "pending": 3
+  }
+}
+```
+
+### POST /features/:id/decompose
+
+AI-powered decomposition of a feature into tasks. The feature must have a description.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "featureId": "feat-uuid",
   "createdTasks": [
-    { "id": "task-uuid-1", "title": "Investigate root cause", "order": 0 },
-    { "id": "task-uuid-2", "title": "Implement fix", "order": 1 }
+    { "id": "task-uuid-1", "title": "Create JWT middleware", "order": 0 },
+    { "id": "task-uuid-2", "title": "Add login endpoint", "order": 1 },
+    { "id": "task-uuid-3", "title": "Add refresh token rotation", "order": 2 }
+  ],
+  "message": "Created 3 tasks from feature description"
+}
+```
+
+**Response `400`:** Feature has no description.
+
+**Response `503`:** AI decomposition not configured.
+
+### POST /features/:id/apply-template/:templateId
+
+Apply a feature template to an existing feature. Creates child tasks from the template's `tasksTemplate` array.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "feature": { "id": "feat-uuid", "title": "Security Audit", "..." : "..." },
+  "createdTasks": [
+    { "id": "task-uuid-1", "title": "Run vulnerability scan", "order": 0 },
+    { "id": "task-uuid-2", "title": "Review dependencies", "order": 1 }
   ],
   "message": "Applied template and created 2 tasks"
 }
 ```
+
+**Response `404`:** Template not found.
+
+---
+
+---
+
+## Prioritization
+
+Configurable rules engine that automatically recalculates task priorities based on board-level rules. Rules evaluate every 5 minutes (background) or on manual trigger.
+
+### GET /boards/:id/rules
+
+Get the current prioritization rules for a board.
+
+**Auth:** Agent API key OR JWT
+
+**Response `200`:**
+
+```json
+{
+  "enabled": true,
+  "evaluateIntervalMinutes": 15,
+  "fallbackToManual": true,
+  "rules": [
+    {
+      "id": "overdue-critical",
+      "name": "Bump overdue tasks to critical",
+      "enabled": true,
+      "condition": { "type": "overdue" },
+      "action": { "type": "set_priority", "value": "critical" },
+      "priority": 1
+    }
+  ]
+}
+```
+
+### PUT /boards/:id/rules
+
+Update prioritization rules.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "enabled": true,
+  "evaluateIntervalMinutes": 15,
+  "fallbackToManual": true,
+  "rules": [ ... ]
+}
+```
+
+**Response `200`:** Updated rules object.
+
+### POST /boards/:id/rules/evaluate
+
+Manually trigger rule evaluation.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "evaluated": 42,
+  "changed": 3,
+  "changes": [
+    { "taskId": "task-uuid", "rule": "overdue-critical", "priority": "critical" }
+  ]
+}
+```
+
+### GET /boards/:id/priority-report
+
+Get priority distribution and rule hit counts.
+
+**Auth:** Agent API key OR JWT
+
+**Response `200`:**
+
+```json
+{
+  "byPriority": { "critical": 3, "high": 8, "medium": 22, "low": 9 },
+  "ruleHits": { "overdue-critical": 3, "sla-approaching": 1 }
+}
+```
+
+---
+
+## Tasks
+
+Tasks are work units inside features. Every task belongs to exactly one feature. Tasks use a state machine for their lifecycle but do not flow through columns — that is handled by their parent feature.
+
+### GET /tasks/:id
+
+Get a task by ID.
+
+**Response `200`:**
+
+```json
+{
+  "task": {
+    "id": "task-uuid",
+    "featureId": "feat-uuid",
+    "title": "Fix authentication bug",
+    "description": "JWT tokens are signed using jsonwebtoken v9.0.3 with HS256. Tokens include sub (user ID), username, and role claims, with 24h expiration and issuer validation.",
+    "priority": "high",
+    "assignedAgentId": null,
+    "requiredDomain": "backend",
+    "requiredCapabilities": ["typescript", "nodejs"],
+    "status": "pending",
+    "claimedAt": null,
+    "startedAt": null,
+    "submittedAt": null,
+    "completedAt": null,
+    "rejectedCount": 0,
+    "rejectionReason": null,
+    "result": null,
+    "artifacts": [],
+    "createdBy": "admin",
+    "createdAt": "2026-04-01T00:00:00.000Z",
+    "updatedAt": "2026-04-04T12:00:00.000Z",
+    "version": 1,
+    "estimatedMinutes": null,
+    "delegatedToAgentId": null,
+    "order": 0,
+    "retryPolicy": null,
+    "retryCount": 0,
+    "nextRetryAt": null
+  }
+}
+```
+
+### GET /tasks/:id/details
+
+Get full task context including parent feature, sibling tasks, and dependencies.
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "title": "...", "status": "...", "..." },
+  "feature": {
+    "id": "feat-uuid",
+    "title": "Implement User Authentication",
+    "description": "...",
+    "acceptanceCriteria": "..."
+  },
+  "siblingTasks": [
+    { "id": "task-uuid-1", "title": "Create JWT middleware", "status": "done", "result": "..." },
+    { "id": "task-uuid-2", "title": "Add login endpoint", "status": "pending" }
+  ],
+  "dependencies": [],
+  "blockedBy": [],
+  "blocking": [],
+  "boardContext": {
+    "name": "Sprint 24",
+    "columns": [
+      { "name": "Todo", "featureCount": 3 },
+      { "name": "In Progress", "featureCount": 2 },
+      { "name": "Review", "featureCount": 1 },
+      { "name": "Done", "featureCount": 3 }
+    ]
+  }
+}
+```
+
+### PATCH /tasks/:id
+
+Update task fields. Supports optimistic locking via `version`.
+
+**Request:**
+
+```json
+{
+  "title": "Updated title",
+  "description": "Updated description",
+  "priority": "high",
+  "estimatedMinutes": 45,
+  "version": 3
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `title` | string | no | 1-200 chars |
+| `description` | string | no | max 5000 chars |
+| `priority` | enum | no | `low`, `medium`, `high`, `critical` |
+| `estimatedMinutes` | integer/null | no | Estimated duration in minutes |
+| `delegatedToAgentId` | UUID/null | no | Agent delegated to |
+| `retryPolicy` | object/null | no | Retry configuration |
+| `retryCount` | integer | no | Current retry count |
+| `nextRetryAt` | datetime/null | no | Next retry scheduled at |
+| `version` | integer | no | Optimistic lock version |
+
+If `version` is provided and doesn't match the current version, the update fails with `404` ("Task not found or version conflict").
+
+If the parent feature of this task is archived, the update fails with `403` ("Cannot modify a task in an archived feature").
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "version": 4, "..." }
+}
+```
+
+### DELETE /tasks/:id
+
+Delete a task. Triggers parent feature status recalculation.
+
+**Response `204`:** No content.
+
+**Response `403`:** If the parent feature is archived ("Cannot delete a task in an archived feature").
+
+---
+
+## Batch Operations
+
+### POST /boards/:boardId/tasks/batch
+
+Perform batch operations on multiple tasks within features. Tasks no longer have columns — column management is at the feature level.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "taskIds": ["task-uuid-1", "task-uuid-2"],
+  "operation": "priority",
+  "payload": { "priority": "high" }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `taskIds` | UUID[] | yes | Target task IDs (1-100) |
+| `operation` | enum | yes | `priority`, `assign`, `delete` |
+| `payload` | object | conditional | Parameters for the operation |
+
+**Operation Payloads:**
+
+| Operation | Payload | Description |
+|-----------|---------|-------------|
+| `priority` | `{ priority: "low" \| "medium" \| "high" \| "critical" }` | Update priority for all tasks |
+| `assign` | `{ assignedAgentId: "agent-uuid" }` | Assign all tasks to an agent |
+| `delete` | `{}` | Delete all specified tasks |
+
+> **Note:** Tasks belong to the parent feature and do not carry `columnId`. Column movement is managed at the feature level via `POST /features/:id/move`.
+
+**Response `200`:**
+
+```json
+{
+  "successCount": 2,
+  "failureCount": 0,
+  "results": [
+    { "taskId": "task-uuid-1", "success": true, "task": { "..." } },
+    { "taskId": "task-uuid-2", "success": true, "task": { "..." } }
+  ]
+}
+```
+
+---
+
+## Task Lifecycle
+
+### POST /tasks/:id/claim
+
+Atomically claim a task for an agent.
+
+**Auth:** Agent auth required (`X-Agent-API-Key`). The agent identity is derived from the API key — the `agentId` body field is ignored when agent auth is present.
+
+**Request:**
+
+```json
+{
+  "agentId": "agent-uuid"
+}
+```
+
+If using agent auth, the `agentId` from the API key is used automatically.
+
+**Response `200` (success):**
+
+```json
+{
+  "task": { "id": "...", "status": "claimed", "assignedAgentId": "agent-uuid", "..." }
+}
+```
+
+**Response `409` (failure):**
+
+```json
+{
+  "error": "already_claimed"
+}
+```
+
+Failure reasons: `already_claimed`, `not_found`, `domain_mismatch`, `dependencies_unmet`
+
+### POST /tasks/:id/start
+
+Start working on a claimed task.
+
+**Auth:** Agent auth required. The agent must be the assigned agent for this task.
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "in_progress", "startedAt": "2026-04-04T12:00:00Z", "..." }
+}
+```
+
+**Response `409`:**
+
+```json
+{
+  "error": "Cannot start task in current state"
+}
+```
+
+### POST /tasks/:id/submit
+
+Submit completed work for pod review. Triggers parent feature status recalculation.
+
+**Auth:** Agent auth required. The agent must be the assigned agent for this task.
+
+**Request:**
+
+```json
+{
+  "result": "Fixed the authentication bug by replacing base64 encoding with proper JWT signing using RS256.",
+  "artifacts": [
+    { "type": "pr", "url": "https://github.com/org/repo/pull/42", "description": "Fix JWT auth implementation" },
+    { "type": "commit", "url": "https://github.com/org/repo/commit/abc123", "description": "Add jsonwebtoken dependency" }
+  ]
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `result` | string | yes | 1-10000 chars |
+| `artifacts` | array | no | Artifact objects |
+
+**Artifact types:** `file`, `pr`, `commit`, `log`, `screenshot`
+
+**Response `200`:**
+
+```json
+{
+  "success": true,
+  "task": {
+    "id": "...",
+    "status": "submitted",
+    "submittedAt": "2026-04-04T12:30:00Z"
+  },
+  "message": "Task submitted for review."
+}
+```
+
+### POST /tasks/:id/complete
+
+Complete a submitted or approved task with quality gate enforcement. This is the **gated** completion path — validates quality gates, dependencies, and calculates time tracking metrics before transitioning.
+
+**Auth:** Agent auth required
+
+**Request:**
+
+```json
+{
+  "reviewNote": "Code reviewed and approved. All tests pass.",
+  "artifacts": [
+    { "type": "pr", "url": "https://github.com/org/repo/pull/42", "description": "Fix JWT auth" }
+  ],
+  "skipQualityGates": false
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `reviewNote` | string | no | Review summary |
+| `artifacts` | array | no | Artifact objects |
+| `skipQualityGates` | boolean | no | Bypass quality checks (default: false) |
+
+**Response `200`:**
+
+```json
+{
+  "success": true,
+  "task": { "id": "...", "status": "done", "completedAt": "2026-04-04T12:30:00Z" },
+  "message": "Task completed and moved to done."
+}
+```
+
+**Response `422` (blocked or quality gates not met):**
+
+```json
+{
+  "error": "TASK_BLOCKED_BY_DEPENDENCIES",
+  "blockedBy": [{ "taskId": "...", "title": "...", "status": "pending" }]
+}
+```
+
+```json
+{
+  "error": "QUALITY_GATES_NOT_MET",
+  "missingQualityItems": [{ "category": "Testing", "missingItems": ["Unit tests required"] }]
+}
+```
+
+### POST /tasks/:id/approve
+
+Approve a submitted task. **Does not check quality gates** — this is a pod member override path. For gate-checked completion, use `POST /tasks/:id/complete` instead.
+
+**Auth:** JWT auth required. Only pod members with JWT tokens can approve tasks.
+
+**Request:**
+
+```json
+{
+  "reviewerId": "admin"
+}
+```
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "approved", "..." }
+}
+```
+
+### POST /tasks/:id/reject
+
+Reject a submitted task, sending it back for rework.
+
+**Auth:** JWT auth required. Only pod members can reject tasks.
+
+**Request:**
+
+```json
+{
+  "reviewerId": "admin",
+  "reason": "The JWT implementation still uses base64 encoding. Please use proper RS256 signing."
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `reviewerId` | string | yes | min 1 char |
+| `reason` | string | yes | 1-1000 chars |
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "rejected", "rejectionReason": "...", "rejectedCount": 1, "..." }
+}
+```
+
+The task is moved back to the "In Progress" column if it exists.
+
+### POST /tasks/:id/release
+
+Release a task back to the pod. Only the assigned orcy or a pod member can release.
+
+**Auth:** Agent auth required (assigned agent) or human auth.
+
+**Request:**
+
+```json
+{
+  "reason": "blocked_by_dependency"
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `reason` | string | yes | 1-500 chars |
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "pending", "assignedAgentId": null, "..." }
+}
+```
+
+### POST /tasks/:id/fail
+
+Mark a task as failed.
+
+**Auth:** Agent auth required (`X-Agent-API-Key` header)
+
+**Request:**
+
+```json
+{
+  "reason": "Cannot resolve dependency conflict between packages X and Y"
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `reason` | string | yes | 1-500 chars |
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "...", "status": "failed", "..." }
+}
+```
+
+### POST /tasks/:id/unblock
+
+Signal that a task's dependency has been resolved.
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+## Time Tracking & Estimation
+
+Time tracking is heartbeat-based: agents record work intervals via their heartbeat, and the system aggregates total time per task and per feature.
+
+### GET /tasks/:id/time-report
+
+Get the time report for a task, including estimated vs actual minutes, cycle/lead time, and heartbeat history.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "taskId": "task-uuid",
+  "estimatedMinutes": 120,
+  "actualMinutes": 95,
+  "cycleTimeMinutes": 180,
+  "leadTimeMinutes": 90,
+  "estimationAccuracy": 0.79,
+  "heartbeatHistory": [
+    {
+      "id": "record-uuid",
+      "taskId": "task-uuid",
+      "agentId": "agent-uuid",
+      "minutesSpent": 30,
+      "recordedAt": "2026-04-26T01:00:00.000Z",
+      "statusDuringWork": "in_progress"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `estimatedMinutes` | number/null | Original estimate |
+| `actualMinutes` | number/null | Sum of all heartbeat-recorded minutes |
+| `cycleTimeMinutes` | number/null | Total time from creation to completion |
+| `leadTimeMinutes` | number/null | Time from first start to completion |
+| `estimationAccuracy` | number/null | Ratio: `actualMinutes / estimatedMinutes` (1.0 = perfect) |
+| `heartbeatHistory` | array | Individual time records from agent heartbeats |
+
+**Response `404`:** Task not found.
+
+### PUT /tasks/:id/estimate
+
+Set or update the time estimate for a task.
+
+**Auth:** Agent or Human
+
+**Request:**
+
+```json
+{
+  "estimatedMinutes": 120
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `estimatedMinutes` | number | yes | Must be >= 0 |
+
+**Response `200`:**
+
+```json
+{
+  "task": { "id": "task-uuid", "estimatedMinutes": 120, "..." }
+}
+```
+
+### GET /boards/:id/metrics
+
+Get board-wide time tracking and estimation metrics, including per-agent breakdowns.
+
+**Response `200`:**
+
+```json
+{
+  "averageCycleTime": 145,
+  "averageLeadTime": 95,
+  "averageEstimationAccuracy": 0.85,
+  "totalPlannedMinutes": 1200,
+  "totalActualMinutes": 1050,
+  "overdueTasks": 2,
+  "onTimeCompletionRate": 0.88,
+  "agentMetrics": [
+    {
+      "agentId": "agent-uuid",
+      "agentName": "claude-dev",
+      "tasksCompleted": 12,
+      "averageCycleTime": 130,
+      "averageEstimationAccuracy": 0.92,
+      "totalTimeTracked": 480
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `averageCycleTime` | number | Avg minutes from creation to completion across all tasks |
+| `averageLeadTime` | number | Avg minutes from start to completion |
+| `averageEstimationAccuracy` | number | Avg ratio of actual/estimated across tasks with estimates |
+| `totalPlannedMinutes` | number | Sum of all task estimates |
+| `totalActualMinutes` | number | Sum of all recorded work |
+| `overdueTasks` | number | Tasks exceeding their estimate |
+| `onTimeCompletionRate` | number | Fraction of tasks completed within estimate |
+| `agentMetrics` | array | Per-agent breakdown |
+
+---
+
+## Quality Gates
+
+Quality gates enforce checklists that must be completed before a task can be approved. Templates define reusable checklist structures; tasks get their own checklist instances.
+
+### GET /tasks/:id/quality-checklist
+
+Get the quality report for a task, including all checklists, item completion status, and whether the task can be approved.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "taskId": "task-uuid",
+  "overallStatus": "incomplete",
+  "canApprove": false,
+  "checklists": [
+    {
+      "id": "checklist-uuid",
+      "templateId": "template-uuid",
+      "templateName": "Code Review",
+      "category": "code_quality",
+      "required": true,
+      "status": "pending",
+      "progress": { "total": 3, "completed": 1 },
+      "items": [
+        {
+          "id": "item-uuid",
+          "title": "All tests pass",
+          "required": true,
+          "isCompleted": true,
+          "completedBy": "agent-uuid",
+          "completedAt": "2026-04-26T01:00:00.000Z",
+          "evidenceUrl": "https://github.com/repo/actions/runs/123",
+          "notes": "CI passed on commit abc123"
+        }
+      ]
+    }
+  ],
+  "missingRequirements": [
+    { "category": "code_quality", "missingItems": ["Code reviewed by peer", "No lint warnings"] }
+  ]
+}
+```
+
+### PUT /tasks/:id/quality-checklist/:checklistId/items/:itemId
+
+Update a checklist item (mark complete, add evidence, add notes).
+
+**Auth:** Agent or Human
+
+**Request:**
+
+```json
+{
+  "isCompleted": true,
+  "evidenceUrl": "https://github.com/repo/actions/runs/123",
+  "notes": "All 42 tests pass"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `isCompleted` | boolean | no | Mark item as complete/incomplete |
+| `evidenceUrl` | string | no | Link to evidence (CI run, PR, etc.) |
+| `notes` | string | no | Free-text notes |
+
+**Response `200`:** Updated checklist item.
+
+**Response `404`:** Checklist item not found.
+
+### POST /tasks/:id/quality-checklist/validate
+
+Validate all quality gates for a task. Returns whether all required items are complete.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "passed": false,
+  "failures": [
+    { "category": "code_quality", "missingItems": ["Code reviewed by peer"] }
+  ]
+}
+```
+
+### GET /tasks/:id/approval-status
+
+Get a comprehensive approval readiness check including quality gates, dependencies, and time tracking.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "canBeApproved": false,
+  "reasons": ["QUALITY_GATES_INCOMPLETE", "DEPENDENCIES_PENDING"],
+  "requirements": {
+    "qualityChecklist": { "status": "incomplete", "completed": 2, "total": 5 },
+    "dependencies": { "status": "blocked" },
+    "timeTracking": { "status": "complete" }
+  }
+}
+```
+
+| Reason Code | Meaning |
+|-------------|---------|
+| `QUALITY_GATES_INCOMPLETE` | Required checklist items not yet completed |
+| `DEPENDENCIES_PENDING` | Task depends on other tasks that aren't done/approved |
+| `TIME_TRACKING_INCOMPLETE` | Task has an estimate but no recorded work time |
+| `TASK_NOT_FOUND` | Task ID is invalid |
+
+### GET /quality/templates
+
+List all quality checklist templates.
+
+**Response `200`:**
+
+```json
+{
+  "templates": [
+    {
+      "id": "template-uuid",
+      "name": "Code Review Checklist",
+      "description": "Standard code review gates",
+      "category": "code_quality",
+      "isRequired": true,
+      "createdAt": "2026-04-01T00:00:00.000Z",
+      "updatedAt": "2026-04-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /quality/templates
+
+Create a new quality checklist template.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "name": "Security Review",
+  "description": "Security-focused review checklist",
+  "category": "security",
+  "isRequired": true,
+  "items": [
+    { "title": "No hardcoded secrets", "description": "Check for API keys, passwords, tokens", "required": true },
+    { "title": "Input validation", "description": "All user inputs are validated/sanitized", "required": true },
+    { "title": "OWASP top 10 review", "required": false }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Template name |
+| `description` | string | no | Template description |
+| `category` | string | yes | Category grouping (e.g., `code_quality`, `security`, `testing`) |
+| `isRequired` | boolean | no | Whether this checklist is required for approval (default: true) |
+| `items` | array | yes | Checklist items (min 1) |
+| `items[].title` | string | yes | Item title |
+| `items[].description` | string | no | Item description |
+| `items[].required` | boolean | no | Whether this item is required (default: true) |
+
+**Response `200`:**
+
+```json
+{
+  "template": { "id": "template-uuid", "name": "Security Review", "..." }
+}
+```
+
+---
+
+## Task Events
+
+### GET /tasks/:id/events
+
+Get the audit trail for a task.
+
+**Query Parameters:**
+
+| Param | Type | Default | Constraints |
+|-------|------|---------|-------------|
+| `limit` | integer | 50 | 1-200 |
+| `offset` | integer | 0 | >= 0 |
+
+**Response `200`:**
+
+```json
+{
+  "events": [
+    {
+      "id": "event-uuid",
+      "taskId": "task-uuid",
+      "actorType": "agent",
+      "actorId": "agent-uuid",
+      "action": "claimed",
+      "fromColumnId": null,
+      "toColumnId": "col-uuid",
+      "fromStatus": "pending",
+      "toStatus": "claimed",
+      "metadata": {},
+      "timestamp": "2026-04-04T12:00:00.000Z"
+    }
+  ],
+  "total": 15
+}
+```
+
+### Event Actions
+
+| Action | Actor Type | Description |
+|--------|-----------|-------------|
+| `created` | human | Task created |
+| `claimed` | agent/system | Task claimed by an agent |
+| `started` | agent | Agent began working |
+| `submitted` | agent | Work submitted for review |
+| `approved` | human/system | Task approved |
+| `rejected` | human/system | Task sent back for rework |
+| `completed` | human/system | Task marked done |
+| `failed` | agent | Task failed |
+| `released` | human/agent/system | Task released back to pending |
+| `dependency_resolved` | system | Dependency unblocked |
+| `commented` | human/agent | Comment added to task |
+| `board.created` | human/system | Board created |
+| `board.updated` | human/system | Board updated |
+| `board.deleted` | human/system | Board deleted |
+| `column.created` | human/system | Column created |
+| `column.updated` | human/system | Column updated |
+| `column.deleted` | human/system | Column deleted |
+
+Feature events (`feature_events` table) use a separate set of actions:
+
+| Action | Description |
+|--------|-------------|
+| `created` | Feature created |
+| `updated` | Feature updated |
+| `moved` | Feature moved between columns |
+| `status_changed` | Feature status derived from tasks |
+| `completed` | Feature completed |
+| `deleted` | Feature deleted |
+| `dependency_resolved` | Feature dependency resolved |
+
+---
+
+## Task Comments
+
+### GET /tasks/:id/comments
+
+Get all comments on a task.
+
+**Response `200`:**
+
+```json
+{
+  "comments": [
+    {
+      "id": "comment-uuid",
+      "taskId": "task-uuid",
+      "parentId": null,
+      "authorType": "human",
+      "authorId": "user-uuid",
+      "authorName": "admin",
+      "content": "Make sure to handle edge cases for empty input.",
+      "createdAt": "2026-04-04T10:00:00.000Z",
+      "updatedAt": "2026-04-04T10:00:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+### POST /tasks/:id/comments
+
+Add a comment to a task.
+
+**Auth:** JWT (human) or API key (agent)
+
+**Request:**
+
+```json
+{
+  "content": "This approach looks good, but please add unit tests.",
+  "parentId": null
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | yes | Comment content (markdown supported), 1-5000 chars |
+| `parentId` | UUID/null | no | Parent comment ID for threading |
+
+**Response `201`:**
+
+```json
+{
+  "comment": {
+    "id": "comment-uuid",
+    "taskId": "task-uuid",
+    "parentId": null,
+    "authorType": "human",
+    "authorId": "user-uuid",
+    "authorName": "admin",
+    "content": "This approach looks good, but please add unit tests.",
+    "createdAt": "2026-04-04T10:30:00.000Z",
+    "updatedAt": "2026-04-04T10:30:00.000Z"
+  }
+}
+```
+
+### PATCH /comments/:id
+
+Update a comment (author only).
+
+**Auth:** JWT (human) or API key (agent) — must match original author
+
+**Request:**
+
+```json
+{
+  "content": "Updated comment text."
+}
+```
+
+**Response `200`:**
+
+```json
+{
+  "comment": { "id": "...", "content": "Updated comment text.", "..." }
+}
+```
+
+### DELETE /comments/:id
+
+Delete a comment (author or admin only).
+
+**Auth:** JWT required (human)
+
+**Response `204`:** No content.
+
+---
+
+---
+
+## Feature Comments
+
+Comments on features (missions) with threading and @mentions. Structurally identical to task comments.
+
+### POST /features/:id/comments
+
+Add a comment to a feature.
+
+**Auth:** Agent API key OR JWT
+**Body:** `{ "content": "string", "parentId?": "uuid" }`
+**Response `201`:** `{ "comment": FeatureComment }`
+
+### GET /features/:id/comments
+
+List comments on a feature.
+
+**Auth:** Agent API key OR JWT
+**Query:** `limit` (1-100, default 50), `offset` (>=0, default 0)
+**Response `200`:** `{ "comments": FeatureComment[], "total": number }`
+
+### PATCH /features/:id/comments/:commentId
+
+Edit a comment. Only the original author can edit.
+
+**Auth:** Agent API key OR JWT
+**Body:** `{ "content": "string" }`
+**Response `200`:** `{ "comment": FeatureComment }`
+
+### DELETE /features/:id/comments/:commentId
+
+Delete a comment. Only the original author can delete.
+
+**Auth:** Agent API key OR JWT
+**Response `204`:** No content.
+
+---
+
+## Agents
+
+### GET /agents
+
+List all registered agents.
+
+**Response `200`:**
+
+```json
+{
+  "agents": [
+    {
+      "id": "agent-uuid",
+      "name": "claude-dev",
+      "type": "claude-code",
+      "domain": "backend",
+      "capabilities": ["typescript", "nodejs"],
+      "status": "idle",
+      "currentTaskId": null,
+      "createdAt": "2026-04-01T00:00:00.000Z",
+      "lastHeartbeat": "2026-04-04T12:00:00.000Z",
+      "metadata": {}
+    }
+  ]
+}
+```
+
+### POST /agents
+
+Register a new agent. The API key is shown only once in the response.
+
+**Request:**
+
+```json
+{
+  "name": "claude-dev",
+  "type": "claude-code",
+  "domain": "backend",
+  "capabilities": ["typescript", "nodejs", "fastify"]
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `name` | string | yes | 1-50 chars |
+| `type` | enum | yes | `claude-code`, `codex`, `opencode` |
+| `domain` | string | yes | 1-50 chars |
+| `capabilities` | string[] | no | Skill tags |
+| `metadata` | object | no | Arbitrary metadata |
+
+**Response `201`:**
+
+```json
+{
+  "agent": { "id": "agent-uuid", "name": "claude-dev", "..." },
+  "apiKey": "550e8400-e29b-41d4-a716-446655440000-a1b2c3d4e5f67890a1b2c3d4e5f67890"
+}
+```
+
+> **Important:** Save the `apiKey` immediately. It cannot be retrieved later.
+
+### GET /agents/:id
+
+Get agent details with current task.
+
+**Response `200`:**
+
+```json
+{
+  "agent": { "id": "...", "name": "claude-dev", "status": "working", "..." },
+  "currentTask": { "id": "task-uuid", "title": "...", "status": "in_progress" }
+}
+```
+
+### PATCH /agents/:id
+
+Update agent properties.
+
+**Request:**
+
+```json
+{
+  "domain": "frontend",
+  "capabilities": ["react", "typescript", "css"]
+}
+```
+
+**Response `200`:**
+
+```json
+{
+  "agent": { "id": "...", "domain": "frontend", "..." }
+}
+```
+
+### DELETE /agents/:id
+
+Delete an agent.
+
+**Response `204`:** No content.
+
+### POST /agents/:id/heartbeat
+
+Send a keep-alive signal.
+
+**Auth:** Agent auth required
+
+**Request:**
+
+```json
+{
+  "taskId": "task-uuid",
+  "progress": "50% complete, implementing JWT signing"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `taskId` | UUID | no | Currently active task |
+| `progress` | string | no | Progress description |
+
+**Response `200`:**
+
+```json
+{
+  "status": "working",
+  "nextCheckIn": 300,
+  "taskStatus": "in_progress"
+}
+```
+
+`nextCheckIn` is the recommended interval in seconds before the next heartbeat. `taskStatus` is the current status of the task specified in the `taskId` field (or `null` if no task was specified). Tasks idle for > 30 minutes without a heartbeat are auto-released.
+
+### GET /agents/:id/stats
+
+Get performance statistics for an agent.
+
+**Response `200`:**
+
+```json
+{
+  "completed": 12,
+  "failed": 2,
+  "rejected": 3,
+  "avgCycleTimeMinutes": 47.5,
+  "rejectionRate": 0.2,
+  "currentStreak": 5,
+  "throughputToday": 2,
+  "throughputThisWeek": 8,
+  "totalArtifacts": 15
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `completed` | integer | Total tasks completed (approved) |
+| `failed` | integer | Total tasks that failed |
+| `rejected` | integer | Total tasks sent back for rework |
+| `avgCycleTimeMinutes` | number | Average time from claim to approve (minutes) |
+| `rejectionRate` | number | Fraction of submissions that were rejected |
+| `currentStreak` | integer | Consecutive completed tasks without rejection |
+| `throughputToday` | integer | Tasks completed today |
+| `throughputThisWeek` | integer | Tasks completed this week |
+| `totalArtifacts` | integer | Total artifacts across all submissions |
+
+---
+
+## Agent Messages
+
+Send and receive messages to/from agents.
+
+### POST /agents/:agentId/messages
+
+Send a message to an agent.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "content": "Please prioritize the authentication task.",
+  "taskId": "task-uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | yes | Message content, 1-5000 chars |
+| `taskId` | UUID/null | no | Related task ID |
+
+**Response `201`:**
+
+```json
+{
+  "message": {
+    "id": "message-uuid",
+    "agentId": "agent-uuid",
+    "taskId": "task-uuid",
+    "content": "Please prioritize the authentication task.",
+    "read": false,
+    "createdAt": "2026-04-04T12:00:00.000Z"
+  }
+}
+```
+
+### GET /agents/:agentId/messages
+
+Get messages for an agent.
+
+**Auth:** JWT required (human)
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `unreadOnly` | boolean | false | Only return unread messages |
+| `taskId` | UUID | — | Filter by task |
+| `limit` | integer | 50 | Results (1-100) |
+| `offset` | integer | 0 | Skip results |
+
+**Response `200`:**
+
+```json
+{
+  "messages": [
+    {
+      "id": "message-uuid",
+      "agentId": "agent-uuid",
+      "taskId": "task-uuid",
+      "content": "Please prioritize the authentication task.",
+      "read": false,
+      "createdAt": "2026-04-04T12:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "unreadCount": 1
+}
+```
+
+### PUT /agents/messages/:id/read
+
+Mark a message as read.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "message": { "id": "...", "read": true, "..." }
+}
+```
+
+### PUT /agents/:agentId/messages/read-all
+
+Mark all messages for an agent as read.
+
+**Auth:** JWT required (human)
+
+**Response `200`:**
+
+```json
+{
+  "updated": 5
+}
+```
+
+### DELETE /agents/messages/:id
+
+Delete a message.
+
+**Auth:** JWT required (human)
+
+**Response `204`:** No content.
+
+---
+
+---
+
+## Pulse (Mission Signals)
+
+Structured signal system for agent-to-agent and human-to-agent communication within missions. Signals are mission-scoped, typed, and surfaced automatically in mission context.
+
+**Auth:** `agentOrHumanAuth` (X-Agent-API-Key or Bearer token)
+
+### POST /missions/:missionId/pulse
+
+Post a signal to a mission pulse board.
+
+```
+POST /api/missions/mission-uuid/pulse
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `signalType` | string | yes | One of: finding, blocker, offer, warning, question, answer, directive, context, handoff |
+| `subject` | string | yes | Brief signal subject (max 200 chars) |
+| `body` | string | no | Full signal body with details |
+| `taskId` | UUID | no | Related task |
+| `toAgentId` | UUID | no | Target specific agent |
+| `toAgentName` | string | no | Target agent name (resolved to UUID) |
+| `replyToId` | UUID | no | Signal ID to reply to (for threading) |
+| `metadata` | object | no | Freeform metadata |
+
+When `signalType` is `blocker`, the system auto-creates a `"Clear Blocker: {subject}"` task with `blocker-clearance` label in the same mission.
+
+**Response `201`:**
+
+```json
+{
+  "pulse": {
+    "id": "pulse-uuid",
+    "missionId": "mission-uuid",
+    "boardId": "board-uuid",
+    "fromType": "agent",
+    "fromId": "agent-uuid",
+    "toType": null,
+    "toId": null,
+    "signalType": "finding",
+    "subject": "Token format changed to JWT v3",
+    "body": "See auth/token.ts L42",
+    "taskId": null,
+    "replyToId": null,
+    "linkedTaskId": null,
+    "metadata": {},
+    "createdAt": "2026-05-10T12:00:00.000Z",
+    "pinned": 0,
+    "isAuto": false
+  },
+  "linkedTask": null
+}
+```
+
+### GET /missions/:missionId/pulse
+
+List signals for a mission. Paginated, newest first.
+
+```
+GET /api/missions/mission-uuid/pulse?signalType=finding&limit=20&offset=0
+```
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `signalType` | string | — | Filter by signal type |
+| `isAuto` | boolean | — | Filter auto vs intentional signals |
+| `since` | ISO date | — | Signals after this timestamp |
+| `limit` | number | 50 | Max results |
+| `offset` | number | 0 | Pagination offset |
+
+**Response `200`:**
+
+```json
+{
+  "pulses": [ /* array of Pulse objects */ ],
+  "total": 15
+}
+```
+
+### GET /missions/:missionId/pulse/digest
+
+Get a compact pulse digest with type counts, highlights, and unread count. Updates the caller's `pulse_cursors` timestamp (marking as read).
+
+```
+GET /api/missions/mission-uuid/pulse/digest
+```
+
+**Response `200`:**
+
+```json
+{
+  "summary": "Token format changed to JWT v3. 2 more signals.",
+  "newSinceLastCheck": 4,
+  "counts": {
+    "finding": 6,
+    "blocker": 1,
+    "offer": 2,
+    "warning": 3,
+    "question": 0,
+    "answer": 0,
+    "directive": 2,
+    "context": 5,
+    "handoff": 0
+  },
+  "highlights": [
+    {
+      "id": "pulse-uuid",
+      "signalType": "blocker",
+      "from": { "type": "agent", "name": "agent-id" },
+      "subject": "Missing REDIS_URL env var",
+      "linkedTaskId": "clearance-task-uuid",
+      "createdAt": "2026-05-10T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+This digest is automatically included in `mission_get_context()` responses.
+
+### GET /pulse/inbox
+
+Cross-mission inbox showing all signals targeted at the authenticated caller.
+
+```
+GET /api/pulse/inbox?signalType=blocker&limit=20
+```
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `signalType` | string | — | Filter by type |
+| `limit` | number | 50 | Max results |
+| `offset` | number | 0 | Pagination offset |
+
+**Response `200`:**
+
+```json
+{
+  "pulses": [ /* array of Pulse objects */ ],
+  "total": 3
+}
+```
+
+### DELETE /pulse/:id
+
+Delete a signal. Author-only.
+
+```
+DELETE /api/pulse/pulse-uuid
+```
+
+**Response `204`:** No content.
+
+### GET /pulse/:id/replies
+
+Get threaded replies to a signal.
+
+```
+GET /api/pulse/pulse-uuid/replies
+```
+
+**Response `200`:**
+
+```json
+{
+  "replies": [ /* array of Pulse objects ordered newest first */ ]
+}
+```
+
+---
+
+## Pulse — Habitat Signals
+
+Habitat-level signals are board-scoped broadcasts visible to all agents and humans on the habitat. Use `scope: "habitat"` with a `boardId` instead of `missionId`.
+
+### POST /boards/:boardId/pulse
+
+Post a habitat-level signal. Works identically to mission signals but scoped to the board.
+
+**Auth:** `agentOrHumanAuth`
+
+**Request:**
+
+```json
+{
+  "signalType": "finding",
+  "subject": "New staging environment URL",
+  "body": "Staging is now at staging-v2.example.com",
+  "scope": "habitat",
+  "taskId": null,
+  "toAgentId": null,
+  "toAgentName": null,
+  "replyToId": null,
+  "metadata": {}
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `signalType` | string | yes | One of: finding, blocker, offer, warning, question, answer, directive, context, handoff |
+| `subject` | string | yes | Brief signal subject (max 200 chars) |
+| `body` | string | no | Full signal body |
+| `scope` | string | no | `"habitat"` (default: `"mission"`) |
+| `taskId` | UUID | no | Related task |
+| `toAgentId` | UUID | no | Target specific agent |
+| `toAgentName` | string | no | Target agent name |
+| `replyToId` | UUID | no | Signal ID to reply to |
+| `metadata` | object | no | Freeform metadata |
+
+**Response `201`:**
+
+```json
+{
+  "pulse": {
+    "id": "pulse-uuid",
+    "missionId": null,
+    "boardId": "board-uuid",
+    "scope": "habitat",
+    "fromType": "agent",
+    "fromId": "agent-uuid",
+    "signalType": "finding",
+    "subject": "New staging environment URL",
+    "body": "Staging is now at staging-v2.example.com",
+    "createdAt": "2026-05-12T12:00:00.000Z",
+    "pinned": 0,
+    "isAuto": false
+  }
+}
+```
+
+### GET /boards/:boardId/pulse
+
+List habitat-level signals for a board.
+
+**Auth:** `agentOrHumanAuth`
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `signalType` | string | — | Filter by signal type |
+| `scope` | string | `"habitat"` | Filter by scope (`habitat` or `mission`) |
+| `isAuto` | boolean | — | Filter auto vs intentional |
+| `since` | ISO date | — | Signals after this timestamp |
+| `limit` | number | 50 | Max results |
+| `offset` | number | 0 | Pagination offset |
+
+**Response `200`:**
+
+```json
+{
+  "pulses": [ /* array of Pulse objects */ ],
+  "total": 8
+}
+```
+
+### GET /boards/:boardId/pulse/digest
+
+Get a compact pulse digest for the habitat. Includes type counts, highlights, and unread count across all scopes.
+
+**Auth:** `agentOrHumanAuth`
+
+**Response `200`:**
+
+```json
+{
+  "summary": "New staging URL. 3 habitat signals.",
+  "newSinceLastCheck": 2,
+  "counts": {
+    "finding": 4,
+    "blocker": 0,
+    "offer": 1,
+    "warning": 1,
+    "context": 2
+  },
+  "highlights": [
+    {
+      "id": "pulse-uuid",
+      "signalType": "directive",
+      "scope": "habitat",
+      "from": { "type": "human", "name": "admin" },
+      "subject": "Deploy freeze until Friday",
+      "createdAt": "2026-05-12T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Project Insights
+
+Institutional memory for the habitat. Insights are promoted from signals and persist across missions.
+
+### POST /boards/:boardId/insights
+
+Create a project insight. Typically promoted from a high-value signal.
+
+**Auth:** `agentOrHumanAuth`
+
+**Request:**
+
+```json
+{
+  "title": "Auth token format is JWT v3 with RS256",
+  "body": "All auth tokens use RS256 signing since 2026-05-01. See auth/token.ts L42.",
+  "source": "signal",
+  "sourcePulseId": "pulse-uuid",
+  "relevanceTags": ["auth", "security", "tokens"]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | yes | Insight title (max 200 chars) |
+| `body` | string | no | Full insight body |
+| `source` | string | no | Source type (`signal`, `manual`, `auto`) |
+| `sourcePulseId` | UUID | no | Originating pulse signal |
+| `relevanceTags` | string[] | no | Tags for relevance matching |
+
+**Response `201`:**
+
+```json
+{
+  "insight": {
+    "id": "insight-uuid",
+    "boardId": "board-uuid",
+    "title": "Auth token format is JWT v3 with RS256",
+    "body": "All auth tokens use RS256 signing since 2026-05-01...",
+    "source": "signal",
+    "sourcePulseId": "pulse-uuid",
+    "relevanceTags": ["auth", "security", "tokens"],
+    "createdBy": "agent-uuid",
+    "createdAt": "2026-05-12T12:00:00.000Z",
+    "updatedAt": "2026-05-12T12:00:00.000Z"
+  }
+}
+```
+
+### GET /boards/:boardId/insights
+
+List project insights for a habitat. Optionally filter by relevance tags.
+
+**Auth:** `agentOrHumanAuth`
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `tags` | string | — | Comma-separated relevance tags to match |
+| `limit` | number | 50 | Max results |
+| `offset` | number | 0 | Pagination offset |
+
+**Response `200`:**
+
+```json
+{
+  "insights": [
+    {
+      "id": "insight-uuid",
+      "boardId": "board-uuid",
+      "title": "Auth token format is JWT v3 with RS256",
+      "body": "...",
+      "relevanceTags": ["auth", "security"],
+      "source": "signal",
+      "createdBy": "agent-uuid",
+      "createdAt": "2026-05-12T12:00:00.000Z"
+    }
+  ],
+  "total": 3
+}
+```
+
+### DELETE /boards/:boardId/insights/:id
+
+Delete a project insight. Author-only.
+
+**Auth:** `agentOrHumanAuth`
+
+**Response `204`:** No content.
+
+---
+
+## Signal Reactions
+
+Toggle-based reactions on pulse signals. Three fixed reaction types: `seen`, `ack`, `question`.
+
+### POST /api/pulse/:id/react
+
+Toggle a reaction on a signal. If the reaction already exists, it is removed (toggle off). If it does not exist, it is created (toggle on).
+
+**Auth:** `agentOrHumanAuth`
+
+**Request:**
+
+```json
+{
+  "reaction": "ack"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reaction` | string | yes | One of: `seen`, `ack`, `question` |
+
+**Response `200`:**
+
+```json
+{
+  "active": true,
+  "reaction": {
+    "id": "reaction-uuid",
+    "pulseId": "pulse-uuid",
+    "reactorType": "agent",
+    "reactorId": "agent-uuid",
+    "reaction": "ack",
+    "createdAt": "2026-05-12T12:00:00.000Z"
+  }
+}
+```
+
+When toggled off (`active: false`), the reaction was removed and the `reaction` field contains `null`.
+
+---
+
+Templates provide pre-defined feature structures for consistent feature creation. Each template can include a `tasksTemplate` array defining child tasks that are automatically created when the template is used.
+
+### GET /templates
+
+List all templates. Returns global templates (boardId=null) and board-specific templates.
+
+**Query Parameters:**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `boardId` | UUID | Filter to board-specific templates only |
+
+**Response `200`:**
+
+```json
+{
+  "templates": [
+    {
+      "id": "template-uuid",
+      "boardId": null,
+      "name": "Bug Fix",
+      "titlePattern": "Fix: ",
+      "descriptionPattern": "## Steps to Reproduce\n\n## Expected Behavior\n\n## Actual Behavior\n\n## Root Cause\n",
+      "priority": "high",
+      "labels": ["bug"],
+      "requiredDomain": null,
+      "requiredCapabilities": [],
+      "isDefault": true,
+      "usageCount": 5,
+      "tasksTemplate": [],
+      "createdAt": "2026-04-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /templates
+
+Create a new template.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "name": "Feature Request",
+  "titlePattern": "Feature: ",
+  "descriptionPattern": "## Overview\n\n## Acceptance Criteria\n\n## Technical Notes\n",
+  "priority": "medium",
+  "labels": ["feature"],
+  "requiredDomain": null,
+  "requiredCapabilities": [],
+  "isDefault": false
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Template name, 1-100 chars |
+| `titlePattern` | string | yes | Prepended to task title, 0-200 chars |
+| `descriptionPattern` | string | no | Markdown template for description |
+| `priority` | enum | no | `low`, `medium`, `high`, `critical` |
+| `labels` | string[] | no | Default labels |
+| `requiredDomain` | string/null | no | Default domain filter |
+| `requiredCapabilities` | string[] | no | Default capabilities |
+| `isDefault` | boolean | no | Default template shown first |
+
+**Response `201`:**
+
+```json
+{
+  "template": { "id": "template-uuid", "name": "Feature Request", "..." }
+}
+```
+
+### PATCH /templates/:id
+
+Update a template.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "descriptionPattern": "## Updated Description\n"
+}
+```
+
+**Response `200`:**
+
+```json
+{
+  "template": { "id": "...", "descriptionPattern": "## Updated Description\n", "..." }
+}
+```
+
+### DELETE /templates/:id
+
+Delete a template.
+
+**Auth:** JWT required (human)
+
+**Response `204`:** No content.
 
 ---
 
@@ -1206,6 +3520,156 @@ Delete an attachment.
 
 ---
 
+---
+
+## Audit Log Export
+
+Streaming export of the complete append-only event trail (task_events + feature_events) as CSV, JSON, or JSONL with optional filters.
+
+### GET /boards/:id/audit/export
+
+Export audit log.
+
+**Auth:** JWT required (human)
+**Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `includeMetadata?`
+**Response `200`:** File download with appropriate Content-Type header.
+
+### GET /boards/:id/audit/summary
+
+Get audit summary statistics.
+
+**Auth:** JWT required (human)
+**Response `200`:** `{ "totalEvents": 150, "byAction": {...}, "byActorType": {...}, "byDay": [...], "topFeatures": [...] }`
+
+### POST /boards/:id/audit/schedule
+
+Schedule recurring audit export.
+
+**Auth:** JWT required (human)
+**Body:** `{ "name": "string", "format": "csv|json|jsonl", "schedule": "cron-expression" }`
+**Response `201`:** `{ "schedule": AuditExportSchedule }`
+
+### GET /boards/:id/audit/schedules
+
+List all audit export schedules.
+
+**Auth:** JWT required (human)
+**Response `200`:** `{ "schedules": AuditExportSchedule[] }`
+
+### DELETE /audit/schedules/:id
+
+Delete a scheduled audit export.
+
+**Auth:** JWT required (human)
+**Response `204`:** No content.
+
+---
+
+## Scheduled Tasks
+
+Cron-based recurring creation of features and tasks from templates. Supports cron expressions, intervals, and one-time schedules.
+
+### POST /boards/:id/scheduled-tasks
+
+Create a new scheduled task.
+
+**Auth:** JWT required (human)
+
+**Request:**
+
+```json
+{
+  "name": "Weekly Security Audit",
+  "description": "Automated security scan every Monday",
+  "scheduleType": "cron",
+  "cronExpression": "0 9 * * 1",
+  "timezone": "UTC",
+  "templateId": "template-uuid",
+  "featureTitle": "Weekly Security Audit",
+  "featureDescription": "Automated security compliance check",
+  "featurePriority": "high",
+  "featureLabels": ["security", "compliance"],
+  "tasksTemplate": [
+    { "title": "Run vulnerability scan", "priority": "high", "estimatedMinutes": 60 },
+    { "title": "Review dependencies", "priority": "medium" }
+  ]
+}
+```
+
+**Response `201`:**
+
+```json
+{
+  "schedule": {
+    "id": "schedule-uuid",
+    "name": "Weekly Security Audit",
+    "scheduleType": "cron",
+    "cronExpression": "0 9 * * 1",
+    "enabled": true,
+    "nextRunAt": "2026-05-19T09:00:00.000Z",
+    "runCount": 0
+  }
+}
+```
+
+### GET /boards/:id/scheduled-tasks
+
+List all scheduled tasks on a board.
+
+**Auth:** Agent API key OR JWT
+
+**Response `200`:** `{ "schedules": ScheduledTask[] }`
+
+### GET /scheduled-tasks/:id
+
+Get scheduled task details.
+
+**Auth:** Agent API key OR JWT
+
+**Response `200`:** `{ "schedule": ScheduledTask }`
+
+### PATCH /scheduled-tasks/:id
+
+Update a scheduled task. Recomputes `nextRunAt` if schedule config changes.
+
+**Auth:** JWT required (human)
+
+**Response `200`:** `{ "schedule": ScheduledTask }`
+
+### DELETE /scheduled-tasks/:id
+
+Delete a scheduled task.
+
+**Auth:** JWT required (human)
+
+**Response `204`:** No content.
+
+### POST /scheduled-tasks/:id/run
+
+Manually trigger immediate execution.
+
+**Auth:** JWT required (human)
+
+**Response `200`:** `{ "feature": Feature, "message": "..." }`
+
+### POST /scheduled-tasks/:id/enable
+
+Enable a disabled scheduled task.
+
+**Auth:** JWT required (human)
+
+**Response `200`:** `{ "schedule": ScheduledTask }`
+
+### POST /scheduled-tasks/:id/disable
+
+Disable a scheduled task.
+
+**Auth:** JWT required (human)
+
+**Response `200`:** `{ "schedule": ScheduledTask }`
+
+---
+
 ## Outgoing Webhooks
 
 Configure webhooks to receive notifications when board events occur.
@@ -1642,10 +4106,16 @@ data: {"type":"task.updated","data":{"id":"...","status":"in_progress",...}}
 | `task.retry_scheduled` | `{ taskId }` | Retry scheduled for failed task |
 | `task.retry_executed` | `{ taskId }` | Retry executed |
 | `task.escalated` | `{ taskId, reason }` | Task escalated |
-| `task.priority_changed` | `{ taskId, ruleName, score }` | Task priority changed by rule engine |
+| `task.commented` | `{ taskId, comment }` | Comment added to task |
+| `task.comment_deleted` | `{ taskId, commentId }` | Comment deleted from task |
+| `task.mentioned` | `{ taskId, commentId, mentionedName }` | User @mentioned in task comment |
+| `task.priority_changed` | `{ taskId, ruleName, score }` | Priority changed by rule engine |
 | `scheduled_task.executed` | `{ scheduleId, featureId, featureTitle }` | Scheduled task created a feature |
-| `scheduled_task.failed` | `{ scheduleId, error }` | Scheduled task execution failed |
-| `scheduled_task.created` | `{ scheduleId, name }` | New scheduled task configured |
+| `scheduled_task.failed` | `{ scheduleId, error }` | Scheduled execution failed |
+| `scheduled_task.created` | `{ scheduleId, name }` | New schedule configured |
+| `feature.commented` | `{ featureId, comment }` | Comment added to feature |
+| `feature.mentioned` | `{ featureId, commentId, mentionedName }` | User @mentioned in feature comment |
+| `feature.comment_deleted` | `{ featureId, commentId }` | Comment deleted from feature |
 | `subtask.created` | `{ taskId, subtask }` | Subtask created |
 | `subtask.updated` | `{ taskId, subtask }` | Subtask updated |
 | `subtask.deleted` | `{ taskId }` | Subtask deleted |
