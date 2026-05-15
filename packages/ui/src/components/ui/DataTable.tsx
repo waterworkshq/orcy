@@ -180,9 +180,12 @@ export function DataTable<TData>({
     enabled: shouldVirtualize,
   });
 
-  const visibleRows = shouldVirtualize
-    ? virtualizer.getVirtualItems().map((vi) => rows[vi.index])
-    : rows;
+  const virtualItems = virtualizer.getVirtualItems();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const lastVirtualItem = virtualItems[virtualItems.length - 1];
+  const paddingBottom = lastVirtualItem
+    ? virtualizer.getTotalSize() - lastVirtualItem.end
+    : 0;
 
   return (
     <div className={clsx('flex flex-col', className)}>
@@ -240,42 +243,56 @@ export function DataTable<TData>({
                 </td>
               </tr>
             ) : shouldVirtualize ? (
-              <tr>
-                <td
-                  colSpan={table.getVisibleLeafColumns().length}
-                  style={{
-                    height: `${virtualizer.getTotalSize()}px`,
-                    position: 'relative',
-                  }}
-                >
-                  {virtualizer.getVirtualItems().map((virtualItem) => {
+              virtualItems.length > 0 ? (
+                <>
+                  {paddingTop > 0 && (
+                    <tr>
+                      <td
+                        style={{ height: paddingTop }}
+                        colSpan={table.getVisibleLeafColumns().length}
+                      />
+                    </tr>
+                  )}
+                  {virtualItems.map((virtualItem) => {
                     const row = rows[virtualItem.index];
                     return (
-                      <div
+                      <tr
                         key={row.id}
                         data-index={virtualItem.index}
                         ref={virtualizer.measureElement}
                         className={clsx(
-                          'absolute left-0 flex w-full border-b border-[var(--outline-variant)]',
+                          'border-b border-[var(--outline-variant)] transition-colors',
                           row.getIsSelected() && 'bg-[var(--primary-container)]/20'
                         )}
-                        style={{
-                          transform: `translateY(${virtualItem.start}px)`,
-                        }}
                       >
                         {row.getVisibleCells().map((cell) => (
-                          <div
+                          <td
                             key={cell.id}
-                            className="flex-1 px-3 py-2 text-sm text-[var(--on-surface)]"
+                            className="px-3 py-2 text-sm text-[var(--on-surface)]"
                           >
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </div>
+                          </td>
                         ))}
-                      </div>
+                      </tr>
                     );
                   })}
-                </td>
-              </tr>
+                  {paddingBottom > 0 && (
+                    <tr>
+                      <td
+                        style={{ height: paddingBottom }}
+                        colSpan={table.getVisibleLeafColumns().length}
+                      />
+                    </tr>
+                  )}
+                </>
+              ) : (
+                <tr>
+                  <td
+                    style={{ height: virtualizer.getTotalSize() }}
+                    colSpan={table.getVisibleLeafColumns().length}
+                  />
+                </tr>
+              )
             ) : (
               rows.map((row) => (
                 <tr

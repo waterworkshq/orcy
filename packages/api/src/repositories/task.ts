@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { tasks, taskDependencies, features, featureDependencies } from '../db/schema/index.js';
 import { eq, and, or, not, lt, gt, isNull, isNotNull, sql, count, notInArray, notExists, inArray, max, asc, desc, like } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Task, TaskStatus, TaskPriority, Artifact, RetryPolicy } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
@@ -135,12 +136,13 @@ export function getAvailableTasksForAgent(
   filters?: { status?: TaskStatus; priority?: TaskPriority; limit?: number }
 ): Task[] {
   const db = getDb();
+  const outerTasks = alias(tasks, 'outer_tasks');
 
   const statusCondition = filters?.status
-    ? eq(tasks.status, filters.status)
-    : or(eq(tasks.status, 'pending'), eq(tasks.status, 'claimed'), eq(tasks.status, 'in_progress'))!;
+    ? eq(outerTasks.status, filters.status)
+    : or(eq(outerTasks.status, 'pending'), eq(outerTasks.status, 'claimed'), eq(outerTasks.status, 'in_progress'))!;
 
-  const domainCondition = or(isNull(tasks.requiredDomain), eq(tasks.requiredDomain, agentDomain))!;
+  const domainCondition = or(isNull(outerTasks.requiredDomain), eq(outerTasks.requiredDomain, agentDomain))!;
 
   const boardFeatures = db
     .select({ id: features.id })
@@ -157,7 +159,7 @@ export function getAvailableTasksForAgent(
     .innerJoin(tasks, eq(taskDependencies.dependsOnId, tasks.id))
     .where(
       and(
-        eq(taskDependencies.taskId, tasks.id),
+        eq(taskDependencies.taskId, outerTasks.id),
         notInArray(tasks.status, ['done', 'approved'])
       )
     );
@@ -191,21 +193,21 @@ export function getAvailableTasksForAgent(
   if (eligibleFeatureIds.length === 0) return [];
 
   const conditions = [
-    inArray(tasks.featureId, eligibleFeatureIds),
+    inArray(outerTasks.featureId, eligibleFeatureIds),
     statusCondition,
     domainCondition,
     notExists(unmetDeps),
   ];
 
   if (filters?.priority) {
-    conditions.push(eq(tasks.priority, filters.priority));
+    conditions.push(eq(outerTasks.priority, filters.priority));
   }
 
-  const priorityOrder = priorityOrderExpr(tasks.priority);
+  const priorityOrder = priorityOrderExpr(outerTasks.priority);
 
   return filters?.limit
-    ? db.select().from(tasks).where(and(...conditions)).orderBy(priorityOrder, asc(tasks.createdAt)).limit(filters.limit).all() as Task[]
-    : db.select().from(tasks).where(and(...conditions)).orderBy(priorityOrder, asc(tasks.createdAt)).all() as Task[];
+    ? db.select().from(outerTasks).where(and(...conditions)).orderBy(priorityOrder, asc(outerTasks.createdAt)).limit(filters.limit).all() as Task[]
+    : db.select().from(outerTasks).where(and(...conditions)).orderBy(priorityOrder, asc(outerTasks.createdAt)).all() as Task[];
 }
 
 export type UpdateTaskResult =
@@ -582,8 +584,12 @@ export function getTasksByBoardId(
   if (filters?.status) conditions.push(eq(tasks.status, filters.status));
   if (filters?.priority) conditions.push(eq(tasks.priority, filters.priority));
   if (filters?.search) {
-    const term = `%${filters.search}%`;
-    conditions.push(or(like(tasks.title, term), like(tasks.description, term))!);
+    const escaped = filters.search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const term = `%${escaped}%`;
+    conditions.push(or(
+      sql`${tasks.title} LIKE ${term} ESCAPE '\\'`,
+      sql`${tasks.description} LIKE ${term} ESCAPE '\\'`,
+    )!);
   }
   if (filters?.assignedAgentId === null) {
     conditions.push(isNull(tasks.assignedAgentId));

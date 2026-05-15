@@ -223,7 +223,7 @@ describe('HabitatSettingsDialog', () => {
     );
     fireEvent.click(screen.getByText('Notifications'));
     expect(screen.getByTestId('notifications-tab')).toBeTruthy();
-    expect(screen.queryByTestId('general-tab')).toBeNull();
+    expect(screen.getByTestId('general-tab')).toBeTruthy();
   });
 
   it('switches to ChatIntegrationsTab on tab click', () => {

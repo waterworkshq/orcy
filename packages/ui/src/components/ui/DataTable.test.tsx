@@ -234,7 +234,7 @@ describe('DataTable', () => {
     expect(screen.getByText('No data')).toBeInTheDocument();
   });
 
-  it('large dataset (200+ rows) renders without crash', () => {
+  it('large dataset (200+ rows) renders virtualized rows as table rows', () => {
     const bigData: TestRow[] = Array.from({ length: 250 }, (_, i) => ({
       id: String(i),
       name: `Task ${i}`,
@@ -250,8 +250,16 @@ describe('DataTable', () => {
     expect(tableContainer).toBeInTheDocument();
     expect(tableContainer).toHaveStyle({ maxHeight: '600px' });
 
-    const virtualizedContainer = container.querySelector('[style*="height:"]');
-    expect(virtualizedContainer).toBeInTheDocument();
+    const tbody = container.querySelector('tbody');
+    expect(tbody).toBeInTheDocument();
+
+    const rows = tbody!.querySelectorAll('tr');
+    expect(rows.length).toBeGreaterThan(0);
+
+    const tds = tbody!.querySelectorAll('td');
+    const divs = tbody!.querySelectorAll('div');
+    expect(tds.length).toBeGreaterThan(0);
+    expect(divs.length).toBe(0);
   });
 
   it('accepts controlled sorting state', () => {

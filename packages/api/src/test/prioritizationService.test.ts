@@ -620,6 +620,49 @@ describe('applyPrioritization', () => {
     expect(updated?.priority).toBe('high');
   });
 
+  it('continues processing remaining tasks when one task action fails', () => {
+    const db = getDb();
+    const customSettings: PrioritizationSettings = {
+      enabled: true,
+      evaluateIntervalMinutes: 5,
+      rules: [
+        {
+          id: 'rule-bump',
+          name: 'Bump',
+          enabled: true,
+          condition: { type: 'priority_is', priority: 'low' },
+          action: { type: 'bump_priority', value: 1 },
+          priority: 1,
+        },
+      ],
+      fallbackToManual: true,
+    };
+    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+
+    const task1 = createTaskWithOverrides({ priority: 'low', title: 'Low 1' });
+    const task2 = createTaskWithOverrides({ priority: 'low', title: 'Low 2' });
+
+    const originalGetTaskById = taskRepo.getTaskById;
+    const getTaskByIdSpy = vi.spyOn(taskRepo, 'getTaskById');
+    getTaskByIdSpy.mockImplementation((id) => {
+      if (id === task2.id) {
+        throw new Error('Simulated DB failure');
+      }
+      return originalGetTaskById(id);
+    });
+
+    const result = applyPrioritization(boardId);
+
+    getTaskByIdSpy.mockRestore();
+
+    expect(result.changedTasks).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].taskId).toBe(task1.id);
+
+    const updated1 = taskRepo.getTaskById(task1.id);
+    expect(updated1?.priority).toBe('medium');
+  });
+
   it('handles add_label action', () => {
     const db = getDb();
     const customSettings: PrioritizationSettings = {

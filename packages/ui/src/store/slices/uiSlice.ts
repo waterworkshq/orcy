@@ -58,12 +58,17 @@ export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
   selectFeatureIds: (featureIds) => set({ selectedFeatureIds: featureIds }),
 
   addNotification: (notification) =>
-    set((state) => ({
-      notifications: [
-        { ...notification, id: crypto.randomUUID(), read: false },
-        ...state.notifications,
-      ],
-    })),
+    set((state) => {
+      const id = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `notif-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      return {
+        notifications: [
+          { ...notification, id, read: false },
+          ...state.notifications,
+        ].slice(0, 100),
+      };
+    }),
 
   markNotificationRead: (id) =>
     set((state) => ({

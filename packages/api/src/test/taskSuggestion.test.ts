@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Task, TaskPriority, Feature, Agent } from '../models/index.js';
-import { scoreTask, computeSlaUrgencyWeight } from '../services/taskScoring.js';
+import { scoreTask, computeSlaUrgencyWeight, computeCapabilityWeight } from '../services/taskScoring.js';
 
 const mockGetFeatureById = vi.hoisted(() => vi.fn<(featureId: string) => Feature | null>().mockReturnValue(null));
 
@@ -126,6 +126,51 @@ describe('taskSuggestion scoring factors', () => {
     const scoreWithDomain = scoreTask(task, 'backend');
 
     expect(scoreWithDomain - scoreWithoutDomain).toBeGreaterThanOrEqual(10);
+  });
+
+  it('computeCapabilityWeight is 0 with no domain or capabilities', () => {
+    const now = new Date().toISOString();
+    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend', requiredCapabilities: ['typescript'] });
+    expect(computeCapabilityWeight(task)).toBe(0);
+    expect(computeCapabilityWeight(task, undefined)).toBe(0);
+    expect(computeCapabilityWeight(task, undefined, [])).toBe(0);
+  });
+
+  it('computeCapabilityWeight domain match adds exactly 10', () => {
+    const now = new Date().toISOString();
+    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend' });
+
+    const matched = computeCapabilityWeight(task, 'backend');
+    const unmatched = computeCapabilityWeight(task, 'frontend');
+
+    expect(matched).toBe(10);
+    expect(unmatched).toBe(0);
+  });
+
+  it('computeCapabilityWeight capability match adds up to 10', () => {
+    const now = new Date().toISOString();
+    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredCapabilities: ['typescript', 'node'] });
+
+    expect(computeCapabilityWeight(task, undefined, ['typescript'])).toBe(5);
+    expect(computeCapabilityWeight(task, undefined, ['typescript', 'node'])).toBe(10);
+    expect(computeCapabilityWeight(task, undefined, ['python'])).toBe(0);
+    expect(computeCapabilityWeight(task, undefined, ['typescript', 'python'])).toBe(5);
+  });
+
+  it('computeCapabilityWeight domain + capability match stacks to 20', () => {
+    const now = new Date().toISOString();
+    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend', requiredCapabilities: ['typescript', 'node'] });
+
+    const weight = computeCapabilityWeight(task, 'backend', ['typescript', 'node']);
+    expect(weight).toBe(20);
+  });
+
+  it('scoreTask domain match contribution is exactly 10, not double-counted', () => {
+    const now = new Date().toISOString();
+    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend' });
+
+    const diff = scoreTask(task, 'backend') - scoreTask(task, undefined);
+    expect(diff).toBe(10);
   });
 
   it('combined factors produce higher scores for well-matched tasks', () => {

@@ -187,27 +187,6 @@ export function BoardPage() {
       }
 
       setLoading(false);
-
-      if (firstPageFeatures.length >= PAGE_SIZE && firstPage.total > PAGE_SIZE) {
-        const remainingPromises: Promise<{ features: any[]; total: number }>[] = [];
-        for (let off = PAGE_SIZE; off < firstPage.total; off += PAGE_SIZE) {
-          remainingPromises.push(api.features.list(boardId, { limit: PAGE_SIZE, offset: off }));
-        }
-        const results = await Promise.allSettled(remainingPromises);
-        const remainingFeatures = results
-          .filter((r): r is PromiseFulfilledResult<{ features: any[]; total: number }> => r.status === 'fulfilled')
-          .flatMap((r) => r.value.features);
-
-        const allFeatures = [...firstPageFeatures, ...remainingFeatures];
-        for (const col of boardData.columns ?? []) {
-          const colFeatures = allFeatures.filter((f: any) => f.columnId === col.id);
-          setColumnPagination(col.id, {
-            features: colFeatures,
-            total: undefined,
-            offset: 0,
-          });
-        }
-      }
     } catch (err) {
       setError((err as Error).message);
       setLoading(false);

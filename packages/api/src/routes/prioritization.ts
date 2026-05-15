@@ -8,14 +8,50 @@ import * as boardRepo from '../repositories/board.js';
 import { notFound } from '../errors.js';
 
 import type { PrioritizationSettings } from '../models/index.js';
+import type { PrioritizationRuleCondition } from '../models/index.js';
 
 const PRIORITY_REPORT_DEFAULT_LIMIT = 500;
 const PRIORITY_REPORT_MAX_LIMIT = 2000;
 
+const ruleActionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('set_priority'), value: z.string() }),
+  z.object({ type: z.literal('bump_priority'), value: z.number() }),
+  z.object({ type: z.literal('add_label'), value: z.string() }),
+  z.object({ type: z.literal('set_score_bonus'), value: z.number() }),
+]);
+
+const nonRecursiveConditionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('overdue'), byDays: z.number().optional() }),
+  z.object({ type: z.literal('sla_approaching'), withinHours: z.number() }),
+  z.object({ type: z.literal('due_soon'), withinDays: z.number() }),
+  z.object({ type: z.literal('pending_duration'), greaterThanHours: z.number() }),
+  z.object({ type: z.literal('dependency_count'), greaterThan: z.number(), direction: z.union([z.literal('blocking'), z.literal('blocked_by')]) }),
+  z.object({ type: z.literal('rejection_count'), greaterThan: z.number() }),
+  z.object({ type: z.literal('feature_status'), status: z.string() }),
+  z.object({ type: z.literal('agent_idle'), greaterThanMinutes: z.number() }),
+  z.object({ type: z.literal('label_match'), labels: z.array(z.string()) }),
+  z.object({ type: z.literal('priority_is'), priority: z.string() }),
+]);
+
+const ruleConditionSchema: z.ZodType<PrioritizationRuleCondition> = z.union([
+  nonRecursiveConditionSchema,
+  z.object({ type: z.literal('and'), conditions: z.array(z.lazy(() => ruleConditionSchema)) }),
+  z.object({ type: z.literal('or'), conditions: z.array(z.lazy(() => ruleConditionSchema)) }),
+]);
+
+const ruleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  enabled: z.boolean(),
+  condition: ruleConditionSchema,
+  action: ruleActionSchema,
+  priority: z.number(),
+});
+
 const updateRulesSchema = z.object({
   enabled: z.boolean().optional(),
   evaluateIntervalMinutes: z.number().int().min(1).optional(),
-  rules: z.array(z.record(z.unknown())).optional(),
+  rules: z.array(ruleSchema).optional(),
   fallbackToManual: z.boolean().optional(),
 });
 
@@ -49,7 +85,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
       const updated: PrioritizationSettings = {
         ...current,
         ...parsed.data,
-        rules: parsed.data.rules ? (parsed.data.rules as unknown as PrioritizationSettings['rules']) : current.rules,
+        rules: parsed.data.rules ?? current.rules,
       };
 
       boardRepo.updateBoard(params.id, { prioritizationSettings: updated });

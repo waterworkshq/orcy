@@ -204,6 +204,94 @@ describe('PUT /boards/:id/rules handler', () => {
     await putRules!.handler({ params: { id: 'board-1' }, body: { rules: 'invalid' } } as any, reply);
     expect(reply.status).toHaveBeenCalledWith(400);
   });
+
+  it('returns 400 when rule has missing fields', async () => {
+    const routes = capturePrioritizationRoutes();
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+
+    const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
+    await putRules!.handler({
+      params: { id: 'board-1' },
+      body: {
+        rules: [{
+          completely: 'wrong',
+          structure: true,
+        }],
+      },
+    } as any, reply);
+    expect(reply.status).toHaveBeenCalledWith(400);
+  });
+
+  it('returns 400 when rule condition has invalid type', async () => {
+    const routes = capturePrioritizationRoutes();
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+
+    const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
+    await putRules!.handler({
+      params: { id: 'board-1' },
+      body: {
+        rules: [{
+          id: 'r-1',
+          name: 'Bad Rule',
+          enabled: true,
+          condition: { type: 'nonexistent_type' },
+          action: { type: 'set_priority', value: 'high' },
+          priority: 1,
+        }],
+      },
+    } as any, reply);
+    expect(reply.status).toHaveBeenCalledWith(400);
+  });
+
+  it('returns 400 when rule action has mismatched value type', async () => {
+    const routes = capturePrioritizationRoutes();
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+
+    const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
+    await putRules!.handler({
+      params: { id: 'board-1' },
+      body: {
+        rules: [{
+          id: 'r-1',
+          name: 'Bad Action',
+          enabled: true,
+          condition: { type: 'overdue' },
+          action: { type: 'bump_priority', value: 'not-a-number' },
+          priority: 1,
+        }],
+      },
+    } as any, reply);
+    expect(reply.status).toHaveBeenCalledWith(400);
+  });
+
+  it('accepts rules with recursive and condition', async () => {
+    const routes = capturePrioritizationRoutes();
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const { updateBoard } = await import('../repositories/board.js');
+
+    const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
+    await putRules!.handler({
+      params: { id: 'board-1' },
+      body: {
+        enabled: true,
+        rules: [{
+          id: 'r-1',
+          name: 'Composite Rule',
+          enabled: true,
+          condition: {
+            type: 'and',
+            conditions: [
+              { type: 'overdue', byDays: 3 },
+              { type: 'priority_is', priority: 'high' },
+            ],
+          },
+          action: { type: 'set_priority', value: 'critical' },
+          priority: 10,
+        }],
+      },
+    } as any, reply);
+    expect(updateBoard).toHaveBeenCalled();
+  });
 });
 
 describe('POST /boards/:id/rules/evaluate handler', () => {

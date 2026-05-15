@@ -104,7 +104,7 @@ export async function initTestDb() {
   setDriver('sqlite');
 
   const migrationFolder = join(getWorkspaceRoot(), 'packages', 'api', 'drizzle');
-  const migrations = ['0000_schema', '0001_pulse', '0002_task_labels', '0006_oval_black_knight', '0007_scheduled_tasks'];
+  const migrations = ['0000_schema', '0001_pulse', '0002_task_labels', '0003_pulse_v2_scope', '0004_project_insights', '0005_pulse_reactions', '0006_supreme_stranger'];
   for (const migrationName of migrations) {
     const migrationFile = join(migrationFolder, `${migrationName}.sql`);
     if (!existsSync(migrationFile)) continue;
@@ -114,7 +114,12 @@ export async function initTestDb() {
       .map(s => s.trim())
       .filter(s => s.length > 0);
     for (const stmt of statements) {
-      testSqlite.run(stmt);
+      try {
+        testSqlite.run(stmt);
+      } catch (err: any) {
+        const msg = String(err?.message ?? err ?? '');
+        if (!msg.includes('already exists')) throw err;
+      }
     }
   }
 

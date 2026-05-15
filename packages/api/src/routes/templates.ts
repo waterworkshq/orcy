@@ -158,6 +158,15 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound('Feature not found');
       }
 
+      const template = templateRepo.getTemplateById(request.params.templateId);
+      if (!template) {
+        throw notFound('Template not found');
+      }
+
+      if (template.boardId !== null && template.boardId !== existingFeature.boardId) {
+        throw forbidden('Template does not belong to this board');
+      }
+
       const userId = request.user?.id ?? 'anonymous';
       const result = templateRepo.applyTemplate(
         request.params.templateId,

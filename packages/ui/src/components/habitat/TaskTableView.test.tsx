@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { TaskTableView } from './TaskTableView.js';
 import type { Task } from '../../types/index.js';
@@ -145,6 +145,8 @@ vi.mock('../../store/habitatStore.js', () => ({
 const mockUseBoardTasks = vi.fn(() => ({
   data: { tasks: mockTasks, total: mockTasks.length },
   isLoading: false,
+  isError: false,
+  error: null as Error | null,
 }));
 
 vi.mock('../../lib/useHabitatData.js', () => ({
@@ -175,7 +177,13 @@ describe('TaskTableView', () => {
     mockUseBoardTasks.mockReturnValue({
       data: { tasks: mockTasks, total: mockTasks.length },
       isLoading: false,
+      isError: false,
+      error: null,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders task rows from provided data', () => {
@@ -238,27 +246,62 @@ describe('TaskTableView', () => {
     expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
   });
 
-  it('row selection checkbox toggles task selection', () => {
+  it('debounces search input to avoid per-keystroke API calls', () => {
+    vi.useFakeTimers();
+    render(<TaskTableView boardId="board-1" />);
+    const input = screen.getByPlaceholderText('Search tasks...') as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: 'security' } });
+    expect(input.value).toBe('security');
+
+    fireEvent.change(input, { target: { value: 'security audit' } });
+    expect(input.value).toBe('security audit');
+
+    act(() => { vi.advanceTimersByTime(300); });
+  });
+
+  it('syncs row selection to store when a checkbox is clicked', () => {
     render(<TaskTableView boardId="board-1" />);
     const checkbox = screen.getByTestId('select-task-1');
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
+    expect(mockSelectTaskIds).toHaveBeenCalledWith(['task-1']);
   });
 
-  it('select-all checkbox selects all visible rows', () => {
+  it('select-all checkbox selects all visible rows in store', () => {
     render(<TaskTableView boardId="board-1" />);
     const selectAll = screen.getByTestId('select-all');
     fireEvent.click(selectAll);
+    expect(mockSelectTaskIds).toHaveBeenCalledWith(['task-1', 'task-2', 'task-3']);
+  });
+
+  it('selectTaskIds is called symmetrically on each row selection change', () => {
+    render(<TaskTableView boardId="board-1" />);
+    const checkbox1 = screen.getByTestId('select-task-1');
+    const checkbox2 = screen.getByTestId('select-task-2');
+
+    fireEvent.click(checkbox1);
+    expect(mockSelectTaskIds).toHaveBeenLastCalledWith(['task-1']);
+
+    fireEvent.click(checkbox2);
+    expect(mockSelectTaskIds).toHaveBeenLastCalledWith(['task-1', 'task-2']);
+  });
+
+  it('shows error state when query fails', () => {
+    mockUseBoardTasks.mockReturnValue({ data: undefined as unknown as { tasks: Task[]; total: number }, isLoading: false, isError: true, error: new Error('Network failure') });
+    render(<TaskTableView boardId="board-1" />);
+    expect(screen.getByText('Failed to load tasks. Please try again.')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
   it('shows loading state', () => {
-    mockUseBoardTasks.mockReturnValue({ data: undefined as unknown as { tasks: Task[]; total: number }, isLoading: true });
+    mockUseBoardTasks.mockReturnValue({ data: undefined as unknown as { tasks: Task[]; total: number }, isLoading: true, isError: false, error: null });
     render(<TaskTableView boardId="board-1" />);
     expect(screen.getByText('Loading tasks...')).toBeInTheDocument();
   });
 
   it('shows empty state when no tasks', () => {
-    mockUseBoardTasks.mockReturnValue({ data: { tasks: [], total: 0 }, isLoading: false });
+    mockUseBoardTasks.mockReturnValue({ data: { tasks: [], total: 0 }, isLoading: false, isError: false, error: null });
     render(<TaskTableView boardId="board-1" />);
     expect(screen.getByText('No tasks found')).toBeInTheDocument();
   });

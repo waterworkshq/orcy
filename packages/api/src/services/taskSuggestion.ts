@@ -87,13 +87,13 @@ function scoreWithFactors(
   featureMap: Map<string, string>
 ): TaskSuggestion {
   const reasons: string[] = [];
-  const baseScore = scoreTask(task, agent.domain, agent.capabilities);
+  const baseScore = scoreTask(task, undefined, agent.capabilities);
 
   const factors: SuggestionFactors = {
     priorityWeight: PRIORITY_WEIGHTS[task.priority] ?? 20,
     urgencyWeight: 0,
     slaUrgencyWeight: 0,
-    capabilityWeight: computeCapabilityWeight(task, agent.domain, agent.capabilities),
+    capabilityWeight: computeCapabilityWeight(task, undefined, agent.capabilities),
     dependencyBonus: 0,
     specializationBonus: 0,
     workloadPenalty: 0,

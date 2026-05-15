@@ -12,6 +12,24 @@ const CRON_PATTERNS = [
   { label: 'Weekdays 9am', value: '0 9 * * 1-5' },
 ];
 
+const IANA_TIMEZONES: string[] = (() => {
+  const tzs: string[] = [];
+  tzs.push('UTC');
+  try {
+    const raw = Intl.supportedValuesOf('timeZone');
+    for (const tz of raw) {
+      if (tz !== 'UTC') tzs.push(tz);
+    }
+  } catch {
+    tzs.push(
+      'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+      'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata',
+      'Australia/Sydney', 'Pacific/Auckland',
+    );
+  }
+  return tzs;
+})();
+
 interface ScheduledTaskFormProps {
   existing: ScheduledTask | null;
   templates: FeatureTemplate[];
@@ -117,6 +135,7 @@ export function ScheduledTaskForm({
       errs.intervalMinutes = 'Interval must be >= 1 minute';
     }
     if (scheduleType === 'once' && !scheduledAt) errs.scheduledAt = 'Scheduled time is required';
+    if (!IANA_TIMEZONES.includes(timezone)) errs.timezone = 'Invalid timezone';
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -139,7 +158,7 @@ export function ScheduledTaskForm({
       featurePriority,
       featureLabels: featureLabels ? featureLabels.split(',').map((l) => l.trim()).filter(Boolean) : [],
       featureDomain: featureDomain.trim() || null,
-      tasksTemplate: [],
+      tasksTemplate: existing?.tasksTemplate ?? [],
     });
   }
 
@@ -277,14 +296,18 @@ export function ScheduledTaskForm({
 
         <div>
           <label htmlFor="st-timezone" className="text-sm font-medium">Timezone</label>
-          <input
+          <select
             id="st-timezone"
             data-testid="st-timezone"
-            type="text"
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          />
+          >
+            {IANA_TIMEZONES.map((tz) => (
+              <option key={tz} value={tz}>{tz}</option>
+            ))}
+          </select>
+          {errors.timezone && <p className="text-xs text-destructive mt-1">{errors.timezone}</p>}
         </div>
 
         <div className="col-span-2 border-t border-border pt-4">

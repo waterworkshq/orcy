@@ -70,7 +70,10 @@ function verifyTaskBoardAccess(request: FastifyRequest, boardId: string): void {
     throw notFound('Board not found');
   }
 
-  if (request.agent) return;
+  if (request.agent) {
+    if (!board.teamId) return;
+    throw forbidden('Agents cannot access team boards', 'BOARD_ACCESS_DENIED');
+  }
 
   if (request.user) {
     if (!board.teamId) return;

@@ -158,29 +158,26 @@ describe('BoardPage parallel feature loading', () => {
     });
   });
 
-  it('parallelizes remaining pages when first page is full', async () => {
+  it('only fetches first page even when more pages exist', async () => {
     const page1 = makeFeatures(50, 'col-1', 0);
-    const page2 = makeFeatures(30, 'col-1', 50);
-    const total = 80;
+    const total = 500;
 
-    mocks.featuresList
-      .mockResolvedValueOnce({ features: page1, total })
-      .mockResolvedValueOnce({ features: page2, total });
+    mocks.featuresList.mockResolvedValue({ features: page1, total });
 
     const { unmount } = await act(async () => {
       return render(<BoardPage />);
     });
 
     await waitFor(() => {
-      expect(mocks.featuresList).toHaveBeenCalledTimes(2);
+      expect(mocks.featuresList).toHaveBeenCalledTimes(1);
     });
 
-    expect(mocks.featuresList).toHaveBeenNthCalledWith(1, 'board-1', { limit: 50, offset: 0 });
-    expect(mocks.featuresList).toHaveBeenNthCalledWith(2, 'board-1', { limit: 50, offset: 50 });
-
-    const allSetColPagCalls = storeActions.setColumnPagination.mock.calls;
-    const finalCall = allSetColPagCalls[allSetColPagCalls.length - 1];
-    expect(finalCall[1].features).toHaveLength(80);
+    expect(mocks.featuresList).toHaveBeenCalledWith('board-1', { limit: 50, offset: 0 });
+    expect(storeActions.setColumnPagination).toHaveBeenCalledWith('col-1', {
+      features: page1,
+      total: undefined,
+      offset: 0,
+    });
 
     unmount();
   });
@@ -215,53 +212,46 @@ describe('BoardPage parallel feature loading', () => {
     expect(trueIndex).toBeLessThan(firstFalseIndex);
   });
 
-  it('handles partial failure of remaining pages gracefully', async () => {
+  it('does not fetch remaining pages when total exceeds page size', async () => {
     const page1 = makeFeatures(50, 'col-1', 0);
-    const page2 = makeFeatures(25, 'col-1', 50);
 
-    mocks.featuresList
-      .mockResolvedValueOnce({ features: page1, total: 150 })
-      .mockRejectedValueOnce(new Error('Network error'))
-      .mockResolvedValueOnce({ features: page2, total: 150 });
+    mocks.featuresList.mockResolvedValue({ features: page1, total: 500 });
 
     const { unmount } = await act(async () => {
       return render(<BoardPage />);
     });
 
     await waitFor(() => {
-      expect(mocks.featuresList).toHaveBeenCalledTimes(3);
+      expect(mocks.featuresList).toHaveBeenCalledTimes(1);
     });
 
-    const allCalls = storeActions.setColumnPagination.mock.calls;
-    const finalCall = allCalls[allCalls.length - 1];
-    expect(finalCall[1].features).toHaveLength(75);
-    expect(storeActions.setError).not.toHaveBeenCalledWith(expect.any(String));
+    expect(storeActions.setColumnPagination).toHaveBeenCalledWith('col-1', {
+      features: page1,
+      total: undefined,
+      offset: 0,
+    });
 
     unmount();
   });
 
-  it('merges all features correctly across multiple pages', async () => {
+  it('loads only first page features for large datasets', async () => {
     const page1 = makeFeatures(50, 'col-1', 0);
-    const page2 = makeFeatures(50, 'col-1', 50);
-    const page3 = makeFeatures(20, 'col-1', 100);
-    const total = 120;
 
-    mocks.featuresList
-      .mockResolvedValueOnce({ features: page1, total })
-      .mockResolvedValueOnce({ features: page2, total })
-      .mockResolvedValueOnce({ features: page3, total });
+    mocks.featuresList.mockResolvedValue({ features: page1, total: 500 });
 
     const { unmount } = await act(async () => {
       return render(<BoardPage />);
     });
 
     await waitFor(() => {
-      expect(mocks.featuresList).toHaveBeenCalledTimes(3);
+      expect(mocks.featuresList).toHaveBeenCalledTimes(1);
     });
 
-    const allCalls = storeActions.setColumnPagination.mock.calls;
-    const finalCall = allCalls[allCalls.length - 1];
-    expect(finalCall[1].features).toHaveLength(120);
+    const col1Call = storeActions.setColumnPagination.mock.calls.find(
+      (c: any[]) => c[0] === 'col-1'
+    );
+    expect(col1Call).toBeDefined();
+    expect(col1Call![1].features).toHaveLength(50);
 
     unmount();
   });
@@ -319,14 +309,10 @@ describe('BoardPage parallel feature loading', () => {
     expect(falseCalls.length).toBe(1);
   });
 
-  it('board renders after first page loads even with more pages pending', async () => {
+  it('renders columns with first page features immediately', async () => {
     const page1 = makeFeatures(50, 'col-1', 0);
-    let resolvePage2: (v: any) => void;
-    const page2Promise = new Promise((resolve) => { resolvePage2 = resolve; });
 
-    mocks.featuresList
-      .mockResolvedValueOnce({ features: page1, total: 100 })
-      .mockImplementationOnce(() => page2Promise);
+    mocks.featuresList.mockResolvedValue({ features: page1, total: 500 });
 
     await act(async () => {
       render(<BoardPage />);
@@ -337,10 +323,6 @@ describe('BoardPage parallel feature loading', () => {
       features: page1,
       total: undefined,
       offset: 0,
-    });
-
-    await act(async () => {
-      resolvePage2!({ features: makeFeatures(25, 'col-1', 50), total: 100 });
     });
   });
 });

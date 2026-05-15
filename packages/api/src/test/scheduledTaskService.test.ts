@@ -195,6 +195,28 @@ describe('executeScheduledTask', () => {
     expect(result.error).toBe('Scheduled task is disabled');
   });
 
+  it('disables once-type schedule after successful execution', () => {
+    const schedule = scheduledTaskRepo.createScheduledTask({
+      boardId,
+      name: 'One-time task',
+      scheduleType: 'once',
+      featureTitle: 'One-time feature',
+      featurePriority: 'medium' as TaskPriority,
+      nextRunAt: new Date().toISOString(),
+      createdBy: 'human',
+    });
+
+    const result = scheduledTaskService.executeScheduledTask(schedule.id);
+
+    expect(result.success).toBe(true);
+    expect(result.featureId).toBeTruthy();
+
+    const after = scheduledTaskRepo.getScheduledTaskById(schedule.id);
+    expect(after!.enabled).toBe(false);
+    expect(after!.runCount).toBe(1);
+    expect(after!.lastRunAt).toBeTruthy();
+  });
+
   it('updates lastRunAt, runCount, and nextRunAt after execution', () => {
     const schedule = createSchedule();
     const before = scheduledTaskRepo.getScheduledTaskById(schedule.id);
@@ -265,28 +287,24 @@ describe('processDueTasks', () => {
     expect(result.executed).toBe(0);
   });
 
-  it('prevents double-execution within same minute', () => {
+  it('prevents concurrent duplicate execution via CAS lock', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
       boardId,
-      name: 'Double Exec',
+      name: 'CAS Lock Test',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Double feature',
+      featureTitle: 'CAS Feature',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
 
-    scheduledTaskService.processDueTasks();
+    const nextRun = new Date(Date.now() + 86400_000).toISOString();
 
-    const scheduleAfter = scheduledTaskRepo.getScheduledTaskById(schedule.id);
-    expect(scheduleAfter!.runCount).toBe(1);
+    const claimed1 = scheduledTaskRepo.claimExecution(schedule.id, nextRun);
+    expect(claimed1).toBe(true);
 
-    scheduledTaskRepo.updateScheduledTask(schedule.id, {
-      nextRunAt: new Date(Date.now() - 30_000).toISOString(),
-    });
-
-    const result = scheduledTaskService.processDueTasks();
-    expect(result.executed).toBe(0);
+    const claimed2 = scheduledTaskRepo.claimExecution(schedule.id, nextRun);
+    expect(claimed2).toBe(false);
   });
 
   it('handles multiple due schedules', () => {
@@ -554,45 +572,50 @@ describe('scheduledTaskRepo', () => {
     expect(due[0].name).toBe('Due');
   });
 
-  it('markExecuted updates execution fields', () => {
+  it('claimExecution updates execution fields', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
       boardId,
-      name: 'MarkTest',
+      name: 'ClaimTest',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
       featureTitle: 'F1',
-      nextRunAt: new Date().toISOString(),
+      nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
 
     const nextRun = new Date(Date.now() + 86400_000).toISOString();
-    const updated = scheduledTaskRepo.markExecuted(schedule.id, 'feat-123', nextRun);
+    const claimed = scheduledTaskRepo.claimExecution(schedule.id, nextRun);
+    expect(claimed).toBe(true);
 
-    expect(updated!.runCount).toBe(1);
-    expect(updated!.lastRunAt).toBeTruthy();
-    expect(updated!.lastCreatedFeatureId).toBe('feat-123');
-    expect(updated!.nextRunAt).toBe(nextRun);
+    const after = scheduledTaskRepo.getScheduledTaskById(schedule.id);
+    expect(after!.runCount).toBe(1);
+    expect(after!.lastRunAt).toBeTruthy();
+    expect(after!.nextRunAt).toBe(nextRun);
+
+    scheduledTaskRepo.finalizeExecution(schedule.id, 'feat-123');
+    const finalized = scheduledTaskRepo.getScheduledTaskById(schedule.id);
+    expect(finalized!.lastCreatedFeatureId).toBe('feat-123');
   });
 
-  it('markExecuted returns null for non-existent task', () => {
-    const result = scheduledTaskRepo.markExecuted('non-existent', 'feat-123', new Date().toISOString());
-    expect(result).toBeNull();
+  it('claimExecution returns false for non-existent task', () => {
+    const result = scheduledTaskRepo.claimExecution('non-existent', new Date().toISOString());
+    expect(result).toBe(false);
   });
 
-  it('markExecuted returns null for disabled task', () => {
+  it('claimExecution returns false for disabled task', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
       boardId,
-      name: 'DisabledTest',
+      name: 'DisabledClaim',
       scheduleType: 'interval',
       intervalMinutes: 60,
       featureTitle: 'F1',
-      nextRunAt: new Date().toISOString(),
+      nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
 
     scheduledTaskRepo.updateScheduledTask(schedule.id, { enabled: false });
 
-    const result = scheduledTaskRepo.markExecuted(schedule.id, 'feat-456', new Date().toISOString());
-    expect(result).toBeNull();
+    const result = scheduledTaskRepo.claimExecution(schedule.id, new Date().toISOString());
+    expect(result).toBe(false);
   });
 });

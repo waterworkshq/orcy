@@ -12,6 +12,56 @@ import { and, or, sql, notInArray, eq } from 'drizzle-orm';
 import { nowExpr } from '../db/dialect-helpers.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 
+const overdueNotifiedIds = new Set<string>();
+
+export function checkOverdueTasks(
+  notifiedIds: Set<string>,
+  onError: (err: unknown) => void
+): number {
+  try {
+    const db = getDb();
+    const nowSql = nowExpr();
+    const overdueRows = db.select({ id: tasks.id, boardId: features.boardId })
+      .from(tasks)
+      .innerJoin(features, eq(tasks.featureId, features.id))
+      .where(
+        and(
+          notInArray(tasks.status, ['done', 'approved', 'failed']),
+          or(sql`${features.dueAt} < ${nowSql}`, sql`${features.slaDeadlineAt} < ${nowSql}`)
+        )
+      )
+      .all();
+
+    const currentIds = new Set<string>(overdueRows.map(r => r.id));
+    const now = new Date().toISOString();
+    let published = 0;
+
+    for (const row of overdueRows) {
+      if (!notifiedIds.has(row.id)) {
+        sseBroadcaster.publish(row.boardId, {
+          type: 'task.overdue',
+          data: { taskId: row.id, boardId: row.boardId, detectedAt: now },
+        });
+        published++;
+      }
+    }
+
+    for (const id of currentIds) {
+      notifiedIds.add(id);
+    }
+    for (const id of [...notifiedIds]) {
+      if (!currentIds.has(id)) {
+        notifiedIds.delete(id);
+      }
+    }
+
+    return published;
+  } catch (err) {
+    onError(err);
+    return 0;
+  }
+}
+
 export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void } {
   const intervals: NodeJS.Timeout[] = [];
 
@@ -26,31 +76,9 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
   intervals.push(startPresenceCleanup(60_000));
 
   intervals.push(setInterval(() => {
-    try {
-      const db = getDb();
-      const nowSql = nowExpr();
-      const overdueRows = db.select({ id: tasks.id, boardId: features.boardId })
-        .from(tasks)
-        .innerJoin(features, eq(tasks.featureId, features.id))
-        .where(
-          and(
-            notInArray(tasks.status, ['done', 'approved', 'failed']),
-            or(sql`${features.dueAt} < ${nowSql}`, sql`${features.slaDeadlineAt} < ${nowSql}`)
-          )
-        )
-        .all();
-      if (overdueRows.length > 0) {
-        const now = new Date().toISOString();
-        for (const row of overdueRows) {
-          sseBroadcaster.publish(row.boardId, {
-            type: 'task.overdue',
-            data: { taskId: row.id, boardId: row.boardId, detectedAt: now },
-          });
-        }
-      }
-    } catch (err) {
+    checkOverdueTasks(overdueNotifiedIds, (err) => {
       fastify.log.error({ err }, 'Error checking overdue tasks');
-    }
+    });
   }, 60_000));
 
   intervals.push(startTaskRetryProcessor(30_000));

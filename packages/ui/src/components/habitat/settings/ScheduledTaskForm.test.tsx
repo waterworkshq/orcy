@@ -348,6 +348,81 @@ describe('ScheduledTaskForm', () => {
     expect(mockOnSave).not.toHaveBeenCalled();
   });
 
+  it('timezone select defaults to UTC', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    const tzSelect = screen.getByTestId('st-timezone') as HTMLSelectElement;
+    expect(tzSelect.value).toBe('UTC');
+  });
+
+  it('timezone select contains IANA timezone options', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    const tzSelect = screen.getByTestId('st-timezone') as HTMLSelectElement;
+    expect(tzSelect.options.length).toBeGreaterThan(100);
+    const optionValues = Array.from(tzSelect.options).map((o) => o.value);
+    expect(optionValues).toContain('America/New_York');
+    expect(optionValues).toContain('Europe/London');
+    expect(optionValues).toContain('Asia/Tokyo');
+  });
+
+  it('preserves tasksTemplate during edit', () => {
+    const existingWithTasks = {
+      ...mockExisting,
+      tasksTemplate: [{ title: 'Subtask' }],
+    };
+    render(
+      <ScheduledTaskForm
+        existing={existingWithTasks}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    fireEvent.click(screen.getByTestId('st-submit'));
+    expect(mockOnSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasksTemplate: [{ title: 'Subtask' }],
+      })
+    );
+  });
+
+  it('sends empty tasksTemplate for new schedules', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    fireEvent.change(screen.getByTestId('st-name'), { target: { value: 'New Task' } });
+    fireEvent.change(screen.getByTestId('st-cron-expression'), { target: { value: '0 9 * * *' } });
+    fireEvent.change(screen.getByTestId('st-feature-title'), { target: { value: 'Test' } });
+    fireEvent.click(screen.getByTestId('st-submit'));
+    expect(mockOnSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tasksTemplate: [],
+      })
+    );
+  });
+
   it('accepts valid cron expressions', () => {
     render(
       <ScheduledTaskForm

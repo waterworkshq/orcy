@@ -9,8 +9,8 @@ import * as featureService from '../services/featureService.js';
 import * as boardService from '../services/boardService.js';
 import { getTaskDetails } from '../services/tasks/task-details.js';
 import { claimTask, startTask, submitTask, approveTask } from '../services/tasks/task-lifecycle.js';
-import { featureDependencies } from '../db/schema/index.js';
-import { eq, sql } from 'drizzle-orm';
+import { featureDependencies, taskDependencies } from '../db/schema/index.js';
+import { eq, sql, notInArray } from 'drizzle-orm';
 
 async function setupBoard() {
   const { board, columns } = boardService.createBoard({ name: 'Test', defaultColumns: true });
@@ -175,6 +175,32 @@ describe('Integration: Feature Lifecycle', () => {
     const availableAfter = taskRepo.getAvailableTasksForAgent(board.id, 'fullstack');
     const afterIds = availableAfter.map(t => t.id);
     expect(afterIds).toContain(taskB.id);
+  });
+
+  it('available tasks filter respects task-level dependencies (correlated subquery)', async () => {
+    const { board, columns, agent } = await setupBoard();
+    const db = getDb();
+
+    const feature = featureRepo.createFeature({ boardId: board.id, columnId: columns[0].id, title: 'Feature', createdBy: 'test' });
+
+    const depTarget = taskRepo.createTask({ featureId: feature.id, title: 'Dependency target', createdBy: 'test' });
+    const dependent = taskRepo.createTask({ featureId: feature.id, title: 'Has met deps', createdBy: 'test' });
+    const blocked = taskRepo.createTask({ featureId: feature.id, title: 'Has unmet deps', createdBy: 'test' });
+    const blocker = taskRepo.createTask({ featureId: feature.id, title: 'Blocker not done', createdBy: 'test' });
+
+    db.insert(taskDependencies).values({ taskId: dependent.id, dependsOnId: depTarget.id }).run();
+    db.insert(taskDependencies).values({ taskId: blocked.id, dependsOnId: blocker.id }).run();
+
+    claimTask(depTarget.id, agent.agent.id);
+    startTask(depTarget.id, agent.agent.id);
+    submitTask(depTarget.id, agent.agent.id, 'Done', []);
+    approveTask(depTarget.id, agent.agent.id);
+
+    const available = taskRepo.getAvailableTasksForAgent(board.id, 'fullstack');
+    const availableIds = available.map(t => t.id);
+
+    expect(availableIds).toContain(dependent.id);
+    expect(availableIds).not.toContain(blocked.id);
   });
 
   it('createFeature atomically creates feature and dependency rows', async () => {

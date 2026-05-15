@@ -5,6 +5,7 @@ import * as taskRepo from '../repositories/task.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as columnRepo from '../repositories/column.js';
+import { eq } from 'drizzle-orm';
 import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema/index.js';
 import { getTasksByBoardId } from '../repositories/task.js';
 import type { TaskListFilters } from '../repositories/task.js';
@@ -226,6 +227,69 @@ describe('getTasksByBoardId sort', () => {
     expect(resultNoFilters.tasks[0].priority).toBe('critical');
     expect(resultEmptyFilters.tasks[0].priority).toBe('critical');
     expect(resultOnlyLimit.tasks[0].priority).toBe('critical');
+  });
+});
+
+describe('search filter', () => {
+  it('matches tasks by title partial text', () => {
+    createTask({ title: 'Fix login bug', priority: 'high' });
+    createTask({ title: 'Add logout feature', priority: 'medium' });
+
+    const result = getTasksByBoardId(boardId, { search: 'login' });
+
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Fix login bug');
+  });
+
+  it('matches tasks by description partial text', () => {
+    createTask({ title: 'Task A', priority: 'low' });
+    createTask({ title: 'Task B', priority: 'low' });
+
+    const db = getDb();
+    db.update(tasks).set({ description: 'This is about security' }).where(eq(tasks.title, 'Task A')).run();
+    db.update(tasks).set({ description: 'Something else' }).where(eq(tasks.title, 'Task B')).run();
+
+    const result = getTasksByBoardId(boardId, { search: 'security' });
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Task A');
+  });
+
+  it('escapes LIKE wildcard % in search term', () => {
+    createTask({ title: 'Task with 100% completion', priority: 'low' });
+    createTask({ title: 'Task 100 done', priority: 'low' });
+
+    const result = getTasksByBoardId(boardId, { search: '100%' });
+
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Task with 100% completion');
+  });
+
+  it('escapes LIKE wildcard _ in search term', () => {
+    createTask({ title: 'Task A', priority: 'low' });
+    createTask({ title: 'Task_B', priority: 'low' });
+
+    const result = getTasksByBoardId(boardId, { search: 'Task_B' });
+
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('Task_B');
+  });
+
+  it('returns no results when search does not match', () => {
+    createTask({ title: 'Some task', priority: 'low' });
+
+    const result = getTasksByBoardId(boardId, { search: 'nonexistent' });
+
+    expect(result.tasks).toHaveLength(0);
+    expect(result.total).toBe(0);
+  });
+
+  it('searches case-insensitively (SQLite LIKE default)', () => {
+    createTask({ title: 'UPPERCASE Task', priority: 'low' });
+
+    const result = getTasksByBoardId(boardId, { search: 'uppercase' });
+
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].title).toBe('UPPERCASE Task');
   });
 });
 

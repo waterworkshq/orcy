@@ -12,6 +12,7 @@ import { eq, and, lte } from 'drizzle-orm';
 import type { ScheduledTask, TaskPriority, TaskTemplateEntry } from '../models/index.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { sanitizeFilename } from './fileStorage.js';
 
 export function calculateNextRun(
   scheduleType: string,
@@ -65,7 +66,7 @@ function createFeatureFromSchedule(schedule: ScheduledTask): { featureId: string
   return { featureId: feature.id, featureTitle: schedule.featureTitle };
 }
 
-export function executeScheduledTask(id: string): { success: boolean; featureId?: string; error?: string } {
+export function executeScheduledTask(id: string): { success: boolean; featureId?: string; error?: string; skipped?: boolean } {
   const schedule = scheduledTaskRepo.getScheduledTaskById(id);
   if (!schedule) {
     return { success: false, error: 'Scheduled task not found' };
@@ -73,6 +74,18 @@ export function executeScheduledTask(id: string): { success: boolean; featureId?
 
   if (!schedule.enabled) {
     return { success: false, error: 'Scheduled task is disabled' };
+  }
+
+  const nextRunAt = calculateNextRun(
+    schedule.scheduleType,
+    schedule.cronExpression,
+    schedule.intervalMinutes,
+    schedule.timezone,
+  );
+
+  const claimed = scheduledTaskRepo.claimExecution(id, nextRunAt);
+  if (!claimed) {
+    return { success: true, skipped: true };
   }
 
   try {
@@ -106,13 +119,11 @@ export function executeScheduledTask(id: string): { success: boolean; featureId?
       featureTitle = direct.featureTitle;
     }
 
-    const nextRunAt = calculateNextRun(
-      schedule.scheduleType,
-      schedule.cronExpression,
-      schedule.intervalMinutes,
-      schedule.timezone,
-    );
-    scheduledTaskRepo.markExecuted(id, featureId, nextRunAt);
+    scheduledTaskRepo.finalizeExecution(id, featureId);
+
+    if (schedule.scheduleType === 'once') {
+      scheduledTaskRepo.updateScheduledTask(id, { enabled: false });
+    }
 
     sseBroadcaster.publish(schedule.boardId, {
       type: 'scheduled_task.executed',
@@ -138,15 +149,8 @@ export function processDueTasks(): { executed: number; failed: number } {
   let failed = 0;
 
   for (const task of dueTasks) {
-    if (task.lastRunAt) {
-      const lastRun = new Date(task.lastRunAt).getTime();
-      const oneMinuteAgo = Date.now() - 60_000;
-      if (lastRun > oneMinuteAgo) {
-        continue;
-      }
-    }
-
     const result = executeScheduledTask(task.id);
+    if (result.skipped) continue;
     if (result.success) {
       executed++;
     } else {
@@ -193,7 +197,8 @@ export function processDueAuditExports(): { executed: number; failed: number } {
       const query = { format, since, userFilters: filters || {} };
 
       const filename = auditExportService.getExportFilename(boardId, format);
-      const exportDir = join(process.cwd(), 'exports', boardId);
+      const safeBoardDir = sanitizeFilename(boardId);
+      const exportDir = join(process.cwd(), 'exports', safeBoardDir);
       mkdirSync(exportDir, { recursive: true });
       const filePath = join(exportDir, filename);
 

@@ -147,24 +147,50 @@ export function updateScheduledTask(id: string, input: UpdateScheduledTaskInput)
   return getScheduledTaskById(id);
 }
 
-export function markExecuted(id: string, featureId: string, nextRunAt: string): ScheduledTask | null {
+export function claimExecution(id: string, nextRunAt: string): boolean {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const before = db
+    .select({ runCount: scheduledTasks.runCount })
+    .from(scheduledTasks)
+    .where(eq(scheduledTasks.id, id))
+    .get();
+  const beforeRunCount = before?.runCount ?? -1;
+
+  db.update(scheduledTasks)
+    .set({
+      lastRunAt: now,
+      nextRunAt,
+      runCount: sql`${scheduledTasks.runCount} + 1`,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(scheduledTasks.id, id),
+      eq(scheduledTasks.enabled, true),
+      lte(scheduledTasks.nextRunAt, now),
+    ))
+    .run();
+
+  const after = db
+    .select({ runCount: scheduledTasks.runCount })
+    .from(scheduledTasks)
+    .where(eq(scheduledTasks.id, id))
+    .get();
+  return after?.runCount === beforeRunCount + 1;
+}
+
+export function finalizeExecution(id: string, featureId: string): void {
   const db = getDb();
   const now = new Date().toISOString();
 
   db.update(scheduledTasks)
     .set({
-      lastRunAt: now,
-      runCount: sql`${scheduledTasks.runCount} + 1`,
       lastCreatedFeatureId: featureId,
-      nextRunAt,
       updatedAt: now,
     })
-    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.enabled, true)))
+    .where(eq(scheduledTasks.id, id))
     .run();
-
-  const updated = getScheduledTaskById(id);
-  if (!updated || !updated.enabled) return null;
-  return updated;
 }
 
 export function deleteScheduledTask(id: string): boolean {

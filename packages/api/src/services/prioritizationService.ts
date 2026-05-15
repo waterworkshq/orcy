@@ -339,7 +339,12 @@ export function applyPrioritization(boardId: string): PrioritizationResult {
   let changedCount = 0;
 
   for (const evaluation of evaluations) {
-    applyAction(evaluation.taskId, evaluation.action);
+    try {
+      applyAction(evaluation.taskId, evaluation.action);
+    } catch (err) {
+      logger.error({ err, taskId: evaluation.taskId, ruleName: evaluation.ruleName }, 'Failed to apply prioritization action for task');
+      continue;
+    }
 
     const task = taskRepo.getTaskById(evaluation.taskId);
     if (!task) continue;

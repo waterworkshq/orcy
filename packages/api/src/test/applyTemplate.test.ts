@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { validatorCompiler, serializerCompiler } from 'fastify-type-provider-zod';
+import jwt from 'jsonwebtoken';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as boardRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
 import * as featureRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as templateRepo from '../repositories/template.js';
+import { templateRoutes } from '../routes/templates.js';
 import { featureTemplates, tasks, features, columns as columnsTable, boards } from '../db/schema/index.js';
 import { sql } from 'drizzle-orm';
 import type { TaskTemplateEntry, TaskPriority } from '../models/index.js';
@@ -238,5 +242,118 @@ describe('applyTemplate', () => {
     expect(featureCountAfter).toBe(featureCountBefore);
     expect(taskCountAfter).toBe(taskCountBefore);
     expect(usageCountAfter).toBe(usageCountBefore);
+  });
+});
+
+describe('POST /features/:id/apply-template/:templateId - board association', () => {
+  let app: FastifyInstance | null = null;
+  const JWT_SECRET = 'dev-secret-change-in-production';
+
+  function makeToken(payload: { sub: string; username: string; role: string }): string {
+    return jwt.sign(payload, JWT_SECRET, { issuer: 'orcy' });
+  }
+
+  async function buildApp(): Promise<FastifyInstance> {
+    const f = Fastify({ logger: false });
+    f.setValidatorCompiler(validatorCompiler);
+    f.setSerializerCompiler(serializerCompiler);
+    await f.register(templateRoutes);
+    await f.ready();
+    return f;
+  }
+
+  beforeEach(async () => {
+    await initTestDb();
+    const db = getDb();
+    db.delete(tasks).run();
+    db.delete(features).run();
+    db.delete(columnsTable).run();
+    db.delete(boards).run();
+    db.delete(featureTemplates).run();
+
+    app = await buildApp();
+  });
+
+  afterEach(async () => {
+    if (app) await app.close();
+    closeDb();
+  });
+
+  it('returns 403 when template belongs to a different board', async () => {
+    const boardA = boardRepo.createBoard({ name: 'Board A' });
+    const boardB = boardRepo.createBoard({ name: 'Board B' });
+
+    const colA = columnRepo.createColumn({ boardId: boardA.id, name: 'Backlog', order: 0, requiresClaim: false });
+    const colB = columnRepo.createColumn({ boardId: boardB.id, name: 'Backlog', order: 0, requiresClaim: false });
+
+    const template = templateRepo.createTemplate({
+      boardId: boardA.id,
+      name: 'Board A Template',
+      titlePattern: 'From Board A',
+      createdBy: 'human',
+    });
+
+    const feature = featureRepo.createFeature({ boardId: boardB.id, columnId: colB.id, title: 'Feature on B', createdBy: 'human' });
+
+    const token = makeToken({ sub: 'user-1', username: 'admin', role: 'admin' });
+    const res = await app!.inject({
+      method: 'POST',
+      url: `/features/${feature.id}/apply-template/${template.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(403);
+    const body = JSON.parse(res.body);
+    expect(body.error).toMatch(/template.*not.*belong|forbidden/i);
+  });
+
+  it('allows applying same-board template', async () => {
+    const board = boardRepo.createBoard({ name: 'Board' });
+    const col = columnRepo.createColumn({ boardId: board.id, name: 'Backlog', order: 0, requiresClaim: false });
+
+    const template = templateRepo.createTemplate({
+      boardId: board.id,
+      name: 'Same Board Template',
+      titlePattern: 'Same Board Task',
+      createdBy: 'human',
+    });
+
+    const feature = featureRepo.createFeature({ boardId: board.id, columnId: col.id, title: 'Feature', createdBy: 'human' });
+
+    const token = makeToken({ sub: 'user-1', username: 'admin', role: 'admin' });
+    const res = await app!.inject({
+      method: 'POST',
+      url: `/features/${feature.id}/apply-template/${template.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.feature.title).toBe('Same Board Task');
+  });
+
+  it('allows applying global template (boardId = null) to any board', async () => {
+    const board = boardRepo.createBoard({ name: 'Any Board' });
+    const col = columnRepo.createColumn({ boardId: board.id, name: 'Backlog', order: 0, requiresClaim: false });
+
+    const template = templateRepo.createTemplate({
+      boardId: null,
+      name: 'Global Template',
+      titlePattern: 'Global Task',
+      createdBy: 'system',
+    });
+
+    const feature = featureRepo.createFeature({ boardId: board.id, columnId: col.id, title: 'Feature', createdBy: 'human' });
+
+    const token = makeToken({ sub: 'user-1', username: 'admin', role: 'admin' });
+    const res = await app!.inject({
+      method: 'POST',
+      url: `/features/${feature.id}/apply-template/${template.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.feature.title).toBe('Global Task');
   });
 });

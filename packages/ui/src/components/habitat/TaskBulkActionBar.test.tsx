@@ -12,6 +12,22 @@ const { mockBatch, mockClearTaskSelection, mockSetTaskBulkSelectMode, notifySucc
   notifyError: vi.fn(),
 }));
 
+vi.mock('../ui/ConfirmDialog.js', () => ({
+  ConfirmDialog: ({ open, onConfirm, onCancel, title, description, confirmLabel, variant }: any) =>
+    open ? (
+      <div data-testid="confirm-dialog">
+        <span>{title}</span>
+        <span>{description}</span>
+        <button data-testid="confirm-dialog-confirm" onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+        <button data-testid="confirm-dialog-cancel" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    ) : null,
+}));
+
 vi.mock('../../store/habitatStore.js', () => ({
   useBoardStore: () => ({
     selectedTaskIds: ['task-1', 'task-2', 'task-3'],
@@ -76,7 +92,7 @@ describe('TaskBulkActionBar', () => {
     });
   });
 
-  it('calls api.tasks.batch with delete operation', async () => {
+  it('shows confirmation dialog before deleting', async () => {
     render(<TaskBulkActionBar boardId="board-1" />);
 
     const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
@@ -85,6 +101,22 @@ describe('TaskBulkActionBar', () => {
     const applyButton = screen.getByTestId('bulk-apply');
     fireEvent.click(applyButton);
 
+    expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument();
+    expect(screen.getByText('Delete tasks')).toBeInTheDocument();
+  });
+
+  it('calls api.tasks.batch with delete operation after confirmation', async () => {
+    render(<TaskBulkActionBar boardId="board-1" />);
+
+    const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
+    fireEvent.change(operationSelect, { target: { value: 'delete' } });
+
+    const applyButton = screen.getByTestId('bulk-apply');
+    fireEvent.click(applyButton);
+
+    const confirmButton = screen.getByTestId('confirm-dialog-confirm');
+    fireEvent.click(confirmButton);
+
     await waitFor(() => {
       expect(mockBatch).toHaveBeenCalledWith('board-1', {
         taskIds: ['task-1', 'task-2', 'task-3'],
@@ -92,6 +124,22 @@ describe('TaskBulkActionBar', () => {
         payload: {},
       });
     });
+  });
+
+  it('does not delete when confirmation dialog is cancelled', async () => {
+    render(<TaskBulkActionBar boardId="board-1" />);
+
+    const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
+    fireEvent.change(operationSelect, { target: { value: 'delete' } });
+
+    const applyButton = screen.getByTestId('bulk-apply');
+    fireEvent.click(applyButton);
+
+    const cancelButton = screen.getByTestId('confirm-dialog-cancel');
+    fireEvent.click(cancelButton);
+
+    expect(mockBatch).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument();
   });
 
   it('clears selection after successful operation', async () => {

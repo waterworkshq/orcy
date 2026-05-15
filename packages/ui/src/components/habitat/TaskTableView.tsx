@@ -7,6 +7,7 @@ import { getTaskTableColumns } from './TaskTableColumns.js';
 import { TaskBulkActionBar } from './TaskBulkActionBar.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useBoardTasks, type BoardTasksFilters } from '../../lib/useHabitatData.js';
+import { useDebounce } from '../../hooks/useDebounce.js';
 import type { TaskPriority, TaskStatus } from '../../types/index.js';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -38,6 +39,7 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
   const [priorityFilter, setPriorityFilter] = React.useState<string>('all');
   const [agentFilter, setAgentFilter] = React.useState<string>('all');
   const [search, setSearch] = React.useState('');
+  const debouncedSearch = useDebounce(search, 300);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>(() => {
     const ids = useBoardStore.getState().selectedTaskIds;
@@ -49,7 +51,6 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
 
   const agents = useBoardStore((s) => s.agents, shallow);
   const selectedTaskIds = useBoardStore((s) => s.selectedTaskIds);
-  const toggleTaskSelection = useBoardStore((s) => s.toggleTaskSelection);
   const selectTaskIds = useBoardStore((s) => s.selectTaskIds);
   const clearTaskSelection = useBoardStore((s) => s.clearTaskSelection);
 
@@ -58,29 +59,21 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
     if (statusFilter !== 'all') f.status = statusFilter;
     if (priorityFilter !== 'all') f.priority = priorityFilter;
     if (agentFilter !== 'all') f.assignedAgentId = agentFilter;
-    if (search.trim()) f.search = search.trim();
+    if (debouncedSearch.trim()) f.search = debouncedSearch.trim();
     if (sorting.length > 0) {
       f.sortBy = sorting[0].id;
       f.sortDir = sorting[0].desc ? 'desc' : 'asc';
     }
     return f;
-  }, [statusFilter, priorityFilter, agentFilter, search, sorting]);
+  }, [statusFilter, priorityFilter, agentFilter, debouncedSearch, sorting]);
 
-  const { data, isLoading } = useBoardTasks(boardId, filters);
+  const { data, isLoading, isError } = useBoardTasks(boardId, filters);
   const tasks = data?.tasks ?? [];
 
   React.useEffect(() => {
     const ids = Object.keys(rowSelection).filter((k) => rowSelection[k]);
-    const currentSelected = new Set(selectedTaskIds);
-    const newSelected = ids.filter((id) => !currentSelected.has(id));
-    const removed = Array.from(currentSelected).filter((id) => !ids.includes(id));
-    if (newSelected.length > 0) {
-      newSelected.forEach((id) => toggleTaskSelection(id));
-    }
-    if (removed.length > 0) {
-      selectTaskIds(ids);
-    }
-  }, [rowSelection]);
+    selectTaskIds(ids);
+  }, [rowSelection, selectTaskIds]);
 
   React.useEffect(() => {
     const mapping: Record<string, string> = {};
@@ -169,7 +162,11 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
         )}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <div className="flex items-center justify-center py-12 text-sm text-red-500" role="alert">
+          Failed to load tasks. Please try again.
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-12 text-sm text-[var(--on-surface-variant)]">
           Loading tasks...
         </div>

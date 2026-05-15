@@ -106,7 +106,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
         ))}
       </div>
       <DialogContent>
-        {activeTab === 'general' && (
+        <div className={activeTab !== 'general' ? 'hidden' : ''}>
           <GeneralTab
             ref={generalRef}
             boardId={board.id}
@@ -119,18 +119,18 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
             onImportOpen={() => setImportOpen(true)}
             onDeleteOpen={() => setDeleteOpen(true)}
           />
-        )}
-        {activeTab === 'notifications' && (
+        </div>
+        <div className={activeTab !== 'notifications' ? 'hidden' : ''}>
           <NotificationsTab
             ref={notificationsRef}
             boardId={board.id}
             onSavingChange={handleTabSavingChange}
           />
-        )}
-        {activeTab === 'chat' && (
+        </div>
+        <div className={activeTab !== 'chat' ? 'hidden' : ''}>
           <ChatIntegrationsTab boardId={board.id} />
-        )}
-        {activeTab === 'retry' && (
+        </div>
+        <div className={activeTab !== 'retry' ? 'hidden' : ''}>
           <RetryPolicyTab
             ref={retryRef}
             boardId={board.id}
@@ -138,8 +138,8 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
           />
-        )}
-        {activeTab === 'anomaly' && (
+        </div>
+        <div className={activeTab !== 'anomaly' ? 'hidden' : ''}>
           <AnomalyDetectionTab
             ref={anomalyRef}
             boardId={board.id}
@@ -147,8 +147,8 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
           />
-        )}
-        {activeTab === 'auto_assign' && (
+        </div>
+        <div className={activeTab !== 'auto_assign' ? 'hidden' : ''}>
           <AutoAssignTab
             ref={autoAssignRef}
             boardId={board.id}
@@ -156,8 +156,8 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
           />
-        )}
-        {activeTab === 'prioritization' && (
+        </div>
+        <div className={activeTab !== 'prioritization' ? 'hidden' : ''}>
           <PrioritizationTab
             ref={prioritizationRef}
             boardId={board.id}
@@ -165,10 +165,10 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
           />
-        )}
-        {activeTab === 'scheduled_tasks' && (
+        </div>
+        <div className={activeTab !== 'scheduled_tasks' ? 'hidden' : ''}>
           <ScheduledTasksTab boardId={board.id} />
-        )}
+        </div>
       </DialogContent>
       <DialogFooter>
         <Button variant="ghost" onClick={onClose} disabled={tabSaving}>

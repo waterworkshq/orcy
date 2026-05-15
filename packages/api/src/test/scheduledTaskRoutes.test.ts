@@ -335,12 +335,23 @@ describe('GET /scheduled-tasks/:id handler', () => {
     ).rejects.toThrow('You do not have access to this board');
   });
 
-  it('allows access for agents without board membership check', async () => {
+  it('allows agents on public boards (no teamId)', async () => {
+    mockGetBoardById.mockReturnValue({ id: 'board-1', teamId: null });
     const routes = captureScheduledTaskRoutes();
     const get = routes.find(r => r.method === 'GET' && r.path === '/scheduled-tasks/:id');
 
     const result = await get!.handler({ params: { id: 'st-1' }, agent: { id: 'agent-1' } } as any, {} as any);
     expect(result).toHaveProperty('scheduledTask');
+  });
+
+  it('denies agents on team boards', async () => {
+    mockGetBoardById.mockReturnValue({ id: 'board-1', teamId: 'team-1' });
+    const routes = captureScheduledTaskRoutes();
+    const get = routes.find(r => r.method === 'GET' && r.path === '/scheduled-tasks/:id');
+
+    await expect(
+      get!.handler({ params: { id: 'st-1' }, agent: { id: 'agent-1' } } as any, {} as any)
+    ).rejects.toThrow('Agents cannot access team boards');
   });
 });
 
