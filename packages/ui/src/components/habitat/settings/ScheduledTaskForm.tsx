@@ -55,6 +55,21 @@ export interface ScheduledTaskFormData {
   tasksTemplate: TaskTemplateEntry[];
 }
 
+function TokenHints({ testId }: { testId: string }) {
+  return (
+    <details className="mt-1">
+      <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+        Available tokens
+      </summary>
+      <div className="mt-1 space-y-0.5 pl-2 text-xs text-muted-foreground" data-testid={testId}>
+        <p><code className="text-[var(--accent)]">{'{{date}}'}</code> — Current date (YYYY-MM-DD) in the selected timezone</p>
+        <p><code className="text-[var(--accent)]">{'{{counter}}'}</code> — Run number (increments each execution)</p>
+        <p className="italic">Example: <code className="text-[var(--accent)]">{'"Sprint {{counter}} — {{date}}"'}</code> → <code>{'"Sprint 7 — 2026-05-19"'}</code></p>
+      </div>
+    </details>
+  );
+}
+
 function priorityOptions(): { value: TaskPriority; label: string }[] {
   return [
     { value: 'low', label: 'Low' },
@@ -325,6 +340,7 @@ export function ScheduledTaskForm({
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
           {errors.featureTitle && <p className="text-xs text-destructive mt-1">{errors.featureTitle}</p>}
+          <TokenHints testId="title-token-hints" />
         </div>
 
         <div>
@@ -337,6 +353,7 @@ export function ScheduledTaskForm({
             onChange={(e) => setFeatureDescription(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
+          <TokenHints testId="desc-token-hints" />
         </div>
 
         <div>

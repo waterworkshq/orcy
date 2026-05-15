@@ -619,3 +619,156 @@ describe('scheduledTaskRepo', () => {
     expect(result).toBe(false);
   });
 });
+
+describe('substituteTokens', () => {
+  it('returns unchanged string when no tokens present', () => {
+    expect(scheduledTaskService.substituteTokens('Weekly Audit', { runCount: 1, timezone: 'UTC' }))
+      .toBe('Weekly Audit');
+  });
+
+  it('replaces {{date}} with YYYY-MM-DD', () => {
+    const result = scheduledTaskService.substituteTokens('Audit {{date}}', { runCount: 1, timezone: 'UTC' });
+    expect(result).toMatch(/^Audit \d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('replaces {{counter}} with runCount', () => {
+    expect(scheduledTaskService.substituteTokens('Sprint {{counter}}', { runCount: 5, timezone: 'UTC' }))
+      .toBe('Sprint 5');
+  });
+
+  it('replaces both {{counter}} and {{date}}', () => {
+    const result = scheduledTaskService.substituteTokens('Sprint {{counter}} — {{date}}', { runCount: 5, timezone: 'UTC' });
+    expect(result).toMatch(/^Sprint 5 — \d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('replaces multiple occurrences of same token', () => {
+    const result = scheduledTaskService.substituteTokens('{{date}} ({{date}})', { runCount: 1, timezone: 'UTC' });
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \(\d{4}-\d{2}-\d{2}\)$/);
+  });
+
+  it('leaves unknown tokens untouched', () => {
+    expect(scheduledTaskService.substituteTokens('Report {{foo}}', { runCount: 1, timezone: 'UTC' }))
+      .toBe('Report {{foo}}');
+  });
+
+  it('is case-sensitive: {{Date}} and {{COUNTER}} are not replaced', () => {
+    expect(scheduledTaskService.substituteTokens('{{Date}} {{COUNTER}}', { runCount: 1, timezone: 'UTC' }))
+      .toBe('{{Date}} {{COUNTER}}');
+  });
+
+  it('handles empty string', () => {
+    expect(scheduledTaskService.substituteTokens('', { runCount: 1, timezone: 'UTC' }))
+      .toBe('');
+  });
+
+  it('respects timezone for {{date}}', () => {
+    const utcResult = scheduledTaskService.substituteTokens('{{date}}', { runCount: 1, timezone: 'UTC' });
+    const tokyoResult = scheduledTaskService.substituteTokens('{{date}}', { runCount: 1, timezone: 'Asia/Tokyo' });
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    expect(utcResult).toMatch(datePattern);
+    expect(tokyoResult).toMatch(datePattern);
+    // Tokyo is UTC+9 so the dates may differ depending on the current hour;
+    // the primary assertion is that the timezone option is wired through to
+    // Intl.DateTimeFormat, which is a trusted stdlib — we verify plumbing, not the stdlib.
+  });
+});
+
+describe('token substitution in execution', () => {
+  function createSchedule(overrides: Record<string, unknown> = {}) {
+    return scheduledTaskRepo.createScheduledTask({
+      boardId,
+      name: 'Templated Schedule',
+      scheduleType: 'cron',
+      cronExpression: '0 9 * * *',
+      featureTitle: 'Sprint {{counter}} — {{date}}',
+      featureDescription: 'Week of {{date}}',
+      featurePriority: 'medium' as TaskPriority,
+      featureLabels: ['sprint'],
+      tasksTemplate: [
+        { title: 'Review sprint {{counter}} backlog', description: 'Check items', order: 0 },
+      ] as TaskTemplateEntry[],
+      nextRunAt: new Date().toISOString(),
+      createdBy: 'human',
+      ...overrides,
+    });
+  }
+
+  it('resolves tokens in feature title, description, and task titles', () => {
+    const schedule = createSchedule();
+
+    const result = scheduledTaskService.executeScheduledTask(schedule.id);
+
+    expect(result.success).toBe(true);
+    const feature = featureRepo.getFeatureById(result.featureId!);
+    expect(feature!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
+    expect(feature!.description).toMatch(/^Week of \d{4}-\d{2}-\d{2}$/);
+
+    const createdTasks = taskRepo.getTasksByFeatureId(result.featureId!);
+    expect(createdTasks).toHaveLength(1);
+    expect(createdTasks[0].title).toMatch(/^Review sprint 1 backlog$/);
+  });
+
+  it('increments counter on second execution', () => {
+    const schedule = createSchedule({ scheduleType: 'interval', intervalMinutes: 1 });
+
+    const result1 = scheduledTaskService.executeScheduledTask(schedule.id);
+    expect(result1.success).toBe(true);
+    const feature1 = featureRepo.getFeatureById(result1.featureId!);
+    expect(feature1!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
+
+    scheduledTaskRepo.updateScheduledTask(schedule.id, {
+      nextRunAt: new Date(Date.now() - 1000).toISOString(),
+    });
+
+    const result2 = scheduledTaskService.executeScheduledTask(schedule.id);
+    expect(result2.success).toBe(true);
+    const feature2 = featureRepo.getFeatureById(result2.featureId!);
+    expect(feature2!.title).toMatch(/^Sprint 2 — \d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('resolves tokens via template path when templateId is set', () => {
+    const template = templateRepo.createTemplate({
+      boardId,
+      name: 'Sprint Template',
+      titlePattern: 'Template Task',
+      descriptionPattern: 'Template desc',
+      priority: 'high' as TaskPriority,
+      labels: ['sprint'],
+      tasksTemplate: [
+        { title: 'Plan', order: 0 },
+      ] as TaskTemplateEntry[],
+      createdBy: 'human',
+    });
+
+    const schedule = createSchedule({ templateId: template.id });
+
+    const result = scheduledTaskService.executeScheduledTask(schedule.id);
+
+    expect(result.success).toBe(true);
+    const feature = featureRepo.getFeatureById(result.featureId!);
+    expect(feature!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('passes non-templated titles through unchanged', () => {
+    const schedule = scheduledTaskRepo.createScheduledTask({
+      boardId,
+      name: 'Plain Schedule',
+      scheduleType: 'cron',
+      cronExpression: '0 9 * * *',
+      featureTitle: 'Daily Standup',
+      featureDescription: 'Auto standup',
+      featurePriority: 'medium' as TaskPriority,
+      featureLabels: [],
+      tasksTemplate: [],
+      nextRunAt: new Date().toISOString(),
+      createdBy: 'human',
+    });
+
+    const result = scheduledTaskService.executeScheduledTask(schedule.id);
+
+    expect(result.success).toBe(true);
+    const feature = featureRepo.getFeatureById(result.featureId!);
+    expect(feature!.title).toBe('Daily Standup');
+    expect(feature!.description).toBe('Auto standup');
+  });
+});

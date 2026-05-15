@@ -14,6 +14,18 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { sanitizeFilename } from './fileStorage.js';
 
+export function substituteTokens(
+  template: string,
+  context: { runCount: number; timezone: string },
+): string {
+  const date = new Intl.DateTimeFormat('en-CA', {
+    timeZone: context.timezone,
+  }).format(new Date());
+  return template
+    .replaceAll('{{date}}', date)
+    .replaceAll('{{counter}}', String(context.runCount));
+}
+
 export function calculateNextRun(
   scheduleType: string,
   cronExpression: string | null,
@@ -39,11 +51,17 @@ export function calculateNextRun(
   return new Date(Date.now() + 60_000).toISOString();
 }
 
+function buildTokenContext(schedule: ScheduledTask) {
+  return { runCount: schedule.runCount + 1, timezone: schedule.timezone ?? 'UTC' };
+}
+
 function createFeatureFromSchedule(schedule: ScheduledTask): { featureId: string; featureTitle: string } {
+  const ctx = buildTokenContext(schedule);
+  const resolvedTitle = substituteTokens(schedule.featureTitle, ctx);
   const feature = featureRepo.createFeature({
     boardId: schedule.boardId,
-    title: schedule.featureTitle,
-    description: schedule.featureDescription,
+    title: resolvedTitle,
+    description: substituteTokens(schedule.featureDescription, ctx),
     priority: schedule.featurePriority,
     labels: schedule.featureLabels,
     createdBy: 'system',
@@ -52,7 +70,7 @@ function createFeatureFromSchedule(schedule: ScheduledTask): { featureId: string
   for (const entry of (schedule.tasksTemplate ?? []) as TaskTemplateEntry[]) {
     taskRepo.createTask({
       featureId: feature.id,
-      title: entry.title,
+      title: substituteTokens(entry.title, ctx),
       description: entry.description,
       priority: entry.priority,
       requiredDomain: entry.requiredDomain,
@@ -63,7 +81,7 @@ function createFeatureFromSchedule(schedule: ScheduledTask): { featureId: string
     });
   }
 
-  return { featureId: feature.id, featureTitle: schedule.featureTitle };
+  return { featureId: feature.id, featureTitle: resolvedTitle };
 }
 
 export function executeScheduledTask(id: string): { success: boolean; featureId?: string; error?: string; skipped?: boolean } {
@@ -93,12 +111,14 @@ export function executeScheduledTask(id: string): { success: boolean; featureId?
     let featureTitle: string;
 
     if (schedule.templateId) {
+      const ctx = buildTokenContext(schedule);
+      const resolvedTitle = substituteTokens(schedule.featureTitle, ctx);
       const result = templateRepo.applyTemplate(
         schedule.templateId,
         schedule.boardId,
         {
-          title: schedule.featureTitle,
-          description: schedule.featureDescription,
+          title: resolvedTitle,
+          description: substituteTokens(schedule.featureDescription, ctx),
           priority: schedule.featurePriority,
           labels: schedule.featureLabels,
         },
@@ -107,7 +127,7 @@ export function executeScheduledTask(id: string): { success: boolean; featureId?
 
       if (result) {
         featureId = result.feature.id;
-        featureTitle = schedule.featureTitle;
+        featureTitle = resolvedTitle;
       } else {
         const fallback = createFeatureFromSchedule(schedule);
         featureId = fallback.featureId;

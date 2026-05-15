@@ -443,4 +443,75 @@ describe('ScheduledTaskForm', () => {
       })
     );
   });
+
+  it('renders token hints below Feature Title input', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    const titleHints = screen.getByTestId('title-token-hints');
+    expect(titleHints).toBeTruthy();
+    expect(titleHints.textContent).toContain('{{date}}');
+    expect(titleHints.textContent).toContain('{{counter}}');
+    expect(titleHints.textContent).toContain('YYYY-MM-DD');
+  });
+
+  it('renders token hints below Feature Description input', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    const descHints = screen.getByTestId('desc-token-hints');
+    expect(descHints).toBeTruthy();
+    expect(descHints.textContent).toContain('{{date}}');
+    expect(descHints.textContent).toContain('{{counter}}');
+  });
+
+  it('token hints show example syntax', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    const titleHints = screen.getByTestId('title-token-hints');
+    expect(titleHints.textContent).toContain('Sprint {{counter}} — {{date}}');
+    expect(titleHints.textContent).toContain('Sprint 7 — 2026-05-19');
+  });
+
+  it('form submits correctly with token hints present', () => {
+    render(
+      <ScheduledTaskForm
+        existing={null}
+        templates={[]}
+        saving={false}
+        onSave={mockOnSave}
+        onCancel={mockOnCancel}
+      />
+    );
+    expect(screen.getByTestId('title-token-hints')).toBeTruthy();
+    expect(screen.getByTestId('desc-token-hints')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('st-name'), { target: { value: 'Sprint Task' } });
+    fireEvent.change(screen.getByTestId('st-cron-expression'), { target: { value: '0 9 * * 1' } });
+    fireEvent.change(screen.getByTestId('st-feature-title'), { target: { value: 'Sprint {{counter}} — {{date}}' } });
+    fireEvent.click(screen.getByTestId('st-submit'));
+    expect(mockOnSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        featureTitle: 'Sprint {{counter}} — {{date}}',
+      })
+    );
+  });
 });
