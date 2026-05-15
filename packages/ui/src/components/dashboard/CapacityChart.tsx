@@ -13,7 +13,6 @@ import {
 import { AlertTriangle, CheckCircle2, Lightbulb, Users, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
-import { api } from '../../api/index.js';
 import { formatMinutes } from '../../lib/formatting.js';
 import { useBoardCapacity } from '../../lib/useHabitatData.js';
 import type { AgentCapacity } from '../../types/index.js';

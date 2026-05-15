@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api/index.js';
 import { useBoardStore } from '../store/habitatStore.js';
 import { useModalStore } from '../store/modalStore.js';
+import { useBoardAnomalies, useBoardEvents } from '../lib/useHabitatData.js';
 import { Button } from '../components/ui/Button.js';
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, ArrowLeft, Activity, Loader2 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/formatting.js';
@@ -120,67 +120,45 @@ export function ActivityPage() {
   const board = useBoardStore((s) => s.board);
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>('all');
-  const [events, setEvents] = useState<EnrichedBoardEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [offset, setOffset] = useState(0);
+  const [pageOffset, setPageOffset] = useState(0);
+  const [accumulatedEvents, setAccumulatedEvents] = useState<EnrichedBoardEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
 
   const boardId = board?.id;
   const limit = 50;
 
-  useEffect(() => {
-    if (boardId) {
-      api.boards.anomalies(boardId).then(({ anomalies: a }) => setAnomalies(a)).catch(() => {});
+  const anomaliesQuery = useBoardAnomalies(boardId);
+  const anomalies = anomaliesQuery.data?.anomalies ?? [];
+
+  const actions = actionFilters[filter];
+  const eventsParams = useMemo(() => {
+    const params: { limit: number; offset: number; action?: string } = { limit, offset: pageOffset };
+    if (actions.length === 1) {
+      params.action = actions[0];
     }
-  }, [boardId]);
+    return params;
+  }, [limit, pageOffset, actions]);
 
-  const loadEvents = useCallback(async (reset = false) => {
-    if (!boardId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const newOffset = reset ? 0 : offset;
-      const actions = actionFilters[filter];
-      const params: { limit: number; offset: number; action?: string } = {
-        limit,
-        offset: newOffset,
-      };
-      if (actions.length === 1) {
-        params.action = actions[0];
-      }
-
-      const { events: fetched, total: totalCount } = await api.boards.events(boardId, params);
-
-      let filtered = fetched;
-      if (actions.length > 1) {
-        filtered = fetched.filter((e) => actions.includes(e.action));
-      }
-
-      if (reset) {
-        setEvents(filtered);
-        setOffset(limit);
-      } else {
-        setEvents((prev) => [...prev, ...filtered]);
-        setOffset(newOffset + limit);
-      }
-      setTotal(totalCount);
-      setHasMore(newOffset + fetched.length < totalCount);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [boardId, filter, offset]);
+  const eventsQuery = useBoardEvents(boardId, eventsParams);
 
   useEffect(() => {
-    if (boardId) {
-      setOffset(0);
-      loadEvents(true);
+    if (!eventsQuery.data) return;
+    const fetched = eventsQuery.data.events ?? [];
+    const filtered = actions.length > 1 ? fetched.filter((e) => actions.includes(e.action)) : fetched;
+    setTotal(eventsQuery.data.total);
+    setHasMore(pageOffset + fetched.length < eventsQuery.data.total);
+
+    if (pageOffset === 0) {
+      setAccumulatedEvents(filtered);
+    } else {
+      setAccumulatedEvents((prev) => [...prev, ...filtered]);
     }
-  }, [boardId, filter]);
+  }, [eventsQuery.data, pageOffset, actions]);
+
+  const events = accumulatedEvents;
+  const isLoading = eventsQuery.isLoading || eventsQuery.isFetching;
+  const error = eventsQuery.error?.message ?? null;
 
   const handleTaskClick = (taskId: string) => {
     openModal(taskId);
@@ -188,6 +166,13 @@ export function ActivityPage() {
 
   const handleFilterChange = (newFilter: FilterType) => {
     setFilter(newFilter);
+    setPageOffset(0);
+    setAccumulatedEvents([]);
+    setHasMore(true);
+  };
+
+  const handleLoadMore = () => {
+    setPageOffset((prev) => prev + limit);
   };
 
   const severityColors: Record<string, string> = {
@@ -324,7 +309,7 @@ export function ActivityPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => loadEvents(false)}
+                  onClick={handleLoadMore}
                   disabled={isLoading}
                   data-testid="load-more"
                 >

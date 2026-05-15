@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/Dialog.js';
 import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { useTemplates } from '../../lib/useHabitatData.js';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys.js';
 import type { FeatureTemplate, TaskPriority } from '../../types/index.js';
 
 interface TemplateManagerDialogProps {
@@ -32,29 +35,55 @@ const emptyEditState: EditTemplateState = {
 };
 
 export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManagerDialogProps) {
-  const [templates, setTemplates] = useState<FeatureTemplate[]>([]);
-  const [loading, setLoading] = useState(false);
+  const qc = useQueryClient();
+  const { data: templatesData, isLoading } = useTemplates(boardId);
+  const templates = templatesData?.templates ?? [];
   const [editing, setEditing] = useState<EditTemplateState | null>(null);
-  const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      loadTemplates();
-    }
-  }, [open, boardId]);
+  const saveMutation = useMutation({
+    mutationFn: async (edit: EditTemplateState) => {
+      const labelList = edit.labels
+        .split(',')
+        .map((l) => l.trim())
+        .filter(Boolean);
 
-  async function loadTemplates() {
-    setLoading(true);
-    try {
-      const result = await api.templates.list(boardId);
-      setTemplates(result.templates);
-    } catch (err) {
-      notify.error((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
+      const data = {
+        name: edit.name.trim(),
+        titlePattern: edit.titlePattern.trim(),
+        descriptionPattern: edit.descriptionPattern.trim(),
+        priority: edit.priority,
+        labels: labelList,
+        requiredDomain: edit.requiredDomain || null,
+      };
+
+      if (edit.id) {
+        await api.templates.update(edit.id, data);
+      } else {
+        await api.templates.create(boardId, data);
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.templates.list(boardId) });
+      notify.success(editing?.id ? 'Template updated' : 'Template created');
+      setEditing(null);
+      setShowForm(false);
+    },
+    onError: (err: Error) => {
+      notify.error(err.message);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.templates.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.templates.list(boardId) });
+      notify.success('Template deleted');
+    },
+    onError: (err: Error) => {
+      notify.error(err.message);
+    },
+  });
 
   function startCreate() {
     setEditing({ ...emptyEditState });
@@ -79,55 +108,17 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
     setShowForm(false);
   }
 
-  async function handleSave() {
+  function handleSave() {
     if (!editing) return;
     if (!editing.name.trim() || !editing.titlePattern.trim()) {
       notify.error('Name and title pattern are required');
       return;
     }
-
-    setSaving(true);
-    try {
-      const labelList = editing.labels
-        .split(',')
-        .map((l) => l.trim())
-        .filter(Boolean);
-
-      const data = {
-        name: editing.name.trim(),
-        titlePattern: editing.titlePattern.trim(),
-        descriptionPattern: editing.descriptionPattern.trim(),
-        priority: editing.priority,
-        labels: labelList,
-        requiredDomain: editing.requiredDomain || null,
-      };
-
-      if (editing.id) {
-        await api.templates.update(editing.id, data);
-        notify.success('Template updated');
-      } else {
-        await api.templates.create(boardId, data);
-        notify.success('Template created');
-      }
-
-      setEditing(null);
-      setShowForm(false);
-      loadTemplates();
-    } catch (err) {
-      notify.error((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate(editing);
   }
 
-  async function handleDelete(id: string) {
-    try {
-      await api.templates.delete(id);
-      notify.success('Template deleted');
-      loadTemplates();
-    } catch (err) {
-      notify.error((err as Error).message);
-    }
+  function handleDelete(id: string) {
+    deleteMutation.mutate(id);
   }
 
   const globalTemplates = templates.filter((t) => !t.boardId);
@@ -145,7 +136,7 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
               <Button onClick={startCreate}>+ New Mission Template</Button>
             </div>
 
-            {loading ? (
+            {isLoading ? (
               <p className="text-sm text-muted-foreground">Loading...</p>
             ) : templates.length === 0 ? (
               <p className="text-sm text-muted-foreground">No mission templates yet. Create one to get started.</p>
@@ -305,11 +296,11 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
             <Button
               variant="ghost"
               onClick={cancelEdit}
-              disabled={saving}
+              disabled={saveMutation.isPending}
             >
               Cancel
             </Button>
-            <Button onClick={handleSave} loading={saving}>
+            <Button onClick={handleSave} loading={saveMutation.isPending}>
               {editing?.id ? 'Update' : 'Create'}
             </Button>
           </>

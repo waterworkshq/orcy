@@ -10,7 +10,7 @@ export const queryKeys = {
     anomalies: (boardId: string) => [...queryKeys.boards.all, 'anomalies', boardId] as const,
     capacity: (boardId: string) => [...queryKeys.boards.all, 'capacity', boardId] as const,
     metrics: (boardId: string) => [...queryKeys.boards.all, 'metrics', boardId] as const,
-    tasks: (boardId: string, filters?: Record<string, unknown>) => [...queryKeys.boards.all, 'tasks', boardId, filters] as const,
+    tasks: (boardId: string, filters?: { status?: string; priority?: string; search?: string; assignedAgentId?: string; isArchived?: boolean; limit?: number; offset?: number; sortBy?: string; sortDir?: 'asc' | 'desc' }) => [...queryKeys.boards.all, 'tasks', boardId, filters] as const,
   },
   features: {
     all: ['features'] as const,
@@ -49,45 +49,65 @@ export const queryKeys = {
     myTeams: () => [...queryKeys.teams.all, 'myTeams'] as const,
   },
   comments: {
-    list: (taskId: string) => ['comments', 'list', taskId] as const,
+    all: ['comments'] as const,
+    list: (taskId: string) => [...queryKeys.comments.all, 'list', taskId] as const,
   },
   attachments: {
-    list: (taskId: string) => ['attachments', 'list', taskId] as const,
+    all: ['attachments'] as const,
+    list: (taskId: string) => [...queryKeys.attachments.all, 'list', taskId] as const,
   },
   pulse: {
     all: ['pulses'] as const,
-    byMission: (missionId: string) => ['pulses', missionId] as const,
-    byBoard: (boardId: string) => ['habitatPulses', boardId] as const,
-    replies: (pulseId: string) => ['pulseReplies', pulseId] as const,
+    byMission: (missionId: string) => [...queryKeys.pulse.all, missionId] as const,
+    byBoard: (boardId: string) => [...queryKeys.pulse.all, 'byBoard', boardId] as const,
+    replies: (pulseId: string) => [...queryKeys.pulse.all, 'replies', pulseId] as const,
   },
   insights: {
     all: ['insights'] as const,
-    byBoard: (boardId: string) => ['insights', boardId] as const,
+    byBoard: (boardId: string) => [...queryKeys.insights.all, boardId] as const,
   },
   organizations: {
     all: ['organizations'] as const,
-    list: () => ['organizations', 'list'] as const,
-    teams: (orgId: string) => ['organizations', 'teams', orgId] as const,
-    members: (teamId: string) => ['organizations', 'members', teamId] as const,
+    list: () => [...queryKeys.organizations.all, 'list'] as const,
+    teams: (orgId: string) => [...queryKeys.organizations.all, 'teams', orgId] as const,
+    members: (teamId: string) => [...queryKeys.organizations.all, 'members', teamId] as const,
   },
   savedFilters: {
-    list: (boardId: string) => ['savedFilters', boardId] as const,
+    all: ['savedFilters'] as const,
+    list: (boardId: string) => [...queryKeys.savedFilters.all, boardId] as const,
   },
   health: {
-    current: (boardId: string) => ['health', boardId] as const,
-    history: (boardId: string) => ['health', 'history', boardId] as const,
+    all: ['health'] as const,
+    current: (boardId: string) => [...queryKeys.health.all, boardId] as const,
+    history: (boardId: string) => [...queryKeys.health.all, 'history', boardId] as const,
   },
   audit: {
-    summary: (boardId: string) => ['audit', 'summary', boardId] as const,
+    all: ['audit'] as const,
+    summary: (boardId: string) => [...queryKeys.audit.all, 'summary', boardId] as const,
   },
   featureComments: {
-    list: (featureId: string) => ['featureComments', featureId] as const,
+    all: ['featureComments'] as const,
+    list: (featureId: string) => [...queryKeys.featureComments.all, featureId] as const,
   },
   user: {
-    profile: () => ['user', 'profile'] as const,
+    all: ['user'] as const,
+    profile: () => [...queryKeys.user.all, 'profile'] as const,
   },
   scheduledTasks: {
-    list: (boardId: string) => ['scheduledTasks', boardId] as const,
-    detail: (id: string) => ['scheduledTasks', 'detail', id] as const,
+    all: ['scheduledTasks'] as const,
+    list: (boardId: string) => [...queryKeys.scheduledTasks.all, boardId] as const,
+    detail: (id: string) => [...queryKeys.scheduledTasks.all, 'detail', id] as const,
+  },
+  templates: {
+    all: ['templates'] as const,
+    list: (boardId: string) => [...queryKeys.templates.all, boardId] as const,
+  },
+  chatIntegrations: {
+    all: ['chatIntegrations'] as const,
+    list: (boardId: string) => [...queryKeys.chatIntegrations.all, boardId] as const,
+  },
+  notificationPrefs: {
+    all: ['notificationPrefs'] as const,
+    board: (boardId: string) => [...queryKeys.notificationPrefs.all, boardId] as const,
   },
 };

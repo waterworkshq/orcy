@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '../../api/index.js';
+import React, { useState } from 'react';
 import { Activity, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Clock, Users, Shield } from 'lucide-react';
+import { useBoardHealth } from '../../lib/useHabitatData.js';
 
 interface HealthScoreWidgetProps {
   boardId: string;
@@ -35,18 +35,7 @@ const dimensionLabels: Record<string, string> = {
 
 export function HealthScoreWidget({ boardId }: HealthScoreWidgetProps) {
   const [expanded, setExpanded] = useState(false);
-  const [health, setHealth] = useState<{ score: number; grade: string; dimensions: Record<string, { score: number } & Record<string, number>>; recommendations: string[] } | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!boardId) return;
-    if (!api.health) return;
-    setLoading(true);
-    api.health.get(boardId)
-      .then(data => setHealth(data))
-      .catch(() => setHealth(null))
-      .finally(() => setLoading(false));
-  }, [boardId]);
+  const { data: health, isLoading: loading } = useBoardHealth(boardId);
 
   if (loading) {
     return (

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
 import { CreateTaskForm } from './CreateTaskForm.js';
 
 const mockCreateTask = vi.fn();
@@ -41,6 +43,15 @@ vi.mock('../ui/RichTextEditor.js', () => ({
   ),
 }));
 
+function createTestWrapper() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(QueryClientProvider, { client: qc }, children);
+  };
+}
+
 describe('CreateTaskForm', () => {
   const defaultProps = {
     open: true,
@@ -62,19 +73,19 @@ describe('CreateTaskForm', () => {
 
   describe('Tags input widget', () => {
     it('renders the required capabilities label and input', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       expect(screen.getByText('Required Capabilities')).toBeTruthy();
       expect(screen.getByPlaceholderText('e.g., typescript, react, python, node.js')).toBeTruthy();
     });
 
     it('shows placeholder text suggesting common values', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       expect(input).toBeTruthy();
     });
 
     it('adds a tag on Enter key press', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: 'typescript' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -83,7 +94,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('adds a tag on comma key press', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: 'react' } });
       fireEvent.keyDown(input, { key: ',' });
@@ -92,7 +103,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('adds a tag on blur when input has content', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: 'python' } });
       fireEvent.blur(input);
@@ -101,7 +112,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('does not add empty tags', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: '   ' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -111,7 +122,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('does not add duplicate tags', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: 'typescript' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -123,7 +134,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('clears input after adding a tag', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js') as HTMLInputElement;
       fireEvent.change(input, { target: { value: 'typescript' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -132,7 +143,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('trims whitespace from tags', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: '  typescript  ' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -141,7 +152,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('removes a tag when X button is clicked', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       fireEvent.change(input, { target: { value: 'typescript' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -159,7 +170,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('renders multiple tags', () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
       const input = screen.getByPlaceholderText('e.g., typescript, react, python, node.js');
       const tags = ['typescript', 'react', 'python'];
       tags.forEach((tag) => {
@@ -175,7 +186,7 @@ describe('CreateTaskForm', () => {
 
   describe('Form submission with capabilities', () => {
     it('includes capabilities in form submission payload', async () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'My Task' } });
@@ -197,7 +208,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('sends undefined capabilities when none are added', async () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'My Task' } });
@@ -213,7 +224,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('calls addTask after successful creation', async () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'My Task' } });
@@ -227,7 +238,7 @@ describe('CreateTaskForm', () => {
     });
 
     it('does not submit when title is empty', async () => {
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const submitButton = screen.getByRole('button', { name: 'Create Task' });
       fireEvent.click(submitButton);
@@ -254,7 +265,7 @@ describe('CreateTaskForm', () => {
     it('populates capabilities from template when selected', async () => {
       mockListTemplates.mockResolvedValue({ templates: [templateWithCaps] });
 
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       await waitFor(() => {
         expect(screen.getByText('Frontend Task (board)')).toBeTruthy();
@@ -270,7 +281,7 @@ describe('CreateTaskForm', () => {
     it('clears capabilities when template is deselected', async () => {
       mockListTemplates.mockResolvedValue({ templates: [templateWithCaps] });
 
-      render(<CreateTaskForm {...defaultProps} />);
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       await waitFor(() => {
         expect(screen.getByText('Frontend Task (board)')).toBeTruthy();
@@ -286,6 +297,65 @@ describe('CreateTaskForm', () => {
 
       expect(screen.queryByText('typescript')).toBeNull();
       expect(screen.queryByText('react')).toBeNull();
+    });
+  });
+
+  describe('React Query integration', () => {
+    it('renders template options from useTemplates', async () => {
+      mockListTemplates.mockResolvedValue({ templates: [
+        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: ', boardId: 'board-1', labels: [] },
+        { id: 't2', name: 'Feature', titlePattern: 'Add: ', boardId: null, labels: [] },
+      ] });
+
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
+
+      await waitFor(() => {
+        expect(screen.getByText('Bug Fix (board)')).toBeTruthy();
+      });
+      expect(screen.getByText('Feature (global)')).toBeTruthy();
+    });
+
+    it('does not show template selector when no templates', () => {
+      mockListTemplates.mockResolvedValue({ templates: [] });
+
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });
+
+      expect(screen.queryByText('Template')).toBeNull();
+    });
+
+    it('invalidates RQ cache for tasks, details, and progress after creation', async () => {
+      const invalidateSpy = vi.fn();
+      const qc = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      qc.invalidateQueries = invalidateSpy;
+
+      function Wrapper({ children }: { children: React.ReactNode }) {
+        return React.createElement(QueryClientProvider, { client: qc }, children);
+      }
+
+      render(<CreateTaskForm {...defaultProps} />, { wrapper: Wrapper });
+
+      const titleInput = screen.getByPlaceholderText('Task title');
+      fireEvent.change(titleInput, { target: { value: 'My Task' } });
+
+      const submitButton = screen.getByRole('button', { name: 'Create Task' });
+      fireEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockAddTask).toHaveBeenCalled();
+      });
+
+      const invalidatedKeys = invalidateSpy.mock.calls.map(
+        (call: any[]) => call[0]?.queryKey,
+      );
+
+      const hasKey = (prefix: string) =>
+        invalidatedKeys.some((key) => JSON.stringify(key).includes(prefix));
+
+      expect(hasKey('tasks')).toBe(true);
+      expect(hasKey('details')).toBe(true);
+      expect(hasKey('progress')).toBe(true);
     });
   });
 });

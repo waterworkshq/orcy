@@ -1,8 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChatIntegrationForm } from './ChatIntegrationForm.js';
 import { ChatIntegrationList } from './ChatIntegrationList.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
+import { useChatIntegrations } from '../../../lib/useHabitatData.js';
+import { queryKeys } from '../../../lib/queryKeys.js';
 import type { ChatIntegration } from '../../../types/index.js';
 
 interface ChatIntegrationsTabProps {
@@ -10,28 +13,16 @@ interface ChatIntegrationsTabProps {
 }
 
 export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
-  const [chatIntegrations, setChatIntegrations] = useState<ChatIntegration[]>([]);
-  const [chatLoading, setChatLoading] = useState(false);
+  const { data: chatIntegrations = [], isLoading: chatLoading } = useChatIntegrations(boardId);
   const [chatSaving, setChatSaving] = useState(false);
   const [chatFormOpen, setChatFormOpen] = useState(false);
   const [chatEditIntegration, setChatEditIntegration] = useState<ChatIntegration | null>(null);
   const [chatTesting, setChatTesting] = useState<string | null>(null);
 
-  const loadChatIntegrations = useCallback(async () => {
-    setChatLoading(true);
-    try {
-      const result = await api.chatIntegrations.list(boardId);
-      setChatIntegrations(result);
-    } catch (err) {
-      notify.error('Failed to load chat integrations');
-    } finally {
-      setChatLoading(false);
-    }
-  }, [boardId]);
+  const qc = useQueryClient();
 
-  useEffect(() => {
-    loadChatIntegrations();
-  }, [loadChatIntegrations]);
+  const invalidateIntegrations = () =>
+    qc.invalidateQueries({ queryKey: queryKeys.chatIntegrations.list(boardId) });
 
   function openChatForm(existing?: ChatIntegration) {
     setChatEditIntegration(existing ?? null);
@@ -71,7 +62,7 @@ export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
         notify.success('Integration created');
       }
       resetChatForm();
-      loadChatIntegrations();
+      invalidateIntegrations();
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -83,7 +74,7 @@ export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
     try {
       await api.chatIntegrations.delete(id);
       notify.success('Integration deleted');
-      loadChatIntegrations();
+      invalidateIntegrations();
     } catch (err) {
       notify.error((err as Error).message);
     }
@@ -110,7 +101,7 @@ export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
       await api.chatIntegrations.update(integration.id, {
         enabled: !integration.enabled,
       });
-      loadChatIntegrations();
+      invalidateIntegrations();
     } catch (err) {
       notify.error((err as Error).message);
     }

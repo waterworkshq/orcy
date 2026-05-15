@@ -1,61 +1,55 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { AgentRegistrationDialog } from '../components/ui/AgentRegistrationDialog.js';
 import { Button } from '../components/ui/Button.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.js';
+import { Card, CardContent } from '../components/ui/Card.js';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog.js';
 import { notify } from '../lib/toast.js';
-import { formatRelativeTime, formatMinutes } from '../lib/formatting.js';
+import { useAgentsListWithTasks, useAgentStats } from '../lib/useHabitatData.js';
+import { queryKeys } from '../lib/queryKeys.js';
 import { AgentCard } from '../components/habitat/AgentCard.js';
-import { ArrowLeft, Bot, ChevronDown, ChevronRight, Loader2, Plus, TrendingUp, Users } from 'lucide-react';
-import type { Agent, AgentStats } from '../types/index.js';
+import { ArrowLeft, Bot, Loader2, Plus, Users } from 'lucide-react';
+import type { Agent } from '../types/index.js';
+
+function AgentCardWithStats({
+  agent,
+  currentTaskTitle,
+  expanded,
+  onToggleExpand,
+  onDeregister,
+}: {
+  agent: Agent;
+  currentTaskTitle: string | null;
+  expanded: boolean;
+  onToggleExpand: (agentId: string) => void;
+  onDeregister: (agentId: string) => void;
+}) {
+  const statsQuery = useAgentStats(agent.id);
+  return (
+    <AgentCard
+      agent={agent}
+      currentTaskTitle={currentTaskTitle}
+      stats={statsQuery.data}
+      expanded={expanded}
+      onToggleExpand={onToggleExpand}
+      onDeregister={onDeregister}
+    />
+  );
+}
 
 export function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [currentTaskTitles, setCurrentTaskTitles] = useState<Record<string, string>>({});
-  const [agentStats, setAgentStats] = useState<Record<string, AgentStats>>({});
+  const qc = useQueryClient();
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
 
-  const fetchAgents = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const agentListWithTasks = await api.agents.listWithTasks();
-      setAgents(agentListWithTasks.map((a) => a.agent));
-
-      const titles: Record<string, string> = {};
-      for (const item of agentListWithTasks) {
-        if (item.currentTaskTitle) {
-          titles[item.agent.id] = item.currentTaskTitle;
-        }
-      }
-      setCurrentTaskTitles(titles);
-
-      const stats: Record<string, AgentStats> = {};
-      await Promise.all(
-        agentListWithTasks.map((a) =>
-          api.agents.stats(a.agent.id).then((s) => {
-            stats[a.agent.id] = s;
-          }).catch(() => {})
-        )
-      );
-      setAgentStats(stats);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAgents();
-  }, [fetchAgents]);
+  const agentsQuery = useAgentsListWithTasks('_global');
+  const agents = agentsQuery.data ?? [];
+  const loading = agentsQuery.isLoading;
+  const error = agentsQuery.error;
 
   function toggleExpanded(agentId: string) {
     setExpandedAgents((prev) => ({ ...prev, [agentId]: !prev[agentId] }));
@@ -71,13 +65,17 @@ export function AgentsPage() {
     try {
       await api.agents.delete(pendingAgentId);
       notify.success('Agent deregistered');
-      setAgents((prev) => prev.filter((a) => a.id !== pendingAgentId));
+      await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
       setConfirmOpen(false);
       setPendingAgentId(null);
     }
+  }
+
+  async function handleRegistered() {
+    await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
   }
 
   return (
@@ -116,7 +114,7 @@ export function AgentsPage() {
         {error && (
           <Card>
             <CardContent className="py-12">
-              <div className="text-center text-error">{error}</div>
+              <div className="text-center text-error">{error.message}</div>
             </CardContent>
           </Card>
         )}
@@ -139,13 +137,12 @@ export function AgentsPage() {
 
         {!loading && !error && agents.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {agents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                currentTaskTitle={currentTaskTitles[agent.id] ?? null}
-                stats={agentStats[agent.id]}
-                expanded={!!expandedAgents[agent.id]}
+            {agents.map((item) => (
+              <AgentCardWithStats
+                key={item.agent.id}
+                agent={item.agent}
+                currentTaskTitle={item.currentTaskTitle}
+                expanded={!!expandedAgents[item.agent.id]}
                 onToggleExpand={toggleExpanded}
                 onDeregister={requestRemove}
               />
@@ -157,7 +154,7 @@ export function AgentsPage() {
       <AgentRegistrationDialog
         open={showRegisterDialog}
         onClose={() => setShowRegisterDialog(false)}
-        onRegistered={() => fetchAgents()}
+        onRegistered={handleRegistered}
       />
       <ConfirmDialog
         open={confirmOpen}

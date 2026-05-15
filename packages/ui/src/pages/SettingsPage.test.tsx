@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsPage } from './SettingsPage.js';
 
 const mockAuthMe = vi.fn();
@@ -56,13 +57,16 @@ vi.mock('lucide-react', () => ({
 }));
 
 function renderPage() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter initialEntries={['/settings']}>
-      <Routes>
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/" element={<div>Home Page</div>} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/settings']}>
+        <Routes>
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/" element={<div>Home Page</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -332,12 +336,14 @@ describe('SettingsPage', () => {
       expect(screen.getByTestId('display-name-section')).toBeTruthy();
     });
 
+    mockAuthMe.mockResolvedValue({ user: updatedUser });
+
     fireEvent.change(screen.getByLabelText('New Display Name'), { target: { value: 'New Name' } });
     fireEvent.click(screen.getByText('Save Display Name', { selector: 'button' }));
 
     await waitFor(() => {
-      expect(screen.getByText('New Name')).toBeTruthy();
       expect(mockNotifySuccess).toHaveBeenCalledWith('Display name updated');
+      expect(screen.getByText('New Name')).toBeTruthy();
     });
   });
 

@@ -1,48 +1,32 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ScheduledTasksList } from './ScheduledTasksList.js';
 import { ScheduledTaskForm, type ScheduledTaskFormData } from './ScheduledTaskForm.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
-import type { ScheduledTask, FeatureTemplate } from '../../../types/index.js';
+import { useScheduledTasks, useTemplates } from '../../../lib/useHabitatData.js';
+import { queryKeys } from '../../../lib/queryKeys.js';
+import type { ScheduledTask } from '../../../types/index.js';
 
 interface ScheduledTasksTabProps {
   boardId: string;
 }
 
 export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
-  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
-  const [templates, setTemplates] = useState<FeatureTemplate[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data: scheduledTasksData, isLoading: loading } = useScheduledTasks(boardId);
+  const { data: templatesData } = useTemplates(boardId);
+  const qc = useQueryClient();
+
+  const scheduledTasks = scheduledTasksData?.scheduledTasks ?? [];
+  const templates = templatesData?.templates ?? [];
+
   const [saving, setSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
 
-  const loadScheduledTasks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await api.scheduledTasks.list(boardId);
-      setScheduledTasks(result.scheduledTasks);
-    } catch (err) {
-      notify.error('Failed to load scheduled tasks');
-    } finally {
-      setLoading(false);
-    }
-  }, [boardId]);
-
-  const loadTemplates = useCallback(async () => {
-    try {
-      const result = await api.templates.list(boardId);
-      setTemplates(result.templates);
-    } catch {
-      // templates are optional for the form
-    }
-  }, [boardId]);
-
-  useEffect(() => {
-    loadScheduledTasks();
-    loadTemplates();
-  }, [loadScheduledTasks, loadTemplates]);
+  const invalidateScheduledTasks = () =>
+    qc.invalidateQueries({ queryKey: queryKeys.scheduledTasks.list(boardId) });
 
   function openForm(existing?: ScheduledTask) {
     setEditTask(existing ?? null);
@@ -65,7 +49,7 @@ export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
         notify.success('Scheduled task created');
       }
       closeForm();
-      loadScheduledTasks();
+      invalidateScheduledTasks();
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -77,7 +61,7 @@ export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
     try {
       await api.scheduledTasks.delete(id);
       notify.success('Scheduled task deleted');
-      loadScheduledTasks();
+      invalidateScheduledTasks();
     } catch (err) {
       notify.error((err as Error).message);
     }
@@ -92,7 +76,7 @@ export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
       } else {
         notify.error(result.error ?? 'Execution failed');
       }
-      loadScheduledTasks();
+      invalidateScheduledTasks();
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -107,7 +91,7 @@ export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
       } else {
         await api.scheduledTasks.enable(task.id);
       }
-      loadScheduledTasks();
+      invalidateScheduledTasks();
     } catch (err) {
       notify.error((err as Error).message);
     }

@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Drawer } from '../ui/Drawer.js';
 import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
+import { useBoardEvents, useBoardAnomalies } from '../../lib/useHabitatData.js';
 import { SEVERITY_BADGE } from '../../lib/status-maps.js';
-import { CheckCircle, XCircle, User, Circle, ArrowRight, Clock, AlertTriangle, Download } from 'lucide-react';
+import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, Download } from 'lucide-react';
 import type { EnrichedBoardEvent, EventAction, Anomaly } from '../../types/index.js';
 import { AuditExportModal } from './AuditExportModal.js';
 
@@ -126,93 +127,66 @@ function EventRow({ event, onTaskClick }: { event: EnrichedBoardEvent; onTaskCli
 }
 
 export function ActivityPanel({ onClose }: ActivityPanelProps) {
-  const { board, boardEvents, setBoardEvents, prependBoardEvent, agents, tasks } = useBoardStore();
+  const { board } = useBoardStore();
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>('all');
-  const [isLoading, setIsLoading] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [extraEvents, setExtraEvents] = useState<EnrichedBoardEvent[]>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [auditExportOpen, setAuditExportOpen] = useState(false);
 
   const boardId = board?.id;
   const limit = 50;
 
-  useEffect(() => {
-    if (boardId) {
-      api.boards.anomalies(boardId).then(({ anomalies: a }) => setAnomalies(a)).catch(() => {});
-    }
-  }, [boardId]);
+  const actions = actionFilters[filter];
+  const eventsQuery = useBoardEvents(boardId, {
+    limit,
+    offset: 0,
+    action: actions.length === 1 ? actions[0] : undefined,
+    ...(actions.length > 1 ? { actions: actions.join(',') } : {}),
+  });
 
-  const loadEvents = useCallback(async (reset = false) => {
-    if (!boardId) return;
-    setIsLoading(true);
+  const anomaliesQuery = useBoardAnomalies(boardId);
+
+  const events = eventsQuery.data?.events ?? [];
+  const total = eventsQuery.data?.total ?? 0;
+  const allEvents = [...events, ...extraEvents];
+  const hasMore = allEvents.length < total;
+
+  const loadMore = useCallback(async () => {
+    if (!boardId || isLoadingMore) return;
+    setIsLoadingMore(true);
     try {
-      const newOffset = reset ? 0 : offset;
-      const actions = actionFilters[filter];
-      const { events, total: totalCount } = await api.boards.events(boardId, {
+      const offset = limit + extraEvents.length;
+      const { events: more } = await api.boards.events(boardId, {
         limit,
-        offset: newOffset,
+        offset,
         action: actions.length === 1 ? actions[0] : undefined,
-        ...(actions.length > 1 && { actions: actions.join(',') }),
+        ...(actions.length > 1 ? { actions: actions.join(',') } : {}),
       });
-      if (reset) {
-        setBoardEvents(events);
-        setOffset(limit);
-      } else {
-        setBoardEvents([...boardEvents, ...events]);
-        setOffset(newOffset + limit);
-      }
-      setTotal(totalCount);
-      setHasMore(newOffset + events.length < totalCount);
+      setExtraEvents((prev) => [...prev, ...more]);
     } catch (err) {
-      console.warn('Failed to load board events:', err);
+      console.warn('Failed to load more events:', err);
     } finally {
-      setIsLoading(false);
+      setIsLoadingMore(false);
     }
-  }, [boardId, filter, offset, boardEvents, setBoardEvents]);
+  }, [boardId, isLoadingMore, extraEvents.length, actions]);
 
-  useEffect(() => {
-    if (boardId) {
-      loadEvents(true);
-    }
-  }, [boardId, filter]);
-
-  useEffect(() => {
-    if (!boardId) return;
-
-    const timeout = setTimeout(() => {
-      api.boards.events(boardId, { limit: 1 }).then(({ events }) => {
-        if (events.length > 0 && boardEvents.length > 0 && events[0].id !== boardEvents[0].id) {
-          const task = tasks.find(t => t.id === events[0].taskId);
-          const agent = agents.find(a => a.id === events[0].actorId);
-          const enrichedEvent: EnrichedBoardEvent = {
-            ...events[0],
-            taskTitle: task?.title ?? events[0].taskTitle,
-            actorName: agent?.name ?? events[0].actorName,
-          };
-          prependBoardEvent(enrichedEvent);
-        }
-      }).catch(() => {});
-    }, 500);
-
-    return () => clearTimeout(timeout);
-  }, [boardId, tasks, agents, boardEvents, prependBoardEvent]);
+  const handleFilterChange = (newFilter: FilterType) => {
+    setFilter(newFilter);
+    setExtraEvents([]);
+  };
 
   const handleTaskClick = (taskId: string) => {
     openModal(taskId);
     onClose();
   };
 
-  const handleFilterChange = (newFilter: FilterType) => {
-    setFilter(newFilter);
-    setOffset(0);
-  };
+  const anomalies = anomaliesQuery.data?.anomalies ?? [];
+  const isLoading = eventsQuery.isLoading || anomaliesQuery.isLoading;
 
   const filteredEvents = filter === 'all'
-    ? boardEvents
-    : boardEvents.filter(e => actionFilters[filter].includes(e.action));
+    ? allEvents
+    : allEvents.filter(e => actionFilters[filter].includes(e.action));
 
   return (
     <>
@@ -285,10 +259,10 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => loadEvents(false)}
-                  disabled={isLoading}
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
                 >
-                  {isLoading ? 'Loading...' : 'Load more'}
+                  {isLoadingMore ? 'Loading...' : 'Load more'}
                 </Button>
               </div>
             )}

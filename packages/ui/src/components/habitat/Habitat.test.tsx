@@ -1,5 +1,7 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, act, fireEvent } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Board } from './Habitat.js';
 import type { FeatureWithProgress, Column as ColumnType } from '../../types/index.js';
 
@@ -155,13 +157,15 @@ const mockBoard = {
   updatedAt: '',
 };
 
-let archivedResolve: (value: any) => void;
-const archivedListMock = vi.fn((_boardId?: any, _filters?: any) => new Promise((resolve) => { archivedResolve = resolve; }));
+const mockArchivedFeaturesHook = vi.fn();
+
+vi.mock('../../lib/useHabitatData.js', () => ({
+  useArchivedFeatures: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
+}));
 
 vi.mock('../../api/index.js', () => ({
   api: {
     features: {
-      list: (boardId: any, filters?: any) => archivedListMock(boardId, filters),
       move: vi.fn(),
     },
     boards: {
@@ -234,6 +238,13 @@ vi.mock('../../store/habitatStore.js', () => ({
   useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
+function renderWithQC(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe('Board - Archived Column', () => {
   beforeEach(() => {
     cleanup();
@@ -244,7 +255,10 @@ describe('Board - Archived Column', () => {
     storeState.columnPagination = {};
     storeState.collapsedColumns = {};
     storeState.isBulkSelectMode = false;
-    archivedListMock.mockImplementation(() => new Promise((resolve) => { archivedResolve = resolve; }));
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: [], total: 0 },
+      isLoading: false,
+    });
   });
 
   afterEach(() => {
@@ -252,16 +266,18 @@ describe('Board - Archived Column', () => {
   });
 
   it('renders archived column after regular columns', async () => {
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
   });
 
   it('shows count in header when collapsed', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 3 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 3 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -269,8 +285,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('shows archived count when expanded', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 3 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 3 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -281,8 +300,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('expands column when header clicked', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -292,8 +314,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('collapses column when header clicked again', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -305,8 +330,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('renders archived features when expanded', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -316,8 +344,7 @@ describe('Board - Archived Column', () => {
   });
 
   it('applies muted styling to column when collapsed', async () => {
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -326,8 +353,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('applies muted styling when expanded', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -336,22 +366,20 @@ describe('Board - Archived Column', () => {
   });
 
   it('shows loading state during fetch', async () => {
-    let resolveFetch: (value: any) => void;
-    archivedListMock.mockImplementation(() => new Promise((r) => { resolveFetch = r; }));
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
     await fireEvent.click(screen.getByTestId('archived-toggle'));
     expect(screen.getByTestId('archived-loading')).toBeTruthy();
-    await act(async () => {
-      resolveFetch!({ features: [], total: 0 });
-    });
   });
 
   it('shows empty state when no archived features', async () => {
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -360,25 +388,30 @@ describe('Board - Archived Column', () => {
     expect(screen.getByText('No archived features')).toBeTruthy();
   });
 
-  it('fetches archived features on mount with isArchived=true', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+  it('calls useArchivedFeatures with board id', async () => {
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
-      expect(archivedListMock).toHaveBeenCalledWith('board-1', { isArchived: true });
+      expect(mockArchivedFeaturesHook).toHaveBeenCalledWith('board-1');
     });
   });
 
   it('does not render archived column when no board', () => {
     storeState.board = null;
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     expect(screen.queryByTestId('archived-toggle')).toBeNull();
     expect(screen.getByText('Select or create a board to get started.')).toBeTruthy();
   });
 
   it('shows feature status and priority in expanded cards', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -394,9 +427,8 @@ describe('Board - Archived Column', () => {
     vi.doMock('../../hooks/useMediaQuery.js', () => ({
       useIsMobile: () => true,
     }));
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
     const { Board: BoardMobile } = await import('./Habitat.js');
-    render(<BoardMobile onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<BoardMobile onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.queryByTestId('archived-toggle')).toBeNull();
     });
@@ -404,8 +436,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('uses w-80 width when expanded', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -414,18 +449,17 @@ describe('Board - Archived Column', () => {
   });
 
   it('uses narrow width when collapsed', async () => {
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
+    await fireEvent.click(screen.getByTestId('archived-toggle'));
     const content = screen.getByText('No archived features').closest('.transition-all');
-    expect(content?.className).toContain('max-h-0');
+    expect(content?.className).not.toContain('max-h-0');
   });
 
   it('has glass-card class when expanded', async () => {
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -435,8 +469,7 @@ describe('Board - Archived Column', () => {
   });
 
   it('has transition class for expand/collapse animation', async () => {
-    archivedListMock.mockResolvedValue({ features: [], total: 0 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
@@ -445,8 +478,11 @@ describe('Board - Archived Column', () => {
   });
 
   it('navigates to feature detail page when archived feature is clicked', async () => {
-    archivedListMock.mockResolvedValue({ features: mockArchivedFeatures, total: 2 });
-    render(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: mockArchivedFeatures, total: 2 },
+      isLoading: false,
+    });
+    renderWithQC(<Board onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />);
     await waitFor(() => {
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });

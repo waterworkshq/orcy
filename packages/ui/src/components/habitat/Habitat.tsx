@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -18,6 +18,7 @@ import { Column } from './Column.js';
 import { FeatureCard } from './MissionCard.js';
 import { ColumnSwiper } from './ColumnSwiper.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
+import { useArchivedFeatures } from '../../lib/useHabitatData.js';
 import type { FeatureWithProgress, Column as ColumnType, PresenceEntry } from '../../types/index.js';
 import { api } from '../../api/index.js';
 import { Plus, Archive, ChevronDown, ChevronRight } from 'lucide-react';
@@ -33,34 +34,15 @@ export function Board({ onColumnSettingsClick, onAddColumnClick, presence }: Boa
   const [activeFeature, setActiveFeature] = useState<FeatureWithProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [searchParams] = useSearchParams();
-  const [archivedFeatures, setArchivedFeatures] = useState<FeatureWithProgress[]>([]);
-  const [archivedTotal, setArchivedTotal] = useState(0);
-  const [archivedLoading, setArchivedLoading] = useState(false);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
+
+  const { data: archivedData, isLoading: archivedLoading } = useArchivedFeatures(board?.id);
+  const archivedFeatures = archivedData?.features ?? [];
+  const archivedTotal = archivedData?.total ?? 0;
 
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const [mobileColumnIndex, setMobileColumnIndex] = useState(0);
-
-  useEffect(() => {
-    if (!board) return;
-    let cancelled = false;
-    setArchivedLoading(true);
-    api.features.list(board.id, { isArchived: true })
-      .then(({ features: f, total }) => {
-        if (!cancelled) {
-          setArchivedFeatures(f);
-          setArchivedTotal(total);
-        }
-      })
-      .catch((err) => {
-        console.warn('Failed to load archived features:', err);
-      })
-      .finally(() => {
-        if (!cancelled) setArchivedLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [board]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

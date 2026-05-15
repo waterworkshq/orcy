@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { formatRelativeTime } from '../../lib/formatting.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
+import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
 import { MarkdownContent } from '../ui/MarkdownContent.js';
 import { useFeatureComments } from '../../lib/useHabitatData.js';
@@ -14,7 +17,8 @@ interface FeatureCommentSectionProps {
 }
 
 export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps) {
-  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading, refetch } = useFeatureComments(featureId);
+  const qc = useQueryClient();
+  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading } = useFeatureComments(featureId);
   const [comments, setComments] = useState<FeatureComment[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [content, setContent] = useState('');
@@ -22,6 +26,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [replyingTo, setReplyingTo] = useState<{ id: string } | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   React.useEffect(() => {
     setComments(commentsData.comments);
@@ -40,6 +45,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
       setContent('');
       setReplyingTo(null);
       notify.success('Comment added');
+      qc.invalidateQueries({ queryKey: queryKeys.featureComments.list(featureId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -56,6 +62,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
       setEditingId(null);
       setEditContent('');
       notify.success('Comment updated');
+      qc.invalidateQueries({ queryKey: queryKeys.featureComments.list(featureId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -64,13 +71,15 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
   }
 
   async function handleDelete(commentId: string) {
-    if (!confirm('Delete this comment?')) return;
     try {
       await api.featureComments.delete(featureId, commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       notify.success('Comment deleted');
+      qc.invalidateQueries({ queryKey: queryKeys.featureComments.list(featureId) });
     } catch (err) {
       notify.error((err as Error).message);
+    } finally {
+      setDeleteTargetId(null);
     }
   }
 
@@ -168,7 +177,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
                     <Pencil className="h-3 w-3" />
                   </button>
                   <button
-                    onClick={() => handleDelete(comment.id)}
+                    onClick={() => setDeleteTargetId(comment.id)}
                     className="p-1 rounded text-[var(--on-surface-variant)]/60 hover:text-[var(--error)] hover:bg-[var(--surface-container-high)] transition-colors"
                     title="Delete"
                   >
@@ -243,6 +252,16 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
           </Card>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={deleteTargetId !== null}
+        onConfirm={() => deleteTargetId && handleDelete(deleteTargetId)}
+        onCancel={() => setDeleteTargetId(null)}
+        title="Delete Comment"
+        description="This comment will be permanently removed. This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { queryKeys } from './queryKeys.js';
-import type { Board, FeatureWithProgress, Feature, Task, CreateFeatureInput, CreateTaskInFeatureInput } from '../types/index.js';
+import type { Board, FeatureWithProgress, Feature, Task, CreateFeatureInput, CreateTaskInFeatureInput, SavedFilter } from '../types/index.js';
 
 export function useBoards() {
   return useQuery({
@@ -46,10 +46,10 @@ export function useBoardStats(boardId: string | undefined) {
   });
 }
 
-export function useBoardEvents(boardId: string | undefined, params?: { limit?: number; action?: string }) {
+export function useBoardEvents(boardId: string | undefined, params?: { limit?: number; offset?: number; action?: string }) {
   return useQuery({
     queryKey: [...queryKeys.boards.events(boardId ?? ''), params] as const,
-    queryFn: () => api.boards.events(boardId!, params as any),
+    queryFn: () => api.boards.events(boardId!, params),
     enabled: !!boardId,
     staleTime: 30 * 1000,
   });
@@ -198,7 +198,7 @@ export interface BoardTasksFilters {
 
 export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksFilters) {
   return useQuery({
-    queryKey: queryKeys.boards.tasks(boardId ?? '', filters as Record<string, unknown>),
+    queryKey: queryKeys.boards.tasks(boardId ?? '', filters),
     queryFn: () => api.boards.tasks(boardId!, filters),
     enabled: !!boardId,
     staleTime: 30 * 1000,
@@ -269,7 +269,7 @@ export function useUserProfile() {
 export function useSavedFilters(boardId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.savedFilters.list(boardId ?? ''),
-    queryFn: () => api.savedFilters.list(boardId!).then((r: unknown) => r as Array<{ id: string; boardId: string; userId: string; name: string; filterConfig: Record<string, unknown>; isBuiltin: boolean; createdAt: string }>),
+    queryFn: () => api.savedFilters.list(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
   });
@@ -334,4 +334,55 @@ export function useInvalidateFeature(featureId: string) {
     qc.invalidateQueries({ queryKey: queryKeys.features.tasks(featureId) });
     qc.invalidateQueries({ queryKey: queryKeys.features.progress(featureId) });
   };
+}
+
+export function useTemplates(boardId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.templates.list(boardId ?? ''),
+    queryFn: () => api.templates.list(boardId!),
+    enabled: !!boardId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useChatIntegrations(boardId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.chatIntegrations.list(boardId ?? ''),
+    queryFn: () => api.chatIntegrations.list(boardId!),
+    enabled: !!boardId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useNotificationPrefs(boardId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.notificationPrefs.board(boardId ?? ''),
+    queryFn: async () => {
+      const [global, board] = await Promise.all([
+        api.notifications.getGlobalPrefs(),
+        api.notifications.getBoardPrefs(boardId!),
+      ]);
+      return { global, board };
+    },
+    enabled: !!boardId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useScheduledTasks(boardId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.scheduledTasks.list(boardId ?? ''),
+    queryFn: () => api.scheduledTasks.list(boardId!),
+    enabled: !!boardId,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useArchivedFeatures(boardId: string | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.features.all, 'archived', boardId ?? ''] as const,
+    queryFn: () => api.features.list(boardId!, { isArchived: true }),
+    enabled: !!boardId,
+    staleTime: 2 * 60 * 1000,
+  });
 }

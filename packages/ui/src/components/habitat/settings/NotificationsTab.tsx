@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { Button } from '../../ui/Button.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
+import { useNotificationPrefs } from '../../../lib/useHabitatData.js';
+import { queryKeys } from '../../../lib/queryKeys.js';
 import type { NotificationPreferences } from '../../../types/index.js';
 
 const PREF_LABELS: Array<{ key: keyof NotificationPreferences; label: string; description: string }> = [
@@ -28,11 +31,13 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
   boardId,
   onSavingChange,
 }, ref) {
+  const { data: prefsData, isLoading: prefsLoading } = useNotificationPrefs(boardId);
+  const qc = useQueryClient();
+
   const [email, setEmail] = useState('');
   const [globalPrefs, setGlobalPrefs] = useState<NotificationPreferences | null>(null);
   const [boardPrefs, setBoardPrefs] = useState<NotificationPreferences | null>(null);
   const [useBoardPrefs, setUseBoardPrefs] = useState(false);
-  const [prefsLoading, setPrefsLoading] = useState(false);
   const [prefsSaving, setPrefsSaving] = useState(false);
 
   const activePrefs = useBoardPrefs ? boardPrefs : globalPrefs;
@@ -41,26 +46,13 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
     onSavingChange?.(prefsSaving);
   }, [prefsSaving, onSavingChange]);
 
-  const loadNotificationSettings = useCallback(async () => {
-    setPrefsLoading(true);
-    try {
-      const [globalResult, boardResult] = await Promise.all([
-        api.notifications.getGlobalPrefs(),
-        api.notifications.getBoardPrefs(boardId),
-      ]);
-      setEmail(globalResult.email ?? '');
-      setGlobalPrefs(globalResult.preferences);
-      setBoardPrefs(boardResult.preferences);
-    } catch (err) {
-      notify.error('Failed to load notification settings');
-    } finally {
-      setPrefsLoading(false);
-    }
-  }, [boardId]);
-
   useEffect(() => {
-    loadNotificationSettings();
-  }, [loadNotificationSettings]);
+    if (prefsData) {
+      setEmail(prefsData.global.email ?? '');
+      setGlobalPrefs(prefsData.global.preferences);
+      setBoardPrefs(prefsData.board.preferences);
+    }
+  }, [prefsData]);
 
   function handlePrefToggle(key: keyof NotificationPreferences) {
     if (!activePrefs) return;
@@ -86,12 +78,13 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
         setGlobalPrefs(result.preferences);
       }
       notify.success('Notification settings saved');
+      qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.board(boardId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
       setPrefsSaving(false);
     }
-  }, [email, useBoardPrefs, boardPrefs, boardId, globalPrefs]);
+  }, [email, useBoardPrefs, boardPrefs, boardId, globalPrefs, qc]);
 
   useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 

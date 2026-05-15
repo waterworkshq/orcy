@@ -508,3 +508,13 @@ export interface ProjectInsight {
   isActive: boolean;
   createdAt: string;
 }
+
+export interface SavedFilter {
+  id: string;
+  boardId: string;
+  userId: string;
+  name: string;
+  filterConfig: Record<string, unknown>;
+  isBuiltin: boolean;
+  createdAt: string;
+}

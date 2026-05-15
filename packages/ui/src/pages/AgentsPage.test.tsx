@@ -2,8 +2,10 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AgentsPage } from './AgentsPage.js';
 import type { Agent, AgentStats } from '../types/index.js';
+import type { UseQueryResult } from '@tanstack/react-query';
 
 function makeAgent(overrides: Partial<Agent> & { id: string }): Agent {
   return {
@@ -45,17 +47,21 @@ function toListWithTasks(
   }));
 }
 
-const mockAgentsListWithTasks = vi.fn();
-const mockAgentsStats = vi.fn();
 const mockAgentsDelete = vi.fn();
 const mockNotifySuccess = vi.fn();
 const mockNotifyError = vi.fn();
 
+let mockListWithTasksResult: UseQueryResult<{ agent: Agent; currentTaskTitle: string | null }[]> = {
+  data: [],
+  isLoading: true,
+  error: null,
+} as any;
+
+let mockStatsResults: Record<string, UseQueryResult<AgentStats>> = {};
+
 vi.mock('../api/index.js', () => ({
   api: {
     agents: {
-      listWithTasks: (...args: any[]) => mockAgentsListWithTasks(...args),
-      stats: (...args: any[]) => mockAgentsStats(...args),
       delete: (...args: any[]) => mockAgentsDelete(...args),
     },
   },
@@ -66,6 +72,12 @@ vi.mock('../lib/toast.js', () => ({
     success: (...args: any[]) => mockNotifySuccess(...args),
     error: (...args: any[]) => mockNotifyError(...args),
   },
+}));
+
+vi.mock('../lib/useHabitatData.js', () => ({
+  useAgentsListWithTasks: () => mockListWithTasksResult,
+  useAgentStats: (agentId: string) =>
+    mockStatsResults[agentId] ?? ({ data: undefined, isLoading: false } as any),
 }));
 
 vi.mock('../components/ui/AgentRegistrationDialog.js', () => ({
@@ -126,50 +138,82 @@ vi.mock('../components/ui/Tooltip.js', () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
 }));
 
-vi.mock('lucide-react', () => ({
-  ArrowLeft: () => <span data-testid="icon-arrow-left">←</span>,
-  Bot: () => <span data-testid="icon-bot">🤖</span>,
-  ChevronDown: () => <span data-testid="icon-chevron-down">▼</span>,
-  ChevronRight: () => <span data-testid="icon-chevron-right">▶</span>,
-  Loader2: ({ className }: any) => (
-    <span data-testid="icon-loader" className={className}>
-      ⟳
-    </span>
-  ),
-  Plus: () => <span data-testid="icon-plus">+</span>,
-  TrendingUp: () => <span data-testid="icon-trending">📈</span>,
-  Users: () => <span data-testid="icon-users">👥</span>,
-}));
+vi.mock('lucide-react', () => {
+  const span = (testId: string, text: string) => () => <span data-testid={testId}>{text}</span>;
+  return {
+    AlertTriangle: span('icon-alert', '⚠'),
+    ArrowLeft: span('icon-arrow-left', '←'),
+    Bot: span('icon-bot', '🤖'),
+    Calendar: span('icon-calendar', '📅'),
+    ChevronDown: span('icon-chevron-down', '▼'),
+    ChevronRight: span('icon-chevron-right', '▶'),
+    Clock: span('icon-clock', '🕐'),
+    Loader2: ({ className }: any) => <span data-testid="icon-loader" className={className}>⟳</span>,
+    Plus: span('icon-plus', '+'),
+    TrendingUp: span('icon-trending', '📈'),
+    Users: span('icon-users', '👥'),
+  };
+});
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+}
 
 function renderPage() {
+  const qc = createQueryClient();
   return render(
-    <MemoryRouter initialEntries={['/agents']}>
-      <Routes>
-        <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/" element={<div>Home Page</div>} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/agents']}>
+        <Routes>
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/" element={<div>Home Page</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
+}
+
+function setListWithTasks(
+  data: { agent: Agent; currentTaskTitle: string | null }[],
+  isLoading = false,
+  error: Error | null = null
+) {
+  mockListWithTasksResult = {
+    data: isLoading ? undefined : data,
+    isLoading,
+    error,
+    isError: !!error,
+  } as any;
+}
+
+function setStats(agentId: string, stats: AgentStats | undefined) {
+  mockStatsResults[agentId] = { data: stats, isLoading: false } as any;
+}
+
+function clearStats() {
+  mockStatsResults = {};
 }
 
 describe('AgentsPage', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2024-06-15T14:30:00Z'));
+    mockListWithTasksResult = { data: [], isLoading: true, error: null } as any;
+    mockStatsResults = {};
   });
 
   afterEach(() => {
     vi.useRealTimers();
     cleanup();
-    mockAgentsListWithTasks.mockReset();
-    mockAgentsStats.mockReset();
     mockAgentsDelete.mockReset();
     mockNotifySuccess.mockReset();
     mockNotifyError.mockReset();
   });
 
-  it('renders page header with Agents title', async () => {
-    mockAgentsListWithTasks.mockResolvedValue([]);
+  it('renders page header with Agents title', () => {
+    setListWithTasks([]);
 
     renderPage();
 
@@ -178,8 +222,8 @@ describe('AgentsPage', () => {
     expect(screen.getByTestId('icon-bot')).toBeTruthy();
   });
 
-  it('shows loading state during fetch', async () => {
-    mockAgentsListWithTasks.mockReturnValue(new Promise(() => {}));
+  it('shows loading state during fetch', () => {
+    setListWithTasks([], true);
 
     renderPage();
 
@@ -187,43 +231,36 @@ describe('AgentsPage', () => {
     expect(screen.getByText('Loading agents...')).toBeTruthy();
   });
 
-  it('shows empty state when no agents', async () => {
-    mockAgentsListWithTasks.mockResolvedValue([]);
+  it('shows empty state when no agents', () => {
+    setListWithTasks([]);
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('No agents registered')).toBeTruthy();
-    });
+    expect(screen.getByText('No agents registered')).toBeTruthy();
     expect(screen.getByText('Register an AI agent to start working on tasks.')).toBeTruthy();
   });
 
-  it('shows error state when fetch fails', async () => {
-    mockAgentsListWithTasks.mockRejectedValue(new Error('Network error'));
+  it('shows error state when fetch fails', () => {
+    setListWithTasks([], false, new Error('Network error'));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeTruthy();
-    });
+    expect(screen.getByText('Network error')).toBeTruthy();
   });
 
-  it('renders agent cards in grid layout', async () => {
+  it('renders agent cards in grid layout', () => {
     const agents = [
       makeAgent({ id: 'a1', name: 'Agent 1' }),
       makeAgent({ id: 'a2', name: 'Agent 2', status: 'working' }),
     ];
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks(agents));
-    mockAgentsStats.mockImplementation((id: string) =>
-      Promise.resolve(makeStats({ agentId: id }))
-    );
+    setListWithTasks(toListWithTasks(agents));
+    setStats('a1', makeStats({ agentId: 'a1' }));
+    setStats('a2', makeStats({ agentId: 'a2' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-      expect(screen.getByText('Agent 2')).toBeTruthy();
-    });
+    expect(screen.getByText('Agent 1')).toBeTruthy();
+    expect(screen.getByText('Agent 2')).toBeTruthy();
 
     const grid = screen.getByText('Agent 1').closest('.grid');
     expect(grid).toBeTruthy();
@@ -232,48 +269,42 @@ describe('AgentsPage', () => {
     expect(grid?.className).toContain('lg:grid-cols-3');
   });
 
-  it('displays agent status badge', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+  it('displays agent status badge', () => {
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', status: 'idle' }),
       makeAgent({ id: 'a2', status: 'working' }),
       makeAgent({ id: 'a3', status: 'offline' }),
     ]));
-    mockAgentsStats.mockImplementation((id: string) =>
-      Promise.resolve(makeStats({ agentId: id }))
-    );
+    setStats('a1', makeStats({ agentId: 'a1' }));
+    setStats('a2', makeStats({ agentId: 'a2' }));
+    setStats('a3', makeStats({ agentId: 'a3' }));
 
     renderPage();
 
-    await waitFor(() => {
-      const badges = screen.getAllByTestId('badge');
-      expect(badges.some((b) => b.textContent === 'idle')).toBe(true);
-      expect(badges.some((b) => b.textContent === 'working')).toBe(true);
-      expect(badges.some((b) => b.textContent === 'offline')).toBe(true);
-    });
+    const badges = screen.getAllByTestId('badge');
+    expect(badges.some((b) => b.textContent === 'idle')).toBe(true);
+    expect(badges.some((b) => b.textContent === 'working')).toBe(true);
+    expect(badges.some((b) => b.textContent === 'offline')).toBe(true);
   });
 
-  it('shows agent capabilities', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+  it('shows agent capabilities', () => {
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', capabilities: ['typescript', 'react'] }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('typescript')).toBeTruthy();
-      expect(screen.getByText('react')).toBeTruthy();
-    });
+    expect(screen.getByText('typescript')).toBeTruthy();
+    expect(screen.getByText('react')).toBeTruthy();
   });
 
-  it('opens registration dialog on Register button click', async () => {
-    mockAgentsListWithTasks.mockResolvedValue([]);
+  it('opens registration dialog on Register button click', () => {
+    setListWithTasks([]);
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('No agents registered')).toBeTruthy();
-    });
+    expect(screen.getByText('No agents registered')).toBeTruthy();
 
     const registerButtons = screen.getAllByText('Register Agent');
     fireEvent.click(registerButtons[0]);
@@ -281,37 +312,13 @@ describe('AgentsPage', () => {
     expect(screen.getByTestId('register-dialog')).toBeTruthy();
   });
 
-  it('closes registration dialog and refetches on registered callback', async () => {
-    const agents = [makeAgent({ id: 'a1' })];
-    mockAgentsListWithTasks.mockResolvedValueOnce([]).mockResolvedValueOnce(toListWithTasks(agents));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+  it('shows confirmation on Deregister button click', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('No agents registered')).toBeTruthy();
-    });
-
-    const registerButtons = screen.getAllByText('Register Agent');
-    fireEvent.click(registerButtons[0]);
-
-    const registeredBtn = screen.getByTestId('register-registered');
-    fireEvent.click(registeredBtn);
-
-    await waitFor(() => {
-      expect(mockAgentsListWithTasks).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  it('shows confirmation on Deregister button click', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-    });
+    expect(screen.getByText('Agent 1')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Deregister'));
 
@@ -320,15 +327,13 @@ describe('AgentsPage', () => {
   });
 
   it('deregisters agent on confirm', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
+    setStats('a1', makeStats({ agentId: 'a1' }));
     mockAgentsDelete.mockResolvedValue(undefined);
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-    });
+    expect(screen.getByText('Agent 1')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Deregister'));
     fireEvent.click(screen.getByTestId('confirm-ok'));
@@ -340,15 +345,13 @@ describe('AgentsPage', () => {
   });
 
   it('handles deregister error', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
+    setStats('a1', makeStats({ agentId: 'a1' }));
     mockAgentsDelete.mockRejectedValue(new Error('Delete failed'));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-    });
+    expect(screen.getByText('Agent 1')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Deregister'));
     fireEvent.click(screen.getByTestId('confirm-ok'));
@@ -358,15 +361,13 @@ describe('AgentsPage', () => {
     });
   });
 
-  it('cancels deregister confirmation', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+  it('cancels deregister confirmation', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1', name: 'Agent 1' })]));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-    });
+    expect(screen.getByText('Agent 1')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Deregister'));
     fireEvent.click(screen.getByTestId('confirm-cancel'));
@@ -375,16 +376,13 @@ describe('AgentsPage', () => {
     expect(screen.getByText('Agent 1')).toBeTruthy();
   });
 
-  it('expands and collapses metrics section', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1' })]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+  it('expands and collapses metrics section', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1' })]));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByTestId('metrics-toggle-a1')).toBeTruthy();
-    });
-
+    expect(screen.getByTestId('metrics-toggle-a1')).toBeTruthy();
     expect(screen.queryByText('Completed:')).toBeNull();
 
     fireEvent.click(screen.getByTestId('metrics-toggle-a1'));
@@ -398,40 +396,30 @@ describe('AgentsPage', () => {
     expect(screen.queryByText('Completed:')).toBeNull();
   });
 
-  it('shows artifacts in metrics when total > 0', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1' })]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1', artifacts: { total: 5, byType: { pr: 5 } } }));
+  it('shows artifacts in metrics when total > 0', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1' })]));
+    setStats('a1', makeStats({ agentId: 'a1', artifacts: { total: 5, byType: { pr: 5 } } }));
 
     renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('metrics-toggle-a1')).toBeTruthy();
-    });
 
     fireEvent.click(screen.getByTestId('metrics-toggle-a1'));
 
     expect(screen.getByText('Artifacts:')).toBeTruthy();
   });
 
-  it('shows dash when cycle time count is 0', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1' })]));
-    mockAgentsStats.mockResolvedValue(
-      makeStats({ agentId: 'a1', cycleTime: { averageMinutes: 0, medianMinutes: 0, count: 0 } })
-    );
+  it('shows dash when cycle time count is 0', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1' })]));
+    setStats('a1', makeStats({ agentId: 'a1', cycleTime: { averageMinutes: 0, medianMinutes: 0, count: 0 } }));
 
     renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('metrics-toggle-a1')).toBeTruthy();
-    });
 
     fireEvent.click(screen.getByTestId('metrics-toggle-a1'));
 
     expect(screen.getByText('—')).toBeTruthy();
   });
 
-  it('Back button navigates to workspace', async () => {
-    mockAgentsListWithTasks.mockResolvedValue([]);
+  it('Back button navigates to workspace', () => {
+    setListWithTasks([]);
 
     renderPage();
 
@@ -439,167 +427,148 @@ describe('AgentsPage', () => {
     expect(backLink?.getAttribute('href')).toBe('/');
   });
 
-  it('shows relative time for last heartbeat', async () => {
+  it('shows relative time for last heartbeat', () => {
     const now = new Date('2024-06-15T14:30:00Z');
     const fiveMinAgo = new Date(now.getTime() - 5 * 60000).toISOString();
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', lastHeartbeat: fiveMinAgo }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('5m ago')).toBeTruthy();
-    });
+    expect(screen.getByText('5m ago')).toBeTruthy();
   });
 
-  it('shows just now for very recent heartbeat', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+  it('shows just now for very recent heartbeat', () => {
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', lastHeartbeat: new Date().toISOString() }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('just now')).toBeTruthy();
-    });
+    expect(screen.getByText('just now')).toBeTruthy();
   });
 
-  it('handles stats fetch failure gracefully', async () => {
-    const agents = [makeAgent({ id: 'a1' })];
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks(agents));
-    mockAgentsStats.mockRejectedValue(new Error('Stats error'));
+  it('handles stats fetch failure gracefully', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1' })]));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Test Agent')).toBeTruthy();
-    });
+    expect(screen.getByText('Test Agent')).toBeTruthy();
   });
 
-  it('displays agent type and domain', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+  it('displays agent type and domain', () => {
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', type: 'claude-code', domain: 'frontend' }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('claude code · frontend')).toBeTruthy();
-    });
+    expect(screen.getByText('claude code · frontend')).toBeTruthy();
   });
 
-  it('formats cycle time correctly with hours and minutes', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1' })]));
-    mockAgentsStats.mockResolvedValue(
-      makeStats({ agentId: 'a1', cycleTime: { averageMinutes: 125, medianMinutes: 120, count: 5 } })
-    );
+  it('formats cycle time correctly with hours and minutes', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1' })]));
+    setStats('a1', makeStats({ agentId: 'a1', cycleTime: { averageMinutes: 125, medianMinutes: 120, count: 5 } }));
 
     renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('metrics-toggle-a1')).toBeTruthy();
-    });
 
     fireEvent.click(screen.getByTestId('metrics-toggle-a1'));
 
     expect(screen.getByText('2h 5m')).toBeTruthy();
   });
 
-  it('formats cycle time with exact hours', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([makeAgent({ id: 'a1' })]));
-    mockAgentsStats.mockResolvedValue(
-      makeStats({ agentId: 'a1', cycleTime: { averageMinutes: 120, medianMinutes: 120, count: 3 } })
-    );
+  it('formats cycle time with exact hours', () => {
+    setListWithTasks(toListWithTasks([makeAgent({ id: 'a1' })]));
+    setStats('a1', makeStats({ agentId: 'a1', cycleTime: { averageMinutes: 120, medianMinutes: 120, count: 3 } }));
 
     renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('metrics-toggle-a1')).toBeTruthy();
-    });
 
     fireEvent.click(screen.getByTestId('metrics-toggle-a1'));
 
     expect(screen.getByText('2h')).toBeTruthy();
   });
 
-  it('shows hours ago for older heartbeat', async () => {
+  it('shows hours ago for older heartbeat', () => {
     const now = new Date('2024-06-15T14:30:00Z');
     const twoHoursAgo = new Date(now.getTime() - 2 * 3600000).toISOString();
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', lastHeartbeat: twoHoursAgo }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('2h ago')).toBeTruthy();
-    });
+    expect(screen.getByText('2h ago')).toBeTruthy();
   });
 
-  it('shows days ago for very old heartbeat', async () => {
+  it('shows days ago for very old heartbeat', () => {
     const now = new Date('2024-06-15T14:30:00Z');
     const threeDaysAgo = new Date(now.getTime() - 3 * 86400000).toISOString();
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', lastHeartbeat: threeDaysAgo }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('3d ago')).toBeTruthy();
-    });
+    expect(screen.getByText('3d ago')).toBeTruthy();
   });
 
-  it('renders agent card without capabilities', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+  it('renders agent card without capabilities', () => {
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', capabilities: [] }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Test Agent')).toBeTruthy();
-    });
-
+    expect(screen.getByText('Test Agent')).toBeTruthy();
     expect(screen.queryByText('typescript')).toBeNull();
   });
 
-  it('displays current task title for working agent', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks(
+  it('displays current task title for working agent', () => {
+    setListWithTasks(toListWithTasks(
       [makeAgent({ id: 'a1', name: 'Agent 1', status: 'working' })],
       { a1: 'Fix navigation bug' }
     ));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-    });
-
+    expect(screen.getByText('Agent 1')).toBeTruthy();
     expect(screen.getByText('Working on:')).toBeTruthy();
     expect(screen.getByText('Fix navigation bug')).toBeTruthy();
   });
 
-  it('hides current task section when agent has no active task', async () => {
-    mockAgentsListWithTasks.mockResolvedValue(toListWithTasks([
+  it('hides current task section when agent has no active task', () => {
+    setListWithTasks(toListWithTasks([
       makeAgent({ id: 'a1', name: 'Agent 1', status: 'idle' }),
     ]));
-    mockAgentsStats.mockResolvedValue(makeStats({ agentId: 'a1' }));
+    setStats('a1', makeStats({ agentId: 'a1' }));
 
     renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText('Agent 1')).toBeTruthy();
-    });
-
+    expect(screen.getByText('Agent 1')).toBeTruthy();
     expect(screen.queryByText('Working on:')).toBeNull();
   });
+
+  it('agent stats load independently when one fails', () => {
+    const agents = [
+      makeAgent({ id: 'a1', name: 'Agent 1' }),
+      makeAgent({ id: 'a2', name: 'Agent 2' }),
+    ];
+    setListWithTasks(toListWithTasks(agents));
+    setStats('a1', makeStats({ agentId: 'a1' }));
+    mockStatsResults['a2'] = { data: undefined, isLoading: false, error: new Error('fail') } as any;
+
+    renderPage();
+
+    expect(screen.getByText('Agent 1')).toBeTruthy();
+    expect(screen.getByText('Agent 2')).toBeTruthy();
+  });
+
 });

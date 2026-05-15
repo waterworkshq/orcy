@@ -57,6 +57,7 @@ import type {
   FeatureComment,
   ScheduledTask,
   TaskTemplateEntry,
+  SavedFilter,
 } from '../types/index.js';
 
 const BASE = '/api';
@@ -789,11 +790,11 @@ export const api = {
 
   savedFilters: {
     list: (boardId: string) =>
-      request<{ savedFilters: Record<string, unknown>[] }>(
+      request<{ savedFilters: SavedFilter[] }>(
         `/boards/${boardId}/saved-filters`
       ).then((r) => r.savedFilters),
     create: (boardId: string, data: { name: string; filterConfig: Record<string, unknown> }) =>
-      request<{ savedFilter: Record<string, unknown> }>(
+      request<{ savedFilter: SavedFilter }>(
         `/boards/${boardId}/saved-filters`,
         { method: 'POST', body: JSON.stringify(data) }
       ).then((r) => r.savedFilter),

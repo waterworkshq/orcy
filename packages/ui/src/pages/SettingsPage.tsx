@@ -1,52 +1,68 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../api/index.js';
 import { Button } from '../components/ui/Button.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.js';
 import { notify } from '../lib/toast.js';
 import { ArrowLeft, Loader2, Settings, User, KeyRound } from 'lucide-react';
+import { useUserProfile } from '../lib/useHabitatData.js';
+import { queryKeys } from '../lib/queryKeys.js';
 
 const MIN_PASSWORD_LENGTH = 4;
 
 export function SettingsPage() {
-  const [currentUser, setCurrentUser] = useState<{
-    id: string;
-    username: string;
-    role: string;
-    displayName?: string;
-  } | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-  const [userError, setUserError] = useState<string | null>(null);
+  const { data: profileData, isLoading: loadingUser, error: userErrorObj } = useUserProfile();
+  const currentUser = profileData?.user ?? null;
+  const userError = userErrorObj ? (userErrorObj as Error).message : null;
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [passwordLoading, setPasswordLoading] = useState(false);
 
   const [displayNameInput, setDisplayNameInput] = useState('');
-  const [nameLoading, setNameLoading] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [nameSuccess, setNameSuccess] = useState(false);
 
-  const fetchUser = useCallback(async () => {
-    try {
-      setLoadingUser(true);
-      setUserError(null);
-      const { user } = await api.auth.me();
-      setCurrentUser(user);
-      setDisplayNameInput(user.displayName ?? '');
-    } catch (err) {
-      setUserError((err as Error).message);
-    } finally {
-      setLoadingUser(false);
-    }
-  }, []);
+  const qc = useQueryClient();
 
-  useEffect(() => {
-    fetchUser();
-  }, [fetchUser]);
+  const displayNameSynced = React.useRef(false);
+  React.useEffect(() => {
+    if (currentUser && !displayNameSynced.current) {
+      setDisplayNameInput(currentUser.displayName ?? '');
+      displayNameSynced.current = true;
+    }
+  }, [currentUser]);
+
+  const changePasswordMutation = useMutation({
+    mutationFn: (data: { currentPassword: string; newPassword: string }) =>
+      api.auth.changePassword(data),
+    onSuccess: () => {
+      setPasswordSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      notify.success('Password changed successfully');
+    },
+    onError: (err: Error) => {
+      setPasswordError(err.message);
+    },
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: (data: { displayName: string }) =>
+      api.auth.updateProfile(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.user.profile() });
+      setNameSuccess(true);
+      notify.success('Display name updated');
+    },
+    onError: (err: Error) => {
+      setNameError(err.message);
+    },
+  });
 
   function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -63,39 +79,14 @@ export function SettingsPage() {
       return;
     }
 
-    setPasswordLoading(true);
-    api.auth
-      .changePassword({ currentPassword, newPassword })
-      .then(() => {
-        setPasswordSuccess(true);
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-        notify.success('Password changed successfully');
-      })
-      .catch((err) => {
-        setPasswordError((err as Error).message);
-      })
-      .finally(() => setPasswordLoading(false));
+    changePasswordMutation.mutate({ currentPassword, newPassword });
   }
 
   function handleDisplayNameSubmit(e: React.FormEvent) {
     e.preventDefault();
     setNameError(null);
     setNameSuccess(false);
-
-    setNameLoading(true);
-    api.auth
-      .updateProfile({ displayName: displayNameInput })
-      .then(({ user }) => {
-        setCurrentUser(user);
-        setNameSuccess(true);
-        notify.success('Display name updated');
-      })
-      .catch((err) => {
-        setNameError((err as Error).message);
-      })
-      .finally(() => setNameLoading(false));
+    updateProfileMutation.mutate({ displayName: displayNameInput });
   }
 
   return (
@@ -201,7 +192,7 @@ export function SettingsPage() {
                     </p>
                   )}
 
-                  <Button type="submit" disabled={passwordLoading} loading={passwordLoading}>
+                  <Button type="submit" disabled={changePasswordMutation.isPending} loading={changePasswordMutation.isPending}>
                     Change Password
                   </Button>
                 </form>
@@ -249,7 +240,7 @@ export function SettingsPage() {
                     </p>
                   )}
 
-                  <Button type="submit" disabled={nameLoading} loading={nameLoading}>
+                  <Button type="submit" disabled={updateProfileMutation.isPending} loading={updateProfileMutation.isPending}>
                     Save Display Name
                   </Button>
                 </form>

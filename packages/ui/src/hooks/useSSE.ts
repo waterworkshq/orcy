@@ -87,8 +87,8 @@ export function useSSE(boardId: string) {
         qc.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
         break;
       case 'pulse.signal_posted':
-        qc.invalidateQueries({ queryKey: ['habitatPulses', boardId] });
-        qc.invalidateQueries({ queryKey: ['insights', boardId] });
+        qc.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.insights.byBoard(boardId) });
         break;
     }
   }, [boardId, queryClient]);

@@ -1,11 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal, LayoutGrid, AlignJustify } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
+import { useSavedFilters } from '../../lib/useHabitatData.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { api } from '../../api/index.js';
 
-interface SavedFilter {
+export interface SavedFilter {
   id: string;
   boardId: string;
   userId: string;
@@ -21,13 +24,31 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
   const board = useBoardStore((s) => s.board);
   const internalSearchRef = useRef<HTMLInputElement>(null);
   const searchRef = focusSearchRef ?? internalSearchRef;
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [viewsOpen, setViewsOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const viewsRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
+  const boardId = board?.id;
+  const qc = useQueryClient();
+
+  const { data: savedFilters = [] } = useSavedFilters(boardId);
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; filterConfig: Record<string, unknown> }) =>
+      api.savedFilters.create(boardId!, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.savedFilters.list(boardId!) });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.savedFilters.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.savedFilters.list(boardId!) });
+    },
+  });
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -39,14 +60,6 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const boardId = board?.id;
-  useEffect(() => {
-    if (!boardId || !api.savedFilters) return;
-    api.savedFilters.list(boardId)
-      .then((filters) => setSavedFilters(filters as unknown as SavedFilter[]))
-      .catch(() => {});
-  }, [boardId]);
 
   function updateFilter(key: string, value: string | null) {
     const next = new URLSearchParams(searchParams);
@@ -79,7 +92,7 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
     setViewsOpen(false);
   }
 
-  async function handleSave() {
+  const handleSave = useCallback(() => {
     if (!board || !saveName.trim()) return;
     const config: Record<string, unknown> = {};
     if (searchParams.get('search')) config.search = searchParams.get('search');
@@ -88,24 +101,27 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
     if (searchParams.get('assignedAgentId')) config.assignedAgentId = searchParams.get('assignedAgentId');
     if (searchParams.get('columnId')) config.columnId = searchParams.get('columnId');
 
-    try {
-      const filter = await api.savedFilters.create(board.id, { name: saveName.trim(), filterConfig: config });
-      setSavedFilters((prev) => [...prev, filter as unknown as SavedFilter]);
-      setSaveName('');
-      setShowSaveInput(false);
-    } catch (err) {
-      console.warn('[FilterBar] Failed to save filter:', err);
-    }
-  }
+    createMutation.mutate(
+      { name: saveName.trim(), filterConfig: config },
+      {
+        onSuccess: () => {
+          setSaveName('');
+          setShowSaveInput(false);
+        },
+        onError: (err) => {
+          console.warn('[FilterBar] Failed to save filter:', err);
+        },
+      },
+    );
+  }, [board, saveName, searchParams, createMutation]);
 
-  async function handleDelete(id: string) {
-    try {
-      await api.savedFilters.delete(id);
-      setSavedFilters((prev) => prev.filter((f) => f.id !== id));
-    } catch (err) {
-      console.warn('[FilterBar] Failed to delete saved filter:', err);
-    }
-  }
+  const handleDelete = useCallback((id: string) => {
+    deleteMutation.mutate(id, {
+      onError: (err) => {
+        console.warn('[FilterBar] Failed to delete saved filter:', err);
+      },
+    });
+  }, [deleteMutation]);
 
   const hasFilters = Array.from(searchParams.keys()).some((k) => k !== 'view');
   const selectedAgentId = searchParams.get('assignedAgentId');

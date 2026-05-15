@@ -1,17 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/index.js';
 import { Button } from '../ui/Button.js';
 import { notify } from '../../lib/toast.js';
+import { useOrganizations, useOrganizationTeams, useTeamMembers } from '../../lib/useHabitatData.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { Plus, Users, Trash2, Shield, UserPlus } from 'lucide-react';
 import type { Organization, Team, TeamMember } from '../../types/index.js';
 
 export function TeamsPage() {
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const qc = useQueryClient();
+
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
-  const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
 
   const [showCreateOrg, setShowCreateOrg] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
@@ -24,34 +25,22 @@ export function TeamsPage() {
   const [memberUserId, setMemberUserId] = useState('');
   const [memberRole, setMemberRole] = useState<'owner' | 'admin' | 'member'>('member');
 
-  useEffect(() => {
-    api.organizations.list()
-      .then(setOrganizations)
-      .catch((err) => console.warn('Failed to load organizations:', err))
-      .finally(() => setLoading(false));
-  }, []);
+  const orgId = selectedOrg?.id;
+  const teamId = selectedTeam?.id;
 
-  useEffect(() => {
-    if (selectedOrg) {
-      api.organizations.listTeams(selectedOrg.id)
-        .then(setTeams)
-        .catch((err) => console.warn('Failed to load teams:', err));
-    } else {
-      setTeams([]);
-    }
+  const orgsQuery = useOrganizations();
+  const teamsQuery = useOrganizationTeams(orgId);
+  const membersQuery = useTeamMembers(teamId);
+
+  const organizations = orgsQuery.data ?? [];
+  const teams = teamsQuery.data ?? [];
+  const members = membersQuery.data ?? [];
+  const loading = orgsQuery.isLoading;
+
+  function handleSelectOrg(org: Organization) {
+    setSelectedOrg(org);
     setSelectedTeam(null);
-    setMembers([]);
-  }, [selectedOrg]);
-
-  useEffect(() => {
-    if (selectedTeam) {
-      api.teams.listMembers(selectedTeam.id)
-        .then(setMembers)
-        .catch((err) => console.warn('Failed to load team members:', err));
-    } else {
-      setMembers([]);
-    }
-  }, [selectedTeam]);
+  }
 
   function slugify(text: string): string {
     return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -62,7 +51,7 @@ export function TeamsPage() {
     if (!orgName.trim()) return;
     try {
       const org = await api.organizations.create({ name: orgName.trim(), slug: orgSlug || slugify(orgName) });
-      setOrganizations(prev => [...prev, org]);
+      await qc.invalidateQueries({ queryKey: queryKeys.organizations.list() });
       setSelectedOrg(org);
       setOrgName('');
       setOrgSlug('');
@@ -81,7 +70,7 @@ export function TeamsPage() {
         name: teamName.trim(),
         slug: teamSlug || slugify(teamName),
       });
-      setTeams(prev => [...prev, team]);
+      await qc.invalidateQueries({ queryKey: queryKeys.organizations.teams(selectedOrg.id) });
       setTeamName('');
       setTeamSlug('');
       setShowCreateTeam(false);
@@ -99,7 +88,7 @@ export function TeamsPage() {
         userId: memberUserId.trim(),
         role: memberRole,
       });
-      setMembers(prev => [...prev, member]);
+      await qc.invalidateQueries({ queryKey: queryKeys.organizations.members(selectedTeam.id) });
       setMemberUserId('');
       setMemberRole('member');
       setShowAddMember(false);
@@ -113,7 +102,7 @@ export function TeamsPage() {
     if (!selectedTeam) return;
     try {
       await api.teams.removeMember(selectedTeam.id, userId);
-      setMembers(prev => prev.filter(m => m.userId !== userId));
+      await qc.invalidateQueries({ queryKey: queryKeys.organizations.members(selectedTeam.id) });
       notify.success('Member removed');
     } catch (err) {
       notify.error((err as Error).message);
@@ -123,10 +112,9 @@ export function TeamsPage() {
   async function handleDeleteTeam(teamId: string) {
     try {
       await api.teams.delete(teamId);
-      setTeams(prev => prev.filter(t => t.id !== teamId));
+      await qc.invalidateQueries({ queryKey: queryKeys.organizations.teams(selectedOrg?.id ?? '') });
       if (selectedTeam?.id === teamId) {
         setSelectedTeam(null);
-        setMembers([]);
       }
       notify.success('Team deleted');
     } catch (err) {
@@ -167,7 +155,7 @@ export function TeamsPage() {
                   <button
                     key={org.id}
                     type="button"
-                    onClick={() => setSelectedOrg(org)}
+                    onClick={() => handleSelectOrg(org)}
                     className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
                       selectedOrg?.id === org.id
                         ? 'bg-primary text-primary-foreground'

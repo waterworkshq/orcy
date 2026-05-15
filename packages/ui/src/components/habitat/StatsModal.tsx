@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../../api/index.js';
-import type { BoardStats, BoardTimeMetrics, FeatureWithProgress } from '../../types/index.js';
+import React from 'react';
+import type { BoardTimeMetrics, FeatureWithProgress } from '../../types/index.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { StatCard } from '../ui/StatCard.js';
 import { X, Clock, TrendingUp, AlertTriangle, CheckCircle, AlertCircle, Layers, Timer } from 'lucide-react';
 import { formatMinutes } from '../../lib/formatting.js';
+import { useBoardStats, useFeatures, useBoardTimeMetrics } from '../../lib/useHabitatData.js';
 
 interface StatsModalProps {
   boardId: string;
@@ -62,28 +61,12 @@ function FeatureStatusBar({ features }: { features: FeatureWithProgress[] }) {
 }
 
 export function StatsModal({ boardId, onClose }: StatsModalProps) {
-  const [stats, setStats] = useState<BoardStats | null>(null);
-  const [features, setFeatures] = useState<FeatureWithProgress[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: stats, isLoading: statsLoading } = useBoardStats(boardId);
+  const { data: featuresData, isLoading: featuresLoading } = useFeatures(boardId);
+  const { data: timeMetrics } = useBoardTimeMetrics(boardId);
 
-  const { data: timeMetrics } = useQuery<BoardTimeMetrics>({
-    queryKey: ['board', boardId, 'timeMetrics'],
-    queryFn: () => api.timeTracking.getBoardMetrics(boardId),
-    enabled: !!boardId,
-  });
-
-  useEffect(() => {
-    Promise.all([
-      api.boards.stats(boardId),
-      api.features.list(boardId),
-    ])
-      .then(([statsData, featuresData]) => {
-        setStats(statsData);
-        setFeatures(featuresData.features);
-      })
-      .catch((err) => console.warn('Failed to load stats:', err))
-      .finally(() => setLoading(false));
-  }, [boardId]);
+  const loading = statsLoading || featuresLoading;
+  const features = featuresData?.features ?? [];
 
   const totalFeatures = features.length;
   const doneFeatures = features.filter((f) => f.status === 'done').length;

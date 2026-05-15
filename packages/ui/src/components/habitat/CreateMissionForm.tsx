@@ -3,8 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '../ui/Button.js';
 import { RichTextEditor } from '../ui/RichTextEditor.js';
 import { useBoardStore } from '../../store/habitatStore.js';
-import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { useTemplates, useCreateFeature } from '../../lib/useHabitatData.js';
 import type { TaskPriority, FeatureTemplate } from '../../types/index.js';
 
 interface CreateFeatureFormProps {
@@ -15,7 +15,8 @@ interface CreateFeatureFormProps {
 
 export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormProps) {
   const { columns, addFeature } = useBoardStore();
-  const [templates, setTemplates] = useState<FeatureTemplate[]>([]);
+  const { data: templatesData } = useTemplates(boardId);
+  const templates = templatesData?.templates ?? [];
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -25,11 +26,10 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
   const [labels, setLabels] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [slaMinutes, setSlaMinutes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const createFeature = useCreateFeature(boardId);
 
   useEffect(() => {
     if (open) {
-      api.templates.list(boardId).then((result) => setTemplates(result.templates));
       setSelectedTemplateId('');
       setTitle('');
       setDescription('');
@@ -39,7 +39,7 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
       setDueAt('');
       setSlaMinutes('');
     }
-  }, [open, boardId]);
+  }, [open]);
 
   useEffect(() => {
     if (open && columns.length > 0) {
@@ -71,14 +71,13 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
     e.preventDefault();
     if (!title.trim() || !columnId) return;
 
-    setSubmitting(true);
     try {
       const labelList = labels
         .split(',')
         .map((l) => l.trim())
         .filter(Boolean);
 
-      const result = await api.features.create(boardId, {
+      const result = await createFeature.mutateAsync({
         columnId,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -99,8 +98,6 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
       onClose();
     } catch (err) {
       notify.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -220,7 +217,7 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={submitting} disabled={submitting || !title.trim()}>
+          <Button type="submit" loading={createFeature.isPending} disabled={createFeature.isPending || !title.trim()}>
             Create Mission
           </Button>
         </DialogFooter>

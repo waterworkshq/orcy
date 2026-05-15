@@ -1,7 +1,19 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BoardPage } from './HabitatPage.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
+
+const mockArchivedFeaturesHook = vi.fn();
+
+vi.mock('../../lib/useHabitatData.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    useArchivedFeatures: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
+  };
+});
 
 vi.mock('../../api/index.js', () => ({
   api: {
@@ -83,9 +95,20 @@ vi.mock('./TaskDetailModal.js', () => ({
   TaskDetailModal: () => null,
 }));
 
+function renderWithQC(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>{ui}</QueryClientProvider>,
+  );
+}
+
 describe('BoardPage Archived Button Removal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockArchivedFeaturesHook.mockReturnValue({
+      data: { features: [], total: 0 },
+      isLoading: false,
+    });
   });
 
   afterEach(() => {
@@ -94,17 +117,17 @@ describe('BoardPage Archived Button Removal', () => {
 
   describe('Archived button removal', () => {
     it('renders archived column control in the board area', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
 
     it('does not render ArchivedFeaturesPanel', () => {
-      const { container } = render(<BoardPage />);
+      const { container } = renderWithQC(<BoardPage />);
       expect(container.querySelector('[class*="ArchivedFeatures"]')).toBeNull();
     });
 
     it('does not render archived control in the page header', () => {
-      const { container } = render(<BoardPage />);
+      const { container } = renderWithQC(<BoardPage />);
       const header = container.querySelector('.glass-panel');
       expect(header?.textContent).not.toContain('Archived');
     });
@@ -112,39 +135,39 @@ describe('BoardPage Archived Button Removal', () => {
 
   describe('Other header buttons remain functional', () => {
     it('renders Stats button', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Stats').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Agents button', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Agents').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Activity button', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Dependencies button', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Dependencies').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Bulk Select button', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Bulk Select').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Add Mission button', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Add Mission').length).toBeGreaterThanOrEqual(1);
     });
   });
 
   describe('Breadcrumb navigation', () => {
     it('renders breadcrumb with board name', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Habitats').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Test Board').length).toBeGreaterThanOrEqual(1);
     });
@@ -152,7 +175,7 @@ describe('BoardPage Archived Button Removal', () => {
 
   describe('Board content', () => {
     it('renders the Board component', () => {
-      render(<BoardPage />);
+      renderWithQC(<BoardPage />);
       expect(screen.getAllByText('Stats').length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -169,7 +192,7 @@ describe('BoardPage Archived Button Removal (Mobile)', () => {
 
   it('does not render Archived option even when isMobile is true', () => {
     vi.mocked(useIsMobile).mockReturnValue(true);
-    render(<BoardPage />);
+    renderWithQC(<BoardPage />);
     expect(screen.queryByTestId('archived-toggle')).toBeNull();
   });
 });

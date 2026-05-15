@@ -1,48 +1,62 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/Button.js';
 import { AgentRegistrationDialog } from '../ui/AgentRegistrationDialog.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { useAgentsListWithTasks, useAgentStats } from '../../lib/useHabitatData.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import { X, Plus } from 'lucide-react';
 import { Drawer } from '../ui/Drawer.js';
 import { AgentCard } from './AgentCard.js';
-import type { AgentStats } from '../../types/index.js';
+import type { Agent } from '../../types/index.js';
+
+function AgentCardWithStats({
+  agent,
+  currentTaskTitle,
+  expanded,
+  onToggleExpand,
+  onDeregister,
+}: {
+  agent: Agent;
+  currentTaskTitle: string | null;
+  expanded: boolean;
+  onToggleExpand: (agentId: string) => void;
+  onDeregister: (agentId: string) => void;
+}) {
+  const statsQuery = useAgentStats(agent.id);
+  return (
+    <AgentCard
+      agent={agent}
+      currentTaskTitle={currentTaskTitle}
+      stats={statsQuery.data}
+      expanded={expanded}
+      onToggleExpand={onToggleExpand}
+      onDeregister={onDeregister}
+    />
+  );
+}
 
 interface AgentPanelProps {
   onClose: () => void;
 }
 
 export function AgentPanel({ onClose }: AgentPanelProps) {
-  const { agents, tasks, removeAgent } = useBoardStore();
+  const board = useBoardStore((s) => s.board);
+  const removeAgent = useBoardStore((s) => s.removeAgent);
+  const qc = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
-  const [agentStats, setAgentStats] = useState<Record<string, AgentStats>>({});
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (agents.length === 0) return;
-    const stats: Record<string, AgentStats> = {};
-    Promise.all(agents.map((a) => api.agents.stats(a.id)))
-      .then((results) => {
-        results.forEach((statsResult, i) => {
-          stats[agents[i].id] = statsResult;
-        });
-        setAgentStats(stats);
-      })
-      .catch(() => {});
-  }, [agents]);
+  const agentsQuery = useAgentsListWithTasks(board?.id);
+  const agents = agentsQuery.data ?? [];
 
   function toggleExpanded(agentId: string) {
     setExpandedAgents((prev) => ({ ...prev, [agentId]: !prev[agentId] }));
-  }
-
-  function getAgentTask(agentId: string) {
-    const agent = agents.find((a) => a.id === agentId);
-    if (!agent?.currentTaskId) return null;
-    return tasks.find((t) => t.id === agent.currentTaskId) ?? null;
   }
 
   function requestRemove(agentId: string) {
@@ -55,6 +69,8 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     try {
       await api.agents.delete(pendingAgentId);
       removeAgent(pendingAgentId);
+      await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
+      await qc.invalidateQueries({ queryKey: queryKeys.agents.list() });
       notify.success('Agent deregistered');
     } catch (err) {
       notify.error((err as Error).message);
@@ -94,21 +110,16 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {agents.map((agent) => {
-                const currentTask = getAgentTask(agent.id);
-
-                return (
-                  <AgentCard
-                    key={agent.id}
-                    agent={agent}
-                    currentTaskTitle={currentTask?.title ?? null}
-                    stats={agentStats[agent.id]}
-                    expanded={!!expandedAgents[agent.id]}
-                    onToggleExpand={toggleExpanded}
-                    onDeregister={requestRemove}
-                  />
-                );
-              })}
+              {agents.map((item) => (
+                <AgentCardWithStats
+                  key={item.agent.id}
+                  agent={item.agent}
+                  currentTaskTitle={item.currentTaskTitle}
+                  expanded={!!expandedAgents[item.agent.id]}
+                  onToggleExpand={toggleExpanded}
+                  onDeregister={requestRemove}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -117,7 +128,9 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
       <AgentRegistrationDialog
         open={showAddDialog}
         onClose={() => setShowAddDialog(false)}
-        onRegistered={() => {}}
+        onRegistered={async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
+        }}
       />
       <ConfirmDialog
         open={confirmOpen}

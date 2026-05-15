@@ -5,6 +5,7 @@ import { RichTextEditor } from '../ui/RichTextEditor.js';
 import { useBoardStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
+import { useTemplates, useCreateTaskInFeature } from '../../lib/useHabitatData.js';
 import type { TaskPriority, FeatureTemplate } from '../../types/index.js';
 
 /** Props for the CreateTaskForm dialog. */
@@ -21,7 +22,9 @@ interface CreateTaskFormProps {
  */
 export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTaskFormProps) {
   const { columns, addTask } = useBoardStore();
-  const [templates, setTemplates] = useState<FeatureTemplate[]>([]);
+  const { data: templatesData } = useTemplates(boardId);
+  const templates = templatesData?.templates ?? [];
+  const createTaskMutation = useCreateTaskInFeature(featureId ?? '');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -30,11 +33,9 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
   const [requiredCapabilities, setRequiredCapabilities] = useState<string[]>([]);
   const [capabilityInput, setCapabilityInput] = useState('');
   const [estimatedMinutes, setEstimatedMinutes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
-      if (boardId) api.templates.list(boardId).then((result) => setTemplates(result.templates));
       setSelectedTemplateId('');
       setTitle('');
       setDescription('');
@@ -44,7 +45,7 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
       setCapabilityInput('');
       setEstimatedMinutes('');
     }
-  }, [open, boardId]);
+  }, [open]);
 
   function handleTemplateChange(templateId: string) {
     setSelectedTemplateId(templateId);
@@ -90,9 +91,8 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
     e.preventDefault();
     if (!title.trim() || !featureId) return;
 
-    setSubmitting(true);
     try {
-      const result = await api.features.createTask(featureId, {
+      const result = await createTaskMutation.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
         priority,
@@ -118,8 +118,6 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
       onClose();
     } catch (err) {
       notify.error((err as Error).message);
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -256,7 +254,7 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={submitting} disabled={submitting || !title.trim()}>
+          <Button type="submit" loading={createTaskMutation.isPending} disabled={createTaskMutation.isPending || !title.trim()}>
             Create Task
           </Button>
         </DialogFooter>
