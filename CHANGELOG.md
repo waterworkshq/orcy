@@ -2,6 +2,24 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.9.4 — 2026-05-15
+
+### Bug Fixes
+
+#### generate single-version release notes for GitHub releases ([`98e2863`](https://github.com/waterworkshq/orcy/commit/98e28634d517c2c5acecff8f4b4339efb087b33b))
+
+1. Use git-cliff --current -o - instead of -o /dev/null so release-it
+2. captures the current version's notes only for the GitHub release body.
+
+
+#### add token hints to scheduled task form ([`a1aad58`](https://github.com/waterworkshq/orcy/commit/a1aad58d38ebf03943fd8d1f553190a7537d2ffc))
+
+1. Add TokenHints component to display available tokens ({{date}}, {{counter}}) with examples below Feature Title and Description inputs. Include test IDs for verification and ensure form submission works correctly with token syntax.
+
+3. Include unit tests for token hint rendering and form submission behavior.
+
+
+
 ## 0.9.3 — 2026-05-15
 
 ### Bug Fixes
@@ -45,21 +63,3 @@
 
 
 #### correct git-cliff releaseNotes hook for unreleased tags ([`cd0c863`](https://github.com/waterworkshq/orcy/commit/cd0c863ac2348a02ec198124afe86c6b50238c15))
-
-
-
-## 0.9.1 — 2026-05-14
-
-### Bug Fixes
-
-#### restore API.md and add missing v0.8.0+v0.9.0 endpoint documentation ([`46856ae`](https://github.com/waterworkshq/orcy/commit/46856ae7fabbd99802556a4f6992fd5bba9d4104))
-
-1. Restore 2071 lines of API docs accidentally deleted in v0.9.0 release
-2. Add Board Health section (GET /boards/:id/health, /health/history)
-3. Add Board Tasks section (GET /boards/:id/tasks with sort/filter)
-4. Add Prioritization section (rules CRUD + evaluate + report)
-5. Add Scheduled Tasks section (8 endpoints: CRUD + run/enable/disable)
-6. Add Feature Comments section (4 endpoints)
-7. Add Audit Log Export section (export + summary + schedules)
-8. Add apply-template route to Features section
-9. Add 11 new SSE events (priority_changed, scheduled_task.*, feature.comment*)
