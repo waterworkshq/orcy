@@ -12,10 +12,35 @@ vi.mock('../../api/index.js', () => ({
 
 vi.mock('./HabitatPulsePanel.js', () => ({ HabitatPulsePanel: () => null }));
 vi.mock('./InsightsPanel.js', () => ({ InsightsPanel: () => null }));
+vi.mock('./HealthScoreWidget.js', () => ({ HealthScoreWidget: () => null }));
+vi.mock('./FilterBar.js', () => ({ FilterBar: () => <div data-testid="filter-bar" /> }));
+vi.mock('./Habitat.js', () => ({ Board: () => <div data-testid="board" /> }));
+vi.mock('./TaskDetailModal.js', () => ({ TaskDetailModal: () => null }));
+vi.mock('./TaskTableView.js', () => ({ TaskTableView: () => <div /> }));
+vi.mock('./BulkActionBar.js', () => ({ BulkActionBar: () => <div /> }));
+vi.mock('./MobileNav.js', () => ({ MobileNav: () => <div /> }));
+vi.mock('./AgentPanel.js', () => ({ AgentPanel: () => null }));
+vi.mock('./StatsModal.js', () => ({ StatsModal: () => null }));
+vi.mock('./ColumnSettingsDialog.js', () => ({ ColumnSettingsDialog: () => null }));
+vi.mock('./CreateColumnDialog.js', () => ({ CreateColumnDialog: () => null }));
+vi.mock('./DependencyGraphModal.js', () => ({ DependencyGraphModal: () => null }));
+vi.mock('./HabitatSettingsDialog.js', () => ({ BoardSettingsDialog: () => null }));
+vi.mock('./CreateTaskForm.js', () => ({ CreateTaskForm: () => null }));
+vi.mock('./CreateMissionForm.js', () => ({ CreateFeatureForm: () => null }));
+vi.mock('../ui/Button.js', () => ({
+  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+}));
+vi.mock('../ui/HelpDrawer.js', () => ({ HelpDrawer: ({ children }: any) => <div>{children}</div> }));
+vi.mock('../ui/HelpContent.js', () => ({ HelpContent: () => <div /> }));
+vi.mock('../ui/SkeletonCard.js', () => ({ SkeletonCard: () => <div /> }));
 vi.mock('../../hooks/useSSE.js', () => ({ useSSE: vi.fn() }));
 vi.mock('../../hooks/useSSENotifications.js', () => ({ useSSENotifications: vi.fn() }));
 vi.mock('../../hooks/usePresence.js', () => ({ usePresence: vi.fn() }));
 vi.mock('../../hooks/useMediaQuery.js', () => ({ useIsMobile: vi.fn(() => false) }));
+vi.mock('../../components/layout/DrawerBridgeContext.js', () => ({
+  useRegisterDrawerBridge: () => () => () => undefined,
+  DrawerBridgeProvider: ({ children }: any) => children,
+}));
 
 vi.mock('react-router-dom', () => ({
   useParams: vi.fn(() => ({ boardId: 'board-1' })),

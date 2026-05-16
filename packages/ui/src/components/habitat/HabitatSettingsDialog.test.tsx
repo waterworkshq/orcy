@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BoardSettingsDialog } from './HabitatSettingsDialog.js';
 import type { Board } from '../../types/index.js';
 
@@ -136,6 +137,10 @@ vi.mock('./settings/PrioritizationTab.js', () => ({
   }),
 }));
 
+vi.mock('./settings/ScheduledTasksTab.js', () => ({
+  ScheduledTasksTab: () => <div data-testid="scheduled-tasks-tab">ScheduledTasksTab</div>,
+}));
+
 const mockBoard: Board = {
   id: 'b1',
   name: 'Test Board',
@@ -154,11 +159,26 @@ const mockBoard: Board = {
   updatedAt: '2024-01-01',
 };
 
-describe('HabitatSettingsDialog', () => {
-  const mockOnUpdate = vi.fn();
-  const mockOnDelete = vi.fn();
-  const mockOnClose = vi.fn();
+const mockOnUpdate = vi.fn();
+const mockOnDelete = vi.fn();
+const mockOnClose = vi.fn();
 
+function renderDialog(props: { open?: boolean } = {}) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <BoardSettingsDialog
+        board={mockBoard}
+        open={props.open ?? true}
+        onClose={mockOnClose}
+        onUpdate={mockOnUpdate}
+        onDelete={mockOnDelete}
+      />
+    </QueryClientProvider>
+  );
+}
+
+describe('HabitatSettingsDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -168,156 +188,70 @@ describe('HabitatSettingsDialog', () => {
   });
 
   it('renders dialog title', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     expect(screen.getByText('Habitat Settings')).toBeTruthy();
   });
 
   it('renders all tab buttons', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     expect(screen.getByText('General')).toBeTruthy();
     expect(screen.getByText('Notifications')).toBeTruthy();
     expect(screen.getByText('Chat Integrations')).toBeTruthy();
     expect(screen.getByText('Retry Policy')).toBeTruthy();
     expect(screen.getByText('Anomaly Detection')).toBeTruthy();
     expect(screen.getByText('Auto-Assign')).toBeTruthy();
+    expect(screen.getByText('Prioritization')).toBeTruthy();
+    expect(screen.getByText('Scheduled Tasks')).toBeTruthy();
   });
 
   it('shows GeneralTab by default', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     expect(screen.getByTestId('general-tab')).toBeTruthy();
   });
 
   it('switches to NotificationsTab on tab click', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     fireEvent.click(screen.getByText('Notifications'));
     expect(screen.getByTestId('notifications-tab')).toBeTruthy();
     expect(screen.getByTestId('general-tab')).toBeTruthy();
   });
 
   it('switches to ChatIntegrationsTab on tab click', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     fireEvent.click(screen.getByText('Chat Integrations'));
     expect(screen.getByTestId('chat-tab')).toBeTruthy();
   });
 
   it('switches to RetryPolicyTab on tab click', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     fireEvent.click(screen.getByText('Retry Policy'));
     expect(screen.getByTestId('retry-tab')).toBeTruthy();
   });
 
   it('switches to AnomalyDetectionTab on tab click', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     fireEvent.click(screen.getByText('Anomaly Detection'));
     expect(screen.getByTestId('anomaly-tab')).toBeTruthy();
   });
 
   it('switches to AutoAssignTab on tab click', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     fireEvent.click(screen.getByText('Auto-Assign'));
     expect(screen.getByTestId('auto-assign-tab')).toBeTruthy();
   });
 
   it('renders Cancel button', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     expect(screen.getByText('Cancel')).toBeTruthy();
   });
 
   it('renders Save button for general tab', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     expect(screen.getByText('Save')).toBeTruthy();
   });
 
   it('renders correct save button for each tab', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
 
     expect(screen.getByText('Save')).toBeTruthy();
 
@@ -332,47 +266,23 @@ describe('HabitatSettingsDialog', () => {
   });
 
   it('renders no save button for chat tab', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog();
     fireEvent.click(screen.getByText('Chat Integrations'));
     expect(screen.queryByText('Save')).toBeNull();
     expect(screen.getByText('Cancel')).toBeTruthy();
   });
 
   it('does not render when open=false', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={false}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+    renderDialog({ open: false });
     expect(screen.queryByTestId('dialog')).toBeNull();
   });
 
-  it('renders 6 tab buttons', () => {
-    render(
-      <BoardSettingsDialog
-        board={mockBoard}
-        open={true}
-        onClose={mockOnClose}
-        onUpdate={mockOnUpdate}
-        onDelete={mockOnDelete}
-      />
-    );
+  it('renders 8 tab buttons', () => {
+    renderDialog();
     const tabButtons = screen.getAllByRole('button').filter(
-      btn => ['General', 'Notifications', 'Chat Integrations', 'Retry Policy', 'Anomaly Detection', 'Auto-Assign']
+      btn => ['General', 'Notifications', 'Chat Integrations', 'Retry Policy', 'Anomaly Detection', 'Auto-Assign', 'Prioritization', 'Scheduled Tasks']
         .includes(btn.textContent || '')
     );
-    expect(tabButtons.length).toBe(6);
+    expect(tabButtons.length).toBe(8);
   });
 });

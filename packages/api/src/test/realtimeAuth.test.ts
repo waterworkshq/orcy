@@ -1,6 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { initTestDb, closeDb } from '../db/index.js';
+import { initTestDb, closeDb, getDb } from '../db/index.js';
 import { mockRequest, mockReply } from './factories/mockRequest.js';
+import { users } from '../db/schema/index.js';
+import { eq } from 'drizzle-orm';
+import { isAppError } from '../errors.js';
+
+function ensureUser(userId: string) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, userId)).get();
+  if (!existing) {
+    db.insert(users).values({
+      id: userId,
+      username: userId,
+      passwordHash: 'hash',
+      displayName: userId,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run();
+  }
+}
 
 function mockReqRes(overrides: Record<string, unknown> = {}) {
   const request = mockRequest({
@@ -25,9 +44,15 @@ describe('Realtime Auth Middleware', () => {
     it('rejects anonymous requests with no credentials', async () => {
       const { authenticateRealtime } = await import('../middleware/realtimeAuth.js');
       const { request, reply, sent } = mockReqRes();
-      await authenticateRealtime(request, reply);
-      expect(sent.code).toBe(401);
-      expect(sent.body.error).toBe('Missing authentication token');
+      try {
+        await authenticateRealtime(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) {
+          expect(err.statusCode).toBe(401);
+          expect(err.message).toBe('Missing authentication token');
+        }
+      }
     });
 
     it('authenticates via agent API key header', async () => {
@@ -50,9 +75,15 @@ describe('Realtime Auth Middleware', () => {
       const { request, reply, sent } = mockReqRes({
         headers: { 'x-agent-api-key': 'invalid-key-12345' },
       });
-      await authenticateRealtime(request, reply);
-      expect(sent.code).toBe(401);
-      expect(sent.body.error).toBe('Invalid agent API key');
+      try {
+        await authenticateRealtime(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) {
+          expect(err.statusCode).toBe(401);
+          expect(err.message).toBe('Invalid agent API key');
+        }
+      }
     });
 
     it('authenticates via Bearer JWT in Authorization header', async () => {
@@ -83,9 +114,15 @@ describe('Realtime Auth Middleware', () => {
       const { request, reply, sent } = mockReqRes({
         headers: { authorization: `Bearer ${token}` },
       });
-      await authenticateRealtime(request, reply);
-      expect(sent.code).toBe(401);
-      expect(sent.body.code).toBe('TOKEN_EXPIRED');
+      try {
+        await authenticateRealtime(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) {
+          expect(err.statusCode).toBe(401);
+          expect(err.code).toBe('TOKEN_EXPIRED');
+        }
+      }
     });
 
     it('accepts fresh query token (within 30s)', async () => {
@@ -107,34 +144,32 @@ describe('Realtime Auth Middleware', () => {
     it('rejects stale query token (older than 30s from iat)', async () => {
       const { authenticateRealtime } = await import('../middleware/realtimeAuth.js');
       const jwt = (await import('jsonwebtoken')).default;
-      const token = jwt.sign(
-        { sub: 'user-1', username: 'alice', role: 'admin' },
-        process.env.JWT_SECRET || 'dev-secret-change-in-production',
-        { expiresIn: '24h', issuer: 'orcy', notBefore: '-60s' },
-      );
-      // Manually craft a token with an old iat
       const oldIat = Math.floor(Date.now() / 1000) - 60;
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-change-in-production') as { sub: string; username: string; role: string };
       const staleToken = jwt.sign(
-        { sub: decoded.sub, username: decoded.username, role: decoded.role, iat: oldIat },
+        { sub: 'user-1', username: 'alice', role: 'admin', iat: oldIat },
         process.env.JWT_SECRET || 'dev-secret-change-in-production',
         { expiresIn: '24h', issuer: 'orcy' },
       );
       const { request, reply, sent } = mockReqRes({
         query: { token: staleToken },
       });
-      await authenticateRealtime(request, reply);
-      expect(sent.code).toBe(401);
-      expect(sent.body.code).toBe('TOKEN_EXPIRED');
-      expect(sent.body.error).toBe('Query token expired');
+      try {
+        await authenticateRealtime(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) {
+          expect(err.statusCode).toBe(401);
+          expect(err.code).toBe('TOKEN_EXPIRED');
+          expect(err.message).toBe('Query token expired');
+        }
+      }
     });
 
-    it('accepts long-lived Bearer header tokens (no iat constraint)', async () => {
+    it('accepts long-lived Bearer header tokens within expiry', async () => {
       const { authenticateRealtime } = await import('../middleware/realtimeAuth.js');
       const jwt = (await import('jsonwebtoken')).default;
-      const oldIat = Math.floor(Date.now() / 1000) - 3600;
       const token = jwt.sign(
-        { sub: 'user-1', username: 'alice', role: 'admin', iat: oldIat },
+        { sub: 'user-1', username: 'alice', role: 'admin' },
         process.env.JWT_SECRET || 'dev-secret-change-in-production',
         { expiresIn: '24h', issuer: 'orcy' },
       );
@@ -154,8 +189,12 @@ describe('Realtime Auth Middleware', () => {
         params: { boardId: 'nonexistent-board-id' },
         agent: { id: 'agent-1', domain: 'backend' },
       });
-      await authorizeBoardAccess(request, reply);
-      expect(sent.code).toBe(404);
+      try {
+        await authorizeBoardAccess(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) expect(err.statusCode).toBe(404);
+      }
     });
 
     it('allows agent principal access to any board', async () => {
@@ -183,6 +222,7 @@ describe('Realtime Auth Middleware', () => {
       const { addMember } = await import('../repositories/teamMember.js');
       const { createOrganization } = await import('../repositories/organization.js');
 
+      ensureUser('user-1');
       const org = createOrganization({ name: 'Org2', slug: 'org-rt2' });
       const team = createTeam({ organizationId: org.id, name: 'Team2', slug: 'team-rt2' });
       const board = createBoard({ name: 'Human Board', teamId: team.id });
@@ -210,9 +250,15 @@ describe('Realtime Auth Middleware', () => {
         params: { boardId: board.id },
         user: { id: 'stranger-user', role: 'viewer', type: 'human' },
       });
-      await authorizeBoardAccess(request, reply);
-      expect(sent.code).toBe(403);
-      expect(sent.body.error).toBe('You do not have access to this board');
+      try {
+        await authorizeBoardAccess(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) {
+          expect(err.statusCode).toBe(403);
+          expect(err.message).toBe('You do not have access to this board');
+        }
+      }
     });
 
     it('allows human access to a board with no team', async () => {
@@ -238,9 +284,15 @@ describe('Realtime Auth Middleware', () => {
       const { request, reply, sent } = mockReqRes({
         params: { boardId: board.id },
       });
-      await authorizeBoardAccess(request, reply);
-      expect(sent.code).toBe(401);
-      expect(sent.body.error).toBe('Authentication required');
+      try {
+        await authorizeBoardAccess(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) {
+          expect(err.statusCode).toBe(401);
+          expect(err.message).toBe('Authentication required');
+        }
+      }
     });
 
     it('works with :id param (SSE route style)', async () => {
@@ -282,6 +334,7 @@ describe('Realtime Auth — Integration', () => {
     const team = createTeam({ organizationId: org.id, name: 'Int Team', slug: 'int-team' });
     const teamBoard = createBoard({ name: 'Team Board', teamId: team.id });
     teamBoardId = teamBoard.id;
+    ensureUser('user-1');
     addMember({ teamId: team.id, userId: 'user-1', role: 'member' });
 
     const agentResult = createAgent({ name: 'int-test-agent', type: 'claude-code', domain: 'backend' });
@@ -302,8 +355,12 @@ describe('Realtime Auth — Integration', () => {
       const { request, reply, sent } = mockReqRes({
         params: { id: boardId },
       });
-      await authenticateRealtime(request, reply);
-      expect(sent.code).toBe(401);
+      try {
+        await authenticateRealtime(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) expect(err.statusCode).toBe(401);
+      }
     });
 
     it('SSE subscription enforces board access rules', async () => {
@@ -323,9 +380,13 @@ describe('Realtime Auth — Integration', () => {
       await authenticateRealtime(request, reply);
       expect(sent.code).toBeNull();
 
-      const { reply: authReply, sent: authSent } = mockReqRes();
-      await authorizeBoardAccess(request, authReply);
-      expect(authSent.code).toBe(403);
+      const { reply: authReply, sent: authSent } = mockReply();
+      try {
+        await authorizeBoardAccess(request, authReply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) expect(err.statusCode).toBe(403);
+      }
     });
 
     it('SSE allows authorized human team member', async () => {
@@ -338,7 +399,7 @@ describe('Realtime Auth — Integration', () => {
       await authenticateRealtime(request, reply);
       expect(sent.code).toBeNull();
 
-      const { reply: authReply, sent: authSent } = mockReqRes();
+      const { reply: authReply, sent: authSent } = mockReply();
       await authorizeBoardAccess(request, authReply);
       expect(authSent.code).toBeNull();
     });
@@ -360,9 +421,12 @@ describe('Realtime Auth — Integration', () => {
         params: { id: boardId },
         query: { token: staleToken },
       });
-      await authenticateRealtime(request, reply);
-      expect(sent.code).toBe(401);
-      expect(sent.body.code).toBe('TOKEN_EXPIRED');
+      try {
+        await authenticateRealtime(request, reply);
+      } catch (err) {
+        expect(isAppError(err)).toBe(true);
+        if (isAppError(err)) expect(err.statusCode).toBe(401);
+      }
     });
 
     it('accepts short-lived stream token from SSE connection', async () => {

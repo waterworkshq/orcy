@@ -14,6 +14,22 @@ vi.mock('../../api/index.js', () => ({
 
 vi.mock('./HabitatPulsePanel.js', () => ({ HabitatPulsePanel: () => null }));
 vi.mock('./InsightsPanel.js', () => ({ InsightsPanel: () => null }));
+vi.mock('./HealthScoreWidget.js', () => ({ HealthScoreWidget: () => null }));
+vi.mock('./FilterBar.js', () => ({ FilterBar: () => <div data-testid="filter-bar" /> }));
+vi.mock('./ColumnSettingsDialog.js', () => ({ ColumnSettingsDialog: () => null }));
+vi.mock('./CreateColumnDialog.js', () => ({ CreateColumnDialog: () => null }));
+vi.mock('./HabitatSettingsDialog.js', () => ({ BoardSettingsDialog: () => null }));
+vi.mock('./DependencyGraphModal.js', () => ({ DependencyGraphModal: () => null }));
+vi.mock('./CreateTaskForm.js', () => ({ CreateTaskForm: () => null }));
+vi.mock('./CreateMissionForm.js', () => ({ CreateFeatureForm: () => null }));
+vi.mock('./BulkActionBar.js', () => ({ BulkActionBar: () => <div /> }));
+vi.mock('./MobileNav.js', () => ({ MobileNav: () => <div /> }));
+vi.mock('../ui/SkeletonCard.js', () => ({ SkeletonCard: () => <div /> }));
+vi.mock('../ui/HelpDrawer.js', () => ({ HelpDrawer: ({ children }: any) => <div>{children}</div> }));
+vi.mock('../ui/HelpContent.js', () => ({ HelpContent: () => <div /> }));
+vi.mock('../ui/Button.js', () => ({
+  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+}));
 vi.mock('../../hooks/useSSE.js', () => ({ useSSE: vi.fn() }));
 vi.mock('../../hooks/useSSENotifications.js', () => ({ useSSENotifications: vi.fn() }));
 vi.mock('../../hooks/usePresence.js', () => ({ usePresence: vi.fn() }));

@@ -15,6 +15,7 @@ import {
 } from '../middleware/taskAuth.js';
 import type { Principal } from '../middleware/taskAuth.js';
 import type { Task } from '../models/index.js';
+import { isAppError } from '../errors.js';
 
 function mockReqRes(overrides: Record<string, any> = {}) {
   const request: any = {
@@ -32,6 +33,21 @@ function mockReqRes(overrides: Record<string, any> = {}) {
     send: vi.fn((b: any) => { sent.body = b; return reply; }),
   };
   return { request, reply, sent };
+}
+
+async function callHandler(handler: RouteHandler, request: any, reply: any): Promise<{ code: number | null; body: any }> {
+  const sent: any = { code: null, body: null };
+  try {
+    await handler(request, reply);
+  } catch (err) {
+    if (isAppError(err)) {
+      sent.code = err.statusCode;
+      sent.body = { error: err.message, code: err.code };
+    } else {
+      throw err;
+    }
+  }
+  return sent;
 }
 
 type RouteHandler = (req: any, reply: any) => Promise<void>;
@@ -335,193 +351,180 @@ describe('Task Lifecycle Authorization', () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'in_progress');
       const handler = findRoute(routes, '/tasks/:id/submit');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { result: 'Completed work' },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBeNull();
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBeNull();
     });
 
     it('non-assigned agent cannot release another agent\'s claimed task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'claimed');
       const handler = findRoute(routes, '/tasks/:id/release');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { reason: 'stealing' },
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
-      expect(sent.body.error).toContain('assigned agent');
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
+      expect(result.body.error).toContain('assigned agent');
     });
 
     it('non-assigned agent cannot fail another agent\'s task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'in_progress');
       const handler = findRoute(routes, '/tasks/:id/fail');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { reason: 'sabotage' },
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
     });
 
     it('agent cannot approve submitted task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'submitted');
       const handler = findRoute(routes, '/tasks/:id/approve');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: {},
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack' },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
     });
 
     it('agent cannot reject submitted task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'submitted');
       const handler = findRoute(routes, '/tasks/:id/reject');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { reason: 'bad' },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack' },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
     });
 
     it('anonymous unblock request returns 401', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'pending');
       const handler = findRoute(routes, '/tasks/:id/unblock');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(401);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(401);
     });
 
     it('authenticated agent receives 403 for unblock', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'pending');
       const handler = findRoute(routes, '/tasks/:id/unblock');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack' },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
-      expect(sent.body.error).toContain('internal-only');
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
+      expect(result.body.error).toContain('internal-only');
     });
 
     it('non-assigned agent receives 403 for unblock', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'pending');
       const handler = findRoute(routes, '/tasks/:id/unblock');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend' },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
-      expect(sent.body.error).toContain('internal-only');
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
+      expect(result.body.error).toContain('internal-only');
     });
 
     it('non-assigned agent cannot start another agent\'s task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'claimed');
       const handler = findRoute(routes, '/tasks/:id/start');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
     });
 
     it('non-assigned agent cannot submit another agent\'s task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'in_progress');
       const handler = findRoute(routes, '/tasks/:id/submit');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { result: 'spoofed' },
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
     });
 
     it('non-assigned agent cannot complete another agent\'s task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'submitted');
       const handler = findRoute(routes, '/tasks/:id/complete');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { reviewNote: 'note' },
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
     });
 
     it('assigned agent can release own task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'claimed');
       const handler = findRoute(routes, '/tasks/:id/release');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { reason: 'done' },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBeNull();
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBeNull();
     });
 
     it('assigned agent can fail own task', async () => {
       const { taskId } = setupBoardWithTask(agent1Id, 'in_progress');
       const handler = findRoute(routes, '/tasks/:id/fail');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: taskId },
         body: { reason: 'stuck' },
         agent: { id: agent1Id, name: 'agent-a', domain: 'fullstack', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBeNull();
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBeNull();
     });
   });
 
@@ -550,16 +553,15 @@ describe('Task Lifecycle Authorization', () => {
 
       const handler = findRoute(routes, '/tasks/:id/claim');
 
-      const { request, reply, sent } = mockReqRes({
+      const { request, reply } = mockReqRes({
         params: { id: task.id },
         body: {},
         agent: { id: agent2Id, name: 'agent-b', domain: 'frontend', capabilities: [] },
       });
 
-      await handler(request, reply);
-
-      expect(sent.code).toBe(403);
-      expect(sent.body.error).toContain('Domain mismatch');
+      const result = await callHandler(handler, request, reply);
+      expect(result.code).toBe(403);
+      expect(result.body.error).toContain('Domain mismatch');
     });
 
     it('claim race condition still returns already_claimed', () => {

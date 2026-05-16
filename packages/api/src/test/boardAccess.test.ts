@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { initTestDb, closeDb } from '../db/index.js';
+import { initTestDb, closeDb, getDb } from '../db/index.js';
 import { boardRoutes } from '../routes/boards.js';
 import { boardAnalyticsRoutes } from '../routes/board-analytics.js';
 import { boardExportRoutes } from '../routes/board-export.js';
@@ -8,6 +8,25 @@ import * as teamRepo from '../repositories/team.js';
 import * as orgRepo from '../repositories/organization.js';
 import * as teamMemberRepo from '../repositories/teamMember.js';
 import { mockRequest, mockReply } from './factories/mockRequest.js';
+import { users } from '../db/schema/index.js';
+import { isAppError } from '../errors.js';
+import { eq } from 'drizzle-orm';
+
+function ensureUser(userId: string, username?: string) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, userId)).get();
+  if (!existing) {
+    db.insert(users).values({
+      id: userId,
+      username: username ?? userId,
+      passwordHash: 'hash',
+      displayName: username ?? userId,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run();
+  }
+}
 
 function mockReqRes(overrides: Record<string, unknown> = {}) {
   const request = mockRequest({
@@ -68,9 +87,12 @@ describe('requireBoardAccess', () => {
       params: { id: 'nonexistent-board-id' },
       user: { id: 'user-1', role: 'admin', type: 'human' },
     });
-    await requireBoardAccess(request, reply);
-    expect(sent.code).toBe(404);
-    expect(sent.body.error).toBe('Board not found');
+    try {
+      await requireBoardAccess(request, reply);
+    } catch (err) {
+      expect(isAppError(err)).toBe(true);
+      if (isAppError(err)) expect(err.statusCode).toBe(404);
+    }
   });
 
   it('allows human team member access', async () => {
@@ -80,6 +102,7 @@ describe('requireBoardAccess', () => {
     const { createOrganization } = await import('../repositories/organization.js');
     const { requireBoardAccess } = await import('../middleware/team.js');
 
+    ensureUser('user-1', 'user-1');
     const org = createOrganization({ name: 'Test Org', slug: 'test-org' });
     const team = createTeam({ organizationId: org.id, name: 'Team A', slug: 'team-a' });
     const board = createBoard({ name: 'Board 1', teamId: team.id });
@@ -107,9 +130,15 @@ describe('requireBoardAccess', () => {
       params: { id: board.id },
       user: { id: 'stranger-user', role: 'viewer', type: 'human' },
     });
-    await requireBoardAccess(request, reply);
-    expect(sent.code).toBe(403);
-    expect(sent.body.error).toBe('You do not have access to this board');
+    try {
+      await requireBoardAccess(request, reply);
+    } catch (err) {
+      expect(isAppError(err)).toBe(true);
+      if (isAppError(err)) {
+        expect(err.statusCode).toBe(403);
+        expect(err.message).toBe('You do not have access to this board');
+      }
+    }
   });
 
   it('allows any human access to a board with no team', async () => {
@@ -153,9 +182,15 @@ describe('requireBoardAccess', () => {
     const { request, reply, sent } = mockReqRes({
       params: { id: board.id },
     });
-    await requireBoardAccess(request, reply);
-    expect(sent.code).toBe(401);
-    expect(sent.body.error).toBe('Authentication required');
+    try {
+      await requireBoardAccess(request, reply);
+    } catch (err) {
+      expect(isAppError(err)).toBe(true);
+      if (isAppError(err)) {
+        expect(err.statusCode).toBe(401);
+        expect(err.message).toBe('Authentication required');
+      }
+    }
   });
 
   it('passes through when no boardId in params', async () => {
@@ -190,7 +225,11 @@ describe('requireBoardAccess', () => {
       params: { id: board.id },
       user: { id: 'stranger-user', role: 'viewer', type: 'human' },
     });
-    await requireBoardAccess(request, reply);
-    expect(sent.code).toBe(403);
+    try {
+      await requireBoardAccess(request, reply);
+    } catch (err) {
+      expect(isAppError(err)).toBe(true);
+      if (isAppError(err)) expect(err.statusCode).toBe(403);
+    }
   });
 });

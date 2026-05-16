@@ -106,7 +106,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       const countResult = db.select({ count: sql<number>`COUNT(*)` }).from(users).get();
       if ((countResult?.count ?? 0) > 0) {
-        db.run(sql`ROLLBACK`);
         throw forbidden('Setup already completed', 'SETUP_ALREADY_COMPLETED');
       }
 

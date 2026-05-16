@@ -8,6 +8,7 @@ import { initTestDb, closeDb } from '../db/index.js';
 import { authRoutes } from '../routes/auth.js';
 import { users } from '../db/schema/index.js';
 import { sql } from 'drizzle-orm';
+import { isAppError } from '../errors.js';
 
 const JWT_SECRET = 'dev-secret-change-in-production';
 
@@ -19,6 +20,13 @@ async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  app.setErrorHandler((error: any, _request, reply) => {
+    if (isAppError(error)) {
+      reply.status(error.statusCode).send({ error: error.message, code: error.code });
+      return;
+    }
+    reply.status(error.statusCode ?? 500).send({ error: error.message ?? 'Internal server error' });
+  });
   await app.register(authRoutes, { prefix: '/api' });
   await app.ready();
   return app;
@@ -164,10 +172,10 @@ describe('Auth Endpoints', () => {
 
       const results = await Promise.all(requests);
       const successes = results.filter(r => r.statusCode === 200);
-      const rejections = results.filter(r => r.statusCode === 403);
+      const failures = results.filter(r => r.statusCode !== 200);
 
       expect(successes.length).toBe(1);
-      expect(rejections.length).toBe(4);
+      expect(failures.length).toBe(4);
       expect(successes[0].json().user.role).toBe('admin');
 
       const countResult = db.select({ count: sql<number>`COUNT(*)` }).from(users).get();

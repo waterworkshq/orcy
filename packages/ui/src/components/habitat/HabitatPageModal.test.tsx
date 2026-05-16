@@ -12,10 +12,15 @@ vi.mock('../../api/index.js', () => ({
 
 vi.mock('./HabitatPulsePanel.js', () => ({ HabitatPulsePanel: () => null }));
 vi.mock('./InsightsPanel.js', () => ({ InsightsPanel: () => null }));
+vi.mock('./HealthScoreWidget.js', () => ({ HealthScoreWidget: () => null }));
 vi.mock('../../hooks/useSSE.js', () => ({ useSSE: vi.fn() }));
 vi.mock('../../hooks/useSSENotifications.js', () => ({ useSSENotifications: vi.fn() }));
 vi.mock('../../hooks/usePresence.js', () => ({ usePresence: vi.fn() }));
 vi.mock('../../hooks/useMediaQuery.js', () => ({ useIsMobile: vi.fn(() => false) }));
+vi.mock('../../components/layout/DrawerBridgeContext.js', () => ({
+  useRegisterDrawerBridge: () => () => () => undefined,
+  DrawerBridgeProvider: ({ children }: any) => children,
+}));
 
 vi.mock('react-router-dom', () => ({
   useParams: vi.fn(() => ({ boardId: 'board-1' })),

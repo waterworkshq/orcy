@@ -120,6 +120,13 @@ vi.mock('../api/index.js', () => ({
     },
     comments: {
       list: (...args: any[]) => mockCommentsList(...args),
+      create: vi.fn().mockResolvedValue({}),
+    },
+    featureComments: {
+      list: vi.fn().mockResolvedValue({ comments: [], total: 0 }),
+    },
+    pulse: {
+      digest: vi.fn().mockResolvedValue({ pulses: [], total: 0 }),
     },
   },
 }));
@@ -173,6 +180,31 @@ vi.mock('lucide-react', () => ({
   Info: () => <span data-testid="icon-info">ℹ</span>,
   Settings: () => <span data-testid="icon-settings">⚙</span>,
   ArrowRight: () => <span data-testid="icon-arrow-right">→</span>,
+  Radio: () => <span data-testid="icon-radio">📻</span>,
+  Activity: () => <span data-testid="icon-activity">📈</span>,
+  ListTodo: () => <span data-testid="icon-list-todo">☑</span>,
+  MessageSquare: () => <span data-testid="icon-message-square">💬</span>,
+  Search: () => <span data-testid="icon-search">🔍</span>,
+  ShieldAlert: () => <span data-testid="icon-shield-alert">🛡</span>,
+  Handshake: () => <span data-testid="icon-handshake">🤝</span>,
+  TriangleAlert: () => <span data-testid="icon-triangle-alert">⚠</span>,
+  HelpCircle: () => <span data-testid="icon-help-circle">❓</span>,
+  MessageCircle: () => <span data-testid="icon-message-circle">🗨</span>,
+  Command: () => <span data-testid="icon-command">⌘</span>,
+  ArrowRightLeft: () => <span data-testid="icon-arrow-right-left">↔</span>,
+  ExternalLink: () => <span data-testid="icon-external-link">🔗</span>,
+  Plus: () => <span data-testid="icon-plus">+</span>,
+  ChevronDown: () => <span data-testid="icon-chevron-down">▼</span>,
+  ChevronRight: () => <span data-testid="icon-chevron-right">▶</span>,
+  X: () => <span data-testid="icon-x-close">✕</span>,
+  Eye: () => <span data-testid="icon-eye">👁</span>,
+  EyeOff: () => <span data-testid="icon-eye-off">🚫</span>,
+  Shield: () => <span data-testid="icon-shield">🛡</span>,
+  ThumbsUp: () => <span data-testid="icon-thumbs-up">👍</span>,
+  Reply: () => <span data-testid="icon-reply">↩</span>,
+  User: () => <span data-testid="icon-user">👤</span>,
+  Pencil: () => <span data-testid="icon-pencil">✏</span>,
+  Trash2: () => <span data-testid="icon-trash2">🗑</span>,
 }));
 
 function renderWithProviders(

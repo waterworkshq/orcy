@@ -4,10 +4,28 @@ import * as orgRepo from '../repositories/organization.js';
 import * as teamRepo from '../repositories/team.js';
 import * as memberRepo from '../repositories/teamMember.js';
 import * as boardRepo from '../repositories/board.js';
+import { users } from '../db/schema/index.js';
+import { eq } from 'drizzle-orm';
 
 let counter = 0;
 function unique(prefix: string): string {
   return `${prefix}-${Date.now()}-${++counter}`;
+}
+
+function ensureUser(userId: string) {
+  const db = getDb();
+  const existing = db.select({ id: users.id }).from(users).where(eq(users.id, userId)).get();
+  if (!existing) {
+    db.insert(users).values({
+      id: userId,
+      username: userId,
+      passwordHash: 'hash',
+      displayName: userId,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run();
+  }
 }
 
 describe('Multi-Tenant / Team Support', () => {
@@ -94,26 +112,34 @@ describe('Multi-Tenant / Team Support', () => {
     });
 
     it('adds a member', () => {
-      const member = memberRepo.addMember({ teamId, userId: unique('user'), role: 'member' });
+      const uid = unique('user');
+      ensureUser(uid);
+      const member = memberRepo.addMember({ teamId, userId: uid, role: 'member' });
       expect(member.userId).toContain('user');
       expect(member.role).toBe('member');
     });
 
     it('adds a member with owner role', () => {
       const uid = unique('user');
+      ensureUser(uid);
       const member = memberRepo.addMember({ teamId, userId: uid, role: 'owner' });
       expect(member.role).toBe('owner');
     });
 
     it('lists members', () => {
-      memberRepo.addMember({ teamId, userId: unique('user'), role: 'admin' });
-      memberRepo.addMember({ teamId, userId: unique('user'), role: 'member' });
+      const uid1 = unique('user');
+      const uid2 = unique('user');
+      ensureUser(uid1);
+      ensureUser(uid2);
+      memberRepo.addMember({ teamId, userId: uid1, role: 'admin' });
+      memberRepo.addMember({ teamId, userId: uid2, role: 'member' });
       const members = memberRepo.listMembers(teamId);
       expect(members.length).toBe(2);
     });
 
     it('updates member role', () => {
       const uid = unique('user');
+      ensureUser(uid);
       memberRepo.addMember({ teamId, userId: uid, role: 'member' });
       const updated = memberRepo.updateMemberRole(teamId, uid, 'admin');
       expect(updated).not.toBeNull();
@@ -122,6 +148,7 @@ describe('Multi-Tenant / Team Support', () => {
 
     it('removes a member', () => {
       const uid = unique('user');
+      ensureUser(uid);
       memberRepo.addMember({ teamId, userId: uid, role: 'member' });
       memberRepo.removeMember(teamId, uid);
       const member = memberRepo.getMember(teamId, uid);
@@ -130,6 +157,7 @@ describe('Multi-Tenant / Team Support', () => {
 
     it('checks membership', () => {
       const uid = unique('user');
+      ensureUser(uid);
       memberRepo.addMember({ teamId, userId: uid, role: 'member' });
       expect(memberRepo.isTeamMember(teamId, uid)).toBe(true);
       expect(memberRepo.isTeamMember(teamId, 'nonexistent')).toBe(false);
@@ -175,6 +203,7 @@ describe('Multi-Tenant / Team Support', () => {
       const board = boardRepo.createBoard({ name: 'Access Board', teamId: team.id });
 
       const uid = unique('auth-user');
+      ensureUser(uid);
       memberRepo.addMember({ teamId: team.id, userId: uid, role: 'member' });
 
       expect(memberRepo.isTeamMemberByBoardId(board.id, uid)).toBe(true);
@@ -187,6 +216,7 @@ describe('Multi-Tenant / Team Support', () => {
       const teamB = teamRepo.createTeam({ organizationId: org.id, name: 'User Team B', slug: unique('user-tb') });
 
       const uid = unique('user-x');
+      ensureUser(uid);
       memberRepo.addMember({ teamId: teamA.id, userId: uid, role: 'member' });
       memberRepo.addMember({ teamId: teamB.id, userId: uid, role: 'admin' });
 
