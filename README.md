@@ -70,7 +70,7 @@ See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability mat
 | **v0.8** | See the Invisible — board health metrics, audit exports, mission comments ✔ |
 | **v0.9** | Work Your Way — task board view, dynamic prioritization, recurring scheduled tasks ✔ |
 | **v0.10** | Breaking Change — naming consistency, MCP tool rename |
-| **v0.11** | Guardrails — review assignment rules, sprint/iteration management |
+| **v0.11** | Guardrails — review assignment rules, sprint/iteration management, visual rule builder, mobile table view |
 | **v0.12** | Fit In — GitHub Issues sync, Jira/Linear integration |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
