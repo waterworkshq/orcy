@@ -1,14 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { createUiSlice } from './uiSlice.js';
 import type { UiSlice } from './uiSlice.js';
 
+type SetFn = Parameters<typeof createUiSlice>[0];
+
 describe('uiSlice - addNotification', () => {
-  let set: ReturnType<typeof vi.fn>;
+  let set: SetFn & Mock;
   let slice: UiSlice;
 
   beforeEach(() => {
-    set = vi.fn();
-    slice = createUiSlice(set, vi.fn(), {} as never);
+    set = vi.fn() as unknown as (SetFn & Mock);
+    slice = createUiSlice(set, vi.fn() as never, {} as never);
   });
 
   it('should add a notification with an id and read: false', () => {

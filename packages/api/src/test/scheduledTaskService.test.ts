@@ -357,8 +357,8 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-1', ${boardId}, 'Daily Export', 'csv', '{}', '0 0 * * *', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
+    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+      VALUES ('audit-1', ${boardId}, 'Daily Export', 'csv', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -370,8 +370,8 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-2', ${boardId}, 'Future Export', 'json', '{}', '0 0 * * *', 1, ${new Date(Date.now() + 3600_000).toISOString()}, 'system', ${now})`);
+    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+      VALUES ('audit-2', ${boardId}, 'Future Export', 'json', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() + 3600_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -382,8 +382,8 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-3', ${boardId}, 'Disabled Export', 'csv', '{}', '0 0 * * *', 0, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
+    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+      VALUES ('audit-3', ${boardId}, 'Disabled Export', 'csv', '{}', '0 0 * * *', '{}', 0, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -395,8 +395,8 @@ describe('processDueAuditExports', () => {
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
     const maliciousFilters = JSON.stringify({ since: '2020-01-01T00:00:00Z', format: 'evil' });
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-filter', ${boardId}, 'Filter Override Test', 'csv', ${maliciousFilters}, '0 0 * * *', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
+    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+      VALUES ('audit-filter', ${boardId}, 'Filter Override Test', 'csv', ${maliciousFilters}, '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
