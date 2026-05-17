@@ -6,15 +6,15 @@ import { queryKeys } from '../../lib/queryKeys.js';
 import { InsightCard } from './InsightCard.js';
 
 interface InsightsPanelProps {
-  boardId: string;
+  habitatId: string;
 }
 
-export function InsightsPanel({ boardId }: InsightsPanelProps) {
+export function InsightsPanel({ habitatId }: InsightsPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.insights.byBoard(boardId),
-    queryFn: () => api.insights.list(boardId),
+    queryKey: queryKeys.insights.byBoard(habitatId),
+    queryFn: () => api.insights.list(habitatId),
     staleTime: 30 * 1000,
   });
 
@@ -54,7 +54,7 @@ export function InsightsPanel({ boardId }: InsightsPanelProps) {
             </div>
           ) : (
             insights.map((insight) => (
-              <InsightCard key={insight.id} insight={insight} boardId={boardId} />
+              <InsightCard key={insight.id} insight={insight} habitatId={habitatId} />
             ))
           )}
         </div>

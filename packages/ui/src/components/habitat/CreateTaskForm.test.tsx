@@ -24,7 +24,7 @@ vi.mock('../../api/index.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: vi.fn(() => ({
+  useHabitatStore: vi.fn(() => ({
     columns: [],
     addTask: mockAddTask,
   })),
@@ -56,8 +56,8 @@ describe('CreateTaskForm', () => {
   const defaultProps = {
     open: true,
     onClose: vi.fn(),
-    boardId: 'board-1',
-    featureId: 'feat-1',
+    habitatId: 'board-1',
+    missionId: 'feat-1',
   };
 
   beforeEach(() => {
@@ -258,7 +258,7 @@ describe('CreateTaskForm', () => {
       priority: 'high' as const,
       requiredDomain: 'frontend',
       requiredCapabilities: ['typescript', 'react'],
-      boardId: 'board-1',
+      habitatId: 'board-1',
       labels: [] as string[],
     };
 
@@ -303,8 +303,8 @@ describe('CreateTaskForm', () => {
   describe('React Query integration', () => {
     it('renders template options from useTemplates', async () => {
       mockListTemplates.mockResolvedValue({ templates: [
-        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: ', boardId: 'board-1', labels: [] },
-        { id: 't2', name: 'Feature', titlePattern: 'Add: ', boardId: null, labels: [] },
+        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: ', habitatId: 'board-1', labels: [] },
+        { id: 't2', name: 'Feature', titlePattern: 'Add: ', habitatId: null, labels: [] },
       ] });
 
       render(<CreateTaskForm {...defaultProps} />, { wrapper: createTestWrapper() });

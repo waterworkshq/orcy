@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react';
 import { useTaskDetailPanel } from './useTaskDetailPanel.js';
 
 vi.mock('../store/habitatStore.js', () => ({
-  useBoardStore: vi.fn((selector?: any) => {
+  useHabitatStore: vi.fn((selector?: any) => {
     const state = {
       tasks: [{ id: 'task-1', featureId: 'feat-1', title: 'Test Task', status: 'pending', priority: 'medium', labels: [] }],
       agents: [],

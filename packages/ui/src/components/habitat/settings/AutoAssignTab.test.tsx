@@ -60,7 +60,7 @@ describe('AutoAssignTab', () => {
   it('renders Enable Auto-Assign toggle', () => {
     render(
       <AutoAssignTab
-        boardId="b1"
+        habitatId="b1"
         boardAutoAssignSettings={null}
         onUpdate={mockOnUpdate}
       />
@@ -72,7 +72,7 @@ describe('AutoAssignTab', () => {
   it('shows strategy select when enabled', () => {
     render(
       <AutoAssignTab
-        boardId="b1"
+        habitatId="b1"
         boardAutoAssignSettings={defaultAutoAssign}
         onUpdate={mockOnUpdate}
       />
@@ -84,7 +84,7 @@ describe('AutoAssignTab', () => {
   it('renders checkbox options when enabled', () => {
     render(
       <AutoAssignTab
-        boardId="b1"
+        habitatId="b1"
         boardAutoAssignSettings={defaultAutoAssign}
         onUpdate={mockOnUpdate}
       />
@@ -97,7 +97,7 @@ describe('AutoAssignTab', () => {
   it('renders strategy descriptions', () => {
     render(
       <AutoAssignTab
-        boardId="b1"
+        habitatId="b1"
         boardAutoAssignSettings={defaultAutoAssign}
         onUpdate={mockOnUpdate}
       />
@@ -110,7 +110,7 @@ describe('AutoAssignTab', () => {
   it('initializes from board auto-assign settings', () => {
     render(
       <AutoAssignTab
-        boardId="b1"
+        habitatId="b1"
         boardAutoAssignSettings={defaultAutoAssign}
         onUpdate={mockOnUpdate}
       />
@@ -123,7 +123,7 @@ describe('AutoAssignTab', () => {
   it('does not show fields when disabled', () => {
     render(
       <AutoAssignTab
-        boardId="b1"
+        habitatId="b1"
         boardAutoAssignSettings={null}
         onUpdate={mockOnUpdate}
       />

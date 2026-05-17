@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CronExpressionParser } from 'cron-parser';
 import { Button } from '../../ui/Button.js';
-import type { ScheduledTask, TaskTemplateEntry, FeatureTemplate, TaskPriority, ScheduleType } from '../../../types/index.js';
+import type { ScheduledTask, TaskTemplateEntry, MissionTemplate, TaskPriority, ScheduleType } from '../../../types/index.js';
 
 const CRON_PATTERNS = [
   { label: 'Every Monday 9am', value: '0 9 * * 1' },
@@ -32,7 +32,7 @@ const IANA_TIMEZONES: string[] = (() => {
 
 interface ScheduledTaskFormProps {
   existing: ScheduledTask | null;
-  templates: FeatureTemplate[];
+  templates: MissionTemplate[];
   saving: boolean;
   onSave: (data: ScheduledTaskFormData) => void;
   onCancel: () => void;
@@ -47,11 +47,11 @@ export interface ScheduledTaskFormData {
   intervalMinutes: number | null;
   scheduledAt: string | null;
   timezone: string;
-  featureTitle: string;
-  featureDescription: string;
-  featurePriority: TaskPriority;
-  featureLabels: string[];
-  featureDomain: string | null;
+  missionTitle: string;
+  missionDescription: string;
+  missionPriority: TaskPriority;
+  missionLabels: string[];
+  missionDomain: string | null;
   tasksTemplate: TaskTemplateEntry[];
 }
 
@@ -94,11 +94,11 @@ export function ScheduledTaskForm({
   const [intervalMinutes, setIntervalMinutes] = useState('60');
   const [scheduledAt, setScheduledAt] = useState('');
   const [timezone, setTimezone] = useState('UTC');
-  const [featureTitle, setFeatureTitle] = useState('');
-  const [featureDescription, setFeatureDescription] = useState('');
-  const [featurePriority, setFeaturePriority] = useState<TaskPriority>('medium');
-  const [featureLabels, setFeatureLabels] = useState('');
-  const [featureDomain, setFeatureDomain] = useState('');
+  const [missionTitle, setFeatureTitle] = useState('');
+  const [missionDescription, setFeatureDescription] = useState('');
+  const [missionPriority, setFeaturePriority] = useState<TaskPriority>('medium');
+  const [missionLabels, setFeatureLabels] = useState('');
+  const [missionDomain, setFeatureDomain] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -111,11 +111,11 @@ export function ScheduledTaskForm({
       setIntervalMinutes(existing.intervalMinutes?.toString() ?? '60');
       setScheduledAt(existing.scheduledAt ?? '');
       setTimezone(existing.timezone);
-      setFeatureTitle(existing.featureTitle);
-      setFeatureDescription(existing.featureDescription);
-      setFeaturePriority(existing.featurePriority);
-      setFeatureLabels(existing.featureLabels.join(', '));
-      setFeatureDomain(existing.featureDomain ?? '');
+      setFeatureTitle(existing.missionTitle);
+      setFeatureDescription(existing.missionDescription);
+      setFeaturePriority(existing.missionPriority);
+      setFeatureLabels(existing.missionLabels.join(', '));
+      setFeatureDomain(existing.missionDomain ?? '');
     }
   }, [existing]);
 
@@ -137,7 +137,7 @@ export function ScheduledTaskForm({
   function validate(): boolean {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = 'Name is required';
-    if (!featureTitle.trim()) errs.featureTitle = 'Feature title is required';
+    if (!missionTitle.trim()) errs.missionTitle = 'Feature title is required';
     if (scheduleType === 'cron' && !cronExpression.trim()) errs.cronExpression = 'Cron expression is required';
     if (scheduleType === 'cron' && cronExpression.trim() && !errs.cronExpression) {
       try {
@@ -168,11 +168,11 @@ export function ScheduledTaskForm({
       intervalMinutes: scheduleType === 'interval' ? parseInt(intervalMinutes, 10) : null,
       scheduledAt: scheduleType === 'once' ? scheduledAt : null,
       timezone,
-      featureTitle: featureTitle.trim(),
-      featureDescription: featureDescription.trim(),
-      featurePriority,
-      featureLabels: featureLabels ? featureLabels.split(',').map((l) => l.trim()).filter(Boolean) : [],
-      featureDomain: featureDomain.trim() || null,
+      missionTitle: missionTitle.trim(),
+      missionDescription: missionDescription.trim(),
+      missionPriority,
+      missionLabels: missionLabels ? missionLabels.split(',').map((l) => l.trim()).filter(Boolean) : [],
+      missionDomain: missionDomain.trim() || null,
       tasksTemplate: existing?.tasksTemplate ?? [],
     });
   }
@@ -335,11 +335,11 @@ export function ScheduledTaskForm({
             id="st-feature-title"
             data-testid="st-feature-title"
             type="text"
-            value={featureTitle}
+            value={missionTitle}
             onChange={(e) => setFeatureTitle(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
-          {errors.featureTitle && <p className="text-xs text-destructive mt-1">{errors.featureTitle}</p>}
+          {errors.missionTitle && <p className="text-xs text-destructive mt-1">{errors.missionTitle}</p>}
           <TokenHints testId="title-token-hints" />
         </div>
 
@@ -349,7 +349,7 @@ export function ScheduledTaskForm({
             id="st-feature-desc"
             data-testid="st-feature-desc"
             type="text"
-            value={featureDescription}
+            value={missionDescription}
             onChange={(e) => setFeatureDescription(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
@@ -361,7 +361,7 @@ export function ScheduledTaskForm({
           <select
             id="st-feature-priority"
             data-testid="st-feature-priority"
-            value={featurePriority}
+            value={missionPriority}
             onChange={(e) => setFeaturePriority(e.target.value as TaskPriority)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
@@ -377,7 +377,7 @@ export function ScheduledTaskForm({
             id="st-feature-labels"
             data-testid="st-feature-labels"
             type="text"
-            value={featureLabels}
+            value={missionLabels}
             onChange={(e) => setFeatureLabels(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
@@ -389,7 +389,7 @@ export function ScheduledTaskForm({
             id="st-feature-domain"
             data-testid="st-feature-domain"
             type="text"
-            value={featureDomain}
+            value={missionDomain}
             onChange={(e) => setFeatureDomain(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />

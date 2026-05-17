@@ -6,12 +6,12 @@ import { notify } from '../../lib/toast.js';
 import { Download } from 'lucide-react';
 
 interface AuditExportModalProps {
-  boardId: string;
+  habitatId: string;
   open: boolean;
   onClose: () => void;
 }
 
-export function AuditExportModal({ boardId, open, onClose }: AuditExportModalProps) {
+export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalProps) {
   const [format, setFormat] = useState<'csv' | 'json' | 'jsonl'>('csv');
   const [since, setSince] = useState('');
   const [until, setUntil] = useState('');
@@ -28,12 +28,12 @@ export function AuditExportModal({ boardId, open, onClose }: AuditExportModalPro
       if (actions) params.actions = actions;
       if (actorType) params.actorType = actorType;
 
-      const data = await api.audit.export(boardId, params);
+      const data = await api.audit.export(habitatId, params);
       const blob = new Blob([data], { type: format === 'csv' ? 'text/csv' : 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `audit-${boardId.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.${format}`;
+      a.download = `audit-${habitatId.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.${format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -7,15 +7,15 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import type {
-  FeatureWithProgress,
+  MissionWithProgress,
   Task,
-  FeatureEvent,
+  MissionEvent,
 } from '../../types/index.js';
 
 interface RiskAnalysisSidebarProps {
-  feature: FeatureWithProgress;
+  feature: MissionWithProgress;
   tasks: Task[];
-  events: FeatureEvent[];
+  events: MissionEvent[];
   dependencies: { dependsOn: string[]; blocks: string[] };
 }
 
@@ -168,7 +168,7 @@ function CriticalBlockers({
   );
 }
 
-function HistoryTimeline({ events }: { events: FeatureEvent[] }) {
+function HistoryTimeline({ events }: { events: MissionEvent[] }) {
   const recentEvents = events.slice(0, 5);
 
   if (recentEvents.length === 0) {

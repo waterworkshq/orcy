@@ -6,7 +6,7 @@ import type { Task } from '../../types/index.js';
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Task',
     description: '',
     priority: 'medium',

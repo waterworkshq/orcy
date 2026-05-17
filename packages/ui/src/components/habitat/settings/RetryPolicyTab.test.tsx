@@ -51,7 +51,7 @@ describe('RetryPolicyTab', () => {
   it('renders Enable Retry Policy toggle', () => {
     render(
       <RetryPolicyTab
-        boardId="b1"
+        habitatId="b1"
         boardRetrySettings={null}
         onUpdate={mockOnUpdate}
       />
@@ -63,7 +63,7 @@ describe('RetryPolicyTab', () => {
   it('does not show fields when retry is disabled', () => {
     render(
       <RetryPolicyTab
-        boardId="b1"
+        habitatId="b1"
         boardRetrySettings={null}
         onUpdate={mockOnUpdate}
       />
@@ -81,7 +81,7 @@ describe('RetryPolicyTab', () => {
     };
     render(
       <RetryPolicyTab
-        boardId="b1"
+        habitatId="b1"
         boardRetrySettings={settings}
         onUpdate={mockOnUpdate}
       />
@@ -103,7 +103,7 @@ describe('RetryPolicyTab', () => {
     };
     render(
       <RetryPolicyTab
-        boardId="b1"
+        habitatId="b1"
         boardRetrySettings={settings}
         onUpdate={mockOnUpdate}
       />
@@ -120,7 +120,7 @@ describe('RetryPolicyTab', () => {
     render(
       <RetryPolicyTab
         ref={() => {}}
-        boardId="b1"
+        habitatId="b1"
         boardRetrySettings={{
           maxRetries: 3,
           backoffBase: 60,

@@ -2,7 +2,7 @@ import React from 'react';
 import { Bell, LogOut, Settings, User } from 'lucide-react';
 import { OrcyMark } from '../ui/icons/OrcyMark.js';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { NotificationDropdown } from '../ui/NotificationDropdown.js';
 
@@ -31,8 +31,8 @@ const agentStatusConfig: Record<string, { color: string; label: string; pulse: b
 };
 
 export const TopAppBar = React.memo(function TopAppBar() {
-  const agents = useBoardStore((s) => s.agents);
-  const notifications = useBoardStore((s) => s.notifications);
+  const agents = useHabitatStore((s) => s.agents);
+  const notifications = useHabitatStore((s) => s.notifications);
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const location = useLocation();
 

@@ -9,7 +9,7 @@ const mockSetTheme = vi.hoisted(() => vi.fn());
 
 function ParamsEcho() {
   const { id } = useParams();
-  return <div data-testid="feature-detail-page">FeatureDetailPage:{id}</div>;
+  return <div data-testid="mission-detail-page">MissionDetailPage:{id}</div>;
 }
 
 vi.mock('./api/index.js', () => ({
@@ -21,11 +21,11 @@ vi.mock('./api/index.js', () => ({
 }));
 
 vi.mock('./components/habitat/HabitatListPage.js', () => ({
-  BoardListPage: () => <div data-testid="board-list-page">BoardListPage</div>,
+  HabitatListPage: () => <div data-testid="habitat-list-page">HabitatListPage</div>,
 }));
 
 vi.mock('./components/habitat/HabitatPage.js', () => ({
-  BoardPage: () => <div data-testid="board-page">BoardPage</div>,
+  HabitatPage: () => <div data-testid="habitat-page">HabitatPage</div>,
 }));
 
 vi.mock('./components/habitat/TeamsPage.js', () => ({
@@ -41,7 +41,7 @@ vi.mock('./pages/DashboardPage.js', () => ({
 }));
 
 vi.mock('./pages/MissionDetailPage.js', () => ({
-  FeatureDetailPage: ParamsEcho,
+  MissionDetailPage: ParamsEcho,
 }));
 
 vi.mock('./pages/AgentsPage.js', () => ({
@@ -71,7 +71,7 @@ vi.mock('./components/habitat/TaskDetailModal.js', () => ({
 }));
 
 vi.mock('./store/habitatStore.js', () => ({
-  useBoardStore: (selector?: any) => {
+  useHabitatStore: (selector?: any) => {
      const state = { setTheme: mockSetTheme, agents: [], notifications: [], markNotificationRead: vi.fn(), clearNotifications: vi.fn() };
      return selector ? selector(state) : state;
   },
@@ -129,16 +129,16 @@ describe('App routes', () => {
     });
   });
 
-  it('renders BoardListPage at /', () => {
+  it('renders HabitatListPage at /', () => {
     renderApp('/');
-    expect(screen.getByTestId('board-list-page')).toBeInTheDocument();
+    expect(screen.getByTestId('habitat-list-page')).toBeInTheDocument();
     expect(screen.getByTestId('side-nav-bar')).toBeInTheDocument();
     expect(screen.getByTestId('top-app-bar')).toBeInTheDocument();
   });
 
-  it('renders BoardPage at /boards/:boardId', () => {
-    renderApp('/boards/board-123');
-    expect(screen.getByTestId('board-page')).toBeInTheDocument();
+  it('renders HabitatPage at /habitats/:habitatId', () => {
+    renderApp('/habitats/habitat-123');
+    expect(screen.getByTestId('habitat-page')).toBeInTheDocument();
     expect(screen.getByTestId('side-nav-bar')).toBeInTheDocument();
     expect(screen.getByTestId('top-app-bar')).toBeInTheDocument();
   });
@@ -171,31 +171,31 @@ describe('App routes', () => {
     expect(screen.getByTestId('auth-page')).toBeInTheDocument();
   });
 
-  describe('/features/:id route', () => {
-    it('registers the route and renders FeatureDetailPage', () => {
-      renderApp('/features/feat-42');
-      expect(screen.getByTestId('feature-detail-page')).toBeInTheDocument();
+  describe('/missions/:id route', () => {
+    it('registers the route and renders MissionDetailPage', () => {
+      renderApp('/missions/mission-42');
+      expect(screen.getByTestId('mission-detail-page')).toBeInTheDocument();
       expect(screen.getByTestId('side-nav-bar')).toBeInTheDocument();
       expect(screen.getByTestId('top-app-bar')).toBeInTheDocument();
     });
 
-    it('passes route params to FeatureDetailPage', () => {
-      renderApp('/features/feat-42');
-      expect(screen.getByTestId('feature-detail-page')).toHaveTextContent(
-        'FeatureDetailPage:feat-42'
+    it('passes route params to MissionDetailPage', () => {
+      renderApp('/missions/mission-42');
+      expect(screen.getByTestId('mission-detail-page')).toHaveTextContent(
+        'MissionDetailPage:mission-42'
       );
     });
 
     it('requires authentication', () => {
       localStorage.removeItem('orcy_token');
-      renderApp('/features/feat-1');
+      renderApp('/missions/mission-1');
       expect(screen.getByTestId('auth-page')).toBeInTheDocument();
     });
 
     it('works with different IDs', () => {
-      renderApp('/features/abc-123-xyz');
-      expect(screen.getByTestId('feature-detail-page')).toHaveTextContent(
-        'FeatureDetailPage:abc-123-xyz'
+      renderApp('/missions/abc-123-xyz');
+      expect(screen.getByTestId('mission-detail-page')).toHaveTextContent(
+        'MissionDetailPage:abc-123-xyz'
       );
     });
   });

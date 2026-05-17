@@ -7,7 +7,7 @@ import {
   useChatIntegrations,
   useNotificationPrefs,
   useScheduledTasks,
-  useArchivedFeatures,
+  useArchivedMissions,
 } from './useHabitatData.js';
 
 vi.mock('../api/index.js', () => ({
@@ -25,7 +25,7 @@ vi.mock('../api/index.js', () => ({
     scheduledTasks: {
       list: vi.fn().mockResolvedValue({ scheduledTasks: [{ id: 'st1', name: 'Daily' }] }),
     },
-    features: {
+    missions: {
       list: vi.fn().mockResolvedValue({ features: [{ id: 'f1', title: 'Archived' }], total: 1 }),
     },
   },
@@ -127,21 +127,21 @@ describe('useScheduledTasks', () => {
   });
 });
 
-describe('useArchivedFeatures', () => {
-  it('passes { isArchived: true } to api.features.list', async () => {
-    const { result } = renderHook(() => useArchivedFeatures('board-1'), {
+describe('useArchivedMissions', () => {
+    it('passes { isArchived: true } to api.missions.list', async () => {
+    const { result } = renderHook(() => useArchivedMissions('habitat-1'), {
       wrapper: createWrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(api.features.list).toHaveBeenCalledWith('board-1', { isArchived: true });
+    expect(api.missions.list).toHaveBeenCalledWith('habitat-1', { isArchived: true });
     expect(result.current.data).toEqual({ features: [{ id: 'f1', title: 'Archived' }], total: 1 });
   });
 
-  it('is disabled when boardId is undefined', () => {
-    const { result } = renderHook(() => useArchivedFeatures(undefined), {
+  it('is disabled when habitatId is undefined', () => {
+    const { result } = renderHook(() => useArchivedMissions(undefined), {
       wrapper: createWrapper(),
     });
     expect(result.current.fetchStatus).toBe('idle');
-    expect(api.features.list).not.toHaveBeenCalled();
+    expect(api.missions.list).not.toHaveBeenCalled();
   });
 });

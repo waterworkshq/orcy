@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { BoardPage } from './HabitatPage.js';
+import { HabitatPage } from './HabitatPage.js';
 
 vi.mock('../../api/index.js', () => ({
   api: {
@@ -14,7 +14,7 @@ vi.mock('./HabitatPulsePanel.js', () => ({ HabitatPulsePanel: () => null }));
 vi.mock('./InsightsPanel.js', () => ({ InsightsPanel: () => null }));
 vi.mock('./HealthScoreWidget.js', () => ({ HealthScoreWidget: () => null }));
 vi.mock('./FilterBar.js', () => ({ FilterBar: () => <div data-testid="filter-bar" /> }));
-vi.mock('./Habitat.js', () => ({ Board: () => <div data-testid="board" /> }));
+vi.mock('./Habitat.js', () => ({ Habitat: () => <div data-testid="habitat" /> }));
 vi.mock('./TaskDetailModal.js', () => ({ TaskDetailModal: () => null }));
 vi.mock('./TaskTableView.js', () => ({ TaskTableView: () => <div /> }));
 vi.mock('./BulkActionBar.js', () => ({ BulkActionBar: () => <div /> }));
@@ -24,9 +24,9 @@ vi.mock('./StatsModal.js', () => ({ StatsModal: () => null }));
 vi.mock('./ColumnSettingsDialog.js', () => ({ ColumnSettingsDialog: () => null }));
 vi.mock('./CreateColumnDialog.js', () => ({ CreateColumnDialog: () => null }));
 vi.mock('./DependencyGraphModal.js', () => ({ DependencyGraphModal: () => null }));
-vi.mock('./HabitatSettingsDialog.js', () => ({ BoardSettingsDialog: () => null }));
+vi.mock('./HabitatSettingsDialog.js', () => ({ HabitatSettingsDialog: () => null }));
 vi.mock('./CreateTaskForm.js', () => ({ CreateTaskForm: () => null }));
-vi.mock('./CreateMissionForm.js', () => ({ CreateFeatureForm: () => null }));
+vi.mock('./CreateMissionForm.js', () => ({ CreateMissionForm: () => null }));
 vi.mock('../ui/Button.js', () => ({
   Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
 }));
@@ -43,7 +43,7 @@ vi.mock('../../components/layout/DrawerBridgeContext.js', () => ({
 }));
 
 vi.mock('react-router-dom', () => ({
-  useParams: vi.fn(() => ({ boardId: 'board-1' })),
+  useParams: vi.fn(() => ({ habitatId: 'board-1' })),
   useSearchParams: vi.fn(() => [new URLSearchParams(), vi.fn()]),
   Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
   useNavigate: vi.fn(() => vi.fn()),
@@ -70,7 +70,7 @@ const mockStoreState = {
   allFeaturesLoaded: false,
   presence: [],
   isBulkSelectMode: false,
-  selectedFeatureIds: [],
+  selectedMissionIds: [],
   notifications: [],
   setBoard: vi.fn(),
   setAgents: vi.fn(),
@@ -92,7 +92,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 vi.mock('../../store/modalStore.js', () => ({
@@ -111,39 +111,39 @@ vi.mock('./TaskDetailModal.js', () => ({
   TaskDetailModal: () => null,
 }));
 
-describe('BoardPage Header', () => {
+describe('HabitatPage Header', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('Logo', () => {
-    it('does not render global ORCY POD logo text inside BoardPage content', () => {
-      render(<BoardPage />);
+    it('does not render global ORCY POD logo text inside HabitatPage content', () => {
+      render(<HabitatPage />);
       expect(screen.queryByText('ORCY POD')).toBeNull();
     });
   });
 
   describe('Fleet Pulse', () => {
-    it('does not render Fleet Pulse inside BoardPage content', () => {
-      render(<BoardPage />);
+    it('does not render Fleet Pulse inside HabitatPage content', () => {
+      render(<HabitatPage />);
       expect(screen.queryByText('Fleet Pulse')).toBeNull();
       expect(screen.queryByText('Alpha-1: Processing')).toBeNull();
     });
   });
 
   describe('Header utilities', () => {
-    it('does not render global notifications button inside BoardPage content', () => {
-      render(<BoardPage />);
+    it('does not render global notifications button inside HabitatPage content', () => {
+      render(<HabitatPage />);
       expect(screen.queryByTitle('Notifications')).toBeNull();
     });
 
-    it('keeps global user avatar out of BoardPage content', () => {
-      const { container } = render(<BoardPage />);
+    it('keeps global user avatar out of HabitatPage content', () => {
+      const { container } = render(<HabitatPage />);
       expect(container.querySelector('.bg-primary-container')).toBeNull();
     });
 
     it('does not render a theme toggle button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.queryByTitle('Switch to light mode')).toBeNull();
       expect(screen.queryByTitle('Switch to dark mode')).toBeNull();
     });
@@ -151,50 +151,50 @@ describe('BoardPage Header', () => {
 
   describe('Button groups', () => {
     it('renders Stats button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Stats').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Agents button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Agents').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Activity button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
     });
 
     it('does not render Archived in the header button group', () => {
-      const { container } = render(<BoardPage />);
+      const { container } = render(<HabitatPage />);
       const header = container.querySelector('.glass-panel');
       expect(header?.textContent).not.toContain('Archived');
     });
 
     it('renders Dependencies button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Dependencies').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Bulk Select button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Bulk Select').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Add Mission button', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Add Mission').length).toBeGreaterThanOrEqual(1);
     });
 
     it('has visual separators between button groups', () => {
-      const { container } = render(<BoardPage />);
+      const { container } = render(<HabitatPage />);
       expect(container.querySelectorAll('.bg-outline-variant').length).toBeGreaterThanOrEqual(2);
     });
   });
 
   describe('Breadcrumb', () => {
     it('renders breadcrumb navigation', () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
       expect(screen.getAllByText('Habitats').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Test Board').length).toBeGreaterThanOrEqual(1);
     });

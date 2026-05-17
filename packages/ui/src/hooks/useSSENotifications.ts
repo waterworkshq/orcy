@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useBoardStore } from '../store/habitatStore.js';
+import { useHabitatStore } from '../store/habitatStore.js';
 import { notify } from '../lib/toast.js';
 import type { SSEEvent } from '../types/index.js';
 
@@ -12,7 +12,7 @@ export function useSSENotifications() {
   const prevEventsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const unsub = useBoardStore.subscribe((state, prevState) => {
+    const unsub = useHabitatStore.subscribe((state, prevState) => {
       const newEvents = state.recentSSEEvents.filter(
         (e, i) => i >= prevState.recentSSEEvents.length
       );

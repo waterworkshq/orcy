@@ -32,10 +32,10 @@ interface PulseSignalCardProps {
   pulse: Pulse;
   missionId: string;
   reactionCounts?: PulseReactionCounts;
-  boardId?: string;
+  habitatId?: string;
 }
 
-export function PulseSignalCard({ pulse, missionId, reactionCounts, boardId }: PulseSignalCardProps) {
+export function PulseSignalCard({ pulse, missionId, reactionCounts, habitatId }: PulseSignalCardProps) {
   const config = SIGNAL_CONFIG[pulse.signalType];
   const Icon = config.icon;
 
@@ -93,7 +93,7 @@ export function PulseSignalCard({ pulse, missionId, reactionCounts, boardId }: P
         <PulseReactions
           pulseId={pulse.id}
           missionId={missionId}
-          boardId={boardId}
+          habitatId={habitatId}
           counts={reactionCounts ?? { seen: 0, ack: 0, question: 0 }}
         />
       </div>

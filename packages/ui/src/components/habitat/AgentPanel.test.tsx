@@ -17,7 +17,7 @@ const mockStoreState = {
 };
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector?: any) => {
+  useHabitatStore: (selector?: any) => {
     return selector ? selector(mockStoreState) : mockStoreState;
   },
 }));
@@ -122,7 +122,7 @@ const sampleAgents = [
       lastHeartbeat: new Date().toISOString(),
       createdAt: '',
       updatedAt: '',
-      boardId: 'board-1',
+      habitatId: 'board-1',
     },
     currentTaskTitle: 'Build feature',
   },
@@ -138,7 +138,7 @@ const sampleAgents = [
       lastHeartbeat: new Date().toISOString(),
       createdAt: '',
       updatedAt: '',
-      boardId: 'board-1',
+      habitatId: 'board-1',
     },
     currentTaskTitle: null,
   },

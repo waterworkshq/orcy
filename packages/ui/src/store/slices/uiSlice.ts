@@ -2,22 +2,22 @@ import type { StateCreator } from 'zustand';
 import type { Notification } from '../../types/index.js';
 
 export interface UiSlice {
-  selectedFeatureId: string | null;
+  selectedMissionId: string | null;
   isLoading: boolean;
   error: string | null;
   isBulkSelectMode: boolean;
-  selectedFeatureIds: string[];
+  selectedMissionIds: string[];
   notifications: Notification[];
   collapsedColumns: Record<string, boolean>;
   isTaskBulkSelectMode: boolean;
   selectedTaskIds: string[];
-  setSelectedFeature: (featureId: string | null) => void;
+  setSelectedMission: (missionId: string | null) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setBulkSelectMode: (enabled: boolean) => void;
-  toggleFeatureSelection: (featureId: string) => void;
-  clearFeatureSelection: () => void;
-  selectFeatureIds: (featureIds: string[]) => void;
+  toggleMissionSelection: (missionId: string) => void;
+  clearMissionSelection: () => void;
+  selectMissionIds: (missionIds: string[]) => void;
   addNotification: (notification: Omit<Notification, 'id' | 'read'>) => void;
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
@@ -29,33 +29,33 @@ export interface UiSlice {
 }
 
 export const createUiSlice: StateCreator<UiSlice, [], [], UiSlice> = (set) => ({
-  selectedFeatureId: null,
+  selectedMissionId: null,
   isLoading: false,
   error: null,
   isBulkSelectMode: false,
-  selectedFeatureIds: [],
+  selectedMissionIds: [],
   notifications: [],
   collapsedColumns: {},
   isTaskBulkSelectMode: false,
   selectedTaskIds: [],
 
-  setSelectedFeature: (featureId) => set({ selectedFeatureId: featureId }),
+  setSelectedMission: (missionId) => set({ selectedMissionId: missionId }),
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
 
   setBulkSelectMode: (enabled) =>
-    set({ isBulkSelectMode: enabled, selectedFeatureIds: enabled ? [] : [] }),
+    set({ isBulkSelectMode: enabled, selectedMissionIds: enabled ? [] : [] }),
 
-  toggleFeatureSelection: (featureId) =>
+  toggleMissionSelection: (missionId) =>
     set((state) => ({
-      selectedFeatureIds: state.selectedFeatureIds.includes(featureId)
-        ? state.selectedFeatureIds.filter((id) => id !== featureId)
-        : [...state.selectedFeatureIds, featureId],
+      selectedMissionIds: state.selectedMissionIds.includes(missionId)
+        ? state.selectedMissionIds.filter((id) => id !== missionId)
+        : [...state.selectedMissionIds, missionId],
     })),
 
-  clearFeatureSelection: () => set({ selectedFeatureIds: [] }),
+  clearMissionSelection: () => set({ selectedMissionIds: [] }),
 
-  selectFeatureIds: (featureIds) => set({ selectedFeatureIds: featureIds }),
+  selectMissionIds: (missionIds) => set({ selectedMissionIds: missionIds }),
 
   addNotification: (notification) =>
     set((state) => {

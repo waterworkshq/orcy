@@ -5,9 +5,9 @@ import { X, GitBranch, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 import { FEATURE_STATUS_DOT } from '../../lib/status-maps.js';
 
 interface DependencyGraphModalProps {
-  boardId: string;
+  habitatId: string;
   onClose: () => void;
-  onSelectFeature: (featureId: string) => void;
+  onSelectFeature: (missionId: string) => void;
 }
 
 const statusLegend = [
@@ -19,7 +19,7 @@ const statusLegend = [
   { label: 'Unmet dep.', color: 'border-2 border-dashed border-[var(--badge-review)] bg-transparent' },
 ];
 
-export function DependencyGraphModal({ boardId, onClose, onSelectFeature }: DependencyGraphModalProps) {
+export function DependencyGraphModal({ habitatId, onClose, onSelectFeature }: DependencyGraphModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-fade-in">
       <div className="glass-modal w-full max-w-6xl max-h-[85vh] md:max-h-[90vh] overflow-hidden flex flex-col mobile-dialog-full" data-testid="dependency-graph-modal">
@@ -43,7 +43,7 @@ export function DependencyGraphModal({ boardId, onClose, onSelectFeature }: Depe
           </div>
         </div>
         <div className="flex-1 overflow-hidden">
-          <DependencyGraph boardId={boardId} onSelectFeature={onSelectFeature} />
+          <DependencyGraph habitatId={habitatId} onSelectFeature={onSelectFeature} />
         </div>
       </div>
     </div>

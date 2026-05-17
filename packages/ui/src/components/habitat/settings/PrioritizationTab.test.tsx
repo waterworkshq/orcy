@@ -59,7 +59,7 @@ describe('PrioritizationTab', () => {
   it('renders Enable Prioritization Engine toggle', () => {
     render(
       <PrioritizationTab
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={null}
         onUpdate={mockOnUpdate}
       />
@@ -71,7 +71,7 @@ describe('PrioritizationTab', () => {
   it('renders JSON editor with current rules when enabled', () => {
     render(
       <PrioritizationTab
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -85,7 +85,7 @@ describe('PrioritizationTab', () => {
   it('shows all fields when enabled', () => {
     render(
       <PrioritizationTab
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -99,7 +99,7 @@ describe('PrioritizationTab', () => {
   it('does not show fields when disabled', () => {
     render(
       <PrioritizationTab
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={null}
         onUpdate={mockOnUpdate}
       />
@@ -111,7 +111,7 @@ describe('PrioritizationTab', () => {
   it('initializes from board prioritization settings', () => {
     render(
       <PrioritizationTab
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -123,7 +123,7 @@ describe('PrioritizationTab', () => {
   it('rule template is visible and contains example JSON', () => {
     render(
       <PrioritizationTab
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -156,7 +156,7 @@ describe('PrioritizationTab', () => {
     render(
       <PrioritizationTab
         ref={ref}
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -183,7 +183,7 @@ describe('PrioritizationTab', () => {
     render(
       <PrioritizationTab
         ref={ref}
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -209,7 +209,7 @@ describe('PrioritizationTab', () => {
     render(
       <PrioritizationTab
         ref={ref}
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -239,7 +239,7 @@ describe('PrioritizationTab', () => {
     render(
       <PrioritizationTab
         ref={ref}
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />
@@ -269,7 +269,7 @@ describe('PrioritizationTab', () => {
     render(
       <PrioritizationTab
         ref={ref}
-        boardId="b1"
+        habitatId="b1"
         boardPrioritizationSettings={defaultSettings}
         onUpdate={mockOnUpdate}
       />

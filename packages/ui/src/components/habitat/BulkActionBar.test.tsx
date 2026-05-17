@@ -10,7 +10,7 @@ const mockMove = vi.fn();
 
 vi.mock('../../api/index.js', () => ({
   api: {
-    features: {
+    missions: {
       delete: (...args: unknown[]) => mockDelete(...args),
       update: (...args: unknown[]) => mockUpdate(...args),
       move: (...args: unknown[]) => mockMove(...args),
@@ -34,17 +34,17 @@ const mockClearFeatureSelection = vi.fn();
 const mockSetBulkSelectMode = vi.fn();
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: vi.fn(() => ({
-    selectedFeatureIds: ['feat-1', 'feat-2', 'feat-3'],
+  useHabitatStore: vi.fn(() => ({
+    selectedMissionIds: ['feat-1', 'feat-2', 'feat-3'],
     updateFeature: mockUpdateFeature,
     removeFeature: mockRemoveFeature,
-    clearFeatureSelection: mockClearFeatureSelection,
+    clearMissionSelection: mockClearFeatureSelection,
     setBulkSelectMode: mockSetBulkSelectMode,
     columns: [
-      { id: 'col-1', boardId: 'board-1', name: 'Backlog', order: 0, isTerminal: false },
-      { id: 'col-2', boardId: 'board-1', name: 'In Progress', order: 1, isTerminal: false },
-      { id: 'col-3', boardId: 'board-1', name: 'Review', order: 2, isTerminal: false },
-      { id: 'col-4', boardId: 'board-1', name: 'Done', order: 3, isTerminal: true },
+      { id: 'col-1', habitatId: 'board-1', name: 'Backlog', order: 0, isTerminal: false },
+      { id: 'col-2', habitatId: 'board-1', name: 'In Progress', order: 1, isTerminal: false },
+      { id: 'col-3', habitatId: 'board-1', name: 'Review', order: 2, isTerminal: false },
+      { id: 'col-4', habitatId: 'board-1', name: 'Done', order: 3, isTerminal: true },
     ],
   })),
 }));
@@ -59,12 +59,12 @@ describe('BulkActionBar', () => {
 
   describe('Rendering', () => {
     it('renders with selected feature count', () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
       expect(screen.getByText('3 features selected')).toBeTruthy();
     });
 
     it('renders with Set Priority as default operation', () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
       const selects = screen.getAllByRole('combobox');
       const operationSelect = selects[0] as HTMLSelectElement;
       expect(operationSelect.value).toBe('priority');
@@ -72,8 +72,8 @@ describe('BulkActionBar', () => {
   });
 
   describe('Bulk Delete', () => {
-    it('calls api.features.delete for each selected feature', async () => {
-      render(<BulkActionBar boardId="board-1" />);
+    it('calls api.missions.delete for each selected feature', async () => {
+      render(<BulkActionBar habitatId="board-1" />);
 
       // Change to delete operation
       const operationSelect = screen.getAllByRole('combobox')[0];
@@ -93,7 +93,7 @@ describe('BulkActionBar', () => {
     });
 
     it('removes each feature from store after successful delete', async () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -111,7 +111,7 @@ describe('BulkActionBar', () => {
     });
 
     it('clears selection after successful delete', async () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -128,8 +128,8 @@ describe('BulkActionBar', () => {
   });
 
   describe('Bulk Priority Change', () => {
-    it('calls api.features.update with default priority for each feature', async () => {
-      render(<BulkActionBar boardId="board-1" />);
+    it('calls api.missions.update with default priority for each feature', async () => {
+      render(<BulkActionBar habitatId="board-1" />);
 
       // Default priority is 'medium' - just click apply
       const buttons = screen.getAllByRole('button');
@@ -149,7 +149,7 @@ describe('BulkActionBar', () => {
         id: 'feat-1',
         priority: 'high' as TaskPriority,
         columnId: 'col-1',
-        boardId: 'board-1',
+        habitatId: 'board-1',
         title: 'Test',
         description: '',
         acceptanceCriteria: '',
@@ -170,7 +170,7 @@ describe('BulkActionBar', () => {
 
       mockUpdate.mockResolvedValue({ feature: updatedFeature });
 
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const selects = screen.getAllByRole('combobox');
       const prioritySelect = selects[1];
@@ -188,7 +188,7 @@ describe('BulkActionBar', () => {
 
   describe('Bulk Move', () => {
     it('shows column selection when move operation is selected', () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'move' } });
@@ -200,7 +200,7 @@ describe('BulkActionBar', () => {
     });
 
     it('disables apply button when no target column is selected', () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'move' } });
@@ -210,8 +210,8 @@ describe('BulkActionBar', () => {
       expect((moveButton as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('calls api.features.move with correct columnId for each feature', async () => {
-      render(<BulkActionBar boardId="board-1" />);
+    it('calls api.missions.move with correct columnId for each feature', async () => {
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'move' } });
@@ -236,7 +236,7 @@ describe('BulkActionBar', () => {
       const movedFeature = {
         id: 'feat-1',
         columnId: 'col-2',
-        boardId: 'board-1',
+        habitatId: 'board-1',
         title: 'Test',
         description: '',
         acceptanceCriteria: '',
@@ -258,7 +258,7 @@ describe('BulkActionBar', () => {
 
       mockMove.mockResolvedValue({ feature: movedFeature });
 
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'move' } });
@@ -278,7 +278,7 @@ describe('BulkActionBar', () => {
 
   describe('Cancel', () => {
     it('clears selection when cancel is clicked', () => {
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const buttons = screen.getAllByRole('button');
       const cancelButton = buttons.find(b => b.textContent?.includes('Cancel'));
@@ -295,7 +295,7 @@ describe('BulkActionBar', () => {
       mockDelete.mockReset();
       mockDelete.mockRejectedValue(new Error('Server error'));
 
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const operationSelect = screen.getAllByRole('combobox')[0];
       fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -315,7 +315,7 @@ describe('BulkActionBar', () => {
       mockUpdate.mockReset();
       mockUpdate.mockRejectedValue(new Error('Network error'));
 
-      render(<BulkActionBar boardId="board-1" />);
+      render(<BulkActionBar habitatId="board-1" />);
 
       const buttons = screen.getAllByRole('button');
       const applyButton = buttons.find(b => b.textContent?.includes('Apply'));

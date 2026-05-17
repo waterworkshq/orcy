@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useBoardStore } from './habitatStore.js';
+import { useHabitatStore } from './habitatStore.js';
 import type { Feature, Notification } from '../types/index.js';
 
-const makeTask = (id: string, featureId: string) => ({
+const makeTask = (id: string, missionId: string) => ({
   id,
-  featureId,
+  missionId,
   title: `Task ${id}`,
   description: '',
   priority: 'medium' as const,
@@ -39,7 +39,7 @@ const makeTask = (id: string, featureId: string) => ({
 
 const makeFeature = (id: string, columnId: string): Feature => ({
   id,
-  boardId: 'board-1',
+  habitatId: 'habitat-1',
   columnId,
   title: `Feature ${id}`,
   description: '',
@@ -71,108 +71,108 @@ const paginationFor = (features: Feature[] = []) => ({
   isLoadingMore: false,
 });
 
-describe('board store feature selection', () => {
+describe('habitat store mission selection', () => {
   beforeEach(() => {
-    useBoardStore.setState({
+    useHabitatStore.setState({
       isBulkSelectMode: false,
-      selectedFeatureIds: [],
+      selectedMissionIds: [],
       tasks: [makeTask('task-1', 'feat-1'), makeTask('task-2', 'feat-1')],
     });
   });
 
-  it('toggleFeatureSelection adds and removes ids', () => {
-    const { toggleFeatureSelection } = useBoardStore.getState();
+  it('toggleMissionSelection adds and removes ids', () => {
+    const { toggleMissionSelection } = useHabitatStore.getState();
 
-    toggleFeatureSelection('feat-1');
-    expect(useBoardStore.getState().selectedFeatureIds).toEqual(['feat-1']);
+    toggleMissionSelection('feat-1');
+    expect(useHabitatStore.getState().selectedMissionIds).toEqual(['feat-1']);
 
-    toggleFeatureSelection('feat-2');
-    expect(useBoardStore.getState().selectedFeatureIds).toEqual(['feat-1', 'feat-2']);
+    toggleMissionSelection('feat-2');
+    expect(useHabitatStore.getState().selectedMissionIds).toEqual(['feat-1', 'feat-2']);
 
-    toggleFeatureSelection('feat-1');
-    expect(useBoardStore.getState().selectedFeatureIds).toEqual(['feat-2']);
+    toggleMissionSelection('feat-1');
+    expect(useHabitatStore.getState().selectedMissionIds).toEqual(['feat-2']);
   });
 
   it('setBulkSelectMode(false) clears selection', () => {
-    const { toggleFeatureSelection, setBulkSelectMode } = useBoardStore.getState();
+    const { toggleMissionSelection, setBulkSelectMode } = useHabitatStore.getState();
 
-    toggleFeatureSelection('feat-1');
-    toggleFeatureSelection('feat-2');
-    expect(useBoardStore.getState().selectedFeatureIds).toHaveLength(2);
+    toggleMissionSelection('feat-1');
+    toggleMissionSelection('feat-2');
+    expect(useHabitatStore.getState().selectedMissionIds).toHaveLength(2);
 
     setBulkSelectMode(false);
-    expect(useBoardStore.getState().selectedFeatureIds).toEqual([]);
-    expect(useBoardStore.getState().isBulkSelectMode).toBe(false);
+    expect(useHabitatStore.getState().selectedMissionIds).toEqual([]);
+    expect(useHabitatStore.getState().isBulkSelectMode).toBe(false);
   });
 
   it('removeTask removes task from list', () => {
-    const { removeTask } = useBoardStore.getState();
+    const { removeTask } = useHabitatStore.getState();
 
     removeTask('task-1');
-    expect(useBoardStore.getState().tasks).toHaveLength(1);
-    expect(useBoardStore.getState().tasks[0].id).toBe('task-2');
+    expect(useHabitatStore.getState().tasks).toHaveLength(1);
+    expect(useHabitatStore.getState().tasks[0].id).toBe('task-2');
   });
 
   it('handleSSEEvent task.deleted removes task from list', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({ type: 'task.deleted', data: { taskId: 'task-1' } });
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.tasks.find((t) => t.id === 'task-1')).toBeUndefined();
   });
 });
 
-describe('board store SSE feature.created', () => {
+describe('habitat store SSE mission.created', () => {
   beforeEach(() => {
-    useBoardStore.setState({ features: [], tasks: [] });
+    useHabitatStore.setState({ features: [], tasks: [] });
   });
 
   it('adds feature with default progress when progress is absent from SSE data', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.created', data: makeFeature('feat-new', 'col-1') });
-
-    const state = useBoardStore.getState();
-    expect(state.features).toHaveLength(1);
-    const added = state.features[0];
-    expect(added.id).toBe('feat-new');
-    expect(added.progress).toEqual({
-      total: 0, pending: 0, claimed: 0, inProgress: 0,
-      submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0,
-    });
-  });
-
-  it('does not duplicate an already-existing feature', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
-
-    handleSSEEvent({ type: 'feature.created', data: makeFeature('feat-dup', 'col-1') });
-    handleSSEEvent({ type: 'feature.created', data: makeFeature('feat-dup', 'col-1') });
-
-    expect(useBoardStore.getState().features).toHaveLength(1);
-  });
-
-  it('only invalidates target column on feature.created', () => {
-    useBoardStore.setState({
+    handleSSEEvent({ type: 'mission.created', data: makeFeature('feat-new', 'col-1') });
+ 
+     const state = useHabitatStore.getState();
+     expect(state.features).toHaveLength(1);
+     const added = state.features[0];
+     expect(added.id).toBe('feat-new');
+     expect(added.progress).toEqual({
+       total: 0, pending: 0, claimed: 0, inProgress: 0,
+       submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0,
+     });
+   });
+ 
+   it('does not duplicate an already-existing feature', () => {
+     const { handleSSEEvent } = useHabitatStore.getState();
+ 
+     handleSSEEvent({ type: 'mission.created', data: makeFeature('feat-dup', 'col-1') });
+     handleSSEEvent({ type: 'mission.created', data: makeFeature('feat-dup', 'col-1') });
+ 
+     expect(useHabitatStore.getState().features).toHaveLength(1);
+   });
+ 
+   it('only invalidates target column on mission.created', () => {
+    useHabitatStore.setState({
       features: [],
       columnPagination: {
         'col-1': paginationFor(),
         'col-2': paginationFor(),
       },
     });
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.created', data: makeFeature('feat-new', 'col-1') });
-
-    const pag = useBoardStore.getState().columnPagination;
+    handleSSEEvent({ type: 'mission.created', data: makeFeature('feat-new', 'col-1') });
+ 
+     const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-2']).toEqual(paginationFor());
   });
 });
 
-describe('board store SSE targeted column invalidation', () => {
+describe('habitat store SSE targeted column invalidation', () => {
   beforeEach(() => {
-    useBoardStore.setState({
+    useHabitatStore.setState({
       features: [makeFeature('feat-1', 'col-1') as any],
       tasks: [],
       columnPagination: {
@@ -182,84 +182,84 @@ describe('board store SSE targeted column invalidation', () => {
     });
   });
 
-  it('only invalidates affected column on feature.updated', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('only invalidates affected column on mission.updated', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.updated', data: { ...makeFeature('feat-1', 'col-1'), title: 'Updated' } });
-
-    const pag = useBoardStore.getState().columnPagination;
-    expect(pag['col-1']).toBeUndefined();
-    expect(pag['col-2']).toEqual(paginationFor());
-  });
-
-  it('preserves progress when handling feature.updated', () => {
+    handleSSEEvent({ type: 'mission.updated', data: { ...makeFeature('feat-1', 'col-1'), title: 'Updated' } });
+ 
+     const pag = useHabitatStore.getState().columnPagination;
+     expect(pag['col-1']).toBeUndefined();
+     expect(pag['col-2']).toEqual(paginationFor());
+   });
+ 
+   it('preserves progress when handling mission.updated', () => {
     const progress = { total: 5, pending: 1, claimed: 0, inProgress: 2, submitted: 0, approved: 0, done: 2, failed: 0, rejected: 0, percentage: 0 };
-    useBoardStore.setState({
+    useHabitatStore.setState({
       features: [{ ...makeFeature('feat-1', 'col-1'), progress } as any],
       tasks: [],
       columnPagination: { 'col-1': paginationFor(), 'col-2': paginationFor() },
     });
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.updated', data: { ...makeFeature('feat-1', 'col-1'), title: 'Updated' } });
-
-    const updated = useBoardStore.getState().features.find((f) => f.id === 'feat-1') as any;
+    handleSSEEvent({ type: 'mission.updated', data: { ...makeFeature('feat-1', 'col-1'), title: 'Updated' } });
+ 
+     const updated = useHabitatStore.getState().features.find((f) => f.id === 'feat-1') as any;
     expect(updated.title).toBe('Updated');
     expect(updated.progress).toEqual(progress);
   });
 
-  it('invalidates both source and destination columns on feature.moved', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('invalidates both source and destination columns on mission.moved', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.moved', data: { featureId: 'feat-1', fromColumnId: 'col-1', toColumnId: 'col-2' } });
+    handleSSEEvent({ type: 'mission.moved', data: { missionId: 'feat-1', fromColumnId: 'col-1', toColumnId: 'col-2' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-2']).toBeUndefined();
-    expect(useBoardStore.getState().features[0].columnId).toBe('col-2');
+    expect(useHabitatStore.getState().features[0].columnId).toBe('col-2');
   });
 
-  it('only invalidates affected column on feature.status_changed', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('only invalidates affected column on mission.status_changed', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.status_changed', data: { featureId: 'feat-1', fromStatus: 'not_started', toStatus: 'in_progress' } });
+    handleSSEEvent({ type: 'mission.status_changed', data: { missionId: 'feat-1', fromStatus: 'not_started', toStatus: 'in_progress' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-2']).toEqual(paginationFor());
-    expect(useBoardStore.getState().features[0].status).toBe('in_progress');
+    expect(useHabitatStore.getState().features[0].status).toBe('in_progress');
   });
 
-  it('only invalidates affected column on feature.deleted', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('only invalidates affected column on mission.deleted', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.deleted', data: { featureId: 'feat-1' } });
+    handleSSEEvent({ type: 'mission.deleted', data: { missionId: 'feat-1' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-2']).toEqual(paginationFor());
-    expect(useBoardStore.getState().features).toHaveLength(0);
+    expect(useHabitatStore.getState().features).toHaveLength(0);
   });
 
-  it('only invalidates affected column on feature.progress', () => {
-    useBoardStore.setState({
+  it('only invalidates affected column on mission.progress', () => {
+    useHabitatStore.setState({
       features: [{ ...makeFeature('feat-1', 'col-1'), progress: { total: 0, pending: 0, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0 } } as any],
       columnPagination: {
         'col-1': paginationFor(),
         'col-2': paginationFor(),
       },
     });
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.progress', data: { featureId: 'feat-1', completed: 3, total: 5 } });
+    handleSSEEvent({ type: 'mission.progress', data: { missionId: 'feat-1', completed: 3, total: 5 } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-2']).toEqual(paginationFor());
   });
 
-  it('feature.progress updates progress fields and preserves existing fields in single set', () => {
-    useBoardStore.setState({
+  it('mission.progress updates progress fields and preserves existing fields in single set', () => {
+    useHabitatStore.setState({
       features: [{
         ...makeFeature('feat-1', 'col-1'),
         progress: { total: 4, pending: 1, claimed: 1, inProgress: 0, submitted: 0, approved: 0, done: 2, failed: 0, rejected: 0, percentage: 0 },
@@ -268,24 +268,24 @@ describe('board store SSE targeted column invalidation', () => {
         'col-1': paginationFor(),
       },
     });
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.progress', data: { featureId: 'feat-1', completed: 3, total: 5 } });
+    handleSSEEvent({ type: 'mission.progress', data: { missionId: 'feat-1', completed: 3, total: 5 } });
 
-    const feat = useBoardStore.getState().features.find((f) => f.id === 'feat-1') as any;
+    const feat = useHabitatStore.getState().features.find((f) => f.id === 'feat-1') as any;
     expect(feat.progress.done).toBe(3);
     expect(feat.progress.total).toBe(5);
     expect(feat.progress.percentage).toBe(60);
     expect(feat.progress.pending).toBe(1);
     expect(feat.progress.claimed).toBe(1);
     expect(feat.progress.failed).toBe(0);
-    expect(useBoardStore.getState().columnPagination['col-1']).toBeUndefined();
+    expect(useHabitatStore.getState().columnPagination['col-1']).toBeUndefined();
   });
 });
 
-describe('board store SSE preserves third-column pagination', () => {
+describe('habitat store SSE preserves third-column pagination', () => {
   beforeEach(() => {
-    useBoardStore.setState({
+    useHabitatStore.setState({
       features: [makeFeature('feat-1', 'col-1') as any],
       tasks: [],
       columnPagination: {
@@ -296,53 +296,53 @@ describe('board store SSE preserves third-column pagination', () => {
     });
   });
 
-  it('preserves col-3 pagination on feature.updated in col-1', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('preserves col-3 pagination on mission.updated in col-1', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.updated', data: { ...makeFeature('feat-1', 'col-1'), title: 'Updated' } });
+    handleSSEEvent({ type: 'mission.updated', data: { ...makeFeature('feat-1', 'col-1'), title: 'Updated' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-3']).toEqual(paginationFor([makeFeature('feat-3', 'col-3')]));
   });
 
-  it('preserves col-3 pagination on feature.moved from col-1 to col-2', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('preserves col-3 pagination on mission.moved from col-1 to col-2', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.moved', data: { featureId: 'feat-1', fromColumnId: 'col-1', toColumnId: 'col-2' } });
+    handleSSEEvent({ type: 'mission.moved', data: { missionId: 'feat-1', fromColumnId: 'col-1', toColumnId: 'col-2' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-2']).toBeUndefined();
     expect(pag['col-3']).toEqual(paginationFor([makeFeature('feat-3', 'col-3')]));
   });
 
-  it('preserves col-3 pagination on feature.deleted from col-1', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('preserves col-3 pagination on mission.deleted from col-1', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.deleted', data: { featureId: 'feat-1' } });
+    handleSSEEvent({ type: 'mission.deleted', data: { missionId: 'feat-1' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-3']).toEqual(paginationFor([makeFeature('feat-3', 'col-3')]));
   });
 
-  it('preserves col-3 pagination on feature.status_changed in col-1', () => {
-    const { handleSSEEvent } = useBoardStore.getState();
+  it('preserves col-3 pagination on mission.status_changed in col-1', () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.status_changed', data: { featureId: 'feat-1', fromStatus: 'not_started', toStatus: 'done' } });
+    handleSSEEvent({ type: 'mission.status_changed', data: { missionId: 'feat-1', fromStatus: 'not_started', toStatus: 'done' } });
 
-    const pag = useBoardStore.getState().columnPagination;
+    const pag = useHabitatStore.getState().columnPagination;
     expect(pag['col-1']).toBeUndefined();
     expect(pag['col-3']).toEqual(paginationFor([makeFeature('feat-3', 'col-3')]));
   });
 });
 
-describe('board store SSE board state consistency after multiple events', () => {
+describe('habitat store SSE habitat state consistency after multiple events', () => {
   it('remains consistent after a sequence of SSE events', () => {
     const f1 = makeFeature('feat-1', 'col-1');
     const f2 = makeFeature('feat-2', 'col-2');
-    useBoardStore.setState({
+    useHabitatStore.setState({
       features: [f1, f2] as any,
       tasks: [],
       columnPagination: {
@@ -351,13 +351,13 @@ describe('board store SSE board state consistency after multiple events', () => 
       },
     });
 
-    const { handleSSEEvent } = useBoardStore.getState();
+    const { handleSSEEvent } = useHabitatStore.getState();
 
-    handleSSEEvent({ type: 'feature.updated', data: { ...f1, title: 'Updated' } });
-    handleSSEEvent({ type: 'feature.moved', data: { featureId: 'feat-2', fromColumnId: 'col-2', toColumnId: 'col-1' } });
-    handleSSEEvent({ type: 'feature.status_changed', data: { featureId: 'feat-1', fromStatus: 'not_started', toStatus: 'in_progress' } });
+    handleSSEEvent({ type: 'mission.updated', data: { ...f1, title: 'Updated' } });
+    handleSSEEvent({ type: 'mission.moved', data: { missionId: 'feat-2', fromColumnId: 'col-2', toColumnId: 'col-1' } });
+    handleSSEEvent({ type: 'mission.status_changed', data: { missionId: 'feat-1', fromStatus: 'not_started', toStatus: 'in_progress' } });
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.features).toHaveLength(2);
     expect(state.features.find((f) => f.id === 'feat-1')!.columnId).toBe('col-1');
     expect(state.features.find((f) => f.id === 'feat-2')!.columnId).toBe('col-1');
@@ -369,13 +369,13 @@ describe('board store SSE board state consistency after multiple events', () => 
   });
 });
 
-describe('board store notifications', () => {
+describe('habitat store notifications', () => {
   beforeEach(() => {
-    useBoardStore.setState({ notifications: [] });
+    useHabitatStore.setState({ notifications: [] });
   });
 
   it('addNotification generates unique ID and sets read=false', () => {
-    const { addNotification } = useBoardStore.getState();
+    const { addNotification } = useHabitatStore.getState();
 
     addNotification({
       type: 'task.claimed',
@@ -385,7 +385,7 @@ describe('board store notifications', () => {
       timestamp: '2026-04-30T00:00:00.000Z',
     });
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.notifications).toHaveLength(1);
     const n = state.notifications[0];
     expect(n.id).toBeTruthy();
@@ -397,82 +397,82 @@ describe('board store notifications', () => {
   });
 
   it('addNotification prepends to notifications array (newest first)', () => {
-    const { addNotification } = useBoardStore.getState();
+    const { addNotification } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'First', message: 'm1', timestamp: '2026-04-30T00:00:00.000Z' });
     addNotification({ type: 'b', taskId: 't2', taskTitle: 'Second', message: 'm2', timestamp: '2026-04-30T00:01:00.000Z' });
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.notifications).toHaveLength(2);
     expect(state.notifications[0].type).toBe('b');
     expect(state.notifications[1].type).toBe('a');
   });
 
   it('addNotification generates unique IDs for each call', () => {
-    const { addNotification } = useBoardStore.getState();
+    const { addNotification } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'T1', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
     addNotification({ type: 'b', taskId: 't2', taskTitle: 'T2', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
 
-    const [n1, n2] = useBoardStore.getState().notifications;
+    const [n1, n2] = useHabitatStore.getState().notifications;
     expect(n1.id).not.toBe(n2.id);
   });
 
   it('addNotification preserves optional agentName', () => {
-    const { addNotification } = useBoardStore.getState();
+    const { addNotification } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'T', message: 'm', agentName: 'Agent-1', timestamp: '2026-04-30T00:00:00.000Z' });
     addNotification({ type: 'b', taskId: 't2', taskTitle: 'T', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.notifications[0].agentName).toBeUndefined();
     expect(state.notifications[1].agentName).toBe('Agent-1');
   });
 
   it('markNotificationRead sets read=true for matching ID', () => {
-    const { addNotification, markNotificationRead } = useBoardStore.getState();
+    const { addNotification, markNotificationRead } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'T', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
 
-    const id = useBoardStore.getState().notifications[0].id;
+    const id = useHabitatStore.getState().notifications[0].id;
     markNotificationRead(id);
 
-    expect(useBoardStore.getState().notifications[0].read).toBe(true);
+    expect(useHabitatStore.getState().notifications[0].read).toBe(true);
   });
 
   it('markNotificationRead does not affect other notifications', () => {
-    const { addNotification, markNotificationRead } = useBoardStore.getState();
+    const { addNotification, markNotificationRead } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'T1', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
     addNotification({ type: 'b', taskId: 't2', taskTitle: 'T2', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
 
-    const id = useBoardStore.getState().notifications[1].id;
+    const id = useHabitatStore.getState().notifications[1].id;
     markNotificationRead(id);
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.notifications[0].read).toBe(false);
     expect(state.notifications[1].read).toBe(true);
   });
 
   it('clearNotifications empties the notifications array', () => {
-    const { addNotification, clearNotifications } = useBoardStore.getState();
+    const { addNotification, clearNotifications } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'T', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
     addNotification({ type: 'b', taskId: 't2', taskTitle: 'T', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
-    expect(useBoardStore.getState().notifications).toHaveLength(2);
+    expect(useHabitatStore.getState().notifications).toHaveLength(2);
 
     clearNotifications();
-    expect(useBoardStore.getState().notifications).toEqual([]);
+    expect(useHabitatStore.getState().notifications).toEqual([]);
   });
 
   it('notifications persist across other state updates', () => {
-    const { addNotification, setTasks } = useBoardStore.getState();
+    const { addNotification, setTasks } = useHabitatStore.getState();
 
     addNotification({ type: 'a', taskId: 't1', taskTitle: 'T', message: 'm', timestamp: '2026-04-30T00:00:00.000Z' });
 
     setTasks([makeTask('task-new', 'feat-1')]);
 
-    const state = useBoardStore.getState();
+    const state = useHabitatStore.getState();
     expect(state.notifications).toHaveLength(1);
     expect(state.tasks).toHaveLength(1);
   });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { BoardPage } from './HabitatPage.js';
+import { HabitatPage } from './HabitatPage.js';
 import { AppShell } from '../layout/AppShell.js';
 
 vi.mock('../../api/index.js', () => ({
@@ -18,10 +18,10 @@ vi.mock('./HealthScoreWidget.js', () => ({ HealthScoreWidget: () => null }));
 vi.mock('./FilterBar.js', () => ({ FilterBar: () => <div data-testid="filter-bar" /> }));
 vi.mock('./ColumnSettingsDialog.js', () => ({ ColumnSettingsDialog: () => null }));
 vi.mock('./CreateColumnDialog.js', () => ({ CreateColumnDialog: () => null }));
-vi.mock('./HabitatSettingsDialog.js', () => ({ BoardSettingsDialog: () => null }));
+vi.mock('./HabitatSettingsDialog.js', () => ({ HabitatSettingsDialog: () => null }));
 vi.mock('./DependencyGraphModal.js', () => ({ DependencyGraphModal: () => null }));
 vi.mock('./CreateTaskForm.js', () => ({ CreateTaskForm: () => null }));
-vi.mock('./CreateMissionForm.js', () => ({ CreateFeatureForm: () => null }));
+vi.mock('./CreateMissionForm.js', () => ({ CreateMissionForm: () => null }));
 vi.mock('./BulkActionBar.js', () => ({ BulkActionBar: () => <div /> }));
 vi.mock('./MobileNav.js', () => ({ MobileNav: () => <div /> }));
 vi.mock('../ui/SkeletonCard.js', () => ({ SkeletonCard: () => <div /> }));
@@ -44,7 +44,7 @@ vi.mock('./TaskDetailModal.js', () => ({
 }));
 
 vi.mock('./Habitat.js', () => ({
-  Board: () => <div data-testid="board-canvas" />,
+  Habitat: () => <div data-testid="habitat" />,
 }));
 
 vi.mock('./StatsModal.js', () => ({
@@ -70,7 +70,7 @@ const mockStoreState = {
   allFeaturesLoaded: false,
   presence: [],
   isBulkSelectMode: false,
-  selectedFeatureIds: [],
+  selectedMissionIds: [],
   setBoard: vi.fn(),
   setAgents: vi.fn(),
   setLoading: vi.fn(),
@@ -92,7 +92,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 vi.mock('../../store/modalStore.js', () => ({
@@ -112,7 +112,7 @@ function renderBoardInShell() {
     <MemoryRouter initialEntries={["/boards/board-1"]}>
       <Routes>
         <Route element={<AppShell />}>
-          <Route path="/boards/:boardId" element={<BoardPage />} />
+          <Route path="/boards/:habitatId" element={<HabitatPage />} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -123,13 +123,13 @@ function renderBoardOnly() {
   return render(
     <MemoryRouter initialEntries={["/boards/board-1"]}>
       <Routes>
-        <Route path="/boards/:boardId" element={<BoardPage />} />
+        <Route path="/boards/:habitatId" element={<HabitatPage />} />
       </Routes>
     </MemoryRouter>
   );
 }
 
-describe('BoardPage shell extraction', () => {
+describe('HabitatPage shell extraction', () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -145,7 +145,7 @@ describe('BoardPage shell extraction', () => {
     expect(sideNav).toBeNull();
   });
 
-  it('keeps BoardPage focused on board workspace content', () => {
+  it('keeps HabitatPage focused on board workspace content', () => {
     const { container } = renderBoardOnly();
     expect(container.querySelector('[data-testid="side-nav-bar"]')).toBeNull();
     expect(container.querySelector('.glass-panel')).toBeTruthy();

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Calendar, User, CheckSquare, Share2, Archive, Save } from 'lucide-react';
 import { useModalStore } from '../../store/modalStore.js';
 import { useTaskDetails } from '../../lib/useTaskData.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { TaskArtifacts } from './TaskArtifacts.js';
 import { TaskDependencies } from './TaskDependencies.js';
 import { TaskActivityFeed } from './TaskActivityFeed.js';
@@ -94,7 +94,7 @@ function mapTaskEventToActivityEvent(event: TaskEvent, agents: Agent[]): Activit
 
 export function TaskDetailModal() {
   const { isOpen, selectedTaskId, modalTask, isLoading, closeModal } = useModalStore();
-  const { tasks, agents } = useBoardStore();
+  const { tasks, agents } = useHabitatStore();
   const [visible, setVisible] = React.useState(false);
 
   const { data: taskDetails, isLoading: detailsLoading } = useTaskDetails(

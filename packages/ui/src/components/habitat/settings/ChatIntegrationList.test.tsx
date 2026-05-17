@@ -17,7 +17,7 @@ vi.mock('../../ui/Button.js', () => ({
 
 const mockIntegration: ChatIntegration = {
   id: 'ci1',
-  boardId: 'b1',
+  habitatId: 'b1',
   provider: 'slack',
   webhookUrl: 'https://hooks.slack.com/test',
   channelId: null,

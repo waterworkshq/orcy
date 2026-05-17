@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, act } from '@testing-library/react';
 import React from 'react';
-import { BoardPage } from './HabitatPage.js';
+import { HabitatPage } from './HabitatPage.js';
 
 const mocks = {
   featuresList: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock('../../components/layout/DrawerBridgeContext.js', () => ({
 }));
 
 vi.mock('react-router-dom', () => ({
-  useParams: vi.fn(() => ({ boardId: 'board-1' })),
+  useParams: vi.fn(() => ({ habitatId: 'board-1' })),
   useSearchParams: vi.fn(() => [new URLSearchParams(), vi.fn()]),
   Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
   useNavigate: vi.fn(() => vi.fn()),
@@ -60,7 +60,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 vi.mock('../../store/modalStore.js', () => ({
@@ -77,7 +77,7 @@ vi.mock('../../store/modalStore.js', () => ({
 }));
 
 vi.mock('./Habitat.js', () => ({
-  Board: () => <div data-testid="board" />,
+  Habitat: () => <div data-testid="habitat" />,
 }));
 vi.mock('./FilterBar.js', () => ({
   FilterBar: () => <div data-testid="filter-bar" />,
@@ -106,11 +106,11 @@ function makeFeatures(count: number, columnId: string, startId: number = 0) {
     id: `f${startId + i}`,
     title: `Feature ${startId + i}`,
     columnId,
-    boardId: 'board-1',
+    habitatId: 'board-1',
   }));
 }
 
-describe('BoardPage parallel feature loading', () => {
+describe('HabitatPage parallel feature loading', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.featuresList.mockReset();
@@ -131,12 +131,12 @@ describe('BoardPage parallel feature loading', () => {
       allFeaturesLoaded: false,
       presence: [],
       isBulkSelectMode: false,
-      selectedFeatureIds: [],
+      selectedMissionIds: [],
       ...storeActions,
     };
     mocks.boardsGet.mockResolvedValue({
       board: { id: 'board-1', name: 'Test Board' },
-      columns: [{ id: 'col-1', name: 'Todo', boardId: 'board-1' }],
+      columns: [{ id: 'col-1', name: 'Todo', habitatId: 'board-1' }],
       features: [],
     });
     mocks.agentsList.mockResolvedValue([]);
@@ -151,7 +151,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features, total: 10 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     expect(mocks.featuresList).toHaveBeenCalledWith('board-1', { limit: 50, offset: 0 });
@@ -170,7 +170,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features: page1, total });
 
     const { unmount } = await act(async () => {
-      return render(<BoardPage />);
+      return render(<HabitatPage />);
     });
 
     await waitFor(() => {
@@ -192,7 +192,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features, total: 25 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     expect(mocks.featuresList).toHaveBeenCalledTimes(1);
@@ -208,7 +208,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features, total: 10 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     const loadingCalls = storeActions.setLoading.mock.calls.map((c: any[]) => c[0]);
@@ -223,7 +223,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features: page1, total: 500 });
 
     const { unmount } = await act(async () => {
-      return render(<BoardPage />);
+      return render(<HabitatPage />);
     });
 
     await waitFor(() => {
@@ -245,7 +245,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features: page1, total: 500 });
 
     const { unmount } = await act(async () => {
-      return render(<BoardPage />);
+      return render(<HabitatPage />);
     });
 
     await waitFor(() => {
@@ -266,7 +266,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features: [], total: 0 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     expect(storeActions.setError).toHaveBeenCalledWith('Habitat not found');
@@ -281,15 +281,15 @@ describe('BoardPage parallel feature loading', () => {
     mocks.boardsGet.mockResolvedValue({
       board: { id: 'board-1', name: 'Test Board' },
       columns: [
-        { id: 'col-1', name: 'Todo', boardId: 'board-1' },
-        { id: 'col-2', name: 'Done', boardId: 'board-1' },
+        { id: 'col-1', name: 'Todo', habitatId: 'board-1' },
+        { id: 'col-2', name: 'Done', habitatId: 'board-1' },
       ],
       features: [],
     });
     mocks.featuresList.mockResolvedValue({ features, total: 5 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     const col1Calls = storeActions.setColumnPagination.mock.calls.filter(
@@ -307,7 +307,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features: makeFeatures(10, 'col-1'), total: 10 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     const falseCalls = storeActions.setLoading.mock.calls.filter((c: any[]) => c[0] === false);
@@ -320,7 +320,7 @@ describe('BoardPage parallel feature loading', () => {
     mocks.featuresList.mockResolvedValue({ features: page1, total: 500 });
 
     await act(async () => {
-      render(<BoardPage />);
+      render(<HabitatPage />);
     });
 
     expect(storeActions.setLoading).toHaveBeenCalledWith(false);

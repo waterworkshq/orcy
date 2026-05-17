@@ -57,7 +57,7 @@ describe('ChatIntegrationForm', () => {
   it('renders Update button when editing', () => {
     const existing: ChatIntegration = {
       id: 'ci1',
-      boardId: 'b1',
+      habitatId: 'b1',
       provider: 'slack',
       webhookUrl: 'https://hooks.slack.com/test',
       channelId: null,

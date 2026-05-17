@@ -27,7 +27,7 @@ vi.mock('lucide-react', () => ({
 }));
 
 const baseHealth = {
-  boardId: 'board-1',
+  habitatId: 'board-1',
   score: 85,
   grade: 'A',
   dimensions: {
@@ -62,13 +62,13 @@ describe('HealthScoreWidget', () => {
   it('shows loading skeleton while fetching health data', () => {
     mockHealthGet.mockReturnValue(new Promise(() => {}));
 
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     expect(document.querySelector('.animate-pulse')).toBeTruthy();
   });
 
   it('renders health score button after loading', async () => {
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('85')).toBeTruthy();
@@ -76,7 +76,7 @@ describe('HealthScoreWidget', () => {
   });
 
   it('renders grade badge', async () => {
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('A')).toBeTruthy();
@@ -86,7 +86,7 @@ describe('HealthScoreWidget', () => {
   it('returns null when no health data', async () => {
     mockHealthGet.mockResolvedValue(null as any);
 
-    const { container } = renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    const { container } = renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(container.innerHTML).toBe('');
@@ -94,7 +94,7 @@ describe('HealthScoreWidget', () => {
   });
 
   it('expands detail panel on click', async () => {
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('85')).toBeTruthy();
@@ -108,7 +108,7 @@ describe('HealthScoreWidget', () => {
   });
 
   it('shows recommendations when expanded', async () => {
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('85')).toBeTruthy();
@@ -123,7 +123,7 @@ describe('HealthScoreWidget', () => {
   });
 
   it('shows dimensions when expanded', async () => {
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('85')).toBeTruthy();
@@ -144,7 +144,7 @@ describe('HealthScoreWidget', () => {
       grade: 'F',
     });
 
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('25')).toBeTruthy();
@@ -159,7 +159,7 @@ describe('HealthScoreWidget', () => {
       grade: 'C',
     });
 
-    renderWithQC(<HealthScoreWidget boardId="board-1" />);
+    renderWithQC(<HealthScoreWidget habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('55')).toBeTruthy();

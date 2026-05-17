@@ -69,7 +69,7 @@ describe('AnomalyDetectionTab', () => {
   it('renders Enable Anomaly Detection toggle', () => {
     render(
       <AnomalyDetectionTab
-        boardId="b1"
+        habitatId="b1"
         boardAnomalySettings={null}
         onUpdate={mockOnUpdate}
       />
@@ -81,7 +81,7 @@ describe('AnomalyDetectionTab', () => {
   it('shows all number fields when enabled', () => {
     render(
       <AnomalyDetectionTab
-        boardId="b1"
+        habitatId="b1"
         boardAnomalySettings={defaultAnomalySettings}
         onUpdate={mockOnUpdate}
       />
@@ -98,7 +98,7 @@ describe('AnomalyDetectionTab', () => {
   it('renders Notification Channels section', () => {
     render(
       <AnomalyDetectionTab
-        boardId="b1"
+        habitatId="b1"
         boardAnomalySettings={defaultAnomalySettings}
         onUpdate={mockOnUpdate}
       />
@@ -112,7 +112,7 @@ describe('AnomalyDetectionTab', () => {
   it('initializes from board anomaly settings', () => {
     render(
       <AnomalyDetectionTab
-        boardId="b1"
+        habitatId="b1"
         boardAnomalySettings={defaultAnomalySettings}
         onUpdate={mockOnUpdate}
       />
@@ -128,7 +128,7 @@ describe('AnomalyDetectionTab', () => {
   it('shows fields by default when no settings provided', () => {
     render(
       <AnomalyDetectionTab
-        boardId="b1"
+        habitatId="b1"
         boardAnomalySettings={null}
         onUpdate={mockOnUpdate}
       />

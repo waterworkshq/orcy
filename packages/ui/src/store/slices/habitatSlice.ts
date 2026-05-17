@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { Board, Column, EnrichedBoardEvent, FeatureWithProgress } from '../../types/index.js';
-import type { FeatureSlice } from './featureSlice.js';
+import type { MissionSlice } from './missionSlice.js';
 
 interface ColumnPaginationEntry {
   features: FeatureWithProgress[];
@@ -9,7 +9,7 @@ interface ColumnPaginationEntry {
   isLoadingMore: boolean;
 }
 
-export interface BoardSlice {
+export interface HabitatSlice {
   board: Board | null;
   columns: Column[];
   wipAlerts: Record<string, { limit: number; timestamp: number }>;
@@ -30,7 +30,7 @@ export interface BoardSlice {
   clearWipAlert: (columnId: string) => void;
 }
 
-export const createBoardSlice: StateCreator<BoardSlice & FeatureSlice & { selectedFeatureIds: string[] }, [], [], BoardSlice> = (set) => ({
+export const createHabitatSlice: StateCreator<HabitatSlice & MissionSlice & { selectedMissionIds: string[] }, [], [], HabitatSlice> = (set) => ({
   board: null,
   columns: [],
   wipAlerts: {},
@@ -42,7 +42,7 @@ export const createBoardSlice: StateCreator<BoardSlice & FeatureSlice & { select
       board,
       columns,
       features,
-      selectedFeatureIds: state.selectedFeatureIds.filter((id) => features.some((f) => f.id === id)),
+      selectedMissionIds: state.selectedMissionIds.filter((id) => features.some((f) => f.id === id)),
     })),
 
   updateColumn: (column) =>

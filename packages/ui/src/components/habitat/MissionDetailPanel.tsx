@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
-import { useFeatureDetails } from '../../lib/useHabitatData.js';
+import { useMissionDetails } from '../../lib/useHabitatData.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { Button } from '../ui/Button.js';
 import { Badge } from '../ui/Badge.js';
 import { CreateTaskForm } from './CreateTaskForm.js';
 import { X, Plus, Sparkles, Trash2, ChevronRight, Clock, CheckCircle, AlertCircle, Loader2, Archive, RefreshCw } from 'lucide-react';
-import type { Task, FeatureWithProgress, FeatureDecompositionResult } from '../../types/index.js';
+import type { Task, MissionWithProgress, MissionDecompositionResult } from '../../types/index.js';
 
 const taskStatusVariant: Record<string, string> = {
   pending: 'pending',
@@ -22,15 +22,15 @@ const taskStatusVariant: Record<string, string> = {
 };
 
 export function FeatureDetailPanel() {
-  const { selectedFeatureId, setSelectedFeature, features, columns } = useBoardStore();
-  const { data: detailsData, isLoading } = useFeatureDetails(selectedFeatureId ?? undefined);
-  const feature = features.find((f) => f.id === selectedFeatureId);
+  const { selectedMissionId, setSelectedMission, features, columns } = useHabitatStore();
+  const { data: detailsData, isLoading } = useMissionDetails(selectedMissionId ?? undefined);
+  const feature = features.find((f) => f.id === selectedMissionId);
 
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [decomposing, setDecomposing] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  if (!selectedFeatureId || !feature) return null;
+  if (!selectedMissionId || !feature) return null;
 
   const tasks = detailsData?.tasks ?? [];
   const events = detailsData?.events ?? [];
@@ -45,8 +45,8 @@ export function FeatureDetailPanel() {
 
   async function handleDelete() {
     try {
-      await api.features.delete(feature!.id);
-      setSelectedFeature(null);
+      await api.missions.delete(feature!.id);
+      setSelectedMission(null);
       notify.success('Mission deleted');
     } catch (err) {
       notify.error((err as Error).message);
@@ -57,7 +57,7 @@ export function FeatureDetailPanel() {
   async function handleDecompose() {
     setDecomposing(true);
     try {
-      const result = await api.features.decompose(feature!.id) as FeatureDecompositionResult;
+      const result = await api.missions.decompose(feature!.id) as MissionDecompositionResult;
       notify.success(`Created ${result.tasks.length} tasks`);
     } catch (err) {
       notify.error((err as Error).message);
@@ -68,9 +68,9 @@ export function FeatureDetailPanel() {
 
   async function handleArchive() {
     try {
-      await api.features.archive(feature!.id);
-      useBoardStore.getState().removeFeature(feature!.id);
-      setSelectedFeature(null);
+      await api.missions.archive(feature!.id);
+      useHabitatStore.getState().removeFeature(feature!.id);
+      setSelectedMission(null);
       notify.success('Mission archived');
     } catch (err) {
       notify.error((err as Error).message);
@@ -79,8 +79,8 @@ export function FeatureDetailPanel() {
 
   async function handleRestore() {
     try {
-      await api.features.unarchive(feature!.id);
-      useBoardStore.getState().addFeature({ ...feature!, isArchived: false } as FeatureWithProgress);
+      await api.missions.unarchive(feature!.id);
+      useHabitatStore.getState().addFeature({ ...feature!, isArchived: false } as MissionWithProgress);
       notify.success('Mission restored');
     } catch (err) {
       notify.error((err as Error).message);
@@ -91,7 +91,7 @@ export function FeatureDetailPanel() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h2 className="font-semibold truncate">{feature.title}</h2>
-        <Button variant="ghost" size="icon" onClick={() => setSelectedFeature(null)}>
+        <Button variant="ghost" size="icon" onClick={() => setSelectedMission(null)}>
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -121,7 +121,7 @@ export function FeatureDetailPanel() {
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={feature.priority as any}>{feature.priority}</Badge>
             <Badge variant={taskStatusVariant[feature.status] as any}>{feature.status.replace('_', ' ')}</Badge>
-            {feature.labels.map((label) => (
+            {feature.labels.map((label: string) => (
               <span key={label} className="rounded bg-accent px-1.5 py-0.5 text-xs text-accent-foreground">
                 {label}
               </span>
@@ -267,7 +267,7 @@ export function FeatureDetailPanel() {
         <CreateTaskForm
           open={showCreateTask}
           onClose={() => setShowCreateTask(false)}
-          featureId={feature.id}
+          missionId={feature.id}
         />
       )}
     </div>

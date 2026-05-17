@@ -44,8 +44,8 @@ vi.mock('./WipHealthChart.js', () => ({
 }));
 
 vi.mock('./CapacityChart.js', () => ({
-  CapacityChart: ({ boardId }: { boardId?: string }) => (
-    <div data-testid="capacity-chart">Capacity:{boardId}</div>
+  CapacityChart: ({ habitatId }: { habitatId?: string }) => (
+    <div data-testid="capacity-chart">Capacity:{habitatId}</div>
   ),
 }));
 
@@ -65,7 +65,7 @@ const mockStats = {
   agentLeaderboard: [{ agentId: 'a1', agentName: 'Agent1', completed: 10, failed: 1, avgCycleMinutes: 60, approvalRate: 0.9 }],
   taskByPriority: { critical: 1, high: 2, medium: 3, low: 4 },
   taskByStatus: { pending: 1, claimed: 2, in_progress: 3, submitted: 4, done: 5 },
-  wipHealth: [{ columnId: 'c1', columnName: 'Todo', boardId: 'b1', boardName: 'Board', current: 3, limit: 5, health: 'ok' as const }],
+  wipHealth: [{ columnId: 'c1', columnName: 'Todo', habitatId: 'b1', boardName: 'Board', current: 3, limit: 5, health: 'ok' as const }],
   webhookStats: { successRate: 0.95, success: 19, total: 20 },
 };
 
@@ -95,8 +95,8 @@ describe('DashboardCharts', () => {
     expect(screen.getByTestId('wip-health-chart')).toBeInTheDocument();
   });
 
-  it('renders CapacityChart when boardId is provided', async () => {
-    render(<DashboardCharts stats={mockStats as any} period="30d" boardId="board-1" />);
+  it('renders CapacityChart when habitatId is provided', async () => {
+    render(<DashboardCharts stats={mockStats as any} period="30d" habitatId="board-1" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('capacity-chart')).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe('DashboardCharts', () => {
     expect(screen.getByTestId('capacity-chart')).toHaveTextContent('Capacity:board-1');
   });
 
-  it('does not render CapacityChart without boardId', async () => {
+  it('does not render CapacityChart without habitatId', async () => {
     render(<DashboardCharts stats={mockStats as any} period="30d" />);
 
     await waitFor(() => {

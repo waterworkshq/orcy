@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
-import { BoardPage } from './HabitatPage.js';
+import { HabitatPage } from './HabitatPage.js';
 
 vi.mock('../../api/index.js', () => ({
   api: {
@@ -23,7 +23,7 @@ vi.mock('../../components/layout/DrawerBridgeContext.js', () => ({
 }));
 
 vi.mock('react-router-dom', () => ({
-  useParams: vi.fn(() => ({ boardId: 'board-1' })),
+  useParams: vi.fn(() => ({ habitatId: 'board-1' })),
   useSearchParams: vi.fn(() => [new URLSearchParams(), vi.fn()]),
   Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
   useNavigate: vi.fn(() => vi.fn()),
@@ -45,7 +45,7 @@ const mockBoardStoreState: Record<string, any> = {
   allFeaturesLoaded: false,
   presence: [],
   isBulkSelectMode: false,
-  selectedFeatureIds: [],
+  selectedMissionIds: [],
   setBoard: vi.fn(),
   setAgents: vi.fn(),
   setLoading: vi.fn(),
@@ -66,7 +66,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 const mockOpenModal = vi.fn();
@@ -98,7 +98,7 @@ vi.mock('./TaskDetailPanel.js', () => ({
 }));
 
 vi.mock('./Habitat.js', () => ({
-  Board: () => <div data-testid="board" />,
+  Habitat: () => <div data-testid="habitat" />,
 }));
 
 vi.mock('./FilterBar.js', () => ({
@@ -129,7 +129,7 @@ vi.mock('./MobileNav.js', () => ({
   MobileNav: () => <div />,
 }));
 
-describe('BoardPage Modal Integration', () => {
+describe('HabitatPage Modal Integration', () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -150,23 +150,23 @@ describe('BoardPage Modal Integration', () => {
   });
 
   it('does not render TaskDetailModal directly because AppShell owns the portable modal', () => {
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.queryByTestId('task-detail-modal')).toBeNull();
   });
 
   it('does not render TaskDetailPanel', () => {
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.queryByTestId('task-detail-panel')).toBeNull();
   });
 
   it('does not render feature drawer', () => {
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.queryByTestId('feature-detail-panel')).toBeNull();
   });
 
-  it('keeps TaskDetailModal out of the BoardPage subtree', () => {
+  it('keeps TaskDetailModal out of the HabitatPage subtree', () => {
     modalStoreState.isOpen = false;
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.queryByTestId('task-detail-modal')).toBeNull();
   });
 });

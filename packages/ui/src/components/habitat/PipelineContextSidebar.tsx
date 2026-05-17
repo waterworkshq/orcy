@@ -1,6 +1,6 @@
 import React from 'react';
 import { useModalStore } from '../../store/modalStore.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { Badge } from '../ui/Badge.js';
 import { formatStatus } from './MissionHeader.js';
 import {
@@ -11,10 +11,10 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import type { Task, FeatureWithProgress } from '../../types/index.js';
+import type { Task, MissionWithProgress } from '../../types/index.js';
 
 interface PipelineContextSidebarProps {
-  feature: FeatureWithProgress;
+  feature: MissionWithProgress;
   tasks: Task[];
 }
 
@@ -37,7 +37,7 @@ function statusDotColor(status: Task['status']): string {
 
 function TaskListItem({ task }: { task: Task }) {
   const openModal = useModalStore((s) => s.openModal);
-  const agents = useBoardStore((s) => s.agents);
+  const agents = useHabitatStore((s) => s.agents);
 
   const assignee = task.assignedAgentId
     ? agents.find((a) => a.id === task.assignedAgentId)

@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui/Button.js';
 import { AgentRegistrationDialog } from '../ui/AgentRegistrationDialog.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { useAgentsListWithTasks, useAgentStats } from '../../lib/useHabitatData.js';
@@ -44,8 +44,8 @@ interface AgentPanelProps {
 }
 
 export function AgentPanel({ onClose }: AgentPanelProps) {
-  const board = useBoardStore((s) => s.board);
-  const removeAgent = useBoardStore((s) => s.removeAgent);
+  const board = useHabitatStore((s) => s.board);
+  const removeAgent = useHabitatStore((s) => s.removeAgent);
   const qc = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);

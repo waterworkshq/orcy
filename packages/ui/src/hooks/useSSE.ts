@@ -1,11 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useBoardStore } from '../store/habitatStore.js';
+import { useHabitatStore } from '../store/habitatStore.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys.js';
 import type { SSEEvent } from '../types/index.js';
 
 export function useSSE(boardId: string) {
-  const handleSSEEvent = useBoardStore((s) => s.handleSSEEvent);
+  const handleSSEEvent = useHabitatStore((s) => s.handleSSEEvent);
   const queryClient = useQueryClient();
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -23,14 +23,14 @@ export function useSSE(boardId: string) {
           qc.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
         }
         break;
-      case 'board.updated':
-        qc.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
-        qc.invalidateQueries({ queryKey: queryKeys.boards.list() });
+      case 'habitat.updated':
+        qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.habitats.list() });
         break;
       case 'column.created':
       case 'column.updated':
       case 'column.deleted':
-        qc.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
         break;
       case 'agent.status_changed':
       case 'agent.heartbeat':
@@ -39,25 +39,25 @@ export function useSSE(boardId: string) {
         }
         qc.invalidateQueries({ queryKey: queryKeys.agents.list() });
         break;
-      case 'feature.created':
-      case 'feature.updated':
-      case 'feature.moved':
-      case 'feature.status_changed':
-      case 'feature.deleted':
-        qc.invalidateQueries({ queryKey: queryKeys.features.list(boardId) });
+      case 'mission.created':
+      case 'mission.updated':
+      case 'mission.moved':
+      case 'mission.status_changed':
+      case 'mission.deleted':
+        qc.invalidateQueries({ queryKey: queryKeys.missions.list(boardId) });
         if ('id' in event.data && event.data.id) {
-          qc.invalidateQueries({ queryKey: queryKeys.features.detail((event.data as { id: string }).id) });
-          qc.invalidateQueries({ queryKey: queryKeys.features.details((event.data as { id: string }).id) });
+          qc.invalidateQueries({ queryKey: queryKeys.missions.detail((event.data as { id: string }).id) });
+          qc.invalidateQueries({ queryKey: queryKeys.missions.details((event.data as { id: string }).id) });
         }
-        if ('featureId' in event.data) {
-          qc.invalidateQueries({ queryKey: queryKeys.features.progress((event.data as { featureId: string }).featureId) });
+        if ('missionId' in event.data) {
+          qc.invalidateQueries({ queryKey: queryKeys.missions.progress((event.data as { missionId: string }).missionId) });
         }
         break;
-      case 'feature.progress':
-        if ('featureId' in event.data) {
-          const featureId = (event.data as { featureId: string }).featureId;
-          qc.invalidateQueries({ queryKey: queryKeys.features.detail(featureId) });
-          qc.invalidateQueries({ queryKey: queryKeys.features.progress(featureId) });
+      case 'mission.progress':
+        if ('missionId' in event.data) {
+          const missionId = (event.data as { missionId: string }).missionId;
+          qc.invalidateQueries({ queryKey: queryKeys.missions.detail(missionId) });
+          qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
         }
         break;
       case 'task.created':
@@ -78,13 +78,13 @@ export function useSSE(boardId: string) {
           qc.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
           qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
           qc.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
-          const task = useBoardStore.getState().tasks.find(t => t.id === taskId);
+          const task = useHabitatStore.getState().tasks.find(t => t.id === taskId);
           if (task?.featureId) {
-            qc.invalidateQueries({ queryKey: queryKeys.features.progress(task.featureId) });
-            qc.invalidateQueries({ queryKey: queryKeys.features.detail(task.featureId) });
+            qc.invalidateQueries({ queryKey: queryKeys.missions.progress(task.featureId) });
+            qc.invalidateQueries({ queryKey: queryKeys.missions.detail(task.featureId) });
           }
         }
-        qc.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
         break;
       case 'pulse.signal_posted':
         qc.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });

@@ -11,7 +11,7 @@ const mockAgents = [
 ];
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector?: any) => {
+  useHabitatStore: (selector?: any) => {
     const state = { agents: mockAgents, notifications: [] };
     return selector ? selector(state) : state;
   },
@@ -65,7 +65,7 @@ describe('AppShell', () => {
       <MemoryRouter initialEntries={['/boards/board-1']}>
         <Routes>
           <Route element={<AppShell />}>
-            <Route path="/boards/:boardId" element={<BoardRouteHarness onOpenStats={onOpenStats} />} />
+            <Route path="/boards/:habitatId" element={<BoardRouteHarness onOpenStats={onOpenStats} />} />
           </Route>
         </Routes>
       </MemoryRouter>

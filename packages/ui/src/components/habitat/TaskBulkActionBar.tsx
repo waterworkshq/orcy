@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
@@ -7,13 +7,13 @@ import { X, Trash2, Gauge } from 'lucide-react';
 import type { TaskPriority } from '../../types/index.js';
 
 interface TaskBulkActionBarProps {
-  boardId: string;
+  habitatId: string;
 }
 
 type TaskBulkOperation = 'priority' | 'delete';
 
-export function TaskBulkActionBar({ boardId }: TaskBulkActionBarProps) {
-  const { selectedTaskIds, setTaskBulkSelectMode, clearTaskSelection } = useBoardStore();
+export function TaskBulkActionBar({ habitatId }: TaskBulkActionBarProps) {
+  const { selectedTaskIds, setTaskBulkSelectMode, clearTaskSelection } = useHabitatStore();
   const [operation, setOperation] = useState<TaskBulkOperation>('priority');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [isApplying, setIsApplying] = useState(false);
@@ -24,7 +24,7 @@ export function TaskBulkActionBar({ boardId }: TaskBulkActionBarProps) {
     setIsApplying(true);
 
     try {
-      const result = await api.tasks.batch(boardId, {
+      const result = await api.tasks.batch(habitatId, {
         taskIds: selectedTaskIds,
         operation: 'delete',
         payload: {},
@@ -47,7 +47,7 @@ export function TaskBulkActionBar({ boardId }: TaskBulkActionBarProps) {
 
   async function executePriorityUpdate() {
     try {
-      const result = await api.tasks.batch(boardId, {
+      const result = await api.tasks.batch(habitatId, {
         taskIds: selectedTaskIds,
         operation: 'priority',
         payload: { priority },

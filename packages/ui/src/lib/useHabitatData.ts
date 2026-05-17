@@ -5,8 +5,8 @@ import type { Board, FeatureWithProgress, Feature, Task, CreateFeatureInput, Cre
 
 export function useBoards() {
   return useQuery({
-    queryKey: queryKeys.boards.list(),
-    queryFn: () => api.boards.list(),
+    queryKey: queryKeys.habitats.list(),
+    queryFn: () => api.habitats.list(),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -21,8 +21,8 @@ export function useMyTeams() {
 
 export function useBoard(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.boards.detail(boardId ?? ''),
-    queryFn: () => api.boards.get(boardId!),
+    queryKey: queryKeys.habitats.detail(boardId ?? ''),
+    queryFn: () => api.habitats.get(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
   });
@@ -39,8 +39,8 @@ export function useBoardAgents(boardId: string | undefined) {
 
 export function useBoardStats(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.boards.stats(boardId ?? ''),
-    queryFn: () => api.boards.stats(boardId!),
+    queryKey: queryKeys.habitats.stats(boardId ?? ''),
+    queryFn: () => api.habitats.stats(boardId!),
     enabled: !!boardId,
     staleTime: 2 * 60 * 1000,
   });
@@ -48,77 +48,77 @@ export function useBoardStats(boardId: string | undefined) {
 
 export function useBoardEvents(boardId: string | undefined, params?: { limit?: number; offset?: number; action?: string }) {
   return useQuery({
-    queryKey: [...queryKeys.boards.events(boardId ?? ''), params] as const,
-    queryFn: () => api.boards.events(boardId!, params),
+    queryKey: [...queryKeys.habitats.events(boardId ?? ''), params] as const,
+    queryFn: () => api.habitats.events(boardId!, params),
     enabled: !!boardId,
     staleTime: 30 * 1000,
   });
 }
 
-export function useFeatures(boardId: string | undefined) {
+export function useMissions(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.features.list(boardId ?? ''),
-    queryFn: () => api.features.list(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.missions.list(habitatId ?? ''),
+    queryFn: () => api.missions.list(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useFeature(featureId: string | undefined) {
+export function useMission(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.features.detail(featureId ?? ''),
-    queryFn: () => api.features.get(featureId!),
-    enabled: !!featureId,
+    queryKey: queryKeys.missions.detail(missionId ?? ''),
+    queryFn: () => api.missions.get(missionId!),
+    enabled: !!missionId,
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useFeatureDetails(featureId: string | undefined) {
+export function useMissionDetails(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.features.details(featureId ?? ''),
-    queryFn: () => api.features.details(featureId!),
-    enabled: !!featureId,
+    queryKey: queryKeys.missions.details(missionId ?? ''),
+    queryFn: () => api.missions.details(missionId!),
+    enabled: !!missionId,
     staleTime: 30 * 1000,
   });
 }
 
-export function useFeatureTasks(featureId: string | undefined) {
+export function useMissionTasks(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.features.tasks(featureId ?? ''),
-    queryFn: () => api.features.tasks(featureId!),
-    enabled: !!featureId,
+    queryKey: queryKeys.missions.tasks(missionId ?? ''),
+    queryFn: () => api.missions.tasks(missionId!),
+    enabled: !!missionId,
     staleTime: 30 * 1000,
   });
 }
 
-export function useFeatureProgress(featureId: string | undefined) {
+export function useMissionProgress(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.features.progress(featureId ?? ''),
-    queryFn: () => api.features.progress(featureId!),
-    enabled: !!featureId,
+    queryKey: queryKeys.missions.progress(missionId ?? ''),
+    queryFn: () => api.missions.progress(missionId!),
+    enabled: !!missionId,
     staleTime: 30 * 1000,
   });
 }
 
-export function useCreateFeature(boardId: string) {
+export function useCreateMission(habitatId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateFeatureInput) => api.features.create(boardId, data),
+    mutationFn: (data: CreateFeatureInput) => api.missions.create(habitatId, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.features.list(boardId) });
-      qc.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
+      qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
     },
   });
 }
 
-export function useCreateTaskInFeature(featureId: string) {
+export function useCreateTaskInMission(missionId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateTaskInFeatureInput) => api.features.createTask(featureId, data),
+    mutationFn: (data: CreateTaskInFeatureInput) => api.missions.createTask(missionId, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.features.tasks(featureId) });
-      qc.invalidateQueries({ queryKey: queryKeys.features.details(featureId) });
-      qc.invalidateQueries({ queryKey: queryKeys.features.progress(featureId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
     },
   });
 }
@@ -150,8 +150,8 @@ export function useDashboardStats() {
 
 export function useBoardPredictions(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.boards.predictions(boardId ?? ''),
-    queryFn: () => api.boards.predictions(boardId!),
+    queryKey: queryKeys.habitats.predictions(boardId ?? ''),
+    queryFn: () => api.habitats.predictions(boardId!),
     enabled: !!boardId,
     staleTime: 2 * 60 * 1000,
   });
@@ -159,8 +159,8 @@ export function useBoardPredictions(boardId: string | undefined) {
 
 export function useBoardBurndown(boardId: string | undefined, days?: number) {
   return useQuery({
-    queryKey: [...queryKeys.boards.burndown(boardId ?? ''), days] as const,
-    queryFn: () => api.boards.burndown(boardId!, days),
+    queryKey: [...queryKeys.habitats.burndown(boardId ?? ''), days] as const,
+    queryFn: () => api.habitats.burndown(boardId!, days),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
   });
@@ -168,8 +168,8 @@ export function useBoardBurndown(boardId: string | undefined, days?: number) {
 
 export function useBoardAnomalies(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.boards.anomalies(boardId ?? ''),
-    queryFn: () => api.boards.anomalies(boardId!),
+    queryKey: queryKeys.habitats.anomalies(boardId ?? ''),
+    queryFn: () => api.habitats.anomalies(boardId!),
     enabled: !!boardId,
     staleTime: 60 * 1000,
   });
@@ -177,8 +177,8 @@ export function useBoardAnomalies(boardId: string | undefined) {
 
 export function useBoardCapacity(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.boards.capacity(boardId ?? ''),
-    queryFn: () => api.boards.capacity(boardId!),
+    queryKey: queryKeys.habitats.capacity(boardId ?? ''),
+    queryFn: () => api.habitats.capacity(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
   });
@@ -198,8 +198,8 @@ export interface BoardTasksFilters {
 
 export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksFilters) {
   return useQuery({
-    queryKey: queryKeys.boards.tasks(boardId ?? '', filters),
-    queryFn: () => api.boards.tasks(boardId!, filters),
+    queryKey: queryKeys.habitats.tasks(boardId ?? '', filters),
+    queryFn: () => api.habitats.tasks(boardId!, filters),
     enabled: !!boardId,
     staleTime: 30 * 1000,
   });
@@ -207,7 +207,7 @@ export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksF
 
 export function useBoardTimeMetrics(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.boards.metrics(boardId ?? ''),
+    queryKey: queryKeys.habitats.metrics(boardId ?? ''),
     queryFn: () => api.timeTracking.getBoardMetrics(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -293,11 +293,11 @@ export function useAuditSummary(boardId: string | undefined, params?: { since?: 
   });
 }
 
-export function useFeatureComments(featureId: string | undefined) {
+export function useMissionComments(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.featureComments.list(featureId ?? ''),
-    queryFn: () => api.featureComments.list(featureId!),
-    enabled: !!featureId,
+    queryKey: queryKeys.missionComments.list(missionId ?? ''),
+    queryFn: () => api.missionComments.list(missionId!),
+    enabled: !!missionId,
     staleTime: 30 * 1000,
   });
 }
@@ -305,17 +305,17 @@ export function useFeatureComments(featureId: string | undefined) {
 export function useInvalidateBoard(boardId: string) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.boards.detail(boardId) });
-    qc.invalidateQueries({ queryKey: queryKeys.boards.stats(boardId) });
-    qc.invalidateQueries({ queryKey: queryKeys.boards.events(boardId) });
-    qc.invalidateQueries({ queryKey: queryKeys.features.list(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.stats(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.events(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.list(boardId) });
   };
 }
 
 export function useInvalidateBoards() {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.boards.list() });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.list() });
   };
 }
 
@@ -326,13 +326,13 @@ export function useInvalidateAgents() {
   };
 }
 
-export function useInvalidateFeature(featureId: string) {
+export function useInvalidateMission(missionId: string) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.features.detail(featureId) });
-    qc.invalidateQueries({ queryKey: queryKeys.features.details(featureId) });
-    qc.invalidateQueries({ queryKey: queryKeys.features.tasks(featureId) });
-    qc.invalidateQueries({ queryKey: queryKeys.features.progress(featureId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.detail(missionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
   };
 }
 
@@ -378,11 +378,11 @@ export function useScheduledTasks(boardId: string | undefined) {
   });
 }
 
-export function useArchivedFeatures(boardId: string | undefined) {
+export function useArchivedMissions(habitatId: string | undefined) {
   return useQuery({
-    queryKey: [...queryKeys.features.all, 'archived', boardId ?? ''] as const,
-    queryFn: () => api.features.list(boardId!, { isArchived: true }),
-    enabled: !!boardId,
+    queryKey: [...queryKeys.missions.all, 'archived', habitatId ?? ''] as const,
+    queryFn: () => api.missions.list(habitatId!, { isArchived: true }),
+    enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
   });
 }

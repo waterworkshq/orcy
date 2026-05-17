@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { formatRelativeTime } from '../../lib/formatting.js';
@@ -16,7 +16,7 @@ interface CommentSectionProps {
 }
 
 export function CommentSection({ taskId, initialComments = [] }: CommentSectionProps) {
-  const { setComments, addComment, removeComment, agents } = useBoardStore();
+  const { setComments, addComment, removeComment, agents } = useHabitatStore();
   const [taskComments, setTaskComments] = useState<TaskComment[]>(initialComments);
   const [loading] = useState(false);
   const [content, setContent] = useState('');

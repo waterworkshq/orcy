@@ -1,6 +1,6 @@
 import { useModalStore } from '../store/modalStore.js';
 import { useQueryClient } from '@tanstack/react-query';
-import { useBoardStore } from '../store/habitatStore.js';
+import { useHabitatStore } from '../store/habitatStore.js';
 import { useTaskDetails } from '../lib/useTaskData.js';
 import { useTaskEdit, type UseTaskEditResult } from './useTaskEdit.js';
 import { useTaskSubtasks, type UseTaskSubtasksResult } from './useTaskSubtasks.js';
@@ -93,14 +93,14 @@ export interface UseTaskDetailPanelResult {
 }
 
 export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {}): UseTaskDetailPanelResult {
-  const { tasks, agents } = useBoardStore();
+  const { tasks, agents } = useHabitatStore();
   const selectedTaskId = useModalStore((s) => s.selectedTaskId);
   const queryClient = useQueryClient();
   const { data: detailsData, isLoading: contextLoading } = useTaskDetails(selectedTaskId ?? undefined);
 
   const task = detailsData?.task ?? tasks.find((t) => t.id === selectedTaskId);
-  const columns = useBoardStore((s) => s.columns);
-  const features = useBoardStore((s) => s.features);
+  const columns = useHabitatStore((s) => s.columns);
+  const features = useHabitatStore((s) => s.features);
   const column = task
     ? (() => {
         const feat = features.find((f) => f.id === task.featureId);

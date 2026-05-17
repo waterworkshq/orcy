@@ -6,7 +6,7 @@ import type { ScheduledTask } from '../../../types/index.js';
 
 const mockScheduledTask: ScheduledTask = {
   id: 'st-1',
-  boardId: 'board-1',
+  habitatId: 'board-1',
   templateId: null,
   name: 'Weekly Sprint',
   description: 'Create weekly sprint feature',
@@ -15,17 +15,17 @@ const mockScheduledTask: ScheduledTask = {
   intervalMinutes: null,
   scheduledAt: null,
   timezone: 'UTC',
-  featureTitle: 'Sprint {{date}}',
-  featureDescription: 'Weekly sprint',
-  featurePriority: 'medium',
-  featureLabels: ['sprint'],
-  featureDomain: null,
+  missionTitle: 'Sprint {{date}}',
+  missionDescription: 'Weekly sprint',
+  missionPriority: 'medium',
+  missionLabels: ['sprint'],
+  missionDomain: null,
   tasksTemplate: [],
   enabled: true,
   lastRunAt: '2025-01-01T09:00:00Z',
   nextRunAt: '2025-01-06T09:00:00Z',
   runCount: 5,
-  lastCreatedFeatureId: 'feat-100',
+  lastCreatedMissionId: 'feat-100',
   createdBy: 'user-1',
   createdAt: '2024-12-01T00:00:00Z',
   updatedAt: '2025-01-01T09:00:00Z',
@@ -37,7 +37,7 @@ const mockDisabledTask: ScheduledTask = {
   name: 'Monthly Review',
   enabled: false,
   cronExpression: '0 0 1 * *',
-  lastCreatedFeatureId: null,
+  lastCreatedMissionId: null,
   runCount: 0,
 };
 
@@ -198,7 +198,7 @@ describe('ScheduledTasksList', () => {
     expect(mockOnDelete).toHaveBeenCalledWith('st-1');
   });
 
-  it('shows feature link when lastCreatedFeatureId exists', () => {
+  it('shows feature link when lastCreatedMissionId exists', () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}

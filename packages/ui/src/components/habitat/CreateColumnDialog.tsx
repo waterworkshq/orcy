@@ -6,13 +6,13 @@ import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 
 interface CreateColumnDialogProps {
-  boardId: string;
+  habitatId: string;
   open: boolean;
   onClose: () => void;
   onAdd: (column: Column) => void;
 }
 
-export function CreateColumnDialog({ boardId, open, onClose, onAdd }: CreateColumnDialogProps) {
+export function CreateColumnDialog({ habitatId, open, onClose, onAdd }: CreateColumnDialogProps) {
   const [name, setName] = useState('');
   const [wipLimit, setWipLimit] = useState('');
   const [saving, setSaving] = useState(false);
@@ -25,7 +25,7 @@ export function CreateColumnDialog({ boardId, open, onClose, onAdd }: CreateColu
 
     setSaving(true);
     try {
-      const result = await api.columns.create(boardId, {
+      const result = await api.columns.create(habitatId, {
         name: name.trim(),
         wipLimit: wipLimit === '' ? null : Number(wipLimit),
       });

@@ -32,7 +32,7 @@ const useBoardStoreMock = vi.fn((selectorOrState?: any, equalityFn?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 vi.mock('zustand/shallow', () => ({
@@ -67,7 +67,7 @@ vi.mock('../ui/Tooltip.js', () => ({
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
-    featureId: 'feature-1',
+    missionId: 'feature-1',
     title: 'Board Task',
     description: '',
     priority: 'medium',

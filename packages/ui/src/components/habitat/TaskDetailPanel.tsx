@@ -1,4 +1,4 @@
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { Button } from '../ui/Button.js';
 import { Badge } from '../ui/Badge.js';
@@ -30,7 +30,7 @@ import { api } from '../../api/index.js';
 import { queryKeys } from '../../lib/queryKeys.js';
 
 export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) {
-  const { selectedFeatureId, tasks } = useBoardStore();
+  const { selectedMissionId, tasks } = useHabitatStore();
   const { openModal, closeModal } = useModalStore();
   const p = useTaskDetailPanel({ editTaskId });
   const queryClient = useQueryClient();
@@ -57,7 +57,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
-          {selectedFeatureId && (
+          {selectedMissionId && (
             <Button variant="ghost" size="icon" onClick={handleBack} title="Back to feature">
               <ArrowLeft className="h-4 w-4" />
             </Button>

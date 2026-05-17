@@ -2,11 +2,11 @@ import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { RiskAnalysisSidebar } from './RiskAnalysisSidebar.js';
-import type { Task, FeatureWithProgress, FeatureEvent } from '../../types/index.js';
+import type { Task, MissionWithProgress, MissionEvent } from '../../types/index.js';
 
-function makeFeature(overrides: Partial<FeatureWithProgress> & { id: string }): FeatureWithProgress {
+function makeFeature(overrides: Partial<MissionWithProgress> & { id: string }): MissionWithProgress {
   return {
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     title: 'Test Feature',
     description: '',
@@ -34,7 +34,7 @@ function makeFeature(overrides: Partial<FeatureWithProgress> & { id: string }): 
   };
 }
 
-function makeTask(overrides: Partial<Task> & { id: string; featureId: string }): Task {
+function makeTask(overrides: Partial<Task> & { id: string; missionId: string }): Task {
   return {
     title: 'Test Task',
     description: '',
@@ -70,7 +70,7 @@ function makeTask(overrides: Partial<Task> & { id: string; featureId: string }):
   };
 }
 
-function makeEvent(overrides: Partial<FeatureEvent> & { id: string; featureId: string }): FeatureEvent {
+function makeEvent(overrides: Partial<MissionEvent> & { id: string; missionId: string }): MissionEvent {
   return {
     actorType: 'system',
     actorId: 'user-1',
@@ -140,7 +140,7 @@ describe('RiskAnalysisSidebar', () => {
   it('renders failed tasks as blockers', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 't1', featureId: 'feat-1', status: 'failed', title: 'Failed Task', rejectionReason: 'Tests failing' }),
+      makeTask({ id: 't1', missionId: 'feat-1', status: 'failed', title: 'Failed Task', rejectionReason: 'Tests failing' }),
     ];
     render(
       <RiskAnalysisSidebar
@@ -157,7 +157,7 @@ describe('RiskAnalysisSidebar', () => {
   it('renders history timeline', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const events = [
-      makeEvent({ id: 'evt-1', featureId: 'feat-1', action: 'created', actorType: 'system' }),
+      makeEvent({ id: 'evt-1', missionId: 'feat-1', action: 'created', actorType: 'system' }),
     ];
     render(
       <RiskAnalysisSidebar
@@ -187,7 +187,7 @@ describe('RiskAnalysisSidebar', () => {
   it('renders projected impact level based on task statuses', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 't1', featureId: 'feat-1', status: 'failed' }),
+      makeTask({ id: 't1', missionId: 'feat-1', status: 'failed' }),
     ];
     render(
       <RiskAnalysisSidebar

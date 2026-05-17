@@ -20,7 +20,7 @@ const mockStoreState = {
 };
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector?: any) => {
+  useHabitatStore: (selector?: any) => {
     return selector ? selector(mockStoreState) : mockStoreState;
   },
 }));
@@ -159,13 +159,13 @@ describe('ActivityPanel', () => {
     expect(screen.queryByText('No activity yet')).toBeNull();
   });
 
-  it('calls useBoardEvents with boardId', () => {
+  it('calls useBoardEvents with habitatId', () => {
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);
 
     expect(mockBoardEvents).toHaveBeenCalledWith('board-1', expect.objectContaining({ limit: 50 }));
   });
 
-  it('calls useBoardAnomalies with boardId', () => {
+  it('calls useBoardAnomalies with habitatId', () => {
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);
 
     expect(mockBoardAnomalies).toHaveBeenCalledWith('board-1');
@@ -176,7 +176,7 @@ describe('ActivityPanel', () => {
 import { Drawer } from '../ui/Drawer.js';
 import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { useBoardEvents, useBoardAnomalies } from '../../lib/useHabitatData.js';`;
 
@@ -260,13 +260,13 @@ import { useBoardEvents, useBoardAnomalies } from '../../lib/useHabitatData.js';
     });
   });
 
-  it('renders Export button when boardId exists', () => {
+  it('renders Export button when habitatId exists', () => {
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);
 
     expect(screen.getByTitle('Export Audit Log')).toBeTruthy();
   });
 
-  it('does not render Export button when no boardId', () => {
+  it('does not render Export button when no habitatId', () => {
     (mockStoreState as Record<string, unknown>).board = null;
 
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);

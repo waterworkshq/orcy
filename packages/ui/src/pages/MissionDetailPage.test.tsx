@@ -5,16 +5,16 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FeatureDetailPage } from './MissionDetailPage.js';
 import type {
-  FeatureWithProgress,
+  MissionWithProgress,
   Task,
-  FeatureEvent,
+  MissionEvent,
 } from '../types/index.js';
 
 function makeFeature(
-  overrides: Partial<FeatureWithProgress> & { id: string }
-): FeatureWithProgress {
+  overrides: Partial<MissionWithProgress> & { id: string }
+): MissionWithProgress {
   return {
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     title: 'Test Feature',
     description: 'A test feature description',
@@ -53,7 +53,7 @@ function makeFeature(
 }
 
 function makeTask(
-  overrides: Partial<Task> & { id: string; featureId: string }
+  overrides: Partial<Task> & { id: string; missionId: string }
 ): Task {
   return {
     title: 'Test Task',
@@ -91,8 +91,8 @@ function makeTask(
 }
 
 function makeEvent(
-  overrides: Partial<FeatureEvent> & { id: string; featureId: string }
-): FeatureEvent {
+  overrides: Partial<MissionEvent> & { id: string; missionId: string }
+): MissionEvent {
   return {
     actorType: 'system',
     actorId: 'user-1',
@@ -136,7 +136,7 @@ vi.mock('../store/modalStore.js', () => ({
 }));
 
 vi.mock('../store/habitatStore.js', () => ({
-  useBoardStore: (selector: any) => selector({ agents: [] }),
+  useHabitatStore: (selector: any) => selector({ agents: [] }),
 }));
 
 vi.mock('../components/ui/Button.js', () => ({
@@ -222,7 +222,7 @@ function renderWithProviders(
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/features/:id" element={<FeatureDetailPage />} />
-          <Route path="/boards/:boardId" element={<div>Board Page</div>} />
+          <Route path="/boards/:habitatId" element={<div>Board Page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -292,8 +292,8 @@ describe('FeatureDetailPage', () => {
   it('renders pipeline context sidebar with task list', async () => {
     const feature = makeFeature({ id: 'feat-123' });
     const tasks = [
-      makeTask({ id: 'task-1', featureId: 'feat-123', status: 'in_progress', title: 'Active Task' }),
-      makeTask({ id: 'task-2', featureId: 'feat-123', status: 'done', title: 'Done Task' }),
+      makeTask({ id: 'task-1', missionId: 'feat-123', status: 'in_progress', title: 'Active Task' }),
+      makeTask({ id: 'task-2', missionId: 'feat-123', status: 'done', title: 'Done Task' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -482,10 +482,10 @@ describe('FeatureDetailPage', () => {
   it('renders read-only kanban with 4 columns', async () => {
     const feature = makeFeature({ id: 'feat-123' });
     const tasks = [
-      makeTask({ id: 'task-1', featureId: 'feat-123', status: 'pending', title: 'Pending Task' }),
-      makeTask({ id: 'task-2', featureId: 'feat-123', status: 'in_progress', title: 'Active Task' }),
-      makeTask({ id: 'task-3', featureId: 'feat-123', status: 'submitted', title: 'Review Task' }),
-      makeTask({ id: 'task-4', featureId: 'feat-123', status: 'done', title: 'Done Task' }),
+      makeTask({ id: 'task-1', missionId: 'feat-123', status: 'pending', title: 'Pending Task' }),
+      makeTask({ id: 'task-2', missionId: 'feat-123', status: 'in_progress', title: 'Active Task' }),
+      makeTask({ id: 'task-3', missionId: 'feat-123', status: 'submitted', title: 'Review Task' }),
+      makeTask({ id: 'task-4', missionId: 'feat-123', status: 'done', title: 'Done Task' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -508,7 +508,7 @@ describe('FeatureDetailPage', () => {
   it('opens the portable task modal from a feature task click', async () => {
     const feature = makeFeature({ id: 'feat-123' });
     const tasks = [
-      makeTask({ id: 'task-feature-open', featureId: 'feat-123', status: 'pending', title: 'Open From Feature' }),
+      makeTask({ id: 'task-feature-open', missionId: 'feat-123', status: 'pending', title: 'Open From Feature' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -531,8 +531,8 @@ describe('FeatureDetailPage', () => {
   it('renders total task count in kanban header', async () => {
     const feature = makeFeature({ id: 'feat-123' });
     const tasks = [
-      makeTask({ id: 'task-1', featureId: 'feat-123', status: 'pending' }),
-      makeTask({ id: 'task-2', featureId: 'feat-123', status: 'done' }),
+      makeTask({ id: 'task-1', missionId: 'feat-123', status: 'pending' }),
+      makeTask({ id: 'task-2', missionId: 'feat-123', status: 'done' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -552,7 +552,7 @@ describe('FeatureDetailPage', () => {
   it('renders task ID prefix in task cards', async () => {
     const feature = makeFeature({ id: 'feat-123' });
     const tasks = [
-      makeTask({ id: 'task-abcd1234', featureId: 'feat-123', status: 'pending', title: 'A Task' }),
+      makeTask({ id: 'task-abcd1234', missionId: 'feat-123', status: 'pending', title: 'A Task' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -574,7 +574,7 @@ describe('FeatureDetailPage', () => {
     const tasks = [
       makeTask({
         id: 'task-1',
-        featureId: 'feat-123',
+        missionId: 'feat-123',
         status: 'pending',
         title: 'Timed Task',
         estimatedMinutes: 30,
@@ -669,7 +669,7 @@ describe('FeatureDetailPage integration', () => {
       status: 'review',
     });
     const tasks = [
-      makeTask({ id: 'task-10', featureId: 'feat-456', status: 'submitted', title: 'Integration Task' }),
+      makeTask({ id: 'task-10', missionId: 'feat-456', status: 'submitted', title: 'Integration Task' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -695,12 +695,12 @@ describe('FeatureDetailPage integration', () => {
       labels: ['infra'],
     });
     const tasks = [
-      makeTask({ id: 'task-a', featureId: 'feat-789', status: 'pending', title: 'Setup task' }),
-      makeTask({ id: 'task-b', featureId: 'feat-789', status: 'in_progress', title: 'Build task' }),
-      makeTask({ id: 'task-c', featureId: 'feat-789', status: 'done', title: 'Done task' }),
+      makeTask({ id: 'task-a', missionId: 'feat-789', status: 'pending', title: 'Setup task' }),
+      makeTask({ id: 'task-b', missionId: 'feat-789', status: 'in_progress', title: 'Build task' }),
+      makeTask({ id: 'task-c', missionId: 'feat-789', status: 'done', title: 'Done task' }),
     ];
     const events = [
-      makeEvent({ id: 'evt-1', featureId: 'feat-789', action: 'created' }),
+      makeEvent({ id: 'evt-1', missionId: 'feat-789', action: 'created' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -730,7 +730,7 @@ describe('FeatureDetailPage integration', () => {
   it('task click in pipeline sidebar opens TaskDetailModal', async () => {
     const feature = makeFeature({ id: 'feat-123' });
     const tasks = [
-      makeTask({ id: 'task-sidebar', featureId: 'feat-123', status: 'pending', title: 'Sidebar Task' }),
+      makeTask({ id: 'task-sidebar', missionId: 'feat-123', status: 'pending', title: 'Sidebar Task' }),
     ];
     mockFeatureDetails.mockResolvedValue({
       feature,
@@ -771,7 +771,7 @@ describe('FeatureDetailPage integration', () => {
   });
 
   it('renders back to habitat link', async () => {
-    const feature = makeFeature({ id: 'feat-123', boardId: 'board-1' });
+    const feature = makeFeature({ id: 'feat-123', habitatId: 'board-1' });
     mockFeatureDetails.mockResolvedValue({
       feature,
       tasks: [],

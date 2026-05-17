@@ -10,11 +10,11 @@ import { AnomalyDetectionTab, type AnomalyDetectionTabHandle } from './settings/
 import { AutoAssignTab, type AutoAssignTabHandle } from './settings/AutoAssignTab.js';
 import { PrioritizationTab, type PrioritizationTabHandle } from './settings/PrioritizationTab.js';
 import { ScheduledTasksTab } from './settings/ScheduledTasksTab.js';
-import { ExportBoardDialog } from './ExportHabitatDialog.js';
-import { ImportBoardDialog } from './ImportHabitatDialog.js';
+import { ExportHabitatDialog } from './ExportHabitatDialog.js';
+import { ImportHabitatDialog } from './ImportHabitatDialog.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
-import type { Board } from '../../types/index.js';
+import type { Habitat } from '../../types/index.js';
 
 type SettingsTab = 'general' | 'notifications' | 'chat' | 'retry' | 'anomaly' | 'auto_assign' | 'prioritization' | 'scheduled_tasks';
 
@@ -38,15 +38,15 @@ const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
   prioritization: 'Save Prioritization Rules',
 };
 
-interface BoardSettingsDialogProps {
-  board: Board;
+interface HabitatSettingsDialogProps {
+  board: Habitat;
   open: boolean;
   onClose: () => void;
-  onUpdate: (board: Board) => void;
+  onUpdate: (board: Habitat) => void;
   onDelete: () => void;
 }
 
-export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }: BoardSettingsDialogProps) {
+export function HabitatSettingsDialog({ board, open, onClose, onUpdate, onDelete }: HabitatSettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -109,7 +109,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
         <div className={activeTab !== 'general' ? 'hidden' : ''}>
           <GeneralTab
             ref={generalRef}
-            boardId={board.id}
+            habitatId={board.id}
             boardName={board.name}
             boardDescription={board.description}
             onUpdate={onUpdate}
@@ -123,17 +123,17 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
         <div className={activeTab !== 'notifications' ? 'hidden' : ''}>
           <NotificationsTab
             ref={notificationsRef}
-            boardId={board.id}
+            habitatId={board.id}
             onSavingChange={handleTabSavingChange}
           />
         </div>
         <div className={activeTab !== 'chat' ? 'hidden' : ''}>
-          <ChatIntegrationsTab boardId={board.id} />
+          <ChatIntegrationsTab habitatId={board.id} />
         </div>
         <div className={activeTab !== 'retry' ? 'hidden' : ''}>
           <RetryPolicyTab
             ref={retryRef}
-            boardId={board.id}
+            habitatId={board.id}
             boardRetrySettings={board.retrySettings}
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
@@ -142,7 +142,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
         <div className={activeTab !== 'anomaly' ? 'hidden' : ''}>
           <AnomalyDetectionTab
             ref={anomalyRef}
-            boardId={board.id}
+            habitatId={board.id}
             boardAnomalySettings={board.anomalySettings}
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
@@ -151,7 +151,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
         <div className={activeTab !== 'auto_assign' ? 'hidden' : ''}>
           <AutoAssignTab
             ref={autoAssignRef}
-            boardId={board.id}
+            habitatId={board.id}
             boardAutoAssignSettings={board.autoAssignSettings}
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
@@ -160,14 +160,14 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
         <div className={activeTab !== 'prioritization' ? 'hidden' : ''}>
           <PrioritizationTab
             ref={prioritizationRef}
-            boardId={board.id}
+            habitatId={board.id}
             boardPrioritizationSettings={board.prioritizationSettings}
             onUpdate={onUpdate}
             onSavingChange={handleTabSavingChange}
           />
         </div>
         <div className={activeTab !== 'scheduled_tasks' ? 'hidden' : ''}>
-          <ScheduledTasksTab boardId={board.id} />
+          <ScheduledTasksTab habitatId={board.id} />
         </div>
       </DialogContent>
       <DialogFooter>
@@ -186,7 +186,7 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
       onConfirm={async () => {
         setDeleteOpen(false);
         try {
-          await api.boards.delete(board.id);
+          await api.habitats.delete(board.id);
           notify.success('Habitat deleted');
           onDelete();
           onClose();
@@ -200,19 +200,19 @@ export function BoardSettingsDialog({ board, open, onClose, onUpdate, onDelete }
       confirmLabel="Delete"
       variant="danger"
     />
-    <ExportBoardDialog
-      boardId={board.id}
+    <ExportHabitatDialog
+      habitatId={board.id}
       boardName={board.name}
       open={exportOpen}
       onClose={() => setExportOpen(false)}
     />
-    <ImportBoardDialog
-      boardId={board.id}
+    <ImportHabitatDialog
+      habitatId={board.id}
       boardName={board.name}
       open={importOpen}
       onClose={() => setImportOpen(false)}
-      onImport={(importedBoardId) => {
-        if (importedBoardId !== board.id) {
+      onImport={(importedHabitatId) => {
+        if (importedHabitatId !== board.id) {
           notify.success('Habitat imported as new habitat');
         }
       }}

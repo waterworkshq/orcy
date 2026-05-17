@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Badge } from '../ui/Badge.js';
-import type { FeatureWithProgress } from '../../types/index.js';
+import type { MissionWithProgress } from '../../types/index.js';
 
 const priorityColor: Record<string, string> = {
   critical: 'bg-[var(--badge-critical)]',
@@ -11,7 +11,7 @@ const priorityColor: Record<string, string> = {
 };
 
 export type FeatureNodeData = {
-  feature: FeatureWithProgress;
+  feature: MissionWithProgress;
   isHighlighted: boolean;
   isDimmed: boolean;
   isDependencyMet: boolean;

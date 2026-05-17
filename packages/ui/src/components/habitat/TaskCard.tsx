@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { shallow } from 'zustand/shallow';
 import { Badge } from '../ui/Badge.js';
 import { Tooltip } from '../ui/Tooltip.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { api } from '../../api/index.js';
 import { truncateId, formatDueDate, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, TASK_STATUS_VARIANT } from '../../lib/formatting.js';
@@ -35,7 +35,7 @@ const statusTooltip: Record<string, string> = {
 };
 
 function AgentAvatar({ agentId }: { agentId: string }) {
-  const agent = useBoardStore(
+  const agent = useHabitatStore(
     (s) => s.agents.find((a) => a.id === agentId) ?? null,
     shallow
   );
@@ -65,8 +65,8 @@ function AgentAvatar({ agentId }: { agentId: string }) {
  */
 export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByDeps: blockedByDepsProp, qualityStatus: qualityStatusProp }: TaskCardProps) {
   const openModal = useModalStore((s) => s.openModal);
-  const isBulkSelectMode = useBoardStore((s) => s.isBulkSelectMode);
-  const taskViewers = useBoardStore(
+  const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
+  const taskViewers = useHabitatStore(
     (s) => s.presence.filter((p) => p.viewingTaskId === task.id),
     shallow
   );

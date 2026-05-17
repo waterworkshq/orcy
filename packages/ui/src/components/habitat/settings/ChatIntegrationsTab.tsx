@@ -9,11 +9,11 @@ import { queryKeys } from '../../../lib/queryKeys.js';
 import type { ChatIntegration } from '../../../types/index.js';
 
 interface ChatIntegrationsTabProps {
-  boardId: string;
+  habitatId: string;
 }
 
-export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
-  const { data: chatIntegrations = [], isLoading: chatLoading } = useChatIntegrations(boardId);
+export function ChatIntegrationsTab({ habitatId }: ChatIntegrationsTabProps) {
+  const { data: chatIntegrations = [], isLoading: chatLoading } = useChatIntegrations(habitatId);
   const [chatSaving, setChatSaving] = useState(false);
   const [chatFormOpen, setChatFormOpen] = useState(false);
   const [chatEditIntegration, setChatEditIntegration] = useState<ChatIntegration | null>(null);
@@ -22,7 +22,7 @@ export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
   const qc = useQueryClient();
 
   const invalidateIntegrations = () =>
-    qc.invalidateQueries({ queryKey: queryKeys.chatIntegrations.list(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.chatIntegrations.list(habitatId) });
 
   function openChatForm(existing?: ChatIntegration) {
     setChatEditIntegration(existing ?? null);
@@ -52,7 +52,7 @@ export function ChatIntegrationsTab({ boardId }: ChatIntegrationsTabProps) {
         });
         notify.success('Integration updated');
       } else {
-        await api.chatIntegrations.create(boardId, {
+        await api.chatIntegrations.create(habitatId, {
           provider: data.provider,
           webhookUrl: data.webhookUrl,
           channelId: data.channelId || undefined,

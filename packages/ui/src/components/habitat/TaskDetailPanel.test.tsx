@@ -7,9 +7,9 @@ import type { Task, Agent, TaskEvent, Subtask, TaskComment, PullRequest, Pipelin
 
 // ── Board store mocks ──
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: vi.fn((selector?: any) => {
+  useHabitatStore: vi.fn((selector?: any) => {
     const state = {
-      selectedFeatureId: 'feat-1',
+      selectedMissionId: 'feat-1',
       tasks: [] as any[],
       columns: [] as any[],
       agents: [] as Agent[],
@@ -139,7 +139,7 @@ function makeDefaultPanelReturn(overrides: Record<string, any> = {}) {
     isEditing: false,
     task: {
       id: 'task-1',
-      featureId: 'feat-1',
+      missionId: 'feat-1',
       title: 'Test Task',
       description: 'Test description',
       priority: 'medium',

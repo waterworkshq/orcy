@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useBoardStore } from '../store/habitatStore.js';
+import { useHabitatStore } from '../store/habitatStore.js';
 import { useModalStore } from '../store/modalStore.js';
 import { useBoardAnomalies, useBoardEvents } from '../lib/useHabitatData.js';
 import { Button } from '../components/ui/Button.js';
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, ArrowLeft, Activity, Loader2 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/formatting.js';
-import type { EnrichedBoardEvent, EventAction, Anomaly } from '../types/index.js';
+import type { EnrichedHabitatEvent, EventAction, Anomaly } from '../types/index.js';
 
 type FilterType = 'all' | 'claims' | 'submissions' | 'approvals' | 'rejections';
 
@@ -64,7 +64,7 @@ function getActionVerb(action: EventAction): string {
   }
 }
 
-function EventRow({ event, onTaskClick }: { event: EnrichedBoardEvent; onTaskClick: (taskId: string) => void }) {
+function EventRow({ event, onTaskClick }: { event: EnrichedHabitatEvent; onTaskClick: (taskId: string) => void }) {
   const actorName = event.actorName ?? (event.actorType === 'human' ? 'Human' : event.actorType === 'system' ? 'System' : event.actorId.substring(0, 8));
   const verb = getActionVerb(event.action);
 
@@ -117,18 +117,18 @@ function EventRow({ event, onTaskClick }: { event: EnrichedBoardEvent; onTaskCli
 }
 
 export function ActivityPage() {
-  const board = useBoardStore((s) => s.board);
+  const board = useHabitatStore((s) => s.board);
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>('all');
   const [pageOffset, setPageOffset] = useState(0);
-  const [accumulatedEvents, setAccumulatedEvents] = useState<EnrichedBoardEvent[]>([]);
+  const [accumulatedEvents, setAccumulatedEvents] = useState<EnrichedHabitatEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  const boardId = board?.id;
+  const habitatId = board?.id;
   const limit = 50;
 
-  const anomaliesQuery = useBoardAnomalies(boardId);
+  const anomaliesQuery = useBoardAnomalies(habitatId);
   const anomalies = anomaliesQuery.data?.anomalies ?? [];
 
   const actions = actionFilters[filter];
@@ -140,7 +140,7 @@ export function ActivityPage() {
     return params;
   }, [limit, pageOffset, actions]);
 
-  const eventsQuery = useBoardEvents(boardId, eventsParams);
+  const eventsQuery = useBoardEvents(habitatId, eventsParams);
 
   useEffect(() => {
     if (!eventsQuery.data) return;
@@ -182,7 +182,7 @@ export function ActivityPage() {
     critical: 'glass-badge glass-badge-critical',
   };
 
-  if (!boardId) {
+  if (!habitatId) {
     return (
       <div className="min-h-screen bg-background">
         <header className="glass-panel ghost-border-b sticky top-0 z-10">

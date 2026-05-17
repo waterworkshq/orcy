@@ -27,10 +27,10 @@ const CapacityChart = React.lazy(() =>
 interface DashboardChartsProps {
   stats: DashboardStats;
   period: '7d' | '30d' | '90d';
-  boardId?: string;
+  habitatId?: string;
 }
 
-export function DashboardCharts({ stats, period, boardId }: DashboardChartsProps) {
+export function DashboardCharts({ stats, period, habitatId }: DashboardChartsProps) {
   const formatCycleTime = (minutes: number) => {
     if (minutes === 0) return '0m';
     if (minutes < 60) return `${minutes}m`;
@@ -147,11 +147,11 @@ export function DashboardCharts({ stats, period, boardId }: DashboardChartsProps
         </CardContent>
       </Card>
 
-      {boardId && (
+      {habitatId && (
         <div>
           <h2 className="text-lg font-semibold text-on-surface mb-4">Agent Capacity</h2>
           <Suspense fallback={<SkeletonCard />}>
-            <CapacityChart boardId={boardId} />
+            <CapacityChart habitatId={habitatId} />
           </Suspense>
         </div>
       )}

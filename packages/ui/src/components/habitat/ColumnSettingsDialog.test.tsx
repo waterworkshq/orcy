@@ -21,7 +21,7 @@ vi.mock('../../api/index.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: {
+  useHabitatStore: {
     getState: () => ({
       setColumns: mockSetColumns,
     }),
@@ -75,7 +75,7 @@ vi.mock('lucide-react', () => ({
 
 const makeColumn = (id: string, name: string, order: number): Column => ({
   id,
-  boardId: 'board-1',
+  habitatId: 'board-1',
   name,
   order,
   wipLimit: null,

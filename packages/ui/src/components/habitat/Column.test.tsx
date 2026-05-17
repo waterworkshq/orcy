@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { Column } from './Column.js';
-import type { Column as ColumnType, FeatureWithProgress } from '../../types/index.js';
+import type { Column as ColumnType, MissionWithProgress } from '../../types/index.js';
 
 vi.mock('@dnd-kit/core', () => ({
   useDroppable: vi.fn(() => ({ setNodeRef: vi.fn(), isOver: false })),
@@ -38,7 +38,7 @@ const mockColumn: ColumnType = {
   id: 'col-1',
   name: 'In Progress',
   order: 0,
-  boardId: 'board-1',
+  habitatId: 'board-1',
   wipLimit: 5,
   requiresClaim: false,
   autoAdvance: false,
@@ -46,7 +46,7 @@ const mockColumn: ColumnType = {
   isTerminal: false,
 };
 
-const mockFeatures: FeatureWithProgress[] = [
+const mockFeatures: MissionWithProgress[] = [
   {
     id: 'f1',
     title: 'Feature A',
@@ -54,7 +54,7 @@ const mockFeatures: FeatureWithProgress[] = [
     acceptanceCriteria: '',
     priority: 'high',
     status: 'in_progress',
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     labels: [],
     dependsOn: [],
@@ -91,7 +91,7 @@ const mockFeatures: FeatureWithProgress[] = [
     acceptanceCriteria: '',
     priority: 'medium',
     status: 'in_progress',
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     labels: [],
     dependsOn: [],
@@ -135,7 +135,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 describe('Column', () => {

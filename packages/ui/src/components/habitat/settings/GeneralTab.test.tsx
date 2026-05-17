@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { GeneralTab } from './GeneralTab.js';
-import type { Board } from '../../../types/index.js';
+import type { Habitat } from '../../../types/index.js';
 
 vi.mock('../../ui/Button.js', () => ({
   Button: ({ children, onClick, ...props }: any) => (
@@ -17,8 +17,8 @@ describe('GeneralTab', () => {
   const mockOnDeleteOpen = vi.fn();
 
   const defaultProps = {
-    boardId: 'b1',
-    boardName: 'Test Board',
+    habitatId: 'b1',
+    boardName: 'Test Habitat',
     boardDescription: 'A test board',
     onUpdate: mockOnUpdate,
     onClose: mockOnClose,
@@ -37,7 +37,7 @@ describe('GeneralTab', () => {
 
   it('renders board name input with current value', () => {
     render(<GeneralTab {...defaultProps} />);
-    const input = screen.getByDisplayValue('Test Board');
+    const input = screen.getByDisplayValue('Test Habitat');
     expect(input).toBeTruthy();
     expect(input.tagName).toBe('INPUT');
   });

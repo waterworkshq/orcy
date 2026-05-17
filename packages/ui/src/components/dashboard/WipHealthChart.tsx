@@ -14,8 +14,8 @@ interface WipHealthChartProps {
   data: Array<{
     columnId: string;
     columnName: string;
-    boardId: string;
-    boardName: string;
+    habitatId: string;
+    habitatName: string;
     current: number;
     limit: number | null;
     health: 'ok' | 'warning' | 'exceeded';
@@ -33,7 +33,7 @@ export function WipHealthChart({ data }: WipHealthChartProps) {
 
   const chartData = data.map((col) => ({
     name: col.columnName.length > 12 ? col.columnName.slice(0, 12) + '...' : col.columnName,
-    board: col.boardName,
+    board: col.habitatName,
     current: col.current,
     limit: col.limit,
     health: col.health,

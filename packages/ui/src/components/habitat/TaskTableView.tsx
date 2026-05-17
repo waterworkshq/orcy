@@ -5,7 +5,7 @@ import { Search } from 'lucide-react';
 import { DataTable } from '../ui/DataTable.js';
 import { getTaskTableColumns } from './TaskTableColumns.js';
 import { TaskBulkActionBar } from './TaskBulkActionBar.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useBoardTasks, type BoardTasksFilters } from '../../lib/useHabitatData.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
 import type { TaskPriority, TaskStatus } from '../../types/index.js';
@@ -29,10 +29,10 @@ const PRIORITY_OPTIONS: { value: string; label: string }[] = [
 ];
 
 interface TaskTableViewProps {
-  boardId: string;
+  habitatId: string;
 }
 
-export function TaskTableView({ boardId }: TaskTableViewProps) {
+export function TaskTableView({ habitatId }: TaskTableViewProps) {
   const columns = React.useMemo(() => getTaskTableColumns(), []);
 
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
@@ -42,17 +42,17 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
   const debouncedSearch = useDebounce(search, 300);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>(() => {
-    const ids = useBoardStore.getState().selectedTaskIds;
+    const ids = useHabitatStore.getState().selectedTaskIds;
     const mapping: RowSelectionState = {};
     ids.forEach((id) => { mapping[id] = true; });
     return mapping;
   });
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
 
-  const agents = useBoardStore((s) => s.agents, shallow);
-  const selectedTaskIds = useBoardStore((s) => s.selectedTaskIds);
-  const selectTaskIds = useBoardStore((s) => s.selectTaskIds);
-  const clearTaskSelection = useBoardStore((s) => s.clearTaskSelection);
+  const agents = useHabitatStore((s) => s.agents, shallow);
+  const selectedTaskIds = useHabitatStore((s) => s.selectedTaskIds);
+  const selectTaskIds = useHabitatStore((s) => s.selectTaskIds);
+  const clearTaskSelection = useHabitatStore((s) => s.clearTaskSelection);
 
   const filters: BoardTasksFilters = React.useMemo(() => {
     const f: BoardTasksFilters = {};
@@ -67,7 +67,7 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
     return f;
   }, [statusFilter, priorityFilter, agentFilter, debouncedSearch, sorting]);
 
-  const { data, isLoading, isError } = useBoardTasks(boardId, filters);
+  const { data, isLoading, isError } = useBoardTasks(habitatId, filters);
   const tasks = data?.tasks ?? [];
 
   React.useEffect(() => {
@@ -188,7 +188,7 @@ export function TaskTableView({ boardId }: TaskTableViewProps) {
       )}
 
       {selectedTaskIds.length > 0 && (
-        <TaskBulkActionBar boardId={boardId} />
+        <TaskBulkActionBar habitatId={habitatId} />
       )}
     </div>
   );

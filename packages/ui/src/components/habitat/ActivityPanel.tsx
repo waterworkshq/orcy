@@ -2,12 +2,12 @@ import React, { useState, useCallback } from 'react';
 import { Drawer } from '../ui/Drawer.js';
 import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { useBoardEvents, useBoardAnomalies } from '../../lib/useHabitatData.js';
 import { SEVERITY_BADGE } from '../../lib/status-maps.js';
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, Download } from 'lucide-react';
-import type { EnrichedBoardEvent, EventAction, Anomaly } from '../../types/index.js';
+import type { EnrichedHabitatEvent, EventAction, Anomaly } from '../../types/index.js';
 import { AuditExportModal } from './AuditExportModal.js';
 
 interface ActivityPanelProps {
@@ -75,7 +75,7 @@ function getActionVerb(action: EventAction): string {
   }
 }
 
-function EventRow({ event, onTaskClick }: { event: EnrichedBoardEvent; onTaskClick: (taskId: string) => void }) {
+function EventRow({ event, onTaskClick }: { event: EnrichedHabitatEvent; onTaskClick: (taskId: string) => void }) {
   const actorName = event.actorName ?? (event.actorType === 'human' ? 'Human' : event.actorType === 'system' ? 'System' : event.actorId.substring(0, 8));
   const verb = getActionVerb(event.action);
 
@@ -127,25 +127,25 @@ function EventRow({ event, onTaskClick }: { event: EnrichedBoardEvent; onTaskCli
 }
 
 export function ActivityPanel({ onClose }: ActivityPanelProps) {
-  const { board } = useBoardStore();
+  const { board } = useHabitatStore();
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>('all');
-  const [extraEvents, setExtraEvents] = useState<EnrichedBoardEvent[]>([]);
+  const [extraEvents, setExtraEvents] = useState<EnrichedHabitatEvent[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [auditExportOpen, setAuditExportOpen] = useState(false);
 
-  const boardId = board?.id;
+  const habitatId = board?.id;
   const limit = 50;
 
   const actions = actionFilters[filter];
-  const eventsQuery = useBoardEvents(boardId, {
+  const eventsQuery = useBoardEvents(habitatId, {
     limit,
     offset: 0,
     action: actions.length === 1 ? actions[0] : undefined,
     ...(actions.length > 1 ? { actions: actions.join(',') } : {}),
   });
 
-  const anomaliesQuery = useBoardAnomalies(boardId);
+  const anomaliesQuery = useBoardAnomalies(habitatId);
 
   const events = eventsQuery.data?.events ?? [];
   const total = eventsQuery.data?.total ?? 0;
@@ -153,11 +153,11 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
   const hasMore = allEvents.length < total;
 
   const loadMore = useCallback(async () => {
-    if (!boardId || isLoadingMore) return;
+    if (!habitatId || isLoadingMore) return;
     setIsLoadingMore(true);
     try {
       const offset = limit + extraEvents.length;
-      const { events: more } = await api.boards.events(boardId, {
+      const { events: more } = await api.habitats.events(habitatId, {
         limit,
         offset,
         action: actions.length === 1 ? actions[0] : undefined,
@@ -169,7 +169,7 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [boardId, isLoadingMore, extraEvents.length, actions]);
+  }, [habitatId, isLoadingMore, extraEvents.length, actions]);
 
   const handleFilterChange = (newFilter: FilterType) => {
     setFilter(newFilter);
@@ -194,7 +194,7 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <h2 className="font-semibold">Activity Feed</h2>
         <div className="flex items-center gap-2">
-          {boardId && (
+          {habitatId && (
             <Button variant="ghost" size="sm" onClick={() => setAuditExportOpen(true)} title="Export Audit Log">
               <Download className="h-3.5 w-3.5 mr-1" />
               Export
@@ -270,9 +270,9 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
         )}
       </div>
     </Drawer>
-    {boardId && (
+    {habitatId && (
       <AuditExportModal
-        boardId={boardId}
+        habitatId={habitatId}
         open={auditExportOpen}
         onClose={() => setAuditExportOpen(false)}
       />

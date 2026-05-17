@@ -66,8 +66,8 @@ vi.mock('./ScheduledTaskForm.js', () => ({
         name: 'Test Task',
         scheduleType: 'cron',
         cronExpression: '0 9 * * 1',
-        featureTitle: 'Test Feature',
-        featurePriority: 'medium',
+        missionTitle: 'Test Feature',
+        missionPriority: 'medium',
       })}>
         SubmitForm
       </button>
@@ -86,7 +86,7 @@ function renderWithQC(ui: React.ReactElement) {
 
 const mockTask = {
   id: 'st-1',
-  boardId: 'b1',
+  habitatId: 'b1',
   templateId: null,
   name: 'Weekly Sprint',
   description: 'Create weekly sprint feature',
@@ -95,11 +95,11 @@ const mockTask = {
   intervalMinutes: null,
   scheduledAt: null,
   timezone: 'UTC',
-  featureTitle: 'Sprint {{date}}',
-  featureDescription: 'Weekly sprint',
-  featurePriority: 'medium',
-  featureLabels: ['sprint'],
-  featureDomain: null,
+  missionTitle: 'Sprint {{date}}',
+  missionDescription: 'Weekly sprint',
+  missionPriority: 'medium',
+  missionLabels: ['sprint'],
+  missionDomain: null,
   tasksTemplate: [],
   enabled: true,
   lastRunAt: '2025-01-01T09:00:00Z',
@@ -122,7 +122,7 @@ describe('ScheduledTasksTab', () => {
   });
 
   it('renders the list component', async () => {
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('scheduled-tasks-list')).toBeTruthy();
@@ -132,7 +132,7 @@ describe('ScheduledTasksTab', () => {
   it('renders scheduled tasks from useScheduledTasks', async () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Weekly Sprint')).toBeTruthy();
@@ -144,7 +144,7 @@ describe('ScheduledTasksTab', () => {
       templates: [{ id: 'tmpl-1', name: 'Sprint Template' }],
     });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('scheduled-tasks-list')).toBeTruthy();
@@ -154,7 +154,7 @@ describe('ScheduledTasksTab', () => {
   });
 
   it('shows form when Add is clicked', async () => {
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('AddBtn')).toBeTruthy();
@@ -171,7 +171,7 @@ describe('ScheduledTasksTab', () => {
   it('calls create API when form submits new task', async () => {
     mockCreateScheduledTask.mockResolvedValue({ scheduledTask: { id: 'st-new' } });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('AddBtn')).toBeTruthy();
@@ -197,7 +197,7 @@ describe('ScheduledTasksTab', () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
     mockDeleteScheduledTask.mockResolvedValue(undefined);
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('DeleteBtn')).toBeTruthy();
@@ -215,7 +215,7 @@ describe('ScheduledTasksTab', () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
     mockRunScheduledTask.mockResolvedValue({ success: true, featureId: 'f1' });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('RunBtn')).toBeTruthy();
@@ -233,7 +233,7 @@ describe('ScheduledTasksTab', () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
     mockDisableScheduledTask.mockResolvedValue({ scheduledTask: { ...mockTask, enabled: false } });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('ToggleBtn')).toBeTruthy();
@@ -251,7 +251,7 @@ describe('ScheduledTasksTab', () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [disabledTask] });
     mockEnableScheduledTask.mockResolvedValue({ scheduledTask: { ...mockTask, enabled: true } });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('ToggleBtn')).toBeTruthy();
@@ -267,7 +267,7 @@ describe('ScheduledTasksTab', () => {
   it('shows edit form when Edit is clicked', async () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('EditBtn')).toBeTruthy();
@@ -285,7 +285,7 @@ describe('ScheduledTasksTab', () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
     mockUpdateScheduledTask.mockResolvedValue({ scheduledTask: mockTask });
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('EditBtn')).toBeTruthy();
@@ -310,7 +310,7 @@ describe('ScheduledTasksTab', () => {
   it('shows error on create failure', async () => {
     mockCreateScheduledTask.mockRejectedValue(new Error('create failed'));
 
-    renderWithQC(<ScheduledTasksTab boardId="b1" />);
+    renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('AddBtn')).toBeTruthy();

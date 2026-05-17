@@ -10,11 +10,11 @@ import { useDashboardStats, useBoardPredictions, useBoardBurndown } from '../lib
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const period = (searchParams.get('period') as '7d' | '30d' | '90d') || '30d';
-  const boardId = searchParams.get('boardId') || undefined;
+  const habitatId = searchParams.get('habitatId') || undefined;
 
   const { data: stats, isLoading: loading, error: statsError } = useDashboardStats();
-  const { data: predictions } = useBoardPredictions(boardId);
-  const { data: burndown } = useBoardBurndown(boardId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
+  const { data: predictions } = useBoardPredictions(habitatId);
+  const { data: burndown } = useBoardBurndown(habitatId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
 
   const error = statsError ? (statsError as Error).message : null;
 
@@ -77,7 +77,7 @@ export function DashboardPage() {
         )}
 
         {!loading && !error && stats && (
-          <DashboardCharts stats={stats} period={period} boardId={boardId} />
+          <DashboardCharts stats={stats} period={period} habitatId={habitatId} />
         )}
 
         {!loading && !error && predictions && burndown && (

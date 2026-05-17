@@ -1,22 +1,22 @@
 import React, { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/Dialog.js';
 import { Button } from '../ui/Button.js';
-import type { BoardExport } from '../../types/index.js';
+import type { HabitatExport } from '../../types/index.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 
-interface ImportBoardDialogProps {
-  boardId?: string;
+interface ImportHabitatDialogProps {
+  habitatId?: string;
   boardName?: string;
   open: boolean;
   onClose: () => void;
-  onImport: (boardId: string) => void;
+  onImport: (habitatId: string) => void;
 }
 
-export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport }: ImportBoardDialogProps) {
+export function ImportHabitatDialog({ habitatId, boardName, open, onClose, onImport }: ImportHabitatDialogProps) {
   const [mode, setMode] = useState<'replace' | 'merge'>('replace');
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<BoardExport | null>(null);
+  const [preview, setPreview] = useState<HabitatExport | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +42,7 @@ export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport 
     reader.readAsText(selectedFile);
   };
 
-  const validateImportData = (data: unknown): BoardExport => {
+  const validateImportData = (data: unknown): HabitatExport => {
     if (!data || typeof data !== 'object') throw new Error('Invalid JSON: expected an object');
     const d = data as Record<string, unknown>;
     if (typeof d.version !== 'number') throw new Error('Invalid export: missing version field');
@@ -51,17 +51,17 @@ export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport 
     const board = d.board as Record<string, unknown>;
     if (typeof board.name !== 'string') throw new Error('Invalid export: board.name must be a string');
 
-    const result: BoardExport = {
+    const result: HabitatExport = {
       version: d.version as number,
       exportedAt: (d.exportedAt as string) || new Date().toISOString(),
       board: {
         name: board.name as string,
         description: (board.description as string) || '',
-        columns: (board.columns as BoardExport['board']['columns']) || [],
-        features: (board.features as BoardExport['board']['features']) || [],
-        comments: (board.comments as BoardExport['board']['comments']) || [],
-        templates: (board.templates as BoardExport['board']['templates']) || [],
-        webhooks: (board.webhooks as BoardExport['board']['webhooks']) || [],
+        columns: (board.columns as HabitatExport['board']['columns']) || [],
+        features: (board.features as HabitatExport['board']['features']) || [],
+        comments: (board.comments as HabitatExport['board']['comments']) || [],
+        templates: (board.templates as HabitatExport['board']['templates']) || [],
+        webhooks: (board.webhooks as HabitatExport['board']['webhooks']) || [],
       },
     };
 
@@ -74,10 +74,10 @@ export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport 
     setImporting(true);
     try {
       let result;
-      if (boardId && mode === 'merge') {
-        result = await api.boards.importInto(boardId, preview);
+      if (habitatId && mode === 'merge') {
+        result = await api.habitats.importInto(habitatId, preview);
       } else {
-        result = await api.boards.import(preview);
+        result = await api.habitats.import(preview);
       }
 
       if (result.warnings.length > 0) {
@@ -115,7 +115,7 @@ export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport 
   return (
     <Dialog open={open} onClose={handleClose}>
       <DialogHeader>
-        <DialogTitle>{boardId ? 'Import Into Habitat' : 'Import Habitat'}</DialogTitle>
+        <DialogTitle>{habitatId ? 'Import Into Habitat' : 'Import Habitat'}</DialogTitle>
       </DialogHeader>
       <DialogContent>
         {!preview && !previewError && (
@@ -178,7 +178,7 @@ export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport 
               </div>
             </div>
 
-            {boardId && (
+            {habitatId && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Import mode:</p>
                 <label className="flex items-center gap-3 cursor-pointer">
@@ -225,7 +225,7 @@ export function ImportBoardDialog({ boardId, boardName, open, onClose, onImport 
           loading={importing}
           disabled={!preview}
         >
-          {boardId && mode === 'merge' ? 'Merge Import' : 'Import'}
+          {habitatId && mode === 'merge' ? 'Merge Import' : 'Import'}
         </Button>
       </DialogFooter>
     </Dialog>

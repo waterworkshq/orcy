@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/index.js';
 import { notify } from '../lib/toast.js';
-import { useBoardStore } from '../store/habitatStore.js';
+import { useHabitatStore } from '../store/habitatStore.js';
 
 export interface UseTaskActionsResult {
   deleteDialogOpen: boolean;
@@ -11,7 +11,7 @@ export interface UseTaskActionsResult {
 }
 
 export function useTaskActions(task: { id: string } | undefined): UseTaskActionsResult {
-  const { removeTask } = useBoardStore();
+  const { removeTask } = useHabitatStore();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   async function handleDelete() {

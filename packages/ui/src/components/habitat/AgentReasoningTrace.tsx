@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQueries } from '@tanstack/react-query';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { queryKeys } from '../../lib/queryKeys.js';
 import { formatRelativeTime } from './MissionHeader.js';
@@ -18,7 +18,7 @@ interface AgentComment {
 }
 
 export function AgentReasoningTrace({ tasks }: AgentReasoningTraceProps) {
-  const agents = useBoardStore((s) => s.agents);
+  const agents = useHabitatStore((s) => s.agents);
 
   const taskIds = React.useMemo(
     () => tasks.map((t) => t.id),

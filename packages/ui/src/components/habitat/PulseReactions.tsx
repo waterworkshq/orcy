@@ -14,18 +14,18 @@ interface PulseReactionsProps {
   pulseId: string;
   counts: PulseReactionCounts;
   missionId: string;
-  boardId?: string;
+  habitatId?: string;
 }
 
-export function PulseReactions({ pulseId, counts, missionId, boardId }: PulseReactionsProps) {
+export function PulseReactions({ pulseId, counts, missionId, habitatId }: PulseReactionsProps) {
   const queryClient = useQueryClient();
 
   const reactMutation = useMutation({
     mutationFn: (reaction: string) => api.pulse.react(pulseId, reaction),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byMission(missionId) });
-      if (boardId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
+      if (habitatId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(habitatId) });
       }
     },
     onError: (err: Error) => {

@@ -1,18 +1,18 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/Dialog.js';
 import { Button } from '../ui/Button.js';
-import type { BoardExport } from '../../types/index.js';
+import type { HabitatExport } from '../../types/index.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 
-interface ExportBoardDialogProps {
-  boardId: string;
+interface ExportHabitatDialogProps {
+  habitatId: string;
   boardName: string;
   open: boolean;
   onClose: () => void;
 }
 
-export function ExportBoardDialog({ boardId, boardName, open, onClose }: ExportBoardDialogProps) {
+export function ExportHabitatDialog({ habitatId, boardName, open, onClose }: ExportHabitatDialogProps) {
   const [includeColumns, setIncludeColumns] = useState(true);
   const [includeTasks, setIncludeTasks] = useState(true);
   const [includeComments, setIncludeComments] = useState(true);
@@ -31,7 +31,7 @@ export function ExportBoardDialog({ boardId, boardName, open, onClose }: ExportB
 
     setExporting(true);
     try {
-      const data = await api.boards.export(boardId, { include: includes });
+      const data = await api.habitats.export(habitatId, { include: includes });
       const json = JSON.stringify(data, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

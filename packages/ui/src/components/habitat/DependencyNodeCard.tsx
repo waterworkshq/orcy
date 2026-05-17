@@ -1,8 +1,8 @@
 import { clsx } from 'clsx';
-import type { FeatureStatus } from '../../types/index.js';
+import type { MissionStatus } from '../../types/index.js';
 import { FEATURE_STATUS_DOT } from '../../lib/status-maps.js';
 
-const statusDotColor: Record<FeatureStatus, string> = {
+const statusDotColor: Record<MissionStatus, string> = {
   not_started: FEATURE_STATUS_DOT.not_started,
   in_progress: FEATURE_STATUS_DOT.in_progress,
   review: FEATURE_STATUS_DOT.review,
@@ -12,7 +12,7 @@ const statusDotColor: Record<FeatureStatus, string> = {
 
 export interface DependencyNodeCardProps {
   title: string;
-  status: FeatureStatus;
+  status: MissionStatus;
   dependencyCount: number;
   blockerCount: number;
   onClick?: () => void;

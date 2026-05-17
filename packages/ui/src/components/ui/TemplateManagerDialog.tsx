@@ -6,10 +6,10 @@ import { notify } from '../../lib/toast.js';
 import { useTemplates } from '../../lib/useHabitatData.js';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys.js';
-import type { FeatureTemplate, TaskPriority } from '../../types/index.js';
+import type { MissionTemplate, TaskPriority } from '../../types/index.js';
 
 interface TemplateManagerDialogProps {
-  boardId: string;
+  habitatId: string;
   open: boolean;
   onClose: () => void;
 }
@@ -34,9 +34,9 @@ const emptyEditState: EditTemplateState = {
   requiredDomain: '',
 };
 
-export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManagerDialogProps) {
+export function TemplateManagerDialog({ habitatId, open, onClose }: TemplateManagerDialogProps) {
   const qc = useQueryClient();
-  const { data: templatesData, isLoading } = useTemplates(boardId);
+  const { data: templatesData, isLoading } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
   const [editing, setEditing] = useState<EditTemplateState | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -60,11 +60,11 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
       if (edit.id) {
         await api.templates.update(edit.id, data);
       } else {
-        await api.templates.create(boardId, data);
+        await api.templates.create(habitatId, data);
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.templates.list(boardId) });
+      qc.invalidateQueries({ queryKey: queryKeys.templates.list(habitatId) });
       notify.success(editing?.id ? 'Template updated' : 'Template created');
       setEditing(null);
       setShowForm(false);
@@ -77,7 +77,7 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.templates.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.templates.list(boardId) });
+      qc.invalidateQueries({ queryKey: queryKeys.templates.list(habitatId) });
       notify.success('Template deleted');
     },
     onError: (err: Error) => {
@@ -90,7 +90,7 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
     setShowForm(true);
   }
 
-  function startEdit(tmpl: FeatureTemplate) {
+  function startEdit(tmpl: MissionTemplate) {
     setEditing({
       id: tmpl.id,
       name: tmpl.name,
@@ -121,8 +121,8 @@ export function TemplateManagerDialog({ boardId, open, onClose }: TemplateManage
     deleteMutation.mutate(id);
   }
 
-  const globalTemplates = templates.filter((t) => !t.boardId);
-  const boardTemplates = templates.filter((t) => t.boardId);
+  const globalTemplates = templates.filter((t) => !t.habitatId);
+  const boardTemplates = templates.filter((t) => t.habitatId);
 
   return (
     <Dialog open={open} onClose={onClose}>

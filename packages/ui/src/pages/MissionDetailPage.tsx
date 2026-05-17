@@ -24,19 +24,19 @@ import { RiskAnalysisSidebar } from '../components/habitat/RiskAnalysisSidebar.j
 import { CodeReviewSection } from '../components/habitat/CodeReviewSection.js';
 import { AgentReasoningTrace } from '../components/habitat/AgentReasoningTrace.js';
 import { CommentInputBar } from '../components/habitat/CommentInputBar.js';
-import { FeatureCommentSection } from '../components/habitat/FeatureCommentSection.js';
+import { MissionCommentSection } from '../components/habitat/MissionCommentSection.js';
 import { PulseBoard } from '../components/habitat/PulseBoard.js';
 import type {
   Task,
-  FeatureWithProgress,
-  FeatureEvent,
+  MissionWithProgress,
+  MissionEvent,
 } from '../types/index.js';
 
 
 function FeatureActivity({
   events,
 }: {
-  events: FeatureEvent[];
+  events: MissionEvent[];
 }) {
   if (events.length === 0) {
     return null;
@@ -131,7 +131,7 @@ function ErrorView({
   );
 }
 
-export function FeatureDetailPage() {
+export function MissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<'tasks' | 'pulse' | 'activity' | 'comments'>('tasks');
   const queryClient = useQueryClient();
@@ -141,8 +141,8 @@ export function FeatureDetailPage() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: queryKeys.features.details(id ?? ''),
-    queryFn: () => api.features.details(id!),
+    queryKey: queryKeys.missions.details(id ?? ''),
+    queryFn: () => api.missions.details(id!),
     enabled: !!id,
     staleTime: 30 * 1000,
   });
@@ -230,7 +230,7 @@ export function FeatureDetailPage() {
             {activeTab === 'pulse' && id && <PulseBoard missionId={id} />}
 
             {activeTab === 'comments' && id && (
-              <FeatureCommentSection featureId={id} />
+              <MissionCommentSection missionId={id} />
             )}
 
             {activeTab === 'activity' && (

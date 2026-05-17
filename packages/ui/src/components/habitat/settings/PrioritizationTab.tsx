@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
-import type { Board, PrioritizationSettings, PrioritizationRule } from '../../../types/index.js';
+import type { Habitat, PrioritizationSettings, PrioritizationRule } from '../../../types/index.js';
 
 interface PrioritizationTabProps {
-  boardId: string;
+  habitatId: string;
   boardPrioritizationSettings: PrioritizationSettings | null;
-  onUpdate: (board: Board) => void;
+  onUpdate: (board: Habitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -112,7 +112,7 @@ const RULE_TEMPLATE = `[
 ]`;
 
 export const PrioritizationTab = forwardRef<PrioritizationTabHandle, PrioritizationTabProps>(function PrioritizationTab({
-  boardId,
+  habitatId,
   boardPrioritizationSettings,
   onUpdate,
   onSavingChange,
@@ -123,7 +123,7 @@ export const PrioritizationTab = forwardRef<PrioritizationTabHandle, Prioritizat
   const [rulesText, setRulesText] = useState('[]');
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: boardId, onUpdate });
+  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
 
   useEffect(() => {
     onSavingChange?.(saving);

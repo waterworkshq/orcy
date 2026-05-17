@@ -3,10 +3,10 @@ import { Button } from '../../ui/Button.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
 
 interface GeneralTabProps {
-  boardId: string;
+  habitatId: string;
   boardName: string;
   boardDescription: string;
-  onUpdate: (board: import('../../../types/index.js').Board) => void;
+  onUpdate: (board: import('../../../types/index.js').Habitat) => void;
   onClose: () => void;
   onSavingChange?: (saving: boolean) => void;
   onExportOpen: () => void;
@@ -19,7 +19,7 @@ export interface GeneralTabHandle {
 }
 
 export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function GeneralTab({
-  boardId,
+  habitatId,
   boardName,
   boardDescription,
   onUpdate,
@@ -31,7 +31,7 @@ export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function
 }, ref) {
   const [name, setName] = useState(boardName);
   const [description, setDescription] = useState(boardDescription);
-  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: boardId, onUpdate });
+  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
 
   useEffect(() => {
     onSavingChange?.(saving);

@@ -8,16 +8,16 @@ import { SIGNAL_LABELS, SIGNAL_COLORS } from '../../lib/signalConfig.js';
 
 interface InsightCardProps {
   insight: ProjectInsight;
-  boardId: string;
+  habitatId: string;
 }
 
-export function InsightCard({ insight, boardId }: InsightCardProps) {
+export function InsightCard({ insight, habitatId }: InsightCardProps) {
   const queryClient = useQueryClient();
 
   const deactivateMutation = useMutation({
-    mutationFn: () => api.insights.deactivate(boardId, insight.id),
+    mutationFn: () => api.insights.deactivate(habitatId, insight.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.insights.byBoard(boardId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.insights.byBoard(habitatId) });
     },
     onError: (err: Error) => {
       console.error('Failed to deactivate insight:', err.message);

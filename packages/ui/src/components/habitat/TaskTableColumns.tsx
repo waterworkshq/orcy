@@ -3,7 +3,7 @@ import { type ColumnDef } from '@tanstack/react-table';
 import { shallow } from 'zustand/shallow';
 import { Badge } from '../ui/Badge.js';
 import { Tooltip } from '../ui/Tooltip.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import {
   PRIORITY_VARIANT,
   TASK_STATUS_VARIANT,
@@ -12,7 +12,7 @@ import {
 import type { Task, TaskPriority, TaskStatus } from '../../types/index.js';
 
 function AgentAvatar({ agentId }: { agentId: string }) {
-  const agent = useBoardStore(
+  const agent = useHabitatStore(
     (s) => s.agents.find((a) => a.id === agentId) ?? null,
     shallow
   );

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CodeReviewSection } from './CodeReviewSection.js';
 import type { Task } from '../../types/index.js';
 
-function makeTask(overrides: Partial<Task> & { id: string; featureId: string }): Task {
+function makeTask(overrides: Partial<Task> & { id: string; missionId: string }): Task {
   return {
     title: 'Test Task',
     description: '',
@@ -87,7 +87,7 @@ describe('CodeReviewSection', () => {
 
   it('displays task review groups with comments', async () => {
     const tasks = [
-      makeTask({ id: 'task-1', featureId: 'feat-1', title: 'Review Task' }),
+      makeTask({ id: 'task-1', missionId: 'feat-1', title: 'Review Task' }),
     ];
     mockCommentsList.mockResolvedValue({
       comments: [
@@ -117,7 +117,7 @@ describe('CodeReviewSection', () => {
   it('shows loading state', async () => {
     mockCommentsList.mockReturnValue(new Promise(() => {}));
     const { container } = renderWithQuery(
-      <CodeReviewSection tasks={[makeTask({ id: 'task-1', featureId: 'feat-1' })]} />
+      <CodeReviewSection tasks={[makeTask({ id: 'task-1', missionId: 'feat-1' })]} />
     );
     expect(container.querySelector('.animate-pulse')).toBeTruthy();
   });

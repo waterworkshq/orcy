@@ -1,24 +1,24 @@
 export const queryKeys = {
-  boards: {
-    all: ['boards'] as const,
-    list: () => [...queryKeys.boards.all, 'list'] as const,
-    detail: (boardId: string) => [...queryKeys.boards.all, 'detail', boardId] as const,
-    stats: (boardId: string) => [...queryKeys.boards.all, 'stats', boardId] as const,
-    events: (boardId: string) => [...queryKeys.boards.all, 'events', boardId] as const,
-    predictions: (boardId: string) => [...queryKeys.boards.all, 'predictions', boardId] as const,
-    burndown: (boardId: string) => [...queryKeys.boards.all, 'burndown', boardId] as const,
-    anomalies: (boardId: string) => [...queryKeys.boards.all, 'anomalies', boardId] as const,
-    capacity: (boardId: string) => [...queryKeys.boards.all, 'capacity', boardId] as const,
-    metrics: (boardId: string) => [...queryKeys.boards.all, 'metrics', boardId] as const,
-    tasks: (boardId: string, filters?: { status?: string; priority?: string; search?: string; assignedAgentId?: string; isArchived?: boolean; limit?: number; offset?: number; sortBy?: string; sortDir?: 'asc' | 'desc' }) => [...queryKeys.boards.all, 'tasks', boardId, filters] as const,
+  habitats: {
+    all: ['habitats'] as const,
+    list: () => [...queryKeys.habitats.all, 'list'] as const,
+    detail: (habitatId: string) => [...queryKeys.habitats.all, 'detail', habitatId] as const,
+    stats: (habitatId: string) => [...queryKeys.habitats.all, 'stats', habitatId] as const,
+    events: (habitatId: string) => [...queryKeys.habitats.all, 'events', habitatId] as const,
+    predictions: (habitatId: string) => [...queryKeys.habitats.all, 'predictions', habitatId] as const,
+    burndown: (habitatId: string) => [...queryKeys.habitats.all, 'burndown', habitatId] as const,
+    anomalies: (habitatId: string) => [...queryKeys.habitats.all, 'anomalies', habitatId] as const,
+    capacity: (habitatId: string) => [...queryKeys.habitats.all, 'capacity', habitatId] as const,
+    metrics: (habitatId: string) => [...queryKeys.habitats.all, 'metrics', habitatId] as const,
+    tasks: (habitatId: string, filters?: { status?: string; priority?: string; search?: string; assignedAgentId?: string; isArchived?: boolean; limit?: number; offset?: number; sortBy?: string; sortDir?: 'asc' | 'desc' }) => [...queryKeys.habitats.all, 'tasks', habitatId, filters] as const,
   },
-  features: {
-    all: ['features'] as const,
-    list: (boardId: string) => [...queryKeys.features.all, 'list', boardId] as const,
-    detail: (featureId: string) => [...queryKeys.features.all, 'detail', featureId] as const,
-    details: (featureId: string) => [...queryKeys.features.all, 'details', featureId] as const,
-    tasks: (featureId: string) => [...queryKeys.features.all, 'tasks', featureId] as const,
-    progress: (featureId: string) => [...queryKeys.features.all, 'progress', featureId] as const,
+  missions: {
+    all: ['missions'] as const,
+    list: (boardId: string) => [...queryKeys.missions.all, 'list', boardId] as const,
+    detail: (missionId: string) => [...queryKeys.missions.all, 'detail', missionId] as const,
+    details: (missionId: string) => [...queryKeys.missions.all, 'details', missionId] as const,
+    tasks: (missionId: string) => [...queryKeys.missions.all, 'tasks', missionId] as const,
+    progress: (missionId: string) => [...queryKeys.missions.all, 'progress', missionId] as const,
   },
   tasks: {
     all: ['tasks'] as const,
@@ -85,9 +85,9 @@ export const queryKeys = {
     all: ['audit'] as const,
     summary: (boardId: string) => [...queryKeys.audit.all, 'summary', boardId] as const,
   },
-  featureComments: {
-    all: ['featureComments'] as const,
-    list: (featureId: string) => [...queryKeys.featureComments.all, featureId] as const,
+  missionComments: {
+    all: ['missionComments'] as const,
+    list: (missionId: string) => [...queryKeys.missionComments.all, missionId] as const,
   },
   user: {
     all: ['user'] as const,

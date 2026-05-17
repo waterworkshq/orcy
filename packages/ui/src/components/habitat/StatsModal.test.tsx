@@ -73,7 +73,7 @@ describe('StatsModal', () => {
   });
 
   it('uses backdrop-blur-2xl for frosted glass effect', async () => {
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     const allElements = document.querySelectorAll('*');
     const withBlur = Array.from(allElements).filter(
@@ -83,20 +83,20 @@ describe('StatsModal', () => {
   });
 
   it('uses bg-surface-container/85 for modal background', async () => {
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     const dialog = document.querySelector('.bg-surface-container\\/85');
     expect(dialog).toBeTruthy();
   });
 
   it('renders board statistics header', async () => {
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     expect(await screen.findByText('Habitat Statistics')).toBeTruthy();
   });
 
   it('renders feature count after loading', async () => {
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     const elements = await screen.findAllByText('2');
     expect(elements.length).toBeGreaterThanOrEqual(1);
@@ -106,7 +106,7 @@ describe('StatsModal', () => {
     mockStats.mockReturnValue(new Promise(() => {}));
     mockFeaturesList.mockReturnValue(new Promise(() => {}));
 
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     const spinner = document.querySelector('.animate-spin');
     expect(spinner).toBeTruthy();
@@ -114,21 +114,21 @@ describe('StatsModal', () => {
 
   it('renders close button', async () => {
     const onClose = vi.fn();
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={onClose} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={onClose} />);
 
     const closeBtn = await screen.findByRole('button');
     expect(closeBtn).toBeTruthy();
   });
 
   it('modal overlay has z-50', async () => {
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     const overlay = document.querySelector('.z-50');
     expect(overlay).toBeTruthy();
   });
 
   it('renders WIP health section after loading', async () => {
-    renderWithQueryClient(<StatsModal boardId="board-1" onClose={vi.fn()} />);
+    renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 
     expect(await screen.findByText('WIP Health')).toBeTruthy();
     expect(screen.getByText('In Progress')).toBeTruthy();

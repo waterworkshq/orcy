@@ -14,7 +14,7 @@ const mockStoreState = {
 };
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector?: any) => {
+  useHabitatStore: (selector?: any) => {
     return selector ? selector(mockStoreState) : mockStoreState;
   },
 }));
@@ -46,7 +46,7 @@ vi.mock('../../lib/useHabitatData.js', () => ({
 vi.mock('../../lib/queryKeys.js', () => ({
   queryKeys: {
     savedFilters: {
-      list: (boardId: string) => ['savedFilters', boardId],
+      list: (habitatId: string) => ['savedFilters', habitatId],
     },
   },
 }));
@@ -64,7 +64,7 @@ function renderWithProviders(ui: React.ReactElement, initialEntries?: string[]) 
 
 const savedFilter1 = {
   id: 'sf1',
-  boardId: 'board-1',
+  habitatId: 'board-1',
   userId: 'u1',
   name: 'My Filter',
   filterConfig: { priority: 'high' },
@@ -74,7 +74,7 @@ const savedFilter1 = {
 
 const builtinFilter = {
   id: 'sf2',
-  boardId: 'board-1',
+  habitatId: 'board-1',
   userId: 'u1',
   name: 'Built-in Filter',
   filterConfig: { status: 'done' },
@@ -84,7 +84,7 @@ const builtinFilter = {
 
 const fullFilter = {
   id: 'sf3',
-  boardId: 'board-1',
+  habitatId: 'board-1',
   userId: 'u1',
   name: 'Full Filter',
   filterConfig: {
@@ -170,7 +170,7 @@ describe('FilterBar', () => {
     expect(screen.queryByText('Clear')).toBeNull();
   });
 
-  it('calls useSavedFilters with boardId from store', () => {
+  it('calls useSavedFilters with habitatId from store', () => {
     renderWithProviders(<FilterBar />);
     expect(mockUseSavedFilters).toHaveBeenCalledWith('board-1');
   });

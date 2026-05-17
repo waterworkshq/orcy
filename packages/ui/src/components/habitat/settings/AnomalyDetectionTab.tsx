@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRe
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { NumberField } from '../../ui/NumberField.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
-import type { Board, AnomalySettings } from '../../../types/index.js';
+import type { Habitat, AnomalySettings } from '../../../types/index.js';
 
 interface AnomalyDetectionTabProps {
-  boardId: string;
+  habitatId: string;
   boardAnomalySettings: AnomalySettings | null;
-  onUpdate: (board: Board) => void;
+  onUpdate: (board: Habitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -16,7 +16,7 @@ export interface AnomalyDetectionTabHandle {
 }
 
 export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, AnomalyDetectionTabProps>(function AnomalyDetectionTab({
-  boardId,
+  habitatId,
   boardAnomalySettings,
   onUpdate,
   onSavingChange,
@@ -33,7 +33,7 @@ export const AnomalyDetectionTab = forwardRef<AnomalyDetectionTabHandle, Anomaly
   const [anomalyNotifySse, setAnomalyNotifySse] = useState(true);
   const [anomalyNotifyChat, setAnomalyNotifyChat] = useState(true);
 
-  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: boardId, onUpdate });
+  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
 
   useEffect(() => {
     onSavingChange?.(saving);

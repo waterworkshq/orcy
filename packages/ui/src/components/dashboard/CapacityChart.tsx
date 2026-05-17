@@ -18,7 +18,7 @@ import { useBoardCapacity } from '../../lib/useHabitatData.js';
 import type { AgentCapacity } from '../../types/index.js';
 
 interface CapacityChartProps {
-  boardId?: string;
+  habitatId?: string;
 }
 
 function getUtilizationColor(utilization: number, overCapacity: boolean): string {
@@ -91,11 +91,11 @@ function UtilizationBar({ data }: { data: AgentCapacity[] }) {
   );
 }
 
-export function CapacityChart({ boardId }: CapacityChartProps) {
-  const { data: report, isLoading: loading, error: queryError, refetch } = useBoardCapacity(boardId);
+export function CapacityChart({ habitatId }: CapacityChartProps) {
+  const { data: report, isLoading: loading, error: queryError, refetch } = useBoardCapacity(habitatId);
   const error = queryError ? (queryError as Error).message : null;
 
-  if (!boardId) {
+  if (!habitatId) {
     return (
       <Card>
         <CardContent className="py-12">

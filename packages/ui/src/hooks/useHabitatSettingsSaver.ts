@@ -21,7 +21,7 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
   }, successMessage: string) => {
     setSaving(true);
     try {
-      const result = await api.boards.update(habitatId, data);
+      const result = await api.habitats.update(habitatId, data);
       onUpdate(result.board);
       notify.success(successMessage);
     } catch (err) {

@@ -1,26 +1,26 @@
 import { useState } from 'react';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { X, Trash2, ArrowRight, Gauge } from 'lucide-react';
-import type { FeatureWithProgress, TaskPriority } from '../../types/index.js';
+import type { MissionWithProgress, TaskPriority } from '../../types/index.js';
 
 interface BulkActionBarProps {
-  boardId: string;
+  habitatId: string;
 }
 
 type BulkOperation = 'priority' | 'move' | 'delete';
 
-export function BulkActionBar({ boardId }: BulkActionBarProps) {
-  const { selectedFeatureIds, setBulkSelectMode, clearFeatureSelection, updateFeature, removeFeature, columns } =
-    useBoardStore();
+export function BulkActionBar({ habitatId }: BulkActionBarProps) {
+  const { selectedMissionIds, setBulkSelectMode, clearMissionSelection, updateFeature, removeFeature, columns } =
+    useHabitatStore();
   const [operation, setOperation] = useState<BulkOperation>('priority');
   const [targetColumnId, setTargetColumnId] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [isApplying, setIsApplying] = useState(false);
 
   async function handleApply() {
-    if (selectedFeatureIds.length === 0) return;
+    if (selectedMissionIds.length === 0) return;
     if (operation === 'move' && !targetColumnId) {
       notify.warning('Please select a target column');
       return;
@@ -34,7 +34,7 @@ export function BulkActionBar({ boardId }: BulkActionBarProps) {
     try {
       if (operation === 'delete') {
         const results = await Promise.allSettled(
-          selectedFeatureIds.map((id) => api.features.delete(id))
+          selectedMissionIds.map((id) => api.missions.delete(id))
         );
         results.forEach((result) => {
           if (result.status === 'fulfilled') {
@@ -45,15 +45,15 @@ export function BulkActionBar({ boardId }: BulkActionBarProps) {
           }
         });
         if (successCount > 0) {
-          selectedFeatureIds.forEach((id) => removeFeature(id));
+          selectedMissionIds.forEach((id) => removeFeature(id));
         }
       } else {
-        const updatePromises = selectedFeatureIds.map(async (id) => {
+        const updatePromises = selectedMissionIds.map(async (id) => {
           if (operation === 'priority') {
-            const { feature } = await api.features.update(id, { priority });
+            const { feature } = await api.missions.update(id, { priority });
             return feature;
           } else {
-            const { feature } = await api.features.move(id, { columnId: targetColumnId });
+            const { feature } = await api.missions.move(id, { columnId: targetColumnId });
             return feature;
           }
         });
@@ -62,7 +62,7 @@ export function BulkActionBar({ boardId }: BulkActionBarProps) {
         results.forEach((result) => {
           if (result.status === 'fulfilled') {
             successCount++;
-            updateFeature(result.value as FeatureWithProgress);
+            updateFeature(result.value as MissionWithProgress);
           } else {
             failureCount++;
             errors.push(result.reason?.message ?? 'Unknown error');
@@ -76,7 +76,7 @@ export function BulkActionBar({ boardId }: BulkActionBarProps) {
       if (failureCount > 0) {
         notify.warning(`${failureCount} failed: ${errors[0]}`);
       }
-      clearFeatureSelection();
+      clearMissionSelection();
       setBulkSelectMode(false);
     } catch (err) {
       notify.error((err as Error).message);
@@ -86,14 +86,14 @@ export function BulkActionBar({ boardId }: BulkActionBarProps) {
   }
 
   function handleCancel() {
-    clearFeatureSelection();
+    clearMissionSelection();
     setBulkSelectMode(false);
   }
 
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-sm">
       <span className="text-sm font-medium">
-        {selectedFeatureIds.length} feature{selectedFeatureIds.length !== 1 ? 's' : ''} selected
+        {selectedMissionIds.length} feature{selectedMissionIds.length !== 1 ? 's' : ''} selected
       </span>
 
       <div className="h-4 w-px bg-border" />
@@ -146,7 +146,7 @@ export function BulkActionBar({ boardId }: BulkActionBarProps) {
         <button
           type="button"
           onClick={handleApply}
-          disabled={isApplying || selectedFeatureIds.length === 0 || (operation === 'move' && !targetColumnId)}
+          disabled={isApplying || selectedMissionIds.length === 0 || (operation === 'move' && !targetColumnId)}
           className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {operation === 'delete' ? (

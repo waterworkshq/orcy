@@ -5,10 +5,10 @@ import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
 import { Archive, ChevronRight } from 'lucide-react';
 import { Badge } from '../ui/Badge.js';
-import type { FeatureWithProgress } from '../../types/index.js';
+import type { MissionWithProgress } from '../../types/index.js';
 
 interface ArchivedFeaturesPanelProps {
-  boardId: string;
+  habitatId: string;
   onClose: () => void;
 }
 
@@ -23,9 +23,9 @@ const taskStatusVariant: Record<string, string> = {
   failed: 'failed',
 };
 
-export function ArchivedFeaturesPanel({ boardId, onClose }: ArchivedFeaturesPanelProps) {
+export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPanelProps) {
   const navigate = useNavigate();
-  const [features, setFeatures] = useState<FeatureWithProgress[]>([]);
+  const [features, setFeatures] = useState<MissionWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -37,7 +37,7 @@ export function ArchivedFeaturesPanel({ boardId, onClose }: ArchivedFeaturesPane
     setIsLoading(true);
     try {
       const newOffset = reset ? 0 : offset;
-      const { features: loadedFeatures, total: totalCount } = await api.features.list(boardId, {
+      const { features: loadedFeatures, total: totalCount } = await api.missions.list(habitatId, {
         limit,
         offset: newOffset,
         isArchived: true,
@@ -56,15 +56,15 @@ export function ArchivedFeaturesPanel({ boardId, onClose }: ArchivedFeaturesPane
     } finally {
       setIsLoading(false);
     }
-  }, [boardId, offset, features]);
+  }, [habitatId, offset, features]);
 
   useEffect(() => {
     loadFeatures(true);
-  }, [boardId]);
+  }, [habitatId]);
 
-  const handleFeatureClick = (featureId: string) => {
+  const handleFeatureClick = (missionId: string) => {
     onClose();
-    navigate(`/features/${featureId}`);
+    navigate(`/features/${missionId}`);
   };
 
   return (

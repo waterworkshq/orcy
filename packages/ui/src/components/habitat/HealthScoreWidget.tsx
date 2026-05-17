@@ -3,7 +3,7 @@ import { Activity, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Clock, 
 import { useBoardHealth } from '../../lib/useHabitatData.js';
 
 interface HealthScoreWidgetProps {
-  boardId: string;
+  habitatId: string;
 }
 
 function getGradeColor(grade: string): string {
@@ -33,9 +33,9 @@ const dimensionLabels: Record<string, string> = {
   stability: 'Stability',
 };
 
-export function HealthScoreWidget({ boardId }: HealthScoreWidgetProps) {
+export function HealthScoreWidget({ habitatId }: HealthScoreWidgetProps) {
   const [expanded, setExpanded] = useState(false);
-  const { data: health, isLoading: loading } = useBoardHealth(boardId);
+  const { data: health, isLoading: loading } = useBoardHealth(habitatId);
 
   if (loading) {
     return (

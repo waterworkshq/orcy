@@ -143,7 +143,7 @@ export function useDependencyGraph(boardId: string) {
 
     async function fetchFeatures() {
       try {
-        const result = await api.features.list(boardId);
+        const result = await api.missions.list(boardId);
         if (!cancelled) setFeatures(result.features);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load features');

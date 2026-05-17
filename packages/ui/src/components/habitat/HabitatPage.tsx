@@ -1,19 +1,19 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { HealthScoreWidget } from './HealthScoreWidget.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { useSSE } from '../../hooks/useSSE.js';
 import { useSSENotifications } from '../../hooks/useSSENotifications.js';
 import { usePresence } from '../../hooks/usePresence.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
 import { api } from '../../api/index.js';
-import { Board } from './Habitat.js';
+import { Habitat } from './Habitat.js';
 import { AgentPanel } from './AgentPanel.js';
 import { FilterBar } from './FilterBar.js';
 import { StatsModal } from './StatsModal.js';
 import { ColumnSettingsDialog } from './ColumnSettingsDialog.js';
-import { BoardSettingsDialog } from './HabitatSettingsDialog.js';
+import { HabitatSettingsDialog } from './HabitatSettingsDialog.js';
 import { CreateColumnDialog } from './CreateColumnDialog.js';
 import { Button } from '../ui/Button.js';
 import { HelpDrawer } from '../ui/HelpDrawer.js';
@@ -40,13 +40,13 @@ const DependencyGraphModal = React.lazy(() =>
 
 const PAGE_SIZE = 50;
 
-export function BoardPage() {
-  const { boardId } = useParams<{ boardId: string }>();
+export function HabitatPage() {
+  const { habitatId } = useParams<{ habitatId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') ?? 'board';
   const { board, setBoard, setAgents, isLoading, setLoading, setError, updateColumn, updateBoard, addColumn, removeColumn, columns, columnPagination, setColumnPagination, setColumnLoadingMore, clearColumnPagination, presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } =
-    useBoardStore();
+    useHabitatStore();
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateFeature, setShowCreateFeature] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
@@ -61,9 +61,9 @@ export function BoardPage() {
   const isMobile = useIsMobile();
   const registerDrawerBridge = useRegisterDrawerBridge();
 
-  useSSE(boardId ?? '');
+  useSSE(habitatId ?? '');
   useSSENotifications();
-  usePresence(boardId);
+  usePresence(habitatId);
 
   const drawerCallbacks = useMemo(() => ({
     onDeployAgent: () => setShowAgentPanel(true),
@@ -133,9 +133,9 @@ export function BoardPage() {
   }, [view, clearTaskSelection]);
 
   const loadColumnTasks = useCallback(async (colId: string, offset: number = 0) => {
-    if (!boardId) return;
+    if (!habitatId) return;
     try {
-      const result = await api.features.list(boardId, {
+      const result = await api.missions.list(habitatId, {
         limit: PAGE_SIZE,
         offset,
       });
@@ -148,25 +148,25 @@ export function BoardPage() {
           offset: 0,
         });
       } else {
-        const existing = useBoardStore.getState().columnPagination[colId];
+        const existing = useHabitatStore.getState().columnPagination[colId];
         const totalCount = (existing?.features.length ?? 0) + colFeatures.length;
-        useBoardStore.getState().appendColumnFeatures(colId, colFeatures, hasMore ? totalCount + 1 : undefined);
+        useHabitatStore.getState().appendColumnFeatures(colId, colFeatures, hasMore ? totalCount + 1 : undefined);
       }
     } catch (err) {
       setError((err as Error).message);
     }
-  }, [boardId, setColumnPagination, setError]);
+  }, [habitatId, setColumnPagination, setError]);
 
   const loadBoard = useCallback(async () => {
-    if (!boardId) return;
+    if (!habitatId) return;
     setLoading(true);
     setError(null);
     clearColumnPagination();
     try {
       const [boardData, agentsData, firstPage] = await Promise.all([
-        api.boards.get(boardId),
+        api.habitats.get(habitatId),
         api.agents.list(),
-        api.features.list(boardId, { limit: PAGE_SIZE, offset: 0 }),
+        api.missions.list(habitatId, { limit: PAGE_SIZE, offset: 0 }),
       ]);
       setBoard(
         boardData.board,
@@ -191,7 +191,7 @@ export function BoardPage() {
       setError((err as Error).message);
       setLoading(false);
     }
-  }, [boardId, setBoard, setAgents, setLoading, setError, clearColumnPagination, setColumnPagination]);
+  }, [habitatId, setBoard, setAgents, setLoading, setError, clearColumnPagination, setColumnPagination]);
 
   useEffect(() => {
     loadBoard();
@@ -203,19 +203,19 @@ export function BoardPage() {
     const nextOffset = pagination.offset + PAGE_SIZE;
     setColumnLoadingMore(columnId, true);
     try {
-      const result = await api.features.list(boardId!, {
+      const result = await api.missions.list(habitatId!, {
         limit: PAGE_SIZE,
         offset: nextOffset,
       });
       const colFeatures = result.features.filter((f) => f.columnId === columnId);
       const hasMore = result.features.length >= PAGE_SIZE;
-      useBoardStore.getState().appendColumnFeatures(columnId, colFeatures, hasMore ? (pagination.features.length + colFeatures.length + 1) : undefined);
+      useHabitatStore.getState().appendColumnFeatures(columnId, colFeatures, hasMore ? (pagination.features.length + colFeatures.length + 1) : undefined);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setColumnLoadingMore(columnId, false);
     }
-  }, [boardId, columnPagination, setColumnLoadingMore, setError]);
+  }, [habitatId, columnPagination, setColumnLoadingMore, setError]);
 
   if (isLoading) {
     return (
@@ -225,7 +225,7 @@ export function BoardPage() {
     );
   }
 
-  if (!boardId) {
+  if (!habitatId) {
     return (
       <div className="flex h-full items-center justify-center text-on-surface-variant">
         Habitat not found.
@@ -244,7 +244,7 @@ export function BoardPage() {
               </Link>
               <span className="text-on-surface-variant text-xs">/</span>
               <span className="text-xs font-medium text-on-surface truncate">{board?.name ?? 'Habitat'}</span>
-              {boardId && <HealthScoreWidget boardId={boardId} />}
+              {habitatId && <HealthScoreWidget habitatId={habitatId} />}
               {board && (
                 <button
                   type="button"
@@ -405,21 +405,21 @@ export function BoardPage() {
         <FilterBar focusSearchRef={searchRef} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          <HabitatPulsePanel boardId={boardId} />
-          <InsightsPanel boardId={boardId} />
+          <HabitatPulsePanel habitatId={habitatId} />
+          <InsightsPanel habitatId={habitatId} />
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {view === 'table' && boardId ? (
-            <TaskTableView boardId={boardId} />
+          {view === 'table' && habitatId ? (
+            <TaskTableView habitatId={habitatId} />
           ) : (
-            <Board onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
+            <Habitat onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
           )}
         </div>
 
-        {isBulkSelectMode && boardId && (
+        {isBulkSelectMode && habitatId && (
           <div className="sticky bottom-0 z-20 mt-3">
-            <BulkActionBar boardId={boardId} />
+            <BulkActionBar habitatId={habitatId} />
           </div>
         )}
       </div>
@@ -440,30 +440,30 @@ export function BoardPage() {
           <CreateTaskForm
             open={showCreateTask}
             onClose={() => setShowCreateTask(false)}
-            boardId={boardId}
+            habitatId={habitatId}
           />
         </Suspense>
       )}
-      {showCreateFeature && boardId && (
+      {showCreateFeature && habitatId && (
         <Suspense fallback={null}>
           <CreateFeatureForm
             open={showCreateFeature}
             onClose={() => setShowCreateFeature(false)}
-            boardId={boardId}
+            habitatId={habitatId}
           />
         </Suspense>
       )}
-      {showStats && boardId && (
-        <StatsModal boardId={boardId} onClose={() => setShowStats(false)} />
+      {showStats && habitatId && (
+        <StatsModal habitatId={habitatId} onClose={() => setShowStats(false)} />
       )}
-      {showDepGraph && boardId && (
+      {showDepGraph && habitatId && (
         <Suspense fallback={null}>
           <DependencyGraphModal
-            boardId={boardId}
+            habitatId={habitatId}
             onClose={() => setShowDepGraph(false)}
-            onSelectFeature={(featureId) => {
+            onSelectFeature={(missionId) => {
               setShowDepGraph(false);
-              navigate(`/features/${featureId}`);
+              navigate(`/features/${missionId}`);
             }}
           />
         </Suspense>
@@ -485,7 +485,7 @@ export function BoardPage() {
         />
       )}
       {board && showBoardSettings && (
-        <BoardSettingsDialog
+        <HabitatSettingsDialog
           board={board}
           open={showBoardSettings}
           onClose={() => setShowBoardSettings(false)}
@@ -502,9 +502,9 @@ export function BoardPage() {
       <HelpDrawer isOpen={helpOpen} onClose={() => setHelpOpen(false)}>
         <HelpContent />
       </HelpDrawer>
-      {showCreateColumn && boardId && (
+      {showCreateColumn && habitatId && (
         <CreateColumnDialog
-          boardId={boardId}
+          habitatId={habitatId}
           open={showCreateColumn}
           onClose={() => setShowCreateColumn(false)}
           onAdd={(column) => {

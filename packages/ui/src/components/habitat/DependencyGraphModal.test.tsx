@@ -4,7 +4,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { DependencyGraphModal } from './DependencyGraphModal.js';
 
 vi.mock('./DependencyGraph.js', () => ({
-  DependencyGraph: ({ onSelectFeature }: { boardId: string; onSelectFeature: (id: string) => void }) => (
+  DependencyGraph: ({ onSelectFeature }: { habitatId: string; onSelectFeature: (id: string) => void }) => (
     <div data-testid="dependency-graph-mock">
       <button onClick={() => onSelectFeature('feat-1')}>Select Feature</button>
     </div>
@@ -14,7 +14,7 @@ vi.mock('./DependencyGraph.js', () => ({
 afterEach(cleanup);
 
 const defaultProps = {
-  boardId: 'board-1',
+  habitatId: 'board-1',
   onClose: vi.fn(),
   onSelectFeature: vi.fn(),
 };
@@ -54,7 +54,7 @@ describe('DependencyGraphModal', () => {
     expect(screen.getByTestId('dependency-graph-mock')).toBeTruthy();
   });
 
-  it('passes boardId and onSelectFeature to DependencyGraph', () => {
+  it('passes habitatId and onSelectFeature to DependencyGraph', () => {
     const onSelectFeature = vi.fn();
     render(<DependencyGraphModal {...defaultProps} onSelectFeature={onSelectFeature} />);
     fireEvent.click(screen.getByText('Select Feature'));

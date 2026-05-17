@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { ExportBoardDialog } from './ExportHabitatDialog.js';
+import { ExportHabitatDialog } from './ExportHabitatDialog.js';
 
 vi.mock('../../api/index.js', () => ({
   api: {
@@ -17,11 +17,11 @@ vi.mock('../../lib/toast.js', () => ({
   },
 }));
 
-describe('ExportBoardDialog', () => {
+describe('ExportHabitatDialog', () => {
   it('renders with Features checkbox label', () => {
     render(
-      <ExportBoardDialog
-        boardId="board-1"
+      <ExportHabitatDialog
+        habitatId="board-1"
         boardName="Test Board"
         open={true}
         onClose={vi.fn()}

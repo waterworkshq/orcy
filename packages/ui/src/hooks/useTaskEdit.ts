@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys.js';
 import { api } from '../api/index.js';
-import { useBoardStore } from '../store/habitatStore.js';
+import { useHabitatStore } from '../store/habitatStore.js';
 import { notify } from '../lib/toast.js';
 import { initEditForm } from '../lib/task-helpers.js';
 import type { Task } from '../types/index.js';
@@ -48,7 +48,7 @@ export function useTaskEdit(
   selectedTaskId: string | null,
   detailsData: any,
 ): UseTaskEditResult {
-  const { updateTask } = useBoardStore();
+  const { updateTask } = useHabitatStore();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<EditFormState>({
@@ -106,7 +106,7 @@ export function useTaskEdit(
         else featureUpdate.dueAt = null;
         if (editSlaMinutes) featureUpdate.slaMinutes = parseInt(editSlaMinutes, 10);
         else featureUpdate.slaMinutes = null;
-        await api.features.update(task.featureId, featureUpdate);
+        await api.missions.update(task.featureId, featureUpdate);
       }
 
       const updatedLabels = editForm.labels.split(',').map(l => l.trim()).filter(Boolean);

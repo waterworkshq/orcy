@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BoardPage } from './HabitatPage.js';
+import { HabitatPage } from './HabitatPage.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
 
 const mockArchivedFeaturesHook = vi.fn();
@@ -11,7 +11,7 @@ vi.mock('../../lib/useHabitatData.js', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
-    useArchivedFeatures: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
+    useArchivedMissions: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
   };
 });
 
@@ -31,7 +31,7 @@ vi.mock('../../hooks/usePresence.js', () => ({ usePresence: vi.fn() }));
 vi.mock('../../hooks/useMediaQuery.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
 vi.mock('react-router-dom', () => ({
-  useParams: vi.fn(() => ({ boardId: 'board-1' })),
+  useParams: vi.fn(() => ({ habitatId: 'board-1' })),
   useSearchParams: vi.fn(() => [new URLSearchParams(), vi.fn()]),
   Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
   useNavigate: vi.fn(() => vi.fn()),
@@ -54,7 +54,7 @@ const mockStoreState = {
     allFeaturesLoaded: false,
     presence: [],
     isBulkSelectMode: false,
-    selectedFeatureIds: [],
+    selectedMissionIds: [],
     notifications: [],
   setBoard: vi.fn(),
   setAgents: vi.fn(),
@@ -76,7 +76,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 vi.mock('../../store/modalStore.js', () => ({
@@ -102,7 +102,7 @@ function renderWithQC(ui: React.ReactElement) {
   );
 }
 
-describe('BoardPage Archived Button Removal', () => {
+describe('HabitatPage Archived Button Removal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockArchivedFeaturesHook.mockReturnValue({
@@ -117,17 +117,17 @@ describe('BoardPage Archived Button Removal', () => {
 
   describe('Archived button removal', () => {
     it('renders archived column control in the board area', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getByTestId('archived-toggle')).toBeTruthy();
     });
 
     it('does not render ArchivedFeaturesPanel', () => {
-      const { container } = renderWithQC(<BoardPage />);
+      const { container } = renderWithQC(<HabitatPage />);
       expect(container.querySelector('[class*="ArchivedFeatures"]')).toBeNull();
     });
 
     it('does not render archived control in the page header', () => {
-      const { container } = renderWithQC(<BoardPage />);
+      const { container } = renderWithQC(<HabitatPage />);
       const header = container.querySelector('.glass-panel');
       expect(header?.textContent).not.toContain('Archived');
     });
@@ -135,39 +135,39 @@ describe('BoardPage Archived Button Removal', () => {
 
   describe('Other header buttons remain functional', () => {
     it('renders Stats button', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Stats').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Agents button', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Agents').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Activity button', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Dependencies button', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Dependencies').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Bulk Select button', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Bulk Select').length).toBeGreaterThanOrEqual(1);
     });
 
     it('renders Add Mission button', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Add Mission').length).toBeGreaterThanOrEqual(1);
     });
   });
 
   describe('Breadcrumb navigation', () => {
     it('renders breadcrumb with board name', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Habitats').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Test Board').length).toBeGreaterThanOrEqual(1);
     });
@@ -175,13 +175,13 @@ describe('BoardPage Archived Button Removal', () => {
 
   describe('Board content', () => {
     it('renders the Board component', () => {
-      renderWithQC(<BoardPage />);
+      renderWithQC(<HabitatPage />);
       expect(screen.getAllByText('Stats').length).toBeGreaterThanOrEqual(1);
     });
   });
 });
 
-describe('BoardPage Archived Button Removal (Mobile)', () => {
+describe('HabitatPage Archived Button Removal (Mobile)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -192,7 +192,7 @@ describe('BoardPage Archived Button Removal (Mobile)', () => {
 
   it('does not render Archived option even when isMobile is true', () => {
     vi.mocked(useIsMobile).mockReturnValue(true);
-    renderWithQC(<BoardPage />);
+    renderWithQC(<HabitatPage />);
     expect(screen.queryByTestId('archived-toggle')).toBeNull();
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
-import { CreateFeatureForm } from './CreateMissionForm.js';
+import { CreateMissionForm } from './CreateMissionForm.js';
 
 const mockCreateFeature = vi.fn();
 const mockListTemplates = vi.fn();
@@ -12,7 +12,7 @@ const mockNotifyError = vi.fn();
 
 vi.mock('../../api/index.js', () => ({
   api: {
-    features: {
+    missions: {
       create: (...args: unknown[]) => mockCreateFeature(...args),
     },
     templates: {
@@ -22,7 +22,7 @@ vi.mock('../../api/index.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: vi.fn(() => ({
+  useHabitatStore: vi.fn(() => ({
     columns: [{ id: 'col-1', name: 'Backlog', isTerminal: false }],
     addFeature: mockAddFeature,
   })),
@@ -54,7 +54,7 @@ describe('CreateMissionForm', () => {
   const defaultProps = {
     open: true,
     onClose: vi.fn(),
-    boardId: 'board-1',
+    habitatId: 'habitat-1',
   };
 
   beforeEach(() => {
@@ -72,11 +72,11 @@ describe('CreateMissionForm', () => {
   describe('React Query integration', () => {
     it('renders template options from useTemplates', async () => {
       mockListTemplates.mockResolvedValue({ templates: [
-        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: ', descriptionPattern: '', priority: 'high', labels: ['bug'], boardId: 'board-1' },
-        { id: 't2', name: 'Feature', titlePattern: 'Add: ', descriptionPattern: '', priority: 'medium', labels: [], boardId: null },
+        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: ', descriptionPattern: '', priority: 'high', labels: ['bug'], habitatId: 'habitat-1' },
+        { id: 't2', name: 'Feature', titlePattern: 'Add: ', descriptionPattern: '', priority: 'medium', labels: [], habitatId: null },
       ] });
 
-      render(<CreateFeatureForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      render(<CreateMissionForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       await waitFor(() => {
         const selects = screen.getAllByRole('combobox');
@@ -86,20 +86,20 @@ describe('CreateMissionForm', () => {
 
     it('populates form fields when template is selected', async () => {
       mockListTemplates.mockResolvedValue({ templates: [
-        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: Bug', descriptionPattern: 'Steps to reproduce', priority: 'critical', labels: ['bug', 'urgent'], boardId: 'board-1' },
+        { id: 't1', name: 'Bug Fix', titlePattern: 'Fix: Bug', descriptionPattern: 'Steps to reproduce', priority: 'critical', labels: ['bug', 'urgent'], habitatId: 'habitat-1' },
       ] });
 
-      render(<CreateFeatureForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      render(<CreateMissionForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       await waitFor(() => {
-        expect(mockListTemplates).toHaveBeenCalledWith('board-1');
+        expect(mockListTemplates).toHaveBeenCalledWith('habitat-1');
       });
     });
 
     it('does not show template options when no templates', () => {
       mockListTemplates.mockResolvedValue({ templates: [] });
 
-      render(<CreateFeatureForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      render(<CreateMissionForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       expect(screen.getByRole('heading', { name: 'Create Mission' })).toBeTruthy();
     });
@@ -107,7 +107,7 @@ describe('CreateMissionForm', () => {
 
   describe('Form submission', () => {
     it('creates a mission with valid title', async () => {
-      render(<CreateFeatureForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      render(<CreateMissionForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const titleInput = screen.getByPlaceholderText('Mission title');
       fireEvent.change(titleInput, { target: { value: 'My Mission' } });
@@ -116,7 +116,7 @@ describe('CreateMissionForm', () => {
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(mockCreateFeature).toHaveBeenCalledWith('board-1', expect.objectContaining({
+        expect(mockCreateFeature).toHaveBeenCalledWith('habitat-1', expect.objectContaining({
           title: 'My Mission',
           columnId: 'col-1',
         }));
@@ -124,7 +124,7 @@ describe('CreateMissionForm', () => {
     });
 
     it('calls addFeature after successful creation', async () => {
-      render(<CreateFeatureForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      render(<CreateMissionForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const titleInput = screen.getByPlaceholderText('Mission title');
       fireEvent.change(titleInput, { target: { value: 'My Mission' } });
@@ -140,7 +140,7 @@ describe('CreateMissionForm', () => {
     it('shows error on failed creation', async () => {
       mockCreateFeature.mockRejectedValue(new Error('Server error'));
 
-      render(<CreateFeatureForm {...defaultProps} />, { wrapper: createTestWrapper() });
+      render(<CreateMissionForm {...defaultProps} />, { wrapper: createTestWrapper() });
 
       const titleInput = screen.getByPlaceholderText('Mission title');
       fireEvent.change(titleInput, { target: { value: 'My Mission' } });
@@ -157,13 +157,13 @@ describe('CreateMissionForm', () => {
   describe('Form reset', () => {
     it('resets form fields when dialog reopens', async () => {
       const { rerender } = render(
-        <CreateFeatureForm {...defaultProps} open={false} />,
+        <CreateMissionForm {...defaultProps} open={false} />,
         { wrapper: createTestWrapper() },
       );
 
       rerender(
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <CreateFeatureForm {...defaultProps} open={true} />
+          <CreateMissionForm {...defaultProps} open={true} />
         </QueryClientProvider>,
       );
 

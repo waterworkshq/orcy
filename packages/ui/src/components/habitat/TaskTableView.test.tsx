@@ -7,7 +7,7 @@ import type { Task } from '../../types/index.js';
 const mockTasks: Task[] = [
   {
     id: 'task-1',
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Setup auth module',
     description: '',
     status: 'pending',
@@ -41,7 +41,7 @@ const mockTasks: Task[] = [
   },
   {
     id: 'task-2',
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Write unit tests',
     description: '',
     status: 'in_progress',
@@ -75,7 +75,7 @@ const mockTasks: Task[] = [
   },
   {
     id: 'task-3',
-    featureId: 'feat-2',
+    missionId: 'feat-2',
     title: 'Fix login bug',
     description: '',
     status: 'submitted',
@@ -131,7 +131,7 @@ type StoreType = typeof defaultStore;
 let currentStore: StoreType = { ...defaultStore };
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: Object.assign(
+  useHabitatStore: Object.assign(
     (selectorOrNothing?: (s: StoreType) => unknown) => {
       if (typeof selectorOrNothing === 'function') {
         return selectorOrNothing(currentStore);
@@ -187,14 +187,14 @@ describe('TaskTableView', () => {
   });
 
   it('renders task rows from provided data', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('Setup auth module')).toBeInTheDocument();
     expect(screen.getByText('Write unit tests')).toBeInTheDocument();
     expect(screen.getByText('Fix login bug')).toBeInTheDocument();
   });
 
   it('renders column headers', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('Priority')).toBeInTheDocument();
     expect(screen.getByText('Title')).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
@@ -204,43 +204,43 @@ describe('TaskTableView', () => {
   });
 
   it('renders priority badges with correct text', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('high')).toBeInTheDocument();
     expect(screen.getByText('medium')).toBeInTheDocument();
     expect(screen.getByText('critical')).toBeInTheDocument();
   });
 
   it('renders status badges with correct text', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('pending')).toBeInTheDocument();
     expect(screen.getByText('in progress')).toBeInTheDocument();
     expect(screen.getByText('submitted')).toBeInTheDocument();
   });
 
   it('renders estimated effort when present', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('2h')).toBeInTheDocument();
     expect(screen.getByText('1h')).toBeInTheDocument();
   });
 
   it('renders dash for null estimated effort', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const dashes = screen.getAllByText('—');
     expect(dashes.length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders Unassigned for null assignedAgentId', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('Unassigned')).toBeInTheDocument();
   });
 
   it('renders search input', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByPlaceholderText('Search tasks...')).toBeInTheDocument();
   });
 
   it('renders filter dropdowns', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByTestId('filter-status')).toBeInTheDocument();
     expect(screen.getByTestId('filter-priority')).toBeInTheDocument();
     expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
@@ -248,7 +248,7 @@ describe('TaskTableView', () => {
 
   it('debounces search input to avoid per-keystroke API calls', () => {
     vi.useFakeTimers();
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const input = screen.getByPlaceholderText('Search tasks...') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'security' } });
@@ -261,7 +261,7 @@ describe('TaskTableView', () => {
   });
 
   it('syncs row selection to store when a checkbox is clicked', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const checkbox = screen.getByTestId('select-task-1');
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
@@ -269,14 +269,14 @@ describe('TaskTableView', () => {
   });
 
   it('select-all checkbox selects all visible rows in store', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const selectAll = screen.getByTestId('select-all');
     fireEvent.click(selectAll);
     expect(mockSelectTaskIds).toHaveBeenCalledWith(['task-1', 'task-2', 'task-3']);
   });
 
   it('selectTaskIds is called symmetrically on each row selection change', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const checkbox1 = screen.getByTestId('select-task-1');
     const checkbox2 = screen.getByTestId('select-task-2');
 
@@ -289,32 +289,32 @@ describe('TaskTableView', () => {
 
   it('shows error state when query fails', () => {
     mockUseBoardTasks.mockReturnValue({ data: undefined as unknown as { tasks: Task[]; total: number }, isLoading: false, isError: true, error: new Error('Network failure') });
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('Failed to load tasks. Please try again.')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
   it('shows loading state', () => {
     mockUseBoardTasks.mockReturnValue({ data: undefined as unknown as { tasks: Task[]; total: number }, isLoading: true, isError: false, error: null });
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('Loading tasks...')).toBeInTheDocument();
   });
 
   it('shows empty state when no tasks', () => {
     mockUseBoardTasks.mockReturnValue({ data: { tasks: [], total: 0 }, isLoading: false, isError: false, error: null });
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('No tasks found')).toBeInTheDocument();
   });
 
   it('shows clear filters button when filters are active', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const statusFilter = screen.getByTestId('filter-status');
     fireEvent.change(statusFilter, { target: { value: 'pending' } });
     expect(screen.getByText('Clear filters')).toBeInTheDocument();
   });
 
   it('clears filters when clear button clicked', () => {
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     const statusFilter = screen.getByTestId('filter-status') as HTMLSelectElement;
     fireEvent.change(statusFilter, { target: { value: 'pending' } });
     expect(screen.getByText('Clear filters')).toBeInTheDocument();
@@ -324,13 +324,13 @@ describe('TaskTableView', () => {
 
   it('shows bulk action bar when tasks are selected', () => {
     currentStore = { ...defaultStore, selectedTaskIds: ['task-1'], isTaskBulkSelectMode: true };
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByText('1 task selected')).toBeInTheDocument();
   });
 
   it('syncs rowSelection from store selectedTaskIds on mount', () => {
     currentStore = { ...defaultStore, selectedTaskIds: ['task-1', 'task-2'], isTaskBulkSelectMode: true };
-    render(<TaskTableView boardId="board-1" />);
+    render(<TaskTableView habitatId="board-1" />);
     expect(screen.getByTestId('select-task-1')).toBeChecked();
     expect(screen.getByTestId('select-task-2')).toBeChecked();
     expect(screen.getByTestId('select-task-3')).not.toBeChecked();

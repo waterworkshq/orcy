@@ -4,7 +4,7 @@ import Markdown from 'react-markdown';
 import { Badge } from '../ui/Badge.js';
 import { Button } from '../ui/Button.js';
 import { ArrowLeft, Clock, Tag, Calendar } from 'lucide-react';
-import type { FeatureWithProgress } from '../../types/index.js';
+import type { MissionWithProgress } from '../../types/index.js';
 
 export function formatRelativeTime(dateStr: string | null): string {
   if (!dateStr) return '\u2014';
@@ -30,7 +30,7 @@ function statusBadgeVariant(status: string) {
 }
 
 interface FeatureHeaderProps {
-  feature: FeatureWithProgress;
+  feature: MissionWithProgress;
 }
 
 export function FeatureHeader({ feature }: FeatureHeaderProps) {
@@ -94,7 +94,7 @@ export function FeatureHeader({ feature }: FeatureHeaderProps) {
             )}
           </div>
           <div className="flex gap-2 ml-4 shrink-0">
-            <Link to={`/boards/${feature.boardId}`}>
+            <Link to={`/boards/${feature.habitatId}`}>
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Habitat

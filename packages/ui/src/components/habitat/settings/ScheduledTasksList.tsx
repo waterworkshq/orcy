@@ -115,9 +115,9 @@ export function ScheduledTasksList({
               </div>
             </div>
 
-            {task.lastCreatedFeatureId && (
+            {task.lastCreatedMissionId && (
               <a
-                href={`/features/${task.lastCreatedFeatureId}`}
+                href={`/features/${task.lastCreatedMissionId}`}
                 className="text-xs text-primary hover:underline"
                 data-testid={`feature-link-${task.id}`}
               >

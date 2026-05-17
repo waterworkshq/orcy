@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { FeatureHeader, formatStatus, formatRelativeTime } from './MissionHeader.js';
-import type { FeatureWithProgress } from '../../types/index.js';
+import type { MissionWithProgress } from '../../types/index.js';
 
 vi.mock('../ui/Button.js', () => ({
   Button: ({ children, ...props }: any) => (
@@ -31,10 +31,10 @@ vi.mock('react-markdown', () => ({
 }));
 
 function makeFeature(
-  overrides: Partial<FeatureWithProgress> & { id: string }
-): FeatureWithProgress {
+  overrides: Partial<MissionWithProgress> & { id: string }
+): MissionWithProgress {
   return {
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     title: 'Test Feature',
     description: 'A test feature description',
@@ -77,7 +77,7 @@ function renderWithRouter(ui: React.ReactElement) {
     <MemoryRouter initialEntries={['/features/feat-123']}>
       <Routes>
         <Route path="/features/:id" element={ui} />
-        <Route path="/boards/:boardId" element={<div>Board Page</div>} />
+        <Route path="/boards/:habitatId" element={<div>Board Page</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -210,7 +210,7 @@ describe('FeatureHeader', () => {
   });
 
   it('renders back to habitat link', () => {
-    const feature = makeFeature({ id: 'feat-1', boardId: 'board-42' });
+    const feature = makeFeature({ id: 'feat-1', habitatId: 'board-42' });
     renderWithRouter(<FeatureHeader feature={feature} />);
 
     const backLink = screen.getByText('Back to Habitat').closest('a');

@@ -2,17 +2,17 @@ import React, { Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GlassToaster } from './components/ui/Toast.js';
-import { BoardListPage } from './components/habitat/HabitatListPage.js';
-import { BoardPage } from './components/habitat/HabitatPage.js';
+import { HabitatListPage } from './components/habitat/HabitatListPage.js';
+import { HabitatPage } from './components/habitat/HabitatPage.js';
 import { TeamsPage } from './components/habitat/TeamsPage.js';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.js';
 import { AuthPage } from './components/auth/AuthPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
-import { FeatureDetailPage } from './pages/MissionDetailPage.js';
+import { MissionDetailPage } from './pages/MissionDetailPage.js';
 import { AgentsPage } from './pages/AgentsPage.js';
 import { ActivityPage } from './pages/ActivityPage.js';
 import { AppShell } from './components/layout/AppShell.js';
-import { useBoardStore } from './store/habitatStore.js';
+import { useHabitatStore } from './store/habitatStore.js';
 
 const DashboardPage = React.lazy(() =>
   import('./pages/DashboardPage.js').then((m) => ({ default: m.DashboardPage }))
@@ -33,7 +33,7 @@ const queryClient = new QueryClient({
 });
 
 function ThemeInitializer() {
-  const setTheme = useBoardStore((s) => s.setTheme);
+  const setTheme = useHabitatStore((s) => s.setTheme);
   useEffect(() => {
     document.documentElement.classList.add('dark');
     setTheme('dark');
@@ -64,8 +64,8 @@ export default function App() {
                 </ProtectedRoute>
               }
             >
-              <Route path="/" element={<BoardListPage />} />
-              <Route path="/boards/:boardId" element={<BoardPage />} />
+              <Route path="/" element={<HabitatListPage />} />
+              <Route path="/habitats/:habitatId" element={<HabitatPage />} />
               <Route path="/dashboard" element={
                 <Suspense fallback={
                   <div className="flex items-center justify-center py-20">
@@ -78,7 +78,7 @@ export default function App() {
               <Route path="/teams" element={<TeamsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/activity" element={<ActivityPage />} />
-              <Route path="/features/:id" element={<FeatureDetailPage />} />
+              <Route path="/missions/:id" element={<MissionDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>

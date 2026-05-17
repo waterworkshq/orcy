@@ -9,17 +9,17 @@ import { Button } from '../ui/Button.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
 import { MarkdownContent } from '../ui/MarkdownContent.js';
-import { useFeatureComments } from '../../lib/useHabitatData.js';
-import type { FeatureComment } from '../../types/index.js';
+import { useMissionComments } from '../../lib/useHabitatData.js';
+import type { MissionComment } from '../../types/index.js';
 
-interface FeatureCommentSectionProps {
-  featureId: string;
+interface MissionCommentSectionProps {
+  missionId: string;
 }
 
-export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps) {
+export function MissionCommentSection({ missionId }: MissionCommentSectionProps) {
   const qc = useQueryClient();
-  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading } = useFeatureComments(featureId);
-  const [comments, setComments] = useState<FeatureComment[]>([]);
+  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading } = useMissionComments(missionId);
+  const [comments, setComments] = useState<MissionComment[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -37,7 +37,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
     if (!content.trim()) return;
     setSubmitting(true);
     try {
-      const result = await api.featureComments.create(featureId, {
+      const result = await api.missionComments.create(missionId, {
         content: content.trim(),
         parentId: replyingTo?.id,
       });
@@ -45,7 +45,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
       setContent('');
       setReplyingTo(null);
       notify.success('Comment added');
-      qc.invalidateQueries({ queryKey: queryKeys.featureComments.list(featureId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missionComments.list(missionId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -57,12 +57,12 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
     if (!editContent.trim()) return;
     setSubmitting(true);
     try {
-      const result = await api.featureComments.update(featureId, commentId, { content: editContent.trim() });
+      const result = await api.missionComments.update(missionId, commentId, { content: editContent.trim() });
       setComments((prev) => prev.map((c) => (c.id === commentId ? result.comment : c)));
       setEditingId(null);
       setEditContent('');
       notify.success('Comment updated');
-      qc.invalidateQueries({ queryKey: queryKeys.featureComments.list(featureId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missionComments.list(missionId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -72,10 +72,10 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
 
   async function handleDelete(commentId: string) {
     try {
-      await api.featureComments.delete(featureId, commentId);
+      await api.missionComments.delete(missionId, commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       notify.success('Comment deleted');
-      qc.invalidateQueries({ queryKey: queryKeys.featureComments.list(featureId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missionComments.list(missionId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -83,7 +83,7 @@ export function FeatureCommentSection({ featureId }: FeatureCommentSectionProps)
     }
   }
 
-  const getAuthorLabel = (comment: FeatureComment) =>
+  const getAuthorLabel = (comment: MissionComment) =>
     comment.authorType === 'agent'
       ? comment.authorId.slice(0, 8)
       : 'Human';

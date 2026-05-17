@@ -4,14 +4,14 @@ import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ActivityPage } from './ActivityPage.js';
-import type { EnrichedBoardEvent, Anomaly } from '../types/index.js';
+import type { EnrichedHabitatEvent, Anomaly } from '../types/index.js';
 import type { UseQueryResult } from '@tanstack/react-query';
 
-function makeEvent(overrides: Partial<EnrichedBoardEvent> & { id: string }): EnrichedBoardEvent {
+function makeEvent(overrides: Partial<EnrichedHabitatEvent> & { id: string }): EnrichedHabitatEvent {
   return {
     taskId: 'task-1',
     taskTitle: 'Test Task',
-    boardId: 'board-1',
+    habitatId: 'board-1',
     actorType: 'agent',
     actorId: 'agent-1',
     actorName: 'Agent One',
@@ -44,7 +44,7 @@ let mockAnomaliesResult: UseQueryResult<{ anomalies: Anomaly[] }> = {
   error: null,
 } as any;
 
-let mockEventsResult: UseQueryResult<{ events: EnrichedBoardEvent[]; total: number }> = {
+let mockEventsResult: UseQueryResult<{ events: EnrichedHabitatEvent[]; total: number }> = {
   data: { events: [], total: 0 },
   isLoading: true,
   error: null,
@@ -58,7 +58,7 @@ vi.mock('../lib/useHabitatData.js', () => ({
 const mockOpenModal = vi.fn();
 
 vi.mock('../store/habitatStore.js', () => ({
-  useBoardStore: (selector: any) =>
+  useHabitatStore: (selector: any) =>
     selector({
       board: { id: 'board-1', name: 'Test Board' },
     }),
@@ -133,7 +133,7 @@ function setAnomaliesResult(overrides: Partial<UseQueryResult<{ anomalies: Anoma
   } as any;
 }
 
-function setEventsResult(overrides: Partial<UseQueryResult<{ events: EnrichedBoardEvent[]; total: number }>> = {}) {
+function setEventsResult(overrides: Partial<UseQueryResult<{ events: EnrichedHabitatEvent[]; total: number }>> = {}) {
   mockEventsResult = {
     data: { events: [], total: 0 },
     isLoading: false,

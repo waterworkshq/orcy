@@ -2,7 +2,7 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Check, Trash2, X } from 'lucide-react';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { formatRelativeTime } from '../../lib/formatting.js';
 import type { Notification } from '../../types/index.js';
 
@@ -65,9 +65,9 @@ function NotificationItem({
 export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const notifications = useBoardStore((s) => s.notifications);
-  const markNotificationRead = useBoardStore((s) => s.markNotificationRead);
-  const clearNotifications = useBoardStore((s) => s.clearNotifications);
+  const notifications = useHabitatStore((s) => s.notifications);
+  const markNotificationRead = useHabitatStore((s) => s.markNotificationRead);
+  const clearNotifications = useHabitatStore((s) => s.clearNotifications);
 
   React.useEffect(() => {
     if (!isOpen) return;

@@ -14,7 +14,7 @@ interface FeatureContextData {
 
 interface FeatureContextSectionProps {
   feature: FeatureContextData | null;
-  onSelectFeature?: (featureId: string) => void;
+  onSelectFeature?: (missionId: string) => void;
 }
 
 export function FeatureContextSection({ feature, onSelectFeature }: FeatureContextSectionProps) {

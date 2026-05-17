@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRe
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { NumberField } from '../../ui/NumberField.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
-import type { Board, RetryPolicy } from '../../../types/index.js';
+import type { Habitat, RetryPolicy } from '../../../types/index.js';
 
 interface RetryPolicyTabProps {
-  boardId: string;
+  habitatId: string;
   boardRetrySettings: RetryPolicy | null;
-  onUpdate: (board: Board) => void;
+  onUpdate: (board: Habitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -16,7 +16,7 @@ export interface RetryPolicyTabHandle {
 }
 
 export const RetryPolicyTab = forwardRef<RetryPolicyTabHandle, RetryPolicyTabProps>(function RetryPolicyTab({
-  boardId,
+  habitatId,
   boardRetrySettings,
   onUpdate,
   onSavingChange,
@@ -28,7 +28,7 @@ export const RetryPolicyTab = forwardRef<RetryPolicyTabHandle, RetryPolicyTabPro
   const [retryMaxBackoff, setRetryMaxBackoff] = useState('3600');
   const [retryEscalateToHuman, setRetryEscalateToHuman] = useState(true);
 
-  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: boardId, onUpdate });
+  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
 
   useEffect(() => {
     onSavingChange?.(saving);

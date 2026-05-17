@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRe
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { NumberField } from '../../ui/NumberField.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
-import type { Board, AutoAssignSettings } from '../../../types/index.js';
+import type { Habitat, AutoAssignSettings } from '../../../types/index.js';
 
 interface AutoAssignTabProps {
-  boardId: string;
+  habitatId: string;
   boardAutoAssignSettings: AutoAssignSettings | null;
-  onUpdate: (board: Board) => void;
+  onUpdate: (board: Habitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -16,7 +16,7 @@ export interface AutoAssignTabHandle {
 }
 
 export const AutoAssignTab = forwardRef<AutoAssignTabHandle, AutoAssignTabProps>(function AutoAssignTab({
-  boardId,
+  habitatId,
   boardAutoAssignSettings,
   onUpdate,
   onSavingChange,
@@ -28,7 +28,7 @@ export const AutoAssignTab = forwardRef<AutoAssignTabHandle, AutoAssignTabProps>
   const [autoAssignRequireCapability, setAutoAssignRequireCapability] = useState(false);
   const [autoAssignExcludeOffline, setAutoAssignExcludeOffline] = useState(true);
 
-  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: boardId, onUpdate });
+  const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
 
   useEffect(() => {
     onSavingChange?.(saving);

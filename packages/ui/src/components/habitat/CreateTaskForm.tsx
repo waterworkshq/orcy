@@ -2,29 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/Dialog.js';
 import { Button } from '../ui/Button.js';
 import { RichTextEditor } from '../ui/RichTextEditor.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
-import { useTemplates, useCreateTaskInFeature } from '../../lib/useHabitatData.js';
-import type { TaskPriority, FeatureTemplate } from '../../types/index.js';
+import { useTemplates, useCreateTaskInMission } from '../../lib/useHabitatData.js';
+import type { TaskPriority, MissionTemplate } from '../../types/index.js';
 
 /** Props for the CreateTaskForm dialog. */
 interface CreateTaskFormProps {
   open: boolean;
   onClose: () => void;
-  boardId?: string;
-  featureId?: string;
+  habitatId?: string;
+  missionId?: string;
 }
 
 /**
  * Dialog form for creating a new task. Supports templates, priority,
  * labels, required domain, due date, and SLA. Resets on open/close.
  */
-export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTaskFormProps) {
-  const { columns, addTask } = useBoardStore();
-  const { data: templatesData } = useTemplates(boardId);
+export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
+  const { columns, addTask } = useHabitatStore();
+  const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
-  const createTaskMutation = useCreateTaskInFeature(featureId ?? '');
+  const createTaskMutation = useCreateTaskInMission(missionId ?? '');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -89,7 +89,7 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !featureId) return;
+    if (!title.trim() || !missionId) return;
 
     try {
       const result = await createTaskMutation.mutateAsync({
@@ -144,7 +144,7 @@ export function CreateTaskForm({ open, onClose, boardId, featureId }: CreateTask
                   <option value="">Pick a template (optional)</option>
                   {templates.map((tmpl) => (
                     <option key={tmpl.id} value={tmpl.id}>
-                      {tmpl.name} {tmpl.boardId ? '(board)' : '(global)'}
+                      {tmpl.name} {tmpl.habitatId ? '(board)' : '(global)'}
                     </option>
                   ))}
                 </select>

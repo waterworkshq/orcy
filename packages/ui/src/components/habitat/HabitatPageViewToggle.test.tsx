@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
-import { BoardPage } from './HabitatPage.js';
+import { HabitatPage } from './HabitatPage.js';
 
 vi.mock('../../api/index.js', () => ({
   api: {
@@ -32,7 +32,7 @@ const mockSetSearchParams = vi.fn((updater: any) => {
 });
 
 vi.mock('react-router-dom', () => ({
-  useParams: vi.fn(() => ({ boardId: 'board-1' })),
+  useParams: vi.fn(() => ({ habitatId: 'board-1' })),
   useSearchParams: vi.fn(() => [mockSearchParams, mockSetSearchParams]),
   Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
   useNavigate: vi.fn(() => vi.fn()),
@@ -56,7 +56,7 @@ const mockBoardStoreState: Record<string, any> = {
   allFeaturesLoaded: false,
   presence: [],
   isBulkSelectMode: false,
-  selectedFeatureIds: [],
+  selectedMissionIds: [],
   selectedTaskIds: [],
   setBoard: vi.fn(),
   setAgents: vi.fn(),
@@ -74,7 +74,7 @@ const mockBoardStoreState: Record<string, any> = {
 };
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => {
+  useHabitatStore: (...args: any[]) => {
     const selector = args[0];
     return selector ? selector(mockBoardStoreState) : mockBoardStoreState;
   },
@@ -85,7 +85,7 @@ vi.mock('../../store/modalStore.js', () => ({
 }));
 
 vi.mock('./Habitat.js', () => ({
-  Board: () => <div data-testid="kanban-board" />,
+  Habitat: () => <div data-testid="habitat" />,
 }));
 
 vi.mock('./FilterBar.js', () => ({
@@ -93,8 +93,8 @@ vi.mock('./FilterBar.js', () => ({
 }));
 
 vi.mock('./TaskTableView.js', () => ({
-  TaskTableView: ({ boardId }: { boardId: string }) => (
-    <div data-testid="task-table-view" data-board-id={boardId} />
+  TaskTableView: ({ habitatId }: { habitatId: string }) => (
+    <div data-testid="task-table-view" data-board-id={habitatId} />
   ),
 }));
 
@@ -144,14 +144,14 @@ describe('HabitatPage view toggle', () => {
   });
 
   it('defaults to board view when no view param', () => {
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.getByTestId('kanban-board')).toBeTruthy();
     expect(screen.queryByTestId('task-table-view')).toBeNull();
   });
 
   it('renders TaskTableView when ?view=table', () => {
     mockSearchParams = new URLSearchParams('view=table');
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.getByTestId('task-table-view')).toBeTruthy();
     expect(screen.getByTestId('task-table-view').getAttribute('data-board-id')).toBe('board-1');
     expect(screen.queryByTestId('kanban-board')).toBeNull();
@@ -159,31 +159,31 @@ describe('HabitatPage view toggle', () => {
 
   it('renders kanban when ?view=board', () => {
     mockSearchParams = new URLSearchParams('view=board');
-    render(<BoardPage />);
+    render(<HabitatPage />);
     expect(screen.getByTestId('kanban-board')).toBeTruthy();
     expect(screen.queryByTestId('task-table-view')).toBeNull();
   });
 
   it('clears task selection when switching from table to board', () => {
-    const { rerender } = render(<BoardPage />);
+    const { rerender } = render(<HabitatPage />);
     expect(clearTaskSelectionMock).not.toHaveBeenCalled();
 
     mockSearchParams = new URLSearchParams('view=table');
-    rerender(<BoardPage />);
+    rerender(<HabitatPage />);
     expect(clearTaskSelectionMock).toHaveBeenCalledTimes(1);
 
     clearTaskSelectionMock.mockClear();
     mockSearchParams = new URLSearchParams('view=board');
-    rerender(<BoardPage />);
+    rerender(<HabitatPage />);
     expect(clearTaskSelectionMock).toHaveBeenCalledTimes(1);
   });
 
   it('clears task selection when switching from board to table', () => {
     mockSearchParams = new URLSearchParams();
-    const { rerender } = render(<BoardPage />);
+    const { rerender } = render(<HabitatPage />);
 
     mockSearchParams = new URLSearchParams('view=table');
-    rerender(<BoardPage />);
+    rerender(<HabitatPage />);
     expect(clearTaskSelectionMock).toHaveBeenCalled();
   });
 });

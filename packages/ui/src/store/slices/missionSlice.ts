@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { FeatureWithProgress, FeatureStatus } from '../../types/index.js';
 import type { UiSlice } from './uiSlice.js';
 
-export interface FeatureSlice {
+export interface MissionSlice {
   features: FeatureWithProgress[];
   allFeaturesLoaded: boolean;
   setFeatures: (features: FeatureWithProgress[]) => void;
@@ -14,14 +14,14 @@ export interface FeatureSlice {
   updateFeatureProgress: (featureId: string, completed: number, total: number) => void;
 }
 
-export const createFeatureSlice: StateCreator<FeatureSlice & UiSlice, [], [], FeatureSlice> = (set) => ({
+export const createMissionSlice: StateCreator<MissionSlice & UiSlice, [], [], MissionSlice> = (set) => ({
   features: [],
   allFeaturesLoaded: false,
 
   setFeatures: (features) =>
     set((state) => ({
       features,
-      selectedFeatureIds: state.selectedFeatureIds.filter((id) => features.some((f) => f.id === id)),
+      selectedMissionIds: state.selectedMissionIds.filter((id) => features.some((f) => f.id === id)),
     })),
 
   addFeature: (feature) =>
@@ -37,8 +37,8 @@ export const createFeatureSlice: StateCreator<FeatureSlice & UiSlice, [], [], Fe
   removeFeature: (featureId) =>
     set((state) => ({
       features: state.features.filter((f) => f.id !== featureId),
-      selectedFeatureId: state.selectedFeatureId === featureId ? null : state.selectedFeatureId,
-      selectedFeatureIds: state.selectedFeatureIds.filter((id) => id !== featureId),
+      selectedMissionId: state.selectedMissionId === featureId ? null : state.selectedMissionId,
+      selectedMissionIds: state.selectedMissionIds.filter((id) => id !== featureId),
     })),
 
   moveFeatureToColumn: (featureId, columnId) =>

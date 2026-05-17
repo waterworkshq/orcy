@@ -11,11 +11,11 @@ Complete reference for the Orcy REST API.
 - [Authentication](#authentication)
 - [Error Responses](#error-responses)
 - [Health](#health)
-- [Boards](#boards)
+- [Habitats](#habitats)
 - [Columns](#columns)
-- [Features](#features)
-- [Board Health](#board-health)
-- [Board Tasks](#board-tasks)
+- [Missions](#missions)
+- [Habitat Health](#habitat-health)
+- [Habitat Tasks](#habitat-tasks)
 - [Prioritization](#prioritization)
 - [Scheduled Tasks](#scheduled-tasks)
 - [Tasks](#tasks)
@@ -25,11 +25,11 @@ Complete reference for the Orcy REST API.
 - [Quality Gates](#quality-gates)
 - [Task Events](#task-events)
 - [Task Comments](#task-comments)
-- [Feature Comments](#feature-comments)
+- [Mission Comments](#mission-comments)
 - [Agents](#agents)
 - [Agent Messages](#agent-messages)
 - [Pulse (Mission Signals)](#pulse-mission-signals)
-- [Feature Templates](#feature-templates)
+- [Mission Templates](#mission-templates)
 - [Saved Filters](#saved-filters)
 - [Organizations](#organizations)
 - [Chat Integrations](#chat-integrations)
@@ -80,7 +80,7 @@ GET /api/auth/stream-token  (requires human JWT auth)
 → Returns { token: "short-lived-jwt" }  (expires in 30 seconds)
 ```
 
-Then connect: `EventSource('/sse/boards/:boardId?token=<stream-token>')`
+Then connect: `EventSource('/sse/habitats/:habitatId?token=<stream-token>')`
 
 ### Dual Auth (Agent or Human)
 
@@ -159,11 +159,7 @@ Health check endpoint (no `/api` prefix).
 
 ---
 
-## Boards
-
-### GET /boards
-
-List all boards.
+## Habitats\n\n### GET /habitats\n\nList all habitats.
 
 **Auth:** Agent or Human auth required.
 
@@ -171,9 +167,7 @@ List all boards.
 
 ```json
 {
-  "boards": [
-    {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
+  "habitats": [\n    {\n      "id": "550e8400-e29b-41d4-a716-446655440000",
       "name": "Sprint 24",
       "description": "Q2 sprint planning",
       "createdAt": "2026-04-01T00:00:00.000Z",
@@ -183,9 +177,7 @@ List all boards.
 }
 ```
 
-### POST /boards
-
-Create a new board. Default columns (Todo, In Progress, Review, Done) are created automatically unless `defaultColumns: false`.
+### POST /habitats\n\nCreate a new habitat. Default columns (Todo, In Progress, Review, Done) are created automatically unless `defaultColumns: false`.
 
 **Request:**
 
@@ -207,9 +199,7 @@ Create a new board. Default columns (Todo, In Progress, Review, Done) are create
 
 ```json
 {
-  "board": {
-    "id": "board-uuid",
-    "name": "Sprint 25",
+  "habitat": {\n    "id": "habitat-uuid",\n    "name": "Sprint 25",
     "description": "Next sprint",
     "createdAt": "...",
     "updatedAt": "..."
@@ -223,25 +213,19 @@ Create a new board. Default columns (Todo, In Progress, Review, Done) are create
 }
 ```
 
-### GET /boards/:id
+### GET /habitats/:id\n\nGet a habitat with its columns and missions.
 
-Get a board with its columns and features.
-
-**Auth:** Agent or Human auth required. Board access check enforced (404 if missing, 403 if unauthorized human).
+**Auth:** Agent or Human auth required. Habitat access check enforced (404 if missing, 403 if unauthorized human).
 
 **Response `200`:**
 
 ```json
 {
-  "board": { "id": "...", "name": "Sprint 24", "..." },
-  "columns": [ { "id": "...", "name": "Todo", "..." } ],
-  "features": [ { "id": "feat-uuid", "title": "Auth System", "status": "in_progress", "progress": { "completed": 2, "total": 5 }, "..." } ]
+  "habitat": { "id": "...", "name": "Sprint 24", "..." },\n  "columns": [ { "id": "...", "name": "Todo", "..." } ],\n  "missions": [ { "id": "mission-uuid", "title": "Auth System", "status": "in_progress", "progress": { "completed": 2, "total": 5 }, "..." } ]
 }
 ```
 
-### PATCH /boards/:id
-
-Update a board.
+### PATCH /habitats/:id\n\nUpdate a habitat.
 
 **Request:**
 
@@ -256,19 +240,15 @@ Update a board.
 
 ```json
 {
-  "board": { "id": "...", "name": "Sprint 24 (Updated)", "..." }
+  "habitat": { "id": "...", "name": "Sprint 24 (Updated)", "..." }
 }
 ```
 
-### DELETE /boards/:id
-
-Delete a board and all its tasks.
+### DELETE /habitats/:id\n\nDelete a habitat and all its tasks.
 
 **Response `204`:** No content.
 
-### GET /boards/:id/stats
-
-Get board statistics.
+### GET /habitats/:id/stats\n\nGet habitat statistics.
 
 **Response `200`:**
 
@@ -291,9 +271,7 @@ Get board statistics.
 }
 ```
 
-### GET /boards/:id/events
-
-Get board-wide activity feed (all events across all tasks on the board).
+### GET /habitats/:id/events\n\nGet habitat-wide activity feed (all events across all tasks on the habitat).
 
 **Query Parameters:**
 
@@ -331,22 +309,17 @@ Get board-wide activity feed (all events across all tasks on the board).
 
 ---
 
-## Board Health
+## Habitat Health
 
-Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacity, stability. Scores are computed on-demand from existing metrics and optionally persisted as snapshots for trend tracking.
+Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacity, stability. Scores are computed on-demand from existing metrics and optionally persisted as snapshots for trend tracking.\n\n### GET /habitats/:id/health\n\nGet the current habitat health score with dimension breakdown, grade, and recommendations.
 
-### GET /boards/:id/health
-
-Get the current board health score with dimension breakdown, grade, and recommendations.
-
-**Auth:** Agent API key OR JWT + board access
+**Auth:** Agent API key OR JWT + habitat access
 
 **Response `200`:**
 
 ```json
 {
-  "boardId": "board-uuid",
-  "score": 82,
+  "habitatId": "habitat-uuid",\n  "score": 82,
   "grade": "B",
   "dimensions": {
     "flow": { "score": 85, "cycleTimeTrend": -5, "throughputTrend": 3, "wipUtilization": 0.3 },
@@ -362,9 +335,7 @@ Get the current board health score with dimension breakdown, grade, and recommen
 }
 ```
 
-### GET /boards/:id/health/history
-
-Get health snapshots over time for trend tracking.
+### GET /habitats/:id/health/history\n\nGet health snapshots over time for trend tracking.
 
 **Query Parameters:**
 
@@ -377,21 +348,16 @@ Get health snapshots over time for trend tracking.
 ```json
 {
   "snapshots": [
-    { "boardId": "board-uuid", "score": 80, "grade": "B", "snapshotAt": "2026-05-12T12:00:00.000Z" },
-    { "boardId": "board-uuid", "score": 82, "grade": "B", "snapshotAt": "2026-05-13T12:00:00.000Z" }
+    { "habitatId": "habitat-uuid", "score": 80, "grade": "B", "snapshotAt": "2026-05-12T12:00:00.000Z" },\n    { "habitatId": "habitat-uuid", "score": 82, "grade": "B", "snapshotAt": "2026-05-13T12:00:00.000Z" }
   ]
 }
 ```
 
 ---
 
-## Board Tasks
+## Habitat Tasks
 
-Get all tasks across all features on a board with sorting and filtering.
-
-### GET /boards/:id/tasks
-
-List tasks on a board with server-side sorting and filtering.
+Get all tasks across all missions on a habitat with sorting and filtering.\n\n### GET /habitats/:id/tasks\n\nList tasks on a habitat with server-side sorting and filtering.
 
 **Auth:** Agent API key OR JWT
 
@@ -431,9 +397,7 @@ List tasks on a board with server-side sorting and filtering.
 
 ## Columns
 
-### POST /boards/:boardId/columns
-
-Add a column to a board.
+### POST /habitats/:habitatId/columns\n\nAdd a column to a habitat.
 
 **Request:**
 
@@ -496,11 +460,11 @@ Delete a column.
 
 ---
 
-## Features
+## Missions
 
-Features are the board-level cards. They represent goals that flow through columns. Each feature contains tasks that orcys work on. Feature status is auto-derived from child task states.
+Missions are the habitat-level cards. They represent goals that flow through columns. Each mission contains tasks that orcys work on. Mission status is auto-derived from child task states.
 
-### Feature Status Values
+### Mission Status Values
 
 | Status | Condition |
 |--------|-----------|
@@ -510,9 +474,7 @@ Features are the board-level cards. They represent goals that flow through colum
 | `done` | All tasks done/approved (at least one done) |
 | `failed` | Any task failed and none actively being worked on |
 
-### POST /boards/:boardId/features
-
-Create a new feature on a board. The feature is placed in the first column (Backlog) by default.
+### POST /habitats/:habitatId/missions\n\nCreate a new mission on a habitat. The mission is placed in the first column (Backlog) by default.
 
 **Request:**
 
@@ -523,7 +485,7 @@ Create a new feature on a board. The feature is placed in the first column (Back
   "acceptanceCriteria": "Users can sign in, get a JWT, and refresh tokens work",
   "priority": "high",
   "labels": ["security", "auth"],
-  "dependsOn": ["previous-feature-uuid"]
+  "dependsOn": ["previous-mission-uuid"]
 }
 ```
 
@@ -534,9 +496,9 @@ Create a new feature on a board. The feature is placed in the first column (Back
 | `description` | string | no | max 5000 chars |
 | `acceptanceCriteria` | string | no | max 5000 chars |
 | `priority` | enum | no | `low`, `medium`, `high`, `critical` (default: `medium`) |
-| `labels` | string[] | no | Feature labels |
-| `dependsOn` | UUID[] | no | Feature IDs this feature depends on |
-| `blocks` | UUID[] | no | Feature IDs this feature blocks |
+| `labels` | string[] | no | Mission labels |
+| `dependsOn` | UUID[] | no | Mission IDs this mission depends on |
+| `blocks` | UUID[] | no | Mission IDs this mission blocks |
 | `dueAt` | datetime | no | Due date |
 | `slaMinutes` | integer | no | SLA in minutes |
 
@@ -544,9 +506,9 @@ Create a new feature on a board. The feature is placed in the first column (Back
 
 ```json
 {
-  "feature": {
-    "id": "feat-uuid",
-    "boardId": "board-uuid",
+  "mission": {
+    "id": "mission-uuid",
+    "habitatId": "habitat-uuid",
     "columnId": "col-backlog-uuid",
     "title": "Implement User Authentication",
     "description": "...",
@@ -554,7 +516,7 @@ Create a new feature on a board. The feature is placed in the first column (Back
     "priority": "high",
     "labels": ["security", "auth"],
     "status": "not_started",
-    "dependsOn": ["previous-feature-uuid"],
+    "dependsOn": ["previous-mission-uuid"],
     "blocks": [],
     "dueAt": null,
     "slaMinutes": null,
@@ -566,17 +528,17 @@ Create a new feature on a board. The feature is placed in the first column (Back
 }
 ```
 
-### GET /boards/:boardId/features
+### GET /habitats/:habitatId/missions
 
-List features on a board with progress information.
+List missions on a habitat with progress information.
 
 **Query Parameters:**
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `status` | enum | — | Filter by feature status: `not_started`, `in_progress`, `review`, `done`, `failed` |
+| `status` | enum | — | Filter by mission status: `not_started`, `in_progress`, `review`, `done`, `failed` |
 | `priority` | enum | — | Filter: `low`, `medium`, `high`, `critical` |
-| `isArchived` | boolean | false | Filter to return either only active (false) or archived (true) features. By default this is false on board views but can be overridden. |
+| `isArchived` | boolean | false | Filter to return either only active (false) or archived (true) missions. By default this is false on habitat views but can be overridden. |
 | `limit` | integer | 20 | Results per page (1-100) |
 | `offset` | integer | 0 | Skip results |
 
@@ -584,10 +546,10 @@ List features on a board with progress information.
 
 ```json
 {
-  "features": [
+  "missions": [
     {
-      "id": "feat-uuid",
-      "boardId": "board-uuid",
+      "id": "mission-uuid",
+      "habitatId": "habitat-uuid",
       "columnId": "col-uuid",
       "title": "Implement User Authentication",
       "description": "...",
@@ -609,16 +571,16 @@ List features on a board with progress information.
 }
 ```
 
-### GET /features/:id
+### GET /missions/:id
 
-Get a feature with progress information.
+Get a mission with progress information.
 
 **Response `200`:**
 
 ```json
 {
-  "feature": {
-    "id": "feat-uuid",
+  "mission": {
+    "id": "mission-uuid",
     "title": "Implement User Authentication",
     "status": "in_progress",
     "progress": { "completed": 2, "total": 5, "percentage": 40 },
@@ -627,15 +589,15 @@ Get a feature with progress information.
 }
 ```
 
-### GET /features/:id/details
+### GET /missions/:id/details
 
-Get a feature with its tasks, events, progress, and dependencies.
+Get a mission with its tasks, events, progress, and dependencies.
 
 **Response `200`:**
 
 ```json
 {
-  "feature": { "id": "feat-uuid", "title": "...", "status": "in_progress", "..." },
+  "mission": { "id": "mission-uuid", "title": "...", "status": "in_progress", "..." },
   "tasks": [
     { "id": "task-uuid", "title": "Create JWT middleware", "status": "done", "..." },
     { "id": "task-uuid-2", "title": "Add login endpoint", "status": "pending", "..." }
@@ -648,9 +610,9 @@ Get a feature with its tasks, events, progress, and dependencies.
 }
 ```
 
-### PATCH /features/:id
+### PATCH /missions/:id
 
-Update feature fields. Supports optimistic locking via `version`.
+Update mission fields. Supports optimistic locking via `version`.
 
 **Request:**
 
@@ -669,7 +631,7 @@ Update feature fields. Supports optimistic locking via `version`.
 | `description` | string | no | max 5000 chars |
 | `acceptanceCriteria` | string | no | max 5000 chars |
 | `priority` | enum | no | `low`, `medium`, `high`, `critical` |
-| `labels` | string[] | no | Feature labels |
+| `labels` | string[] | no | Mission labels |
 | `dueAt` | datetime/null | no | Due date |
 | `slaMinutes` | integer/null | no | SLA in minutes |
 | `version` | integer | no | Optimistic lock version |
@@ -680,28 +642,28 @@ If `version` is provided and doesn't match the current version, returns `409` wi
 
 ```json
 {
-  "feature": { "id": "feat-uuid", "version": 4, "..." }
+  "mission": { "id": "mission-uuid", "version": 4, "..." }
 }
 ```
 
-### DELETE /features/:id
+### DELETE /missions/:id
 
-Delete a feature and all its tasks (cascading delete). Fails if other features depend on this one.
+Delete a mission and all its tasks (cascading delete). Fails if other missions depend on this one.
 
 **Response `204`:** No content.
 
-**Response `409`:** Feature has dependent features.
+**Response `409`:** Mission has dependent missions.
 
 ```json
 {
-  "error": "Feature has dependent features",
+  "error": "Mission has dependent missions",
   "dependents": true
 }
 ```
 
-### POST /features/:id/move
+### POST /missions/:id/move
 
-Manually move a feature to a different column (overrides auto-advancement).
+Manually move a mission to a different column (overrides auto-advancement).
 
 **Request:**
 
@@ -715,14 +677,14 @@ Manually move a feature to a different column (overrides auto-advancement).
 
 ```json
 {
-  "feature": { "id": "feat-uuid", "columnId": "col-uuid", "..." }
+  "mission": { "id": "mission-uuid", "columnId": "col-uuid", "..." }
 }
 ```
 
-### POST /features/:id/archive
+### POST /missions/:id/archive
 
-Archives a feature. Features can only be archived if their status is `done`.
-Archived features are hidden from default board queries but are kept for analytics and history.
+Archives a mission. Missions can only be archived if their status is `done`.
+Archived missions are hidden from default habitat queries but are kept for analytics and history.
 
 **Auth:** JWT required (human)
 
@@ -738,13 +700,13 @@ Archived features are hidden from default board queries but are kept for analyti
 
 ```json
 {
-  "error": "Only 'done' features can be archived"
+  "error": "Only 'done' missions can be archived"
 }
 ```
 
-### POST /features/:id/unarchive
+### POST /missions/:id/unarchive
 
-Restores an archived feature back to active status.
+Restores an archived mission back to active status.
 
 **Auth:** JWT required (human)
 
@@ -756,9 +718,9 @@ Restores an archived feature back to active status.
 }
 ```
 
-### GET /features/:id/tasks
+### GET /missions/:id/tasks
 
-List all tasks within a feature.
+List all tasks within a mission.
 
 **Response `200`:**
 
@@ -767,7 +729,7 @@ List all tasks within a feature.
   "tasks": [
     {
       "id": "task-uuid",
-      "featureId": "feat-uuid",
+      "missionId": "mission-uuid",
       "title": "Create JWT middleware",
       "status": "pending",
       "priority": "high",
@@ -786,9 +748,9 @@ List all tasks within a feature.
 }
 ```
 
-### POST /features/:id/tasks
+### POST /missions/:id/tasks
 
-Create a task within a feature. Triggers feature status recalculation.
+Create a task within a mission. Triggers mission status recalculation.
 
 **Request:**
 
@@ -812,19 +774,19 @@ Create a task within a feature. Triggers feature status recalculation.
 | `requiredDomain` | string/null | no | Required agent domain |
 | `requiredCapabilities` | string[] | no | Required agent capabilities |
 | `estimatedMinutes` | integer/null | no | Estimated duration in minutes |
-| `order` | integer | no | Sort order within feature |
+| `order` | integer | no | Sort order within mission |
 
 **Response `201`:**
 
 ```json
 {
-  "task": { "id": "new-task-uuid", "featureId": "feat-uuid", "status": "pending", "..." }
+  "task": { "id": "new-task-uuid", "missionId": "mission-uuid", "status": "pending", "..." }
 }
 ```
 
-### GET /features/:id/progress
+### GET /missions/:id/progress
 
-Get completion metrics for a feature.
+Get completion metrics for a mission.
 
 **Response `200`:**
 
@@ -840,9 +802,9 @@ Get completion metrics for a feature.
 }
 ```
 
-### POST /features/:id/decompose
+### POST /missions/:id/decompose
 
-AI-powered decomposition of a feature into tasks. The feature must have a description.
+AI-powered decomposition of a mission into tasks. The mission must have a description.
 
 **Auth:** JWT required (human)
 
@@ -850,23 +812,23 @@ AI-powered decomposition of a feature into tasks. The feature must have a descri
 
 ```json
 {
-  "featureId": "feat-uuid",
+  "missionId": "mission-uuid",
   "createdTasks": [
     { "id": "task-uuid-1", "title": "Create JWT middleware", "order": 0 },
     { "id": "task-uuid-2", "title": "Add login endpoint", "order": 1 },
     { "id": "task-uuid-3", "title": "Add refresh token rotation", "order": 2 }
   ],
-  "message": "Created 3 tasks from feature description"
+  "message": "Created 3 tasks from mission description"
 }
 ```
 
-**Response `400`:** Feature has no description.
+**Response `400`:** Mission has no description.
 
 **Response `503`:** AI decomposition not configured.
 
-### POST /features/:id/apply-template/:templateId
+### POST /missions/:id/apply-template/:templateId
 
-Apply a feature template to an existing feature. Creates child tasks from the template's `tasksTemplate` array.
+Apply a mission template to an existing mission. Creates child tasks from the template's `tasksTemplate` array.
 
 **Auth:** JWT required (human)
 
@@ -874,7 +836,7 @@ Apply a feature template to an existing feature. Creates child tasks from the te
 
 ```json
 {
-  "feature": { "id": "feat-uuid", "title": "Security Audit", "..." : "..." },
+  "mission": { "id": "mission-uuid", "title": "Security Audit", "..." : "..." },
   "createdTasks": [
     { "id": "task-uuid-1", "title": "Run vulnerability scan", "order": 0 },
     { "id": "task-uuid-2", "title": "Review dependencies", "order": 1 }
@@ -891,11 +853,11 @@ Apply a feature template to an existing feature. Creates child tasks from the te
 
 ## Prioritization
 
-Configurable rules engine that automatically recalculates task priorities based on board-level rules. Rules evaluate every 5 minutes (background) or on manual trigger.
+Configurable rules engine that automatically recalculates task priorities based on habitat-level rules. Rules evaluate every 5 minutes (background) or on manual trigger.
 
-### GET /boards/:id/rules
+### GET /habitats/:id/rules
 
-Get the current prioritization rules for a board.
+Get the current prioritization rules for a habitat.
 
 **Auth:** Agent API key OR JWT
 
@@ -919,7 +881,7 @@ Get the current prioritization rules for a board.
 }
 ```
 
-### PUT /boards/:id/rules
+### PUT /habitats/:id/rules
 
 Update prioritization rules.
 
@@ -938,7 +900,7 @@ Update prioritization rules.
 
 **Response `200`:** Updated rules object.
 
-### POST /boards/:id/rules/evaluate
+### POST /habitats/:id/rules/evaluate
 
 Manually trigger rule evaluation.
 
@@ -956,7 +918,7 @@ Manually trigger rule evaluation.
 }
 ```
 
-### GET /boards/:id/priority-report
+### GET /habitats/:id/priority-report
 
 Get priority distribution and rule hit counts.
 
@@ -975,7 +937,7 @@ Get priority distribution and rule hit counts.
 
 ## Tasks
 
-Tasks are work units inside features. Every task belongs to exactly one feature. Tasks use a state machine for their lifecycle but do not flow through columns — that is handled by their parent feature.
+Tasks are work units inside missions. Every task belongs to exactly one mission. Tasks use a state machine for their lifecycle but do not flow through columns — that is handled by their parent mission.
 
 ### GET /tasks/:id
 
@@ -987,7 +949,7 @@ Get a task by ID.
 {
   "task": {
     "id": "task-uuid",
-    "featureId": "feat-uuid",
+    "missionId": "mission-uuid",
     "title": "Fix authentication bug",
     "description": "JWT tokens are signed using jsonwebtoken v9.0.3 with HS256. Tokens include sub (user ID), username, and role claims, with 24h expiration and issuer validation.",
     "priority": "high",
@@ -1019,15 +981,15 @@ Get a task by ID.
 
 ### GET /tasks/:id/details
 
-Get full task context including parent feature, sibling tasks, and dependencies.
+Get full task context including parent mission, sibling tasks, and dependencies.
 
 **Response `200`:**
 
 ```json
 {
   "task": { "id": "...", "title": "...", "status": "...", "..." },
-  "feature": {
-    "id": "feat-uuid",
+  "mission": {
+    "id": "mission-uuid",
     "title": "Implement User Authentication",
     "description": "...",
     "acceptanceCriteria": "..."
@@ -1039,13 +1001,13 @@ Get full task context including parent feature, sibling tasks, and dependencies.
   "dependencies": [],
   "blockedBy": [],
   "blocking": [],
-  "boardContext": {
+  "habitatContext": {
     "name": "Sprint 24",
     "columns": [
-      { "name": "Todo", "featureCount": 3 },
-      { "name": "In Progress", "featureCount": 2 },
-      { "name": "Review", "featureCount": 1 },
-      { "name": "Done", "featureCount": 3 }
+      { "name": "Todo", "missionCount": 3 },
+      { "name": "In Progress", "missionCount": 2 },
+      { "name": "Review", "missionCount": 1 },
+      { "name": "Done", "missionCount": 3 }
     ]
   }
 }
@@ -1081,7 +1043,7 @@ Update task fields. Supports optimistic locking via `version`.
 
 If `version` is provided and doesn't match the current version, the update fails with `404` ("Task not found or version conflict").
 
-If the parent feature of this task is archived, the update fails with `403` ("Cannot modify a task in an archived feature").
+If the parent mission of this task is archived, the update fails with `403` ("Cannot modify a task in an archived mission").
 
 **Response `200`:**
 
@@ -1093,19 +1055,19 @@ If the parent feature of this task is archived, the update fails with `403` ("Ca
 
 ### DELETE /tasks/:id
 
-Delete a task. Triggers parent feature status recalculation.
+Delete a task. Triggers parent mission status recalculation.
 
 **Response `204`:** No content.
 
-**Response `403`:** If the parent feature is archived ("Cannot delete a task in an archived feature").
+**Response `403`:** If the parent mission is archived ("Cannot delete a task in an archived mission").
 
 ---
 
 ## Batch Operations
 
-### POST /boards/:boardId/tasks/batch
+### POST /habitats/:habitatId/tasks/batch
 
-Perform batch operations on multiple tasks within features. Tasks no longer have columns — column management is at the feature level.
+Perform batch operations on multiple tasks within missions. Tasks no longer have columns — column management is at the mission level.
 
 **Auth:** JWT required (human)
 
@@ -1133,7 +1095,7 @@ Perform batch operations on multiple tasks within features. Tasks no longer have
 | `assign` | `{ assignedAgentId: "agent-uuid" }` | Assign all tasks to an agent |
 | `delete` | `{}` | Delete all specified tasks |
 
-> **Note:** Tasks belong to the parent feature and do not carry `columnId`. Column movement is managed at the feature level via `POST /features/:id/move`.
+> **Note:** Tasks belong to the parent mission and do not carry `columnId`. Column movement is managed at the mission level via `POST /missions/:id/move`.
 
 **Response `200`:**
 
@@ -1210,7 +1172,7 @@ Start working on a claimed task.
 
 ### POST /tasks/:id/submit
 
-Submit completed work for pod review. Triggers parent feature status recalculation.
+Submit completed work for pod review. Triggers parent mission status recalculation.
 
 **Auth:** Agent auth required. The agent must be the assigned agent for this task.
 
@@ -1417,7 +1379,7 @@ Signal that a task's dependency has been resolved.
 
 ## Time Tracking & Estimation
 
-Time tracking is heartbeat-based: agents record work intervals via their heartbeat, and the system aggregates total time per task and per feature.
+Time tracking is heartbeat-based: agents record work intervals via their heartbeat, and the system aggregates total time per task and per mission.
 
 ### GET /tasks/:id/time-report
 
@@ -1485,9 +1447,9 @@ Set or update the time estimate for a task.
 }
 ```
 
-### GET /boards/:id/metrics
+### GET /habitats/:id/metrics
 
-Get board-wide time tracking and estimation metrics, including per-agent breakdowns.
+Get habitat-wide time tracking and estimation metrics, including per-agent breakdowns.
 
 **Response `200`:**
 
@@ -1758,24 +1720,24 @@ Get the audit trail for a task.
 | `released` | human/agent/system | Task released back to pending |
 | `dependency_resolved` | system | Dependency unblocked |
 | `commented` | human/agent | Comment added to task |
-| `board.created` | human/system | Board created |
-| `board.updated` | human/system | Board updated |
-| `board.deleted` | human/system | Board deleted |
+| `habitat.created` | human/system | Habitat created |
+| `habitat.updated` | human/system | Habitat updated |
+| `habitat.deleted` | human/system | Habitat deleted |
 | `column.created` | human/system | Column created |
 | `column.updated` | human/system | Column updated |
 | `column.deleted` | human/system | Column deleted |
 
-Feature events (`feature_events` table) use a separate set of actions:
+Mission events (`mission_events` table) use a separate set of actions:
 
 | Action | Description |
 |--------|-------------|
-| `created` | Feature created |
-| `updated` | Feature updated |
-| `moved` | Feature moved between columns |
-| `status_changed` | Feature status derived from tasks |
-| `completed` | Feature completed |
-| `deleted` | Feature deleted |
-| `dependency_resolved` | Feature dependency resolved |
+| `created` | Mission created |
+| `updated` | Mission updated |
+| `moved` | Mission moved between columns |
+| `status_changed` | Mission status derived from tasks |
+| `completed` | Mission completed |
+| `deleted` | Mission deleted |
+| `dependency_resolved` | Mission dependency resolved |
 
 ---
 
@@ -1878,35 +1840,35 @@ Delete a comment (author or admin only).
 
 ---
 
-## Feature Comments
+## Mission Comments
 
-Comments on features (missions) with threading and @mentions. Structurally identical to task comments.
+Comments on missions with threading and @mentions. Structurally identical to task comments.
 
-### POST /features/:id/comments
+### POST /missions/:id/comments
 
-Add a comment to a feature.
+Add a comment to a mission.
 
 **Auth:** Agent API key OR JWT
 **Body:** `{ "content": "string", "parentId?": "uuid" }`
-**Response `201`:** `{ "comment": FeatureComment }`
+**Response `201`:** `{ "comment": MissionComment }`
 
-### GET /features/:id/comments
+### GET /missions/:id/comments
 
-List comments on a feature.
+List comments on a mission.
 
 **Auth:** Agent API key OR JWT
 **Query:** `limit` (1-100, default 50), `offset` (>=0, default 0)
-**Response `200`:** `{ "comments": FeatureComment[], "total": number }`
+**Response `200`:** `{ "comments": MissionComment[], "total": number }`
 
-### PATCH /features/:id/comments/:commentId
+### PATCH /missions/:id/comments/:commentId
 
 Edit a comment. Only the original author can edit.
 
 **Auth:** Agent API key OR JWT
 **Body:** `{ "content": "string" }`
-**Response `200`:** `{ "comment": FeatureComment }`
+**Response `200`:** `{ "comment": MissionComment }`
 
-### DELETE /features/:id/comments/:commentId
+### DELETE /missions/:id/comments/:commentId
 
 Delete a comment. Only the original author can delete.
 
@@ -2229,7 +2191,7 @@ When `signalType` is `blocker`, the system auto-creates a `"Clear Blocker: {subj
   "pulse": {
     "id": "pulse-uuid",
     "missionId": "mission-uuid",
-    "boardId": "board-uuid",
+    "habitatId": "habitat-uuid",
     "fromType": "agent",
     "fromId": "agent-uuid",
     "toType": null,
@@ -2371,11 +2333,11 @@ GET /api/pulse/pulse-uuid/replies
 
 ## Pulse — Habitat Signals
 
-Habitat-level signals are board-scoped broadcasts visible to all agents and humans on the habitat. Use `scope: "habitat"` with a `boardId` instead of `missionId`.
+Habitat-level signals are habitat-scoped broadcasts visible to all agents and humans on the habitat. Use `scope: "habitat"` with a `habitatId` instead of `missionId`.
 
-### POST /boards/:boardId/pulse
+### POST /habitats/:habitatId/pulse
 
-Post a habitat-level signal. Works identically to mission signals but scoped to the board.
+Post a habitat-level signal. Works identically to mission signals but scoped to the habitat.
 
 **Auth:** `agentOrHumanAuth`
 
@@ -2414,7 +2376,7 @@ Post a habitat-level signal. Works identically to mission signals but scoped to 
   "pulse": {
     "id": "pulse-uuid",
     "missionId": null,
-    "boardId": "board-uuid",
+    "habitatId": "habitat-uuid",
     "scope": "habitat",
     "fromType": "agent",
     "fromId": "agent-uuid",
@@ -2428,9 +2390,9 @@ Post a habitat-level signal. Works identically to mission signals but scoped to 
 }
 ```
 
-### GET /boards/:boardId/pulse
+### GET /habitats/:habitatId/pulse
 
-List habitat-level signals for a board.
+List habitat-level signals for a habitat.
 
 **Auth:** `agentOrHumanAuth`
 
@@ -2454,7 +2416,7 @@ List habitat-level signals for a board.
 }
 ```
 
-### GET /boards/:boardId/pulse/digest
+### GET /habitats/:habitatId/pulse/digest
 
 Get a compact pulse digest for the habitat. Includes type counts, highlights, and unread count across all scopes.
 
@@ -2492,7 +2454,7 @@ Get a compact pulse digest for the habitat. Includes type counts, highlights, an
 
 Institutional memory for the habitat. Insights are promoted from signals and persist across missions.
 
-### POST /boards/:boardId/insights
+### POST /habitats/:habitatId/insights
 
 Create a project insight. Typically promoted from a high-value signal.
 
@@ -2524,7 +2486,7 @@ Create a project insight. Typically promoted from a high-value signal.
 {
   "insight": {
     "id": "insight-uuid",
-    "boardId": "board-uuid",
+    "habitatId": "habitat-uuid",
     "title": "Auth token format is JWT v3 with RS256",
     "body": "All auth tokens use RS256 signing since 2026-05-01...",
     "source": "signal",
@@ -2537,7 +2499,7 @@ Create a project insight. Typically promoted from a high-value signal.
 }
 ```
 
-### GET /boards/:boardId/insights
+### GET /habitats/:habitatId/insights
 
 List project insights for a habitat. Optionally filter by relevance tags.
 
@@ -2558,7 +2520,7 @@ List project insights for a habitat. Optionally filter by relevance tags.
   "insights": [
     {
       "id": "insight-uuid",
-      "boardId": "board-uuid",
+      "habitatId": "habitat-uuid",
       "title": "Auth token format is JWT v3 with RS256",
       "body": "...",
       "relevanceTags": ["auth", "security"],
@@ -2571,7 +2533,7 @@ List project insights for a habitat. Optionally filter by relevance tags.
 }
 ```
 
-### DELETE /boards/:boardId/insights/:id
+### DELETE /habitats/:habitatId/insights/:id
 
 Delete a project insight. Author-only.
 
@@ -2623,17 +2585,17 @@ When toggled off (`active: false`), the reaction was removed and the `reaction` 
 
 ---
 
-Templates provide pre-defined feature structures for consistent feature creation. Each template can include a `tasksTemplate` array defining child tasks that are automatically created when the template is used.
+Templates provide pre-defined mission structures for consistent mission creation. Each template can include a `tasksTemplate` array defining child tasks that are automatically created when the template is used.
 
 ### GET /templates
 
-List all templates. Returns global templates (boardId=null) and board-specific templates.
+List all templates. Returns global templates (habitatId=null) and habitat-specific templates.
 
 **Query Parameters:**
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `boardId` | UUID | Filter to board-specific templates only |
+| `habitatId` | UUID | Filter to habitat-specific templates only |
 
 **Response `200`:**
 
@@ -2642,7 +2604,7 @@ List all templates. Returns global templates (boardId=null) and board-specific t
   "templates": [
     {
       "id": "template-uuid",
-      "boardId": null,
+      "habitatId": null,
       "name": "Bug Fix",
       "titlePattern": "Fix: ",
       "descriptionPattern": "## Steps to Reproduce\n\n## Expected Behavior\n\n## Actual Behavior\n\n## Root Cause\n",
@@ -2733,11 +2695,11 @@ Delete a template.
 
 ## Saved Filters
 
-Manage reusable saved filters for boards.
+Manage reusable saved filters for habitats.
 
-### GET /boards/:boardId/saved-filters
+### GET /habitats/:habitatId/saved-filters
 
-List saved filters for a board.
+List saved filters for a habitat.
 
 **Auth:** JWT required (human)
 
@@ -2748,7 +2710,7 @@ List saved filters for a board.
   "savedFilters": [
     {
       "id": "filter-uuid",
-      "boardId": "board-uuid",
+      "habitatId": "habitat-uuid",
       "name": "High Priority Tasks",
       "filterConfig": {
         "priority": "high",
@@ -2763,7 +2725,7 @@ List saved filters for a board.
 }
 ```
 
-### POST /boards/:boardId/saved-filters
+### POST /habitats/:habitatId/saved-filters
 
 Create a saved filter.
 
@@ -3129,11 +3091,11 @@ Get teams for the current user.
 
 ## Chat Integrations
 
-Configure chat integrations for boards (Slack, Discord, etc.).
+Configure chat integrations for habitats (Slack, Discord, etc.).
 
-### GET /boards/:boardId/chat-integrations
+### GET /habitats/:habitatId/chat-integrations
 
-List chat integrations for a board.
+List chat integrations for a habitat.
 
 **Auth:** JWT required (human, admin only)
 
@@ -3144,7 +3106,7 @@ List chat integrations for a board.
   "chatIntegrations": [
     {
       "id": "integration-uuid",
-      "boardId": "board-uuid",
+      "habitatId": "habitat-uuid",
       "provider": "slack",
       "webhookUrl": "https://hooks.slack.com/services/xxx",
       "channelId": "C0123456789",
@@ -3157,7 +3119,7 @@ List chat integrations for a board.
 }
 ```
 
-### POST /boards/:boardId/chat-integrations
+### POST /habitats/:habitatId/chat-integrations
 
 Create a chat integration.
 
@@ -3304,7 +3266,7 @@ Handle Discord interactions.
 
 ## Notification Preferences
 
-Manage notification preferences for users and boards.
+Manage notification preferences for users and habitats.
 
 ### GET /users/me/notification-preferences
 
@@ -3385,9 +3347,9 @@ Update current user's email address.
 }
 ```
 
-### GET /boards/:boardId/notification-preferences
+### GET /habitats/:habitatId/notification-preferences
 
-Get board-level notification preferences.
+Get habitat-level notification preferences.
 
 **Auth:** JWT required (human)
 
@@ -3396,7 +3358,7 @@ Get board-level notification preferences.
 ```json
 {
   "notificationPreferences": {
-    "boardId": "board-uuid",
+    "habitatId": "habitat-uuid",
     "channelId": null,
     "notifyOnTaskCreated": true,
     "notifyOnTaskSubmitted": true,
@@ -3407,9 +3369,9 @@ Get board-level notification preferences.
 }
 ```
 
-### PUT /boards/:boardId/notification-preferences
+### PUT /habitats/:habitatId/notification-preferences
 
-Update board-level notification preferences.
+Update habitat-level notification preferences.
 
 **Auth:** JWT required (human, admin only)
 
@@ -3428,7 +3390,7 @@ Update board-level notification preferences.
 ```json
 {
   "notificationPreferences": {
-    "boardId": "board-uuid",
+    "habitatId": "habitat-uuid",
     "channelId": "C0123456789",
     "notifyOnTaskCreated": true,
     "notifyOnTaskSubmitted": false,
@@ -3524,9 +3486,9 @@ Delete an attachment.
 
 ## Audit Log Export
 
-Streaming export of the complete append-only event trail (task_events + feature_events) as CSV, JSON, or JSONL with optional filters.
+Streaming export of the complete append-only event trail (task_events + mission_events) as CSV, JSON, or JSONL with optional filters.
 
-### GET /boards/:id/audit/export
+### GET /habitats/:id/audit/export
 
 Export audit log.
 
@@ -3534,14 +3496,14 @@ Export audit log.
 **Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `includeMetadata?`
 **Response `200`:** File download with appropriate Content-Type header.
 
-### GET /boards/:id/audit/summary
+### GET /habitats/:id/audit/summary
 
 Get audit summary statistics.
 
 **Auth:** JWT required (human)
-**Response `200`:** `{ "totalEvents": 150, "byAction": {...}, "byActorType": {...}, "byDay": [...], "topFeatures": [...] }`
+**Response `200`:** `{ "totalEvents": 150, "byAction": {...}, "byActorType": {...}, "byDay": [...], "topMissions": [...] }`
 
-### POST /boards/:id/audit/schedule
+### POST /habitats/:id/audit/schedule
 
 Schedule recurring audit export.
 
@@ -3549,7 +3511,7 @@ Schedule recurring audit export.
 **Body:** `{ "name": "string", "format": "csv|json|jsonl", "schedule": "cron-expression" }`
 **Response `201`:** `{ "schedule": AuditExportSchedule }`
 
-### GET /boards/:id/audit/schedules
+### GET /habitats/:id/audit/schedules
 
 List all audit export schedules.
 
@@ -3567,9 +3529,9 @@ Delete a scheduled audit export.
 
 ## Scheduled Tasks
 
-Cron-based recurring creation of features and tasks from templates. Supports cron expressions, intervals, and one-time schedules.
+Cron-based recurring creation of missions and tasks from templates. Supports cron expressions, intervals, and one-time schedules.
 
-### POST /boards/:id/scheduled-tasks
+### POST /habitats/:id/scheduled-tasks
 
 Create a new scheduled task.
 
@@ -3585,10 +3547,10 @@ Create a new scheduled task.
   "cronExpression": "0 9 * * 1",
   "timezone": "UTC",
   "templateId": "template-uuid",
-  "featureTitle": "Weekly Security Audit",
-  "featureDescription": "Automated security compliance check",
-  "featurePriority": "high",
-  "featureLabels": ["security", "compliance"],
+  "missionTitle": "Weekly Security Audit",
+  "missionDescription": "Automated security compliance check",
+  "missionPriority": "high",
+  "missionLabels": ["security", "compliance"],
   "tasksTemplate": [
     { "title": "Run vulnerability scan", "priority": "high", "estimatedMinutes": 60 },
     { "title": "Review dependencies", "priority": "medium" }
@@ -3612,9 +3574,9 @@ Create a new scheduled task.
 }
 ```
 
-### GET /boards/:id/scheduled-tasks
+### GET /habitats/:id/scheduled-tasks
 
-List all scheduled tasks on a board.
+List all scheduled tasks on a habitat.
 
 **Auth:** Agent API key OR JWT
 
@@ -3650,7 +3612,7 @@ Manually trigger immediate execution.
 
 **Auth:** JWT required (human)
 
-**Response `200`:** `{ "feature": Feature, "message": "..." }`
+**Response `200`:** `{ "mission": Mission, "message": "..." }`
 
 ### POST /scheduled-tasks/:id/enable
 
@@ -3672,7 +3634,7 @@ Disable a scheduled task.
 
 ## Outgoing Webhooks
 
-Configure webhooks to receive notifications when board events occur.
+Configure webhooks to receive notifications when habitat events occur.
 
 ### GET /webhooks
 
@@ -3687,7 +3649,7 @@ List all webhook subscriptions.
   "subscriptions": [
     {
       "id": "webhook-uuid",
-      "boardId": "board-uuid",
+      "habitatId": "habitat-uuid",
       "name": "Slack Notifications",
       "url": "https://hooks.slack.com/services/xxx",
       "events": ["task.submitted", "task.approved", "task.rejected"],
@@ -3709,7 +3671,7 @@ Create a webhook subscription.
 
 ```json
 {
-  "boardId": "board-uuid",
+  "habitatId": "habitat-uuid",
   "name": "Slack Notifications",
   "url": "https://hooks.slack.com/services/xxx",
   "events": ["task.submitted", "task.approved", "task.rejected"],
@@ -3721,7 +3683,7 @@ Create a webhook subscription.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `boardId` | UUID | yes | Board to subscribe to |
+| `habitatId` | UUID | yes | Habitat to subscribe to |
 | `name` | string | yes | Display name, 1-100 chars |
 | `url` | string | yes | Webhook URL (https only) |
 | `events` | string[] | yes | Event types to subscribe to |
@@ -4059,16 +4021,16 @@ JWT tokens are HS256 signed, valid for 24 hours. Include the token in the `Autho
 
 ## SSE Streaming
 
-### GET /sse/boards/:id/stream
+### GET /sse/habitats/:id/stream
 
-Subscribe to real-time board updates via Server-Sent Events.
+Subscribe to real-time habitat updates via Server-Sent Events.
 
 **Authentication required.** Uses `sseAuth` middleware — accepts either `X-Agent-API-Key` header or `Authorization: Bearer <jwt>` header or `?token=<jwt>` query parameter.
 
 **Response:** `text/event-stream`
 
 ```text
-data: {"type":"connected","data":{"boardId":"board-uuid"}}
+data: {"type":"connected","data":{"habitatId":"habitat-uuid"}}
 
 data: {"type":"task.created","data":{"id":"...","title":"New task","status":"pending",...}}
 
@@ -4081,13 +4043,13 @@ data: {"type":"task.updated","data":{"id":"...","status":"in_progress",...}}
 
 | Type | Data | Description |
 |------|------|-------------|
-| `connected` | `{ boardId }` | Connection established |
-| `feature.created` | `Feature` | New feature created |
-| `feature.updated` | `Feature` | Feature modified |
-| `feature.moved` | `{ featureId, fromColumnId, toColumnId }` | Feature moved between columns |
-| `feature.status_changed` | `{ featureId, fromStatus, toStatus }` | Feature status derived |
-| `feature.deleted` | `{ featureId }` | Feature deleted |
-| `feature.progress` | `{ featureId, completed, total }` | Feature progress updated |
+| `connected` | `{ habitatId }` | Connection established |
+| `mission.created` | `Mission` | New mission created |
+| `mission.updated` | `Mission` | Mission modified |
+| `mission.moved` | `{ missionId, fromColumnId, toColumnId }` | Mission moved between columns |
+| `mission.status_changed` | `{ missionId, fromStatus, toStatus }` | Mission status derived |
+| `mission.deleted` | `{ missionId }` | Mission deleted |
+| `mission.progress` | `{ missionId, completed, total }` | Mission progress updated |
 | `task.created` | `Task` | New task created |
 | `task.updated` | `Task` | Task modified |
 | `task.claimed` | `{ taskId, agentId }` | Task claimed by agent |
@@ -4110,12 +4072,12 @@ data: {"type":"task.updated","data":{"id":"...","status":"in_progress",...}}
 | `task.comment_deleted` | `{ taskId, commentId }` | Comment deleted from task |
 | `task.mentioned` | `{ taskId, commentId, mentionedName }` | User @mentioned in task comment |
 | `task.priority_changed` | `{ taskId, ruleName, score }` | Priority changed by rule engine |
-| `scheduled_task.executed` | `{ scheduleId, featureId, featureTitle }` | Scheduled task created a feature |
+| `scheduled_task.executed` | `{ scheduleId, missionId, missionTitle }` | Scheduled task created a mission |
 | `scheduled_task.failed` | `{ scheduleId, error }` | Scheduled execution failed |
 | `scheduled_task.created` | `{ scheduleId, name }` | New schedule configured |
-| `feature.commented` | `{ featureId, comment }` | Comment added to feature |
-| `feature.mentioned` | `{ featureId, commentId, mentionedName }` | User @mentioned in feature comment |
-| `feature.comment_deleted` | `{ featureId, commentId }` | Comment deleted from feature |
+| `mission.commented` | `{ missionId, comment }` | Comment added to mission |
+| `mission.mentioned` | `{ missionId, commentId, mentionedName }` | User @mentioned in mission comment |
+| `mission.comment_deleted` | `{ missionId, commentId }` | Comment deleted from mission |
 | `subtask.created` | `{ taskId, subtask }` | Subtask created |
 | `subtask.updated` | `{ taskId, subtask }` | Subtask updated |
 | `subtask.deleted` | `{ taskId }` | Subtask deleted |
@@ -4123,12 +4085,12 @@ data: {"type":"task.updated","data":{"id":"...","status":"in_progress",...}}
 | `anomaly.detected` | `{ anomaly }` | Anomaly detected |
 | `agent.status_changed` | `{ agentId, status }` | Agent status changed |
 | `agent.heartbeat` | `{ agentId, taskId }` | Agent heartbeat received |
-| `board.created` | `Board` | Board created |
-| `board.updated` | `Board` | Board updated |
-| `board.deleted` | `{ boardId }` | Board deleted |
+| `habitat.created` | `Habitat` | Habitat created |
+| `habitat.updated` | `Habitat` | Habitat updated |
+| `habitat.deleted` | `{ habitatId }` | Habitat deleted |
 | `column.created` | `Column` | Column created |
 | `column.updated` | `Column` | Column updated |
-| `column.deleted` | `{ columnId, boardId }` | Column deleted |
+| `column.deleted` | `{ columnId, habitatId }` | Column deleted |
 | `column.wip_limit_reached` | `{ columnId, limit }` | WIP limit exceeded |
 
 ### Reconnection

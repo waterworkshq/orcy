@@ -2,12 +2,12 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { ScheduledTaskForm } from './ScheduledTaskForm.js';
-import type { ScheduledTask, FeatureTemplate } from '../../../types/index.js';
+import type { ScheduledTask, MissionTemplate } from '../../../types/index.js';
 
-const mockTemplates: FeatureTemplate[] = [
+const mockTemplates: MissionTemplate[] = [
   {
     id: 'tmpl-1',
-    boardId: 'board-1',
+    habitatId: 'board-1',
     name: 'Sprint Template',
     titlePattern: 'Sprint {{date}}',
     descriptionPattern: 'Weekly sprint tasks',
@@ -25,7 +25,7 @@ const mockTemplates: FeatureTemplate[] = [
 
 const mockExisting: ScheduledTask = {
   id: 'st-1',
-  boardId: 'board-1',
+  habitatId: 'board-1',
   templateId: null,
   name: 'Weekly Sprint',
   description: 'Create weekly sprint',
@@ -34,17 +34,17 @@ const mockExisting: ScheduledTask = {
   intervalMinutes: null,
   scheduledAt: null,
   timezone: 'UTC',
-  featureTitle: 'Sprint',
-  featureDescription: 'Weekly sprint',
-  featurePriority: 'medium',
-  featureLabels: ['sprint'],
-  featureDomain: null,
+  missionTitle: 'Sprint',
+  missionDescription: 'Weekly sprint',
+  missionPriority: 'medium',
+  missionLabels: ['sprint'],
+  missionDomain: null,
   tasksTemplate: [],
   enabled: true,
   lastRunAt: null,
   nextRunAt: '2025-01-06T09:00:00Z',
   runCount: 0,
-  lastCreatedFeatureId: null,
+  lastCreatedMissionId: null,
   createdBy: 'user-1',
   createdAt: '2024-12-01T00:00:00Z',
   updatedAt: '2024-12-01T00:00:00Z',
@@ -217,7 +217,7 @@ describe('ScheduledTaskForm', () => {
         name: 'Daily Standup',
         scheduleType: 'cron',
         cronExpression: '0 9 * * *',
-        featureTitle: 'Standup',
+        missionTitle: 'Standup',
       })
     );
   });
@@ -510,7 +510,7 @@ describe('ScheduledTaskForm', () => {
     fireEvent.click(screen.getByTestId('st-submit'));
     expect(mockOnSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        featureTitle: 'Sprint {{counter}} — {{date}}',
+        missionTitle: 'Sprint {{counter}} — {{date}}',
       })
     );
   });

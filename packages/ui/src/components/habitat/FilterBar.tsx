@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal, LayoutGrid, AlignJustify } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
 import { useSavedFilters } from '../../lib/useHabitatData.js';
 import { queryKeys } from '../../lib/queryKeys.js';
@@ -10,7 +10,7 @@ import { api } from '../../api/index.js';
 
 export interface SavedFilter {
   id: string;
-  boardId: string;
+  habitatId: string;
   userId: string;
   name: string;
   filterConfig: Record<string, unknown>;
@@ -20,8 +20,8 @@ export interface SavedFilter {
 
 export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { focusSearchRef?: React.RefObject<HTMLInputElement | null> }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const agents = useBoardStore((s) => s.agents);
-  const board = useBoardStore((s) => s.board);
+  const agents = useHabitatStore((s) => s.agents);
+  const board = useHabitatStore((s) => s.board);
   const internalSearchRef = useRef<HTMLInputElement>(null);
   const searchRef = focusSearchRef ?? internalSearchRef;
   const [viewsOpen, setViewsOpen] = useState(false);
@@ -30,23 +30,23 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const viewsRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-  const boardId = board?.id;
+  const habitatId = board?.id;
   const qc = useQueryClient();
 
-  const { data: savedFilters = [] } = useSavedFilters(boardId);
+  const { data: savedFilters = [] } = useSavedFilters(habitatId);
 
   const createMutation = useMutation({
     mutationFn: (data: { name: string; filterConfig: Record<string, unknown> }) =>
-      api.savedFilters.create(boardId!, data),
+      api.savedFilters.create(habitatId!, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.savedFilters.list(boardId!) });
+      qc.invalidateQueries({ queryKey: queryKeys.savedFilters.list(habitatId!) });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.savedFilters.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.savedFilters.list(boardId!) });
+      qc.invalidateQueries({ queryKey: queryKeys.savedFilters.list(habitatId!) });
     },
   });
 

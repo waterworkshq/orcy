@@ -44,7 +44,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 const mockTaskDetails = vi.fn();
@@ -90,7 +90,7 @@ vi.mock('../ui/Badge.js', () => ({
 
 const baseTask: Task = {
   id: 'task-1',
-  featureId: 'feat-1',
+  missionId: 'feat-1',
   title: 'Test Task Title',
   description: 'This is a test task description with some details.',
   priority: 'high',

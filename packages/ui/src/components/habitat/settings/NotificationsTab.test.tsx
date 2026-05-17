@@ -62,7 +62,7 @@ function renderWithQC(ui: React.ReactElement) {
 const mockPrefs = {
   id: 'p1',
   userId: 'u1',
-  boardId: null,
+  habitatId: null,
   taskAssigned: true,
   taskSubmitted: true,
   taskApproved: true,
@@ -82,10 +82,10 @@ describe('NotificationsTab', () => {
       preferences: mockPrefs,
     });
     mockGetBoardPrefs.mockResolvedValue({
-      preferences: { ...mockPrefs, boardId: 'b1' },
+      preferences: { ...mockPrefs, habitatId: 'b1' },
     });
     mockUpdateGlobalPrefs.mockResolvedValue({ preferences: mockPrefs });
-    mockUpdateBoardPrefs.mockResolvedValue({ preferences: { ...mockPrefs, boardId: 'b1' } });
+    mockUpdateBoardPrefs.mockResolvedValue({ preferences: { ...mockPrefs, habitatId: 'b1' } });
     mockUpdateEmail.mockResolvedValue({});
   });
 
@@ -94,7 +94,7 @@ describe('NotificationsTab', () => {
   });
 
   it('loads and renders email input', async () => {
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('test@test.com')).toBeTruthy();
@@ -102,7 +102,7 @@ describe('NotificationsTab', () => {
   });
 
   it('renders email label and hint', async () => {
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Email Address')).toBeTruthy();
@@ -111,7 +111,7 @@ describe('NotificationsTab', () => {
   });
 
   it('renders Per-Habitat Settings toggle', async () => {
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Per-Habitat Settings')).toBeTruthy();
@@ -119,7 +119,7 @@ describe('NotificationsTab', () => {
   });
 
   it('renders preference checkboxes after loading', async () => {
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Task Assigned')).toBeTruthy();
@@ -134,7 +134,7 @@ describe('NotificationsTab', () => {
 
   it('shows loading state initially', () => {
     mockGetGlobalPrefs.mockReturnValue(new Promise(() => {}));
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
     expect(screen.getByText('Loading...')).toBeTruthy();
   });
 
@@ -142,7 +142,7 @@ describe('NotificationsTab', () => {
     mockGetGlobalPrefs.mockRejectedValue(new Error('fail'));
     mockGetBoardPrefs.mockRejectedValue(new Error('fail'));
 
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Loading...')).toBeTruthy();
@@ -150,7 +150,7 @@ describe('NotificationsTab', () => {
   });
 
   it('renders prefs from useNotificationPrefs', async () => {
-    renderWithQC(<NotificationsTab boardId="b1" />);
+    renderWithQC(<NotificationsTab habitatId="b1" />);
 
     await waitFor(() => {
       const checkboxes = screen.getAllByRole('checkbox');
@@ -160,7 +160,7 @@ describe('NotificationsTab', () => {
 
   it('exposes save via imperative handle', async () => {
     const ref = React.createRef<NotificationsTabHandle>();
-    renderWithQC(<NotificationsTab ref={ref} boardId="b1" />);
+    renderWithQC(<NotificationsTab ref={ref} habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('test@test.com')).toBeTruthy();
@@ -172,7 +172,7 @@ describe('NotificationsTab', () => {
 
   it('save() calls updateEmail and updateGlobalPrefs in global mode', async () => {
     const ref = React.createRef<NotificationsTabHandle>();
-    renderWithQC(<NotificationsTab ref={ref} boardId="b1" />);
+    renderWithQC(<NotificationsTab ref={ref} habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('test@test.com')).toBeTruthy();
@@ -187,7 +187,7 @@ describe('NotificationsTab', () => {
 
   it('save() calls updateBoardPrefs when useBoardPrefs is true', async () => {
     const ref = React.createRef<NotificationsTabHandle>();
-    renderWithQC(<NotificationsTab ref={ref} boardId="b1" />);
+    renderWithQC(<NotificationsTab ref={ref} habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('test@test.com')).toBeTruthy();
@@ -202,13 +202,13 @@ describe('NotificationsTab', () => {
     await ref.current!.save();
 
     expect(mockUpdateEmail).toHaveBeenCalledWith('test@test.com');
-    expect(mockUpdateBoardPrefs).toHaveBeenCalledWith('b1', { ...mockPrefs, boardId: 'b1' });
+    expect(mockUpdateBoardPrefs).toHaveBeenCalledWith('b1', { ...mockPrefs, habitatId: 'b1' });
     expect(mockUpdateGlobalPrefs).not.toHaveBeenCalled();
   });
 
   it('save() invalidates notification prefs cache on success', async () => {
     const ref = React.createRef<NotificationsTabHandle>();
-    renderWithQC(<NotificationsTab ref={ref} boardId="b1" />);
+    renderWithQC(<NotificationsTab ref={ref} habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('test@test.com')).toBeTruthy();
@@ -225,7 +225,7 @@ describe('NotificationsTab', () => {
     mockUpdateEmail.mockRejectedValue(new Error('Network error'));
 
     const ref = React.createRef<NotificationsTabHandle>();
-    renderWithQC(<NotificationsTab ref={ref} boardId="b1" />);
+    renderWithQC(<NotificationsTab ref={ref} habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('test@test.com')).toBeTruthy();

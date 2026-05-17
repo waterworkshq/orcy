@@ -9,12 +9,12 @@ import { queryKeys } from '../../../lib/queryKeys.js';
 import type { ScheduledTask } from '../../../types/index.js';
 
 interface ScheduledTasksTabProps {
-  boardId: string;
+  habitatId: string;
 }
 
-export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
-  const { data: scheduledTasksData, isLoading: loading } = useScheduledTasks(boardId);
-  const { data: templatesData } = useTemplates(boardId);
+export function ScheduledTasksTab({ habitatId }: ScheduledTasksTabProps) {
+  const { data: scheduledTasksData, isLoading: loading } = useScheduledTasks(habitatId);
+  const { data: templatesData } = useTemplates(habitatId);
   const qc = useQueryClient();
 
   const scheduledTasks = scheduledTasksData?.scheduledTasks ?? [];
@@ -26,7 +26,7 @@ export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
   const [runningId, setRunningId] = useState<string | null>(null);
 
   const invalidateScheduledTasks = () =>
-    qc.invalidateQueries({ queryKey: queryKeys.scheduledTasks.list(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.scheduledTasks.list(habitatId) });
 
   function openForm(existing?: ScheduledTask) {
     setEditTask(existing ?? null);
@@ -45,7 +45,7 @@ export function ScheduledTasksTab({ boardId }: ScheduledTasksTabProps) {
         await api.scheduledTasks.update(editTask.id, data);
         notify.success('Scheduled task updated');
       } else {
-        await api.scheduledTasks.create(boardId, data);
+        await api.scheduledTasks.create(habitatId, data);
         notify.success('Scheduled task created');
       }
       closeForm();

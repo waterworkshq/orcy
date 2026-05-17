@@ -2,15 +2,15 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BoardSettingsDialog } from './HabitatSettingsDialog.js';
-import type { Board } from '../../types/index.js';
+import { HabitatSettingsDialog } from './HabitatSettingsDialog.js';
+import type { Habitat } from '../../types/index.js';
 
 const mockUpdate = vi.fn();
 const mockDelete = vi.fn();
 const mockNotifySuccess = vi.fn();
 const mockNotifyError = vi.fn();
 const mockGetGlobalPrefs = vi.fn();
-const mockGetBoardPrefs = vi.fn();
+const mockGetHabitatPrefs = vi.fn();
 
 vi.mock('../../api/index.js', () => ({
   api: {
@@ -20,10 +20,10 @@ vi.mock('../../api/index.js', () => ({
     },
     notifications: {
       getGlobalPrefs: (...args: unknown[]) => mockGetGlobalPrefs(...args),
-      getBoardPrefs: (...args: unknown[]) => mockGetBoardPrefs(...args),
+      getHabitatPrefs: (...args: unknown[]) => mockGetHabitatPrefs(...args),
       updateEmail: vi.fn(),
       updateGlobalPrefs: vi.fn(),
-      updateBoardPrefs: vi.fn(),
+      updateHabitatPrefs: vi.fn(),
     },
     chatIntegrations: {
       list: vi.fn().mockResolvedValue([]),
@@ -63,11 +63,11 @@ vi.mock('../ui/ConfirmDialog.js', () => ({
 }));
 
 vi.mock('./ExportHabitatDialog.js', () => ({
-  ExportBoardDialog: ({ open }: any) => open ? <div data-testid="export-dialog" /> : null,
+  ExportHabitatDialog: ({ open }: any) => open ? <div data-testid="export-dialog" /> : null,
 }));
 
 vi.mock('./ImportHabitatDialog.js', () => ({
-  ImportBoardDialog: ({ open }: any) => open ? <div data-testid="import-dialog" /> : null,
+  ImportHabitatDialog: ({ open }: any) => open ? <div data-testid="import-dialog" /> : null,
 }));
 
 vi.mock('./settings/GeneralTab.js', () => ({
@@ -141,9 +141,9 @@ vi.mock('./settings/ScheduledTasksTab.js', () => ({
   ScheduledTasksTab: () => <div data-testid="scheduled-tasks-tab">ScheduledTasksTab</div>,
 }));
 
-const mockBoard: Board = {
+const mockHabitat: Habitat = {
   id: 'b1',
-  name: 'Test Board',
+  name: 'Test Habitat',
   description: 'A test board',
   columns: [],
   teamId: null,
@@ -167,8 +167,8 @@ function renderDialog(props: { open?: boolean } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <BoardSettingsDialog
-        board={mockBoard}
+      <HabitatSettingsDialog
+        board={mockHabitat}
         open={props.open ?? true}
         onClose={mockOnClose}
         onUpdate={mockOnUpdate}

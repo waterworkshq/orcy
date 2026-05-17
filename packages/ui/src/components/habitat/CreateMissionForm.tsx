@@ -2,20 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/Dialog.js';
 import { Button } from '../ui/Button.js';
 import { RichTextEditor } from '../ui/RichTextEditor.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { notify } from '../../lib/toast.js';
-import { useTemplates, useCreateFeature } from '../../lib/useHabitatData.js';
-import type { TaskPriority, FeatureTemplate } from '../../types/index.js';
+import { useTemplates, useCreateMission } from '../../lib/useHabitatData.js';
+import type { TaskPriority, MissionTemplate } from '../../types/index.js';
 
-interface CreateFeatureFormProps {
+interface CreateMissionFormProps {
   open: boolean;
   onClose: () => void;
-  boardId: string;
+  habitatId: string;
 }
 
-export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormProps) {
-  const { columns, addFeature } = useBoardStore();
-  const { data: templatesData } = useTemplates(boardId);
+export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFormProps) {
+  const { columns, addFeature } = useHabitatStore();
+  const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [title, setTitle] = useState('');
@@ -26,7 +26,7 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
   const [labels, setLabels] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [slaMinutes, setSlaMinutes] = useState('');
-  const createFeature = useCreateFeature(boardId);
+  const createMission = useCreateMission(habitatId);
 
   useEffect(() => {
     if (open) {
@@ -77,7 +77,7 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
         .map((l) => l.trim())
         .filter(Boolean);
 
-      const result = await createFeature.mutateAsync({
+      const result = await createMission.mutateAsync({
         columnId,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -217,7 +217,7 @@ export function CreateFeatureForm({ open, onClose, boardId }: CreateFeatureFormP
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={createFeature.isPending} disabled={createFeature.isPending || !title.trim()}>
+          <Button type="submit" loading={createMission.isPending} disabled={createMission.isPending || !title.trim()}>
             Create Mission
           </Button>
         </DialogFooter>

@@ -6,12 +6,12 @@ import { Button } from '../ui/Button.js';
 import { OnboardingModal } from '../ui/OnboardingModal.js';
 import { notify } from '../../lib/toast.js';
 import { Plus, LayoutGrid, Users } from 'lucide-react';
-import type { Board, Team } from '../../types/index.js';
+import type { Habitat, Team } from '../../types/index.js';
 import { useBoards, useMyTeams, useInvalidateBoards } from '../../lib/useHabitatData.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys.js';
 
-export function BoardListPage() {
+export function HabitatListPage() {
   const { data: boardsData, isLoading: loading } = useBoards();
   const { data: teamsData } = useMyTeams();
   const queryClient = useQueryClient();
@@ -41,12 +41,12 @@ export function BoardListPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      await api.boards.create({
+      await api.habitats.create({
         name: newName.trim(),
         description: newDesc.trim(),
         teamId: newTeamId || null,
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.boards.list() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.teams.myTeams() });
       setNewName('');
       setNewDesc('');

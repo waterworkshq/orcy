@@ -2,11 +2,11 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { PipelineContextSidebar } from './PipelineContextSidebar.js';
-import type { Task, FeatureWithProgress } from '../../types/index.js';
+import type { Task, MissionWithProgress } from '../../types/index.js';
 
-function makeFeature(overrides: Partial<FeatureWithProgress> & { id: string }): FeatureWithProgress {
+function makeFeature(overrides: Partial<MissionWithProgress> & { id: string }): MissionWithProgress {
   return {
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     title: 'Test Feature',
     description: '',
@@ -34,7 +34,7 @@ function makeFeature(overrides: Partial<FeatureWithProgress> & { id: string }): 
   };
 }
 
-function makeTask(overrides: Partial<Task> & { id: string; featureId: string }): Task {
+function makeTask(overrides: Partial<Task> & { id: string; missionId: string }): Task {
   return {
     title: 'Test Task',
     description: '',
@@ -79,7 +79,7 @@ vi.mock('../../store/modalStore.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector: any) => selector({ agents: [] }),
+  useHabitatStore: (selector: any) => selector({ agents: [] }),
 }));
 
 vi.mock('../ui/Badge.js', () => ({
@@ -112,8 +112,8 @@ describe('PipelineContextSidebar', () => {
   it('renders feature status with health percentage', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 't1', featureId: 'feat-1', status: 'done' }),
-      makeTask({ id: 't2', featureId: 'feat-1', status: 'pending' }),
+      makeTask({ id: 't1', missionId: 'feat-1', status: 'done' }),
+      makeTask({ id: 't2', missionId: 'feat-1', status: 'pending' }),
     ];
     render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
     expect(screen.getByText('50% OK')).toBeTruthy();
@@ -122,10 +122,10 @@ describe('PipelineContextSidebar', () => {
   it('groups tasks by status sections', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 't1', featureId: 'feat-1', status: 'in_progress', title: 'Active One' }),
-      makeTask({ id: 't2', featureId: 'feat-1', status: 'submitted', title: 'Review One' }),
-      makeTask({ id: 't3', featureId: 'feat-1', status: 'pending', title: 'Pending One' }),
-      makeTask({ id: 't4', featureId: 'feat-1', status: 'done', title: 'Done One' }),
+      makeTask({ id: 't1', missionId: 'feat-1', status: 'in_progress', title: 'Active One' }),
+      makeTask({ id: 't2', missionId: 'feat-1', status: 'submitted', title: 'Review One' }),
+      makeTask({ id: 't3', missionId: 'feat-1', status: 'pending', title: 'Pending One' }),
+      makeTask({ id: 't4', missionId: 'feat-1', status: 'done', title: 'Done One' }),
     ];
     render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
     expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1);
@@ -137,7 +137,7 @@ describe('PipelineContextSidebar', () => {
   it('opens modal when task is clicked', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 'task-click', featureId: 'feat-1', status: 'pending', title: 'Clickable' }),
+      makeTask({ id: 'task-click', missionId: 'feat-1', status: 'pending', title: 'Clickable' }),
     ];
     render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
     fireEvent.click(screen.getAllByText('Clickable')[0]);
@@ -147,7 +147,7 @@ describe('PipelineContextSidebar', () => {
   it('renders task priority badges', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 't1', featureId: 'feat-1', status: 'pending', priority: 'critical' }),
+      makeTask({ id: 't1', missionId: 'feat-1', status: 'pending', priority: 'critical' }),
     ];
     render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
     expect(screen.getByText('critical')).toBeTruthy();
@@ -156,7 +156,7 @@ describe('PipelineContextSidebar', () => {
   it('renders task ID prefix', () => {
     const feature = makeFeature({ id: 'feat-1' });
     const tasks = [
-      makeTask({ id: 'task-abc123', featureId: 'feat-1', status: 'pending' }),
+      makeTask({ id: 'task-abc123', missionId: 'feat-1', status: 'pending' }),
     ];
     render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
     expect(screen.getByText('#task')).toBeTruthy();

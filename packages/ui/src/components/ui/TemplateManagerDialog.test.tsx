@@ -40,14 +40,14 @@ function createTestWrapper() {
 
 describe('TemplateManagerDialog', () => {
   const defaultProps = {
-    boardId: 'board-1',
+    habitatId: 'board-1',
     open: true,
     onClose: vi.fn(),
   };
 
   const sampleTemplates = [
-    { id: 't1', name: 'Global Bug', titlePattern: 'Fix: ', descriptionPattern: '', priority: 'high' as const, labels: ['bug'], boardId: null, usageCount: 5, isDefault: false },
-    { id: 't2', name: 'Board Task', titlePattern: 'Implement: ', descriptionPattern: 'Details', priority: 'medium' as const, labels: [], boardId: 'board-1', usageCount: 3, isDefault: false },
+    { id: 't1', name: 'Global Bug', titlePattern: 'Fix: ', descriptionPattern: '', priority: 'high' as const, labels: ['bug'], habitatId: null, usageCount: 5, isDefault: false },
+    { id: 't2', name: 'Board Task', titlePattern: 'Implement: ', descriptionPattern: 'Details', priority: 'medium' as const, labels: [], habitatId: 'board-1', usageCount: 3, isDefault: false },
   ];
 
   beforeEach(() => {

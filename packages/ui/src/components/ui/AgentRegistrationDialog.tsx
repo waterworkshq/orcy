@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from './Dialog.js';
 import { Button } from './Button.js';
 import { api } from '../../api/index.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { Copy, Check, Download, AlertCircle } from 'lucide-react';
 
 interface AgentRegistrationDialogProps {
@@ -36,7 +36,7 @@ export function AgentRegistrationDialog({ open, onClose, onRegistered }: AgentRe
   const [error, setError] = useState<string | null>(null);
   const [createdAgent, setCreatedAgent] = useState<{ agent: { id: string; name: string }; apiKey: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const { upsertAgent } = useBoardStore();
+  const { upsertAgent } = useHabitatStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

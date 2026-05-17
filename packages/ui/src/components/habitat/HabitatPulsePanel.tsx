@@ -9,17 +9,17 @@ import { SIGNAL_LABELS, SIGNAL_COLORS } from '../../lib/signalConfig.js';
 import type { SignalType, PostPulseInput } from '../../types/index.js';
 
 interface HabitatPulsePanelProps {
-  boardId: string;
+  habitatId: string;
 }
 
-export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
+export function HabitatPulsePanel({ habitatId }: HabitatPulsePanelProps) {
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
   const [activeTypes, setActiveTypes] = useState<SignalType[]>([]);
   const [hideAuto, setHideAuto] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
 
-  const queryKey = [...queryKeys.pulse.byBoard(boardId), { activeTypes, hideAuto }];
+  const queryKey = [...queryKeys.pulse.byBoard(habitatId), { activeTypes, hideAuto }];
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -31,7 +31,7 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
       if (hideAuto) {
         params.isAuto = 'false';
       }
-      return api.pulse.listByBoard(boardId, params);
+      return api.pulse.listByBoard(habitatId, params);
     },
     staleTime: 30 * 1000,
   });
@@ -118,8 +118,8 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
                 <PulseSignalCard
                   key={pulse.id}
                   pulse={pulse}
-                  missionId={pulse.missionId ?? boardId}
-                  boardId={boardId}
+                  missionId={pulse.missionId ?? habitatId}
+                  habitatId={habitatId}
                 />
               ))
             )}
@@ -128,7 +128,7 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
       )}
 
       <HabitatPulseComposeDialog
-        boardId={boardId}
+        habitatId={habitatId}
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
       />
@@ -136,7 +136,7 @@ export function HabitatPulsePanel({ boardId }: HabitatPulsePanelProps) {
   );
 }
 
-function HabitatPulseComposeDialog({ boardId, open, onClose }: { boardId: string; open: boolean; onClose: () => void }) {
+function HabitatPulseComposeDialog({ habitatId, open, onClose }: { habitatId: string; open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [signalType, setSignalType] = useState<SignalType>('finding');
   const [subject, setSubject] = useState('');
@@ -153,10 +153,10 @@ function HabitatPulseComposeDialog({ boardId, open, onClose }: { boardId: string
   }, [open]);
 
   const mutation = useMutation({
-    mutationFn: (input: PostPulseInput) => api.pulse.postHabitat(boardId, input),
+    mutationFn: (input: PostPulseInput) => api.pulse.postHabitat(habitatId, input),
     onSuccess: () => {
       setError(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(habitatId) });
       onClose();
     },
     onError: (err: Error) => {

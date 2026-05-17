@@ -1,14 +1,14 @@
 import type { StateCreator } from 'zustand';
 import type { SSEEvent, FeatureWithProgress } from '../../types/index.js';
 import type { ThemeSlice } from './themeSlice.js';
-import type { BoardSlice } from './boardSlice.js';
-import type { FeatureSlice } from './featureSlice.js';
+import type { HabitatSlice } from './habitatSlice.js';
+import type { MissionSlice } from './missionSlice.js';
 import type { TaskSlice } from './taskSlice.js';
 import type { AgentSlice } from './agentSlice.js';
 import type { PresenceSlice } from './presenceSlice.js';
 import type { UiSlice } from './uiSlice.js';
 
-type FullState = ThemeSlice & BoardSlice & FeatureSlice & TaskSlice & AgentSlice & PresenceSlice & UiSlice & {
+type FullState = ThemeSlice & HabitatSlice & MissionSlice & TaskSlice & AgentSlice & PresenceSlice & UiSlice & {
   recentSSEEvents: SSEEvent[];
 };
 
@@ -28,8 +28,8 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
 
     switch (event.type) {
 
-      // --- Feature lifecycle events ---
-      case 'feature.created':
+      // --- Mission lifecycle events ---
+      case 'mission.created':
         if (!state.features.some((f) => f.id === event.data.id)) {
           const featureWithProgress: FeatureWithProgress = {
             ...event.data,
@@ -47,7 +47,7 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
           });
         }
         break;
-      case 'feature.updated':
+      case 'mission.updated':
         sseSet({
           features: state.features.map((f) =>
             f.id === event.data.id ? { ...f, ...event.data, progress: f.progress } : f
@@ -58,10 +58,10 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
           },
         });
         break;
-      case 'feature.moved':
+      case 'mission.moved':
         sseSet({
           features: state.features.map((f) =>
-            f.id === event.data.featureId
+            f.id === event.data.missionId
               ? { ...f, columnId: event.data.toColumnId }
               : f
           ),
@@ -72,12 +72,12 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
           },
         });
         break;
-      case 'feature.status_changed': {
-        const existing = state.features.find((f) => f.id === event.data.featureId);
+      case 'mission.status_changed': {
+        const existing = state.features.find((f) => f.id === event.data.missionId);
         const colId = existing?.columnId;
         sseSet({
           features: state.features.map((f) =>
-            f.id === event.data.featureId
+            f.id === event.data.missionId
               ? { ...f, status: event.data.toStatus }
               : f
           ),
@@ -85,23 +85,23 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
         });
         break;
       }
-      case 'feature.deleted': {
-        const deleted = state.features.find((f) => f.id === event.data.featureId);
+      case 'mission.deleted': {
+        const deleted = state.features.find((f) => f.id === event.data.missionId);
         const delColId = deleted?.columnId;
         sseSet({
-          features: state.features.filter((f) => f.id !== event.data.featureId),
-          selectedFeatureIds: state.selectedFeatureIds.filter((id) => id !== event.data.featureId),
-          selectedFeatureId: state.selectedFeatureId === event.data.featureId ? null : state.selectedFeatureId,
+          features: state.features.filter((f) => f.id !== event.data.missionId),
+          selectedMissionIds: state.selectedMissionIds.filter((id) => id !== event.data.missionId),
+          selectedMissionId: state.selectedMissionId === event.data.missionId ? null : state.selectedMissionId,
           ...(delColId ? { columnPagination: { ...state.columnPagination, [delColId]: undefined } } : {}),
         });
         break;
       }
-      case 'feature.progress': {
-        const progressFeature = state.features.find((f) => f.id === event.data.featureId);
+      case 'mission.progress': {
+        const progressFeature = state.features.find((f) => f.id === event.data.missionId);
         const progColId = progressFeature?.columnId;
         sseSet({
           features: state.features.map((f) =>
-            f.id === event.data.featureId
+            f.id === event.data.missionId
               ? {
                   ...f,
                   progress: {
@@ -214,16 +214,16 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
         });
         break;
 
-      // --- Board events ---
-      case 'board.created':
+      // --- Habitat events ---
+      case 'habitat.created':
         break;
-      case 'board.updated':
+      case 'habitat.updated':
         if (event.data.id === state.board?.id) {
           sseSet({ board: { ...state.board!, ...event.data } });
         }
         break;
-      case 'board.deleted':
-        if (event.data.boardId === state.board?.id) {
+      case 'habitat.deleted':
+        if (event.data.habitatId === state.board?.id) {
           window.location.hash = '#/';
         }
         break;
@@ -238,7 +238,7 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
 
       // --- Column events ---
       case 'column.created':
-        if (event.data.boardId === state.board?.id && !state.columns.some(c => c.id === event.data.id)) {
+        if (event.data.habitatId === state.board?.id && !state.columns.some(c => c.id === event.data.id)) {
           sseSet({ columns: [...state.columns, event.data].sort((a, b) => a.order - b.order) });
         }
         break;
@@ -246,7 +246,7 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
         sseSet({ columns: state.columns.map((c) => c.id === event.data.id ? event.data : c) });
         break;
       case 'column.deleted':
-        if (event.data.boardId === state.board?.id) {
+        if (event.data.habitatId === state.board?.id) {
           sseSet({ columns: state.columns.filter((c) => c.id !== event.data.columnId) });
         }
         break;

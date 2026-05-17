@@ -19,7 +19,7 @@ const PREF_LABELS: Array<{ key: keyof NotificationPreferences; label: string; de
 ];
 
 interface NotificationsTabProps {
-  boardId: string;
+  habitatId: string;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -28,10 +28,10 @@ export interface NotificationsTabHandle {
 }
 
 export const NotificationsTab = forwardRef<NotificationsTabHandle, NotificationsTabProps>(function NotificationsTab({
-  boardId,
+  habitatId,
   onSavingChange,
 }, ref) {
-  const { data: prefsData, isLoading: prefsLoading } = useNotificationPrefs(boardId);
+  const { data: prefsData, isLoading: prefsLoading } = useNotificationPrefs(habitatId);
   const qc = useQueryClient();
 
   const [email, setEmail] = useState('');
@@ -71,20 +71,20 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
         await api.notifications.updateEmail(email || null);
       }
       if (useBoardPrefs && boardPrefs) {
-        const result = await api.notifications.updateBoardPrefs(boardId, boardPrefs);
+        const result = await api.notifications.updateBoardPrefs(habitatId, boardPrefs);
         setBoardPrefs(result.preferences);
       } else if (globalPrefs) {
         const result = await api.notifications.updateGlobalPrefs(globalPrefs);
         setGlobalPrefs(result.preferences);
       }
       notify.success('Notification settings saved');
-      qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.board(boardId) });
+      qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.board(habitatId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
       setPrefsSaving(false);
     }
-  }, [email, useBoardPrefs, boardPrefs, boardId, globalPrefs, qc]);
+  }, [email, useBoardPrefs, boardPrefs, habitatId, globalPrefs, qc]);
 
   useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 

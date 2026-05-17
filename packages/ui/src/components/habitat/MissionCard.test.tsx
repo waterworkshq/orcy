@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { FeatureCard } from './MissionCard.js';
-import type { FeatureWithProgress } from '../../types/index.js';
+import type { MissionWithProgress } from '../../types/index.js';
 
 vi.mock('../ui/Tooltip.js', () => ({
   Tooltip: ({ children }: any) => <div>{children}</div>,
@@ -13,14 +13,14 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }));
 
-const baseFeature: FeatureWithProgress = {
+const baseFeature: MissionWithProgress = {
   id: 'f1',
   title: 'Test Feature',
   description: '',
   acceptanceCriteria: '',
   priority: 'medium',
   status: 'in_progress',
-  boardId: 'board-1',
+  habitatId: 'board-1',
   columnId: 'col-1',
   labels: [],
   dependsOn: [],
@@ -54,8 +54,8 @@ const baseFeature: FeatureWithProgress = {
 function makeState(overrides: Record<string, any> = {}) {
   return {
     isBulkSelectMode: false,
-    selectedFeatureIds: [] as string[],
-    toggleFeatureSelection: vi.fn(),
+    selectedMissionIds: [] as string[],
+    toggleMissionSelection: vi.fn(),
     tasks: [] as any[],
     agents: [] as any[],
     ...overrides,
@@ -70,7 +70,7 @@ const useBoardStoreMock = vi.fn((selector?: any, equalityFn?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
 }));
 
 vi.mock('zustand/shallow', () => ({
@@ -239,7 +239,7 @@ describe('FeatureCard', () => {
   });
 
   it('applies ring-2 ring-primary when selected', () => {
-    storeState = makeState({ selectedFeatureIds: ['f1'] });
+    storeState = makeState({ selectedMissionIds: ['f1'] });
     const { container } = render(<FeatureCard feature={baseFeature} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]');
     expect(card!.className).toContain('ring-2');
@@ -261,7 +261,7 @@ describe('FeatureCard', () => {
 
   it('shows agent status when agent is active on feature tasks', () => {
     storeState = makeState({
-      tasks: [{ id: 'task-1', featureId: 'f1' }],
+      tasks: [{ id: 'task-1', missionId: 'f1' }],
       agents: [{ id: 'agent-1', name: 'Claude', type: 'claude-code', currentTaskId: 'task-1' }],
     });
     render(<FeatureCard feature={baseFeature} />);
@@ -319,9 +319,9 @@ describe('FeatureCard', () => {
     it('filtered selector returns only tasks matching feature.id', () => {
       storeState = makeState({
         tasks: [
-          { id: 'task-1', featureId: 'f1' },
-          { id: 'task-2', featureId: 'f2' },
-          { id: 'task-3', featureId: 'f1' },
+          { id: 'task-1', missionId: 'f1' },
+          { id: 'task-2', missionId: 'f2' },
+          { id: 'task-3', missionId: 'f1' },
         ],
       });
       const { container } = render(<FeatureCard feature={baseFeature} />);
@@ -331,7 +331,7 @@ describe('FeatureCard', () => {
           if (typeof call[0] === 'function') {
             try {
               const result = call[0](storeState);
-              return Array.isArray(result) && result.length === 2 && result[0]?.featureId === 'f1';
+              return Array.isArray(result) && result.length === 2 && result[0]?.missionId === 'f1';
             } catch { return false; }
           }
           return false;
@@ -343,8 +343,8 @@ describe('FeatureCard', () => {
     it('activeAgents computes correctly with filtered agents', () => {
       storeState = makeState({
         tasks: [
-          { id: 'task-1', featureId: 'f1' },
-          { id: 'task-2', featureId: 'f2' },
+          { id: 'task-1', missionId: 'f1' },
+          { id: 'task-2', missionId: 'f2' },
         ],
         agents: [
           { id: 'agent-1', currentTaskId: 'task-1' },
@@ -358,8 +358,8 @@ describe('FeatureCard', () => {
     it('does not show Processing when agent is on a different feature task', () => {
       storeState = makeState({
         tasks: [
-          { id: 'task-1', featureId: 'f1' },
-          { id: 'task-2', featureId: 'f2' },
+          { id: 'task-1', missionId: 'f1' },
+          { id: 'task-2', missionId: 'f2' },
         ],
         agents: [
           { id: 'agent-2', currentTaskId: 'task-2' },
@@ -381,8 +381,8 @@ describe('FeatureCard', () => {
 
       storeState = makeState({
         tasks: [
-          { id: 'task-1', featureId: 'f1' },
-          { id: 'task-2', featureId: 'f2' },
+          { id: 'task-1', missionId: 'f1' },
+          { id: 'task-2', missionId: 'f2' },
         ],
         agents: [],
       });

@@ -13,30 +13,30 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { Column } from './Column.js';
 import { FeatureCard } from './MissionCard.js';
 import { ColumnSwiper } from './ColumnSwiper.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
-import { useArchivedFeatures } from '../../lib/useHabitatData.js';
-import type { FeatureWithProgress, Column as ColumnType, PresenceEntry } from '../../types/index.js';
+import { useArchivedMissions } from '../../lib/useHabitatData.js';
+import type { MissionWithProgress, Column as ColumnType, PresenceEntry } from '../../types/index.js';
 import { api } from '../../api/index.js';
 import { Plus, Archive, ChevronDown, ChevronRight } from 'lucide-react';
 
-interface BoardProps {
+interface HabitatProps {
   onColumnSettingsClick: (column: ColumnType) => void;
   onAddColumnClick: () => void;
   presence: PresenceEntry[];
 }
 
-export function Board({ onColumnSettingsClick, onAddColumnClick, presence }: BoardProps) {
-  const { board, columns, features, columnPagination, setBoard, setError, isBulkSelectMode } = useBoardStore();
-  const [activeFeature, setActiveFeature] = useState<FeatureWithProgress | null>(null);
+export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: HabitatProps) {
+  const { board, columns, features, columnPagination, setBoard, setError, isBulkSelectMode } = useHabitatStore();
+  const [activeFeature, setActiveFeature] = useState<MissionWithProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
-  const { data: archivedData, isLoading: archivedLoading } = useArchivedFeatures(board?.id);
+  const { data: archivedData, isLoading: archivedLoading } = useArchivedMissions(board?.id);
   const archivedFeatures = archivedData?.features ?? [];
   const archivedTotal = archivedData?.total ?? 0;
 
@@ -67,7 +67,7 @@ export function Board({ onColumnSettingsClick, onAddColumnClick, presence }: Boa
   }, [features, searchParams]);
 
   const featuresByColumn = useMemo(() => {
-    const map: Record<string, FeatureWithProgress[]> = {};
+    const map: Record<string, MissionWithProgress[]> = {};
     for (const col of columns) {
       map[col.id] = filteredFeatures
         .filter((f) => f.columnId === col.id)
@@ -97,7 +97,7 @@ export function Board({ onColumnSettingsClick, onAddColumnClick, presence }: Boa
     const targetColumnId = overColumn?.id ?? overFeature?.columnId;
     if (!targetColumnId || targetColumnId === activeFeature.columnId) return;
 
-    useBoardStore.getState().moveFeatureToColumn(activeFeature.id, targetColumnId);
+    useHabitatStore.getState().moveFeatureToColumn(activeFeature.id, targetColumnId);
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -120,12 +120,12 @@ export function Board({ onColumnSettingsClick, onAddColumnClick, presence }: Boa
     if (targetColumnId !== activeFeature.columnId) {
       setIsLoading(true);
       try {
-        await api.features.move(activeFeature.id, { columnId: targetColumnId });
+        await api.missions.move(activeFeature.id, { columnId: targetColumnId });
       } catch (err) {
         setError((err as Error).message);
         if (board) {
-          const res = await api.boards.get(board.id);
-          useBoardStore.getState().setBoard(res.board, res.columns ?? [], res.features);
+          const res = await api.habitats.get(board.id);
+          useHabitatStore.getState().setBoard(res.board, res.columns ?? [], res.features);
         }
       } finally {
         setIsLoading(false);

@@ -5,13 +5,13 @@ import { useNavigate } from 'react-router-dom';
 import { shallow } from 'zustand/shallow';
 import { Badge } from '../ui/Badge.js';
 import { Tooltip } from '../ui/Tooltip.js';
-import { useBoardStore } from '../../store/habitatStore.js';
-import type { FeatureWithProgress } from '../../types/index.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
+import type { MissionWithProgress } from '../../types/index.js';
 import { GripVertical, Link2 } from 'lucide-react';
 import { truncateId, formatDueDate, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, FEATURE_STATUS_VARIANT } from '../../lib/formatting.js';
 
 interface FeatureCardProps {
-  feature: FeatureWithProgress;
+  feature: MissionWithProgress;
   isDragOverlay?: boolean;
 }
 
@@ -24,17 +24,17 @@ const priorityTooltip: Record<string, string> = {
 
 function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   const navigate = useNavigate();
-  const isBulkSelectMode = useBoardStore((s) => s.isBulkSelectMode);
-  const selectedFeatureIds = useBoardStore((s) => s.selectedFeatureIds);
-  const toggleFeatureSelection = useBoardStore((s) => s.toggleFeatureSelection);
-  const tasks = useBoardStore(
-    (s) => s.tasks.filter((t) => t.featureId === feature.id),
+  const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
+  const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
+  const toggleMissionSelection = useHabitatStore((s) => s.toggleMissionSelection);
+  const tasks = useHabitatStore(
+    (s) => s.tasks.filter((t) => t.missionId === feature.id),
     shallow
   );
-  const activeAgents = useBoardStore(
+  const activeAgents = useHabitatStore(
     (s) => {
       const featureTaskIds = new Set(
-        s.tasks.filter((t) => t.featureId === feature.id).map((t) => t.id)
+        s.tasks.filter((t) => t.missionId === feature.id).map((t) => t.id)
       );
       return s.agents.filter(
         (a) => a.currentTaskId !== null && featureTaskIds.has(a.currentTaskId)
@@ -42,7 +42,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
     },
     shallow
   );
-  const isSelected = selectedFeatureIds.includes(feature.id);
+  const isSelected = selectedMissionIds.includes(feature.id);
   const [isHovered, setIsHovered] = useState(false);
   const [animKey, setAnimKey] = useState(0);
   const prevColumnId = React.useRef(feature.columnId);
@@ -63,7 +63,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   function handleCardClick(e: React.MouseEvent) {
     if (isBulkSelectMode) {
       e.stopPropagation();
-      toggleFeatureSelection(feature.id);
+      toggleMissionSelection(feature.id);
     } else if (!isDragOverlay) {
       navigate(`/features/${feature.id}`);
     }
@@ -88,7 +88,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
             <input
               type="checkbox"
               checked={isSelected}
-              onChange={() => toggleFeatureSelection(feature.id)}
+              onChange={() => toggleMissionSelection(feature.id)}
               onClick={(e) => e.stopPropagation()}
               className="h-5 w-5 flex-shrink-0 rounded border-[var(--outline-variant)] mobile-touch-target"
             />
@@ -184,7 +184,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
 
 export const FeatureCard = React.memo(FeatureCardInner);
 
-export function SortableFeatureCard({ feature }: { feature: FeatureWithProgress }) {
+export function SortableFeatureCard({ feature }: { feature: MissionWithProgress }) {
   const {
     attributes,
     listeners,

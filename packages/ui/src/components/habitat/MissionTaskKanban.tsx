@@ -1,7 +1,7 @@
 import React from 'react';
 import { BarChart3, CheckCircle2, XCircle, Circle, Timer } from 'lucide-react';
 import { useModalStore } from '../../store/modalStore.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { Badge } from '../ui/Badge.js';
 import { formatStatus } from './MissionHeader.js';
 import type { Task, TaskStatus } from '../../types/index.js';
@@ -19,7 +19,7 @@ export interface FeatureTaskKanbanProps {
 
 function KanbanTaskCard({ task }: { task: Task }) {
   const openModal = useModalStore((s) => s.openModal);
-  const agents = useBoardStore((s) => s.agents);
+  const agents = useHabitatStore((s) => s.agents);
 
   const assignee = task.assignedAgentId
     ? agents.find((a) => a.id === task.assignedAgentId)

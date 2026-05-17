@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { Link2, Link2Off, AlertCircle, ArrowRight, Plus, X } from 'lucide-react';
 import { Badge } from '../ui/Badge.js';
 import { notify } from '../../lib/toast.js';
-import type { Task, CrossBoardDependency } from '../../types/index.js';
+import type { Task, CrossHabitatDependency } from '../../types/index.js';
 
 interface TaskDependenciesProps {
   task: { dependsOn: string[] };
   taskId: string;
   dependencies: Task[];
-  crossBoardDependsOn: CrossBoardDependency[];
+  crossBoardDependsOn: CrossHabitatDependency[];
   blockedBy: Task[];
   blocking: Task[];
   boardTasks: { id: string; title: string; status: string }[];
@@ -114,7 +114,7 @@ export function TaskDependencies({
                     : <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--agent-purple)]" />
                   }
                   <span className="truncate flex-1 text-muted-foreground">
-                    [{dep.boardName}] {dep.title}
+                    [{dep.habitatName}] {dep.title}
                   </span>
                   <Badge
                     variant={isDone ? 'done' : 'pending'}

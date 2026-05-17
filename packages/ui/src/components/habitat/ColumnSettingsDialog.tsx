@@ -16,7 +16,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import type { Column } from '../../types/index.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { GripVertical } from 'lucide-react';
 
 interface ColumnSettingsDialogProps {
@@ -117,7 +117,7 @@ export function ColumnSettingsDialog({ column, open, onClose, onUpdate, onDelete
         await api.columns.update(c.id, { order: c.order });
         applied.push({ id: c.id, originalOrder: sortedOriginal.find((o) => o.id === c.id)!.order });
       }
-      useBoardStore.getState().setColumns(newOrdered);
+      useHabitatStore.getState().setColumns(newOrdered);
       notify.success('Column order saved');
     } catch (err) {
       for (const a of applied) {

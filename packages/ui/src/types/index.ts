@@ -4,40 +4,40 @@ import type {
   AgentStatus,
   TaskPriority,
   TaskStatus,
-  FeatureStatus,
+  MissionStatus,
   ActorType,
   EventAction,
-  FeatureEventAction,
+  MissionEventAction,
   RetryPolicy,
   AnomalySettings,
   Anomaly,
   AutoAssignStrategy,
   AutoAssignSettings,
-  Board,
+  Habitat,
   Column,
   Agent,
-  Feature,
-  FeatureWithProgress,
-  FeatureEvent,
+  Mission,
+  MissionWithProgress,
+  MissionEvent,
   Task,
   Artifact,
   TaskEvent,
   TaskComment,
   TaskCommentMention,
-  FeatureComment,
-  FeatureCommentMention,
+  MissionComment,
+  MissionCommentMention,
   Subtask,
   TaskWatcher,
-  CrossBoardDependency,
+  CrossHabitatDependency,
   PresenceType,
   PresenceEntry,
   SSEEvent,
-  BoardStats,
+  HabitatStats,
   DashboardStats,
   AgentStats,
   AllAgentStats,
-  FeatureTemplate,
-  BoardExport,
+  MissionTemplate,
+  HabitatExport,
   BatchTaskOperation,
   BatchTaskResult,
   BatchTaskResponse,
@@ -65,40 +65,40 @@ export type {
   AgentStatus,
   TaskPriority,
   TaskStatus,
-  FeatureStatus,
+  MissionStatus,
   ActorType,
   EventAction,
-  FeatureEventAction,
+  MissionEventAction,
   RetryPolicy,
   AnomalySettings,
   Anomaly,
   AutoAssignStrategy,
   AutoAssignSettings,
-  Board,
+  Habitat,
   Column,
   Agent,
-  Feature,
-  FeatureWithProgress,
-  FeatureEvent,
+  Mission,
+  MissionWithProgress,
+  MissionEvent,
   Task,
   Artifact,
   TaskEvent,
   TaskComment,
   TaskCommentMention,
-  FeatureComment,
-  FeatureCommentMention,
+  MissionComment,
+  MissionCommentMention,
   Subtask,
   TaskWatcher,
-  CrossBoardDependency,
+  CrossHabitatDependency,
   PresenceType,
   PresenceEntry,
   SSEEvent,
-  BoardStats,
+  HabitatStats,
   DashboardStats,
   AgentStats,
   AllAgentStats,
-  FeatureTemplate,
-  BoardExport,
+  MissionTemplate,
+  HabitatExport,
   BatchTaskOperation,
   BatchTaskResult,
   BatchTaskResponse,
@@ -120,11 +120,11 @@ export type {
   TaskTemplateEntry,
 };
 
-export interface EnrichedBoardEvent {
+export interface EnrichedHabitatEvent {
   id: string;
   taskId: string;
   taskTitle: string;
-  boardId: string;
+  habitatId: string;
   actorType: ActorType;
   actorId: string;
   actorName: string | null;
@@ -150,25 +150,25 @@ export interface SiblingTask {
 
 export interface TaskContext {
   task: Task;
-  feature: {
+  mission: {
     id: string;
     title: string;
     description: string;
     acceptanceCriteria: string;
-    status: FeatureStatus;
+    status: MissionStatus;
   } | null;
   siblingTasks: SiblingTask[];
   dependencies: Task[];
-  crossBoardDependsOn: CrossBoardDependency[];
+  crossHabitatDependsOn: CrossHabitatDependency[];
   blockedBy: Task[];
   blocking: Task[];
-  boardContext: {
+  habitatContext: {
     name: string;
     columns: { name: string; taskCount: number }[];
   };
 }
 
-export interface CreateFeatureInput {
+export interface CreateMissionInput {
   columnId: string;
   title: string;
   description?: string;
@@ -181,7 +181,7 @@ export interface CreateFeatureInput {
   slaMinutes?: number;
 }
 
-export interface CreateTaskInFeatureInput {
+export interface CreateTaskInMissionInput {
   title: string;
   description?: string;
   priority?: TaskPriority;
@@ -190,7 +190,7 @@ export interface CreateTaskInFeatureInput {
   estimatedMinutes?: number;
 }
 
-export interface MoveFeatureInput {
+export interface MoveMissionInput {
   columnId: string;
 }
 
@@ -255,20 +255,20 @@ export interface DecompositionResult {
   parentTask: { id: string; title: string };
 }
 
-export interface FeatureDecompositionResult {
+export interface MissionDecompositionResult {
   tasks: Array<{
     title: string;
     description: string;
     priority: TaskPriority;
     order: number;
   }>;
-  feature: { id: string; title: string };
+  mission: { id: string; title: string };
 }
 
 export interface NotificationPreferences {
   id: string;
   userId: string;
-  boardId: string | null;
+  habitatId: string | null;
   taskAssigned: boolean;
   taskSubmitted: boolean;
   taskApproved: boolean;
@@ -282,7 +282,7 @@ export interface NotificationPreferences {
 
 export interface ChatIntegration {
   id: string;
-  boardId: string;
+  habitatId: string;
   provider: 'slack' | 'discord';
   webhookUrl: string;
   channelId: string | null;
@@ -410,7 +410,7 @@ export interface TaskBlockedStatus {
   blocking: { taskId: string; taskTitle: string; status: string }[];
 }
 
-export interface BoardTimeMetrics {
+export interface HabitatTimeMetrics {
   averageCycleTime: number;
   averageLeadTime: number;
   averageEstimationAccuracy: number;
@@ -447,7 +447,7 @@ export type PulseScope = 'mission' | 'habitat';
 export interface Pulse {
   id: string;
   missionId: string | null;
-  boardId: string;
+  habitatId: string;
   scope: PulseScope;
   fromType: 'human' | 'agent' | 'system';
   fromId: string;
@@ -496,7 +496,7 @@ export interface PulseReactionCounts {
 
 export interface ProjectInsight {
   id: string;
-  boardId: string;
+  habitatId: string;
   sourcePulseId: string | null;
   sourceMission: string | null;
   signalType: SignalType;
@@ -511,7 +511,7 @@ export interface ProjectInsight {
 
 export interface SavedFilter {
   id: string;
-  boardId: string;
+  habitatId: string;
   userId: string;
   name: string;
   filterConfig: Record<string, unknown>;

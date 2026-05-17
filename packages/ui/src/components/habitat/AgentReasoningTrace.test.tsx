@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AgentReasoningTrace } from './AgentReasoningTrace.js';
 import type { Task } from '../../types/index.js';
 
-function makeTask(overrides: Partial<Task> & { id: string; featureId: string }): Task {
+function makeTask(overrides: Partial<Task> & { id: string; missionId: string }): Task {
   return {
     title: 'Test Task',
     description: '',
@@ -55,7 +55,7 @@ vi.mock('../../api/index.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector: any) => selector(mockBoardStore()),
+  useHabitatStore: (selector: any) => selector(mockBoardStore()),
 }));
 
 vi.mock('lucide-react', () => ({
@@ -94,7 +94,7 @@ describe('AgentReasoningTrace', () => {
 
   it('displays agent comments with agent name', async () => {
     const tasks = [
-      makeTask({ id: 'task-1', featureId: 'feat-1', title: 'Agent Task' }),
+      makeTask({ id: 'task-1', missionId: 'feat-1', title: 'Agent Task' }),
     ];
     mockBoardStore.mockReturnValue({
       agents: [{ id: 'agent-1', name: 'Alpha-1' }],
@@ -127,7 +127,7 @@ describe('AgentReasoningTrace', () => {
     mockCommentsList.mockReturnValue(new Promise(() => {}));
     mockBoardStore.mockReturnValue({ agents: [] });
     const { container } = renderWithQuery(
-      <AgentReasoningTrace tasks={[makeTask({ id: 'task-1', featureId: 'feat-1' })]} />
+      <AgentReasoningTrace tasks={[makeTask({ id: 'task-1', missionId: 'feat-1' })]} />
     );
     expect(container.querySelector('.animate-pulse')).toBeTruthy();
   });

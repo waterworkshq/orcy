@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.9.4 | **Updated:** 2026-05-15
+> **Version:** v0.10.0 | **Updated:** 2026-05-17
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -20,23 +20,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.8 | See the Invisible — board health metrics (0-100 composite score, A-F grade, 5 dimensions), audit log exports (streaming CSV/JSON/JSONL), feature-level comments (threaded discussion on missions) |
 | v0.9 | Work Your Way — task board view (table/list with sorting, filtering, bulk ops), dynamic prioritization rules engine (10 condition types, auto-recalculates priority), recurring scheduled tasks (cron/interval/one-time, template-based feature creation) |
 | v0.9.1–v0.9.4 | Patch fixes — post-release audit (20 issues), API docs restoration, R16 React Query unification (17 components), release tooling fixes, scheduled task title templating (`{{date}}`/`{{counter}}` tokens) |
+| v0.10.0 | "Breaking Change" — naming consistency (`board→habitat`, `feature→mission` across 5 packages, 9 DB tables, 200 routes, 12 MCP tools, 12 SSE event types), unified `orcy_*` MCP tool prefix |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.10.0 — "Breaking Change"
-
-Phase 4 refactors. The API surface has been stable since v0.2. One focused release to clean naming for good before adding more API surface.
-
-| Refactor | Risk |
-|----------|------|
-| Naming consistency (featureId → mission, boardId → habitat, etc.) | Medium |
-| MCP tool rename (unified `orcy_*` prefix) | HIGH |
-
-**Why standalone:** MCP tool rename breaks ALL agent integrations. Nothing else can ship in this release — users need a single clear changelog entry. After this, naming is frozen.
 
 ---
 

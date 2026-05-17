@@ -13,15 +13,15 @@ import { useDependencyGraph } from '../../hooks/useDependencyGraph.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
 
 interface DependencyGraphInnerProps {
-  boardId: string;
-  onSelectFeature: (featureId: string) => void;
+  habitatId: string;
+  onSelectFeature: (missionId: string) => void;
 }
 
 const nodeTypes = { feature: FeatureGraphNode };
 
-function DependencyGraphInner({ boardId, onSelectFeature }: DependencyGraphInnerProps) {
+function DependencyGraphInner({ habitatId, onSelectFeature }: DependencyGraphInnerProps) {
   const { nodes, edges, isLoading, error, setHighlightedNode, clearHighlight } =
-    useDependencyGraph(boardId);
+    useDependencyGraph(habitatId);
   const isMobile = useIsMobile();
 
   const onNodeClick = useCallback(
@@ -103,14 +103,14 @@ function DependencyGraphInner({ boardId, onSelectFeature }: DependencyGraphInner
 }
 
 interface DependencyGraphProps {
-  boardId: string;
-  onSelectFeature: (featureId: string) => void;
+  habitatId: string;
+  onSelectFeature: (missionId: string) => void;
 }
 
-export function DependencyGraph({ boardId, onSelectFeature }: DependencyGraphProps) {
+export function DependencyGraph({ habitatId, onSelectFeature }: DependencyGraphProps) {
   return (
     <ReactFlowProvider>
-      <DependencyGraphInner boardId={boardId} onSelectFeature={onSelectFeature} />
+      <DependencyGraphInner habitatId={habitatId} onSelectFeature={onSelectFeature} />
     </ReactFlowProvider>
   );
 }

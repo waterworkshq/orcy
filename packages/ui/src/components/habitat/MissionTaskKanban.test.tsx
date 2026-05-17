@@ -12,7 +12,7 @@ vi.mock('../../store/modalStore.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: (selector: any) =>
+  useHabitatStore: (selector: any) =>
     selector({ agents: [] }),
 }));
 
@@ -34,7 +34,7 @@ vi.mock('lucide-react', () => ({
 
 function makeTask(overrides: Partial<Task> & { id: string }): Task {
   return {
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Task',
     description: '',
     priority: 'medium',

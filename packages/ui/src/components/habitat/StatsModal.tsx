@@ -1,18 +1,18 @@
 import React from 'react';
-import type { BoardTimeMetrics, FeatureWithProgress } from '../../types/index.js';
+import type { HabitatTimeMetrics, MissionWithProgress } from '../../types/index.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { StatCard } from '../ui/StatCard.js';
 import { X, Clock, TrendingUp, AlertTriangle, CheckCircle, AlertCircle, Layers, Timer } from 'lucide-react';
 import { formatMinutes } from '../../lib/formatting.js';
-import { useBoardStats, useFeatures, useBoardTimeMetrics } from '../../lib/useHabitatData.js';
+import { useBoardStats, useMissions, useBoardTimeMetrics } from '../../lib/useHabitatData.js';
 
 interface StatsModalProps {
-  boardId: string;
+  habitatId: string;
   onClose: () => void;
 }
 
-function FeatureStatusBar({ features }: { features: FeatureWithProgress[] }) {
+function FeatureStatusBar({ features }: { features: MissionWithProgress[] }) {
   const total = features.length;
   if (total === 0) return null;
 
@@ -60,10 +60,10 @@ function FeatureStatusBar({ features }: { features: FeatureWithProgress[] }) {
   );
 }
 
-export function StatsModal({ boardId, onClose }: StatsModalProps) {
-  const { data: stats, isLoading: statsLoading } = useBoardStats(boardId);
-  const { data: featuresData, isLoading: featuresLoading } = useFeatures(boardId);
-  const { data: timeMetrics } = useBoardTimeMetrics(boardId);
+export function StatsModal({ habitatId, onClose }: StatsModalProps) {
+  const { data: stats, isLoading: statsLoading } = useBoardStats(habitatId);
+  const { data: featuresData, isLoading: featuresLoading } = useMissions(habitatId);
+  const { data: timeMetrics } = useBoardTimeMetrics(habitatId);
 
   const loading = statsLoading || featuresLoading;
   const features = featuresData?.features ?? [];
@@ -72,7 +72,7 @@ export function StatsModal({ boardId, onClose }: StatsModalProps) {
   const doneFeatures = features.filter((f) => f.status === 'done').length;
   const inProgressFeatures = features.filter((f) => f.status === 'in_progress').length;
   const blockedFeatures = features.filter((f) =>
-    f.dependsOn.length > 0 && f.dependsOn.every((depId) => {
+    f.dependsOn.length > 0 && f.dependsOn.every((depId: string) => {
       const dep = features.find((f) => f.id === depId);
       return !dep || dep.status !== 'done';
     })
@@ -157,7 +157,7 @@ export function StatsModal({ boardId, onClose }: StatsModalProps) {
                 <CardTitle className="text-sm">WIP Health</CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-0 space-y-2">
-                {stats.wipHealth.map((col) => (
+                {stats.wipHealth.map((col: { columnId: string; columnName: string; habitatId: string; habitatName: string; current: number; limit: number | null; health: string }) => (
                   <div key={col.columnId} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {col.health === 'ok' && <CheckCircle className="h-3.5 w-3.5 text-green-600" />}

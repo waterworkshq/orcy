@@ -93,7 +93,7 @@ describe('ChatIntegrationsTab', () => {
   });
 
   it('renders the list component', async () => {
-    renderWithQC(<ChatIntegrationsTab boardId="b1" />);
+    renderWithQC(<ChatIntegrationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('chat-list')).toBeTruthy();
@@ -101,7 +101,7 @@ describe('ChatIntegrationsTab', () => {
   });
 
   it('renders Add button', async () => {
-    renderWithQC(<ChatIntegrationsTab boardId="b1" />);
+    renderWithQC(<ChatIntegrationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('AddBtn')).toBeTruthy();
@@ -109,7 +109,7 @@ describe('ChatIntegrationsTab', () => {
   });
 
   it('renders empty state when no integrations', async () => {
-    renderWithQC(<ChatIntegrationsTab boardId="b1" />);
+    renderWithQC(<ChatIntegrationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('No integrations')).toBeTruthy();
@@ -121,7 +121,7 @@ describe('ChatIntegrationsTab', () => {
       { id: 'ci1', provider: 'slack', webhookUrl: 'https://hooks.slack.com/test', channelId: null, botToken: null, enabled: 1, events: [], createdAt: '', updatedAt: '' },
     ]);
 
-    renderWithQC(<ChatIntegrationsTab boardId="b1" />);
+    renderWithQC(<ChatIntegrationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('slack')).toBeTruthy();
@@ -129,7 +129,7 @@ describe('ChatIntegrationsTab', () => {
   });
 
   it('shows form when Add is clicked', async () => {
-    renderWithQC(<ChatIntegrationsTab boardId="b1" />);
+    renderWithQC(<ChatIntegrationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('AddBtn')).toBeTruthy();
@@ -146,7 +146,7 @@ describe('ChatIntegrationsTab', () => {
   it('calls create API when form submits new integration', async () => {
     mockCreate.mockResolvedValue({ id: 'ci-new' });
 
-    renderWithQC(<ChatIntegrationsTab boardId="b1" />);
+    renderWithQC(<ChatIntegrationsTab habitatId="b1" />);
 
     await waitFor(() => {
       expect(screen.getByText('AddBtn')).toBeTruthy();

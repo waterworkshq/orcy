@@ -29,7 +29,7 @@ vi.mock('../ui/ConfirmDialog.js', () => ({
 }));
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useBoardStore: () => ({
+  useHabitatStore: () => ({
     selectedTaskIds: ['task-1', 'task-2', 'task-3'],
     clearTaskSelection: mockClearTaskSelection,
     setTaskBulkSelectMode: mockSetTaskBulkSelectMode,
@@ -64,18 +64,18 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('shows selected count', () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
     expect(screen.getByText('3 tasks selected')).toBeInTheDocument();
   });
 
   it('renders Set Priority as default operation', () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
     const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
     expect(operationSelect.value).toBe('priority');
   });
 
   it('calls api.tasks.batch with correct operations for priority change', async () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const prioritySelect = screen.getByTestId('bulk-priority') as HTMLSelectElement;
     fireEvent.change(prioritySelect, { target: { value: 'critical' } });
@@ -93,7 +93,7 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('shows confirmation dialog before deleting', async () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
     fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -106,7 +106,7 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('calls api.tasks.batch with delete operation after confirmation', async () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
     fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -127,7 +127,7 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('does not delete when confirmation dialog is cancelled', async () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const operationSelect = screen.getByTestId('bulk-operation') as HTMLSelectElement;
     fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -143,7 +143,7 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('clears selection after successful operation', async () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const applyButton = screen.getByTestId('bulk-apply');
     fireEvent.click(applyButton);
@@ -155,7 +155,7 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('clears selection when cancel is clicked', () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const buttons = screen.getAllByRole('button');
     const cancelButton = buttons.find((b) => b.textContent?.includes('Cancel'));
@@ -168,7 +168,7 @@ describe('TaskBulkActionBar', () => {
   it('handles batch error gracefully', async () => {
     mockBatch.mockRejectedValue(new Error('Server error'));
 
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const applyButton = screen.getByTestId('bulk-apply');
     fireEvent.click(applyButton);
@@ -179,7 +179,7 @@ describe('TaskBulkActionBar', () => {
   });
 
   it('shows Delete button text when delete operation selected', () => {
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const operationSelect = screen.getByTestId('bulk-operation');
     fireEvent.change(operationSelect, { target: { value: 'delete' } });
@@ -195,7 +195,7 @@ describe('TaskBulkActionBar', () => {
       results: [{ taskId: 'task-3', success: false, error: 'Not found' }],
     });
 
-    render(<TaskBulkActionBar boardId="board-1" />);
+    render(<TaskBulkActionBar habitatId="board-1" />);
 
     const applyButton = screen.getByTestId('bulk-apply');
     fireEvent.click(applyButton);

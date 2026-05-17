@@ -3,9 +3,9 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { SortableFeatureCard } from './MissionCard.js';
 import { Tooltip } from '../ui/Tooltip.js';
-import type { FeatureWithProgress, Column as ColumnType } from '../../types/index.js';
+import type { MissionWithProgress, Column as ColumnType } from '../../types/index.js';
 import { Settings, ChevronDown, ChevronRight } from 'lucide-react';
-import { useBoardStore } from '../../store/habitatStore.js';
+import { useHabitatStore } from '../../store/habitatStore.js';
 import { shallow } from 'zustand/shallow';
 
 const INITIAL_VISIBLE = 10;
@@ -13,19 +13,19 @@ const LOAD_STEP = 10;
 
 interface ColumnProps {
   column: ColumnType;
-  features: FeatureWithProgress[];
+  features: MissionWithProgress[];
   onSettingsClick: (column: ColumnType) => void;
   isMobile?: boolean;
 }
 
 export const Column = React.memo(function Column({ column, features, onSettingsClick, isMobile }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
-  const wipAlert = useBoardStore(
+  const wipAlert = useHabitatStore(
     (s) => s.wipAlerts[column.id] ?? null,
     shallow
   );
-  const isCollapsed = useBoardStore((s) => s.collapsedColumns[column.id] ?? false);
-  const toggleColumnCollapsed = useBoardStore((s) => s.toggleColumnCollapsed);
+  const isCollapsed = useHabitatStore((s) => s.collapsedColumns[column.id] ?? false);
+  const toggleColumnCollapsed = useHabitatStore((s) => s.toggleColumnCollapsed);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
 
   const wipLimit = column.wipLimit;
