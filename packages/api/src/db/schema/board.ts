@@ -4,7 +4,7 @@ import type { RetryPolicy, AnomalySettings, AutoAssignSettings, CodeReviewSettin
 import { teams } from './user.js';
 import { users } from './user.js';
 
-export const boards = sqliteTable('boards', {
+export const habitats = sqliteTable('habitats', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
@@ -24,9 +24,9 @@ export const boards = sqliteTable('boards', {
   index('idx_boards_team_id').on(table.teamId),
 ]);
 
-export const features = sqliteTable('features', {
+export const missions = sqliteTable('missions', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   columnId: text('column_id').notNull().references(() => columns.id),
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
@@ -50,7 +50,7 @@ export const features = sqliteTable('features', {
   completedAt: text('completed_at'),
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
 }, (table) => [
-  index('idx_features_board_column').on(table.boardId, table.columnId),
+  index('idx_features_habitat_column').on(table.habitatId, table.columnId),
   index('idx_features_status').on(table.status),
   index('idx_features_priority').on(table.priority),
   index('idx_features_column_order').on(table.columnId, table.displayOrder),
@@ -58,17 +58,17 @@ export const features = sqliteTable('features', {
   index('idx_features_sla_deadline_at').on(table.slaDeadlineAt),
 ]);
 
-export const featureDependencies = sqliteTable('feature_dependencies', {
-  featureId: text('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
-  dependsOnId: text('depends_on_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+export const missionDependencies = sqliteTable('mission_dependencies', {
+  missionId: text('mission_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
+  dependsOnId: text('depends_on_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
 }, (table) => [
-  primaryKey({ columns: [table.featureId, table.dependsOnId] }),
+  primaryKey({ columns: [table.missionId, table.dependsOnId] }),
   index('idx_feature_deps_depends_on').on(table.dependsOnId),
 ]);
 
-export const featureEvents = sqliteTable('feature_events', {
+export const missionEvents = sqliteTable('mission_events', {
   id: text('id').primaryKey(),
-  featureId: text('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+  missionId: text('mission_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
   actorType: text('actor_type', { enum: ['human', 'agent', 'system'] }).notNull(),
   actorId: text('actor_id').notNull(),
   action: text('action', { enum: ['created', 'updated', 'moved', 'status_changed', 'completed', 'deleted', 'dependency_resolved'] }).notNull(),
@@ -79,23 +79,23 @@ export const featureEvents = sqliteTable('feature_events', {
   metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
   timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_feature_events_feature').on(table.featureId),
+  index('idx_feature_events_mission').on(table.missionId),
   index('idx_feature_events_timestamp').on(table.timestamp),
 ]);
 
-export const featureWatchers = sqliteTable('feature_watchers', {
-  featureId: text('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+export const missionWatchers = sqliteTable('mission_watchers', {
+  missionId: text('mission_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  primaryKey({ columns: [table.featureId, table.userId] }),
+  primaryKey({ columns: [table.missionId, table.userId] }),
   index('idx_feature_watchers_user').on(table.userId),
 ]);
 
-const featureCommentsColumns = {
+const missionCommentsColumns = {
   id: text('id').primaryKey(),
-  featureId: text('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
-  parentId: text('parent_id').references((): ReturnType<typeof text> => featureComments.id as ReturnType<typeof text>, { onDelete: 'cascade' }),
+  missionId: text('mission_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
+  parentId: text('parent_id').references((): ReturnType<typeof text> => missionComments.id as ReturnType<typeof text>, { onDelete: 'cascade' }),
   authorType: text('author_type', { enum: ['human', 'agent'] }).notNull(),
   authorId: text('author_id').notNull(),
   content: text('content').notNull(),
@@ -103,14 +103,14 @@ const featureCommentsColumns = {
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 };
 
-export const featureComments = sqliteTable('feature_comments', featureCommentsColumns, (table) => [
-  index('idx_feature_comments_feature_id').on(table.featureId, table.createdAt),
+export const missionComments = sqliteTable('mission_comments', missionCommentsColumns, (table) => [
+  index('idx_feature_comments_mission_id').on(table.missionId, table.createdAt),
   index('idx_feature_comments_parent').on(table.parentId),
 ]);
 
-export const featureCommentMentions = sqliteTable('feature_comment_mentions', {
+export const missionCommentMentions = sqliteTable('mission_comment_mentions', {
   id: text('id').primaryKey(),
-  commentId: text('comment_id').notNull().references(() => featureComments.id, { onDelete: 'cascade' }),
+  commentId: text('comment_id').notNull().references(() => missionComments.id, { onDelete: 'cascade' }),
   mentionedType: text('mentioned_type', { enum: ['human', 'agent'] }).notNull(),
   mentionedId: text('mentioned_id').notNull(),
   mentionText: text('mention_text').notNull(),
@@ -123,7 +123,7 @@ export const featureCommentMentions = sqliteTable('feature_comment_mentions', {
 
 const columnsColumns = {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   order: integer('order').notNull(),
   wipLimit: integer('wip_limit'),
@@ -134,14 +134,14 @@ const columnsColumns = {
 };
 
 export const columns = sqliteTable('columns', columnsColumns, (table) => [
-  uniqueIndex('idx_columns_board_order').on(table.boardId, table.order),
-  index('idx_columns_board_id').on(table.boardId),
+  uniqueIndex('idx_columns_habitat_order').on(table.habitatId, table.order),
+  index('idx_columns_habitat_id').on(table.habitatId),
   index('idx_columns_next').on(table.nextColumnId),
 ]);
 
-export const featureTemplates = sqliteTable('feature_templates', {
+export const missionTemplates = sqliteTable('mission_templates', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').references(() => habitats.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   titlePattern: text('title_pattern').notNull().default(''),
   descriptionPattern: text('description_pattern').notNull().default(''),
@@ -155,13 +155,13 @@ export const featureTemplates = sqliteTable('feature_templates', {
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   tasksTemplate: text('tasks_template', { mode: 'json' }).$type<TaskTemplateEntry[]>().notNull().$defaultFn(() => []),
 }, (table) => [
-  index('idx_templates_board').on(table.boardId),
+  index('idx_templates_habitat').on(table.habitatId),
   index('idx_templates_default').on(table.isDefault),
 ]);
 
 export const savedFilters = sqliteTable('saved_filters', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull(),
   name: text('name').notNull(),
   filterConfig: text('filter_config', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
@@ -171,7 +171,7 @@ export const savedFilters = sqliteTable('saved_filters', {
 
 export const chatIntegrations = sqliteTable('chat_integrations', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   provider: text('provider', { enum: ['slack', 'discord'] }).notNull(),
   webhookUrl: text('webhook_url').notNull(),
   channelId: text('channel_id'),
@@ -181,14 +181,14 @@ export const chatIntegrations = sqliteTable('chat_integrations', {
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   updatedAt: text('updated_at').notNull().default("(datetime('now'))"),
 }, (table) => [
-  index('idx_chat_integrations_board').on(table.boardId),
+  index('idx_chat_integrations_habitat').on(table.habitatId),
   index('idx_chat_integrations_provider').on(table.provider),
   index('idx_chat_integrations_enabled').on(table.enabled),
 ]);
 
 export const auditExportSchedules = sqliteTable('audit_export_schedules', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   format: text('format', { enum: ['csv', 'json', 'jsonl'] }).notNull(),
   filters: text('filters', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
@@ -201,14 +201,14 @@ export const auditExportSchedules = sqliteTable('audit_export_schedules', {
   createdBy: text('created_by').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_audit_schedules_board').on(table.boardId),
+  index('idx_audit_schedules_habitat').on(table.habitatId),
   index('idx_audit_schedules_next').on(table.nextRunAt),
 ]);
 
 export const scheduledTasks = sqliteTable('scheduled_tasks', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
-  templateId: text('template_id').references(() => featureTemplates.id, { onDelete: 'set null' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
+  templateId: text('template_id').references(() => missionTemplates.id, { onDelete: 'set null' }),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   scheduleType: text('schedule_type', { enum: ['once', 'interval', 'cron'] }).$type<ScheduleType>().notNull(),
@@ -226,19 +226,19 @@ export const scheduledTasks = sqliteTable('scheduled_tasks', {
   lastRunAt: text('last_run_at'),
   nextRunAt: text('next_run_at').notNull(),
   runCount: integer('run_count').notNull().default(0),
-  lastCreatedFeatureId: text('last_created_feature_id'),
+  lastCreatedMissionId: text('last_created_mission_id'),
   createdBy: text('created_by').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_scheduled_tasks_board').on(table.boardId),
+  index('idx_scheduled_tasks_habitat').on(table.habitatId),
   index('idx_scheduled_tasks_next').on(table.nextRunAt),
   index('idx_scheduled_tasks_enabled').on(table.enabled),
 ]);
 
-export const boardHealthSnapshots = sqliteTable('board_health_snapshots', {
+export const habitatHealthSnapshots = sqliteTable('habitat_health_snapshots', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   score: integer('score').notNull(),
   grade: text('grade', { enum: ['A', 'B', 'C', 'D', 'F'] }).notNull(),
   dimensions: text('dimensions').notNull(),
@@ -247,6 +247,6 @@ export const boardHealthSnapshots = sqliteTable('board_health_snapshots', {
   snapshotAt: text('snapshot_at').notNull().default(sql`(datetime('now'))`),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_health_snapshots_board').on(table.boardId),
-  index('idx_health_snapshots_time').on(table.boardId, table.snapshotAt),
+  index('idx_health_snapshots_habitat').on(table.habitatId),
+  index('idx_health_snapshots_time').on(table.habitatId, table.snapshotAt),
 ]);

@@ -34,8 +34,8 @@ export interface DashboardStats {
   wipHealth: Array<{
     columnId: string;
     columnName: string;
-    boardId: string;
-    boardName: string;
+    habitatId: string;
+    habitatName: string;
     current: number;
     limit: number | null;
     health: 'ok' | 'warning' | 'exceeded';
@@ -50,7 +50,7 @@ export interface DashboardStats {
   };
 }
 
-export interface BoardMetrics {
+export interface HabitatMetrics {
   averageCycleTime: number;
   averageLeadTime: number;
   averageEstimationAccuracy: number;

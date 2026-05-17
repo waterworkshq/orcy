@@ -1,12 +1,12 @@
 import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type { Artifact, RetryPolicy } from '../../models/index.js';
-import { features } from './board.js';
+import { missions } from './board.js';
 import { agents } from './agent.js';
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
-  featureId: text('feature_id').notNull().references(() => features.id, { onDelete: 'cascade' }),
+  missionId: text('mission_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   description: text('description').notNull().default(''),
   labels: text('labels', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
@@ -38,8 +38,8 @@ export const tasks = sqliteTable('tasks', {
   leadTimeMinutes: integer('lead_time_minutes'),
   estimationAccuracy: integer('estimation_accuracy'),
 }, (table) => [
-  index('idx_tasks_feature').on(table.featureId),
-  index('idx_tasks_feature_order').on(table.featureId, table.order),
+  index('idx_tasks_mission').on(table.missionId),
+  index('idx_tasks_mission_order').on(table.missionId, table.order),
   index('idx_tasks_status').on(table.status),
   index('idx_tasks_assigned_agent').on(table.assignedAgentId),
   index('idx_tasks_required_domain').on(table.requiredDomain),

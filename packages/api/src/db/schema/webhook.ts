@@ -1,9 +1,9 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
-import { boards } from './board.js';
+import { habitats } from './board.js';
 
 export const webhookSubscriptions = sqliteTable('webhook_subscriptions', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').references(() => habitats.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   url: text('url').notNull(),
   secret: text('secret'),
@@ -14,7 +14,7 @@ export const webhookSubscriptions = sqliteTable('webhook_subscriptions', {
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   updatedAt: text('updated_at').notNull().default("(datetime('now'))"),
 }, (table) => [
-  index('idx_webhook_subscriptions_board').on(table.boardId),
+  index('idx_webhook_subscriptions_habitat').on(table.habitatId),
   index('idx_webhook_subscriptions_enabled').on(table.enabled),
 ]);
 

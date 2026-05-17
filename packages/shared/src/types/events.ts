@@ -1,8 +1,8 @@
 import type { AgentStatus } from './agent.js';
 import type { Anomaly } from './settings.js';
-import type { Task, TaskStatus } from './task.js';
+import type { Task } from './task.js';
 import type { TaskComment } from './task.js';
-import type { Feature, FeatureStatus, FeatureComment } from './feature.js';
+import type { Mission, MissionStatus, MissionComment } from './feature.js';
 import type { Column } from './board.js';
 import type { Subtask } from './task.js';
 
@@ -23,7 +23,7 @@ export interface PresenceEntry {
   userName?: string;
   agentId?: string;
   agentName?: string;
-  boardId: string;
+  habitatId: string;
   viewingTaskId?: string | null;
   lastSeen: number;
 }
@@ -42,49 +42,49 @@ export type SSEEvent =
   | { type: 'task.delegated'; data: { taskId: string; fromAgentId: string; toAgentId: string } }
   | { type: 'task.cloned'; data: { sourceTaskId: string; clonedTask: Task } }
   | { type: 'task.deleted'; data: { taskId: string } }
-  | { type: 'task.overdue'; data: { taskId: string; boardId: string; detectedAt: string } }
-  | { type: 'task.watcher_notify'; data: { taskId: string; taskTitle: string; eventType: string; watcherUserIds: string[]; boardId: string } }
-  | { type: 'task.mentioned'; data: { taskId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; boardId: string } }
+  | { type: 'task.overdue'; data: { taskId: string; habitatId: string; detectedAt: string } }
+  | { type: 'task.watcher_notify'; data: { taskId: string; taskTitle: string; eventType: string; watcherUserIds: string[]; habitatId: string } }
+  | { type: 'task.mentioned'; data: { taskId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; habitatId: string } }
   | { type: 'task.commented'; data: { taskId: string; comment: TaskComment } }
   | { type: 'task.comment_deleted'; data: { taskId: string; commentId: string } }
   | { type: 'agent.status_changed'; data: { agentId: string; status: AgentStatus } }
   | { type: 'agent.heartbeat'; data: { agentId: string; taskId: string | null } }
   | { type: 'column.created'; data: Column }
   | { type: 'column.updated'; data: Column }
-  | { type: 'column.deleted'; data: { columnId: string; boardId: string } }
+  | { type: 'column.deleted'; data: { columnId: string; habitatId: string } }
   | { type: 'column.wip_limit_reached'; data: { columnId: string; limit: number } }
-  | { type: 'board.created'; data: { id: string; name: string; description: string; createdAt: string; updatedAt: string } }
-  | { type: 'board.updated'; data: { id: string; name: string; description: string; createdAt: string; updatedAt: string } }
-  | { type: 'board.deleted'; data: { boardId: string } }
+  | { type: 'habitat.created'; data: { id: string; name: string; description: string; createdAt: string; updatedAt: string } }
+  | { type: 'habitat.updated'; data: { id: string; name: string; description: string; createdAt: string; updatedAt: string } }
+  | { type: 'habitat.deleted'; data: { habitatId: string } }
   | { type: 'subtask.created'; data: { taskId: string; subtask: Subtask } }
   | { type: 'subtask.updated'; data: { taskId: string; subtask: Subtask } }
   | { type: 'subtask.deleted'; data: { taskId: string; subtaskId: string } }
-  | { type: 'presence.joined'; data: { boardId: string; presence: PresenceEntry } }
-  | { type: 'presence.left'; data: { boardId: string; sessionId: string } }
-  | { type: 'presence.refresh'; data: { boardId: string; presence: PresenceEntry } }
-  | { type: 'presence.summary'; data: { boardId: string; viewers: PresenceEntry[] } }
-  | { type: 'agent.message_received'; data: { messageId: string; fromAgentId: string; fromAgentName: string; toAgentId: string; subject: string; messageType: string; priority: string; taskId: string | null; boardId: string } }
+  | { type: 'presence.joined'; data: { habitatId: string; presence: PresenceEntry } }
+  | { type: 'presence.left'; data: { habitatId: string; sessionId: string } }
+  | { type: 'presence.refresh'; data: { habitatId: string; presence: PresenceEntry } }
+  | { type: 'presence.summary'; data: { habitatId: string; viewers: PresenceEntry[] } }
+  | { type: 'agent.message_received'; data: { messageId: string; fromAgentId: string; fromAgentName: string; toAgentId: string; subject: string; messageType: string; priority: string; taskId: string | null; habitatId: string } }
   | { type: 'pulse.signal_posted'; data: { pulseId: string; missionId: string | null; signalType: string; fromType: string; fromId: string; subject: string } }
   | { type: 'task.retry_scheduled'; data: { taskId: string; nextRetryAt: string; retryCount: number } }
   | { type: 'task.retry_executed'; data: { taskId: string; retryCount: number } }
   | { type: 'task.escalated'; data: { taskId: string; retryCount: number; reason: string } }
-  | { type: 'anomaly.detected'; data: Anomaly & { boardId: string; detectedAt: string } }
-  | { type: 'feature.created'; data: Feature }
-  | { type: 'feature.updated'; data: Feature }
-  | { type: 'feature.moved'; data: { featureId: string; fromColumnId: string; toColumnId: string } }
-  | { type: 'feature.status_changed'; data: { featureId: string; fromStatus: FeatureStatus; toStatus: FeatureStatus } }
-  | { type: 'feature.deleted'; data: { featureId: string } }
-  | { type: 'feature.progress'; data: { featureId: string; completed: number; total: number } }
-  | { type: 'feature.commented'; data: { featureId: string; comment: FeatureComment } }
-  | { type: 'feature.comment_deleted'; data: { featureId: string; commentId: string } }
-  | { type: 'feature.mentioned'; data: { featureId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; boardId: string } }
+  | { type: 'anomaly.detected'; data: Anomaly & { habitatId: string; detectedAt: string } }
+  | { type: 'mission.created'; data: Mission }
+  | { type: 'mission.updated'; data: Mission }
+  | { type: 'mission.moved'; data: { missionId: string; fromColumnId: string; toColumnId: string } }
+  | { type: 'mission.status_changed'; data: { missionId: string; fromStatus: MissionStatus; toStatus: MissionStatus } }
+  | { type: 'mission.deleted'; data: { missionId: string } }
+  | { type: 'mission.progress'; data: { missionId: string; completed: number; total: number } }
+  | { type: 'mission.commented'; data: { missionId: string; comment: MissionComment } }
+  | { type: 'mission.comment_deleted'; data: { missionId: string; commentId: string } }
+  | { type: 'mission.mentioned'; data: { missionId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; habitatId: string } }
   | { type: 'task.priority_changed'; data: { taskId: string; ruleName: string; score: number } }
-  | { type: 'scheduled_task.executed'; data: { scheduleId: string; featureId: string; featureTitle: string } }
+  | { type: 'scheduled_task.executed'; data: { scheduleId: string; missionId: string; missionTitle: string } }
   | { type: 'scheduled_task.failed'; data: { scheduleId: string; error: string } }
   | { type: 'scheduled_task.created'; data: { scheduleId: string; name: string } };
 
 export type PresenceEvent =
-  | { type: 'presence.joined'; data: { boardId: string; presence: PresenceEntry } }
-  | { type: 'presence.left'; data: { boardId: string; sessionId: string } }
-  | { type: 'presence.refresh'; data: { boardId: string; presence: PresenceEntry } }
-  | { type: 'presence.summary'; data: { boardId: string; viewers: PresenceEntry[] } };
+  | { type: 'presence.joined'; data: { habitatId: string; presence: PresenceEntry } }
+  | { type: 'presence.left'; data: { habitatId: string; sessionId: string } }
+  | { type: 'presence.refresh'; data: { habitatId: string; presence: PresenceEntry } }
+  | { type: 'presence.summary'; data: { habitatId: string; viewers: PresenceEntry[] } };

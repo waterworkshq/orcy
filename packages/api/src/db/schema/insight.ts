@@ -1,12 +1,12 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import { boards } from './board.js';
+import { habitats } from './board.js';
 import { pulses } from './pulse.js';
 
 export const projectInsights = sqliteTable('project_insights', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull()
-    .references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull()
+    .references(() => habitats.id, { onDelete: 'cascade' }),
   sourcePulseId: text('source_pulse_id')
     .references(() => pulses.id, { onDelete: 'set null' }),
   sourceMission: text('source_mission'),
@@ -20,7 +20,7 @@ export const projectInsights = sqliteTable('project_insights', {
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_insights_board').on(table.boardId),
+  index('idx_insights_habitat').on(table.habitatId),
   index('idx_insights_active').on(table.isActive),
   index('idx_insights_type').on(table.signalType),
 ]);

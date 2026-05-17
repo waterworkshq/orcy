@@ -19,7 +19,7 @@ export interface RetryPolicy {
 
 export interface Task {
   id: string;
-  featureId: string;
+  missionId: string;
   title: string;
   description: string;
   priority: TaskPriority;
@@ -112,10 +112,10 @@ export interface Subtask {
   updatedAt: string;
 }
 
-export interface CrossBoardDependency {
+export interface CrossHabitatDependency {
   taskId: string;
-  boardId: string;
-  boardName: string;
+  habitatId: string;
+  habitatName: string;
   title: string;
   status: TaskStatus;
 }

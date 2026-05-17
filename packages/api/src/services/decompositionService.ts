@@ -131,7 +131,7 @@ export async function decomposeTask(taskId: string): Promise<DecompositionResult
   ];
 
   const llmResponse = await callLLM(messages, config);
-  const result: DecompositionResult = { proposals: [], parentFeature: { id: task.featureId, title: task.title } };
+  const result: DecompositionResult = { proposals: [], parentFeature: { id: task.missionId, title: task.title } };
 
   try {
     const text = llmResponse.content;

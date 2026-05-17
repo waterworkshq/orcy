@@ -1,12 +1,12 @@
 import type { RetryPolicy } from './task.js';
 import type { AnomalySettings, AutoAssignSettings, CodeReviewSettings, CiCdSettings, GitWorktreeSettings, PrioritizationSettings } from './settings.js';
 import type { TaskPriority } from './task.js';
-import type { FeatureStatus } from './feature.js';
+import type { MissionStatus } from './feature.js';
 import type { Artifact } from './task.js';
 
 export interface Column {
   id: string;
-  boardId: string;
+  habitatId: string;
   name: string;
   order: number;
   wipLimit: number | null;
@@ -16,7 +16,7 @@ export interface Column {
   isTerminal: boolean;
 }
 
-export interface Board {
+export interface Habitat {
   id: string;
   name: string;
   description: string;
@@ -34,7 +34,7 @@ export interface Board {
   updatedAt: string;
 }
 
-export interface BoardStats {
+export interface HabitatStats {
   cycleTime: {
     averageMinutes: number;
     medianMinutes: number;
@@ -54,7 +54,7 @@ export interface BoardStats {
   }[];
 }
 
-export interface BoardExport {
+export interface HabitatExport {
   version: number;
   exportedAt: string;
   board: {
@@ -76,7 +76,7 @@ export interface BoardExport {
       priority: TaskPriority;
       labels: string[];
       columnName: string;
-      status: FeatureStatus;
+      status: MissionStatus;
       dependsOn: string[];
       blocks: string[];
       dueAt: string | null;

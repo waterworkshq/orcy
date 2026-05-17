@@ -1,13 +1,13 @@
 import { getDb } from '../db/index.js';
-import { featureTemplates, features, tasks, columns } from '../db/schema/index.js';
+import { missionTemplates, missions, tasks, columns } from '../db/schema/index.js';
 import { eq, or, isNull, sql, desc, asc, max } from 'drizzle-orm';
-import type { FeatureTemplate, TaskPriority, TaskTemplateEntry } from '../models/index.js';
+import type { MissionTemplate, TaskPriority, TaskTemplateEntry } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 import * as featureRepo from './feature.js';
 import * as taskRepo from './task.js';
 
 export interface CreateTemplateInput {
-  boardId: string | null;
+  habitatId: string | null;
   name: string;
   titlePattern: string;
   descriptionPattern?: string;
@@ -31,14 +31,14 @@ export interface UpdateTemplateInput {
   tasksTemplate?: TaskTemplateEntry[];
 }
 
-export function createTemplate(input: CreateTemplateInput): FeatureTemplate {
+export function createTemplate(input: CreateTemplateInput): MissionTemplate {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(featureTemplates).values({
+  db.insert(missionTemplates).values({
     id,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     name: input.name,
     titlePattern: input.titlePattern,
     descriptionPattern: input.descriptionPattern ?? '',
@@ -56,37 +56,37 @@ export function createTemplate(input: CreateTemplateInput): FeatureTemplate {
   return getTemplateById(id)!;
 }
 
-export function getTemplatesByBoardId(boardId: string): FeatureTemplate[] {
+export function getTemplatesByBoardId(habitatId: string): MissionTemplate[] {
   const db = getDb();
   return db
     .select()
-    .from(featureTemplates)
-    .where(or(eq(featureTemplates.boardId, boardId), isNull(featureTemplates.boardId)))
-    .orderBy(desc(featureTemplates.isDefault), desc(featureTemplates.usageCount), asc(featureTemplates.name))
-    .all() as FeatureTemplate[];
+    .from(missionTemplates)
+    .where(or(eq(missionTemplates.habitatId, habitatId), isNull(missionTemplates.habitatId)))
+    .orderBy(desc(missionTemplates.isDefault), desc(missionTemplates.usageCount), asc(missionTemplates.name))
+    .all() as MissionTemplate[];
 }
 
-export function getGlobalTemplates(): FeatureTemplate[] {
+export function getGlobalTemplates(): MissionTemplate[] {
   const db = getDb();
   return db
     .select()
-    .from(featureTemplates)
-    .where(isNull(featureTemplates.boardId))
-    .orderBy(desc(featureTemplates.isDefault), desc(featureTemplates.usageCount), asc(featureTemplates.name))
-    .all() as FeatureTemplate[];
+    .from(missionTemplates)
+    .where(isNull(missionTemplates.habitatId))
+    .orderBy(desc(missionTemplates.isDefault), desc(missionTemplates.usageCount), asc(missionTemplates.name))
+    .all() as MissionTemplate[];
 }
 
-export function getTemplateById(id: string): FeatureTemplate | null {
+export function getTemplateById(id: string): MissionTemplate | null {
   const db = getDb();
   const row = db
     .select()
-    .from(featureTemplates)
-    .where(eq(featureTemplates.id, id))
+    .from(missionTemplates)
+    .where(eq(missionTemplates.id, id))
     .get();
-  return (row as FeatureTemplate) ?? null;
+  return (row as MissionTemplate) ?? null;
 }
 
-export function updateTemplate(id: string, input: UpdateTemplateInput): FeatureTemplate | null {
+export function updateTemplate(id: string, input: UpdateTemplateInput): MissionTemplate | null {
   const db = getDb();
 
   const existing = getTemplateById(id);
@@ -104,9 +104,9 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): FeatureT
 
   if (Object.keys(set).length === 0) return existing;
 
-  db.update(featureTemplates)
+  db.update(missionTemplates)
     .set(set)
-    .where(eq(featureTemplates.id, id))
+    .where(eq(missionTemplates.id, id))
     .run();
   return getTemplateById(id);
 }
@@ -118,17 +118,17 @@ export function deleteTemplate(id: string): boolean {
 
   if (existing.isDefault) return false;
 
-  db.delete(featureTemplates)
-    .where(eq(featureTemplates.id, id))
+  db.delete(missionTemplates)
+    .where(eq(missionTemplates.id, id))
     .run();
   return true;
 }
 
 export function incrementUsageCount(id: string): void {
   const db = getDb();
-  db.update(featureTemplates)
-    .set({ usageCount: sql`${featureTemplates.usageCount} + 1` })
-    .where(eq(featureTemplates.id, id))
+  db.update(missionTemplates)
+    .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
+    .where(eq(missionTemplates.id, id))
     .run();
 }
 
@@ -146,7 +146,7 @@ export interface ApplyTemplateResult {
 
 export function applyTemplate(
   templateId: string,
-  boardId: string,
+  habitatId: string,
   overrides?: ApplyTemplateOverrides,
   createdBy?: string,
 ): ApplyTemplateResult | null {
@@ -161,15 +161,15 @@ export function applyTemplate(
   const columnId = db
     .select()
     .from(columns)
-    .where(eq(columns.boardId, boardId))
+    .where(eq(columns.habitatId, habitatId))
     .orderBy(columns.order)
     .all()[0]?.id;
   if (!columnId) throw new Error('Board has no columns');
 
   const maxOrder = db
-    .select({ value: max(features.displayOrder) })
-    .from(features)
-    .where(eq(features.columnId, columnId))
+    .select({ value: max(missions.displayOrder) })
+    .from(missions)
+    .where(eq(missions.columnId, columnId))
     .get();
   const displayOrder = (maxOrder?.value ?? -1) + 1;
 
@@ -177,9 +177,9 @@ export function applyTemplate(
   const tasksTemplate = template.tasksTemplate ?? [];
 
   db.transaction((tx) => {
-    tx.insert(features).values({
+    tx.insert(missions).values({
       id: featureId,
-      boardId,
+      habitatId,
       columnId,
       title: overrides?.title ?? template.titlePattern,
       description: overrides?.description ?? template.descriptionPattern,
@@ -205,7 +205,7 @@ export function applyTemplate(
 
       tx.insert(tasks).values({
         id: taskId,
-        featureId,
+        missionId: featureId,
         title: entry.title,
         description: entry.description ?? '',
         priority: entry.priority ?? 'medium',
@@ -222,9 +222,9 @@ export function applyTemplate(
       createdTaskIds.push(taskId);
     }
 
-    tx.update(featureTemplates)
-      .set({ usageCount: sql`${featureTemplates.usageCount} + 1` })
-      .where(eq(featureTemplates.id, templateId))
+    tx.update(missionTemplates)
+      .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
+      .where(eq(missionTemplates.id, templateId))
       .run();
   });
 
@@ -243,8 +243,8 @@ export function seedGlobalTemplates(): void {
   const db = getDb();
   const existing = db
     .select({ count: sql<number>`COUNT(*)` })
-    .from(featureTemplates)
-    .where(isNull(featureTemplates.boardId))
+    .from(missionTemplates)
+    .where(isNull(missionTemplates.habitatId))
     .get();
   if ((existing?.count ?? 0) > 0) return;
 
@@ -260,9 +260,9 @@ export function seedGlobalTemplates(): void {
 
   for (const tmpl of templates) {
     const id = uuid();
-    db.insert(featureTemplates).values({
+    db.insert(missionTemplates).values({
       id,
-      boardId: null,
+      habitatId: null,
       name: tmpl.name,
       titlePattern: tmpl.titlePattern,
       descriptionPattern: tmpl.descriptionPattern,

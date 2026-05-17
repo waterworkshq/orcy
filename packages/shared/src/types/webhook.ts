@@ -1,6 +1,6 @@
 export interface WebhookSubscription {
   id: string;
-  boardId: string | null;
+  habitatId: string | null;
   name: string;
   url: string;
   secret: string | null;

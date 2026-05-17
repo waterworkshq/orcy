@@ -7,7 +7,7 @@ import * as taskRepo from '../repositories/task.js';
 import * as templateRepo from '../repositories/template.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as scheduledTaskService from '../services/scheduledTaskService.js';
-import { features, tasks, columns as columnsTable, boards, featureTemplates, scheduledTasks } from '../db/schema/index.js';
+import { missions, tasks, columns as columnsTable, habitats, missionTemplates, scheduledTasks } from '../db/schema/index.js';
 import type { TaskPriority, TaskTemplateEntry } from '../models/index.js';
 
 let boardId: string;
@@ -18,10 +18,10 @@ beforeEach(async () => {
   const db = getDb();
   db.delete(scheduledTasks).run();
   db.delete(tasks).run();
-  db.delete(features).run();
+  db.delete(missions).run();
   db.delete(columnsTable).run();
-  db.delete(boards).run();
-  db.delete(featureTemplates).run();
+  db.delete(habitats).run();
+  db.delete(missionTemplates).run();
 
   const board = boardRepo.createBoard({ name: 'Test Board' });
   boardId = board.id;
@@ -111,7 +111,7 @@ describe('executeScheduledTask', () => {
     const schedAfter = scheduledTaskRepo.getScheduledTaskById(schedule.id);
     expect(schedAfter!.runCount).toBe(1);
     expect(schedAfter!.lastRunAt).toBeTruthy();
-    expect(schedAfter!.lastCreatedFeatureId).toBe(result.featureId);
+    expect(schedAfter!.lastCreatedMissionId).toBe(result.featureId);
     expect(schedAfter!.nextRunAt).not.toBe(schedule.nextRunAt);
   });
 
@@ -228,7 +228,7 @@ describe('executeScheduledTask', () => {
     const after = scheduledTaskRepo.getScheduledTaskById(schedule.id);
     expect(after!.runCount).toBe(1);
     expect(after!.lastRunAt).toBeTruthy();
-    expect(after!.lastCreatedFeatureId).toBeTruthy();
+    expect(after!.lastCreatedMissionId).toBeTruthy();
     expect(new Date(after!.nextRunAt).getTime()).toBeGreaterThan(Date.now() - 1000);
   });
 });
@@ -338,7 +338,7 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     db.run(require('drizzle-orm').sql`CREATE TABLE IF NOT EXISTS audit_export_schedules (
       id text PRIMARY KEY NOT NULL,
-      board_id text NOT NULL,
+      habitat_id text NOT NULL,
       name text NOT NULL,
       format text NOT NULL,
       filters text NOT NULL DEFAULT '{}',
@@ -357,7 +357,7 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+    db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
       VALUES ('audit-1', ${boardId}, 'Daily Export', 'csv', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
@@ -370,7 +370,7 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+    db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
       VALUES ('audit-2', ${boardId}, 'Future Export', 'json', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() + 3600_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
@@ -382,7 +382,7 @@ describe('processDueAuditExports', () => {
     const db = getDb();
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+    db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
       VALUES ('audit-3', ${boardId}, 'Disabled Export', 'csv', '{}', '0 0 * * *', '{}', 0, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
@@ -395,7 +395,7 @@ describe('processDueAuditExports', () => {
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
     const maliciousFilters = JSON.stringify({ since: '2020-01-01T00:00:00Z', format: 'evil' });
-    db.run(sql`INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
+    db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
       VALUES ('audit-filter', ${boardId}, 'Filter Override Test', 'csv', ${maliciousFilters}, '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
@@ -416,7 +416,7 @@ describe('processDueScheduledTasks', () => {
     const db = getDb();
     db.run(require('drizzle-orm').sql`CREATE TABLE IF NOT EXISTS audit_export_schedules (
       id text PRIMARY KEY NOT NULL,
-      board_id text NOT NULL,
+      habitat_id text NOT NULL,
       name text NOT NULL,
       format text NOT NULL,
       filters text NOT NULL DEFAULT '{}',
@@ -594,7 +594,7 @@ describe('scheduledTaskRepo', () => {
 
     scheduledTaskRepo.finalizeExecution(schedule.id, 'feat-123');
     const finalized = scheduledTaskRepo.getScheduledTaskById(schedule.id);
-    expect(finalized!.lastCreatedFeatureId).toBe('feat-123');
+    expect(finalized!.lastCreatedMissionId).toBe('feat-123');
   });
 
   it('claimExecution returns false for non-existent task', () => {

@@ -14,22 +14,22 @@ export interface TaskTemplateEntry {
   order?: number;
 }
 
-export type FeatureStatus = 'not_started' | 'in_progress' | 'review' | 'done' | 'failed';
+export type MissionStatus = 'not_started' | 'in_progress' | 'review' | 'done' | 'failed';
 
-export type FeatureEventAction =
+export type MissionEventAction =
   | 'created' | 'updated' | 'moved' | 'status_changed'
   | 'completed' | 'deleted' | 'dependency_resolved';
 
-export interface Feature {
+export interface Mission {
   id: string;
-  boardId: string;
+  habitatId: string;
   columnId: string;
   title: string;
   description: string;
   acceptanceCriteria: string;
   priority: TaskPriority;
   labels: string[];
-  status: FeatureStatus;
+  status: MissionStatus;
   displayOrder: number;
   dependsOn: string[];
   blocks: string[];
@@ -47,7 +47,7 @@ export interface Feature {
   isArchived: boolean;
 }
 
-export interface FeatureWithProgress extends Feature {
+export interface MissionWithProgress extends Mission {
   progress: {
     total: number;
     pending: number;
@@ -62,23 +62,23 @@ export interface FeatureWithProgress extends Feature {
   };
 }
 
-export interface FeatureEvent {
+export interface MissionEvent {
   id: string;
-  featureId: string;
+  missionId: string;
   actorType: ActorType;
   actorId: string;
-  action: FeatureEventAction;
+  action: MissionEventAction;
   fromColumnId: string | null;
   toColumnId: string | null;
-  fromStatus: FeatureStatus | null;
-  toStatus: FeatureStatus | null;
+  fromStatus: MissionStatus | null;
+  toStatus: MissionStatus | null;
   metadata: Record<string, unknown>;
   timestamp: string;
 }
 
-export interface FeatureTemplate {
+export interface MissionTemplate {
   id: string;
-  boardId: string | null;
+  habitatId: string | null;
   name: string;
   titlePattern: string;
   descriptionPattern: string;
@@ -93,25 +93,25 @@ export interface FeatureTemplate {
   tasksTemplate: TaskTemplateEntry[];
 }
 
-export interface FeatureWatcher {
-  featureId: string;
+export interface MissionWatcher {
+  missionId: string;
   userId: string;
   createdAt: string;
 }
 
-export interface FeatureComment {
+export interface MissionComment {
   id: string;
-  featureId: string;
+  missionId: string;
   parentId: string | null;
   authorType: 'human' | 'agent';
   authorId: string;
   content: string;
   createdAt: string;
   updatedAt: string;
-  mentions?: FeatureCommentMention[];
+  mentions?: MissionCommentMention[];
 }
 
-export interface FeatureCommentMention {
+export interface MissionCommentMention {
   id: string;
   commentId: string;
   mentionedType: 'human' | 'agent';
@@ -125,7 +125,7 @@ export type ScheduleType = 'once' | 'interval' | 'cron';
 
 export interface ScheduledTask {
   id: string;
-  boardId: string;
+  habitatId: string;
   templateId: string | null;
   name: string;
   description: string;
@@ -134,17 +134,17 @@ export interface ScheduledTask {
   intervalMinutes: number | null;
   scheduledAt: string | null;
   timezone: string;
-  featureTitle: string;
-  featureDescription: string;
-  featurePriority: TaskPriority;
-  featureLabels: string[];
-  featureDomain: string | null;
+  missionTitle: string;
+  missionDescription: string;
+  missionPriority: TaskPriority;
+  missionLabels: string[];
+  missionDomain: string | null;
   tasksTemplate: TaskTemplateEntry[];
   enabled: boolean;
   lastRunAt: string | null;
   nextRunAt: string;
   runCount: number;
-  lastCreatedFeatureId: string | null;
+  lastCreatedMissionId: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

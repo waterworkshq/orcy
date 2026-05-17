@@ -419,7 +419,7 @@ export function createSchedule(boardId: string, input: {
   const now = new Date().toISOString();
 
   db.run(sql`
-    INSERT INTO audit_export_schedules (id, board_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
+    INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
     VALUES (${id}, ${boardId}, ${input.name}, ${input.format}, ${JSON.stringify(input.filters ?? {})}, ${input.schedule}, 1, ${now}, 'system', ${now})
   `);
 
@@ -435,7 +435,7 @@ export function getScheduleById(id: string): AuditExportSchedule | null {
 
 export function listSchedules(boardId: string): AuditExportSchedule[] {
   const db = getDb();
-  const rows = db.all(sql`SELECT * FROM audit_export_schedules WHERE board_id = ${boardId} ORDER BY created_at`) as any[];
+  const rows = db.all(sql`SELECT * FROM audit_export_schedules WHERE habitat_id = ${boardId} ORDER BY created_at`) as any[];
   return rows.map(mapScheduleRow);
 }
 
@@ -448,7 +448,7 @@ export function deleteSchedule(id: string): boolean {
 function mapScheduleRow(row: any): AuditExportSchedule {
   return {
     id: row.id,
-    boardId: row.board_id,
+    boardId: row.habitat_id,
     name: row.name,
     format: row.format,
     filters: JSON.parse(row.filters),

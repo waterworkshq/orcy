@@ -76,7 +76,7 @@ export type PrioritizationRuleCondition =
   | { type: 'pending_duration'; greaterThanHours: number }
   | { type: 'dependency_count'; greaterThan: number; direction: 'blocking' | 'blocked_by' }
   | { type: 'rejection_count'; greaterThan: number }
-  | { type: 'feature_status'; status: string }
+  | { type: 'mission_status'; status: string }
   | { type: 'agent_idle'; greaterThanMinutes: number }
   | { type: 'label_match'; labels: string[] }
   | { type: 'priority_is'; priority: string }

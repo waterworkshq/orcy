@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { boards } from './board.js';
+import { habitats } from './board.js';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -18,7 +18,7 @@ export const users = sqliteTable('users', {
 export const notificationPreferences = sqliteTable('notification_preferences', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull(),
-  boardId: text('board_id').references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').references(() => habitats.id, { onDelete: 'cascade' }),
   taskAssigned: integer('task_assigned').notNull().default(1),
   taskSubmitted: integer('task_submitted').notNull().default(1),
   taskApproved: integer('task_approved').notNull().default(0),
@@ -29,7 +29,7 @@ export const notificationPreferences = sqliteTable('notification_preferences', {
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   updatedAt: text('updated_at').notNull().default("(datetime('now'))"),
 }, (table) => [
-  uniqueIndex('idx_notif_prefs_user_board').on(table.userId, table.boardId),
+  uniqueIndex('idx_notif_prefs_user_habitat').on(table.userId, table.habitatId),
 ]);
 
 export const organizations = sqliteTable('organizations', {

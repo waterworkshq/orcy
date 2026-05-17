@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
-import { boards } from './board.js';
+import { habitats } from './board.js';
 import { tasks } from './task.js';
 
 export const agents = sqliteTable('agents', {
@@ -23,7 +23,7 @@ export const agents = sqliteTable('agents', {
 
 export const agentMessages = sqliteTable('agent_messages', {
   id: text('id').primaryKey(),
-  boardId: text('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
   fromAgentId: text('from_agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
   toAgentId: text('to_agent_id').notNull().references(() => agents.id, { onDelete: 'cascade' }),
   taskId: text('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
@@ -36,7 +36,7 @@ export const agentMessages = sqliteTable('agent_messages', {
 }, (table) => [
   index('idx_agent_messages_to_agent').on(table.toAgentId),
   index('idx_agent_messages_from_agent').on(table.fromAgentId),
-  index('idx_agent_messages_board').on(table.boardId),
+  index('idx_agent_messages_habitat').on(table.habitatId),
   index('idx_agent_messages_task').on(table.taskId),
   index('idx_agent_messages_read').on(table.readAt),
 ]);
