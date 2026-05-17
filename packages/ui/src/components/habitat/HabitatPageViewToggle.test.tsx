@@ -145,7 +145,7 @@ describe('HabitatPage view toggle', () => {
 
   it('defaults to board view when no view param', () => {
     render(<HabitatPage />);
-    expect(screen.getByTestId('kanban-board')).toBeTruthy();
+    expect(screen.getByTestId('habitat')).toBeTruthy();
     expect(screen.queryByTestId('task-table-view')).toBeNull();
   });
 
@@ -154,13 +154,13 @@ describe('HabitatPage view toggle', () => {
     render(<HabitatPage />);
     expect(screen.getByTestId('task-table-view')).toBeTruthy();
     expect(screen.getByTestId('task-table-view').getAttribute('data-board-id')).toBe('board-1');
-    expect(screen.queryByTestId('kanban-board')).toBeNull();
+    expect(screen.queryByTestId('habitat')).toBeNull();
   });
 
   it('renders kanban when ?view=board', () => {
     mockSearchParams = new URLSearchParams('view=board');
     render(<HabitatPage />);
-    expect(screen.getByTestId('kanban-board')).toBeTruthy();
+    expect(screen.getByTestId('habitat')).toBeTruthy();
     expect(screen.queryByTestId('task-table-view')).toBeNull();
   });
 

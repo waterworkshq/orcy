@@ -6,13 +6,13 @@ import '@testing-library/jest-dom/vitest';
 import { StatsModal } from './StatsModal.js';
 
 const mockStats = vi.fn();
-const mockFeaturesList = vi.fn();
+const mockMissionsList = vi.fn();
 const mockTimeMetrics = vi.fn();
 
 vi.mock('../../api/index.js', () => ({
   api: {
-    boards: { stats: (...args: any[]) => mockStats(...args) },
-    features: { list: (...args: any[]) => mockFeaturesList(...args) },
+    habitats: { stats: (...args: any[]) => mockStats(...args) },
+    missions: { list: (...args: any[]) => mockMissionsList(...args) },
     timeTracking: { getBoardMetrics: (...args: any[]) => mockTimeMetrics(...args) },
   },
 }));
@@ -55,7 +55,7 @@ describe('StatsModal', () => {
     cleanup();
     vi.clearAllMocks();
     mockStats.mockResolvedValue(baseStats);
-    mockFeaturesList.mockResolvedValue({ features: baseFeatures });
+    mockMissionsList.mockResolvedValue({ features: baseFeatures });
     mockTimeMetrics.mockResolvedValue({
       averageCycleTime: 100,
       averageLeadTime: 200,
@@ -104,7 +104,7 @@ describe('StatsModal', () => {
 
   it('shows loading spinner initially', () => {
     mockStats.mockReturnValue(new Promise(() => {}));
-    mockFeaturesList.mockReturnValue(new Promise(() => {}));
+    mockMissionsList.mockReturnValue(new Promise(() => {}));
 
     renderWithQueryClient(<StatsModal habitatId="board-1" onClose={vi.fn()} />);
 

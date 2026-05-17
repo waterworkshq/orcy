@@ -255,6 +255,8 @@ export interface DecompositionResult {
   parentMission: { id: string; title: string };
 }
 
+export type MissionDecompositionResult = DecompositionResult;
+
 export interface NotificationPreferences {
   id: string;
   userId: string;
