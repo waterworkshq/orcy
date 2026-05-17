@@ -61,27 +61,27 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
     }
   );
 
-  fastify.get<{ Params: { boardId: string } }>(
-    '/boards/:boardId/notification-preferences',
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/notification-preferences',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
       const userId = request.user!.id;
-      const prefs = prefRepo.getPreferences(userId, request.params.boardId);
+      const prefs = prefRepo.getPreferences(userId, request.params.habitatId);
       return { preferences: prefs };
     }
   );
 
-  fastify.put<{ Params: { boardId: string } }>(
-    '/boards/:boardId/notification-preferences',
+  fastify.put<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/notification-preferences',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
       }
 
       const userId = request.user!.id;
-      const prefs = prefRepo.upsertPreferences(userId, request.params.boardId, parsed.data);
+      const prefs = prefRepo.upsertPreferences(userId, request.params.habitatId, parsed.data);
       return { preferences: prefs };
     }
   );

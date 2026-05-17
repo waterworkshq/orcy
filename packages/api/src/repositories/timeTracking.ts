@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskTimeRecords, tasks, features, agents } from '../db/schema/index.js';
+import { taskTimeRecords, tasks, missions, agents } from '../db/schema/index.js';
 import { eq, and, sql, count, avg, sum, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { TaskTimeRecord, BoardMetrics } from '../models/index.js';
@@ -58,15 +58,15 @@ export function getLatestTimeRecord(taskId: string): TaskTimeRecord | null {
   return records[0] ?? null;
 }
 
-export function getBoardMetrics(boardId: string): BoardMetrics {
+export function getHabitatMetrics(habitatId: string): BoardMetrics {
   const db = getDb();
 
-  const boardFeatures = db.select({ id: features.id, dueAt: features.dueAt }).from(features)
-    .where(eq(features.boardId, boardId)).all();
-  const featureIds = boardFeatures.map(f => f.id);
-  const featureMap = new Map(boardFeatures.map(f => [f.id, f]));
+  const habitatMissions = db.select({ id: missions.id, dueAt: missions.dueAt }).from(missions)
+    .where(eq(missions.habitatId, habitatId)).all();
+  const missionIds = habitatMissions.map(f => f.id);
+  const missionMap = new Map(habitatMissions.map(f => [f.id, f]));
 
-  if (featureIds.length === 0) {
+  if (missionIds.length === 0) {
     return {
       averageCycleTime: 0,
       averageLeadTime: 0,
@@ -81,7 +81,7 @@ export function getBoardMetrics(boardId: string): BoardMetrics {
 
   const completedTasks = db.select().from(tasks)
     .where(and(
-      inArray(tasks.featureId, featureIds),
+      inArray(tasks.missionId, missionIds),
       isNotNull(tasks.completedAt)
     ))
     .all();
@@ -97,19 +97,19 @@ export function getBoardMetrics(boardId: string): BoardMetrics {
     : 0;
 
   const overdueTasks = db.select({ count: count() }).from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(and(
-      eq(features.boardId, boardId),
+      eq(missions.habitatId, habitatId),
       notInArray(tasks.status, ['done', 'approved', 'failed']),
-      sql`${features.dueAt} IS NOT NULL AND ${features.dueAt} < datetime('now')`
+      sql`${missions.dueAt} IS NOT NULL AND ${missions.dueAt} < datetime('now')`
     ))
     .get();
 
   const onTimeTasks = completedTasks.filter(t => {
     if (!t.completedAt) return false;
-    const feature = featureMap.get(t.featureId);
-    if (!feature?.dueAt) return true;
-    return new Date(t.completedAt) <= new Date(feature.dueAt);
+    const mission = missionMap.get(t.missionId);
+    if (!mission?.dueAt) return true;
+    return new Date(t.completedAt) <= new Date(mission.dueAt);
   });
 
   const allAgents = db.select().from(agents).all();
@@ -178,20 +178,20 @@ export function updateTaskTimeMetrics(taskId: string): void {
   db.update(tasks).set({ ...updates, version: sql`${tasks.version} + 1` }).where(eq(tasks.id, taskId)).run();
 }
 
-export function recalculateFeatureMetrics(featureId: string): void {
+export function recalculateMissionMetrics(missionId: string): void {
   const db = getDb();
-  const featureTasks = db.select().from(tasks).where(eq(tasks.featureId, featureId)).all();
+  const missionTasks = db.select().from(tasks).where(eq(tasks.missionId, missionId)).all();
 
-  const actualSum = featureTasks.reduce((s, t) => s + (t.actualMinutes ?? 0), 0);
-  const plannedSum = featureTasks.reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
+  const actualSum = missionTasks.reduce((s, t) => s + (t.actualMinutes ?? 0), 0);
+  const plannedSum = missionTasks.reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
   const planningAccuracy = plannedSum > 0 ? actualSum / plannedSum : null;
-  const allDone = featureTasks.length > 0 && featureTasks.every(t => t.status === 'done' || t.status === 'approved');
+  const allDone = missionTasks.length > 0 && missionTasks.every(t => t.status === 'done' || t.status === 'approved');
 
-  db.update(features).set({
+  db.update(missions).set({
     actualMinutes: actualSum,
     plannedMinutes: plannedSum,
     planningAccuracy,
     completedAt: allDone ? new Date().toISOString() : null,
     updatedAt: new Date().toISOString(),
-  }).where(eq(features.id, featureId)).run();
+  }).where(eq(missions.id, missionId)).run();
 }

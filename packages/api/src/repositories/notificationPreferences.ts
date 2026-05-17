@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 export interface NotificationPreferences {
   id: string;
   userId: string;
-  boardId: string | null;
+  habitatId: string | null;
   taskAssigned: boolean;
   taskSubmitted: boolean;
   taskApproved: boolean;
@@ -34,10 +34,10 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
 
   const rows = boardId
     ? db.select().from(notificationPreferences).where(
-        and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.boardId, boardId))
+        and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.habitatId, boardId))
       ).all()
     : db.select().from(notificationPreferences).where(
-        and(eq(notificationPreferences.userId, userId), isNull(notificationPreferences.boardId))
+        and(eq(notificationPreferences.userId, userId), isNull(notificationPreferences.habitatId))
       ).all();
 
   if (rows.length > 0) {
@@ -45,7 +45,7 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
     return {
       id: row.id,
       userId: row.userId,
-      boardId: row.boardId,
+      habitatId: row.habitatId,
       taskAssigned: row.taskAssigned === 1,
       taskSubmitted: row.taskSubmitted === 1,
       taskApproved: row.taskApproved === 1,
@@ -63,7 +63,7 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
   db.insert(notificationPreferences).values({
     id,
     userId,
-    boardId: boardIdVal,
+    habitatId: boardIdVal,
     ...DEFAULT_PREFS,
     createdAt: now,
     updatedAt: now,
@@ -72,7 +72,7 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
   return {
     id,
     userId,
-    boardId: boardIdVal,
+    habitatId: boardIdVal,
     taskAssigned: DEFAULT_PREFS.taskAssigned === 1,
     taskSubmitted: DEFAULT_PREFS.taskSubmitted === 1,
     taskApproved: DEFAULT_PREFS.taskApproved === 1,

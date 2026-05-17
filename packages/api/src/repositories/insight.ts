@@ -6,7 +6,7 @@ import type { SignalType } from './pulse.js';
 
 export interface ProjectInsight {
   id: string;
-  boardId: string;
+  habitatId: string;
   sourcePulseId: string | null;
   sourceMission: string | null;
   signalType: SignalType;
@@ -20,7 +20,7 @@ export interface ProjectInsight {
 }
 
 export interface CreateInsightInput {
-  boardId: string;
+  habitatId: string;
   sourcePulseId?: string;
   sourceMission?: string;
   signalType: SignalType;
@@ -40,7 +40,7 @@ export interface InsightFilters {
 function rowToInsight(row: Record<string, unknown>): ProjectInsight {
   return {
     id: row.id as string,
-    boardId: row.board_id as string,
+    habitatId: row.habitat_id as string,
     sourcePulseId: (row.source_pulse_id as string | null) ?? null,
     sourceMission: (row.source_mission as string | null) ?? null,
     signalType: row.signal_type as SignalType,
@@ -61,7 +61,7 @@ export function createInsight(input: CreateInsightInput): ProjectInsight {
 
   db.insert(projectInsights).values({
     id,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     sourcePulseId: input.sourcePulseId ?? null,
     sourceMission: input.sourceMission ?? null,
     signalType: input.signalType,
@@ -83,9 +83,9 @@ export function getInsightById(id: string): ProjectInsight | null {
   return rows.length > 0 ? rowToInsight(rows[0]) : null;
 }
 
-export function getInsightsByBoard(boardId: string, filters?: InsightFilters): { insights: ProjectInsight[]; total: number } {
+export function getInsightsByHabitat(habitatId: string, filters?: InsightFilters): { insights: ProjectInsight[]; total: number } {
   const db = getDb();
-  const conditions = [eq(projectInsights.boardId, boardId)];
+  const conditions = [eq(projectInsights.habitatId, habitatId)];
 
   if (filters?.signalType) {
     conditions.push(eq(projectInsights.signalType, filters.signalType));
@@ -121,7 +121,7 @@ export function deactivateInsight(id: string): boolean {
   return true;
 }
 
-export function getRelevantInsights(boardId: string, tags: string[], limit = 5): ProjectInsight[] {
+export function getRelevantInsights(habitatId: string, tags: string[], limit = 5): ProjectInsight[] {
   if (tags.length === 0) return [];
   const db = getDb();
 
@@ -132,7 +132,7 @@ export function getRelevantInsights(boardId: string, tags: string[], limit = 5):
 
   const rows = db.select().from(projectInsights)
     .where(and(
-      eq(projectInsights.boardId, boardId),
+      eq(projectInsights.habitatId, habitatId),
       eq(projectInsights.isActive, true),
       tagConditions,
     ))

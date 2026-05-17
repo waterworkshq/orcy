@@ -6,7 +6,7 @@ import type { TaskSortField } from '../../repositories/task.js';
 import { agentOrHumanAuth } from '../../middleware/auth.js';
 import { requireBoardAccess } from '../../middleware/team.js';
 
-const boardIdParamsSchema = z.object({ id: z.string() });
+const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
 const boardTasksQuerySchema = z.object({
   status: z.enum(['pending', 'claimed', 'in_progress', 'submitted', 'approved', 'rejected', 'done', 'failed']).optional(),
@@ -22,13 +22,13 @@ const boardTasksQuerySchema = z.object({
 
 export async function boardTasksRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/tasks',
+    '/habitats/:habitatId/tasks',
     {
-      schema: { params: boardIdParamsSchema, querystring: boardTasksQuerySchema },
+      schema: { params: habitatIdParamsSchema, querystring: boardTasksQuerySchema },
       preHandler: [agentOrHumanAuth, requireBoardAccess],
     },
     async (request, reply) => {
-      const { id: boardId } = request.params;
+      const { habitatId } = request.params;
       const query = request.query;
 
       const sortBy = query.sortBy as TaskSortField | undefined;
@@ -36,7 +36,7 @@ export async function boardTasksRoutes(fastify: FastifyInstance): Promise<void> 
 
       const assignedAgentId = query.assignedAgentId === '' ? null : query.assignedAgentId;
 
-      const result = getTasksByBoardId(boardId, {
+      const result = getTasksByBoardId(habitatId, {
         status: query.status,
         priority: query.priority,
         search: query.search,

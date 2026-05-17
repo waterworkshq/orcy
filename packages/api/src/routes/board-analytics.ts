@@ -11,34 +11,34 @@ import * as predictionService from '../services/predictionService.js';
 import * as boardSummaryService from '../services/boardSummaryService.js';
 import { notFound } from '../errors.js';
 
-const boardIdParamsSchema = z.object({ id: z.string() });
+const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
 export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<void> {
-  /** GET /boards/:id/stats - Get board statistics. Auth: agentOrHumanAuth + board access. Returns stats or 404 */
+  /** GET /habitats/:habitatId/stats - Get board statistics. Auth: agentOrHumanAuth + board access. Returns stats or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/stats',
-    { schema: { params: boardIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/stats',
+    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
-      const stats = boardService.getBoardStats(request.params.id);
+      const stats = boardService.getBoardStats(request.params.habitatId);
       return stats;
     }
   );
 
-  /** GET /boards/:id/summary - Get a temporal summary of board activity. Auth: agentOrHumanAuth + board access. Returns { board, snapshot, recentActivity, digest } */
+  /** GET /habitats/:habitatId/summary - Get a temporal summary of board activity. Auth: agentOrHumanAuth + board access. Returns { board, snapshot, recentActivity, digest } */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/summary',
-    { schema: { params: boardIdParamsSchema, querystring: z.object({ since: z.enum(['24h', '7d', '30d', 'all']).optional(), maxTasks: z.coerce.number().int().min(1).max(50).optional(), includeDigest: z.enum(['true', 'false']).optional() }) }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/summary',
+    { schema: { params: habitatIdParamsSchema, querystring: z.object({ since: z.enum(['24h', '7d', '30d', 'all']).optional(), maxTasks: z.coerce.number().int().min(1).max(50).optional(), includeDigest: z.enum(['true', 'false']).optional() }) }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
       const query = request.query;
       const since = query.since ?? '7d';
       const maxFeatures = query.maxTasks ?? 20;
       const includeDigest = query.includeDigest !== 'false';
 
-      const result = boardSummaryService.generateBoardSummary(request.params.id, {
+      const result = boardSummaryService.generateBoardSummary(request.params.habitatId, {
         since,
         maxFeatures,
         includeDigest,
@@ -52,18 +52,18 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     }
   );
 
-  /** GET /boards/:id/events - Get board event history. Auth: agentOrHumanAuth + board access. Returns { events, total } */
+  /** GET /habitats/:habitatId/events - Get board event history. Auth: agentOrHumanAuth + board access. Returns { events, total } */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/events',
-    { schema: { params: boardIdParamsSchema, querystring: boardEventsQuerySchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/events',
+    { schema: { params: habitatIdParamsSchema, querystring: boardEventsQuerySchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
       const parsed = request.query;
       const { limit, offset, action, actorType, actorId, since } = parsed;
-      const { events, total } = getEventsByBoardId(request.params.id, limit, offset, {
+      const { events, total } = getEventsByBoardId(request.params.habitatId, limit, offset, {
         action,
         actorType,
         actorId,
@@ -73,44 +73,44 @@ export async function boardAnalyticsRoutes(fastify: FastifyInstance): Promise<vo
     }
   );
 
-  /** GET /boards/:id/capacity - Get agent capacity report for a board. Auth: agentOrHumanAuth + board access. Returns capacity report */
+  /** GET /habitats/:habitatId/capacity - Get agent capacity report for a board. Auth: agentOrHumanAuth + board access. Returns capacity report */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/capacity',
-    { schema: { params: boardIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/capacity',
+    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
-      const report = capacityService.getCapacityReport(request.params.id);
+      const report = capacityService.getCapacityReport(request.params.habitatId);
       return report;
     }
   );
 
-  /** GET /boards/:id/predictions - Get completion estimates and at-risk tasks. Auth: agentOrHumanAuth + board access. Returns { velocity, estimates, atRiskTasks } */
+  /** GET /habitats/:habitatId/predictions - Get completion estimates and at-risk tasks. Auth: agentOrHumanAuth + board access. Returns { velocity, estimates, atRiskTasks } */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/predictions',
-    { schema: { params: boardIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/predictions',
+    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
-      return predictionService.getPredictions(request.params.id);
+      return predictionService.getPredictions(request.params.habitatId);
     }
   );
 
-  /** GET /boards/:id/burndown - Get burndown chart data. Auth: agentOrHumanAuth + board access. Query: ?days=30 */
+  /** GET /habitats/:habitatId/burndown - Get burndown chart data. Auth: agentOrHumanAuth + board access. Query: ?days=30 */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/burndown',
-    { schema: { params: boardIdParamsSchema, querystring: z.object({ days: z.coerce.number().int().min(7).max(90).optional() }) }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/burndown',
+    { schema: { params: habitatIdParamsSchema, querystring: z.object({ days: z.coerce.number().int().min(7).max(90).optional() }) }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
       const days = request.query.days ?? 30;
-      return predictionService.getBurndown(request.params.id, days);
+      return predictionService.getBurndown(request.params.habitatId, days);
     }
   );
 }

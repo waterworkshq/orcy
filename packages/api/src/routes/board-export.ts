@@ -9,15 +9,15 @@ import * as anomalyService from '../services/anomalyService.js';
 import { redactSensitiveHeaders } from '../config/integrationSecurity.js';
 import { notFound, badRequest } from '../errors.js';
 
-const boardIdParamsSchema = z.object({ id: z.string() });
+const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
 export async function boardExportRoutes(fastify: FastifyInstance): Promise<void> {
-  /** GET /boards/:id/export - Export board data. Auth: humanAuth. Returns filtered board export */
+  /** GET /habitats/:habitatId/export - Export board data. Auth: humanAuth. Returns filtered board export */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/export',
-    { schema: { params: boardIdParamsSchema, querystring: exportQuerySchema }, preHandler: humanAuth },
+    '/habitats/:habitatId/export',
+    { schema: { params: habitatIdParamsSchema, querystring: exportQuerySchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const result = boardService.exportBoard(request.params.id);
+      const result = boardService.exportBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
@@ -71,18 +71,18 @@ export async function boardExportRoutes(fastify: FastifyInstance): Promise<void>
     }
   );
 
-  /** POST /boards/:id/import - Import into existing board. Auth: humanAuth. Returns { board, columns, imported, warnings } */
+  /** POST /habitats/:habitatId/import - Import into existing board. Auth: humanAuth. Returns { board, columns, imported, warnings } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/boards/:id/import',
-    { schema: { params: boardIdParamsSchema, body: importBoardSchema }, preHandler: humanAuth },
+    '/habitats/:habitatId/import',
+    { schema: { params: habitatIdParamsSchema, body: importBoardSchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const boardResult = boardService.getBoard(request.params.id);
+      const boardResult = boardService.getBoard(request.params.habitatId);
       if (!boardResult) {
         throw notFound('Board not found');
       }
 
       try {
-        const result = boardService.importBoard(request.body as unknown as boardService.BoardExportData, request.params.id);
+        const result = boardService.importBoard(request.body as unknown as boardService.BoardExportData, request.params.habitatId);
         if (!result) {
           throw badRequest('Import failed');
         }
@@ -93,16 +93,16 @@ export async function boardExportRoutes(fastify: FastifyInstance): Promise<void>
     }
   );
 
-  /** GET /boards/:id/anomalies - Detect and return current anomalies for a board. Auth: agentOrHumanAuth + board access. Returns { anomalies } */
+  /** GET /habitats/:habitatId/anomalies - Detect and return current anomalies for a board. Auth: agentOrHumanAuth + board access. Returns { anomalies } */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id/anomalies',
-    { schema: { params: boardIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId/anomalies',
+    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
-      const anomalies = anomalyService.detectAnomalies(request.params.id);
+      const anomalies = anomalyService.detectAnomalies(request.params.habitatId);
       return { anomalies };
     }
   );

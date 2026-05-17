@@ -8,5 +8,5 @@ export { getAgentStats, getAllAgentStats } from './event-agent-stats.js';
 
 export { getDashboardStats } from './event-dashboard.js';
 
-export { createFeatureEvent, getFeatureEventById, getFeatureEventsByFeatureId, getFeatureEventsByBoardId } from './event-feature.js';
-export type { CreateFeatureEventInput } from './event-feature.js';
+export { createMissionEvent, getMissionEventById, getMissionEventsByMissionId, getMissionEventsByBoardId } from './event-feature.js';
+export type { CreateMissionEventInput } from './event-feature.js';

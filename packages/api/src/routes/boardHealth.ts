@@ -11,24 +11,24 @@ const historyQuerySchema = z.object({
 
 export async function boardHealthRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
-    '/boards/:id/health',
+    '/habitats/:habitatId/health',
     { preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = request.params as { id: string };
-      const health = boardHealthService.calculateHealth(params.id);
+      const params = request.params as { habitatId: string };
+      const health = boardHealthService.calculateHealth(params.habitatId);
       return health;
     }
   );
 
   fastify.get(
-    '/boards/:id/health/history',
+    '/habitats/:habitatId/health/history',
     { preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = request.params as { id: string };
+      const params = request.params as { habitatId: string };
       const parsed = historyQuerySchema.safeParse(request.query);
       const days = parsed.success ? parsed.data.days : 30;
 
-      const history = boardHealthService.getHealthHistory(params.id, days);
+      const history = boardHealthService.getHealthHistory(params.habitatId, days);
       return { snapshots: history };
     }
   );

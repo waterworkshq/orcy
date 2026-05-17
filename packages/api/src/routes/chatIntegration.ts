@@ -31,16 +31,16 @@ const VALID_CHAT_EVENTS = [
 ];
 
 export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get<{ Params: { boardId: string } }>(
-    '/boards/:boardId/chat-integrations',
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/chat-integrations',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
-      const { boardId } = request.params;
-      const board = getBoardById(boardId);
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+      const { habitatId } = request.params;
+      const board = getBoardById(habitatId);
       if (!board) {
         throw notFound('Board not found');
       }
-      const integrations = getIntegrationsByBoard(boardId);
+      const integrations = getIntegrationsByBoard(habitatId);
       return integrations.map(i => ({
         ...i,
         botToken: i.botToken ? '********' : null,
@@ -48,11 +48,11 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
     }
   );
 
-  fastify.post<{ Params: { boardId: string }; Body: CreateIntegrationBody }>(
-    '/boards/:boardId/chat-integrations',
+  fastify.post<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>(
+    '/habitats/:habitatId/chat-integrations',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { boardId: string }; Body: CreateIntegrationBody }>, reply: FastifyReply) => {
-      const { boardId } = request.params;
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>, reply: FastifyReply) => {
+      const { habitatId } = request.params;
       const { provider, webhookUrl, channelId, botToken, events } = request.body;
 
       if (!provider || !webhookUrl) {
@@ -68,7 +68,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
         throw badRequest(`Unsafe webhook URL: ${urlValidation.reason}`);
       }
 
-      const board = getBoardById(boardId);
+      const board = getBoardById(habitatId);
       if (!board) {
         throw notFound('Board not found');
       }
@@ -82,7 +82,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       }
 
       const integration = createIntegration({
-        boardId,
+        boardId: habitatId,
         provider,
         webhookUrl,
         channelId,

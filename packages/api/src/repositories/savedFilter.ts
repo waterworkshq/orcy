@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 
 export interface SavedFilter {
   id: string;
-  boardId: string;
+  habitatId: string;
   userId: string;
   name: string;
   filterConfig: Record<string, unknown>;
@@ -13,14 +13,14 @@ export interface SavedFilter {
   createdAt: string;
 }
 
-export function createSavedFilter(boardId: string, userId: string, name: string, filterConfig: Record<string, unknown>): SavedFilter {
+export function createSavedFilter(habitatId: string, userId: string, name: string, filterConfig: Record<string, unknown>): SavedFilter {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
   db.insert(savedFilters).values({
     id,
-    boardId,
+    habitatId,
     userId,
     name,
     filterConfig,
@@ -37,10 +37,10 @@ export function getSavedFilterById(id: string): SavedFilter | null {
   return rows.length > 0 ? rows[0] as SavedFilter : null;
 }
 
-export function getSavedFilters(boardId: string, userId: string): SavedFilter[] {
+export function getSavedFilters(habitatId: string, userId: string): SavedFilter[] {
   const db = getDb();
   return db.select().from(savedFilters).where(
-    sql`${savedFilters.boardId} = ${boardId} AND (${savedFilters.userId} = ${userId} OR ${savedFilters.isBuiltin} = 1)`
+    sql`${savedFilters.habitatId} = ${habitatId} AND (${savedFilters.userId} = ${userId} OR ${savedFilters.isBuiltin} = 1)`
   ).orderBy(
     sql`${savedFilters.isBuiltin} DESC, ${savedFilters.createdAt} ASC`
   ).all() as SavedFilter[];
@@ -64,7 +64,7 @@ export function deleteSavedFilter(id: string): boolean {
   return true;
 }
 
-export function seedBuiltinFilters(boardId: string): void {
+export function seedBuiltinFilters(habitatId: string): void {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -77,7 +77,7 @@ export function seedBuiltinFilters(boardId: string): void {
     const id = uuid();
     db.insert(savedFilters).values({
       id,
-      boardId,
+      habitatId,
       userId: 'system',
       name: builtin.name,
       filterConfig: builtin.config,
@@ -87,7 +87,7 @@ export function seedBuiltinFilters(boardId: string): void {
   }
 }
 
-export function deleteSavedFiltersByBoard(boardId: string): void {
+export function deleteSavedFiltersByHabitat(habitatId: string): void {
   const db = getDb();
-  db.delete(savedFilters).where(eq(savedFilters.boardId, boardId)).run();
+  db.delete(savedFilters).where(eq(savedFilters.habitatId, habitatId)).run();
 }

@@ -8,7 +8,7 @@ export function makeColumn(overrides: Partial<Column> = {}): Column {
   const id = overrides.id ?? generateId();
   return {
     id,
-    boardId: 'board-1',
+    habitatId: 'habitat-1',
     name: 'Test Column',
     order: 0,
     wipLimit: null,

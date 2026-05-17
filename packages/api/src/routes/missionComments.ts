@@ -18,11 +18,11 @@ const commentsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional().default(0),
 });
 
-export async function featureCommentRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post<{ Params: { id: string }; Body: z.infer<typeof createCommentSchema> }>(
-    '/features/:id/comments',
+export async function missionCommentRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.post<{ Params: { missionId: string }; Body: z.infer<typeof createCommentSchema> }>(
+    '/missions/:missionId/comments',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof createCommentSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string }; Body: z.infer<typeof createCommentSchema> }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
       }
@@ -37,7 +37,7 @@ export async function featureCommentRoutes(fastify: FastifyInstance): Promise<vo
 
       try {
         const comment = featureCommentService.addComment(
-          request.params.id,
+          request.params.missionId,
           authorType,
           authorId,
           parsed.data.content,
@@ -57,17 +57,17 @@ export async function featureCommentRoutes(fastify: FastifyInstance): Promise<vo
     }
   );
 
-  fastify.get<{ Params: { id: string }; Querystring: z.infer<typeof commentsQuerySchema> }>(
-    '/features/:id/comments',
+  fastify.get<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>(
+    '/missions/:missionId/comments',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, reply: FastifyReply) => {
       const parsed = commentsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
         throw badRequest('Invalid query', parsed.error.flatten());
       }
 
       const result = featureCommentService.getComments(
-        request.params.id,
+        request.params.missionId,
         parsed.data.limit,
         parsed.data.offset
       );
@@ -75,10 +75,10 @@ export async function featureCommentRoutes(fastify: FastifyInstance): Promise<vo
     }
   );
 
-  fastify.patch<{ Params: { id: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>(
-    '/features/:id/comments/:commentId',
+  fastify.patch<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>(
+    '/missions/:missionId/comments/:commentId',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
       }
@@ -115,10 +115,10 @@ export async function featureCommentRoutes(fastify: FastifyInstance): Promise<vo
     }
   );
 
-  fastify.delete<{ Params: { id: string; commentId: string } }>(
-    '/features/:id/comments/:commentId',
+  fastify.delete<{ Params: { missionId: string; commentId: string } }>(
+    '/missions/:missionId/comments/:commentId',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string; commentId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string; commentId: string } }>, reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
       }

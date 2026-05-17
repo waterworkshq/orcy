@@ -1,23 +1,22 @@
 import * as taskRepo from '../../repositories/task.js';
-import * as featureRepo from '../../repositories/feature.js';
+import * as missionRepo from '../../repositories/mission.js';
 import * as eventRepo from '../../repositories/event.js';
 import { sseBroadcaster } from '../../sse/broadcaster.js';
 import * as watcherService from '../watcherService.js';
 import * as autoAssignService from '../autoAssignService.js';
 import * as pluginManager from '../../plugins/pluginManager.js';
-import * as boardRepo from '../../repositories/board.js';
-import * as featureService from '../featureService.js';
+import * as missionService from '../missionService.js';
 import * as subtaskRepo from '../../repositories/subtask.js';
 import * as commentRepo from '../../repositories/comment.js';
 import type { Task, TaskStatus } from '../../models/index.js';
 import { formatClonedTitle } from './helpers.js';
 import { logger } from '../../lib/logger.js';
 
-export function createTask(input: { featureId: string; title: string; description?: string; labels?: string[]; priority?: import('../../models/index.js').TaskPriority; requiredDomain?: string | null; requiredCapabilities?: string[]; createdBy: string; order?: number; estimatedMinutes?: number | null }): Task {
+export function createTask(input: { missionId: string; title: string; description?: string; labels?: string[]; priority?: import('../../models/index.js').TaskPriority; requiredDomain?: string | null; requiredCapabilities?: string[]; createdBy: string; order?: number; estimatedMinutes?: number | null }): Task {
   const task = taskRepo.createTask(input);
 
-  const feature = featureRepo.getFeatureById(input.featureId);
-  const boardId = feature?.boardId ?? '';
+  const mission = missionRepo.getMissionById(input.missionId);
+  const habitatId = mission?.habitatId ?? '';
 
   eventRepo.createEvent({
     taskId: task.id,
@@ -25,19 +24,18 @@ export function createTask(input: { featureId: string; title: string; descriptio
     actorId: input.createdBy,
     action: 'created',
     toStatus: task.status,
-    metadata: { title: task.title, featureId: input.featureId },
+    metadata: { title: task.title, missionId: input.missionId },
   });
 
-  sseBroadcaster.publish(boardId, { type: 'task.created', data: task });
+  sseBroadcaster.publish(habitatId, { type: 'task.created', data: task });
 
-  if (boardId) {
-    autoAssignService.assignTask(task.id, boardId);
-    const board = boardRepo.getBoardById(boardId);
-    pluginManager.emitTaskCreated(task, board).catch(() => {});
+  if (habitatId) {
+    autoAssignService.assignTask(task.id, habitatId);
+    pluginManager.emitTaskCreated(task, habitatId).catch(() => {});
   }
 
-  if (feature) {
-    featureService.recalculateFeatureStatus(feature.id);
+  if (mission) {
+    missionService.recalculateMissionStatus(mission.id);
   }
 
   return task;
@@ -54,7 +52,7 @@ export function cloneTask(
   const clonedTitle = formatClonedTitle(source.title);
 
   const cloned = taskRepo.createTask({
-    featureId: source.featureId,
+    missionId: source.missionId,
     title: clonedTitle,
     description: source.description,
     priority: source.priority,
@@ -64,8 +62,8 @@ export function cloneTask(
     createdBy: clonedBy,
   });
 
-  const feature = featureRepo.getFeatureById(source.featureId);
-  const boardId = feature?.boardId ?? '';
+  const mission = missionRepo.getMissionById(source.missionId);
+  const habitatId = mission?.habitatId ?? '';
 
   eventRepo.createEvent({
     taskId: cloned.id,
@@ -76,12 +74,12 @@ export function cloneTask(
     metadata: { sourceTaskId: taskId, sourceTitle: source.title },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.cloned',
     data: { sourceTaskId: taskId, clonedTask: cloned },
   });
 
-  sseBroadcaster.publish(boardId, { type: 'task.created', data: cloned });
+  sseBroadcaster.publish(habitatId, { type: 'task.created', data: cloned });
 
   if (options?.includeSubtasks) {
     const subtasks = subtaskRepo.getSubtasksByTaskId(taskId);
@@ -107,8 +105,8 @@ export function cloneTask(
     }
   }
 
-  if (feature) {
-    featureService.recalculateFeatureStatus(feature.id);
+  if (mission) {
+    missionService.recalculateMissionStatus(mission.id);
   }
 
   return { success: true, task: cloned };
@@ -118,11 +116,11 @@ export function getTask(taskId: string): Task | null {
   return taskRepo.getTaskById(taskId);
 }
 
-export function getTasksByBoard(
-  boardId: string,
+export function getTasksByHabitat(
+  habitatId: string,
   filters?: { status?: TaskStatus; search?: string; limit?: number; offset?: number }
 ): { tasks: Task[]; total: number } {
-  return taskRepo.getTasksByBoardId(boardId, filters);
+  return taskRepo.getTasksByHabitatId(habitatId, filters);
 }
 
 export function updateTask(
@@ -133,15 +131,15 @@ export function updateTask(
   const current = taskRepo.getTaskById(taskId);
   if (!current) return { success: false, notFound: true };
 
-  const feature = featureRepo.getFeatureById(current.featureId);
-  if (feature?.isArchived) return { success: false, archived: true };
+  const mission = missionRepo.getMissionById(current.missionId);
+  if (mission?.isArchived) return { success: false, archived: true };
 
   const { version, ...fields } = input as typeof input & { version?: number };
   const result = taskRepo.updateTask(taskId, fields, version);
   if (!result.success) return result;
 
   const task = result.task;
-  const boardId = taskRepo.getBoardIdForTask(taskId) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
 
   eventRepo.createEvent({
     taskId,
@@ -151,14 +149,14 @@ export function updateTask(
     metadata: { changedFields: Object.keys(fields) },
   });
 
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.updated');
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.updated');
 
   if ('status' in fields && fields.status !== undefined && fields.status !== current.status) {
     try {
-      featureService.recalculateFeatureStatus(current.featureId);
+      missionService.recalculateMissionStatus(current.missionId);
     } catch (err) {
-      logger.error({ err, featureId: current.featureId }, 'Feature recalculation failed');
+      logger.error({ err, missionId: current.missionId }, 'Mission recalculation failed');
     }
   }
 
@@ -169,24 +167,24 @@ export function deleteTask(taskId: string): { success: true } | { success: false
   const task = taskRepo.getTaskById(taskId);
   if (!task) return { success: false, reason: 'not_found' };
 
-  const feature = featureRepo.getFeatureById(task.featureId);
-  if (feature?.isArchived) return { success: false, reason: 'archived' };
+  const mission = missionRepo.getMissionById(task.missionId);
+  if (mission?.isArchived) return { success: false, reason: 'archived' };
 
   const dependents = taskRepo.getTasksByDependency(taskId);
   if (dependents.length > 0) {
     return { success: false, reason: 'has_dependents', dependentCount: dependents.length };
   }
 
-  const boardId = taskRepo.getBoardIdForTask(taskId) ?? '';
-  const featureId = task.featureId;
+  const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
+  const missionId = task.missionId;
 
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.deleted');
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.deleted');
   taskRepo.deleteTask(taskId);
 
-  sseBroadcaster.publish(boardId, { type: 'task.deleted', data: { taskId } });
+  sseBroadcaster.publish(habitatId, { type: 'task.deleted', data: { taskId } });
 
-  if (featureId) {
-    featureService.recalculateFeatureStatus(featureId);
+  if (missionId) {
+    missionService.recalculateMissionStatus(missionId);
   }
 
   return { success: true };

@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { boards, columns, features } from '../db/schema/index.js';
+import { habitats, columns, missions } from '../db/schema/index.js';
 import { eq, and, like, or, isNull, inArray, sql, desc } from 'drizzle-orm';
 import type { Board, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings, PrioritizationSettings } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
@@ -26,7 +26,7 @@ export function createBoard(input: CreateBoardInput): Board {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(boards).values({
+  db.insert(habitats).values({
     id,
     name: input.name,
     description: input.description ?? '',
@@ -42,8 +42,8 @@ export function getBoardById(id: string): Board | null {
   const db = getDb();
   const row = db
     .select()
-    .from(boards)
-    .where(eq(boards.id, id))
+    .from(habitats)
+    .where(eq(habitats.id, id))
     .get();
   return row ?? null;
 }
@@ -54,27 +54,27 @@ export function listBoards(name?: string, teamIds?: string[]): Board[] {
   const conditions = [];
 
   if (teamIds && teamIds.length > 0) {
-    conditions.push(or(inArray(boards.teamId, teamIds), isNull(boards.teamId)));
+    conditions.push(or(inArray(habitats.teamId, teamIds), isNull(habitats.teamId)));
   }
   if (name) {
-    conditions.push(like(sql`LOWER(${boards.name})`, `%${name.toLowerCase()}%`));
+    conditions.push(like(sql`LOWER(${habitats.name})`, `%${name.toLowerCase()}%`));
   }
 
   if (conditions.length === 0) {
-    return db.select().from(boards).orderBy(desc(boards.createdAt)).all();
+    return db.select().from(habitats).orderBy(desc(habitats.createdAt)).all();
   }
 
   return db
     .select()
-    .from(boards)
+    .from(habitats)
     .where(and(...conditions))
-    .orderBy(desc(boards.createdAt))
+    .orderBy(desc(habitats.createdAt))
     .all();
 }
 
 export function updateBoard(id: string, input: UpdateBoardInput): Board | null {
   const db = getDb();
-  const values: Partial<typeof boards.$inferInsert> = {};
+  const values: Partial<typeof habitats.$inferInsert> = {};
   values.updatedAt = new Date().toISOString();
 
   if (input.name !== undefined) values.name = input.name;
@@ -86,22 +86,22 @@ export function updateBoard(id: string, input: UpdateBoardInput): Board | null {
   if (input.eventRetentionDays !== undefined) values.eventRetentionDays = input.eventRetentionDays;
   if (input.prioritizationSettings !== undefined) values.prioritizationSettings = input.prioritizationSettings;
 
-  db.update(boards)
+  db.update(habitats)
     .set(values)
-    .where(eq(boards.id, id))
+    .where(eq(habitats.id, id))
     .run();
   return getBoardById(id);
 }
 
 export function deleteBoard(id: string): void {
   const db = getDb();
-  db.delete(boards).where(eq(boards.id, id)).run();
+  db.delete(habitats).where(eq(habitats.id, id)).run();
 }
 
 export function getBoardWithColumnsAndTasks(boardId: string): { board: Board; columns: Column[] } | null {
   const db = getDb();
-  const result = db.query.boards.findFirst({
-    where: eq(boards.id, boardId),
+  const result = db.query.habitats.findFirst({
+    where: eq(habitats.id, boardId),
     with: {
       columns: {
         orderBy: columns.order,

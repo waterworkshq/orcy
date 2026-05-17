@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { taskEvents, tasks, features, agents, columns, boards, webhookDeliveries } from '../../db/schema/index.js';
+import { taskEvents, tasks, missions, agents, columns, habitats, webhookDeliveries } from '../../db/schema/index.js';
 import { eq, and, isNotNull, sql, count, desc, asc, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { cycleTimeMinutes } from '../../db/dialect-helpers.js';
@@ -18,12 +18,12 @@ function queryThroughput(
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
         eq(taskEvents.action, 'completed'),
         sql`${taskEvents.timestamp} >= ${startDate}`,
-        ...(boardId ? [eq(features.boardId, boardId)] : []),
+        ...(boardId ? [eq(missions.habitatId, boardId)] : []),
       ),
     )
     .groupBy(sql`DATE(${taskEvents.timestamp})`)
@@ -43,14 +43,14 @@ function queryCycleTime(
       avgMinutes: sql<number | null>`AVG(${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)})`,
     })
     .from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
         sql`${tasks.status} IN ('approved', 'done')`,
         sql`${tasks.completedAt} >= ${startDate}`,
         isNotNull(tasks.claimedAt),
         isNotNull(tasks.completedAt),
-        ...(boardId ? [eq(features.boardId, boardId)] : []),
+        ...(boardId ? [eq(missions.habitatId, boardId)] : []),
       ),
     )
     .groupBy(sql`DATE(${tasks.completedAt})`)
@@ -78,12 +78,12 @@ function queryRejectionRate(
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
         inArray(taskEvents.action, ['submitted', 'rejected', 'approved']),
         sql`${taskEvents.timestamp} >= ${startDate}`,
-        ...(boardId ? [eq(features.boardId, boardId)] : []),
+        ...(boardId ? [eq(missions.habitatId, boardId)] : []),
       ),
     )
     .groupBy(sql`DATE(${taskEvents.timestamp})`)
@@ -113,8 +113,8 @@ function queryAgentLeaderboard(
         sql`${tasks.completedAt} >= ${startDate}`,
       ),
     )
-    .leftJoin(features, eq(tasks.featureId, features.id))
-    .where(boardId ? eq(features.boardId, boardId) : undefined)
+    .leftJoin(missions, eq(tasks.missionId, missions.id))
+    .where(boardId ? eq(missions.habitatId, boardId) : undefined)
     .groupBy(agents.id)
     .orderBy(desc(sql`COUNT(CASE WHEN ${tasks.status} IN ('approved', 'done') THEN 1 END)`))
     .limit(10)
@@ -173,7 +173,7 @@ function queryTaskByPriority(
       low: sql<number>`SUM(CASE WHEN ${tasks.priority} = 'low' THEN 1 ELSE 0 END)`,
     })
     .from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(boardFilter(boardId))
     .get();
   return {
@@ -197,7 +197,7 @@ function queryTaskByStatus(
       done: sql<number>`SUM(CASE WHEN ${tasks.status} IN ('approved', 'done') THEN 1 ELSE 0 END)`,
     })
     .from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(boardFilter(boardId))
     .get();
   return {
@@ -213,29 +213,29 @@ function queryWipHealth(
   db: ReturnType<typeof getDb>,
   boardId: string | undefined,
 ): DashboardStats['wipHealth'] {
-  const wipCondition = boardId ? eq(columns.boardId, boardId) : sql`1=1`;
+  const wipCondition = boardId ? eq(columns.habitatId, boardId) : sql`1=1`;
   const wipRows = db
     .select({
       columnId: columns.id,
       columnName: columns.name,
-      boardId: columns.boardId,
-      boardName: boards.name,
+      habitatId: columns.habitatId,
+      habitatName: habitats.name,
       wipLimit: columns.wipLimit,
       current: sql<number>`COUNT(${tasks.id})`,
     })
     .from(columns)
-    .innerJoin(boards, eq(columns.boardId, boards.id))
-    .leftJoin(features, eq(columns.id, features.columnId))
+    .innerJoin(habitats, eq(columns.habitatId, habitats.id))
+    .leftJoin(missions, eq(columns.id, missions.columnId))
     .leftJoin(
       tasks,
       and(
-        eq(tasks.featureId, features.id),
+        eq(tasks.missionId, missions.id),
         sql`${tasks.status} NOT IN ('approved', 'done', 'failed')`,
       ),
     )
     .where(wipCondition)
     .groupBy(columns.id)
-    .orderBy(asc(columns.boardId), asc(columns.order))
+    .orderBy(asc(columns.habitatId), asc(columns.order))
     .all();
 
   const wipHealth: DashboardStats['wipHealth'] = [];
@@ -249,8 +249,8 @@ function queryWipHealth(
     wipHealth.push({
       columnId: row.columnId,
       columnName: row.columnName,
-      boardId: row.boardId,
-      boardName: row.boardName,
+      habitatId: row.habitatId,
+      habitatName: row.habitatName,
       current: row.current || 0,
       limit,
       health,
@@ -303,7 +303,7 @@ function querySummaryStats(
       activeAgents: sql<number>`COUNT(DISTINCT CASE WHEN ${tasks.assignedAgentId} IS NOT NULL AND ${tasks.status} IN ('claimed', 'in_progress', 'submitted') THEN ${tasks.assignedAgentId} END)`,
     })
     .from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(boardFilter(boardId))
     .get();
   return {
@@ -325,7 +325,7 @@ function queryRejectionTotal(
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(inArray(taskEvents.action, ['submitted', 'approved', 'rejected']), boardFilter(boardId)),
     )

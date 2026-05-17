@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 import type { ScheduledTask, ScheduleType, TaskPriority, TaskTemplateEntry } from '../models/index.js';
 
 export interface CreateScheduledTaskInput {
-  boardId: string;
+  habitatId: string;
   templateId?: string | null;
   name: string;
   description?: string;
@@ -50,7 +50,7 @@ export function createScheduledTask(input: CreateScheduledTaskInput): ScheduledT
 
   db.insert(scheduledTasks).values({
     id,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     templateId: input.templateId ?? null,
     name: input.name,
     description: input.description ?? '',
@@ -69,7 +69,7 @@ export function createScheduledTask(input: CreateScheduledTaskInput): ScheduledT
     lastRunAt: null,
     nextRunAt: input.nextRunAt,
     runCount: 0,
-    lastCreatedFeatureId: null,
+    lastCreatedMissionId: null,
     createdBy: input.createdBy,
     createdAt: now,
     updatedAt: now,
@@ -88,12 +88,12 @@ export function getScheduledTaskById(id: string): ScheduledTask | null {
   return (row as ScheduledTask) ?? null;
 }
 
-export function getScheduledTasksByBoardId(boardId: string): ScheduledTask[] {
+export function getScheduledTasksByHabitatId(habitatId: string): ScheduledTask[] {
   const db = getDb();
   return db
     .select()
     .from(scheduledTasks)
-    .where(eq(scheduledTasks.boardId, boardId))
+    .where(eq(scheduledTasks.habitatId, habitatId))
     .orderBy(scheduledTasks.createdAt)
     .all() as ScheduledTask[];
 }
@@ -180,13 +180,13 @@ export function claimExecution(id: string, nextRunAt: string): boolean {
   return after?.runCount === beforeRunCount + 1;
 }
 
-export function finalizeExecution(id: string, featureId: string): void {
+export function finalizeExecution(id: string, missionId: string): void {
   const db = getDb();
   const now = new Date().toISOString();
 
   db.update(scheduledTasks)
     .set({
-      lastCreatedFeatureId: featureId,
+      lastCreatedMissionId: missionId,
       updatedAt: now,
     })
     .where(eq(scheduledTasks.id, id))

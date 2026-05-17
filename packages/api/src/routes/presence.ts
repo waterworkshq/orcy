@@ -44,7 +44,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
       if (!sessionId || !type || !boardId) {
         throw badRequest('sessionId, type, and boardId are required');
       }
-      joinBoard(boardId, { sessionId, type, boardId, userId, userName, agentId, agentName, viewingTaskId: null });
+      joinBoard(boardId, { sessionId, type, habitatId: boardId, userId, userName, agentId, agentName, viewingTaskId: null });
       return { success: true };
     }
   );
@@ -75,12 +75,12 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** GET /presence/viewers/:boardId - Get active viewers on a board. No auth. Returns { viewers } */
-  fastify.get<{ Params: { boardId: string } }>(
-    '/presence/viewers/:boardId',
-    async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
-      const { boardId } = request.params;
-      const viewers = getBoardPresence(boardId);
+  /** GET /presence/viewers/:habitatId - Get active viewers on a board. No auth. Returns { viewers } */
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/presence/viewers/:habitatId',
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+      const { habitatId } = request.params;
+      const viewers = getBoardPresence(habitatId);
       return { viewers };
     }
   );

@@ -9,7 +9,7 @@ export function makeTask(overrides: Partial<Task> = {}): Task {
   const now = new Date().toISOString();
   return {
     id,
-    featureId: 'feat-1',
+    missionId: 'mission-1',
     title: 'Test task',
     description: 'A test task description',
     priority: 'medium' as TaskPriority,

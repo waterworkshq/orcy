@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { initTestDb, closeDb, getDb } from '../db/index.js';
-import { boardRoutes } from '../routes/boards.js';
+import { habitatRoutes } from '../routes/habitats.js';
 import { boardAnalyticsRoutes } from '../routes/board-analytics.js';
 import { boardExportRoutes } from '../routes/board-export.js';
 import * as boardRepo from '../repositories/board.js';
@@ -69,7 +69,7 @@ function captureBoardRoutes(): CapturedRoute[] {
       routes.push({ method: 'DELETE', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [] });
     }),
   };
-  boardRoutes(fakeFastify);
+  habitatRoutes(fakeFastify);
   boardAnalyticsRoutes(fakeFastify);
   boardExportRoutes(fakeFastify);
   return routes;

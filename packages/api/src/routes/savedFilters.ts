@@ -15,18 +15,18 @@ const updateSavedFilterSchema = z.object({
 });
 
 export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get<{ Params: { boardId: string } }>(
-    '/boards/:boardId/saved-filters',
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/saved-filters',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
       const userId = request.user?.id ?? request.agent?.id ?? 'anonymous';
-      const filters = savedFilterRepo.getSavedFilters(request.params.boardId, userId);
+      const filters = savedFilterRepo.getSavedFilters(request.params.habitatId, userId);
       return { savedFilters: filters };
     }
   );
 
-  fastify.post<{ Params: { boardId: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
-    '/boards/:boardId/saved-filters',
+  fastify.post<{ Params: { habitatId: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
+    '/habitats/:habitatId/saved-filters',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = createSavedFilterSchema.safeParse(request.body);
@@ -36,7 +36,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
 
       const userId = request.user?.id ?? request.agent?.id ?? 'anonymous';
       const savedFilter = savedFilterRepo.createSavedFilter(
-        request.params.boardId,
+        request.params.habitatId,
         userId,
         parsed.data.name,
         parsed.data.filterConfig

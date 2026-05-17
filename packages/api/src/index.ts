@@ -9,19 +9,19 @@ import fastifyStatic from '@fastify/static';
 import fastifyRawBody from 'fastify-raw-body';
 import fs from 'node:fs';
 import { ORCY_PATHS } from '@orcy/shared';
-import { boardRoutes } from './routes/boards.js';
+import { habitatRoutes } from './routes/habitats.js';
 import { boardAnalyticsRoutes } from './routes/board-analytics.js';
 import { boardExportRoutes } from './routes/board-export.js';
 import { columnRoutes } from './routes/columns.js';
 import { taskRoutes } from './routes/tasks.js';
-import { featureRoutes } from './routes/features.js';
+import { missionRoutes } from './routes/missions.js';
 import { agentRoutes } from './routes/agents.js';
 import { sseRoutes } from './routes/sse.js';
 import { authRoutes } from './routes/auth.js';
 
 import { webhookRoutes } from './routes/webhookOutgoing.js';
 import { commentRoutes } from './routes/comments.js';
-import { featureCommentRoutes } from './routes/featureComments.js';
+import { missionCommentRoutes } from './routes/missionComments.js';
 import { auditExportRoutes } from './routes/auditExport.js';
 import { boardHealthRoutes } from './routes/boardHealth.js';
 import * as boardRepo from './repositories/board.js';
@@ -113,16 +113,16 @@ fastify.addHook('onResponse', (request, reply, done) => {
 fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
 async function registerApiRoutes(f: FastifyInstance) {
-  await f.register(boardRoutes);
+  await f.register(habitatRoutes);
   await f.register(boardAnalyticsRoutes);
   await f.register(boardExportRoutes);
   await f.register(columnRoutes);
   await f.register(taskRoutes);
-  await f.register(featureRoutes);
+  await f.register(missionRoutes);
   await f.register(agentRoutes);
   await f.register(authRoutes);
   await f.register(commentRoutes);
-  await f.register(featureCommentRoutes);
+  await f.register(missionCommentRoutes);
   await f.register(auditExportRoutes);
   await f.register(boardHealthRoutes);
   await f.register(subtaskRoutes);
@@ -151,7 +151,7 @@ await fastify.register(async (f) => {
   await registerApiRoutes(f);
 
   f.post<{ Params: { id: string } }>(
-    '/boards/:id/archive-events',
+    '/habitats/:id/archive-events',
     { preHandler: humanAuth },
     async (request, reply) => {
       const result = archiveOldEvents(request.params.id);
@@ -169,7 +169,7 @@ await fastify.register(async (f) => {
   await registerApiRoutes(f);
 
   f.post<{ Params: { id: string } }>(
-    '/boards/:id/archive-events',
+    '/habitats/:id/archive-events',
     { preHandler: humanAuth },
     async (request, reply) => {
       const result = archiveOldEvents(request.params.id);

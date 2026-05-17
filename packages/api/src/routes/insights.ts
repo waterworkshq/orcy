@@ -15,10 +15,10 @@ function validateIso8601(value: string | undefined): string | undefined {
 
 export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
-    '/boards/:boardId/insights',
+    '/habitats/:habitatId/insights',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { boardId } = (request.params as { boardId: string });
+      const { habitatId } = (request.params as { habitatId: string });
       const body = request.body as { sourcePulseId?: string; relevanceTags?: string[]; subject?: string; body?: string };
 
       const caller = getCallerInfo(request);
@@ -45,7 +45,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest('Body exceeds maximum length');
       }
 
-      if (sourcePulse.boardId !== boardId) {
+      if (sourcePulse.boardId !== habitatId) {
         throw badRequest('Source pulse does not belong to this board');
       }
 
@@ -56,7 +56,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const insight = insightRepo.createInsight({
-        boardId,
+        boardId: habitatId,
         sourcePulseId: body.sourcePulseId,
         sourceMission,
         signalType: sourcePulse.signalType,
@@ -71,13 +71,13 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get(
-    '/boards/:boardId/insights',
+    '/habitats/:habitatId/insights',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { boardId } = (request.params as { boardId: string });
+      const { habitatId } = (request.params as { habitatId: string });
       const query = request.query as { signalType?: string; isActive?: string; limit?: string; offset?: string };
 
-      const result = insightRepo.getInsightsByBoard(boardId, {
+      const result = insightRepo.getInsightsByBoard(habitatId, {
         signalType: query.signalType as pulseRepo.SignalType | undefined,
         isActive: query.isActive !== undefined ? query.isActive === 'true' : undefined,
         limit: query.limit ? parseInt(query.limit, 10) : undefined,
@@ -89,22 +89,22 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.delete(
-    '/boards/:boardId/insights/:id',
+    '/habitats/:habitatId/insights/:insightId',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { boardId, id } = (request.params as { boardId: string; id: string });
+      const { habitatId, insightId } = (request.params as { habitatId: string; insightId: string });
 
       const caller = getCallerInfo(request);
       if (!caller) {
         throw unauthorized('Authentication required');
       }
 
-      const insight = insightRepo.getInsightById(id);
+      const insight = insightRepo.getInsightById(insightId);
       if (!insight) {
         throw notFound('Insight not found');
       }
 
-      if (insight.boardId !== boardId) {
+      if (insight.boardId !== habitatId) {
         throw notFound('Insight not found');
       }
 
@@ -112,7 +112,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
         throw forbidden('Only the promoter can deactivate an insight');
       }
 
-      insightRepo.deactivateInsight(id);
+      insightRepo.deactivateInsight(insightId);
       reply.code(200).send({ success: true });
     }
   );

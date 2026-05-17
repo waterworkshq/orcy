@@ -12,7 +12,7 @@ export type PulseScope = 'mission' | 'habitat';
 export interface Pulse {
   id: string;
   missionId: string | null;
-  boardId: string;
+  habitatId: string;
   scope: PulseScope;
   fromType: 'human' | 'agent' | 'system';
   fromId: string;
@@ -32,7 +32,7 @@ export interface Pulse {
 
 export interface CreatePulseInput {
   missionId?: string;
-  boardId: string;
+  habitatId: string;
   scope?: PulseScope;
   fromType: 'human' | 'agent' | 'system';
   fromId: string;
@@ -76,7 +76,7 @@ function rowToPulse(row: Record<string, unknown>): Pulse {
   return {
     id: row.id as string,
     missionId: (row.mission_id as string | null) ?? null,
-    boardId: row.board_id as string,
+    habitatId: row.habitat_id as string,
     scope: (row.scope as PulseScope) ?? 'mission',
     fromType: row.from_type as 'human' | 'agent' | 'system',
     fromId: row.from_id as string,
@@ -109,8 +109,8 @@ export function createPulse(input: CreatePulseInput): Pulse {
   if (scope === 'habitat' && input.missionId) {
     throw new Error('missionId must not be provided for habitat-scoped signals');
   }
-  if (scope === 'habitat' && !input.boardId) {
-    throw new Error('boardId is required for habitat-scoped signals');
+  if (scope === 'habitat' && !input.habitatId) {
+    throw new Error('habitatId is required for habitat-scoped signals');
   }
 
   const db = getDb();
@@ -120,7 +120,7 @@ export function createPulse(input: CreatePulseInput): Pulse {
   const rows = db.insert(pulses).values({
     id,
     missionId: input.missionId ?? null,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     scope,
     fromType: input.fromType,
     fromId: input.fromId,
@@ -184,12 +184,12 @@ export function getPulsesByMission(
   return { pulses: rows.map(rowToPulse), total };
 }
 
-export function getPulsesByBoard(
-  boardId: string,
+export function getPulsesByHabitat(
+  habitatId: string,
   filters?: PulseFilters
 ): { pulses: Pulse[]; total: number } {
   const db = getDb();
-  const conditions = [eq(pulses.boardId, boardId)];
+  const conditions = [eq(pulses.habitatId, habitatId)];
 
   if (filters?.scope) {
     conditions.push(eq(pulses.scope, filters.scope));
@@ -442,17 +442,17 @@ export function getPulseDigest(
 }
 
 export function getHabitatPulseDigest(
-  boardId: string,
+  habitatId: string,
   readerType: 'human' | 'agent',
   readerId: string
 ): PulseDigest {
-  const cursor = getCursor(boardId, readerType, readerId);
+  const cursor = getCursor(habitatId, readerType, readerId);
   const sinceEpoch = cursor ?? '1970-01-01T00:00:00.000Z';
 
   const db = getDb();
   const newRows = db.select({ total: count() }).from(pulses).where(
     and(
-      eq(pulses.boardId, boardId),
+      eq(pulses.habitatId, habitatId),
       eq(pulses.scope, 'habitat'),
       gt(pulses.createdAt, sinceEpoch)
     )
@@ -465,7 +465,7 @@ export function getHabitatPulseDigest(
     signalType: pulses.signalType,
     total: count(),
   }).from(pulses)
-    .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat')))
+    .where(and(eq(pulses.habitatId, habitatId), eq(pulses.scope, 'habitat')))
     .groupBy(pulses.signalType)
     .all();
   for (const row of typeRows) counts[row.signalType] = row.total;
@@ -483,16 +483,16 @@ export function getHabitatPulseDigest(
       eq(pulses.toId, readerId),
     );
     highlightRows = db.select().from(pulses)
-      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), or(highlightTypes, targeting)))
+      .where(and(eq(pulses.habitatId, habitatId), eq(pulses.scope, 'habitat'), or(highlightTypes, targeting)))
       .orderBy(desc(pulses.createdAt)).limit(20).all();
   } else {
     highlightRows = db.select().from(pulses)
-      .where(and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), highlightTypes))
+      .where(and(eq(pulses.habitatId, habitatId), eq(pulses.scope, 'habitat'), highlightTypes))
       .orderBy(desc(pulses.createdAt)).limit(20).all();
   }
 
   const latestRows = db.select().from(pulses).where(
-    and(eq(pulses.boardId, boardId), eq(pulses.scope, 'habitat'), eq(pulses.isAuto, false))
+    and(eq(pulses.habitatId, habitatId), eq(pulses.scope, 'habitat'), eq(pulses.isAuto, false))
   ).orderBy(desc(pulses.createdAt)).limit(1).all();
 
   const highlights = highlightRows.map(p => rowToPulse(p)).map(p => ({
@@ -511,7 +511,7 @@ export function getHabitatPulseDigest(
     ? `${latestPulse.subject}${otherCount > 0 ? `. ${otherCount} more signals.` : '.'}`
     : 'No habitat signals yet.';
 
-  updateCursor(boardId, readerType, readerId, 'habitat');
+  updateCursor(habitatId, readerType, readerId, 'habitat');
 
   return {
     summary,

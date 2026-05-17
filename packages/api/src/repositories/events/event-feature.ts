@@ -1,30 +1,30 @@
 import { getDb } from '../../db/index.js';
-import { featureEvents, features } from '../../db/schema/index.js';
+import { missionEvents, missions } from '../../db/schema/index.js';
 import { eq, and, count, asc, desc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import type { FeatureEvent, ActorType, FeatureEventAction, FeatureStatus } from '../../models/index.js';
+import type { MissionEvent, ActorType, MissionEventAction, MissionStatus } from '../../models/index.js';
 
-export interface CreateFeatureEventInput {
-  featureId: string;
+export interface CreateMissionEventInput {
+  missionId: string;
   actorType: ActorType;
   actorId: string;
-  action: FeatureEventAction;
+  action: MissionEventAction;
   fromColumnId?: string | null;
   toColumnId?: string | null;
-  fromStatus?: FeatureStatus | null;
-  toStatus?: FeatureStatus | null;
+  fromStatus?: MissionStatus | null;
+  toStatus?: MissionStatus | null;
   metadata?: Record<string, unknown>;
 }
 
-export function createFeatureEvent(input: CreateFeatureEventInput): FeatureEvent {
+export function createMissionEvent(input: CreateMissionEventInput): MissionEvent {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(featureEvents)
+  db.insert(missionEvents)
     .values({
       id,
-      featureId: input.featureId,
+      missionId: input.missionId,
       actorType: input.actorType,
       actorId: input.actorId,
       action: input.action,
@@ -37,72 +37,72 @@ export function createFeatureEvent(input: CreateFeatureEventInput): FeatureEvent
     })
     .run();
 
-  return getFeatureEventById(id)!;
+  return getMissionEventById(id)!;
 }
 
-export function getFeatureEventById(id: string): FeatureEvent | null {
+export function getMissionEventById(id: string): MissionEvent | null {
   const db = getDb();
   const row = db
     .select()
-    .from(featureEvents)
-    .where(eq(featureEvents.id, id))
+    .from(missionEvents)
+    .where(eq(missionEvents.id, id))
     .get();
-  return (row as FeatureEvent) ?? null;
+  return (row as MissionEvent) ?? null;
 }
 
-export function getFeatureEventsByFeatureId(
-  featureId: string,
+export function getMissionEventsByMissionId(
+  missionId: string,
   limit = 50,
   offset = 0,
-): { events: FeatureEvent[]; total: number } {
+): { events: MissionEvent[]; total: number } {
   const db = getDb();
   const result = db
     .select()
-    .from(featureEvents)
-    .where(eq(featureEvents.featureId, featureId))
-    .orderBy(desc(featureEvents.timestamp))
+    .from(missionEvents)
+    .where(eq(missionEvents.missionId, missionId))
+    .orderBy(desc(missionEvents.timestamp))
     .limit(limit)
     .offset(offset)
-    .all() as FeatureEvent[];
+    .all() as MissionEvent[];
 
   const totalResult = db
     .select({ count: count() })
-    .from(featureEvents)
-    .where(eq(featureEvents.featureId, featureId))
+    .from(missionEvents)
+    .where(eq(missionEvents.missionId, missionId))
     .get();
 
   return { events: result, total: totalResult?.count ?? 0 };
 }
 
-export function getFeatureEventsByBoardId(
+export function getMissionEventsByBoardId(
   boardId: string,
   limit = 50,
   offset = 0,
-): { events: FeatureEvent[]; total: number } {
+): { events: MissionEvent[]; total: number } {
   const db = getDb();
 
-  const featureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const missionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, boardId))
     .all()
     .map(r => r.id);
 
-  if (featureIds.length === 0) return { events: [], total: 0 };
+  if (missionIds.length === 0) return { events: [], total: 0 };
 
   const result = db
     .select()
-    .from(featureEvents)
-    .where(inArray(featureEvents.featureId, featureIds))
-    .orderBy(desc(featureEvents.timestamp))
+    .from(missionEvents)
+    .where(inArray(missionEvents.missionId, missionIds))
+    .orderBy(desc(missionEvents.timestamp))
     .limit(limit)
     .offset(offset)
-    .all() as FeatureEvent[];
+    .all() as MissionEvent[];
 
   const totalResult = db
     .select({ count: count() })
-    .from(featureEvents)
-    .where(inArray(featureEvents.featureId, featureIds))
+    .from(missionEvents)
+    .where(inArray(missionEvents.missionId, missionIds))
     .get();
 
   return { events: result, total: totalResult?.count ?? 0 };

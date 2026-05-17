@@ -1,21 +1,21 @@
 import * as pulseRepo from '../repositories/pulse.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/mission.js';
 import { logger } from '../lib/logger.js';
 
 export function emitAutoSignal(opts: {
-  featureId: string;
+  missionId: string;
   signalType: string;
   subject: string;
   taskId?: string;
   body?: string;
 }): void {
   try {
-    const feature = featureRepo.getFeatureById(opts.featureId);
-    if (!feature) return;
+    const mission = missionRepo.getMissionById(opts.missionId);
+    if (!mission) return;
 
     pulseRepo.createPulse({
-      missionId: opts.featureId,
-      boardId: feature.boardId,
+      missionId: opts.missionId,
+      habitatId: mission.habitatId,
       fromType: 'system',
       fromId: 'system',
       signalType: opts.signalType as pulseRepo.SignalType,
@@ -25,6 +25,6 @@ export function emitAutoSignal(opts: {
       isAuto: true,
     });
   } catch (err) {
-    logger.error({ err, featureId: opts.featureId, signalType: opts.signalType }, 'Failed to emit auto-signal');
+    logger.error({ err, missionId: opts.missionId, signalType: opts.signalType }, 'Failed to emit auto-signal');
   }
 }

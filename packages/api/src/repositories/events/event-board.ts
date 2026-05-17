@@ -1,5 +1,5 @@
 import { getDb } from '../../db/index.js';
-import { taskEvents, tasks, features, agents, columns } from '../../db/schema/index.js';
+import { taskEvents, tasks, missions, agents, columns } from '../../db/schema/index.js';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
 import { computeCycleTimeStats, computeBoardThroughput, getDateThresholds } from './stats-helpers.js';
@@ -12,7 +12,7 @@ export interface EnrichedBoardEventRow {
   id: string;
   taskId: string;
   taskTitle: string;
-  boardId: string;
+  habitatId: string;
   actorType: ActorType;
   actorId: string;
   actorName: string | null;
@@ -35,23 +35,23 @@ export interface BoardEventsFilters {
 }
 
 export function getEventsByBoardId(
-  boardId: string,
+  habitatId: string,
   limit: number,
   offset: number,
   filters?: BoardEventsFilters,
 ): { events: EnrichedBoardEventRow[]; total: number } {
   const db = getDb();
 
-  const boardFeatureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const boardMissionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return { events: [], total: 0 };
+  if (boardMissionIds.length === 0) return { events: [], total: 0 };
 
-  const conditions = [inArray(tasks.featureId, boardFeatureIds)];
+  const conditions = [inArray(tasks.missionId, boardMissionIds)];
 
   if (filters?.action) {
     const actions = Array.isArray(filters.action) ? filters.action : [filters.action];
@@ -85,14 +85,14 @@ export function getEventsByBoardId(
       metadata: taskEvents.metadata,
       timestamp: taskEvents.timestamp,
       taskTitle: tasks.title,
-      boardId: features.boardId,
+      habitatId: missions.habitatId,
       actorName: agents.name,
       fromColumnName: fromColumns.name,
       toColumnName: toColumns.name,
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .leftJoin(agents, eq(taskEvents.actorId, agents.id))
     .leftJoin(fromColumns, eq(taskEvents.fromColumnId, fromColumns.id))
     .leftJoin(toColumns, eq(taskEvents.toColumnId, toColumns.id))
@@ -106,7 +106,7 @@ export function getEventsByBoardId(
     id: row.id,
     taskId: row.taskId,
     taskTitle: row.taskTitle,
-    boardId: row.boardId,
+    habitatId: row.habitatId,
     actorType: row.actorType,
     actorId: row.actorId,
     actorName: row.actorName,
@@ -125,7 +125,7 @@ export function getEventsByBoardId(
     .select({ count: count() })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(whereClause)
     .get();
 
@@ -152,17 +152,17 @@ export interface BoardStats {
   }[];
 }
 
-export function getBoardStats(boardId: string): BoardStats {
+export function getBoardStats(habitatId: string): BoardStats {
   const db = getDb();
 
-  const boardFeatureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const boardMissionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardFeatureIds.length === 0) {
+  if (boardMissionIds.length === 0) {
     return {
       cycleTime: { averageMinutes: 0, medianMinutes: 0, count: 0 },
       throughput: { today: 0, thisWeek: 0, thisMonth: 0 },
@@ -178,9 +178,9 @@ export function getBoardStats(boardId: string): BoardStats {
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .where(inArray(tasks.featureId, boardFeatureIds))
+    .where(inArray(tasks.missionId, boardMissionIds))
     .groupBy(taskEvents.taskId)
-    .having(sql`claimed_at IS NOT NULL AND completed_at IS NOT NULL`)
+    .having(sql`MIN(CASE WHEN ${taskEvents.action} = 'claimed' THEN ${taskEvents.timestamp} END) IS NOT NULL AND MIN(CASE WHEN ${taskEvents.action} = 'completed' THEN ${taskEvents.timestamp} END) IS NOT NULL`)
     .all();
 
   const cycleTimes: number[] = [];
@@ -200,7 +200,7 @@ export function getBoardStats(boardId: string): BoardStats {
     .select({ ts: taskEvents.timestamp })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .where(and(inArray(tasks.featureId, boardFeatureIds), eq(taskEvents.action, 'completed')))
+    .where(and(inArray(tasks.missionId, boardMissionIds), eq(taskEvents.action, 'completed')))
     .orderBy(desc(taskEvents.timestamp))
     .all();
 

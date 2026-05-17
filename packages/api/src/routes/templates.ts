@@ -39,21 +39,21 @@ const applyTemplateSchema = z.object({
  * Task template management — create, list, update, delete, and track usage.
  */
 export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
-  /** GET /boards/:boardId/templates - List templates for a board. Auth: agentOrHumanAuth. Returns { templates } */
-  fastify.get<{ Params: { boardId: string } }>(
-    '/boards/:boardId/templates',
+  /** GET /habitats/:habitatId/templates - List templates for a board. Auth: agentOrHumanAuth. Returns { templates } */
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/templates',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string } }>, reply: FastifyReply) => {
-      const templates = templateRepo.getTemplatesByBoardId(request.params.boardId);
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+      const templates = templateRepo.getTemplatesByBoardId(request.params.habitatId);
       return { templates };
     }
   );
 
-  /** POST /boards/:boardId/templates - Create a template. Auth: humanAuth. Returns { template } */
-  fastify.post<{ Params: { boardId: string }; Body: z.infer<typeof createTemplateSchema> }>(
-    '/boards/:boardId/templates',
+  /** POST /habitats/:habitatId/templates - Create a template. Auth: humanAuth. Returns { template } */
+  fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createTemplateSchema> }>(
+    '/habitats/:habitatId/templates',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string }; Body: z.infer<typeof createTemplateSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: z.infer<typeof createTemplateSchema> }>, reply: FastifyReply) => {
       const parsed = createTemplateSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -62,7 +62,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user?.id ?? 'anonymous';
 
       const template = templateRepo.createTemplate({
-        boardId: request.params.boardId,
+        boardId: request.params.habitatId,
         name: parsed.data.name,
         titlePattern: parsed.data.titlePattern,
         descriptionPattern: parsed.data.descriptionPattern,
@@ -143,17 +143,17 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** POST /features/:id/apply-template/:templateId - Apply template to create feature+tasks. Auth: humanAuth. Returns { feature, tasks } */
-  fastify.post<{ Params: { id: string; templateId: string }; Body: z.infer<typeof applyTemplateSchema> }>(
-    '/features/:id/apply-template/:templateId',
+  /** POST /missions/:missionId/apply-template/:templateId - Apply template to create feature+tasks. Auth: humanAuth. Returns { feature, tasks } */
+  fastify.post<{ Params: { missionId: string; templateId: string }; Body: z.infer<typeof applyTemplateSchema> }>(
+    '/missions/:missionId/apply-template/:templateId',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string; templateId: string }; Body: z.infer<typeof applyTemplateSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string; templateId: string }; Body: z.infer<typeof applyTemplateSchema> }>, reply: FastifyReply) => {
       const parsed = applyTemplateSchema.safeParse(request.body ?? {});
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
       }
 
-      const existingFeature = featureRepo.getFeatureById(request.params.id);
+      const existingFeature = featureRepo.getFeatureById(request.params.missionId);
       if (!existingFeature) {
         throw notFound('Feature not found');
       }

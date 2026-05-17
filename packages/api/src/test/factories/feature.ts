@@ -1,22 +1,22 @@
-import type { Feature, FeatureStatus, TaskPriority } from '../../models/index.js';
+import type { Mission, MissionStatus, TaskPriority } from '../../models/index.js';
 
 function generateId(): string {
   return crypto.randomUUID();
 }
 
-export function makeFeature(overrides: Partial<Feature> = {}): Feature {
+export function makeMission(overrides: Partial<Mission> = {}): Mission {
   const id = overrides.id ?? generateId();
   const now = new Date().toISOString();
   return {
     id,
-    boardId: 'board-1',
+    habitatId: 'habitat-1',
     columnId: 'col-1',
-    title: 'Test Feature',
+    title: 'Test Mission',
     description: 'A test feature description',
     acceptanceCriteria: '',
     priority: 'medium' as TaskPriority,
     labels: [],
-    status: 'not_started' as FeatureStatus,
+    status: 'not_started' as MissionStatus,
     displayOrder: 0,
     dependsOn: [],
     blocks: [],
@@ -33,5 +33,5 @@ export function makeFeature(overrides: Partial<Feature> = {}): Feature {
     completedAt: null,
     isArchived: false,
     ...overrides,
-  } as Feature;
+  } as Mission;
 }

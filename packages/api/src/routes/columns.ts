@@ -9,11 +9,11 @@ import { adminOnly } from '../middleware/rbac.js';
 import { notFound, badRequest, conflict } from '../errors.js';
 
 export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post<{ Params: { boardId: string }; Body: CreateColumnInput }>(
-    '/boards/:boardId/columns',
+  fastify.post<{ Params: { habitatId: string }; Body: CreateColumnInput }>(
+    '/habitats/:habitatId/columns',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { boardId: string }; Body: CreateColumnInput }>, reply: FastifyReply) => {
-      const board = boardRepo.getBoardById(request.params.boardId);
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateColumnInput }>, reply: FastifyReply) => {
+      const board = boardRepo.getBoardById(request.params.habitatId);
       if (!board) {
         throw notFound('Board not found');
       }
@@ -25,10 +25,10 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
 
       const column = columnRepo.createColumn({
         ...parsed.data,
-        boardId: request.params.boardId,
+        boardId: request.params.habitatId,
       });
 
-      sseBroadcaster.publish(request.params.boardId, { type: 'column.created', data: column });
+      sseBroadcaster.publish(request.params.habitatId, { type: 'column.created', data: column });
       reply.code(201).send({ column });
     }
   );
@@ -46,7 +46,7 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
       if (!column) {
         throw notFound('Column not found');
       }
-      sseBroadcaster.publish(column.boardId, { type: 'column.updated', data: column });
+      sseBroadcaster.publish(column.habitatId, { type: 'column.updated', data: column });
       return { column };
     }
   );
@@ -66,9 +66,9 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
         throw conflict((err as Error).message);
       }
 
-      sseBroadcaster.publish(column.boardId, {
+      sseBroadcaster.publish(column.habitatId, {
         type: 'column.deleted',
-        data: { columnId: request.params.id, boardId: column.boardId },
+        data: { columnId: request.params.id, habitatId: column.habitatId },
       });
       reply.code(204).send();
     }

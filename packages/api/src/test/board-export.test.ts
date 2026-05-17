@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { boardExportRoutes } from '../routes/board-export.js';
-import { boardRoutes } from '../routes/boards.js';
+import { habitatRoutes } from '../routes/habitats.js';
 
 interface CapturedRoute {
   method: string;
@@ -41,7 +41,7 @@ function captureBoardRoutes(): CapturedRoute[] {
       routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [] });
     }),
   };
-  boardRoutes(fakeFastify);
+  habitatRoutes(fakeFastify);
   return routes;
 }
 

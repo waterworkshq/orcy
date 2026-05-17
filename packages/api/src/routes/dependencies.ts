@@ -78,16 +78,16 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     }
   );
 
-  fastify.post<{ Params: { id: string }; Body: { dependsOnFeatureId: string } }>(
-    '/features/:id/dependencies',
+  fastify.post<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>(
+    '/missions/:missionId/dependencies',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: { dependsOnFeatureId: string } }>, reply: FastifyReply) => {
-      const { dependsOnFeatureId } = request.body;
-      if (!dependsOnFeatureId) {
-        throw badRequest('dependsOnFeatureId is required');
+    async (request: FastifyRequest<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>, reply: FastifyReply) => {
+      const { dependsOnMissionId } = request.body;
+      if (!dependsOnMissionId) {
+        throw badRequest('dependsOnMissionId is required');
       }
 
-      const result = dependencyService.addFeatureDependency(request.params.id, dependsOnFeatureId);
+      const result = dependencyService.addFeatureDependency(request.params.missionId, dependsOnMissionId);
       if (!result.success) {
         throw conflict(result.reason ?? 'Conflict');
       }
@@ -95,11 +95,11 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     }
   );
 
-  fastify.delete<{ Params: { id: string; depId: string } }>(
-    '/features/:id/dependencies/:depId',
+  fastify.delete<{ Params: { missionId: string; depId: string } }>(
+    '/missions/:missionId/dependencies/:depId',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string; depId: string } }>, reply: FastifyReply) => {
-      const removed = dependencyService.removeFeatureDependency(request.params.id, request.params.depId);
+    async (request: FastifyRequest<{ Params: { missionId: string; depId: string } }>, reply: FastifyReply) => {
+      const removed = dependencyService.removeFeatureDependency(request.params.missionId, request.params.depId);
       if (!removed) {
         throw notFound('Dependency not found');
       }
@@ -107,27 +107,27 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
     }
   );
 
-  fastify.get<{ Params: { id: string } }>(
-    '/features/:id/dependencies',
+  fastify.get<{ Params: { missionId: string } }>(
+    '/missions/:missionId/dependencies',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      return dependencyService.getFeatureDependencies(request.params.id);
+    async (request: FastifyRequest<{ Params: { missionId: string } }>, reply: FastifyReply) => {
+      return dependencyService.getFeatureDependencies(request.params.missionId);
     }
   );
 
-  fastify.get<{ Params: { id: string } }>(
-    '/features/:id/blocked-status',
+  fastify.get<{ Params: { missionId: string } }>(
+    '/missions/:missionId/blocked-status',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      return dependencyService.validateFeatureCompletion(request.params.id);
+    async (request: FastifyRequest<{ Params: { missionId: string } }>, reply: FastifyReply) => {
+      return dependencyService.validateFeatureCompletion(request.params.missionId);
     }
   );
 
-  fastify.get<{ Params: { id: string } }>(
-    '/features/:id/dependency-graph',
+  fastify.get<{ Params: { missionId: string } }>(
+    '/missions/:missionId/dependency-graph',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      return dependencyService.getDependencyGraph(request.params.id);
+    async (request: FastifyRequest<{ Params: { missionId: string } }>, reply: FastifyReply) => {
+      return dependencyService.getDependencyGraph(request.params.missionId);
     }
   );
 }

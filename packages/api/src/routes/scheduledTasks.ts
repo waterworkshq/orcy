@@ -87,10 +87,10 @@ function verifyTaskBoardAccess(request: FastifyRequest, boardId: string): void {
 
 export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
-    '/boards/:id/scheduled-tasks',
+    '/habitats/:habitatId/scheduled-tasks',
     { preHandler: [humanAuth, requireBoardAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const params = request.params as { id: string };
+      const params = request.params as { habitatId: string };
       const parsed = createScheduledTaskSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(400).send({ error: 'Invalid payload', details: parsed.error.flatten() });
@@ -105,7 +105,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       );
 
       const schedule = scheduledTaskRepo.createScheduledTask({
-        boardId: params.id,
+        boardId: params.habitatId,
         templateId: body.templateId ?? null,
         name: body.name,
         description: body.description,
@@ -129,11 +129,11 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
   );
 
   fastify.get(
-    '/boards/:id/scheduled-tasks',
+    '/habitats/:habitatId/scheduled-tasks',
     { preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request: FastifyRequest) => {
-      const params = request.params as { id: string };
-      const tasks = scheduledTaskRepo.getScheduledTasksByBoardId(params.id);
+      const params = request.params as { habitatId: string };
+      const tasks = scheduledTaskRepo.getScheduledTasksByBoardId(params.habitatId);
       return { scheduledTasks: tasks };
     }
   );
@@ -147,7 +147,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!schedule) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, schedule.boardId);
+      verifyTaskBoardAccess(request, schedule.habitatId);
       return { scheduledTask: schedule };
     }
   );
@@ -161,7 +161,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.boardId);
+      verifyTaskBoardAccess(request, existing.habitatId);
 
       const parsed = updateScheduledTaskSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -198,7 +198,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.boardId);
+      verifyTaskBoardAccess(request, existing.habitatId);
 
       const deleted = scheduledTaskRepo.deleteScheduledTask(params.id);
       if (!deleted) {
@@ -217,7 +217,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!schedule) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, schedule.boardId);
+      verifyTaskBoardAccess(request, schedule.habitatId);
       const result = scheduledTaskService.executeScheduledTask(params.id);
       return result;
     }
@@ -232,7 +232,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.boardId);
+      verifyTaskBoardAccess(request, existing.habitatId);
 
       const updated = scheduledTaskRepo.updateScheduledTask(params.id, {
         enabled: true,
@@ -259,7 +259,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.boardId);
+      verifyTaskBoardAccess(request, existing.habitatId);
 
       const updated = scheduledTaskRepo.updateScheduledTask(params.id, { enabled: false });
       if (!updated) {

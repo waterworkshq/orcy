@@ -1,13 +1,13 @@
 import { getDb } from '../db/index.js';
-import { featureComments } from '../db/schema/index.js';
+import { missionComments } from '../db/schema/index.js';
 import { eq, desc, count } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import * as featureCommentMentionRepo from './featureCommentMention.js';
-import type { FeatureCommentMention } from '../models/index.js';
+import * as missionCommentMentionRepo from './featureCommentMention.js';
+import type { MissionCommentMention } from '@orcy/shared/types';
 
-export interface FeatureCommentRow {
+export interface MissionCommentRow {
   id: string;
-  featureId: string;
+  missionId: string;
   parentId: string | null;
   authorType: 'human' | 'agent';
   authorId: string;
@@ -16,9 +16,9 @@ export interface FeatureCommentRow {
   updatedAt: string;
 }
 
-function attachMentions(comments: FeatureCommentRow[]): FeatureCommentRow[] {
-  const mentions = featureCommentMentionRepo.getMentionsByCommentIds(comments.map((c) => c.id));
-  const byCommentId = new Map<string, FeatureCommentMention[]>();
+function attachMentions(comments: MissionCommentRow[]): MissionCommentRow[] {
+  const mentions = missionCommentMentionRepo.getMentionsByCommentIds(comments.map((c) => c.id));
+  const byCommentId = new Map<string, MissionCommentMention[]>();
   for (const mention of mentions) {
     byCommentId.set(mention.commentId, [...(byCommentId.get(mention.commentId) ?? []), mention]);
   }
@@ -29,19 +29,19 @@ function attachMentions(comments: FeatureCommentRow[]): FeatureCommentRow[] {
 }
 
 export function createComment(input: {
-  featureId: string;
+  missionId: string;
   authorType: 'human' | 'agent';
   authorId: string;
   content: string;
   parentId?: string | null;
-}): FeatureCommentRow {
+}): MissionCommentRow {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(featureComments).values({
+  db.insert(missionComments).values({
     id,
-    featureId: input.featureId,
+    missionId: input.missionId,
     parentId: input.parentId ?? null,
     authorType: input.authorType,
     authorId: input.authorId,
@@ -53,45 +53,45 @@ export function createComment(input: {
   return getCommentById(id)!;
 }
 
-export function getCommentsByFeatureId(featureId: string, limit = 50, offset = 0): { comments: FeatureCommentRow[]; total: number } {
+export function getCommentsByMissionId(missionId: string, limit = 50, offset = 0): { comments: MissionCommentRow[]; total: number } {
   const db = getDb();
 
   const comments = db
     .select()
-    .from(featureComments)
-    .where(eq(featureComments.featureId, featureId))
-    .orderBy(desc(featureComments.createdAt))
+    .from(missionComments)
+    .where(eq(missionComments.missionId, missionId))
+    .orderBy(desc(missionComments.createdAt))
     .limit(limit)
     .offset(offset)
-    .all() as FeatureCommentRow[];
+    .all() as MissionCommentRow[];
 
   const totalResult = db
     .select({ count: count() })
-    .from(featureComments)
-    .where(eq(featureComments.featureId, featureId))
+    .from(missionComments)
+    .where(eq(missionComments.missionId, missionId))
     .get();
 
   return { comments: attachMentions(comments), total: totalResult?.count ?? 0 };
 }
 
-export function getCommentById(commentId: string): FeatureCommentRow | null {
+export function getCommentById(commentId: string): MissionCommentRow | null {
   const db = getDb();
   const row = db
     .select()
-    .from(featureComments)
-    .where(eq(featureComments.id, commentId))
+    .from(missionComments)
+    .where(eq(missionComments.id, commentId))
     .get();
   if (!row) return null;
-  return attachMentions([row as FeatureCommentRow])[0] ?? null;
+  return attachMentions([row as MissionCommentRow])[0] ?? null;
 }
 
-export function updateComment(commentId: string, content: string): FeatureCommentRow | null {
+export function updateComment(commentId: string, content: string): MissionCommentRow | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(featureComments)
+  db.update(missionComments)
     .set({ content, updatedAt: now })
-    .where(eq(featureComments.id, commentId))
+    .where(eq(missionComments.id, commentId))
     .run();
 
   return getCommentById(commentId);
@@ -99,8 +99,8 @@ export function updateComment(commentId: string, content: string): FeatureCommen
 
 export function deleteComment(commentId: string): boolean {
   const db = getDb();
-  db.delete(featureComments)
-    .where(eq(featureComments.id, commentId))
+  db.delete(missionComments)
+    .where(eq(missionComments.id, commentId))
     .run();
   return true;
 }
@@ -108,9 +108,9 @@ export function deleteComment(commentId: string): boolean {
 export function isCommentAuthor(commentId: string, authorType: string, authorId: string): boolean {
   const db = getDb();
   const row = db
-    .select({ authorType: featureComments.authorType, authorId: featureComments.authorId })
-    .from(featureComments)
-    .where(eq(featureComments.id, commentId))
+    .select({ authorType: missionComments.authorType, authorId: missionComments.authorId })
+    .from(missionComments)
+    .where(eq(missionComments.id, commentId))
     .get();
   if (!row) return false;
   return row.authorType === authorType && row.authorId === authorId;

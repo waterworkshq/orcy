@@ -1,8 +1,8 @@
 import { eq, sql } from 'drizzle-orm';
-import { features } from '../../db/schema/index.js';
+import { missions } from '../../db/schema/index.js';
 
 export function boardFilter(boardId: string | undefined) {
-  return boardId ? eq(features.boardId, boardId) : sql`1=1`;
+  return boardId ? eq(missions.habitatId, boardId) : sql`1=1`;
 }
 
 export function resolveDateWindow(period: '7d' | '30d' | '90d'): { days: number; startDate: string } {

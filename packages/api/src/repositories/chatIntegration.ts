@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 
 export interface ChatIntegration {
   id: string;
-  boardId: string;
+  habitatId: string;
   provider: 'slack' | 'discord';
   webhookUrl: string;
   channelId: string | null;
@@ -16,10 +16,10 @@ export interface ChatIntegration {
   updatedAt: string;
 }
 
-export function getIntegrationsByBoard(boardId: string): ChatIntegration[] {
+export function getIntegrationsByHabitat(habitatId: string): ChatIntegration[] {
   const db = getDb();
   return db.select().from(chatIntegrations)
-    .where(eq(chatIntegrations.boardId, boardId))
+    .where(eq(chatIntegrations.habitatId, habitatId))
     .orderBy(sql`${chatIntegrations.createdAt} DESC`)
     .all() as ChatIntegration[];
 }
@@ -37,15 +37,15 @@ export function getEnabledIntegrations(): ChatIntegration[] {
     .all() as ChatIntegration[];
 }
 
-export function getEnabledIntegrationsByBoard(boardId: string): ChatIntegration[] {
+export function getEnabledIntegrationsByHabitat(habitatId: string): ChatIntegration[] {
   const db = getDb();
   return db.select().from(chatIntegrations)
-    .where(and(eq(chatIntegrations.boardId, boardId), eq(chatIntegrations.enabled, 1)))
+    .where(and(eq(chatIntegrations.habitatId, habitatId), eq(chatIntegrations.enabled, 1)))
     .all() as ChatIntegration[];
 }
 
 export function createIntegration(input: {
-  boardId: string;
+  habitatId: string;
   provider: 'slack' | 'discord';
   webhookUrl: string;
   channelId?: string;
@@ -58,7 +58,7 @@ export function createIntegration(input: {
 
   db.insert(chatIntegrations).values({
     id,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     provider: input.provider,
     webhookUrl: input.webhookUrl,
     channelId: input.channelId ?? null,

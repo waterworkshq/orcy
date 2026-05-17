@@ -28,50 +28,50 @@ const scheduleBodySchema = z.object({
 });
 
 export async function auditExportRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get<{ Params: { id: string }; Querystring: z.infer<typeof exportQuerySchema> }>(
-    '/boards/:id/audit/export',
+  fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof exportQuerySchema> }>(
+    '/habitats/:habitatId/audit/export',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Querystring: z.infer<typeof exportQuerySchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Querystring: z.infer<typeof exportQuerySchema> }>, reply: FastifyReply) => {
       const parsed = exportQuerySchema.safeParse(request.query);
       if (!parsed.success) {
         throw badRequest('Invalid query', parsed.error.flatten());
       }
 
-      await auditExportService.streamAuditExport(request.params.id, parsed.data, reply);
+      await auditExportService.streamAuditExport(request.params.habitatId, parsed.data, reply);
     }
   );
 
-  fastify.get<{ Params: { id: string }; Querystring: z.infer<typeof summaryQuerySchema> }>(
-    '/boards/:id/audit/summary',
+  fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof summaryQuerySchema> }>(
+    '/habitats/:habitatId/audit/summary',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Querystring: z.infer<typeof summaryQuerySchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Querystring: z.infer<typeof summaryQuerySchema> }>, reply: FastifyReply) => {
       const parsed = summaryQuerySchema.safeParse(request.query);
       const { since, until } = parsed.success ? parsed.data : {};
 
-      const summary = auditExportService.getAuditSummary(request.params.id, since, until);
+      const summary = auditExportService.getAuditSummary(request.params.habitatId, since, until);
       return summary;
     }
   );
 
-  fastify.post<{ Params: { id: string }; Body: z.infer<typeof scheduleBodySchema> }>(
-    '/boards/:id/audit/schedule',
+  fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof scheduleBodySchema> }>(
+    '/habitats/:habitatId/audit/schedule',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof scheduleBodySchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: z.infer<typeof scheduleBodySchema> }>, reply: FastifyReply) => {
       const parsed = scheduleBodySchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Invalid body', parsed.error.flatten());
       }
 
-      const schedule = auditExportService.createSchedule(request.params.id, parsed.data);
+      const schedule = auditExportService.createSchedule(request.params.habitatId, parsed.data);
       reply.code(201).send({ schedule });
     }
   );
 
-  fastify.get<{ Params: { id: string } }>(
-    '/boards/:id/audit/schedules',
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/audit/schedules',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const schedules = auditExportService.listSchedules(request.params.id);
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+      const schedules = auditExportService.listSchedules(request.params.habitatId);
       return { schedules };
     }
   );

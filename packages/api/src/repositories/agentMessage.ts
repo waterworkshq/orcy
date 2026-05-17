@@ -6,7 +6,7 @@ import { v4 as uuid } from 'uuid';
 
 export interface AgentMessage {
   id: string;
-  boardId: string;
+  habitatId: string;
   fromAgentId: string;
   toAgentId: string;
   taskId: string | null;
@@ -19,7 +19,7 @@ export interface AgentMessage {
 }
 
 export interface SendMessageInput {
-  boardId: string;
+  habitatId: string;
   fromAgentId: string;
   toAgentId: string;
   taskId?: string;
@@ -36,7 +36,7 @@ export function createMessage(input: SendMessageInput): AgentMessage {
 
   db.insert(agentMessages).values({
     id,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     fromAgentId: input.fromAgentId,
     toAgentId: input.toAgentId,
     taskId: input.taskId ?? null,

@@ -3,7 +3,7 @@ import { missionTemplates, missions, tasks, columns } from '../db/schema/index.j
 import { eq, or, isNull, sql, desc, asc, max } from 'drizzle-orm';
 import type { MissionTemplate, TaskPriority, TaskTemplateEntry } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
-import * as featureRepo from './feature.js';
+import * as missionRepo from './feature.js';
 import * as taskRepo from './task.js';
 
 export interface CreateTemplateInput {
@@ -140,8 +140,8 @@ export interface ApplyTemplateOverrides {
 }
 
 export interface ApplyTemplateResult {
-  feature: ReturnType<typeof featureRepo.getFeatureById> & {};
-  tasks: ReturnType<typeof taskRepo.getTasksByFeatureId>;
+  mission: ReturnType<typeof missionRepo.getMissionById> & {};
+  tasks: ReturnType<typeof taskRepo.getTasksByMissionId>;
 }
 
 export function applyTemplate(
@@ -228,13 +228,13 @@ export function applyTemplate(
       .run();
   });
 
-  const createdFeature = featureRepo.getFeatureById(featureId)!;
+  const createdMission = missionRepo.getMissionById(featureId)!;
   const createdTasks = createdTaskIds
     .map(id => taskRepo.getTaskById(id))
     .filter((t): t is NonNullable<typeof t> => t !== null);
 
   return {
-    feature: createdFeature,
+    mission: createdMission,
     tasks: createdTasks,
   };
 }

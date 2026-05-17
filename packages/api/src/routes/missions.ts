@@ -19,19 +19,19 @@ import { agentOrHumanAuth, agentAuth, humanAuth } from '../middleware/auth.js';
 import { requireBoard } from './middleware/preHandlers.js';
 import { badRequest, notFound, forbidden, conflict, internalError, AppError } from '../errors.js';
 
-const featureParamsSchema = z.object({ boardId: z.string() });
-const idParamsSchema = z.object({ id: z.string() });
+const habitatIdParamsSchema = z.object({ habitatId: z.string() });
+const missionIdParamsSchema = z.object({ missionId: z.string() });
 
-export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
+export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/boards/:boardId/features',
-    { schema: { params: featureParamsSchema, body: createFeatureSchema }, preHandler: [agentOrHumanAuth, requireBoard()] },
+    '/habitats/:habitatId/missions',
+    { schema: { params: habitatIdParamsSchema, body: createFeatureSchema }, preHandler: [agentOrHumanAuth, requireBoard()] },
     async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
       const feature = featureService.createFeature({
-        boardId: request.params.boardId,
+        boardId: request.params.habitatId,
         columnId: parsed.columnId,
         title: parsed.title,
         description: parsed.description,
@@ -50,16 +50,16 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:boardId/features',
-    { schema: { params: featureParamsSchema, querystring: featureQuerySchema }, preHandler: [agentOrHumanAuth] },
+    '/habitats/:habitatId/missions',
+    { schema: { params: habitatIdParamsSchema, querystring: featureQuerySchema }, preHandler: [agentOrHumanAuth] },
     async (request, reply) => {
       const parsed = request.query;
-      const board = boardRepo.getBoardById(request.params.boardId);
+      const board = boardRepo.getBoardById(request.params.habitatId);
       if (!board) {
         throw notFound('Board not found');
       }
 
-      const result = featureService.listFeatures(request.params.boardId, {
+      const result = featureService.listFeatures(request.params.habitatId, {
         status: parsed.status,
         priority: parsed.priority,
         isArchived: parsed.isArchived,
@@ -72,10 +72,10 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/features/:id',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureService.getFeatureWithProgress(request.params.id);
+      const feature = featureService.getFeatureWithProgress(request.params.missionId);
       if (!feature) {
         throw notFound('Feature not found');
       }
@@ -84,16 +84,16 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/features/:id/details',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/details',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureService.getFeatureWithProgress(request.params.id);
+      const feature = featureService.getFeatureWithProgress(request.params.missionId);
       if (!feature) {
         throw notFound('Feature not found');
       }
 
-      const tasks = taskRepo.getTasksByFeatureId(request.params.id);
-      const { events } = featureEventRepo.getFeatureEventsByFeatureId(request.params.id, 50);
+      const tasks = taskRepo.getTasksByFeatureId(request.params.missionId);
+      const { events } = featureEventRepo.getMissionEventsByMissionId(request.params.missionId, 50);
       const dependencies = {
         dependsOn: feature.dependsOn,
         blocks: feature.blocks,
@@ -116,18 +116,18 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().patch(
-    '/features/:id',
-    { schema: { params: idParamsSchema, body: updateFeatureSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId',
+    { schema: { params: missionIdParamsSchema, body: updateFeatureSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
-      const feature = featureRepo.getFeatureById(request.params.id);
+      const feature = featureRepo.getFeatureById(request.params.missionId);
       if (feature?.isArchived) {
         throw forbidden('Cannot modify an archived feature');
       }
 
-      const result = featureService.updateFeature(request.params.id, parsed, actorId);
+      const result = featureService.updateFeature(request.params.missionId, parsed, actorId);
       if (!result.success) {
         if (result.notFound) {
           throw notFound('Feature not found');
@@ -148,11 +148,11 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/features/:id/archive',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/archive',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
-      const result = featureService.archiveFeature(request.params.id, actorId);
+      const result = featureService.archiveFeature(request.params.missionId, actorId);
       if (!result.success) {
         if (result.reason === 'not_found') throw notFound('Feature not found');
         if (result.reason === 'not_done') throw badRequest('Only completed features can be archived');
@@ -164,11 +164,11 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/features/:id/unarchive',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/unarchive',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
-      const result = featureService.unarchiveFeature(request.params.id, actorId);
+      const result = featureService.unarchiveFeature(request.params.missionId, actorId);
       if (!result.success) {
         if (result.reason === 'not_found') throw notFound('Feature not found');
         if (result.reason === 'not_archived') throw badRequest('Feature is not archived');
@@ -179,10 +179,10 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().delete(
-    '/features/:id',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const result = featureService.deleteFeature(request.params.id);
+      const result = featureService.deleteFeature(request.params.missionId);
       if (!result.success) {
         if (result.reason === 'not_found') {
           throw notFound('Feature not found');
@@ -196,14 +196,14 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/features/:id/move',
-    { schema: { params: idParamsSchema, body: moveFeatureSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/move',
+    { schema: { params: missionIdParamsSchema, body: moveFeatureSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const actorType = request.agent ? 'agent' : 'human';
 
-      const feature = featureService.moveFeatureToColumn(request.params.id, parsed.columnId, actorId, actorType);
+      const feature = featureService.moveFeatureToColumn(request.params.missionId, parsed.columnId, actorId, actorType);
       if (!feature) {
         throw notFound('Feature not found');
       }
@@ -212,25 +212,25 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/features/:id/tasks',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/tasks',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureRepo.getFeatureById(request.params.id);
+      const feature = featureRepo.getFeatureById(request.params.missionId);
       if (!feature) {
         throw notFound('Feature not found');
       }
 
-      const tasks = taskRepo.getTasksByFeatureId(request.params.id);
+      const tasks = taskRepo.getTasksByFeatureId(request.params.missionId);
       return { tasks, total: tasks.length };
     }
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/features/:id/tasks',
-    { schema: { params: idParamsSchema, body: createTaskInFeatureSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/tasks',
+    { schema: { params: missionIdParamsSchema, body: createTaskInFeatureSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = request.body;
-      const feature = featureRepo.getFeatureById(request.params.id);
+      const feature = featureRepo.getFeatureById(request.params.missionId);
       if (!feature) {
         throw notFound('Feature not found');
       }
@@ -257,15 +257,15 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/features/:id/progress',
-    { schema: { params: idParamsSchema }, preHandler: agentOrHumanAuth },
+    '/missions/:missionId/progress',
+    { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureRepo.getFeatureById(request.params.id);
+      const feature = featureRepo.getFeatureById(request.params.missionId);
       if (!feature) {
         throw notFound('Feature not found');
       }
 
-      const tasks = taskRepo.getTasksByFeatureId(request.params.id);
+      const tasks = taskRepo.getTasksByFeatureId(request.params.missionId);
       const byStatus: Record<string, number> = {};
       for (const t of tasks) {
         byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
@@ -282,10 +282,10 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/features/:id/decompose',
-    { schema: { params: idParamsSchema }, preHandler: humanAuth },
+    '/missions/:missionId/decompose',
+    { schema: { params: missionIdParamsSchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const feature = featureRepo.getFeatureById(request.params.id);
+      const feature = featureRepo.getFeatureById(request.params.missionId);
       if (!feature) {
         throw notFound('Feature not found');
       }
@@ -294,7 +294,7 @@ export async function featureRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest('Add a description before decomposing');
       }
 
-      const result = await decompositionService.decomposeFeature(request.params.id);
+      const result = await decompositionService.decomposeFeature(request.params.missionId);
       return result;
     }
   );

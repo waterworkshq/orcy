@@ -11,11 +11,11 @@ import { requireBoardAccess } from '../middleware/team.js';
 import { listTeamsByUserId } from '../repositories/team.js';
 import { notFound } from '../errors.js';
 
-const boardIdParamsSchema = z.object({ id: z.string() });
+const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
-export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
+export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards',
+    '/habitats',
     { schema: { querystring: z.object({ name: z.string().optional() }) }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const query = request.query;
@@ -31,9 +31,9 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** POST /boards - Create a new board. Auth: humanAuth. Returns { board, columns } */
+  /** POST /habitats - Create a new board. Auth: humanAuth. Returns { board, columns } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/boards',
+    '/habitats',
     { schema: { body: createBoardSchema }, preHandler: humanAuth },
     async (request, reply) => {
       const { board, columns } = boardService.createBoard({
@@ -46,9 +46,9 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** POST /boards/agent - Create a board via agent. Auth: agentAuth. Returns { success, board, columns } */
+  /** POST /habitats/agent - Create a board via agent. Auth: agentAuth. Returns { success, board, columns } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
-    '/boards/agent',
+    '/habitats/agent',
     { schema: { body: createBoardSchema }, preHandler: agentAuth },
     async (request, reply) => {
       const { board, columns } = boardService.createBoard({
@@ -61,12 +61,12 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** GET /boards/:id - Get a board by ID. Auth: agentOrHumanAuth + board access. Returns board or 404 */
+  /** GET /habitats/:habitatId - Get a board by ID. Auth: agentOrHumanAuth + board access. Returns board or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/boards/:id',
-    { schema: { params: boardIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    '/habitats/:habitatId',
+    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.id);
+      const result = boardService.getBoard(request.params.habitatId);
       if (!result) {
         throw notFound('Board not found');
       }
@@ -74,12 +74,12 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** PATCH /boards/:id - Update a board. Auth: humanAuth. Returns { board } or 404 */
+  /** PATCH /habitats/:habitatId - Update a board. Auth: humanAuth. Returns { board } or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().patch(
-    '/boards/:id',
-    { schema: { params: boardIdParamsSchema, body: updateBoardSchema }, preHandler: humanAuth },
+    '/habitats/:habitatId',
+    { schema: { params: habitatIdParamsSchema, body: updateBoardSchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const board = boardService.updateBoard(request.params.id, request.body as Parameters<typeof boardService.updateBoard>[1]);
+      const board = boardService.updateBoard(request.params.habitatId, request.body as Parameters<typeof boardService.updateBoard>[1]);
       if (!board) {
         throw notFound('Board not found');
       }
@@ -87,12 +87,12 @@ export async function boardRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
-  /** DELETE /boards/:id - Delete a board. Auth: humanAuth + adminOnly. Returns 204 */
+  /** DELETE /habitats/:habitatId - Delete a board. Auth: humanAuth + adminOnly. Returns 204 */
   fastify.withTypeProvider<ZodTypeProvider>().delete(
-    '/boards/:id',
-    { schema: { params: boardIdParamsSchema }, preHandler: [humanAuth, adminOnly] },
+    '/habitats/:habitatId',
+    { schema: { params: habitatIdParamsSchema }, preHandler: [humanAuth, adminOnly] },
     async (request, reply) => {
-      boardService.deleteBoard(request.params.id);
+      boardService.deleteBoard(request.params.habitatId);
       reply.code(204).send();
     }
   );

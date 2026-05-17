@@ -1,11 +1,11 @@
 import { getDb } from '../db/index.js';
-import { columns, features } from '../db/schema/index.js';
+import { columns, missions } from '../db/schema/index.js';
 import { eq, and, max, count } from 'drizzle-orm';
 import type { Column } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 
 export interface CreateColumnInput {
-  boardId: string;
+  habitatId: string;
   name: string;
   order?: number;
   wipLimit?: number | null;
@@ -34,14 +34,14 @@ export function createColumn(input: CreateColumnInput): Column {
     const result = db
       .select({ maxOrder: max(columns.order) })
       .from(columns)
-      .where(eq(columns.boardId, input.boardId))
+      .where(eq(columns.habitatId, input.habitatId))
       .get();
     order = (result?.maxOrder ?? -1) + 1;
   }
 
   db.insert(columns).values({
     id,
-    boardId: input.boardId,
+    habitatId: input.habitatId,
     name: input.name,
     order,
     wipLimit: input.wipLimit ?? null,
@@ -64,22 +64,22 @@ export function getColumnById(id: string): Column | null {
   return row ?? null;
 }
 
-export function getColumnByName(boardId: string, name: string): Column | null {
+export function getColumnByName(habitatId: string, name: string): Column | null {
   const db = getDb();
   const row = db
     .select()
     .from(columns)
-    .where(and(eq(columns.boardId, boardId), eq(columns.name, name)))
+    .where(and(eq(columns.habitatId, habitatId), eq(columns.name, name)))
     .get();
   return row ?? null;
 }
 
-export function getColumnsByBoardId(boardId: string): Column[] {
+export function getColumnsByHabitatId(habitatId: string): Column[] {
   const db = getDb();
   return db
     .select()
     .from(columns)
-    .where(eq(columns.boardId, boardId))
+    .where(eq(columns.habitatId, habitatId))
     .orderBy(columns.order)
     .all();
 }
@@ -115,7 +115,7 @@ export function deleteColumn(id: string): boolean {
     throw new Error(`Cannot delete column with ${taskCount} tasks. Move or delete tasks first.`);
   }
 
-  const allColumns = getColumnsByBoardId(column.boardId);
+  const allColumns = getColumnsByHabitatId(column.habitatId);
   const predecessor = allColumns.find(c => c.nextColumnId === id);
 
   if (predecessor) {
@@ -130,8 +130,8 @@ export function getTaskCountForColumn(columnId: string): number {
   const db = getDb();
   const result = db
     .select({ count: count() })
-    .from(features)
-    .where(eq(features.columnId, columnId))
+    .from(missions)
+    .where(eq(missions.columnId, columnId))
     .get();
   return result?.count ?? 0;
 }

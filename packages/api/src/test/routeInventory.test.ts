@@ -13,12 +13,12 @@ import { agentAuth, humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { initTestDb, closeDb } from '../db/index.js';
 import { perAgentRateLimit } from '../middleware/rateLimit.js';
 
-import { boardRoutes } from '../routes/boards.js';
+import { habitatRoutes } from '../routes/habitats.js';
 import { boardAnalyticsRoutes } from '../routes/board-analytics.js';
 import { boardExportRoutes } from '../routes/board-export.js';
 import { columnRoutes } from '../routes/columns.js';
 import { taskRoutes } from '../routes/tasks.js';
-import { featureRoutes } from '../routes/features.js';
+import { missionRoutes } from '../routes/missions.js';
 import { agentRoutes } from '../routes/agents.js';
 import { sseRoutes } from '../routes/sse.js';
 import { authRoutes } from '../routes/auth.js';
@@ -41,12 +41,12 @@ import { dependencyRoutes } from '../routes/dependencies.js';
 import { qualityGateRoutes } from '../routes/qualityGates.js';
 
 async function registerApiRoutes(f: FastifyInstance) {
-  await f.register(boardRoutes);
+  await f.register(habitatRoutes);
   await f.register(boardAnalyticsRoutes);
   await f.register(boardExportRoutes);
   await f.register(columnRoutes);
   await f.register(taskRoutes);
-  await f.register(featureRoutes);
+  await f.register(missionRoutes);
   await f.register(agentRoutes);
   await f.register(authRoutes);
   await f.register(commentRoutes);
@@ -281,9 +281,9 @@ describe('Route Inventory', () => {
       expect(taskRoutesFound.length).toBeGreaterThan(0);
     });
 
-    it('captures feature routes', () => {
-      const featureRoutesFound = allRoutes.filter((r) => r.url.includes('/features'));
-      expect(featureRoutesFound.length).toBeGreaterThan(0);
+    it('captures mission routes', () => {
+      const missionRoutesFound = allRoutes.filter((r) => r.url.includes('/missions'));
+      expect(missionRoutesFound.length).toBeGreaterThan(0);
     });
 
     it('captures agent routes', () => {
@@ -294,10 +294,10 @@ describe('Route Inventory', () => {
 
   describe('filterRoutesByPrefix', () => {
     it('filters routes by url prefix', () => {
-      const filtered = filterRoutesByPrefix(allRoutes, '/api/v1/boards');
+      const filtered = filterRoutesByPrefix(allRoutes, '/api/v1/habitats');
       expect(filtered.length).toBeGreaterThan(0);
       for (const r of filtered) {
-        expect(r.url).toContain('/boards');
+        expect(r.url).toContain('/habitats');
       }
     });
 

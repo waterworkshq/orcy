@@ -3,7 +3,7 @@ import * as agentRepo from '../../repositories/agent.js';
 import * as eventRepo from '../../repositories/event.js';
 import { sseBroadcaster } from '../../sse/broadcaster.js';
 import * as watcherService from '../watcherService.js';
-import * as featureService from '../featureService.js';
+import * as missionService from '../missionService.js';
 import type { Task } from '../../models/index.js';
 import { validateAgentCapabilities } from './helpers.js';
 

@@ -1,19 +1,19 @@
 import { getDb } from '../db/index.js';
-import { features, featureDependencies, columns } from '../db/schema/index.js';
+import { missions, missionDependencies, columns } from '../db/schema/index.js';
 import { eq, and, or, not, inArray, sql, count, max, asc, desc, isNotNull, notInArray } from 'drizzle-orm';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
-import type { Feature, FeatureStatus, TaskPriority } from '../models/index.js';
+import type { Mission, MissionStatus, TaskPriority } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 
-function normalizeFeatureId(id: string): { exact: string; withPrefix: string | null } {
-  if (id.startsWith('feat-')) {
+function normalizeMissionId(id: string): { exact: string; withPrefix: string | null } {
+  if (id.startsWith('mission-')) {
     return { exact: id, withPrefix: null };
   }
-  return { exact: id, withPrefix: `feat-${id}` };
+  return { exact: id, withPrefix: `mission-${id}` };
 }
 
-export interface CreateFeatureInput {
-  boardId: string;
+export interface CreateMissionInput {
+  habitatId: string;
   columnId?: string;
   title: string;
   description?: string;
@@ -28,14 +28,14 @@ export interface CreateFeatureInput {
   displayOrder?: number;
 }
 
-export interface UpdateFeatureInput {
+export interface UpdateMissionInput {
   title?: string;
   description?: string;
   acceptanceCriteria?: string;
   priority?: TaskPriority;
   labels?: string[];
   columnId?: string;
-  status?: FeatureStatus;
+  status?: MissionStatus;
   dependsOn?: string[];
   blocks?: string[];
   dueAt?: string | null;
@@ -45,7 +45,7 @@ export interface UpdateFeatureInput {
   isArchived?: boolean;
 }
 
-export function createFeature(input: CreateFeatureInput): Feature {
+export function createMission(input: CreateMissionInput): Mission {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
@@ -55,7 +55,7 @@ export function createFeature(input: CreateFeatureInput): Feature {
     const boardColumns = db
       .select()
       .from(columns)
-      .where(eq(columns.boardId, input.boardId))
+      .where(eq(columns.habitatId, input.habitatId))
       .orderBy(columns.order)
       .all();
     columnId = boardColumns[0]?.id;
@@ -65,17 +65,17 @@ export function createFeature(input: CreateFeatureInput): Feature {
   let displayOrder = input.displayOrder;
   if (displayOrder === undefined) {
     const result = db
-      .select({ maxOrder: max(features.displayOrder) })
-      .from(features)
-      .where(eq(features.columnId, columnId))
+      .select({ maxOrder: max(missions.displayOrder) })
+      .from(missions)
+      .where(eq(missions.columnId, columnId))
       .get();
     displayOrder = (result?.maxOrder ?? -1) + 1;
   }
 
   db.transaction((tx) => {
-    tx.insert(features).values({
+    tx.insert(missions).values({
       id,
-      boardId: input.boardId,
+      habitatId: input.habitatId,
       columnId,
       title: input.title,
       description: input.description ?? '',
@@ -95,65 +95,65 @@ export function createFeature(input: CreateFeatureInput): Feature {
     }).run();
 
     if (input.dependsOn && input.dependsOn.length > 0) {
-      tx.insert(featureDependencies).values(
-        input.dependsOn.map(depId => ({ featureId: id, dependsOnId: depId }))
+      tx.insert(missionDependencies).values(
+        input.dependsOn.map(depId => ({ missionId: id, dependsOnId: depId }))
       ).run();
     }
 
     if (input.blocks && input.blocks.length > 0) {
-      tx.insert(featureDependencies).values(
-        input.blocks.map(blockedId => ({ featureId: blockedId, dependsOnId: id }))
+      tx.insert(missionDependencies).values(
+        input.blocks.map(blockedId => ({ missionId: blockedId, dependsOnId: id }))
       ).run();
     }
   });
 
-  return getFeatureById(id)!;
+  return getMissionById(id)!;
 }
 
-export function getFeatureById(id: string): Feature | null {
+export function getMissionById(id: string): Mission | null {
   const db = getDb();
-  const { exact, withPrefix } = normalizeFeatureId(id);
-  const result = db.select().from(features).where(eq(features.id, exact)).get() as Feature | null;
+  const { exact, withPrefix } = normalizeMissionId(id);
+  const result = db.select().from(missions).where(eq(missions.id, exact)).get() as Mission | null;
   if (result) return result;
   if (withPrefix) {
-    return db.select().from(features).where(eq(features.id, withPrefix)).get() as Feature ?? null;
+    return db.select().from(missions).where(eq(missions.id, withPrefix)).get() as Mission ?? null;
   }
   return null;
 }
 
-export function getFeaturesByBoardId(
-  boardId: string,
-  filters?: { columnId?: string; status?: FeatureStatus; priority?: TaskPriority; limit?: number; offset?: number; isArchived?: boolean }
-): { features: Feature[]; total: number } {
+export function getMissionsByHabitatId(
+  habitatId: string,
+  filters?: { columnId?: string; status?: MissionStatus; priority?: TaskPriority; limit?: number; offset?: number; isArchived?: boolean }
+): { missions: Mission[]; total: number } {
   const db = getDb();
 
-  const conditions = [eq(features.boardId, boardId)];
-  if (filters?.columnId) conditions.push(eq(features.columnId, filters.columnId));
-  if (filters?.status) conditions.push(eq(features.status, filters.status));
-  if (filters?.priority) conditions.push(eq(features.priority, filters.priority));
-  if (filters?.isArchived !== undefined) conditions.push(eq(features.isArchived, filters.isArchived));
+  const conditions = [eq(missions.habitatId, habitatId)];
+  if (filters?.columnId) conditions.push(eq(missions.columnId, filters.columnId));
+  if (filters?.status) conditions.push(eq(missions.status, filters.status));
+  if (filters?.priority) conditions.push(eq(missions.priority, filters.priority));
+  if (filters?.isArchived !== undefined) conditions.push(eq(missions.isArchived, filters.isArchived));
 
   const where = and(...conditions);
 
   const countResult = db
     .select({ total: count() })
-    .from(features)
+    .from(missions)
     .where(where)
     .get();
   const total = countResult?.total ?? 0;
 
-  const priorityOrder = priorityOrderExpr(features.priority);
+  const priorityOrder = priorityOrderExpr(missions.priority);
 
-  const query = db.select().from(features).where(where).orderBy(asc(features.displayOrder), priorityOrder, asc(features.createdAt));
+  const query = db.select().from(missions).where(where).orderBy(asc(missions.displayOrder), priorityOrder, asc(missions.createdAt));
   const results = filters?.limit !== undefined
     ? query.limit(filters.limit).offset(filters?.offset ?? 0).all()
     : query.all();
 
-  return { features: results as Feature[], total };
+  return { missions: results as Mission[], total };
 }
 
-export function updateFeature(id: string, input: UpdateFeatureInput, expectedVersion?: number):
-  | { success: true; feature: Feature }
+export function updateMission(id: string, input: UpdateMissionInput, expectedVersion?: number):
+  | { success: true; mission: Mission }
   | { success: false; notFound: true }
   | { success: false; versionMismatch: true; currentVersion: number } {
   const db = getDb();
@@ -161,20 +161,20 @@ export function updateFeature(id: string, input: UpdateFeatureInput, expectedVer
 
   if (expectedVersion !== undefined) {
     const existing = db
-      .select({ id: features.id, version: features.version })
-      .from(features)
-      .where(eq(features.id, id))
+      .select({ id: missions.id, version: missions.version })
+      .from(missions)
+      .where(eq(missions.id, id))
       .get();
     if (!existing) return { success: false, notFound: true };
     if (existing.version !== expectedVersion) {
       return { success: false, versionMismatch: true, currentVersion: existing.version };
     }
   } else {
-    const existing = db.select({ id: features.id }).from(features).where(eq(features.id, id)).get();
+    const existing = db.select({ id: missions.id }).from(missions).where(eq(missions.id, id)).get();
     if (!existing) return { success: false, notFound: true };
   }
 
-  const set: Partial<typeof features.$inferInsert> = { updatedAt: now };
+  const set: Partial<typeof missions.$inferInsert> = { updatedAt: now };
 
   if (input.title !== undefined) set.title = input.title;
   if (input.description !== undefined) set.description = input.description;
@@ -192,132 +192,132 @@ export function updateFeature(id: string, input: UpdateFeatureInput, expectedVer
   if (input.isArchived !== undefined) set.isArchived = input.isArchived;
 
   db.transaction((tx) => {
-    tx.update(features).set({ ...set, version: sql`${features.version} + 1` }).where(eq(features.id, id)).run();
+    tx.update(missions).set({ ...set, version: sql`${missions.version} + 1` }).where(eq(missions.id, id)).run();
 
     if (input.dependsOn !== undefined) {
-      tx.delete(featureDependencies).where(eq(featureDependencies.featureId, id)).run();
+      tx.delete(missionDependencies).where(eq(missionDependencies.missionId, id)).run();
       if (input.dependsOn.length > 0) {
-        tx.insert(featureDependencies).values(
-          input.dependsOn.map(depId => ({ featureId: id, dependsOnId: depId }))
+        tx.insert(missionDependencies).values(
+          input.dependsOn.map(depId => ({ missionId: id, dependsOnId: depId }))
         ).run();
       }
     }
 
     if (input.blocks !== undefined) {
-      tx.delete(featureDependencies).where(eq(featureDependencies.dependsOnId, id)).run();
+      tx.delete(missionDependencies).where(eq(missionDependencies.dependsOnId, id)).run();
       if (input.blocks.length > 0) {
-        tx.insert(featureDependencies).values(
-          input.blocks.map(blockedId => ({ featureId: blockedId, dependsOnId: id }))
+        tx.insert(missionDependencies).values(
+          input.blocks.map(blockedId => ({ missionId: blockedId, dependsOnId: id }))
         ).run();
       }
     }
   });
 
-  const feature = getFeatureById(id);
-  return { success: true, feature: feature! };
+  const mission = getMissionById(id);
+  return { success: true, mission: mission! };
 }
 
-export function deleteFeature(id: string): void {
+export function deleteMission(id: string): void {
   const db = getDb();
-  db.delete(features).where(eq(features.id, id)).run();
+  db.delete(missions).where(eq(missions.id, id)).run();
 }
 
-export function moveFeature(featureId: string, toColumnId: string): Feature | null {
+export function moveMission(missionId: string, toColumnId: string): Mission | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(features)
-    .set({ columnId: toColumnId, updatedAt: now, version: sql`${features.version} + 1` })
-    .where(eq(features.id, featureId))
+  db.update(missions)
+    .set({ columnId: toColumnId, updatedAt: now, version: sql`${missions.version} + 1` })
+    .where(eq(missions.id, missionId))
     .run();
-  return getFeatureById(featureId);
+  return getMissionById(missionId);
 }
 
-export function reorderFeature(featureId: string, afterFeatureId: string | null, beforeFeatureId: string | null): Feature | null {
+export function reorderMission(missionId: string, afterMissionId: string | null, beforeMissionId: string | null): Mission | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const feature = getFeatureById(featureId);
-  if (!feature) return null;
+  const mission = getMissionById(missionId);
+  if (!mission) return null;
 
-  const columnId = feature.columnId;
+  const columnId = mission.columnId;
 
   let newOrder: number;
-  if (afterFeatureId === null && beforeFeatureId === null) {
+  if (afterMissionId === null && beforeMissionId === null) {
     const result = db
-      .select({ maxOrder: max(features.displayOrder) })
-      .from(features)
-      .where(eq(features.columnId, columnId))
+      .select({ maxOrder: max(missions.displayOrder) })
+      .from(missions)
+      .where(eq(missions.columnId, columnId))
       .get();
     newOrder = (result?.maxOrder ?? -1) + 1;
-  } else if (afterFeatureId !== null) {
+  } else if (afterMissionId !== null) {
     const afterRow = db
-      .select({ displayOrder: features.displayOrder })
-      .from(features)
-      .where(eq(features.id, afterFeatureId))
+      .select({ displayOrder: missions.displayOrder })
+      .from(missions)
+      .where(eq(missions.id, afterMissionId))
       .get();
     if (!afterRow) return null;
     newOrder = afterRow.displayOrder + 1;
-    db.update(features)
-      .set({ displayOrder: sql`${features.displayOrder} + 1` })
-      .where(and(eq(features.columnId, columnId), sql`${features.displayOrder} > ${afterRow.displayOrder}`))
+    db.update(missions)
+      .set({ displayOrder: sql`${missions.displayOrder} + 1` })
+      .where(and(eq(missions.columnId, columnId), sql`${missions.displayOrder} > ${afterRow.displayOrder}`))
       .run();
   } else {
     const beforeRow = db
-      .select({ displayOrder: features.displayOrder })
-      .from(features)
-      .where(eq(features.id, beforeFeatureId!))
+      .select({ displayOrder: missions.displayOrder })
+      .from(missions)
+      .where(eq(missions.id, beforeMissionId!))
       .get();
     if (!beforeRow) return null;
     newOrder = beforeRow.displayOrder;
-    db.update(features)
-      .set({ displayOrder: sql`${features.displayOrder} + 1` })
-      .where(and(eq(features.columnId, columnId), sql`${features.displayOrder} >= ${beforeRow.displayOrder}`))
+    db.update(missions)
+      .set({ displayOrder: sql`${missions.displayOrder} + 1` })
+      .where(and(eq(missions.columnId, columnId), sql`${missions.displayOrder} >= ${beforeRow.displayOrder}`))
       .run();
   }
 
-  db.update(features)
-    .set({ displayOrder: newOrder, updatedAt: now, version: sql`${features.version} + 1` })
-    .where(eq(features.id, featureId))
+  db.update(missions)
+    .set({ displayOrder: newOrder, updatedAt: now, version: sql`${missions.version} + 1` })
+    .where(eq(missions.id, missionId))
     .run();
-  return getFeatureById(featureId);
+  return getMissionById(missionId);
 }
 
-export function addDependency(featureId: string, dependsOnId: string): void {
+export function addMissionDependency(missionId: string, dependsOnId: string): void {
   const db = getDb();
-  db.insert(featureDependencies).values({ featureId, dependsOnId }).run();
+  db.insert(missionDependencies).values({ missionId, dependsOnId }).run();
 }
 
-export function removeDependency(featureId: string, dependsOnId: string): void {
+export function removeMissionDependency(missionId: string, dependsOnId: string): void {
   const db = getDb();
-  db.delete(featureDependencies)
-    .where(and(eq(featureDependencies.featureId, featureId), eq(featureDependencies.dependsOnId, dependsOnId)))
+  db.delete(missionDependencies)
+    .where(and(eq(missionDependencies.missionId, missionId), eq(missionDependencies.dependsOnId, dependsOnId)))
     .run();
 }
 
-export function areAllFeatureDependenciesMet(featureId: string): boolean {
+export function areAllMissionDependenciesMet(missionId: string): boolean {
   const db = getDb();
   const result = db
     .select({ count: count() })
-    .from(featureDependencies)
-    .innerJoin(features, eq(featureDependencies.dependsOnId, features.id))
+    .from(missionDependencies)
+    .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
     .where(
       and(
-        eq(featureDependencies.featureId, featureId),
-        notInArray(features.status, ['done'])
+        eq(missionDependencies.missionId, missionId),
+        notInArray(missions.status, ['done'])
       )
     )
     .get();
   return (result?.count ?? 0) === 0;
 }
 
-export function getFeaturesByDependency(dependsOnId: string): Feature[] {
+export function getMissionsByDependency(dependsOnId: string): Mission[] {
   const db = getDb();
   return db
     .select()
-    .from(features)
-    .innerJoin(featureDependencies, eq(features.id, featureDependencies.featureId))
-    .where(eq(featureDependencies.dependsOnId, dependsOnId))
+    .from(missions)
+    .innerJoin(missionDependencies, eq(missions.id, missionDependencies.missionId))
+    .where(eq(missionDependencies.dependsOnId, dependsOnId))
     .all()
-    .map((row: any) => row.features);
+    .map((row: any) => row.missions);
 }

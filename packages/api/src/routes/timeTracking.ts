@@ -17,11 +17,11 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
     }
   );
 
-  fastify.get<{ Params: { id: string } }>(
-    '/boards/:id/metrics',
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/metrics',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      return timeTrackingService.getBoardMetrics(request.params.id);
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+      return timeTrackingService.getBoardMetrics(request.params.habitatId);
     }
   );
 

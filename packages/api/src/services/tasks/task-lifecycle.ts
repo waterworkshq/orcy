@@ -1,5 +1,4 @@
 import * as taskRepo from '../../repositories/task.js';
-import * as featureRepo from '../../repositories/feature.js';
 import * as agentRepo from '../../repositories/agent.js';
 import * as eventRepo from '../../repositories/event.js';
 import { sseBroadcaster } from '../../sse/broadcaster.js';
@@ -7,7 +6,7 @@ import * as watcherService from '../watcherService.js';
 import * as retryService from '../retryService.js';
 import * as gitWorktreeService from '../gitWorktreeService.js';
 import * as pluginManager from '../../plugins/pluginManager.js';
-import * as featureService from '../featureService.js';
+import * as missionService from '../missionService.js';
 import * as timeTrackingService from '../timeTrackingService.js';
 import * as qualityGateService from '../qualityGateService.js';
 import * as dependencyService from '../dependencyService.js';
@@ -20,26 +19,26 @@ import {
 import { logger } from '../../lib/logger.js';
 import * as pulseService from '../pulseService.js';
 
-function getBoardId(task: Task): string {
-  const boardId = taskRepo.getBoardIdForTask(task.id);
-  if (!boardId) {
-    logger.warn({ taskId: task.id }, 'Task has no associated board');
+function getHabitatId(task: Task): string {
+  const habitatId = taskRepo.getHabitatIdForTask(task.id);
+  if (!habitatId) {
+    logger.warn({ taskId: task.id }, 'Task has no associated habitat');
     return '';
   }
-  return boardId;
+  return habitatId;
 }
 
-export function withFeatureRecalc<T>(
+export function withMissionRecalc<T>(
   taskId: string,
-  featureId: string,
+  missionId: string,
   fn: () => T
 ): T | undefined {
   try {
     return fn();
   } catch (err) {
     logger.error(
-      { err, taskId, featureId },
-      'Feature recalculation failed'
+      { err, taskId, missionId },
+      'Mission recalculation failed'
     );
   }
 }
@@ -70,7 +69,7 @@ export function claimTask(taskId: string, agentId: string): { success: true; tas
   const result = taskRepo.claimTask(taskId, agentId);
 
   if (result.success) {
-    const boardId = getBoardId(result.task);
+    const habitatId = getHabitatId(result.task);
 
     eventRepo.createEvent({
       taskId,
@@ -80,24 +79,24 @@ export function claimTask(taskId: string, agentId: string): { success: true; tas
       toStatus: 'claimed',
     });
 
-    sseBroadcaster.publish(boardId, {
+    sseBroadcaster.publish(habitatId, {
       type: 'task.claimed',
       data: { taskId, agentId },
     });
-    sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
-    if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.claimed');
+    sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
+    if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.claimed');
 
     const agent = agentRepo.getAgentById(agentId);
     if (agent) {
       pluginManager.emitTaskClaimed(result.task, agent).catch(() => {});
     }
 
-    withFeatureRecalc(taskId, current.featureId, () => {
-      featureService.recalculateFeatureStatus(current.featureId);
+    withMissionRecalc(taskId, current.missionId, () => {
+      missionService.recalculateMissionStatus(current.missionId);
     });
 
     pulseService.emitAutoSignal({
-      featureId: result.task.featureId,
+      missionId: result.task.missionId,
       signalType: 'context',
       subject: `${agent?.name ?? agentId} claimed '${result.task.title}'`,
       taskId: result.task.id,
@@ -124,7 +123,7 @@ export function startTask(taskId: string, agentId: string): Task | null {
     logger.warn({ err, taskId }, 'Failed to ensure task quality checklists');
   }
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
@@ -134,10 +133,10 @@ export function startTask(taskId: string, agentId: string): Task | null {
     toStatus: 'in_progress',
   });
 
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
   return task;
 }
@@ -167,7 +166,7 @@ export function submitTask(
   const task = taskRepo.submitTask(taskId, agentId, result, artifacts);
   if (!task) return { task: null };
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
 
   try {
     timeTrackingService.recordWork(taskId, agentId, 0, 'submitted');
@@ -184,20 +183,20 @@ export function submitTask(
     metadata: { result },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.submitted',
     data: { taskId, agentId },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.submitted');
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.submitted');
   pluginManager.emitTaskSubmitted(task).catch(() => {});
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
 
   pulseService.emitAutoSignal({
-    featureId: current.featureId,
+    missionId: current.missionId,
     signalType: 'offer',
     subject: `Results for '${task.title}' available for review`,
     taskId: task.id,
@@ -253,7 +252,7 @@ export function completeTask(
   const task = taskRepo.markTaskDone(taskId);
   if (!task) return { task: null };
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
   const metadata = { reviewNote, isSelfApproval: true };
 
   eventRepo.createEvent({
@@ -265,24 +264,24 @@ export function completeTask(
     metadata,
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.completed',
     data: { taskId },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
 
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.completed');
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.completed');
   pluginManager.emitTaskApproved(task).catch(() => {});
 
   unblockDependents(taskId);
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
 
   const resolvingAgent = agentRepo.getAgentById(agentId);
   pulseService.emitAutoSignal({
-    featureId: current.featureId,
+    missionId: current.missionId,
     signalType: 'context',
     subject: `${resolvingAgent?.name ?? agentId} completed '${current.title}'`,
     taskId: current.id,
@@ -291,7 +290,7 @@ export function completeTask(
   if (current.labels?.includes('blocker-clearance')) {
     const clearedSubject = current.title.replace(/^Clear Blocker:\s*/, '');
     pulseService.emitAutoSignal({
-      featureId: current.featureId,
+      missionId: current.missionId,
       signalType: 'context',
       subject: `Blocker cleared: ${clearedSubject}`,
       taskId: current.id,
@@ -316,7 +315,7 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
     logger.warn({ err, taskId }, 'Failed to calculate completion metrics');
   }
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
@@ -326,19 +325,19 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
     toStatus: 'approved',
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.approved',
     data: { taskId, reviewerId },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.approved');
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.approved');
 
   pluginManager.emitTaskApproved(task).catch(() => {});
 
   unblockDependents(taskId);
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
   return task;
 }
@@ -352,7 +351,7 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
   const task = taskRepo.rejectTask(taskId, reason);
   if (!task) return null;
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
@@ -363,12 +362,12 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
     metadata: { reason },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.rejected',
     data: { taskId, reason },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.rejected');
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.rejected');
 
   if (retryService.shouldRetry(task)) {
     retryService.scheduleRetry(task);
@@ -378,8 +377,8 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
 
   pluginManager.emitTaskRejected(task, reason).catch(() => {});
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
   return task;
 }
@@ -395,7 +394,7 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   const task = taskRepo.releaseTask(taskId, reason);
   if (!task) return null;
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
@@ -407,19 +406,19 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
     metadata: { reason },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.released',
     data: { taskId, reason },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.released');
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.released');
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
 
   pulseService.emitAutoSignal({
-    featureId: current.featureId,
+    missionId: current.missionId,
     signalType: 'context',
     subject: `Task '${task.title}' released, available for claim`,
     taskId: task.id,
@@ -439,7 +438,7 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
   const task = taskRepo.failTask(taskId, reason);
   if (!task) return null;
 
-  const boardId = getBoardId(task);
+  const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
@@ -450,12 +449,12 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
     metadata: { reason },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.failed',
     data: { taskId, reason },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
-  if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.failed');
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.failed');
 
   if (retryService.shouldRetry(task)) {
     retryService.scheduleRetry(task);
@@ -463,12 +462,12 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
     retryService.escalateToHuman(task);
   }
 
-  withFeatureRecalc(taskId, current.featureId, () => {
-    featureService.recalculateFeatureStatus(current.featureId);
+  withMissionRecalc(taskId, current.missionId, () => {
+    missionService.recalculateMissionStatus(current.missionId);
   });
 
   pulseService.emitAutoSignal({
-    featureId: current.featureId,
+    missionId: current.missionId,
     signalType: 'warning',
     subject: `Task '${task.title}' failed: ${reason}`,
     taskId: task.id,
@@ -481,7 +480,7 @@ function unblockDependents(completedTaskId: string): void {
   const dependents = taskRepo.getTasksByDependency(completedTaskId);
   for (const dependent of dependents) {
     if (taskRepo.areAllDependenciesMet(dependent.id) && dependent.status === 'pending') {
-      const boardId = getBoardId(dependent);
+      const habitatId = getHabitatId(dependent);
       eventRepo.createEvent({
         taskId: dependent.id,
         actorType: 'system',
@@ -489,7 +488,7 @@ function unblockDependents(completedTaskId: string): void {
         action: 'dependency_resolved',
         metadata: { unblockedBy: completedTaskId },
       });
-      sseBroadcaster.publish(boardId, { type: 'task.updated', data: dependent });
+      sseBroadcaster.publish(habitatId, { type: 'task.updated', data: dependent });
     }
   }
 }

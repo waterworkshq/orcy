@@ -33,11 +33,11 @@ function parsePagination(query: { limit?: string; offset?: string }): { limit: n
   };
 }
 
-function checkReplyScope(replyToId: string | undefined, boardId: string, scope: string): void {
+function checkReplyScope(replyToId: string | undefined, habitatId: string, scope: string): void {
   if (!replyToId) return;
   const parent = pulseRepo.getPulseById(replyToId);
   if (!parent) throw notFound('Reply target pulse not found');
-  if (parent.boardId !== boardId) throw forbidden('Cannot reply across boards');
+  if (parent.boardId !== habitatId) throw forbidden('Cannot reply across boards');
   if (parent.scope !== scope) throw forbidden('Cannot reply across scopes');
 }
 
@@ -88,7 +88,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         toId = resolved;
       }
 
-      checkReplyScope(body.replyToId, mission.boardId, 'mission');
+      checkReplyScope(body.replyToId, mission.habitatId, 'mission');
       validateMetadata(body.metadata);
 
       const pulse = pulseRepo.createPulse({
@@ -261,10 +261,10 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.post(
-    '/boards/:boardId/pulse',
+    '/habitats/:habitatId/pulse',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { boardId } = (request.params as { boardId: string });
+      const { habitatId } = (request.params as { habitatId: string });
       const body = request.body as { signalType?: string; subject?: string; body?: string; taskId?: string; toAgentId?: string; toAgentName?: string; replyToId?: string; metadata?: Record<string, unknown> };
 
       if (!body.signalType || !body.subject) {
@@ -275,7 +275,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest(`Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
       }
 
-      const board = boardRepo.getBoardById(boardId);
+      const board = boardRepo.getBoardById(habitatId);
       if (!board) {
         throw notFound('Board not found');
       }
@@ -300,11 +300,11 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         toId = resolved;
       }
 
-      checkReplyScope(body.replyToId, boardId, 'habitat');
+      checkReplyScope(body.replyToId, habitatId, 'habitat');
       validateMetadata(body.metadata);
 
       const pulse = pulseRepo.createPulse({
-        boardId,
+        boardId: habitatId,
         scope: 'habitat',
         fromType: caller.type,
         fromId: caller.id,
@@ -323,7 +323,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.signalType === 'blocker') {
         try {
           const task = taskService.createTask({
-            featureId: boardId,
+            featureId: habitatId,
             title: `Clear Blocker: ${body.subject}`,
             description: `Auto-generated habitat blocker clearance task.\n\nBlocker: ${body.body ?? ''}\n\nSource signal: ${pulse.id}`,
             priority: 'high',
@@ -333,12 +333,12 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
           pulseRepo.updateLinkedTask(pulse.id, task.id);
           linkedTask = taskRepo.getTaskById(task.id);
         } catch (err) {
-          logger.error({ err, boardId, pulseId: pulse.id }, 'Failed to create habitat blocker clearance task');
+          logger.error({ err, habitatId, pulseId: pulse.id }, 'Failed to create habitat blocker clearance task');
         }
       }
 
       try {
-        sseBroadcaster.publish(boardId, {
+        sseBroadcaster.publish(habitatId, {
           type: 'pulse.signal_posted',
           data: {
             pulseId: pulse.id,
@@ -358,17 +358,17 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get(
-    '/boards/:boardId/pulse',
+    '/habitats/:habitatId/pulse',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { boardId } = (request.params as { boardId: string });
+      const { habitatId } = (request.params as { habitatId: string });
       const query = request.query as { signalType?: string; signalTypes?: string; scope?: string; limit?: string; offset?: string };
       const signalTypes = query.signalTypes
         ? query.signalTypes.split(',').filter(Boolean) as pulseRepo.SignalType[]
         : undefined;
       const { limit, offset } = parsePagination(query);
 
-      const result = pulseRepo.getPulsesByBoard(boardId, {
+      const result = pulseRepo.getPulsesByBoard(habitatId, {
         signalTypes,
         signalType: query.signalType as pulseRepo.SignalType | undefined,
         scope: query.scope as pulseRepo.PulseScope | undefined,
@@ -381,12 +381,12 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get(
-    '/boards/:boardId/pulse/digest',
+    '/habitats/:habitatId/pulse/digest',
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const { boardId } = (request.params as { boardId: string });
+      const { habitatId } = (request.params as { habitatId: string });
 
-      const board = boardRepo.getBoardById(boardId);
+      const board = boardRepo.getBoardById(habitatId);
       if (!board) {
         throw notFound('Board not found');
       }
@@ -396,7 +396,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         throw unauthorized('Authentication required');
       }
 
-      return pulseRepo.getHabitatPulseDigest(boardId, caller.type, caller.id);
+      return pulseRepo.getHabitatPulseDigest(habitatId, caller.type, caller.id);
     }
   );
 

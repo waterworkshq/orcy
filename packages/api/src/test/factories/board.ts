@@ -1,10 +1,10 @@
-import type { Board } from '../../models/index.js';
+import type { Habitat } from '../../models/index.js';
 
 function generateId(): string {
   return crypto.randomUUID();
 }
 
-export function makeBoard(overrides: Partial<Board> = {}): Board {
+export function makeHabitat(overrides: Partial<Habitat> = {}): Habitat {
   const id = overrides.id ?? generateId();
   const now = new Date().toISOString();
   return {

@@ -23,12 +23,12 @@ function validateBatchAssignTarget(task: Task, agentId: string): string | null {
 export { validateBatchAssignTarget };
 
 export function getAvailableTasksForAgent(
-  boardId: string,
+  habitatId: string,
   agentDomain: string,
   agentCapabilities: string[],
   filters?: { status?: TaskStatus; priority?: TaskPriority; limit?: number }
 ): Task[] {
-  const availableTasks = taskRepo.getAvailableTasksForAgent(boardId, agentDomain, filters);
+  const availableTasks = taskRepo.getAvailableTasksForAgent(habitatId, agentDomain, filters);
   const agentCapSet = new Set(agentCapabilities.map(c => c.toLowerCase()));
   return availableTasks.filter(task => {
     if (!task.requiredCapabilities || task.requiredCapabilities.length === 0) return true;
@@ -37,7 +37,7 @@ export function getAvailableTasksForAgent(
 }
 
 export function batchOperateTasks(
-  boardId: string,
+  habitatId: string,
   input: import('../../models/schemas.js').BatchTaskInput,
   actorId: string,
   actorType: 'human' | 'agent' = 'human'
@@ -49,9 +49,9 @@ export function batchOperateTasks(
 
   for (const taskId of taskIds) {
     const task = taskRepo.getTaskById(taskId);
-    const taskBoardId = task ? taskRepo.getBoardIdForTask(taskId) : null;
-    if (!task || taskBoardId !== boardId) {
-      results.push({ taskId, success: false, error: 'Task not found on this board' });
+    const taskHabitatId = task ? taskRepo.getHabitatIdForTask(taskId) : null;
+    if (!task || taskHabitatId !== habitatId) {
+      results.push({ taskId, success: false, error: 'Task not found on this habitat' });
       failureCount++;
       continue;
     }

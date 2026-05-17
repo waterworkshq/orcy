@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { tasks, taskDependencies, features, featureDependencies } from '../db/schema/index.js';
+import { tasks, taskDependencies, missions, missionDependencies } from '../db/schema/index.js';
 import { eq, and, or, not, lt, gt, isNull, isNotNull, sql, count, notInArray, notExists, inArray, max, asc, desc, like } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
@@ -9,7 +9,7 @@ import { logger } from '../lib/logger.js';
 import { normalizeTaskId } from '@orcy/shared';
 
 export interface CreateTaskInput {
-  featureId: string;
+  missionId: string;
   title: string;
   description?: string;
   labels?: string[];
@@ -58,14 +58,14 @@ export function createTask(input: CreateTaskInput): Task {
     const result = db
       .select({ maxOrder: max(tasks.order) })
       .from(tasks)
-      .where(eq(tasks.featureId, input.featureId))
+      .where(eq(tasks.missionId, input.missionId))
       .get();
     order = (result?.maxOrder ?? -1) + 1;
   }
 
   db.insert(tasks).values({
     id,
-    featureId: input.featureId,
+    missionId: input.missionId,
     title: input.title,
     description: input.description ?? '',
     priority: input.priority ?? 'medium',
@@ -83,9 +83,9 @@ export function createTask(input: CreateTaskInput): Task {
   return getTaskById(id)!;
 }
 
-export function getTaskByTitle(featureId: string, title: string): Task | null {
+export function getTaskByTitle(missionId: string, title: string): Task | null {
   const db = getDb();
-  return db.select().from(tasks).where(and(eq(tasks.featureId, featureId), eq(tasks.title, title))).get() ?? null;
+  return db.select().from(tasks).where(and(eq(tasks.missionId, missionId), eq(tasks.title, title))).get() ?? null;
 }
 
 export function getTaskById(id: string): Task | null {
@@ -94,17 +94,17 @@ export function getTaskById(id: string): Task | null {
   return db.select().from(tasks).where(eq(tasks.id, normalized)).get() as Task ?? null;
 }
 
-export function getTasksByFeatureId(
-  featureId: string,
+export function getTasksByMissionId(
+  missionId: string,
   filters?: { status?: TaskStatus; priority?: TaskPriority; limit?: number; offset?: number }
 ): Task[] {
   const db = getDb();
 
-  const ids = featureId.startsWith('feat-')
-    ? [featureId]
-    : [featureId, `feat-${featureId}`];
+  const ids = missionId.startsWith('miss-')
+    ? [missionId]
+    : [missionId, `miss-${missionId}`];
 
-  const conditions = [inArray(tasks.featureId, ids)];
+  const conditions = [inArray(tasks.missionId, ids)];
   if (filters?.status) conditions.push(eq(tasks.status, filters.status));
   if (filters?.priority) conditions.push(eq(tasks.priority, filters.priority));
 
@@ -116,22 +116,22 @@ export function getTasksByFeatureId(
     : query.all() as Task[];
 }
 
-export function getTasksByFeatureIds(featureIds: string[]): Task[] {
-  if (featureIds.length === 0) return [];
+export function getTasksByMissionIds(missionIds: string[]): Task[] {
+  if (missionIds.length === 0) return [];
   const db = getDb();
-  const expanded = featureIds.flatMap(id =>
-    id.startsWith('feat-') ? [id] : [id, `feat-${id}`]
+  const expanded = missionIds.flatMap(id =>
+    id.startsWith('miss-') ? [id] : [id, `miss-${id}`]
   );
   return db
     .select()
     .from(tasks)
-    .where(inArray(tasks.featureId, expanded))
+    .where(inArray(tasks.missionId, expanded))
     .orderBy(asc(tasks.order), asc(tasks.createdAt))
     .all() as Task[];
 }
 
 export function getAvailableTasksForAgent(
-  boardId: string,
+  habitatId: string,
   agentDomain: string,
   filters?: { status?: TaskStatus; priority?: TaskPriority; limit?: number }
 ): Task[] {
@@ -144,14 +144,14 @@ export function getAvailableTasksForAgent(
 
   const domainCondition = or(isNull(outerTasks.requiredDomain), eq(outerTasks.requiredDomain, agentDomain))!;
 
-  const boardFeatures = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const habitatMissions = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all();
-  const boardFeatureIds = boardFeatures.map(f => f.id);
+  const habitatMissionIds = habitatMissions.map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return [];
+  if (habitatMissionIds.length === 0) return [];
 
   const unmetDeps = db
     .select()
@@ -164,36 +164,36 @@ export function getAvailableTasksForAgent(
       )
     );
 
-  const unmetFeatureDeps = db
+  const unmetMissionDeps = db
     .select()
-    .from(featureDependencies)
-    .innerJoin(features, eq(featureDependencies.dependsOnId, features.id))
+    .from(missionDependencies)
+    .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
     .where(
       and(
-        eq(featureDependencies.featureId, features.id),
-        notInArray(features.status, ['done'])
+        eq(missionDependencies.missionId, missions.id),
+        notInArray(missions.status, ['done'])
       )
     );
 
-  const eligibleFeatureIds = boardFeatureIds.filter(fid => {
+  const eligibleMissionIds = habitatMissionIds.filter(fid => {
     const deps = db
       .select()
-      .from(featureDependencies)
-      .innerJoin(features, eq(featureDependencies.dependsOnId, features.id))
+      .from(missionDependencies)
+      .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
       .where(
         and(
-          eq(featureDependencies.featureId, fid),
-          notInArray(features.status, ['done'])
+          eq(missionDependencies.missionId, fid),
+          notInArray(missions.status, ['done'])
         )
       )
       .all();
     return deps.length === 0;
   });
 
-  if (eligibleFeatureIds.length === 0) return [];
+  if (eligibleMissionIds.length === 0) return [];
 
   const conditions = [
-    inArray(outerTasks.featureId, eligibleFeatureIds),
+    inArray(outerTasks.missionId, eligibleMissionIds),
     statusCondition,
     domainCondition,
     notExists(unmetDeps),
@@ -560,27 +560,27 @@ export interface TaskListFilters {
   sortDirection?: 'asc' | 'desc';
 }
 
-export function getTasksByBoardId(
-  boardId: string,
+export function getTasksByHabitatId(
+  habitatId: string,
   filters?: TaskListFilters
 ): { tasks: Task[]; total: number } {
   const db = getDb();
 
-  const featureConditions = [eq(features.boardId, boardId)];
+  const missionConditions = [eq(missions.habitatId, habitatId)];
   if (filters?.isArchived !== undefined) {
-    featureConditions.push(eq(features.isArchived, filters.isArchived));
+    missionConditions.push(eq(missions.isArchived, filters.isArchived));
   }
 
-  const boardFeatures = db
-    .select({ id: features.id })
-    .from(features)
-    .where(and(...featureConditions))
+  const habitatMissions = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(and(...missionConditions))
     .all();
-  const boardFeatureIds = boardFeatures.map(f => f.id);
+  const habitatMissionIds = habitatMissions.map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return { tasks: [], total: 0 };
+  if (habitatMissionIds.length === 0) return { tasks: [], total: 0 };
 
-  const conditions = [inArray(tasks.featureId, boardFeatureIds)];
+  const conditions = [inArray(tasks.missionId, habitatMissionIds)];
   if (filters?.status) conditions.push(eq(tasks.status, filters.status));
   if (filters?.priority) conditions.push(eq(tasks.priority, filters.priority));
   if (filters?.search) {
@@ -632,15 +632,15 @@ export function getTasksByBoardId(
   return { tasks: results as Task[], total };
 }
 
-export function getFeatureIdForTask(taskId: string): string | null {
+export function getMissionIdForTask(taskId: string): string | null {
   const task = getTaskById(taskId);
-  return task?.featureId ?? null;
+  return task?.missionId ?? null;
 }
 
-export function getBoardIdForTask(taskId: string): string | null {
+export function getHabitatIdForTask(taskId: string): string | null {
   const task = getTaskById(taskId);
   if (!task) return null;
   const db = getDb();
-  const feature = db.select({ boardId: features.boardId }).from(features).where(eq(features.id, task.featureId)).get();
-  return feature?.boardId ?? null;
+  const mission = db.select({ habitatId: missions.habitatId }).from(missions).where(eq(missions.id, task.missionId)).get();
+  return mission?.habitatId ?? null;
 }

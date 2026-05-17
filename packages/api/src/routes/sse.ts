@@ -4,11 +4,11 @@ import { authenticateRealtime, authorizeBoardAccess } from '../middleware/realti
 import type { SSEEvent } from '../models/index.js';
 
 export async function sseRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get<{ Params: { id: string } }>(
-    '/boards/:id/stream',
+  fastify.get<{ Params: { habitatId: string } }>(
+    '/habitats/:habitatId/stream',
     { preHandler: [authenticateRealtime, authorizeBoardAccess] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const boardId = request.params.id;
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+      const boardId = request.params.habitatId;
 
       reply.raw.setHeader('Content-Type', 'text/event-stream');
       reply.raw.setHeader('Cache-Control', 'no-cache');

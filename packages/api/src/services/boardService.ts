@@ -1,7 +1,7 @@
 import * as boardRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as commentRepo from '../repositories/comment.js';
 import * as templateRepo from '../repositories/template.js';
 import * as eventRepo from '../repositories/event.js';
@@ -11,18 +11,18 @@ import { badRequest } from '../errors.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as pluginManager from '../plugins/pluginManager.js';
 import { rebuildCache as rebuildBoardSecretCache } from './boardSecretCache.js';
-import * as featureService from './featureService.js';
-import type { Board, Column, Feature, Task, FeatureTemplate, AutoAssignSettings, TaskPriority } from '../models/index.js';
+import * as missionService from './featureService.js';
+import type { Habitat, Column, Mission, Task, MissionTemplate, AutoAssignSettings, TaskPriority } from '../models/index.js';
 
-export interface CreateBoardInput {
+export interface CreateHabitatInput {
   name: string;
   description?: string;
   defaultColumns?: boolean;
   teamId?: string | null;
 }
 
-export function createBoard(input: CreateBoardInput): { board: Board; columns: Column[] } {
-  const board = boardRepo.createBoard({
+export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; columns: Column[] } {
+  const habitat = boardRepo.createBoard({
     name: input.name,
     description: input.description,
     teamId: input.teamId,
@@ -30,51 +30,51 @@ export function createBoard(input: CreateBoardInput): { board: Board; columns: C
 
   let columns: Column[] = [];
   if (input.defaultColumns) {
-    columns = createDefaultColumns(board.id);
+    columns = createDefaultColumns(habitat.id);
   }
 
-  savedFilterRepo.seedBuiltinFilters(board.id);
+  savedFilterRepo.seedBuiltinFilters(habitat.id);
 
-  sseBroadcaster.publish(board.id, { type: 'board.created', data: board });
-  pluginManager.emitBoardCreated(board).catch(() => {});
+  sseBroadcaster.publish(habitat.id, { type: 'habitat.created', data: habitat });
+  pluginManager.emitBoardCreated(habitat).catch(() => {});
   rebuildBoardSecretCache();
-  return { board, columns };
+  return { habitat, columns };
 }
 
-export function getBoard(boardId: string): { board: Board; columns: Column[]; features: featureService.FeatureWithProgress[] } | null {
-  const result = boardRepo.getBoardWithColumnsAndTasks(boardId);
+export function getHabitat(habitatId: string): { habitat: Habitat; columns: Column[]; missions: missionService.MissionWithProgress[] } | null {
+  const result = boardRepo.getBoardWithColumnsAndTasks(habitatId);
   if (!result) return null;
 
-  const { features: featureList } = featureService.listFeatures(boardId, { isArchived: false });
+  const { missions: missionList } = missionService.listMissions(habitatId, { isArchived: false });
 
-  return { ...result, features: featureList };
+  return { habitat: result.board, columns: result.columns, missions: missionList };
 }
 
-export function listBoards(name?: string, teamIds?: string[]): Board[] {
+export function listHabitats(name?: string, teamIds?: string[]): Habitat[] {
   return boardRepo.listBoards(name, teamIds);
 }
 
-export function updateBoard(boardId: string, input: { name?: string; description?: string; retrySettings?: import('../models/index.js').RetryPolicy | null; anomalySettings?: import('../models/index.js').AnomalySettings | null; autoAssignSettings?: AutoAssignSettings | null }): Board | null {
-  const board = boardRepo.updateBoard(boardId, input);
-  if (board) {
+export function updateHabitat(habitatId: string, input: { name?: string; description?: string; retrySettings?: import('../models/index.js').RetryPolicy | null; anomalySettings?: import('../models/index.js').AnomalySettings | null; autoAssignSettings?: AutoAssignSettings | null }): Habitat | null {
+  const habitat = boardRepo.updateBoard(habitatId, input);
+  if (habitat) {
     rebuildBoardSecretCache();
-    sseBroadcaster.publish(boardId, { type: 'board.updated', data: board });
+    sseBroadcaster.publish(habitatId, { type: 'habitat.updated', data: habitat });
   }
-  return board;
+  return habitat;
 }
 
-export function deleteBoard(boardId: string): void {
-  boardRepo.deleteBoard(boardId);
+export function deleteHabitat(habitatId: string): void {
+  boardRepo.deleteBoard(habitatId);
   rebuildBoardSecretCache();
-  sseBroadcaster.publish(boardId, { type: 'board.deleted', data: { boardId } });
+  sseBroadcaster.publish(habitatId, { type: 'habitat.deleted', data: { habitatId } });
 }
 
-export function getBoardStats(boardId: string): eventRepo.BoardStats {
-  const stats = eventRepo.getBoardStats(boardId);
+export function getHabitatStats(habitatId: string): eventRepo.BoardStats {
+  const stats = eventRepo.getBoardStats(habitatId);
 
-  const columns = columnRepo.getColumnsByBoardId(boardId);
+  const columns = columnRepo.getColumnsByHabitatId(habitatId);
   stats.wipHealth = columns.map((col) => {
-    const current = featureRepo.getFeaturesByBoardId(boardId, { columnId: col.id }).total;
+    const current = missionRepo.getMissionsByHabitatId(habitatId, { columnId: col.id }).total;
     const limit = col.wipLimit;
     let health: 'ok' | 'warning' | 'exceeded' = 'ok';
     if (limit !== null) {
@@ -93,7 +93,7 @@ export function getBoardStats(boardId: string): eventRepo.BoardStats {
   return stats;
 }
 
-function createDefaultColumns(boardId: string): Column[] {
+function createDefaultColumns(habitatId: string): Column[] {
   const columns = ['Todo', 'In Progress', 'Review', 'Done'];
   const result: Column[] = [];
 
@@ -102,7 +102,7 @@ function createDefaultColumns(boardId: string): Column[] {
     const isLast = i === columns.length - 1;
 
     const col = columnRepo.createColumn({
-      boardId,
+      habitatId,
       name,
       order: i,
       requiresClaim: i > 0,
@@ -119,10 +119,10 @@ function createDefaultColumns(boardId: string): Column[] {
   return result.map((c, i) => i < result.length - 1 ? { ...c, nextColumnId: result[i + 1].id } : c);
 }
 
-export interface BoardExportData {
+export interface HabitatExportData {
   version: number;
   exportedAt: string;
-  board: {
+  habitat: {
     name: string;
     description: string;
     columns: Array<{
@@ -134,7 +134,7 @@ export interface BoardExportData {
       nextColumnName: string | null;
       isTerminal: boolean;
     }>;
-    features: Array<{
+    missions: Array<{
       title: string;
       description: string;
       acceptanceCriteria: string;
@@ -186,31 +186,31 @@ export interface BoardExportData {
 }
 
 export interface ImportResult {
-  board: Board;
+  habitat: Habitat;
   columns: Column[];
-  imported: { features: number; tasks: number; comments: number; templates: number; webhooks: number };
+  imported: { missions: number; tasks: number; comments: number; templates: number; webhooks: number };
   warnings: string[];
 }
 
-export function exportBoard(boardId: string): BoardExportData | null {
-  const result = boardRepo.getBoardWithColumnsAndTasks(boardId);
+export function exportHabitat(habitatId: string): HabitatExportData | null {
+  const result = boardRepo.getBoardWithColumnsAndTasks(habitatId);
   if (!result) return null;
 
-  const { board, columns: boardColumns } = result;
-  const webhooks = getWebhookSubscriptions(boardId).filter(w => w.boardId === boardId);
-  const templates = templateRepo.getTemplatesByBoardId(boardId).filter(t => t.boardId !== null);
-  const { features: featureList } = featureRepo.getFeaturesByBoardId(boardId);
+  const { board: habitat, columns: habitatColumns } = result;
+  const webhooks = getWebhookSubscriptions(habitatId).filter(w => w.boardId === habitatId);
+  const templates = templateRepo.getTemplatesByBoardId(habitatId).filter(t => t.habitatId !== null);
+  const { missions: missionList } = missionRepo.getMissionsByHabitatId(habitatId);
 
-  const columnMap = new Map(boardColumns.map(c => [c.id, c]));
-  const featureMap = new Map(featureList.map(f => [f.id, f]));
+  const columnMap = new Map(habitatColumns.map(c => [c.id, c]));
+  const missionMap = new Map(missionList.map(f => [f.id, f]));
 
-  const comments: BoardExportData['board']['comments'] = [];
+  const comments: HabitatExportData['habitat']['comments'] = [];
 
-  const exportedFeatures: BoardExportData['board']['features'] = featureList.map(feature => {
-    const featureTasks = taskRepo.getTasksByFeatureId(feature.id);
-    const columnName = columnMap.get(feature.columnId)?.name ?? '';
+  const exportedMissions: HabitatExportData['habitat']['missions'] = missionList.map(mission => {
+    const missionTasks = taskRepo.getTasksByMissionId(mission.id);
+    const columnName = columnMap.get(mission.columnId)?.name ?? '';
 
-    for (const task of featureTasks) {
+    for (const task of missionTasks) {
       const { comments: taskComments } = commentRepo.getCommentsByTaskId(task.id, 1000, 0);
       for (const comment of taskComments) {
         comments.push({
@@ -224,17 +224,17 @@ export function exportBoard(boardId: string): BoardExportData | null {
     }
 
     return {
-      title: feature.title,
-      description: feature.description,
-      acceptanceCriteria: feature.acceptanceCriteria,
-      priority: feature.priority,
-      labels: feature.labels,
+      title: mission.title,
+      description: mission.description,
+      acceptanceCriteria: mission.acceptanceCriteria,
+      priority: mission.priority,
+      labels: mission.labels,
       columnName,
-      status: feature.status,
-      dependsOn: feature.dependsOn.map(depId => featureMap.get(depId)?.title ?? '').filter(Boolean),
-      blocks: feature.blocks.map(blockId => featureMap.get(blockId)?.title ?? '').filter(Boolean),
-      dueAt: feature.dueAt,
-      tasks: featureTasks.map(task => ({
+      status: mission.status,
+      dependsOn: mission.dependsOn.map(depId => missionMap.get(depId)?.title ?? '').filter(Boolean),
+      blocks: mission.blocks.map(blockId => missionMap.get(blockId)?.title ?? '').filter(Boolean),
+      dueAt: mission.dueAt,
+      tasks: missionTasks.map(task => ({
         title: task.title,
         description: task.description,
         priority: task.priority,
@@ -251,10 +251,10 @@ export function exportBoard(boardId: string): BoardExportData | null {
   return {
     version: 2,
     exportedAt: new Date().toISOString(),
-    board: {
-      name: board.name,
-      description: board.description,
-      columns: boardColumns.map(col => ({
+    habitat: {
+      name: habitat.name,
+      description: habitat.description,
+      columns: habitatColumns.map(col => ({
         name: col.name,
         order: col.order,
         wipLimit: col.wipLimit,
@@ -263,7 +263,7 @@ export function exportBoard(boardId: string): BoardExportData | null {
         nextColumnName: col.nextColumnId ? columnMap.get(col.nextColumnId)?.name ?? null : null,
         isTerminal: col.isTerminal,
       })),
-      features: exportedFeatures,
+      missions: exportedMissions,
       comments,
       templates: templates.map(t => ({
         name: t.name,
@@ -287,8 +287,8 @@ export function exportBoard(boardId: string): BoardExportData | null {
   };
 }
 
-interface ImportBoardData extends BoardExportData {
-  board: BoardExportData['board'] & {
+interface ImportHabitatData extends HabitatExportData {
+  habitat: HabitatExportData['habitat'] & {
     tasks?: Array<{
       title: string;
       description: string;
@@ -301,9 +301,9 @@ interface ImportBoardData extends BoardExportData {
   };
 }
 
-export function importBoard(
-  data: ImportBoardData,
-  existingBoardId?: string
+export function importHabitat(
+  data: ImportHabitatData,
+  existingHabitatId?: string
 ): ImportResult | null {
   const warnings: string[] = [];
 
@@ -311,24 +311,24 @@ export function importBoard(
     throw badRequest(`Unsupported export version: ${data.version}`);
   }
 
-  const { board: boardData } = data;
+  const { habitat: habitatData } = data;
 
-  if (existingBoardId) {
-    boardRepo.deleteBoard(existingBoardId);
+  if (existingHabitatId) {
+    boardRepo.deleteBoard(existingHabitatId);
   }
 
-  const board = boardRepo.createBoard({
-    name: boardData.name,
-    description: boardData.description,
+  const habitat = boardRepo.createBoard({
+    name: habitatData.name,
+    description: habitatData.description,
   });
-  const boardId = board.id;
+  const habitatId = habitat.id;
 
   const columnNameToId = new Map<string, string>();
   const columns: Column[] = [];
 
-  for (const colData of boardData.columns.sort((a, b) => a.order - b.order)) {
+  for (const colData of habitatData.columns.sort((a, b) => a.order - b.order)) {
     const col = columnRepo.createColumn({
-      boardId,
+      habitatId,
       name: colData.name,
       order: colData.order,
       wipLimit: colData.wipLimit,
@@ -340,7 +340,7 @@ export function importBoard(
     columnNameToId.set(colData.name, col.id);
   }
 
-  for (const colData of boardData.columns.sort((a, b) => a.order - b.order)) {
+  for (const colData of habitatData.columns.sort((a, b) => a.order - b.order)) {
     if (colData.nextColumnName) {
       const nextColId = columnNameToId.get(colData.nextColumnName);
       if (nextColId) {
@@ -352,36 +352,36 @@ export function importBoard(
     }
   }
 
-  const featuresData = data.board.features ?? [];
-  const tasksData = data.board.tasks ?? [];
+  const missionsData = data.habitat.missions ?? [];
+  const tasksData = data.habitat.tasks ?? [];
 
-  const featureTitleToId = new Map<string, string>();
+  const missionTitleToId = new Map<string, string>();
   let taskCount = 0;
 
-  for (const featureData of featuresData) {
-    const columnId = columnNameToId.get(featureData.columnName);
+  for (const missionData of missionsData) {
+    const columnId = columnNameToId.get(missionData.columnName);
     if (!columnId) {
-      warnings.push(`Feature "${featureData.title}": column "${featureData.columnName}" not found, skipping`);
+      warnings.push(`Mission "${missionData.title}": column "${missionData.columnName}" not found, skipping`);
       continue;
     }
 
-    const feature = featureRepo.createFeature({
-      boardId,
+    const mission = missionRepo.createMission({
+      habitatId,
       columnId,
-      title: featureData.title,
-      description: featureData.description,
-      acceptanceCriteria: featureData.acceptanceCriteria,
-      priority: featureData.priority,
-      labels: featureData.labels,
+      title: missionData.title,
+      description: missionData.description,
+      acceptanceCriteria: missionData.acceptanceCriteria,
+      priority: missionData.priority,
+      labels: missionData.labels,
       createdBy: 'import',
     });
 
-    featureTitleToId.set(featureData.title, feature.id);
+    missionTitleToId.set(missionData.title, mission.id);
 
-    if (featureData.tasks) {
-      for (const taskData of featureData.tasks) {
+    if (missionData.tasks) {
+      for (const taskData of missionData.tasks) {
         taskRepo.createTask({
-          featureId: feature.id,
+          missionId: mission.id,
           title: taskData.title,
           description: taskData.description,
           priority: taskData.priority,
@@ -394,12 +394,12 @@ export function importBoard(
     }
   }
 
-  if (featuresData.length === 0 && tasksData.length > 0) {
-    const firstColumnId = columnNameToId.get(boardData.columns[0]?.name ?? '');
+  if (missionsData.length === 0 && tasksData.length > 0) {
+    const firstColumnId = columnNameToId.get(habitatData.columns[0]?.name ?? '');
     if (firstColumnId) {
       for (const taskData of tasksData) {
-        const feature = featureRepo.createFeature({
-          boardId,
+        const mission = missionRepo.createMission({
+          habitatId,
           columnId: firstColumnId,
           title: taskData.title,
           description: taskData.description,
@@ -408,7 +408,7 @@ export function importBoard(
           createdBy: taskData.createdBy ?? 'import',
         });
         taskRepo.createTask({
-          featureId: feature.id,
+          missionId: mission.id,
           title: taskData.title,
           description: taskData.description,
           priority: taskData.priority,
@@ -421,27 +421,27 @@ export function importBoard(
     }
   }
 
-  for (const featureData of featuresData) {
-    const featureId = featureTitleToId.get(featureData.title);
-    if (!featureId) continue;
+  for (const missionData of missionsData) {
+    const missionId = missionTitleToId.get(missionData.title);
+    if (!missionId) continue;
 
-    const resolvedDependsOn = (featureData.dependsOn || [])
-      .map((depTitle: string) => featureTitleToId.get(depTitle))
+    const resolvedDependsOn = (missionData.dependsOn || [])
+      .map((depTitle: string) => missionTitleToId.get(depTitle))
       .filter((id: string | undefined): id is string => id !== undefined);
 
     if (resolvedDependsOn.length > 0) {
-      featureRepo.updateFeature(featureId, { dependsOn: resolvedDependsOn });
+      missionRepo.updateMission(missionId, { dependsOn: resolvedDependsOn });
     }
   }
 
   let commentCount = 0;
   const taskTitleToId = new Map<string, string>();
-  const { tasks: allTasks } = taskRepo.getTasksByBoardId(boardId);
+  const { tasks: allTasks } = taskRepo.getTasksByHabitatId(habitatId);
   for (const task of allTasks) {
     taskTitleToId.set(task.title, task.id);
   }
 
-  const commentsData = data.board.comments ?? [];
+  const commentsData = data.habitat.comments ?? [];
   for (const commentData of commentsData) {
     const taskId = taskTitleToId.get(commentData.taskTitle);
     if (!taskId) continue;
@@ -457,13 +457,13 @@ export function importBoard(
   }
 
   let templateCount = 0;
-  for (const tmplData of boardData.templates) {
+  for (const tmplData of habitatData.templates) {
     templateRepo.createTemplate({
-      boardId,
+      habitatId,
       name: tmplData.name,
       titlePattern: tmplData.titlePattern,
       descriptionPattern: tmplData.descriptionPattern,
-      priority: tmplData.priority as FeatureTemplate['priority'],
+      priority: tmplData.priority as MissionTemplate['priority'],
       labels: tmplData.labels,
       requiredDomain: tmplData.requiredDomain,
       requiredCapabilities: tmplData.requiredCapabilities,
@@ -474,9 +474,9 @@ export function importBoard(
   }
 
   let webhookCount = 0;
-  for (const webhookData of boardData.webhooks) {
+  for (const webhookData of habitatData.webhooks) {
     createWebhookSubscription(
-      boardId,
+      habitatId,
       webhookData.name,
       webhookData.url,
       webhookData.format as 'standard' | 'slack' | 'discord',
@@ -486,13 +486,13 @@ export function importBoard(
     webhookCount++;
   }
 
-  sseBroadcaster.publish(board.id, { type: 'board.created', data: board });
+  sseBroadcaster.publish(habitat.id, { type: 'habitat.created', data: habitat });
 
   return {
-    board,
-    columns: columnRepo.getColumnsByBoardId(boardId),
+    habitat,
+    columns: columnRepo.getColumnsByHabitatId(habitatId),
     imported: {
-      features: featuresData.length || 0,
+      missions: missionsData.length || 0,
       tasks: taskCount,
       comments: commentCount,
       templates: templateCount,

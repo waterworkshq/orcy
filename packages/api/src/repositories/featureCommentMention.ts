@@ -1,17 +1,17 @@
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
-import { featureCommentMentions } from '../db/schema/index.js';
+import { missionCommentMentions } from '../db/schema/index.js';
 import { eq, inArray, asc } from 'drizzle-orm';
-import type { FeatureCommentMention } from '../models/index.js';
+import type { MissionCommentMention } from '@orcy/shared/types';
 
-export function createMentions(input: Array<Omit<FeatureCommentMention, 'id' | 'createdAt' | 'mentionedName'>>): FeatureCommentMention[] {
+export function createMentions(input: Array<Omit<MissionCommentMention, 'id' | 'createdAt' | 'mentionedName'>>): MissionCommentMention[] {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const created: FeatureCommentMention[] = [];
+  const created: MissionCommentMention[] = [];
   for (const item of input) {
     const id = uuid();
-    db.insert(featureCommentMentions)
+    db.insert(missionCommentMentions)
       .values({
         id,
         commentId: item.commentId,
@@ -27,13 +27,13 @@ export function createMentions(input: Array<Omit<FeatureCommentMention, 'id' | '
   return created;
 }
 
-export function getMentionsByCommentIds(commentIds: string[]): FeatureCommentMention[] {
+export function getMentionsByCommentIds(commentIds: string[]): MissionCommentMention[] {
   if (commentIds.length === 0) return [];
   const db = getDb();
   return db
     .select()
-    .from(featureCommentMentions)
-    .where(inArray(featureCommentMentions.commentId, commentIds))
-    .orderBy(asc(featureCommentMentions.createdAt))
-    .all() as FeatureCommentMention[];
+    .from(missionCommentMentions)
+    .where(inArray(missionCommentMentions.commentId, commentIds))
+    .orderBy(asc(missionCommentMentions.createdAt))
+    .all() as MissionCommentMention[];
 }

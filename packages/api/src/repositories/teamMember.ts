@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { teamMembers, boards } from '../db/schema/index.js';
+import { teamMembers, habitats } from '../db/schema/index.js';
 import { eq, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
@@ -66,14 +66,14 @@ export function isTeamMember(teamId: string, userId: string): boolean {
   return getMember(teamId, userId) !== null;
 }
 
-export function isTeamMemberByBoardId(boardId: string, userId: string): boolean {
+export function isTeamMemberByHabitatId(habitatId: string, userId: string): boolean {
   const db = getDb();
   const rows = db.select({
-    one: boards.id,
+    one: habitats.id,
   }).from(teamMembers)
-    .innerJoin(boards, eq(boards.teamId, teamMembers.teamId))
+    .innerJoin(habitats, eq(habitats.teamId, teamMembers.teamId))
     .where(
-      and(eq(boards.id, boardId), eq(teamMembers.userId, userId))
+      and(eq(habitats.id, habitatId), eq(teamMembers.userId, userId))
     ).all();
   return rows.length > 0;
 }

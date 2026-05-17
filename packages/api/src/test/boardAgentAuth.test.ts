@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { validatorCompiler, serializerCompiler } from 'fastify-type-provider-zod';
 import jwt from 'jsonwebtoken';
 import { initTestDb, closeDb } from '../db/index.js';
-import { boardRoutes } from '../routes/boards.js';
+import { habitatRoutes } from '../routes/habitats.js';
 import { boardAnalyticsRoutes } from '../routes/board-analytics.js';
 import { boardExportRoutes } from '../routes/board-export.js';
 import { agentRoutes } from '../routes/agents.js';
@@ -22,7 +22,7 @@ async function buildApp(): Promise<FastifyInstance> {
   app.setSerializerCompiler(serializerCompiler);
   await app.register(async (f) => {
     f.addHook('preHandler', perAgentRateLimit);
-    await f.register(boardRoutes);
+    await f.register(habitatRoutes);
     await f.register(boardAnalyticsRoutes);
     await f.register(boardExportRoutes);
     await f.register(agentRoutes);
