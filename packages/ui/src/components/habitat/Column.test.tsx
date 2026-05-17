@@ -129,13 +129,13 @@ const mockStoreState = {
   toggleColumnCollapsed: vi.fn(),
 };
 
-const useBoardStoreMock = vi.fn((selector?: any) => {
+const useHabitatStoreMock = vi.fn((selector?: any) => {
   if (selector) return selector(mockStoreState);
   return mockStoreState;
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
 describe('Column', () => {

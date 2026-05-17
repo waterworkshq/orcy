@@ -31,8 +31,8 @@ import { SkeletonCard } from '../ui/SkeletonCard.js';
 const CreateTaskForm = React.lazy(() =>
   import('./CreateTaskForm.js').then((m) => ({ default: m.CreateTaskForm }))
 );
-const CreateFeatureForm = React.lazy(() =>
-  import('./CreateMissionForm.js').then((m) => ({ default: m.CreateFeatureForm }))
+const CreateMissionForm = React.lazy(() =>
+  import('./CreateMissionForm.js').then((m) => ({ default: m.CreateMissionForm }))
 );
 const DependencyGraphModal = React.lazy(() =>
   import('./DependencyGraphModal.js').then((m) => ({ default: m.DependencyGraphModal }))
@@ -446,7 +446,7 @@ export function HabitatPage() {
       )}
       {showCreateFeature && habitatId && (
         <Suspense fallback={null}>
-          <CreateFeatureForm
+          <CreateMissionForm
             open={showCreateFeature}
             onClose={() => setShowCreateFeature(false)}
             habitatId={habitatId}

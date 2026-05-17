@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { SSEEvent, FeatureWithProgress } from '../../types/index.js';
+import type { SSEEvent, MissionWithProgress } from '../../types/index.js';
 import type { ThemeSlice } from './themeSlice.js';
 import type { HabitatSlice } from './habitatSlice.js';
 import type { MissionSlice } from './missionSlice.js';
@@ -31,7 +31,7 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
       // --- Mission lifecycle events ---
       case 'mission.created':
         if (!state.features.some((f) => f.id === event.data.id)) {
-          const featureWithProgress: FeatureWithProgress = {
+          const featureWithProgress: MissionWithProgress = {
             ...event.data,
             progress: {
               total: 0, pending: 0, claimed: 0, inProgress: 0,

@@ -46,7 +46,7 @@ export async function habitatGetMetrics(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
-  return client.getBoardMetrics(args.boardId);
+  return client.getHabitatMetrics(args.boardId);
 }
 
 export const BOARD_GET_TASK_BLOCKED_STATUS_TOOL: Tool = {

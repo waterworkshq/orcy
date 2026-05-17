@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { queryKeys } from './queryKeys.js';
-import type { Task, Subtask, PullRequest, PipelineEvent, TaskEvent, TaskComment, TaskAttachment, TaskWatcher, CrossBoardDependency, FeatureStatus } from '../types/index.js';
+import type { Task, Subtask, PullRequest, PipelineEvent, TaskEvent, TaskComment, TaskAttachment, TaskWatcher, CrossHabitatDependency, MissionStatus } from '../types/index.js';
 
 export interface SiblingTaskData {
   id: string;
@@ -16,7 +16,7 @@ export interface FeatureContextData {
   description: string;
   acceptanceCriteria: string;
   priority: string;
-  status: FeatureStatus;
+  status: MissionStatus;
 }
 
 export interface TaskDetailsData {
@@ -33,10 +33,10 @@ export interface TaskDetailsData {
   watchers: TaskWatcher[];
   isWatching: boolean;
   dependencies: Task[];
-  crossBoardDependsOn: CrossBoardDependency[];
+  crossHabitatDependsOn: CrossHabitatDependency[];
   blockedBy: Task[];
   blocking: Task[];
-  boardContext: { name: string; columns: { name: string; featureCount: number }[] };
+  habitatContext: { name: string; columns: { name: string; featureCount: number }[] };
 }
 
 export function useTaskDetails(taskId: string | undefined) {

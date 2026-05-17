@@ -5,7 +5,7 @@ import { useTaskDetailPanel } from './useTaskDetailPanel.js';
 vi.mock('../store/habitatStore.js', () => ({
   useHabitatStore: vi.fn((selector?: any) => {
     const state = {
-      tasks: [{ id: 'task-1', featureId: 'feat-1', title: 'Test Task', status: 'pending', priority: 'medium', labels: [] }],
+      tasks: [{ id: 'task-1', missionId: 'feat-1', title: 'Test Task', status: 'pending', priority: 'medium', labels: [] }],
       agents: [],
       setSelectedTask: vi.fn(),
       updateTask: vi.fn(),
@@ -85,7 +85,7 @@ vi.mock('../lib/useTaskData.js', () => ({
       attachments: [],
       isWatching: false,
       dependencies: [],
-      crossBoardDependsOn: [],
+      crossHabitatDependsOn: [],
       blockedBy: [],
       blocking: [],
       comments: [],

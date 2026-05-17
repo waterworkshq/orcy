@@ -17,11 +17,11 @@ export async function adminCreateScheduledTask(
     cronExpression?: string;
     intervalMinutes?: number;
     timezone?: string;
-    featureTitle: string;
-    featureDescription?: string;
-    featurePriority?: 'low' | 'medium' | 'high' | 'critical';
-    featureLabels?: string[];
-    featureDomain?: string;
+    missionTitle: string;
+    missionDescription?: string;
+    missionPriority?: 'low' | 'medium' | 'high' | 'critical';
+    missionLabels?: string[];
+    missionDomain?: string;
     tasksTemplate?: Array<{
       title: string;
       description?: string;
@@ -61,11 +61,11 @@ export async function adminUpdateScheduledTask(
     intervalMinutes?: number;
     timezone?: string;
     enabled?: boolean;
-    featureTitle?: string;
-    featureDescription?: string;
-    featurePriority?: 'low' | 'medium' | 'high' | 'critical';
-    featureLabels?: string[];
-    featureDomain?: string;
+    missionTitle?: string;
+    missionDescription?: string;
+    missionPriority?: 'low' | 'medium' | 'high' | 'critical';
+    missionLabels?: string[];
+    missionDomain?: string;
     tasksTemplate?: Array<{
       title: string;
       description?: string;

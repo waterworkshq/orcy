@@ -8,7 +8,7 @@ interface TaskDependenciesProps {
   task: { dependsOn: string[] };
   taskId: string;
   dependencies: Task[];
-  crossBoardDependsOn: CrossHabitatDependency[];
+  crossHabitatDependsOn: CrossHabitatDependency[];
   blockedBy: Task[];
   blocking: Task[];
   boardTasks: { id: string; title: string; status: string }[];
@@ -22,7 +22,7 @@ export function TaskDependencies({
   task,
   taskId,
   dependencies,
-  crossBoardDependsOn,
+  crossHabitatDependsOn,
   blockedBy,
   blocking,
   boardTasks,
@@ -37,7 +37,7 @@ export function TaskDependencies({
   const existingDepIds = new Set([
     ...task.dependsOn,
     ...dependencies.map((d) => d.id),
-    ...crossBoardDependsOn.map((d) => d.taskId),
+    ...crossHabitatDependsOn.map((d) => d.taskId),
   ]);
 
   const availableTasks = boardTasks.filter(
@@ -66,7 +66,7 @@ export function TaskDependencies({
         <div className="mb-4">
           <h4 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
             <Link2 className="h-3 w-3" />
-            Depends On ({dependencies.length + crossBoardDependsOn.length})
+            Depends On ({dependencies.length + crossHabitatDependsOn.length})
           </h4>
           <div className="space-y-1">
             {dependencies.map((dep) => {
@@ -101,7 +101,7 @@ export function TaskDependencies({
                 </div>
               );
             })}
-            {crossBoardDependsOn.map((dep) => {
+            {crossHabitatDependsOn.map((dep) => {
               const isDone = dep.status === 'done' || dep.status === 'approved';
               return (
                 <button

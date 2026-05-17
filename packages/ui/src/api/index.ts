@@ -3,19 +3,19 @@
  * and returns typed responses. All API calls flow through here.
  */
 import type {
-  Board,
+  Habitat,
   Task,
   Agent,
   TaskEvent,
   TaskContext,
   TaskComment,
   Subtask,
-  CreateTaskInFeatureInput,
+  CreateTaskInMissionInput,
   MoveTaskInput,
   Artifact,
   TaskPriority,
-  EnrichedBoardEvent,
-  FeatureTemplate,
+  EnrichedHabitatEvent,
+  MissionTemplate,
   DashboardStats,
   PresenceEntry,
   DecompositionResult,
@@ -37,24 +37,23 @@ import type {
   TeamMember,
   PullRequest,
   PipelineEvent,
-  CrossBoardDependency,
-  Feature,
-  FeatureWithProgress,
-  FeatureEvent,
-  CreateFeatureInput,
-  MoveFeatureInput,
-  FeatureDecompositionResult,
+  CrossHabitatDependency,
+  Mission,
+  MissionWithProgress,
+  MissionEvent,
+  CreateMissionInput,
+  MoveMissionInput,
   TaskQualityReport,
   ApprovalStatus,
   TaskTimeReport,
-  BoardTimeMetrics,
+  HabitatTimeMetrics,
   TaskBlockedStatus,
   Pulse,
   PulseDigest,
   PostPulseInput,
   PulseReactionCounts,
   ProjectInsight,
-  FeatureComment,
+  MissionComment,
   ScheduledTask,
   TaskTemplateEntry,
   SavedFilter,
@@ -176,24 +175,24 @@ export const api = {
    */
   habitats: {
     list: () =>
-      request<{ boards: Board[] }>('/habitats').then((r) => r.boards),
+      request<{ boards: Habitat[] }>('/habitats').then((r) => r.boards),
     get: (id: string) =>
-      request<{ board: Board; columns: Board['columns']; features: FeatureWithProgress[] }>(
+      request<{ board: Habitat; columns: Habitat['columns']; features: MissionWithProgress[] }>(
         `/habitats/${id}`
       ),
     create: (data: { name: string; description?: string; teamId?: string | null }) =>
-      request<{ board: Board; columns: Board['columns'] }>('/habitats', {
+      request<{ board: Habitat; columns: Habitat['columns'] }>('/habitats', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     update: (id: string, data: { name?: string; description?: string; retrySettings?: import('../types/index.js').RetryPolicy | null; anomalySettings?: AnomalySettings | null; autoAssignSettings?: AutoAssignSettings | null; prioritizationSettings?: PrioritizationSettings | null }) =>
-      request<{ board: Board }>(`/habitats/${id}`, {
+      request<{ board: Habitat }>(`/habitats/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
     delete: (id: string) => request<void>(`/habitats/${id}`, { method: 'DELETE' }),
     stats: (id: string) =>
-      request<import('../types/index.js').BoardStats>(`/habitats/${id}/stats`),
+      request<import('../types/index.js').HabitatStats>(`/habitats/${id}/stats`),
     events: (
       boardId: string,
       filters?: {
@@ -213,7 +212,7 @@ export const api = {
       if (filters?.actorId) params.set('actorId', filters.actorId);
       if (filters?.since) params.set('since', filters.since);
       const qs = params.toString();
-      return request<{ events: EnrichedBoardEvent[]; total: number }>(
+      return request<{ events: EnrichedHabitatEvent[]; total: number }>(
         `/habitats/${boardId}/events${qs ? `?${qs}` : ''}`
       );
     },
@@ -222,21 +221,21 @@ export const api = {
       if (params?.include) queryParams.set('include', params.include);
       if (params?.format) queryParams.set('format', params.format);
       const qs = queryParams.toString();
-      return request<import('../types/index.js').BoardExport>(
+      return request<import('../types/index.js').HabitatExport>(
         `/habitats/${boardId}/export${qs ? `?${qs}` : ''}`
       );
     },
-    import: (data: import('../types/index.js').BoardExport) =>
+    import: (data: import('../types/index.js').HabitatExport) =>
       request<{
-        board: Board;
-        columns: Board['columns'];
+        board: Habitat;
+        columns: Habitat['columns'];
         imported: { tasks: number; comments: number; templates: number; webhooks: number };
         warnings: string[];
       }>('/boards/import', { method: 'POST', body: JSON.stringify(data) }),
-    importInto: (boardId: string, data: import('../types/index.js').BoardExport) =>
+    importInto: (boardId: string, data: import('../types/index.js').HabitatExport) =>
       request<{
-        board: Board;
-        columns: Board['columns'];
+        board: Habitat;
+        columns: Habitat['columns'];
         imported: { tasks: number; comments: number; templates: number; webhooks: number };
         warnings: string[];
       }>(`/habitats/${boardId}/import`, { method: 'POST', body: JSON.stringify(data) }),
@@ -309,41 +308,41 @@ export const api = {
       if (filters?.limit) params.set('limit', String(filters.limit));
       if (filters?.offset) params.set('offset', String(filters.offset));
       const qs = params.toString();
-      return request<{ features: FeatureWithProgress[]; total: number }>(
+      return request<{ features: MissionWithProgress[]; total: number }>(
         `/habitats/${boardId}/missions${qs ? `?${qs}` : ''}`
       );
     },
     get: (id: string) =>
-      request<{ feature: FeatureWithProgress }>(`/missions/${id}`),
+      request<{ feature: MissionWithProgress }>(`/missions/${id}`),
     details: (id: string) =>
       request<{
-        feature: FeatureWithProgress;
+        feature: MissionWithProgress;
         tasks: Task[];
-        events: FeatureEvent[];
+        events: MissionEvent[];
         progress: { completed: number; total: number; percentage: number; byStatus: Record<string, number> };
         dependencies: { dependsOn: string[]; blocks: string[] };
       }>(`/missions/${id}/details`),
-    create: (boardId: string, data: CreateFeatureInput) =>
-      request<{ feature: Feature }>(`/habitats/${boardId}/missions`, {
+    create: (boardId: string, data: CreateMissionInput) =>
+      request<{ feature: Mission }>(`/habitats/${boardId}/missions`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: Partial<Feature> & { version?: number }) =>
-      request<{ feature: Feature }>(`/missions/${id}`, {
+    update: (id: string, data: Partial<Mission> & { version?: number }) =>
+      request<{ feature: Mission }>(`/missions/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
     delete: (id: string) => request<void>(`/missions/${id}`, { method: 'DELETE' }),
-    archive: (id: string) => request<{ feature: Feature }>(`/missions/${id}/archive`, { method: 'POST' }),
-    unarchive: (id: string) => request<{ feature: Feature }>(`/missions/${id}/unarchive`, { method: 'POST' }),
-    move: (id: string, data: MoveFeatureInput) =>
-      request<{ feature: Feature }>(`/missions/${id}/move`, {
+    archive: (id: string) => request<{ feature: Mission }>(`/missions/${id}/archive`, { method: 'POST' }),
+    unarchive: (id: string) => request<{ feature: Mission }>(`/missions/${id}/unarchive`, { method: 'POST' }),
+    move: (id: string, data: MoveMissionInput) =>
+      request<{ feature: Mission }>(`/missions/${id}/move`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     tasks: (featureId: string) =>
       request<{ tasks: Task[]; total: number }>(`/missions/${featureId}/tasks`),
-    createTask: (featureId: string, data: CreateTaskInFeatureInput) =>
+    createTask: (featureId: string, data: CreateTaskInMissionInput) =>
       request<{ task: Task }>(`/missions/${featureId}/tasks`, {
         method: 'POST',
         body: JSON.stringify(data),
@@ -351,7 +350,7 @@ export const api = {
     progress: (featureId: string) =>
       request<{ completed: number; total: number; percentage: number; byStatus: Record<string, number> }>(`/missions/${featureId}/progress`),
     decompose: (featureId: string) =>
-      request<FeatureDecompositionResult>(`/missions/${featureId}/decompose`, {
+      request<DecompositionResult>(`/missions/${featureId}/decompose`, {
         method: 'POST',
       }),
   },
@@ -360,7 +359,7 @@ export const api = {
    * Task lifecycle — get, update, claim, start, submit, approve/reject, delegation.
    */
   tasks: {
-    get: (id: string) => request<{ task: Task; dependencies: Task[]; blockedBy: Task[]; blocking: Task[]; boardContext: TaskContext['boardContext'] }>(`/tasks/${id}`),
+    get: (id: string) => request<{ task: Task; dependencies: Task[]; blockedBy: Task[]; blocking: Task[]; habitatContext: TaskContext['habitatContext'] }>(`/tasks/${id}`),
     update: (id: string, data: Partial<Task> & { version?: number }) =>
       request<{ task: Task }>(`/tasks/${id}`, {
         method: 'PATCH',
@@ -448,10 +447,10 @@ export const api = {
         watchers: TaskWatcher[];
         isWatching: boolean;
         dependencies: Task[];
-        crossBoardDependsOn: CrossBoardDependency[];
+        crossHabitatDependsOn: CrossHabitatDependency[];
         blockedBy: Task[];
         blocking: Task[];
-        boardContext: { name: string; columns: { name: string; featureCount: number }[] };
+        habitatContext: { name: string; columns: { name: string; featureCount: number }[] };
       }>(`/tasks/${id}/details`),
     decompose: (id: string) =>
       request<DecompositionResult>(`/tasks/${id}/decompose`, {
@@ -625,17 +624,17 @@ export const api = {
       if (filters?.limit) params.set('limit', String(filters.limit));
       if (filters?.offset) params.set('offset', String(filters.offset));
       const qs = params.toString();
-      return request<{ comments: FeatureComment[]; total: number }>(
+      return request<{ comments: MissionComment[]; total: number }>(
         `/missions/${featureId}/comments${qs ? `?${qs}` : ''}`
       );
     },
     create: (featureId: string, data: { content: string; parentId?: string }) =>
-      request<{ comment: FeatureComment }>(`/missions/${featureId}/comments`, {
+      request<{ comment: MissionComment }>(`/missions/${featureId}/comments`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     update: (featureId: string, commentId: string, data: { content: string }) =>
-      request<{ comment: FeatureComment }>(`/missions/${featureId}/comments/${commentId}`, {
+      request<{ comment: MissionComment }>(`/missions/${featureId}/comments/${commentId}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
@@ -646,7 +645,7 @@ export const api = {
   /** Task templates — create, apply, and track usage. */
   templates: {
     list: (boardId: string) =>
-      request<{ templates: FeatureTemplate[] }>(`/habitats/${boardId}/templates`),
+      request<{ templates: MissionTemplate[] }>(`/habitats/${boardId}/templates`),
     create: (boardId: string, data: {
       name: string;
       titlePattern: string;
@@ -656,7 +655,7 @@ export const api = {
       requiredDomain?: string | null;
       requiredCapabilities?: string[];
     }) =>
-      request<{ template: FeatureTemplate }>(`/habitats/${boardId}/templates`, {
+      request<{ template: MissionTemplate }>(`/habitats/${boardId}/templates`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -669,7 +668,7 @@ export const api = {
       requiredDomain?: string | null;
       requiredCapabilities?: string[];
     }) =>
-      request<{ template: FeatureTemplate }>(`/templates/${id}`, {
+      request<{ template: MissionTemplate }>(`/templates/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
@@ -867,7 +866,7 @@ export const api = {
     getTaskReport: (taskId: string) =>
       request<TaskTimeReport>(`/tasks/${taskId}/time-report`),
     getBoardMetrics: (boardId: string) =>
-      request<BoardTimeMetrics>(`/habitats/${boardId}/metrics`),
+      request<HabitatTimeMetrics>(`/habitats/${boardId}/metrics`),
     updateEstimate: (taskId: string, estimatedMinutes: number) =>
       request<{ task: Task }>(`/tasks/${taskId}/estimate`, {
         method: 'PUT',

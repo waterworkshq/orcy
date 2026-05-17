@@ -38,13 +38,13 @@ let boardStoreState: Record<string, any> = {
   agents: [] as Agent[],
 };
 
-const useBoardStoreMock = vi.fn((selector?: any) => {
+const useHabitatStoreMock = vi.fn((selector?: any) => {
   if (selector) return selector(boardStoreState);
   return boardStoreState;
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
 const mockTaskDetails = vi.fn();
@@ -173,10 +173,10 @@ describe('TaskDetailModal', () => {
         watchers: [],
         isWatching: false,
         dependencies: [] as TaskType[],
-        crossBoardDependsOn: [],
+        crossHabitatDependsOn: [],
         blockedBy: [] as TaskType[],
         blocking: [] as TaskType[],
-        boardContext: { name: 'Board', columns: [] },
+        habitatContext: { name: 'Board', columns: [] },
       },
       isLoading: false,
     });
@@ -495,10 +495,10 @@ describe('TaskDetailModal', () => {
         watchers: [],
         isWatching: false,
         dependencies: [],
-        crossBoardDependsOn: [],
+        crossHabitatDependsOn: [],
         blockedBy: [],
         blocking: [],
-        boardContext: { name: 'Board', columns: [] },
+        habitatContext: { name: 'Board', columns: [] },
       },
       isLoading: false,
     });

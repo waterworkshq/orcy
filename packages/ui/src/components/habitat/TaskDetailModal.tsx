@@ -107,7 +107,7 @@ export function TaskDetailModal() {
   const dependencies = taskDetails?.dependencies ?? [];
   const blockedBy = taskDetails?.blockedBy ?? [];
   const blocking = taskDetails?.blocking ?? [];
-  const crossBoardDependsOn = taskDetails?.crossBoardDependsOn ?? [];
+  const crossHabitatDependsOn = taskDetails?.crossHabitatDependsOn ?? [];
 
   const handleClose = useCallback(() => {
     setVisible(false);
@@ -269,7 +269,7 @@ export function TaskDetailModal() {
                       task={{ dependsOn: dependencies.map((d) => d.id) }}
                       taskId={task.id}
                       dependencies={dependencies}
-                      crossBoardDependsOn={crossBoardDependsOn}
+                      crossHabitatDependsOn={crossHabitatDependsOn}
                       blockedBy={blockedBy}
                       blocking={blocking}
                       boardTasks={tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }))}

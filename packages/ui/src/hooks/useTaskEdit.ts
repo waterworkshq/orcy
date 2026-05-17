@@ -100,13 +100,13 @@ export function useTaskEdit(
         version: task.version,
       });
 
-      if (task.featureId && (editDueAt || editSlaMinutes)) {
+      if (task.missionId && (editDueAt || editSlaMinutes)) {
         const featureUpdate: { dueAt?: string | null; slaMinutes?: number | null } = {};
         if (editDueAt) featureUpdate.dueAt = editDueAt;
         else featureUpdate.dueAt = null;
         if (editSlaMinutes) featureUpdate.slaMinutes = parseInt(editSlaMinutes, 10);
         else featureUpdate.slaMinutes = null;
-        await api.missions.update(task.featureId, featureUpdate);
+        await api.missions.update(task.missionId, featureUpdate);
       }
 
       const updatedLabels = editForm.labels.split(',').map(l => l.trim()).filter(Boolean);

@@ -10,7 +10,7 @@ import { useTaskDependencies, type UseTaskDependenciesResult } from './useTaskDe
 import { useTaskReview, type UseTaskReviewResult } from './useTaskReview.js';
 import { useTaskActions, type UseTaskActionsResult } from './useTaskActions.js';
 import { useTaskWatch, type UseTaskWatchResult } from './useTaskWatch.js';
-import type { Task, Subtask, SubtaskProposal, Agent, TaskEvent, PullRequest, PipelineEvent, TaskAttachment, TaskComment, CrossBoardDependency } from '../types/index.js';
+import type { Task, Subtask, SubtaskProposal, Agent, TaskEvent, PullRequest, PipelineEvent, TaskAttachment, TaskComment, CrossHabitatDependency } from '../types/index.js';
 
 export interface UseTaskDetailPanelOptions {
   editTaskId?: string | null;
@@ -86,7 +86,7 @@ export interface UseTaskDetailPanelResult {
   attachments: TaskAttachment[];
   isWatching: boolean;
   dependencies: Task[];
-  crossBoardDependsOn: CrossBoardDependency[];
+  crossHabitatDependsOn: CrossHabitatDependency[];
   blockedBy: Task[];
   blocking: Task[];
   comments: TaskComment[];
@@ -103,7 +103,7 @@ export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {
   const features = useHabitatStore((s) => s.features);
   const column = task
     ? (() => {
-        const feat = features.find((f) => f.id === task.featureId);
+        const feat = features.find((f) => f.id === task.missionId);
         if (!feat) return undefined;
         return columns.find((c) => c.id === feat.columnId);
       })()
@@ -145,7 +145,7 @@ export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {
     attachments: detailsData?.attachments ?? [],
     isWatching: detailsData?.isWatching ?? false,
     dependencies: detailsData?.dependencies ?? [],
-    crossBoardDependsOn: detailsData?.crossBoardDependsOn ?? [],
+    crossHabitatDependsOn: detailsData?.crossHabitatDependsOn ?? [],
     blockedBy: detailsData?.blockedBy ?? [],
     blocking: detailsData?.blocking ?? [],
     comments: detailsData?.comments ?? [],

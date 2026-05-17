@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { FeatureDetailPage } from './MissionDetailPage.js';
+import { MissionDetailPage } from './MissionDetailPage.js';
 import type {
   MissionWithProgress,
   Task,
@@ -14,7 +14,7 @@ function makeFeature(
   overrides: Partial<MissionWithProgress> & { id: string }
 ): MissionWithProgress {
   return {
-    habitatId: 'board-1',
+    habitatId: 'habitat-1',
     columnId: 'col-1',
     title: 'Test Feature',
     description: 'A test feature description',
@@ -115,7 +115,7 @@ const { mockFeatureDetails, mockOpenModal, mockCommentsList } = vi.hoisted(() =>
 
 vi.mock('../api/index.js', () => ({
   api: {
-    features: {
+    missions: {
       details: (...args: any[]) => mockFeatureDetails(...args),
     },
     comments: {
@@ -208,7 +208,7 @@ vi.mock('lucide-react', () => ({
 }));
 
 function renderWithProviders(
-  initialPath = '/features/feat-123',
+  initialPath = '/missions/feat-123',
   options: { queryClient?: QueryClient } = {}
 ) {
   const qc =
@@ -221,7 +221,7 @@ function renderWithProviders(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route path="/features/:id" element={<FeatureDetailPage />} />
+          <Route path="/missions/:id" element={<MissionDetailPage />} />
           <Route path="/boards/:habitatId" element={<div>Board Page</div>} />
         </Routes>
       </MemoryRouter>
@@ -229,7 +229,7 @@ function renderWithProviders(
   );
 }
 
-describe('FeatureDetailPage', () => {
+describe('MissionDetailPage', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2024-06-15T14:30:00Z'));
@@ -262,7 +262,7 @@ describe('FeatureDetailPage', () => {
       dependencies: { dependsOn: [], blocks: [] },
     });
 
-    renderWithProviders('/features/feat-123');
+    renderWithProviders('/missions/feat-123');
 
     await waitFor(() => {
       expect(mockFeatureDetails).toHaveBeenCalledWith('feat-123');
@@ -647,7 +647,7 @@ describe('FeatureDetailPage', () => {
   });
 });
 
-describe('FeatureDetailPage integration', () => {
+describe('MissionDetailPage integration', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date('2024-06-15T14:30:00Z'));
@@ -662,7 +662,7 @@ describe('FeatureDetailPage integration', () => {
     mockCommentsList.mockReset();
   });
 
-  it('navigates to /features/:id and shows feature detail', async () => {
+  it('navigates to /missions/:id and shows feature detail', async () => {
     const feature = makeFeature({
       id: 'feat-456',
       title: 'Integration Feature',
@@ -679,7 +679,7 @@ describe('FeatureDetailPage integration', () => {
       dependencies: { dependsOn: [], blocks: [] },
     });
 
-    renderWithProviders('/features/feat-456');
+    renderWithProviders('/missions/feat-456');
 
     await waitFor(() => {
       expect(screen.getByText('Integration Feature')).toBeTruthy();
@@ -710,7 +710,7 @@ describe('FeatureDetailPage integration', () => {
       dependencies: { dependsOn: ['feat-other'], blocks: [] },
     });
 
-    renderWithProviders('/features/feat-789');
+    renderWithProviders('/missions/feat-789');
 
     await waitFor(() => {
       expect(screen.getByText('Full Page Feature')).toBeTruthy();
@@ -753,7 +753,7 @@ describe('FeatureDetailPage integration', () => {
   it('shows 404 error for not found mission', async () => {
     mockFeatureDetails.mockRejectedValue(new Error('Not Found'));
 
-    renderWithProviders('/features/nonexistent');
+    renderWithProviders('/missions/nonexistent');
 
     await waitFor(() => {
       expect(screen.getByText('Mission not found')).toBeTruthy();
@@ -763,7 +763,7 @@ describe('FeatureDetailPage integration', () => {
   it('shows generic error on fetch failure', async () => {
     mockFeatureDetails.mockRejectedValue(new Error('Network error'));
 
-    renderWithProviders('/features/feat-123');
+    renderWithProviders('/missions/feat-123');
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load mission')).toBeTruthy();
@@ -771,7 +771,7 @@ describe('FeatureDetailPage integration', () => {
   });
 
   it('renders back to habitat link', async () => {
-    const feature = makeFeature({ id: 'feat-123', habitatId: 'board-1' });
+    const feature = makeFeature({ id: 'feat-123', habitatId: 'habitat-1' });
     mockFeatureDetails.mockResolvedValue({
       feature,
       tasks: [],
@@ -784,7 +784,7 @@ describe('FeatureDetailPage integration', () => {
 
     await waitFor(() => {
       const backLink = screen.getByText('Back to Habitat').closest('a');
-      expect(backLink?.getAttribute('href')).toBe('/boards/board-1');
+      expect(backLink?.getAttribute('href')).toBe('/boards/habitat-1');
     });
   });
 });

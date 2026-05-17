@@ -36,15 +36,15 @@ describe('board_list_features', () => {
         progress: { total: 3, pending: 1, claimed: 0, inProgress: 1, submitted: 0, approved: 1, done: 0, failed: 0, rejected: 0 },
       },
     ];
-    client.listFeatures.mockResolvedValue({ features: mockFeatures, total: 1 });
+    client.listMissions.mockResolvedValue({ missions: mockFeatures, total: 1 });
 
     const raw = await MISSION_DISPATCH_HANDLER(client, { action: 'list', boardId: 'board-1' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result.features).toHaveLength(1);
+    expect(result.missions).toHaveLength(1);
     expect(result.total).toBe(1);
-    expect(result.features[0].title).toBe('Auth Feature');
-    expect(client.listFeatures).toHaveBeenCalledWith('board-1', {
+    expect(result.missions[0].title).toBe('Auth Feature');
+    expect(client.listMissions).toHaveBeenCalledWith('board-1', {
       status: undefined,
       priority: undefined,
       limit: undefined,
@@ -53,11 +53,11 @@ describe('board_list_features', () => {
 
   it('passes through status and priority filters', async () => {
     const client = createMockClient();
-    client.listFeatures.mockResolvedValue({ features: [], total: 0 });
+    client.listMissions.mockResolvedValue({ missions: [], total: 0 });
 
     await MISSION_DISPATCH_HANDLER(client, { action: 'list', boardId: 'board-1', status: 'in_progress', priority: 'high', limit: 10 });
 
-    expect(client.listFeatures).toHaveBeenCalledWith('board-1', {
+    expect(client.listMissions).toHaveBeenCalledWith('board-1', {
       status: 'in_progress',
       priority: 'high',
       limit: 10,
@@ -89,7 +89,7 @@ describe('board_create_feature', () => {
       updatedAt: '2026-01-01T00:00:00Z',
       version: 1,
     };
-    client.createFeature.mockResolvedValue({ feature: mockFeature });
+    client.createMission.mockResolvedValue({ mission: mockFeature });
 
     const raw = await MISSION_DISPATCH_HANDLER(client, {
       action: 'create',
@@ -100,9 +100,9 @@ describe('board_create_feature', () => {
     });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result.feature.id).toBe('feat-new');
-    expect(result.feature.title).toBe('New Feature');
-    expect(client.createFeature).toHaveBeenCalledWith('board-1', {
+    expect(result.mission.id).toBe('feat-new');
+    expect(result.mission.title).toBe('New Feature');
+    expect(client.createMission).toHaveBeenCalledWith('board-1', {
       title: 'New Feature',
       description: 'A new feature',
       acceptanceCriteria: undefined,
@@ -114,7 +114,7 @@ describe('board_create_feature', () => {
 
   it('passes all optional parameters', async () => {
     const client = createMockClient();
-    client.createFeature.mockResolvedValue({ feature: { id: 'feat-1' } });
+    client.createMission.mockResolvedValue({ mission: { id: 'feat-1' } });
 
     await MISSION_DISPATCH_HANDLER(client, {
       action: 'create',
@@ -127,7 +127,7 @@ describe('board_create_feature', () => {
       dependsOn: ['feat-other'],
     });
 
-    expect(client.createFeature).toHaveBeenCalledWith('board-1', {
+    expect(client.createMission).toHaveBeenCalledWith('board-1', {
       title: 'Full Feature',
       description: 'Desc',
       acceptanceCriteria: 'AC',
@@ -140,9 +140,9 @@ describe('board_create_feature', () => {
     });
   });
 
-  it('forwards dueAt, slaMinutes, and blocks to client.createFeature', async () => {
+  it('forwards dueAt, slaMinutes, and blocks to client.createMission', async () => {
     const client = createMockClient();
-    client.createFeature.mockResolvedValue({ feature: { id: 'feat-1' } });
+    client.createMission.mockResolvedValue({ mission: { id: 'feat-1' } });
 
     await MISSION_DISPATCH_HANDLER(client, {
       action: 'create',
@@ -153,7 +153,7 @@ describe('board_create_feature', () => {
       blocks: ['feat-blocked-1', 'feat-blocked-2'],
     });
 
-    expect(client.createFeature).toHaveBeenCalledWith('board-1', {
+    expect(client.createMission).toHaveBeenCalledWith('board-1', {
       title: 'SLA Feature',
       description: undefined,
       acceptanceCriteria: undefined,
@@ -186,21 +186,21 @@ describe('board_create_feature schema', () => {
 describe('board_delete_feature', () => {
   it('deletes a feature', async () => {
     const client = createMockClient();
-    client.deleteFeature.mockResolvedValue(undefined);
+    client.deleteMission.mockResolvedValue(undefined);
 
-    const raw = await MISSION_DISPATCH_HANDLER(client, { action: 'delete', featureId: 'feat-1' });
+    const raw = await MISSION_DISPATCH_HANDLER(client, { action: 'delete', missionId: 'feat-1' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result).toEqual({ success: true, featureId: 'feat-1', message: 'Mission feat-1 deleted' });
-    expect(client.deleteFeature).toHaveBeenCalledWith('feat-1');
+    expect(result).toEqual({ success: true, missionId: 'feat-1', message: 'Mission feat-1 deleted' });
+    expect(client.deleteMission).toHaveBeenCalledWith('feat-1');
   });
 
   it('propagates API errors', async () => {
     const client = createMockClient();
-    client.deleteFeature.mockRejectedValue(new Error('Mission not found'));
+    client.deleteMission.mockRejectedValue(new Error('Mission not found'));
 
     await expect(
-      MISSION_DISPATCH_HANDLER(client, { action: 'delete', featureId: 'feat-999' })
+      MISSION_DISPATCH_HANDLER(client, { action: 'delete', missionId: 'feat-999' })
     ).rejects.toThrow('Mission not found');
   });
 });
@@ -212,14 +212,14 @@ describe('feature_list_tasks', () => {
       { id: 'task-1', featureId: 'feat-1', title: 'Task 1', status: 'pending' as const, priority: 'high' as const },
       { id: 'task-2', featureId: 'feat-1', title: 'Task 2', status: 'in_progress' as const, priority: 'medium' as const },
     ];
-    client.listTasksInFeature.mockResolvedValue({ tasks: mockTasks, total: 2 });
+    client.listTasksInMission.mockResolvedValue({ tasks: mockTasks, total: 2 });
 
-    const raw = await TASK_DISPATCH_HANDLER(client, { action: 'list-in-mission', featureId: 'feat-1' });
+    const raw = await TASK_DISPATCH_HANDLER(client, { action: 'list-in-mission', missionId: 'feat-1' });
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.tasks).toHaveLength(2);
     expect(result.total).toBe(2);
-    expect(client.listTasksInFeature).toHaveBeenCalledWith('feat-1');
+    expect(client.listTasksInMission).toHaveBeenCalledWith('feat-1');
   });
 });
 
@@ -227,11 +227,11 @@ describe('feature_create_task', () => {
   it('creates a task within a feature', async () => {
     const client = createMockClient();
     const mockTask = { id: 'task-new', featureId: 'feat-1', title: 'New Task', status: 'pending' as const, priority: 'medium' as const };
-    client.createTaskInFeature.mockResolvedValue({ task: mockTask });
+    client.createTaskInMission.mockResolvedValue({ task: mockTask });
 
     const raw = await TASK_DISPATCH_HANDLER(client, {
       action: 'create-in-mission',
-      featureId: 'feat-1',
+      missionId: 'feat-1',
       title: 'New Task',
       description: 'A description',
       priority: 'medium',
@@ -239,7 +239,7 @@ describe('feature_create_task', () => {
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.task.id).toBe('task-new');
-    expect(client.createTaskInFeature).toHaveBeenCalledWith('feat-1', {
+    expect(client.createTaskInMission).toHaveBeenCalledWith('feat-1', {
       title: 'New Task',
       description: 'A description',
       priority: 'medium',
@@ -251,11 +251,11 @@ describe('feature_create_task', () => {
 
   it('passes all optional parameters', async () => {
     const client = createMockClient();
-    client.createTaskInFeature.mockResolvedValue({ task: { id: 'task-1' } });
+    client.createTaskInMission.mockResolvedValue({ task: { id: 'task-1' } });
 
     await TASK_DISPATCH_HANDLER(client, {
       action: 'create-in-mission',
-      featureId: 'feat-1',
+      missionId: 'feat-1',
       title: 'Full Task',
       description: 'Desc',
       priority: 'critical',
@@ -264,7 +264,7 @@ describe('feature_create_task', () => {
       estimatedMinutes: 120,
     });
 
-    expect(client.createTaskInFeature).toHaveBeenCalledWith('feat-1', {
+    expect(client.createTaskInMission).toHaveBeenCalledWith('feat-1', {
       title: 'Full Task',
       description: 'Desc',
       priority: 'critical',
@@ -276,10 +276,10 @@ describe('feature_create_task', () => {
 });
 
 describe('feature_get_context', () => {
-  it('returns feature context with tasks', async () => {
+  it('returns mission context with tasks', async () => {
     const client = createMockClient();
     const mockContext = {
-      feature: {
+      mission: {
         id: 'feat-1',
         boardId: 'board-1',
         columnId: 'col-1',
@@ -295,14 +295,14 @@ describe('feature_get_context', () => {
         blocking: [],
       },
     };
-    client.getFeatureContext.mockResolvedValue(mockContext);
+    client.getMissionContext.mockResolvedValue(mockContext);
 
-    const raw = await MISSION_DISPATCH_HANDLER(client, { action: 'get-context', featureId: 'feat-1' });
+    const raw = await MISSION_DISPATCH_HANDLER(client, { action: 'get-context', missionId: 'feat-1' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result.feature.title).toBe('Auth Feature');
-    expect(result.feature.tasks).toHaveLength(2);
-    expect(client.getFeatureContext).toHaveBeenCalledWith('feat-1');
+    expect(result.mission.title).toBe('Auth Feature');
+    expect(result.mission.tasks).toHaveLength(2);
+    expect(client.getMissionContext).toHaveBeenCalledWith('feat-1');
   });
 });
 
@@ -455,13 +455,13 @@ describe('board_list_boards', () => {
       { id: 'board-1', name: 'Sprint 24', description: 'Sprint board', columns: [] },
       { id: 'board-2', name: 'Backlog', description: 'Feature backlog', columns: [] },
     ];
-    client.listBoards.mockResolvedValue({ boards: mockBoards });
+    client.listHabitats.mockResolvedValue({ habitats: mockBoards });
 
     const raw = await HABITAT_DISPATCH_HANDLER(client, { action: 'list' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result.boards).toHaveLength(2);
-    expect(result.boards[0].id).toBe('board-1');
+    expect(result.habitats).toHaveLength(2);
+    expect(result.habitats[0].id).toBe('board-1');
   });
 });
 
@@ -471,13 +471,13 @@ describe('board_find', () => {
     const mockBoards = [
       { id: 'board-1', name: 'Sprint 24', description: 'Current sprint', columns: [] },
     ];
-    client.listBoards.mockResolvedValue({ boards: mockBoards });
+    client.listHabitats.mockResolvedValue({ habitats: mockBoards });
 
     const raw = await HABITAT_DISPATCH_HANDLER(client, { action: 'find', name: 'Sprint' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result.boards).toHaveLength(1);
-    expect(client.listBoards).toHaveBeenCalledWith('Sprint');
+    expect(result.habitats).toHaveLength(1);
+    expect(client.listHabitats).toHaveBeenCalledWith('Sprint');
   });
 });
 

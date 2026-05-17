@@ -189,7 +189,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             task={{ dependsOn: p.dependencies.map((d) => d.id) }}
             taskId={p.task.id}
             dependencies={p.dependencies}
-            crossBoardDependsOn={p.crossBoardDependsOn}
+            crossHabitatDependsOn={p.crossHabitatDependsOn}
             blockedBy={p.blockedBy}
             blocking={p.blocking}
             boardTasks={tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }))}

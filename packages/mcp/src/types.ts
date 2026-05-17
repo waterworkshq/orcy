@@ -3,18 +3,18 @@ import type {
   TaskStatus,
   Artifact,
   Agent,
-  Board,
+  Habitat,
   Column,
-  Feature,
-  FeatureStatus,
-  FeatureWithProgress,
-  FeatureEvent,
-  FeatureTemplate,
+  Mission,
+  MissionStatus,
+  MissionWithProgress,
+  MissionEvent,
+  MissionTemplate,
   TaskEvent,
   TaskComment,
   Subtask,
   ActorType,
-  FeatureEventAction,
+  MissionEventAction,
 } from '@orcy/shared';
 
 export type {
@@ -22,18 +22,18 @@ export type {
   TaskStatus,
   Artifact,
   Agent,
-  Board,
+  Habitat,
   Column,
-  Feature,
-  FeatureStatus,
-  FeatureWithProgress,
-  FeatureEvent,
-  FeatureTemplate,
+  Mission,
+  MissionStatus,
+  MissionWithProgress,
+  MissionEvent,
+  MissionTemplate,
   TaskEvent,
   TaskComment,
   Subtask,
   ActorType,
-  FeatureEventAction,
+  MissionEventAction,
 };
 
 export interface ListSubtasksResponse {
@@ -42,8 +42,8 @@ export interface ListSubtasksResponse {
   completedCount: number;
 }
 
-export interface FeatureContext {
-  feature: Feature;
+export interface MissionContext {
+  mission: Mission;
   tasks: Array<{
     id: string;
     title: string;
@@ -52,15 +52,15 @@ export interface FeatureContext {
     artifacts: Artifact[];
     assignedAgentId: string | null;
   }>;
-  dependencies: Feature[];
-  blocking: Feature[];
+  dependencies: Mission[];
+  blocking: Mission[];
   pulse?: PulseDigest;
   projectInsights?: ProjectInsight[];
 }
 
 export interface TaskContext {
   task: Task;
-  feature: {
+  mission: {
     id: string;
     title: string;
     description: string;
@@ -77,7 +77,7 @@ export interface TaskContext {
   dependencies: Task[];
   blockedBy: Task[];
   blocking: Task[];
-  boardContext: BoardContext;
+  habitatContext: HabitatContext;
 }
 
 export interface ClaimTaskResponse {
@@ -136,7 +136,7 @@ export interface AgentStatusResponse {
   taskStatus: string | null;
 }
 
-export interface BoardContext {
+export interface HabitatContext {
   name: string;
   columns: { name: string; taskCount: number }[];
 }
@@ -252,14 +252,14 @@ export interface CreateWebhookResponse {
 }
 
 export interface ListTemplatesResponse {
-  templates: FeatureTemplate[];
+  templates: MissionTemplate[];
 }
 
 export interface CreateTemplateResponse {
-  template: FeatureTemplate;
+  template: MissionTemplate;
 }
 
-export interface BoardSettings {
+export interface HabitatSettings {
   id: string;
   name: string;
   description: string;
@@ -308,44 +308,44 @@ export interface ActivityPeriod {
   };
 }
 
-export interface ListFeaturesResponse {
-  features: FeatureWithProgress[];
+export interface ListMissionsResponse {
+  missions: MissionWithProgress[];
   total: number;
 }
 
-export interface ListTasksInFeatureResponse {
+export interface ListTasksInMissionResponse {
   tasks: Task[];
   total: number;
 }
 
-export interface FeatureProgressResponse {
+export interface MissionProgressResponse {
   completed: number;
   total: number;
   percentage: number;
   byStatus: Record<string, number>;
 }
 
-export interface FeatureDetailsResponse {
-  feature: FeatureWithProgress;
+export interface MissionDetailsResponse {
+  mission: MissionWithProgress;
   tasks: Task[];
-  events: FeatureEvent[];
+  events: MissionEvent[];
   progress: { completed: number; total: number; percentage: number; byStatus: Record<string, number> };
   dependencies: { dependsOn: string[]; blocks: string[] };
 }
 
-export interface BoardSummary {
-  board: {
+export interface HabitatSummary {
+  habitat: {
     name: string;
     description: string;
-    columns: { name: string; featureCount: number; isTerminal: boolean }[];
-    totalFeatures: number;
+    columns: { name: string; missionCount: number; isTerminal: boolean }[];
+    totalMissions: number;
   };
   snapshot: {
     byStatus: Record<string, number>;
     byPriority: Record<string, number>;
     activeAgents: { name: string; currentTask: string | null }[];
-    blockedFeatures: { title: string; blockedBy: string[] }[];
-    overdueFeatures: { title: string; dueAt: string }[];
+    blockedMissions: { title: string; blockedBy: string[] }[];
+    overdueMissions: { title: string; dueAt: string }[];
   };
   recentActivity: ActivityPeriod[];
   digest: string;

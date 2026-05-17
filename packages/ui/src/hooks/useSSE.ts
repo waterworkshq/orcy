@@ -79,9 +79,9 @@ export function useSSE(boardId: string) {
           qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
           qc.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
           const task = useHabitatStore.getState().tasks.find(t => t.id === taskId);
-          if (task?.featureId) {
-            qc.invalidateQueries({ queryKey: queryKeys.missions.progress(task.featureId) });
-            qc.invalidateQueries({ queryKey: queryKeys.missions.detail(task.featureId) });
+          if (task?.missionId) {
+            qc.invalidateQueries({ queryKey: queryKeys.missions.progress(task.missionId) });
+            qc.invalidateQueries({ queryKey: queryKeys.missions.detail(task.missionId) });
           }
         }
         qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });

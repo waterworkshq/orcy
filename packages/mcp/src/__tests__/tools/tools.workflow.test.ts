@@ -11,7 +11,7 @@ describe('Full MCP workflow - create feature → create task → claim → start
     const agentId = 'agent-123';
 
     // Step 1: Create feature
-    const createdFeature = {
+    const createdMission = {
       id: 'feat-1', boardId: 'board-1', columnId: 'col-todo',
       title: 'Auth Feature', status: 'not_started' as const, priority: 'high' as const,
       description: 'Implement authentication', acceptanceCriteria: 'Users can log in',
@@ -19,15 +19,15 @@ describe('Full MCP workflow - create feature → create task → claim → start
       dueAt: null, slaMinutes: null, slaDeadlineAt: null,
       createdBy: agentId, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', version: 1,
     };
-    client.createFeature.mockResolvedValue({ feature: createdFeature });
+    client.createMission.mockResolvedValue({ mission: createdMission });
 
-    const featureRaw = await MISSION_DISPATCH_HANDLER(client, {
+    const missionRaw = await MISSION_DISPATCH_HANDLER(client, {
       action: 'create',
       boardId: 'board-1', title: 'Auth Feature', priority: 'high',
     });
-    const featureResult = JSON.parse(featureRaw.content[0].text);
-    expect(featureResult.feature.status).toBe('not_started');
-    expect(featureResult.feature.id).toBe('feat-1');
+    const missionResult = JSON.parse(missionRaw.content[0].text);
+    expect(missionResult.mission.status).toBe('not_started');
+    expect(missionResult.mission.id).toBe('feat-1');
 
     // Step 2: Create task within feature
     const createdTask = {
@@ -35,28 +35,28 @@ describe('Full MCP workflow - create feature → create task → claim → start
       status: 'pending' as const, priority: 'high' as const,
       assignedAgentId: null, createdBy: agentId,
     };
-    client.createTaskInFeature.mockResolvedValue({ task: createdTask });
+    client.createTaskInMission.mockResolvedValue({ task: createdTask });
 
     const taskRaw = await TASK_DISPATCH_HANDLER(client, {
       action: 'create-in-mission',
-      featureId: 'feat-1', title: 'Login endpoint', priority: 'high',
+      missionId: 'feat-1', title: 'Login endpoint', priority: 'high',
     });
     const taskResult = JSON.parse(taskRaw.content[0].text);
     expect(taskResult.task.status).toBe('pending');
     expect(taskResult.task.featureId).toBe('feat-1');
 
     // Step 3: Get feature context (read feature brief + sibling results)
-    const featureContext = {
-      feature: { id: 'feat-1', title: 'Auth Feature', description: 'Implement authentication', acceptanceCriteria: 'Users can log in', status: 'in_progress', priority: 'high', boardId: 'board-1', columnId: 'col-todo', labels: [], displayOrder: 0, dependsOn: [], blocks: [], dueAt: null, slaMinutes: null, slaDeadlineAt: null, createdBy: agentId, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', version: 1, progress: { total: 1, pending: 1, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0 } },
+    const missionContext = {
+      mission: { id: 'feat-1', title: 'Auth Feature', description: 'Implement authentication', acceptanceCriteria: 'Users can log in', status: 'in_progress', priority: 'high', boardId: 'board-1', columnId: 'col-todo', labels: [], displayOrder: 0, dependsOn: [], blocks: [], dueAt: null, slaMinutes: null, slaDeadlineAt: null, createdBy: agentId, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', version: 1, progress: { total: 1, pending: 1, claimed: 0, inProgress: 0, submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0 } },
       tasks: [{ id: 'task-1', title: 'Login endpoint', status: 'pending', result: null, artifacts: [], assignedAgentId: null }],
       dependencies: [],
       blocking: [],
     };
-    client.getFeatureContext.mockResolvedValue(featureContext);
+    client.getMissionContext.mockResolvedValue(missionContext);
 
-    const contextRaw = await MISSION_DISPATCH_HANDLER(client, { action: 'get-context', featureId: 'feat-1' });
+    const contextRaw = await MISSION_DISPATCH_HANDLER(client, { action: 'get-context', missionId: 'feat-1' });
     const contextResult = JSON.parse(contextRaw.content[0].text);
-    expect(contextResult.feature.title).toBe('Auth Feature');
+    expect(contextResult.mission.title).toBe('Auth Feature');
     expect(contextResult.tasks).toHaveLength(1);
 
     // Step 4: Claim task
@@ -164,12 +164,12 @@ describe('Full MCP workflow - create feature → create task → claim → start
         progress: { total: 3, pending: 1, claimed: 0, inProgress: 1, submitted: 0, approved: 1, done: 0, failed: 0, rejected: 0 },
       },
     ];
-    client.listFeatures.mockResolvedValue({ features: mockFeatures, total: 1 });
+    client.listMissions.mockResolvedValue({ missions: mockFeatures, total: 1 });
 
     const raw = await MISSION_DISPATCH_HANDLER(client, { action: 'list', boardId: 'board-1' });
     const result = JSON.parse(raw.content[0].text);
 
-    expect(result.features[0].progress.total).toBe(3);
-    expect(result.features[0].progress.inProgress).toBe(1);
+    expect(result.missions[0].progress.total).toBe(3);
+    expect(result.missions[0].progress.inProgress).toBe(1);
   });
 });

@@ -8,7 +8,7 @@ import { Button } from '../ui/Button.js';
 import { Badge } from '../ui/Badge.js';
 import { CreateTaskForm } from './CreateTaskForm.js';
 import { X, Plus, Sparkles, Trash2, ChevronRight, Clock, CheckCircle, AlertCircle, Loader2, Archive, RefreshCw } from 'lucide-react';
-import type { Task, MissionWithProgress, MissionDecompositionResult } from '../../types/index.js';
+import type { Task, MissionWithProgress } from '../../types/index.js';
 
 const taskStatusVariant: Record<string, string> = {
   pending: 'pending',
@@ -57,8 +57,8 @@ export function FeatureDetailPanel() {
   async function handleDecompose() {
     setDecomposing(true);
     try {
-      const result = await api.missions.decompose(feature!.id) as MissionDecompositionResult;
-      notify.success(`Created ${result.tasks.length} tasks`);
+      const result = await api.missions.decompose(feature!.id);
+      notify.success(`Created ${result.proposals.length} tasks`);
     } catch (err) {
       notify.error((err as Error).message);
     } finally {

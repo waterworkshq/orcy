@@ -186,7 +186,7 @@ function makeDefaultPanelReturn(overrides: Record<string, any> = {}) {
     attachments: [] as TaskAttachment[],
     comments: [] as TaskComment[],
     dependencies: [],
-    crossBoardDependsOn: [],
+    crossHabitatDependsOn: [],
     blockedBy: [],
     blocking: [],
     dependenciesLoading: false,

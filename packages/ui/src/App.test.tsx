@@ -251,13 +251,13 @@ describe('App routes', () => {
     });
 
     const routes = [
-      { path: '/', testId: 'board-list-page' },
-      { path: '/boards/b1', testId: 'board-page' },
+      { path: '/', testId: 'habitat-list-page' },
+      { path: '/habitats/b1', testId: 'habitat-page' },
       { path: '/dashboard', testId: 'dashboard-page' },
       { path: '/teams', testId: 'teams-page' },
       { path: '/agents', testId: 'agents-page' },
       { path: '/activity', testId: 'activity-page' },
-      { path: '/features/f1', testId: 'feature-detail-page' },
+      { path: '/missions/f1', testId: 'mission-detail-page' },
       { path: '/settings', testId: 'settings-page' },
     ];
 
@@ -278,9 +278,9 @@ describe('App routes', () => {
   });
 
   it('preserves AppShell while navigating between authenticated pages', () => {
-    renderApp('/boards/b1');
+    renderApp('/habitats/b1');
 
-    expect(screen.getByTestId('board-page')).toBeInTheDocument();
+    expect(screen.getByTestId('habitat-page')).toBeInTheDocument();
     expect(screen.getByTestId('side-nav-bar')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('top-nav-pod-base'));

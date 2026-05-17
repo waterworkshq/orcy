@@ -1,15 +1,15 @@
 import type {
   Task,
   Agent,
-  Board,
+  Habitat,
   TaskStatus,
   TaskEvent,
   TaskComment,
-  FeatureComment,
+  MissionComment,
   Subtask,
-  FeatureTemplate,
-  Feature,
-  FeatureWithProgress,
+  MissionTemplate,
+  Mission,
+  MissionWithProgress,
 } from '@orcy/shared';
 import type {
   ClaimTaskResponse,
@@ -27,15 +27,15 @@ import type {
   CreateWebhookResponse,
   ListTemplatesResponse,
   CreateTemplateResponse,
-  BoardSettings,
+  HabitatSettings,
   AgentStats,
-  BoardSummary,
-  FeatureContext,
-  FeatureProgressResponse,
-  FeatureDetailsResponse,
+  HabitatSummary,
+  MissionContext,
+  MissionProgressResponse,
+  MissionDetailsResponse,
   ProjectInsight,
-  ListFeaturesResponse,
-  ListTasksInFeatureResponse,
+  ListMissionsResponse,
+  ListTasksInMissionResponse,
   Pulse,
   PulseDigest,
   PostPulseResponse,
@@ -46,10 +46,10 @@ import { getOrcyConfig, normalizeTaskId, createApiClient, ApiClientError } from 
 
 export { ApiClientError as KanbanApiError } from '@orcy/shared';
 
-function buildRelevanceTags(feature: Feature): string[] {
+function buildRelevanceTags(mission: Mission): string[] {
   const tags: string[] = [];
-  if (feature.labels) {
-    for (const label of feature.labels) {
+  if (mission.labels) {
+    for (const label of mission.labels) {
       tags.push(`label:${label}`);
     }
   }
@@ -91,8 +91,8 @@ export class KanbanApiClient {
     });
   }
 
-  async listFeatures(
-    boardId: string,
+  async listMissions(
+    habitatId: string,
     options?: {
       status?: string;
       priority?: string;
@@ -100,7 +100,7 @@ export class KanbanApiClient {
       offset?: number;
       isArchived?: boolean;
     }
-  ): Promise<ListFeaturesResponse> {
+  ): Promise<ListMissionsResponse> {
     const params = new URLSearchParams();
     if (options?.status) params.set('status', options.status);
     if (options?.priority) params.set('priority', options.priority);
@@ -108,22 +108,22 @@ export class KanbanApiClient {
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
     const query = params.toString();
-    return this.request<ListFeaturesResponse>(
+    return this.request<ListMissionsResponse>(
       'GET',
-      `/api/boards/${boardId}/features${query ? `?${query}` : ''}`
+      `/api/habitats/${habitatId}/missions${query ? `?${query}` : ''}`
     );
   }
 
-  async getFeature(featureId: string): Promise<{ feature: FeatureWithProgress }> {
-    return this.request<{ feature: FeatureWithProgress }>('GET', `/api/features/${featureId}`);
+  async getMission(missionId: string): Promise<{ mission: MissionWithProgress }> {
+    return this.request<{ mission: MissionWithProgress }>('GET', `/api/missions/${missionId}`);
   }
 
-  async getFeatureDetails(featureId: string): Promise<FeatureDetailsResponse> {
-    return this.request<FeatureDetailsResponse>('GET', `/api/features/${featureId}/details`);
+  async getMissionDetails(missionId: string): Promise<MissionDetailsResponse> {
+    return this.request<MissionDetailsResponse>('GET', `/api/missions/${missionId}/details`);
   }
 
-  async createFeature(
-    boardId: string,
+  async createMission(
+    habitatId: string,
     input: {
       title: string;
       description?: string;
@@ -135,8 +135,8 @@ export class KanbanApiClient {
       dueAt?: string;
       slaMinutes?: number;
     }
-  ): Promise<{ feature: Feature }> {
-    return this.request<{ feature: Feature }>('POST', `/api/boards/${boardId}/features`, {
+  ): Promise<{ mission: Mission }> {
+    return this.request<{ mission: Mission }>('POST', `/api/habitats/${habitatId}/missions`, {
       title: input.title,
       description: input.description,
       acceptanceCriteria: input.acceptanceCriteria,
@@ -149,24 +149,24 @@ export class KanbanApiClient {
     });
   }
 
-  async deleteFeature(featureId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/features/${featureId}`);
+  async deleteMission(missionId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/missions/${missionId}`);
   }
 
-  async archiveFeature(featureId: string): Promise<{ feature: Feature }> {
-    return this.request<{ feature: Feature }>('POST', `/api/features/${featureId}/archive`);
+  async archiveMission(missionId: string): Promise<{ mission: Mission }> {
+    return this.request<{ mission: Mission }>('POST', `/api/missions/${missionId}/archive`);
   }
 
-  async unarchiveFeature(featureId: string): Promise<{ feature: Feature }> {
-    return this.request<{ feature: Feature }>('POST', `/api/features/${featureId}/unarchive`);
+  async unarchiveMission(missionId: string): Promise<{ mission: Mission }> {
+    return this.request<{ mission: Mission }>('POST', `/api/missions/${missionId}/unarchive`);
   }
 
-  async listTasksInFeature(featureId: string): Promise<ListTasksInFeatureResponse> {
-    return this.request<ListTasksInFeatureResponse>('GET', `/api/features/${featureId}/tasks`);
+  async listTasksInMission(missionId: string): Promise<ListTasksInMissionResponse> {
+    return this.request<ListTasksInMissionResponse>('GET', `/api/missions/${missionId}/tasks`);
   }
 
-  async createTaskInFeature(
-    featureId: string,
+  async createTaskInMission(
+    missionId: string,
     input: {
       title: string;
       description?: string;
@@ -177,7 +177,7 @@ export class KanbanApiClient {
       order?: number;
     }
   ): Promise<{ task: Task }> {
-    return this.request<{ task: Task }>('POST', `/api/features/${featureId}/tasks`, {
+    return this.request<{ task: Task }>('POST', `/api/missions/${missionId}/tasks`, {
       title: input.title,
       description: input.description,
       priority: input.priority,
@@ -188,43 +188,43 @@ export class KanbanApiClient {
     });
   }
 
-  async getFeatureContext(featureId: string): Promise<FeatureContext> {
-    const details = await this.getFeatureDetails(featureId);
+  async getMissionContext(missionId: string): Promise<MissionContext> {
+    const details = await this.getMissionDetails(missionId);
 
     const depIds = details.dependencies?.dependsOn ?? [];
     const blockIds = details.dependencies?.blocks ?? [];
 
-    const dependencies: Feature[] = [];
+    const dependencies: Mission[] = [];
     for (const id of depIds) {
       try {
-        const res = await this.getFeature(id);
-        if (res.feature) dependencies.push(res.feature);
+        const res = await this.getMission(id);
+        if (res.mission) dependencies.push(res.mission);
       } catch { }
     }
 
-    const blocking: Feature[] = [];
+    const blocking: Mission[] = [];
     for (const id of blockIds) {
       try {
-        const res = await this.getFeature(id);
-        if (res.feature) blocking.push(res.feature);
+        const res = await this.getMission(id);
+        if (res.mission) blocking.push(res.mission);
       } catch { }
     }
 
     let pulseDigest: PulseDigest | undefined;
     try {
-      pulseDigest = await this.getPulseDigest(featureId);
+      pulseDigest = await this.getPulseDigest(missionId);
     } catch { }
 
     let projectInsights: ProjectInsight[] = [];
     try {
-      const tags = buildRelevanceTags(details.feature);
+      const tags = buildRelevanceTags(details.mission);
       if (tags.length > 0) {
-        projectInsights = await this.getRelevantInsights(details.feature.boardId, tags);
+        projectInsights = await this.getRelevantInsights(details.mission.habitatId, tags);
       }
     } catch { }
 
     return {
-      feature: details.feature,
+      mission: details.mission,
       tasks: details.tasks.map(t => ({
         id: t.id,
         title: t.title,
@@ -305,7 +305,7 @@ export class KanbanApiClient {
     replyToId?: string;
     metadata?: Record<string, unknown>;
   }): Promise<PostPulseResponse> {
-    return this.request<PostPulseResponse>('POST', `/api/boards/${boardId}/pulse`, input);
+    return this.request<PostPulseResponse>('POST', `/api/habitats/${boardId}/pulse`, input);
   }
 
   async getHabitatPulses(boardId: string, filters?: {
@@ -320,11 +320,11 @@ export class KanbanApiClient {
     if (filters?.limit) params.set('limit', String(filters.limit));
     if (filters?.offset) params.set('offset', String(filters.offset));
     const query = params.toString();
-    return this.request<ListPulsesResponse>('GET', `/api/boards/${boardId}/pulse${query ? `?${query}` : ''}`);
+    return this.request<ListPulsesResponse>('GET', `/api/habitats/${boardId}/pulse${query ? `?${query}` : ''}`);
   }
 
   async getHabitatPulseDigest(boardId: string): Promise<PulseDigest> {
-    return this.request<PulseDigest>('GET', `/api/boards/${boardId}/pulse/digest`);
+    return this.request<PulseDigest>('GET', `/api/habitats/${boardId}/pulse/digest`);
   }
 
   async promoteInsight(boardId: string, input: {
@@ -333,7 +333,7 @@ export class KanbanApiClient {
     subject?: string;
     body?: string;
   }): Promise<{ insight: ProjectInsight }> {
-    return this.request<{ insight: ProjectInsight }>('POST', `/api/boards/${boardId}/insights`, input);
+    return this.request<{ insight: ProjectInsight }>('POST', `/api/habitats/${boardId}/insights`, input);
   }
 
   async getInsights(boardId: string, filters?: {
@@ -348,11 +348,11 @@ export class KanbanApiClient {
     if (filters?.limit) params.set('limit', String(filters.limit));
     if (filters?.offset) params.set('offset', String(filters.offset));
     const query = params.toString();
-    return this.request<{ insights: ProjectInsight[]; total: number }>('GET', `/api/boards/${boardId}/insights${query ? `?${query}` : ''}`);
+    return this.request<{ insights: ProjectInsight[]; total: number }>('GET', `/api/habitats/${boardId}/insights${query ? `?${query}` : ''}`);
   }
 
   async deactivateInsight(boardId: string, insightId: string): Promise<void> {
-    await this.request<void>('DELETE', `/api/boards/${boardId}/insights/${insightId}`);
+    await this.request<void>('DELETE', `/api/habitats/${boardId}/insights/${insightId}`);
   }
 
   async getRelevantInsights(boardId: string, tags: string[]): Promise<ProjectInsight[]> {
@@ -364,8 +364,8 @@ export class KanbanApiClient {
     return this.request<{ added: boolean; counts: Record<string, number> }>('POST', `/api/pulse/${pulseId}/react`, { reaction });
   }
 
-  async getFeatureProgress(featureId: string): Promise<FeatureProgressResponse> {
-    return this.request<FeatureProgressResponse>('GET', `/api/features/${featureId}/progress`);
+  async getMissionProgress(missionId: string): Promise<MissionProgressResponse> {
+    return this.request<MissionProgressResponse>('GET', `/api/missions/${missionId}/progress`);
   }
 
   async claimTask(
@@ -525,18 +525,18 @@ export class KanbanApiClient {
     return this.request<{ task: Task }>('GET', `/api/tasks/${taskId}`);
   }
 
-  async getBoard(boardId: string): Promise<{ board: { id: string; name: string; columns: { name: string }[] } }> {
-    return this.request<{ board: { id: string; name: string; columns: { name: string }[] } }>(
+  async getHabitat(habitatId: string): Promise<{ habitat: { id: string; name: string; columns: { name: string }[] } }> {
+    return this.request<{ habitat: { id: string; name: string; columns: { name: string }[] } }>(
       'GET',
-      `/api/boards/${boardId}`
+      `/api/habitats/${habitatId}`
     );
   }
 
-  async listBoards(name?: string): Promise<{ boards: Board[] }> {
+  async listHabitats(name?: string): Promise<{ habitats: Habitat[] }> {
     const params = new URLSearchParams();
     if (name) params.set('name', name);
     const query = params.toString();
-    return this.request<{ boards: Board[] }>('GET', `/api/boards${query ? `?${query}` : ''}`);
+    return this.request<{ habitats: Habitat[] }>('GET', `/api/habitats${query ? `?${query}` : ''}`);
   }
 
   async getTaskEvents(
@@ -600,14 +600,14 @@ export class KanbanApiClient {
     });
   }
 
-  async createBoard(input: {
+  async createHabitat(input: {
     name: string;
     description?: string;
     defaultColumns?: boolean;
-  }): Promise<{ success: true; board: Board; columns: Board['columns'] }> {
-    return this.request<{ success: true; board: Board; columns: Board['columns'] }>(
+  }): Promise<{ success: true; habitat: Habitat; columns: Habitat['columns'] }> {
+    return this.request<{ success: true; habitat: Habitat; columns: Habitat['columns'] }>(
       'POST',
-      '/api/boards/agent',
+      '/api/habitats/agent',
       input
     );
   }
@@ -666,28 +666,28 @@ export class KanbanApiClient {
     );
   }
 
-  async getFeatureComments(
-    featureId: string,
+  async getMissionComments(
+    missionId: string,
     options?: { limit?: number; offset?: number }
-  ): Promise<{ comments: FeatureComment[]; total: number }> {
+  ): Promise<{ comments: MissionComment[]; total: number }> {
     const params = new URLSearchParams();
     if (options?.limit !== undefined) params.set('limit', String(options.limit));
     if (options?.offset !== undefined) params.set('offset', String(options.offset));
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<{ comments: FeatureComment[]; total: number }>(
+    return this.request<{ comments: MissionComment[]; total: number }>(
       'GET',
-      `/api/features/${featureId}/comments${query}`
+      `/api/missions/${missionId}/comments${query}`
     );
   }
 
-  async addFeatureComment(
-    featureId: string,
+  async addMissionComment(
+    missionId: string,
     content: string,
     parentId?: string
-  ): Promise<{ comment: FeatureComment }> {
-    return this.request<{ comment: FeatureComment }>(
+  ): Promise<{ comment: MissionComment }> {
+    return this.request<{ comment: MissionComment }>(
       'POST',
-      `/api/features/${featureId}/comments`,
+      `/api/missions/${missionId}/comments`,
       {
         content,
         ...(parentId !== undefined && { parentId }),
@@ -715,7 +715,7 @@ export class KanbanApiClient {
     if (options.actorId) params.set('actorId', options.actorId);
     if (options.entityTypes) params.set('entityTypes', options.entityTypes);
 
-    return this.request<string>('GET', `/api/boards/${boardId}/audit/export?${params.toString()}`);
+    return this.request<string>('GET', `/api/habitats/${boardId}/audit/export?${params.toString()}`);
   }
 
   async getAuditSummary(
@@ -729,24 +729,24 @@ export class KanbanApiClient {
 
     return this.request<Record<string, unknown>>(
       'GET',
-      `/api/boards/${boardId}/audit/summary${qs ? `?${qs}` : ''}`
+      `/api/habitats/${boardId}/audit/summary${qs ? `?${qs}` : ''}`
     );
   }
 
-  async getBoardHealth(boardId: string): Promise<Record<string, unknown>> {
+  async getHabitatHealth(boardId: string): Promise<Record<string, unknown>> {
     return this.request<Record<string, unknown>>(
       'GET',
-      `/api/boards/${boardId}/health`
+      `/api/habitats/${boardId}/health`
     );
   }
 
-  async getBoardHealthHistory(boardId: string, days?: number): Promise<Record<string, unknown>> {
+  async getHabitatHealthHistory(boardId: string, days?: number): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
     if (days) params.set('days', String(days));
     const qs = params.toString();
     return this.request<Record<string, unknown>>(
       'GET',
-      `/api/boards/${boardId}/health/history${qs ? `?${qs}` : ''}`
+      `/api/habitats/${boardId}/health/history${qs ? `?${qs}` : ''}`
     );
   }
 
@@ -877,7 +877,7 @@ export class KanbanApiClient {
   }
 
   async listWebhooks(boardId: string): Promise<ListWebhooksResponse> {
-    return this.request<ListWebhooksResponse>('GET', `/api/boards/${boardId}/webhooks`);
+    return this.request<ListWebhooksResponse>('GET', `/api/habitats/${boardId}/webhooks`);
   }
 
   async createWebhook(
@@ -889,7 +889,7 @@ export class KanbanApiClient {
       format?: 'standard' | 'slack' | 'discord';
     }
   ): Promise<CreateWebhookResponse> {
-    return this.request<CreateWebhookResponse>('POST', `/api/boards/${boardId}/webhooks`, input);
+    return this.request<CreateWebhookResponse>('POST', `/api/habitats/${boardId}/webhooks`, input);
   }
 
   async deleteWebhook(webhookId: string): Promise<void> {
@@ -897,7 +897,7 @@ export class KanbanApiClient {
   }
 
   async listTemplates(boardId: string): Promise<ListTemplatesResponse> {
-    return this.request<ListTemplatesResponse>('GET', `/api/boards/${boardId}/templates`);
+    return this.request<ListTemplatesResponse>('GET', `/api/habitats/${boardId}/templates`);
   }
 
   async createTemplate(
@@ -911,38 +911,38 @@ export class KanbanApiClient {
       requiredDomain?: string;
     }
   ): Promise<CreateTemplateResponse> {
-    return this.request<CreateTemplateResponse>('POST', `/api/boards/${boardId}/templates`, input);
+    return this.request<CreateTemplateResponse>('POST', `/api/habitats/${boardId}/templates`, input);
   }
 
   async deleteTemplate(templateId: string): Promise<void> {
     await this.request<void>('DELETE', `/api/templates/${templateId}`);
   }
 
-  async getBoardSettings(boardId: string): Promise<{ board: BoardSettings }> {
-    return this.request<{ board: BoardSettings }>('GET', `/api/boards/${boardId}`);
+  async getHabitatSettings(boardId: string): Promise<{ habitat: HabitatSettings }> {
+    return this.request<{ habitat: HabitatSettings }>('GET', `/api/habitats/${boardId}`);
   }
 
-  async updateBoardSettings(
+  async updateHabitatSettings(
     boardId: string,
     input: { name?: string; description?: string }
-  ): Promise<{ board: BoardSettings }> {
-    return this.request<{ board: BoardSettings }>('PATCH', `/api/boards/${boardId}`, input);
+  ): Promise<{ habitat: HabitatSettings }> {
+    return this.request<{ habitat: HabitatSettings }>('PATCH', `/api/habitats/${boardId}`, input);
   }
 
   async getAgentStats(agentId: string): Promise<{ stats: AgentStats }> {
     return this.request<{ stats: AgentStats }>('GET', `/api/agents/${agentId}/stats`);
   }
 
-  async getBoardSummary(
+  async getHabitatSummary(
     boardId: string,
     options?: { since?: string; maxTasks?: number; includeDigest?: boolean }
-  ): Promise<BoardSummary> {
+  ): Promise<HabitatSummary> {
     const params = new URLSearchParams();
     if (options?.since) params.set('since', options.since);
     if (options?.maxTasks) params.set('maxTasks', String(options.maxTasks));
     if (options?.includeDigest === false) params.set('includeDigest', 'false');
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request<BoardSummary>('GET', `/api/boards/${boardId}/summary${query}`);
+    return this.request<HabitatSummary>('GET', `/api/habitats/${boardId}/summary${query}`);
   }
 
   async getWorktree(taskId: string): Promise<{ worktree: { path: string; branch: string; repoRoot: string } | null; enabled: boolean }> {
@@ -970,7 +970,7 @@ export class KanbanApiClient {
     return this.request('GET', `/api/tasks/${taskId}/time-report`);
   }
 
-  async getBoardMetrics(boardId: string): Promise<{
+  async getHabitatMetrics(boardId: string): Promise<{
     averageCycleTime: number;
     averageLeadTime: number;
     averageEstimationAccuracy: number;
@@ -980,7 +980,7 @@ export class KanbanApiClient {
     onTimeCompletionRate: number;
     agentMetrics: { agentId: string; agentName: string; tasksCompleted: number; averageCycleTime: number; averageEstimationAccuracy: number; totalTimeTracked: number }[];
   }> {
-    return this.request('GET', `/api/boards/${boardId}/metrics`);
+    return this.request('GET', `/api/habitats/${boardId}/metrics`);
   }
 
   async addTaskDependency(taskId: string, dependsOnTaskId: string): Promise<{ success: boolean }> {
@@ -1060,7 +1060,7 @@ export class KanbanApiClient {
     failureCount: number;
     results: Array<{ taskId: string; success: boolean; error?: string }>;
   }> {
-    return this.request('POST', `/api/boards/${boardId}/tasks/batch`, {
+    return this.request('POST', `/api/habitats/${boardId}/tasks/batch`, {
       taskIds,
       operation: 'assign',
       payload: { assignedAgentId: agentId },
@@ -1076,7 +1076,7 @@ export class KanbanApiClient {
     failureCount: number;
     results: Array<{ taskId: string; success: boolean; error?: string }>;
   }> {
-    return this.request('POST', `/api/boards/${boardId}/tasks/batch`, {
+    return this.request('POST', `/api/habitats/${boardId}/tasks/batch`, {
       taskIds,
       operation: 'priority',
       payload: { priority },
@@ -1091,7 +1091,7 @@ export class KanbanApiClient {
     failureCount: number;
     results: Array<{ taskId: string; success: boolean; error?: string }>;
   }> {
-    return this.request('POST', `/api/boards/${boardId}/tasks/batch`, {
+    return this.request('POST', `/api/habitats/${boardId}/tasks/batch`, {
       taskIds,
       operation: 'delete',
       payload: {},
@@ -1099,19 +1099,19 @@ export class KanbanApiClient {
   }
 
   async getPrioritizationRules(boardId: string): Promise<{ rules: Record<string, unknown> }> {
-    return this.request<{ rules: Record<string, unknown> }>('GET', `/api/boards/${boardId}/rules`);
+    return this.request<{ rules: Record<string, unknown> }>('GET', `/api/habitats/${boardId}/rules`);
   }
 
   async updatePrioritizationRules(boardId: string, rules: Record<string, unknown>): Promise<{ rules: Record<string, unknown> }> {
-    return this.request<{ rules: Record<string, unknown> }>('PUT', `/api/boards/${boardId}/rules`, rules);
+    return this.request<{ rules: Record<string, unknown> }>('PUT', `/api/habitats/${boardId}/rules`, rules);
   }
 
   async evaluatePrioritizationRules(boardId: string): Promise<{ evaluation: Record<string, unknown> }> {
-    return this.request<{ evaluation: Record<string, unknown> }>('POST', `/api/boards/${boardId}/rules/evaluate`);
+    return this.request<{ evaluation: Record<string, unknown> }>('POST', `/api/habitats/${boardId}/rules/evaluate`);
   }
 
   async listScheduledTasks(boardId: string): Promise<{ scheduledTasks: any[] }> {
-    return this.request<{ scheduledTasks: any[] }>('GET', `/api/boards/${boardId}/scheduled-tasks`);
+    return this.request<{ scheduledTasks: any[] }>('GET', `/api/habitats/${boardId}/scheduled-tasks`);
   }
 
   async createScheduledTask(
@@ -1123,11 +1123,11 @@ export class KanbanApiClient {
       cronExpression?: string;
       intervalMinutes?: number;
       timezone?: string;
-      featureTitle: string;
-      featureDescription?: string;
-      featurePriority?: 'low' | 'medium' | 'high' | 'critical';
-      featureLabels?: string[];
-      featureDomain?: string;
+      missionTitle: string;
+      missionDescription?: string;
+      missionPriority?: 'low' | 'medium' | 'high' | 'critical';
+      missionLabels?: string[];
+      missionDomain?: string;
       tasksTemplate?: Array<{
         title: string;
         description?: string;
@@ -1139,7 +1139,7 @@ export class KanbanApiClient {
       }>;
     }
   ): Promise<{ scheduledTask: any }> {
-    return this.request<{ scheduledTask: any }>('POST', `/api/boards/${boardId}/scheduled-tasks`, input);
+    return this.request<{ scheduledTask: any }>('POST', `/api/habitats/${boardId}/scheduled-tasks`, input);
   }
 
   async getScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
@@ -1157,8 +1157,8 @@ export class KanbanApiClient {
     await this.request<void>('DELETE', `/api/scheduled-tasks/${scheduledTaskId}`);
   }
 
-  async runScheduledTask(scheduledTaskId: string): Promise<{ success: boolean; featureId?: string; error?: string }> {
-    return this.request<{ success: boolean; featureId?: string; error?: string }>('POST', `/api/scheduled-tasks/${scheduledTaskId}/run`);
+  async runScheduledTask(scheduledTaskId: string): Promise<{ success: boolean; missionId?: string; error?: string }> {
+    return this.request<{ success: boolean; missionId?: string; error?: string }>('POST', `/api/scheduled-tasks/${scheduledTaskId}/run`);
   }
 
   async enableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {

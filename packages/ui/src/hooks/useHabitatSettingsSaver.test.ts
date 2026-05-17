@@ -8,7 +8,7 @@ const mockNotifyError = vi.fn();
 
 vi.mock('../api/index.js', () => ({
   api: {
-    boards: {
+    habitats: {
       update: (...args: unknown[]) => mockUpdate(...args),
     },
   },

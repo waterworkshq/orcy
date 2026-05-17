@@ -5,7 +5,7 @@ import { Button } from '../ui/Button.js';
 import { StatCard } from '../ui/StatCard.js';
 import { X, Clock, TrendingUp, AlertTriangle, CheckCircle, AlertCircle, Layers, Timer } from 'lucide-react';
 import { formatMinutes } from '../../lib/formatting.js';
-import { useBoardStats, useMissions, useBoardTimeMetrics } from '../../lib/useHabitatData.js';
+import { useHabitatStats, useMissions, useHabitatTimeMetrics } from '../../lib/useHabitatData.js';
 
 interface StatsModalProps {
   habitatId: string;
@@ -61,9 +61,9 @@ function FeatureStatusBar({ features }: { features: MissionWithProgress[] }) {
 }
 
 export function StatsModal({ habitatId, onClose }: StatsModalProps) {
-  const { data: stats, isLoading: statsLoading } = useBoardStats(habitatId);
+  const { data: stats, isLoading: statsLoading } = useHabitatStats(habitatId);
   const { data: featuresData, isLoading: featuresLoading } = useMissions(habitatId);
-  const { data: timeMetrics } = useBoardTimeMetrics(habitatId);
+  const { data: timeMetrics } = useHabitatTimeMetrics(habitatId);
 
   const loading = statsLoading || featuresLoading;
   const features = featuresData?.features ?? [];
@@ -157,7 +157,7 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
                 <CardTitle className="text-sm">WIP Health</CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-0 space-y-2">
-                {stats.wipHealth.map((col: { columnId: string; columnName: string; habitatId: string; habitatName: string; current: number; limit: number | null; health: string }) => (
+                {stats.wipHealth.map((col) => (
                   <div key={col.columnId} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {col.health === 'ok' && <CheckCircle className="h-3.5 w-3.5 text-green-600" />}

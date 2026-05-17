@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 import dagre from 'dagre';
 import { api } from '../api/index.js';
-import type { FeatureWithProgress } from '../types/index.js';
+import type { MissionWithProgress } from '../types/index.js';
 
 const DAGRE_CONFIG = {
   rankdir: 'TB' as const,
@@ -16,7 +16,7 @@ const NODE_WIDTH = 220;
 const NODE_HEIGHT = 80;
 
 export type FeatureNodeData = {
-  feature: FeatureWithProgress;
+  feature: MissionWithProgress;
   isHighlighted: boolean;
   isDimmed: boolean;
   isDependencyMet: boolean;
@@ -66,7 +66,7 @@ export function computeChain(
 }
 
 export function computeLayout(
-  features: FeatureWithProgress[]
+  features: MissionWithProgress[]
 ): { nodes: FeatureNode[]; edges: DependencyEdge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
@@ -131,7 +131,7 @@ export function computeLayout(
 }
 
 export function useDependencyGraph(boardId: string) {
-  const [features, setFeatures] = useState<FeatureWithProgress[]>([]);
+  const [features, setFeatures] = useState<MissionWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);

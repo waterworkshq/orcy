@@ -14,7 +14,7 @@ import { api } from '../api/index.js';
 
 const makeTask = (id: string): Task => ({
   id,
-  featureId: 'feat-1',
+  missionId: 'feat-1',
   title: `Task ${id}`,
   description: '',
   priority: 'medium',
@@ -61,7 +61,7 @@ describe('modalStore', () => {
   describe('openModal', () => {
     it('sets isOpen true and selectedTaskId', async () => {
       const task = makeTask('task-1');
-      vi.mocked(api.tasks.get).mockResolvedValue({ task, dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'Board', columns: [] } });
+      vi.mocked(api.tasks.get).mockResolvedValue({ task, dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'Board', columns: [] } });
 
       await useModalStore.getState().openModal('task-1');
 
@@ -83,7 +83,7 @@ describe('modalStore', () => {
       expect(useModalStore.getState().selectedTaskId).toBe('task-42');
       expect(useModalStore.getState().isOpen).toBe(true);
 
-      resolveFetch!({ task: makeTask('task-42'), dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'B', columns: [] } });
+      resolveFetch!({ task: makeTask('task-42'), dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'B', columns: [] } });
       await openPromise;
 
       expect(useModalStore.getState().isLoading).toBe(false);
@@ -105,13 +105,13 @@ describe('modalStore', () => {
       let resolveFirst: (value: any) => void;
       const firstPromise = new Promise((resolve) => { resolveFirst = resolve; });
       vi.mocked(api.tasks.get).mockReturnValueOnce(firstPromise as any);
-      vi.mocked(api.tasks.get).mockResolvedValue({ task: makeTask('task-2'), dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'B', columns: [] } });
+      vi.mocked(api.tasks.get).mockResolvedValue({ task: makeTask('task-2'), dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'B', columns: [] } });
 
       const firstOpen = useModalStore.getState().openModal('task-1');
       const secondOpen = useModalStore.getState().openModal('task-2');
 
       await secondOpen;
-      resolveFirst!({ task: makeTask('task-1'), dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'B', columns: [] } });
+      resolveFirst!({ task: makeTask('task-1'), dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'B', columns: [] } });
       await firstOpen;
 
       const state = useModalStore.getState();
@@ -122,7 +122,7 @@ describe('modalStore', () => {
 
   describe('closeModal', () => {
     it('resets all state to initial values', async () => {
-      vi.mocked(api.tasks.get).mockResolvedValue({ task: makeTask('task-1'), dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'B', columns: [] } });
+      vi.mocked(api.tasks.get).mockResolvedValue({ task: makeTask('task-1'), dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'B', columns: [] } });
 
       await useModalStore.getState().openModal('task-1');
       expect(useModalStore.getState().isOpen).toBe(true);
@@ -140,7 +140,7 @@ describe('modalStore', () => {
   describe('setModalTask', () => {
     it('updates modalTask', async () => {
       const task = makeTask('task-1');
-      vi.mocked(api.tasks.get).mockResolvedValue({ task, dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'B', columns: [] } });
+      vi.mocked(api.tasks.get).mockResolvedValue({ task, dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'B', columns: [] } });
 
       await useModalStore.getState().openModal('task-1');
 
@@ -153,7 +153,7 @@ describe('modalStore', () => {
 
     it('handles multiple rapid open/close calls', async () => {
       vi.mocked(api.tasks.get).mockImplementation((id) =>
-        Promise.resolve({ task: makeTask(id), dependencies: [], blockedBy: [], blocking: [], boardContext: { name: 'B', columns: [] } })
+        Promise.resolve({ task: makeTask(id), dependencies: [], blockedBy: [], blocking: [], habitatContext: { name: 'B', columns: [] } })
       );
 
       const p1 = useModalStore.getState().openModal('t-1');

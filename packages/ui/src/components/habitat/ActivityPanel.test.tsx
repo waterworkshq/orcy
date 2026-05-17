@@ -12,9 +12,9 @@ const mockApiBoardsEvents = vi.fn();
 
 const mockStoreState = {
   board: { id: 'board-1', name: 'Test Board' },
-  boardEvents: [],
-  setBoardEvents: vi.fn(),
-  prependBoardEvent: vi.fn(),
+  habitatEvents: [],
+  setHabitatEvents: vi.fn(),
+  prependHabitatEvent: vi.fn(),
   agents: [],
   tasks: [],
 };
@@ -36,7 +36,7 @@ vi.mock('../../lib/useHabitatData.js', () => ({
 
 vi.mock('../../api/index.js', () => ({
   api: {
-    boards: {
+    habitats: {
       events: (...args: unknown[]) => mockApiBoardsEvents(...args),
     },
   },

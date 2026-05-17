@@ -13,7 +13,7 @@ const mockNotifyError = vi.fn();
 
 vi.mock('../../api/index.js', () => ({
   api: {
-    features: {
+    missions: {
       createTask: (...args: unknown[]) => mockCreateTask(...args),
     },
     templates: {

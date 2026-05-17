@@ -23,7 +23,7 @@ vi.mock('../../store/modalStore.js', () => ({
 
 let selectorCallLog: Array<{ selector: any; equalityFn?: any }> = [];
 
-const useBoardStoreMock = vi.fn((selectorOrState?: any, equalityFn?: any) => {
+const useHabitatStoreMock = vi.fn((selectorOrState?: any, equalityFn?: any) => {
   if (typeof selectorOrState === 'function') {
     selectorCallLog.push({ selector: selectorOrState, equalityFn });
     return selectorOrState(mockBoardState);
@@ -32,7 +32,7 @@ const useBoardStoreMock = vi.fn((selectorOrState?: any, equalityFn?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
 vi.mock('zustand/shallow', () => ({

@@ -64,13 +64,13 @@ function makeState(overrides: Record<string, any> = {}) {
 
 let storeState: Record<string, any>;
 
-const useBoardStoreMock = vi.fn((selector?: any, equalityFn?: any) => {
+const useHabitatStoreMock = vi.fn((selector?: any, equalityFn?: any) => {
   if (selector) return selector(storeState);
   return storeState;
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
 vi.mock('zustand/shallow', () => ({
@@ -326,7 +326,7 @@ describe('FeatureCard', () => {
       });
       const { container } = render(<FeatureCard feature={baseFeature} />);
       expect(screen.getByText('Test Feature')).toBeTruthy();
-      const taskSelectors = useBoardStoreMock.mock.calls.filter(
+      const taskSelectors = useHabitatStoreMock.mock.calls.filter(
         (call: any[]) => {
           if (typeof call[0] === 'function') {
             try {

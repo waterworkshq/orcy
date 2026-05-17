@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { FeatureWithProgress } from '../types/index.js';
+import type { MissionWithProgress } from '../types/index.js';
 
 vi.mock('../api/index.js', () => ({
   api: {
@@ -14,11 +14,11 @@ import { computeLayout, computeChain } from './useDependencyGraph.js';
 function makeFeatureWithProgress(overrides: {
   id: string;
   dependsOn?: string[];
-  status?: FeatureWithProgress['status'];
-}): FeatureWithProgress {
+  status?: MissionWithProgress['status'];
+}): MissionWithProgress {
   return {
     id: overrides.id,
-    boardId: 'board-1',
+    habitatId: 'board-1',
     columnId: 'col-1',
     title: `Feature ${overrides.id}`,
     description: '',

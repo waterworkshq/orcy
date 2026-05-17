@@ -1,30 +1,30 @@
 import type { StateCreator } from 'zustand';
-import type { Board, Column, EnrichedBoardEvent, FeatureWithProgress } from '../../types/index.js';
+import type { Habitat, Column, EnrichedHabitatEvent, MissionWithProgress } from '../../types/index.js';
 import type { MissionSlice } from './missionSlice.js';
 
 interface ColumnPaginationEntry {
-  features: FeatureWithProgress[];
+  features: MissionWithProgress[];
   total?: number;
   offset: number;
   isLoadingMore: boolean;
 }
 
 export interface HabitatSlice {
-  board: Board | null;
+  board: Habitat | null;
   columns: Column[];
   wipAlerts: Record<string, { limit: number; timestamp: number }>;
-  boardEvents: EnrichedBoardEvent[];
+  habitatEvents: EnrichedHabitatEvent[];
   columnPagination: Record<string, ColumnPaginationEntry | undefined>;
-  setBoard: (board: Board, columns: Column[], features: FeatureWithProgress[]) => void;
+  setBoard: (board: Habitat, columns: Column[], features: MissionWithProgress[]) => void;
   setColumns: (columns: Column[]) => void;
   updateColumn: (column: Column) => void;
   addColumn: (column: Column) => void;
   removeColumn: (columnId: string) => void;
-  updateBoard: (board: Board) => void;
-  setBoardEvents: (events: EnrichedBoardEvent[]) => void;
-  prependBoardEvent: (event: EnrichedBoardEvent) => void;
-  setColumnPagination: (columnId: string, data: { features: FeatureWithProgress[]; total?: number; offset: number }) => void;
-  appendColumnFeatures: (columnId: string, features: FeatureWithProgress[], total?: number) => void;
+  updateBoard: (board: Habitat) => void;
+  setHabitatEvents: (events: EnrichedHabitatEvent[]) => void;
+  prependHabitatEvent: (event: EnrichedHabitatEvent) => void;
+  setColumnPagination: (columnId: string, data: { features: MissionWithProgress[]; total?: number; offset: number }) => void;
+  appendColumnFeatures: (columnId: string, features: MissionWithProgress[], total?: number) => void;
   setColumnLoadingMore: (columnId: string, isLoading: boolean) => void;
   clearColumnPagination: () => void;
   clearWipAlert: (columnId: string) => void;
@@ -34,7 +34,7 @@ export const createHabitatSlice: StateCreator<HabitatSlice & MissionSlice & { se
   board: null,
   columns: [],
   wipAlerts: {},
-  boardEvents: [],
+  habitatEvents: [],
   columnPagination: {},
 
   setBoard: (board, columns, features) =>
@@ -71,11 +71,11 @@ export const createHabitatSlice: StateCreator<HabitatSlice & MissionSlice & { se
       board: state.board?.id === board.id ? board : state.board,
     })),
 
-  setBoardEvents: (events) => set({ boardEvents: events }),
+  setHabitatEvents: (events) => set({ habitatEvents: events }),
 
-  prependBoardEvent: (event) =>
+  prependHabitatEvent: (event) =>
     set((state) => ({
-      boardEvents: [event, ...state.boardEvents].slice(0, 100),
+      habitatEvents: [event, ...state.habitatEvents].slice(0, 100),
     })),
 
   setColumnPagination: (columnId, data) =>

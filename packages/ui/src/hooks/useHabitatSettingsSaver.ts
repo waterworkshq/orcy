@@ -1,11 +1,11 @@
 import { useState, useCallback } from 'react';
 import { api } from '../api/index.js';
 import { notify } from '../lib/toast.js';
-import type { Board } from '../types/index.js';
+import type { Habitat } from '../types/index.js';
 
 interface UseHabitatSettingsSaverOptions {
   habitatId: string;
-  onUpdate: (board: Board) => void;
+  onUpdate: (board: Habitat) => void;
 }
 
 export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSettingsSaverOptions) {

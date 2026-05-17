@@ -69,7 +69,7 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   ],
   sharedParams: {
     taskId: { type: 'string', description: 'Task UUID (used with most task actions)' },
-    featureId: { type: 'string', description: 'Mission UUID (action=list-in-mission, action=create-in-mission)' },
+    missionId: { type: 'string', description: 'Mission UUID (action=list-in-mission, action=create-in-mission)' },
     boardId: { type: 'string', description: 'Habitat UUID (action=list-in-mission)' },
     title: { type: 'string', description: 'Task title (action=create-in-mission, action=update)' },
     description: { type: 'string', description: 'Task description (action=create-in-mission, action=update)' },

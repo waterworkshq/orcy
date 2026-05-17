@@ -4,9 +4,9 @@ import { HabitatPage } from './HabitatPage.js';
 
 vi.mock('../../api/index.js', () => ({
   api: {
-    boards: { get: vi.fn().mockResolvedValue({ board: { id: 'board-1', name: 'Test Board' }, columns: [], features: [] }) },
+    habitats: { get: vi.fn().mockResolvedValue({ board: { id: 'board-1', name: 'Test Board' }, columns: [], features: [] }) },
     agents: { list: vi.fn().mockResolvedValue([]) },
-    features: { list: vi.fn().mockResolvedValue({ features: [] }) },
+    missions: { list: vi.fn().mockResolvedValue({ features: [] }) },
   },
 }));
 
@@ -51,7 +51,7 @@ const mockBoardStoreState: Record<string, any> = {
   error: null,
   wipAlerts: {},
   comments: {},
-  boardEvents: [],
+  habitatEvents: [],
   columnPagination: {},
   allFeaturesLoaded: false,
   presence: [],

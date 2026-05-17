@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useHabitatStore } from './habitatStore.js';
-import type { Feature, Notification } from '../types/index.js';
+import type { Mission, Notification } from '../types/index.js';
 
 const makeTask = (id: string, missionId: string) => ({
   id,
@@ -37,7 +37,7 @@ const makeTask = (id: string, missionId: string) => ({
   labels: [],
 });
 
-const makeFeature = (id: string, columnId: string): Feature => ({
+const makeFeature = (id: string, columnId: string): Mission => ({
   id,
   habitatId: 'habitat-1',
   columnId,
@@ -64,7 +64,7 @@ const makeFeature = (id: string, columnId: string): Feature => ({
   completedAt: null,
 });
 
-const paginationFor = (features: Feature[] = []) => ({
+const paginationFor = (features: Mission[] = []) => ({
   features: features as any,
   total: features.length,
   offset: 0,

@@ -1,16 +1,16 @@
 import type { StateCreator } from 'zustand';
-import type { FeatureWithProgress, FeatureStatus } from '../../types/index.js';
+import type { MissionWithProgress, MissionStatus } from '../../types/index.js';
 import type { UiSlice } from './uiSlice.js';
 
 export interface MissionSlice {
-  features: FeatureWithProgress[];
+  features: MissionWithProgress[];
   allFeaturesLoaded: boolean;
-  setFeatures: (features: FeatureWithProgress[]) => void;
-  addFeature: (feature: FeatureWithProgress) => void;
-  updateFeature: (feature: FeatureWithProgress) => void;
+  setFeatures: (features: MissionWithProgress[]) => void;
+  addFeature: (feature: MissionWithProgress) => void;
+  updateFeature: (feature: MissionWithProgress) => void;
   removeFeature: (featureId: string) => void;
   moveFeatureToColumn: (featureId: string, columnId: string) => void;
-  updateFeatureStatus: (featureId: string, status: FeatureStatus) => void;
+  updateFeatureStatus: (featureId: string, status: MissionStatus) => void;
   updateFeatureProgress: (featureId: string, completed: number, total: number) => void;
 }
 

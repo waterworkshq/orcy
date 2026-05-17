@@ -40,7 +40,7 @@ const mockBoardStoreState: Record<string, any> = {
   error: null,
   wipAlerts: {},
   comments: {},
-  boardEvents: [],
+  habitatEvents: [],
   columnPagination: {},
   allFeaturesLoaded: false,
   presence: [],
@@ -60,13 +60,13 @@ const mockBoardStoreState: Record<string, any> = {
   setBulkSelectMode: vi.fn(),
 };
 
-const useBoardStoreMock = vi.fn((selector?: any) => {
+const useHabitatStoreMock = vi.fn((selector?: any) => {
   if (selector) return selector(mockBoardStoreState);
   return mockBoardStoreState;
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
 const mockOpenModal = vi.fn();

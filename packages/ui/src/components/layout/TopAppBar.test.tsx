@@ -31,7 +31,7 @@ const mockAgents = [
 
 let notificationsState: Notification[] = [];
 
-const useBoardStoreMock = vi.fn((selector?: any) => {
+const useHabitatStoreMock = vi.fn((selector?: any) => {
   const state = {
     agents: mockAgents,
     notifications: notificationsState,
@@ -42,7 +42,7 @@ const useBoardStoreMock = vi.fn((selector?: any) => {
 });
 
 vi.mock('../../store/habitatStore.js', () => ({
-  useHabitatStore: (...args: any[]) => useBoardStoreMock(...args),
+  useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
 const makeNotification = (overrides: Partial<Notification> = {}): Notification => ({

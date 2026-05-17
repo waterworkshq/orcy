@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { queryKeys } from './queryKeys.js';
-import type { Board, FeatureWithProgress, Feature, Task, CreateFeatureInput, CreateTaskInFeatureInput, SavedFilter } from '../types/index.js';
+import type { Habitat, MissionWithProgress, Mission, Task, CreateMissionInput, CreateTaskInMissionInput, SavedFilter } from '../types/index.js';
 
 export function useBoards() {
   return useQuery({
@@ -37,11 +37,11 @@ export function useBoardAgents(boardId: string | undefined) {
   });
 }
 
-export function useBoardStats(boardId: string | undefined) {
+export function useHabitatStats(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.stats(boardId ?? ''),
-    queryFn: () => api.habitats.stats(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.stats(habitatId ?? ''),
+    queryFn: () => api.habitats.stats(habitatId!),
+    enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
   });
 }
@@ -103,7 +103,7 @@ export function useMissionProgress(missionId: string | undefined) {
 export function useCreateMission(habitatId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateFeatureInput) => api.missions.create(habitatId, data),
+    mutationFn: (data: CreateMissionInput) => api.missions.create(habitatId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
       qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
@@ -114,7 +114,7 @@ export function useCreateMission(habitatId: string) {
 export function useCreateTaskInMission(missionId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateTaskInFeatureInput) => api.missions.createTask(missionId, data),
+    mutationFn: (data: CreateTaskInMissionInput) => api.missions.createTask(missionId, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) });
       qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
@@ -205,11 +205,11 @@ export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksF
   });
 }
 
-export function useBoardTimeMetrics(boardId: string | undefined) {
+export function useHabitatTimeMetrics(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.metrics(boardId ?? ''),
-    queryFn: () => api.timeTracking.getBoardMetrics(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.metrics(habitatId ?? ''),
+    queryFn: () => api.timeTracking.getBoardMetrics(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }

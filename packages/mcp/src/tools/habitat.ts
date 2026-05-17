@@ -17,8 +17,8 @@ export async function habitatListHabitats(
   client: KanbanApiClient,
   _args: Record<string, never>
 ) {
-  const result = await client.listBoards();
-  return { boards: result.boards.map(b => ({ id: b.id, name: b.name, description: b.description })) };
+  const result = await client.listHabitats();
+  return { habitats: result.habitats.map(b => ({ id: b.id, name: b.name, description: b.description })) };
 }
 
 export const HABITAT_FIND_TOOL: Tool = {
@@ -43,8 +43,8 @@ export async function habitatFind(
   client: KanbanApiClient,
   args: { name: string }
 ) {
-  const result = await client.listBoards(args.name);
-  return { boards: result.boards.map(b => ({ id: b.id, name: b.name, description: b.description })) };
+  const result = await client.listHabitats(args.name);
+  return { habitats: result.habitats.map(b => ({ id: b.id, name: b.name, description: b.description })) };
 }
 
 export const HABITAT_GET_SETTINGS_TOOL: Tool = {
@@ -68,7 +68,7 @@ export async function habitatGetSettings(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
-  return client.getBoardSettings(args.boardId);
+  return client.getHabitatSettings(args.boardId);
 }
 
 export const HABITAT_UPDATE_SETTINGS_TOOL: Tool = {
@@ -100,7 +100,7 @@ export async function habitatUpdateSettings(
   client: KanbanApiClient,
   args: { boardId: string; name?: string; description?: string }
 ) {
-  return client.updateBoardSettings(args.boardId, {
+  return client.updateHabitatSettings(args.boardId, {
     name: args.name,
     description: args.description,
   });
@@ -146,7 +146,7 @@ export async function habitatGetSummary(
   client: KanbanApiClient,
   args: { boardId: string; since?: '24h' | '7d' | '30d' | 'all'; maxTasks?: number; includeDigest?: boolean }
 ) {
-  return client.getBoardSummary(args.boardId, {
+  return client.getHabitatSummary(args.boardId, {
     since: args.since,
     maxTasks: args.maxTasks,
     includeDigest: args.includeDigest,
@@ -172,7 +172,7 @@ export async function habitatGetHealth(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
-  return client.getBoardHealth(args.boardId);
+  return client.getHabitatHealth(args.boardId);
 }
 
 export const HABITAT_GET_HEALTH_HISTORY_TOOL: Tool = {
@@ -200,7 +200,7 @@ export async function habitatGetHealthHistory(
   client: KanbanApiClient,
   args: { boardId: string; days?: number }
 ) {
-  return client.getBoardHealthHistory(args.boardId, args.days);
+  return client.getHabitatHealthHistory(args.boardId, args.days);
 }
 
 export async function habitatGetRules(

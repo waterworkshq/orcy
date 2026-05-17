@@ -18,7 +18,7 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
   actions: ['list', 'create', 'delete', 'archive', 'unarchive', 'get-context', 'get-comments', 'add-comment'],
   sharedParams: {
     boardId: { type: 'string', description: 'Habitat UUID (used with action=list, action=create)' },
-    featureId: { type: 'string', description: 'Mission UUID (used with action=delete, action=archive, action=unarchive, action=get-context)' },
+    missionId: { type: 'string', description: 'Mission UUID (used with action=delete, action=archive, action=unarchive, action=get-context, action=get-comments, action=add-comment)' },
     title: { type: 'string', description: 'Mission title (action=create)' },
     description: { type: 'string', description: 'Mission description (action=create)' },
     acceptanceCriteria: { type: 'string', description: 'What defines completion (action=create)' },

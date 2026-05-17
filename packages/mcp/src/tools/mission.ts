@@ -74,7 +74,7 @@ export async function habitatCreateMission(
     blocks?: string[];
   }
 ) {
-  const result = await client.createFeature(args.boardId, {
+  const result = await client.createMission(args.boardId, {
     title: args.title,
     description: args.description,
     acceptanceCriteria: args.acceptanceCriteria,
@@ -85,7 +85,7 @@ export async function habitatCreateMission(
     slaMinutes: args.slaMinutes,
     blocks: args.blocks,
   });
-  return { feature: result.feature };
+  return { mission: result.mission };
 }
 
 export const HABITAT_LIST_MISSIONS_TOOL: Tool = {
@@ -126,7 +126,7 @@ export async function habitatListMissions(
   client: KanbanApiClient,
   args: { boardId: string; status?: string; priority?: string; limit?: number; isArchived?: boolean }
 ) {
-  return client.listFeatures(args.boardId, {
+  return client.listMissions(args.boardId, {
     status: args.status,
     priority: args.priority,
     limit: args.limit,
@@ -141,20 +141,20 @@ export const MISSION_LIST_TASKS_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID',
       },
     },
-    required: ['featureId'],
+    required: ['missionId'],
   },
 };
 
 export async function missionListTasks(
   client: KanbanApiClient,
-  args: { featureId: string }
+  args: { missionId: string }
 ) {
-  return client.listTasksInFeature(args.featureId);
+  return client.listTasksInMission(args.missionId);
 }
 
 export const MISSION_CREATE_TASK_TOOL: Tool = {
@@ -164,7 +164,7 @@ export const MISSION_CREATE_TASK_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Parent mission ID',
       },
@@ -195,14 +195,14 @@ export const MISSION_CREATE_TASK_TOOL: Tool = {
         description: 'Estimated time to complete in minutes',
       },
     },
-    required: ['featureId', 'title'],
+    required: ['missionId', 'title'],
   },
 };
 
 export async function missionCreateTask(
   client: KanbanApiClient,
   args: {
-    featureId: string;
+    missionId: string;
     title: string;
     description?: string;
     priority?: 'low' | 'medium' | 'high' | 'critical';
@@ -211,7 +211,7 @@ export async function missionCreateTask(
     estimatedMinutes?: number;
   }
 ) {
-  const result = await client.createTaskInFeature(args.featureId, {
+  const result = await client.createTaskInMission(args.missionId, {
     title: args.title,
     description: args.description,
     priority: args.priority,
@@ -230,20 +230,20 @@ export const MISSION_GET_CONTEXT_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID',
       },
     },
-    required: ['featureId'],
+    required: ['missionId'],
   },
 };
 
 export async function missionGetContext(
   client: KanbanApiClient,
-  args: { featureId: string }
+  args: { missionId: string }
 ) {
-  return client.getFeatureContext(args.featureId);
+  return client.getMissionContext(args.missionId);
 }
 
 export const HABITAT_DELETE_MISSION_TOOL: Tool = {
@@ -253,21 +253,21 @@ export const HABITAT_DELETE_MISSION_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID to delete',
       },
     },
-    required: ['featureId'],
+    required: ['missionId'],
   },
 };
 
 export async function habitatDeleteMission(
   client: KanbanApiClient,
-  args: { featureId: string }
+  args: { missionId: string }
 ) {
-  await client.deleteFeature(args.featureId);
-  return { success: true, featureId: args.featureId, message: `Mission ${args.featureId} deleted` };
+  await client.deleteMission(args.missionId);
+  return { success: true, missionId: args.missionId, message: `Mission ${args.missionId} deleted` };
 }
 
 export const HABITAT_LIST_ARCHIVED_MISSIONS_TOOL: Tool = {
@@ -290,7 +290,7 @@ export async function habitatListArchivedMissions(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
-  return client.listFeatures(args.boardId, {
+  return client.listMissions(args.boardId, {
     isArchived: true,
   });
 }
@@ -302,21 +302,21 @@ export const MISSION_ARCHIVE_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID to archive',
       },
     },
-    required: ['featureId'],
+    required: ['missionId'],
   },
 };
 
 export async function missionArchive(
   client: KanbanApiClient,
-  args: { featureId: string }
+  args: { missionId: string }
 ) {
-  const result = await client.archiveFeature(args.featureId);
-  return { success: true, feature: result.feature };
+  const result = await client.archiveMission(args.missionId);
+  return { success: true, mission: result.mission };
 }
 
 export const MISSION_UNARCHIVE_TOOL: Tool = {
@@ -326,21 +326,21 @@ export const MISSION_UNARCHIVE_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID to unarchive',
       },
     },
-    required: ['featureId'],
+    required: ['missionId'],
   },
 };
 
 export async function missionUnarchive(
   client: KanbanApiClient,
-  args: { featureId: string }
+  args: { missionId: string }
 ) {
-  const result = await client.unarchiveFeature(args.featureId);
-  return { success: true, feature: result.feature };
+  const result = await client.unarchiveMission(args.missionId);
+  return { success: true, mission: result.mission };
 }
 
 export const MISSION_GET_COMMENTS_TOOL: Tool = {
@@ -351,7 +351,7 @@ export const MISSION_GET_COMMENTS_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID',
       },
@@ -367,15 +367,15 @@ export const MISSION_GET_COMMENTS_TOOL: Tool = {
         minimum: 0,
       },
     },
-    required: ['featureId'],
+    required: ['missionId'],
   },
 };
 
 export async function missionGetComments(
   client: KanbanApiClient,
-  args: { featureId: string; limit?: number; offset?: number }
+  args: { missionId: string; limit?: number; offset?: number }
 ) {
-  return client.getFeatureComments(args.featureId, {
+  return client.getMissionComments(args.missionId, {
     limit: args.limit ?? 50,
     offset: args.offset ?? 0,
   });
@@ -388,7 +388,7 @@ export const MISSION_ADD_COMMENT_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      featureId: {
+      missionId: {
         type: 'string',
         description: 'Mission ID',
       },
@@ -403,13 +403,13 @@ export const MISSION_ADD_COMMENT_TOOL: Tool = {
         description: 'Optional UUID of the parent comment to reply to',
       },
     },
-    required: ['featureId', 'content'],
+    required: ['missionId', 'content'],
   },
 };
 
 export async function missionAddComment(
   client: KanbanApiClient,
-  args: { featureId: string; content: string; parentId?: string }
+  args: { missionId: string; content: string; parentId?: string }
 ) {
-  return client.addFeatureComment(args.featureId, args.content, args.parentId);
+  return client.addMissionComment(args.missionId, args.content, args.parentId);
 }

@@ -252,17 +252,7 @@ export interface TaskAttachment {
 
 export interface DecompositionResult {
   proposals: SubtaskProposal[];
-  parentTask: { id: string; title: string };
-}
-
-export interface MissionDecompositionResult {
-  tasks: Array<{
-    title: string;
-    description: string;
-    priority: TaskPriority;
-    order: number;
-  }>;
-  mission: { id: string; title: string };
+  parentMission: { id: string; title: string };
 }
 
 export interface NotificationPreferences {
