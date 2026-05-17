@@ -19,7 +19,7 @@ export const BOARD_LIST_TEMPLATES_TOOL: Tool = {
   },
 };
 
-export async function boardListTemplates(
+export async function habitatListTemplates(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
@@ -70,7 +70,7 @@ export const BOARD_CREATE_TEMPLATE_TOOL: Tool = {
   },
 };
 
-export async function boardCreateTemplate(
+export async function habitatCreateTemplate(
   client: KanbanApiClient,
   args: {
     boardId: string;
@@ -109,7 +109,7 @@ export const BOARD_DELETE_TEMPLATE_TOOL: Tool = {
   },
 };
 
-export async function boardDeleteTemplate(
+export async function habitatDeleteTemplate(
   client: KanbanApiClient,
   args: { templateId: string }
 ) {

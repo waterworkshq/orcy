@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockListBoards = vi.fn();
+const mockListHabitats = vi.fn();
 
 vi.mock('../repositories/board.js', () => ({
-  listBoards: (...args: unknown[]) => mockListBoards(...args),
+  listHabitats: (...args: unknown[]) => mockListHabitats(...args),
 }));
 
 vi.mock('../config/integrationSecurity.js', () => ({
@@ -14,28 +14,28 @@ vi.mock('../config/integrationSecurity.js', () => ({
 
 describe('boardSecretCache', () => {
   let rebuildCache: () => void;
-  let lookupBoardIdBySecret: (secret: string) => string | null;
-  let findBoardIdByGithubSignature: (rawBody: string, signature: string) => string | null;
+  let lookupHabitatIdBySecret: (secret: string) => string | null;
+  let findHabitatIdByGithubSignature: (rawBody: string, signature: string) => string | null;
   let hasGithubSecretsConfigured: () => boolean;
   let hasAnySecretsConfigured: () => boolean;
 
   beforeEach(async () => {
     vi.resetModules();
-    mockListBoards.mockReset();
+    mockListHabitats.mockReset();
     const mod = await import('../services/boardSecretCache.js');
     rebuildCache = mod.rebuildCache;
-    lookupBoardIdBySecret = mod.lookupBoardIdBySecret;
-    findBoardIdByGithubSignature = mod.findBoardIdByGithubSignature;
+    lookupHabitatIdBySecret = mod.lookupHabitatIdBySecret;
+    findHabitatIdByGithubSignature = mod.findHabitatIdByGithubSignature;
     hasGithubSecretsConfigured = mod.hasGithubSecretsConfigured;
     hasAnySecretsConfigured = mod.hasAnySecretsConfigured;
   });
 
   describe('rebuildCache', () => {
-    it('populates map from boards with valid gitlabSecret', () => {
-      mockListBoards.mockReturnValue([
+    it('populates map from habitats with valid gitlabSecret', () => {
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: 'secret-abc',
             githubSecret: null,
@@ -44,8 +44,8 @@ describe('boardSecretCache', () => {
           },
         },
         {
-          id: 'board-2',
-          name: 'Board 2',
+          id: 'habitat-2',
+          name: 'Habitat 2',
           codeReviewSettings: {
             gitlabSecret: 'secret-xyz',
             githubSecret: null,
@@ -57,15 +57,15 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(lookupBoardIdBySecret('secret-abc')).toBe('board-1');
-      expect(lookupBoardIdBySecret('secret-xyz')).toBe('board-2');
+      expect(lookupHabitatIdBySecret('secret-abc')).toBe('habitat-1');
+      expect(lookupHabitatIdBySecret('secret-xyz')).toBe('habitat-2');
     });
 
-    it('skips boards with null codeReviewSettings', () => {
-      mockListBoards.mockReturnValue([
+    it('skips habitats with null codeReviewSettings', () => {
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: null,
         },
       ]);
@@ -75,11 +75,11 @@ describe('boardSecretCache', () => {
       expect(hasAnySecretsConfigured()).toBe(false);
     });
 
-    it('skips boards with null gitlabSecret', () => {
-      mockListBoards.mockReturnValue([
+    it('skips habitats with null gitlabSecret', () => {
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'some-github-secret',
@@ -91,23 +91,23 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(lookupBoardIdBySecret('some-github-secret')).toBeNull();
+      expect(lookupHabitatIdBySecret('some-github-secret')).toBeNull();
     });
 
-    it('handles empty board list', () => {
-      mockListBoards.mockReturnValue([]);
+    it('handles empty habitat list', () => {
+      mockListHabitats.mockReturnValue([]);
 
       rebuildCache();
 
       expect(hasAnySecretsConfigured()).toBe(false);
-      expect(lookupBoardIdBySecret('anything')).toBeNull();
+      expect(lookupHabitatIdBySecret('anything')).toBeNull();
     });
 
     it('replaces previous entries on rebuild', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: 'old-secret',
             githubSecret: null,
@@ -118,12 +118,12 @@ describe('boardSecretCache', () => {
       ]);
 
       rebuildCache();
-      expect(lookupBoardIdBySecret('old-secret')).toBe('board-1');
+      expect(lookupHabitatIdBySecret('old-secret')).toBe('habitat-1');
 
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-2',
-          name: 'Board 2',
+          id: 'habitat-2',
+          name: 'Habitat 2',
           codeReviewSettings: {
             gitlabSecret: 'new-secret',
             githubSecret: null,
@@ -134,17 +134,17 @@ describe('boardSecretCache', () => {
       ]);
 
       rebuildCache();
-      expect(lookupBoardIdBySecret('old-secret')).toBeNull();
-      expect(lookupBoardIdBySecret('new-secret')).toBe('board-2');
+      expect(lookupHabitatIdBySecret('old-secret')).toBeNull();
+      expect(lookupHabitatIdBySecret('new-secret')).toBe('habitat-2');
     });
   });
 
-  describe('lookupBoardIdBySecret', () => {
-    it('returns correct boardId for known secret', () => {
-      mockListBoards.mockReturnValue([
+  describe('lookupHabitatIdBySecret', () => {
+    it('returns correct habitatId for known secret', () => {
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-42',
-          name: 'Board 42',
+          id: 'habitat-42',
+          name: 'Habitat 42',
           codeReviewSettings: {
             gitlabSecret: 'known-token',
             githubSecret: null,
@@ -156,14 +156,14 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(lookupBoardIdBySecret('known-token')).toBe('board-42');
+      expect(lookupHabitatIdBySecret('known-token')).toBe('habitat-42');
     });
 
     it('returns null for unknown secret', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: 'actual-secret',
             githubSecret: null,
@@ -175,20 +175,20 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(lookupBoardIdBySecret('wrong-secret')).toBeNull();
+      expect(lookupHabitatIdBySecret('wrong-secret')).toBeNull();
     });
 
     it('returns null when cache has not been built', () => {
-      expect(lookupBoardIdBySecret('anything')).toBeNull();
+      expect(lookupHabitatIdBySecret('anything')).toBeNull();
     });
   });
 
   describe('hasAnySecretsConfigured', () => {
     it('returns true when gitlab secrets exist', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: 'secret-1',
             githubSecret: null,
@@ -204,10 +204,10 @@ describe('boardSecretCache', () => {
     });
 
     it('returns true when github secrets exist', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'gh-secret',
@@ -223,10 +223,10 @@ describe('boardSecretCache', () => {
     });
 
     it('returns false when no secrets exist', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: null,
         },
       ]);
@@ -241,12 +241,12 @@ describe('boardSecretCache', () => {
     });
   });
 
-  describe('findBoardIdByGithubSignature', () => {
-    it('returns boardId when HMAC signature matches cached secret', () => {
-      mockListBoards.mockReturnValue([
+  describe('findHabitatIdByGithubSignature', () => {
+    it('returns habitatId when HMAC signature matches cached secret', () => {
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'my-github-secret',
@@ -258,14 +258,14 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(findBoardIdByGithubSignature('body', 'sha256=my-github-secret')).toBe('board-1');
+      expect(findHabitatIdByGithubSignature('body', 'sha256=my-github-secret')).toBe('habitat-1');
     });
 
     it('returns null when no secret matches the signature', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'correct-secret',
@@ -277,14 +277,14 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(findBoardIdByGithubSignature('body', 'sha256=wrong-secret')).toBeNull();
+      expect(findHabitatIdByGithubSignature('body', 'sha256=wrong-secret')).toBeNull();
     });
 
     it('returns null when no github secrets are cached', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: 'gitlab-token',
             githubSecret: null,
@@ -296,18 +296,18 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(findBoardIdByGithubSignature('body', 'sha256=anything')).toBeNull();
+      expect(findHabitatIdByGithubSignature('body', 'sha256=anything')).toBeNull();
     });
 
     it('returns null when cache has not been built', () => {
-      expect(findBoardIdByGithubSignature('body', 'sha256=anything')).toBeNull();
+      expect(findHabitatIdByGithubSignature('body', 'sha256=anything')).toBeNull();
     });
 
-    it('matches the correct board when multiple github secrets exist', () => {
-      mockListBoards.mockReturnValue([
+    it('matches the correct habitat when multiple github secrets exist', () => {
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'secret-alpha',
@@ -316,8 +316,8 @@ describe('boardSecretCache', () => {
           },
         },
         {
-          id: 'board-2',
-          name: 'Board 2',
+          id: 'habitat-2',
+          name: 'Habitat 2',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'secret-beta',
@@ -329,16 +329,16 @@ describe('boardSecretCache', () => {
 
       rebuildCache();
 
-      expect(findBoardIdByGithubSignature('body', 'sha256=secret-beta')).toBe('board-2');
+      expect(findHabitatIdByGithubSignature('body', 'sha256=secret-beta')).toBe('habitat-2');
     });
   });
 
   describe('hasGithubSecretsConfigured', () => {
     it('returns true when github secrets are cached', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: null,
             githubSecret: 'gh-secret',
@@ -354,10 +354,10 @@ describe('boardSecretCache', () => {
     });
 
     it('returns false when no github secrets are cached', () => {
-      mockListBoards.mockReturnValue([
+      mockListHabitats.mockReturnValue([
         {
-          id: 'board-1',
-          name: 'Board 1',
+          id: 'habitat-1',
+          name: 'Habitat 1',
           codeReviewSettings: {
             gitlabSecret: 'gitlab-token',
             githubSecret: null,

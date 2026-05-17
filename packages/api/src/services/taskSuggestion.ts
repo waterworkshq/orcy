@@ -1,9 +1,9 @@
 import { scoreTask, computeSlaUrgencyWeight, PRIORITY_WEIGHTS, computeCapabilityWeight } from './taskScoring.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import { getDb } from '../db/index.js';
-import { tasks, features } from '../db/schema/index.js';
+import { tasks, missions } from '../db/schema/index.js';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import type { Task, Agent } from '../models/index.js';
 
@@ -24,8 +24,8 @@ export interface SuggestionFactors {
 export interface TaskSuggestion {
   taskId: string;
   taskTitle: string;
-  featureId: string;
-  featureTitle: string;
+  missionId: string;
+  missionTitle: string;
   score: number;
   reasons: string[];
   factors: SuggestionFactors;
@@ -43,7 +43,7 @@ export interface SuggestionResult {
 }
 
 export function getSuggestionsForAgent(
-  boardId: string,
+  habitatId: string,
   agentId: string,
   limit: number = 5
 ): SuggestionResult {
@@ -53,23 +53,23 @@ export function getSuggestionsForAgent(
   }
 
   const availableTasks = taskRepo.getAvailableTasksForAgent(
-    boardId,
+    habitatId,
     agent.domain,
     { status: 'pending' }
   );
 
   const { claimed, inProgress } = getAgentWorkload(agentId);
-  const featureMap = new Map<string, string>();
+  const missionMap = new Map<string, string>();
 
   for (const task of availableTasks) {
-    if (!featureMap.has(task.featureId)) {
-      const feature = featureRepo.getFeatureById(task.featureId);
-      if (feature) featureMap.set(task.featureId, feature.title);
+    if (!missionMap.has(task.missionId)) {
+      const mission = missionRepo.getMissionById(task.missionId);
+      if (mission) missionMap.set(task.missionId, mission.title);
     }
   }
 
   const suggestions: TaskSuggestion[] = availableTasks
-    .map(task => scoreWithFactors(task, agent, claimed, inProgress, featureMap))
+    .map(task => scoreWithFactors(task, agent, claimed, inProgress, missionMap))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
@@ -84,7 +84,7 @@ function scoreWithFactors(
   agent: Omit<Agent, 'apiKeyHash'>,
   claimedCount: number,
   inProgressCount: number,
-  featureMap: Map<string, string>
+  missionMap: Map<string, string>
 ): TaskSuggestion {
   const reasons: string[] = [];
   const baseScore = scoreTask(task, undefined, agent.capabilities);
@@ -102,8 +102,8 @@ function scoreWithFactors(
 
   let totalScore = baseScore;
 
-  const feature = task.featureId ? featureRepo.getFeatureById(task.featureId) : null;
-  const slaDeadline = feature?.slaDeadlineAt ?? null;
+  const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
+  const slaDeadline = mission?.slaDeadlineAt ?? null;
   const slaWeight = computeSlaUrgencyWeight(slaDeadline);
   if (slaWeight > 0) {
     factors.slaUrgencyWeight = slaWeight;
@@ -148,8 +148,8 @@ function scoreWithFactors(
   return {
     taskId: task.id,
     taskTitle: task.title,
-    featureId: task.featureId,
-    featureTitle: featureMap.get(task.featureId) ?? 'Unknown feature',
+    missionId: task.missionId,
+    missionTitle: missionMap.get(task.missionId) ?? 'Unknown mission',
     score: Math.round(totalScore),
     reasons,
     factors,

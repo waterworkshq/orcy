@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { boardAnalyticsRoutes } from '../routes/board-analytics.js';
+import { habitatAnalyticsRoutes } from '../routes/board-analytics.js';
 import { habitatRoutes } from '../routes/habitats.js';
 
 interface CapturedRoute {
@@ -21,11 +21,11 @@ function captureAnalyticsRoutes(): CapturedRoute[] {
       routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [] });
     }),
   };
-  boardAnalyticsRoutes(fakeFastify);
+  habitatAnalyticsRoutes(fakeFastify);
   return routes;
 }
 
-function captureBoardRoutes(): CapturedRoute[] {
+function captureHabitatRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
     withTypeProvider: vi.fn(() => fakeFastify),
@@ -42,10 +42,10 @@ function captureBoardRoutes(): CapturedRoute[] {
   return routes;
 }
 
-describe('boardAnalyticsRoutes', () => {
-  it('exports a function named boardAnalyticsRoutes', () => {
-    expect(boardAnalyticsRoutes).toBeInstanceOf(Function);
-    expect(boardAnalyticsRoutes.name).toBe('boardAnalyticsRoutes');
+describe('habitatAnalyticsRoutes', () => {
+  it('exports a function named habitatAnalyticsRoutes', () => {
+    expect(habitatAnalyticsRoutes).toBeInstanceOf(Function);
+    expect(habitatAnalyticsRoutes.name).toBe('habitatAnalyticsRoutes');
   });
 
   it('registers 6 analytics endpoints', () => {
@@ -53,37 +53,37 @@ describe('boardAnalyticsRoutes', () => {
     expect(routes).toHaveLength(6);
   });
 
-  it('registers GET /boards/:id/stats', () => {
+  it('registers GET /habitats/:habitatId/stats', () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/stats')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/stats')).toBeDefined();
   });
 
-  it('registers GET /boards/:id/summary', () => {
+  it('registers GET /habitats/:habitatId/summary', () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/summary')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/summary')).toBeDefined();
   });
 
-  it('registers GET /boards/:id/events', () => {
+  it('registers GET /habitats/:habitatId/events', () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/events')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/events')).toBeDefined();
   });
 
-  it('registers GET /boards/:id/capacity', () => {
+  it('registers GET /habitats/:habitatId/capacity', () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/capacity')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/capacity')).toBeDefined();
   });
 
-  it('registers GET /boards/:id/predictions', () => {
+  it('registers GET /habitats/:habitatId/predictions', () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/predictions')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/predictions')).toBeDefined();
   });
 
-  it('registers GET /boards/:id/burndown', () => {
+  it('registers GET /habitats/:habitatId/burndown', () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/burndown')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/burndown')).toBeDefined();
   });
 
-  it('all analytics endpoints have auth + board access preHandlers', () => {
+  it('all analytics endpoints have auth + habitat access preHandlers', () => {
     const routes = captureAnalyticsRoutes();
     for (const route of routes) {
       expect(route.preHandler.length).toBeGreaterThanOrEqual(2);
@@ -91,34 +91,34 @@ describe('boardAnalyticsRoutes', () => {
   });
 });
 
-describe('boards.ts no longer contains analytics handlers', () => {
-  it('does not register /boards/:id/stats', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/stats')).toBeUndefined();
+describe('habitats.ts no longer contains analytics handlers', () => {
+  it('does not register /habitats/:habitatId/stats', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/stats')).toBeUndefined();
   });
 
-  it('does not register /boards/:id/summary', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/summary')).toBeUndefined();
+  it('does not register /habitats/:habitatId/summary', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/summary')).toBeUndefined();
   });
 
-  it('does not register /boards/:id/events', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/events')).toBeUndefined();
+  it('does not register /habitats/:habitatId/events', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/events')).toBeUndefined();
   });
 
-  it('does not register /boards/:id/capacity', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/capacity')).toBeUndefined();
+  it('does not register /habitats/:habitatId/capacity', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/capacity')).toBeUndefined();
   });
 
-  it('does not register /boards/:id/predictions', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/predictions')).toBeUndefined();
+  it('does not register /habitats/:habitatId/predictions', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/predictions')).toBeUndefined();
   });
 
-  it('does not register /boards/:id/burndown', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/burndown')).toBeUndefined();
+  it('does not register /habitats/:habitatId/burndown', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/burndown')).toBeUndefined();
   });
 });

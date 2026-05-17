@@ -2,13 +2,13 @@ import { getDb } from '../../db/index.js';
 import { taskEvents, tasks, missions, agents, columns } from '../../db/schema/index.js';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
-import { computeCycleTimeStats, computeBoardThroughput, getDateThresholds } from './stats-helpers.js';
+import { computeCycleTimeStats, computeHabitatThroughput, getDateThresholds } from './stats-helpers.js';
 import type { ActorType, EventAction, TaskStatus } from '../../models/index.js';
 
 const fromColumns = alias(columns, 'from_columns');
 const toColumns = alias(columns, 'to_columns');
 
-export interface EnrichedBoardEventRow {
+export interface EnrichedHabitatEventRow {
   id: string;
   taskId: string;
   taskTitle: string;
@@ -27,31 +27,31 @@ export interface EnrichedBoardEventRow {
   timestamp: string;
 }
 
-export interface BoardEventsFilters {
+export interface HabitatEventsFilters {
   action?: EventAction | EventAction[];
   actorType?: ActorType;
   actorId?: string;
   since?: string;
 }
 
-export function getEventsByBoardId(
+export function getEventsByHabitatId(
   habitatId: string,
   limit: number,
   offset: number,
-  filters?: BoardEventsFilters,
-): { events: EnrichedBoardEventRow[]; total: number } {
+  filters?: HabitatEventsFilters,
+): { events: EnrichedHabitatEventRow[]; total: number } {
   const db = getDb();
 
-  const boardMissionIds = db
+  const habitatMissionIds = db
     .select({ id: missions.id })
     .from(missions)
     .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardMissionIds.length === 0) return { events: [], total: 0 };
+  if (habitatMissionIds.length === 0) return { events: [], total: 0 };
 
-  const conditions = [inArray(tasks.missionId, boardMissionIds)];
+  const conditions = [inArray(tasks.missionId, habitatMissionIds)];
 
   if (filters?.action) {
     const actions = Array.isArray(filters.action) ? filters.action : [filters.action];
@@ -102,7 +102,7 @@ export function getEventsByBoardId(
     .offset(offset)
     .all();
 
-  const enrichedEvents: EnrichedBoardEventRow[] = events.map((row: any) => ({
+  const enrichedEvents: EnrichedHabitatEventRow[] = events.map((row: any) => ({
     id: row.id,
     taskId: row.taskId,
     taskTitle: row.taskTitle,
@@ -132,7 +132,7 @@ export function getEventsByBoardId(
   return { events: enrichedEvents, total: totalResult?.count ?? 0 };
 }
 
-export interface BoardStats {
+export interface HabitatStats {
   cycleTime: {
     averageMinutes: number;
     medianMinutes: number;
@@ -152,17 +152,17 @@ export interface BoardStats {
   }[];
 }
 
-export function getBoardStats(habitatId: string): BoardStats {
+export function getHabitatStats(habitatId: string): HabitatStats {
   const db = getDb();
 
-  const boardMissionIds = db
+  const habitatMissionIds = db
     .select({ id: missions.id })
     .from(missions)
     .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardMissionIds.length === 0) {
+  if (habitatMissionIds.length === 0) {
     return {
       cycleTime: { averageMinutes: 0, medianMinutes: 0, count: 0 },
       throughput: { today: 0, thisWeek: 0, thisMonth: 0 },
@@ -178,7 +178,7 @@ export function getBoardStats(habitatId: string): BoardStats {
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .where(inArray(tasks.missionId, boardMissionIds))
+    .where(inArray(tasks.missionId, habitatMissionIds))
     .groupBy(taskEvents.taskId)
     .having(sql`MIN(CASE WHEN ${taskEvents.action} = 'claimed' THEN ${taskEvents.timestamp} END) IS NOT NULL AND MIN(CASE WHEN ${taskEvents.action} = 'completed' THEN ${taskEvents.timestamp} END) IS NOT NULL`)
     .all();
@@ -200,13 +200,13 @@ export function getBoardStats(habitatId: string): BoardStats {
     .select({ ts: taskEvents.timestamp })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .where(and(inArray(tasks.missionId, boardMissionIds), eq(taskEvents.action, 'completed')))
+    .where(and(inArray(tasks.missionId, habitatMissionIds), eq(taskEvents.action, 'completed')))
     .orderBy(desc(taskEvents.timestamp))
     .all();
 
   return {
     cycleTime: computeCycleTimeStats(cycleTimes),
-    throughput: computeBoardThroughput(throughputRows, todayStart, weekStart, monthStart),
+    throughput: computeHabitatThroughput(throughputRows, todayStart, weekStart, monthStart),
     wipHealth: [],
   };
 }

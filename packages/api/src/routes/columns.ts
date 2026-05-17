@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as columnRepo from '../repositories/column.js';
 import { createColumnSchema, updateColumnSchema } from '../models/schemas.js';
 import type { CreateColumnInput, UpdateColumnInput } from '../models/schemas.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
@@ -13,9 +13,9 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
     '/habitats/:habitatId/columns',
     { preHandler: humanAuth },
     async (request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateColumnInput }>, reply: FastifyReply) => {
-      const board = boardRepo.getBoardById(request.params.habitatId);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = habitatRepo.getHabitatById(request.params.habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
 
       const parsed = createColumnSchema.safeParse(request.body);
@@ -25,7 +25,7 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
 
       const column = columnRepo.createColumn({
         ...parsed.data,
-        boardId: request.params.habitatId,
+        habitatId: request.params.habitatId,
       });
 
       sseBroadcaster.publish(request.params.habitatId, { type: 'column.created', data: column });

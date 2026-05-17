@@ -2,7 +2,7 @@ import { getDb } from '../db/index.js';
 import { taskTimeRecords, tasks, missions, agents } from '../db/schema/index.js';
 import { eq, and, sql, count, avg, sum, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import type { TaskTimeRecord, BoardMetrics } from '../models/index.js';
+import type { TaskTimeRecord, HabitatMetrics } from '../models/index.js';
 
 export function createTimeRecord(input: {
   taskId: string;
@@ -58,7 +58,7 @@ export function getLatestTimeRecord(taskId: string): TaskTimeRecord | null {
   return records[0] ?? null;
 }
 
-export function getHabitatMetrics(habitatId: string): BoardMetrics {
+export function getHabitatMetrics(habitatId: string): HabitatMetrics {
   const db = getDb();
 
   const habitatMissions = db.select({ id: missions.id, dueAt: missions.dueAt }).from(missions)
@@ -113,7 +113,7 @@ export function getHabitatMetrics(habitatId: string): BoardMetrics {
   });
 
   const allAgents = db.select().from(agents).all();
-  const agentMetrics: BoardMetrics['agentMetrics'] = [];
+  const agentMetrics: HabitatMetrics['agentMetrics'] = [];
 
   for (const agent of allAgents) {
     const agentCompleted = completedTasks.filter(t => t.assignedAgentId === agent.id);

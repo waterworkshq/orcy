@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { boardSubscribe, boardUnsubscribe } from './subscription.js';
+import { habitatSubscribe, habitatUnsubscribe } from './subscription.js';
 
 export const SUBSCRIPTION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_habitat_subscription',
@@ -13,8 +13,8 @@ export const SUBSCRIPTION_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const SUBSCRIPTION_ACTIONS: Record<string, Handler> = {
-  'subscribe': boardSubscribe,
-  'unsubscribe': boardUnsubscribe,
+  'subscribe': habitatSubscribe,
+  'unsubscribe': habitatUnsubscribe,
 };
 
 export const SUBSCRIPTION_DISPATCH_HANDLER = createDispatchHandler(SUBSCRIPTION_ACTIONS);

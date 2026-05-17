@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { boardSendMessage, boardGetMessages } from './messaging.js';
+import { habitatSendMessage, habitatGetMessages } from './messaging.js';
 import { MESSAGE_TYPES, MESSAGE_PRIORITIES } from './constants.js';
 
 export const MESSAGE_DISPATCH_TOOL: Tool = createDispatchTool({
@@ -24,8 +24,8 @@ export const MESSAGE_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const MESSAGE_ACTIONS: Record<string, Handler> = {
-  'send': boardSendMessage,
-  'get-messages': boardGetMessages,
+  'send': habitatSendMessage,
+  'get-messages': habitatGetMessages,
 };
 
 export const MESSAGE_DISPATCH_HANDLER = createDispatchHandler(MESSAGE_ACTIONS);

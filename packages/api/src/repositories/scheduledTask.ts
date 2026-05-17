@@ -14,11 +14,11 @@ export interface CreateScheduledTaskInput {
   intervalMinutes?: number | null;
   scheduledAt?: string | null;
   timezone?: string;
-  featureTitle: string;
-  featureDescription?: string;
-  featurePriority?: TaskPriority;
-  featureLabels?: string[];
-  featureDomain?: string | null;
+  missionTitle: string;
+  missionDescription?: string;
+  missionPriority?: TaskPriority;
+  missionLabels?: string[];
+  missionDomain?: string | null;
   tasksTemplate?: TaskTemplateEntry[];
   nextRunAt: string;
   createdBy: string;
@@ -32,11 +32,11 @@ export interface UpdateScheduledTaskInput {
   intervalMinutes?: number | null;
   scheduledAt?: string | null;
   timezone?: string;
-  featureTitle?: string;
-  featureDescription?: string;
-  featurePriority?: TaskPriority;
-  featureLabels?: string[];
-  featureDomain?: string | null;
+  missionTitle?: string;
+  missionDescription?: string;
+  missionPriority?: TaskPriority;
+  missionLabels?: string[];
+  missionDomain?: string | null;
   tasksTemplate?: TaskTemplateEntry[];
   enabled?: boolean;
   templateId?: string | null;
@@ -59,11 +59,11 @@ export function createScheduledTask(input: CreateScheduledTaskInput): ScheduledT
     intervalMinutes: input.intervalMinutes ?? null,
     scheduledAt: input.scheduledAt ?? null,
     timezone: input.timezone ?? 'UTC',
-    featureTitle: input.featureTitle,
-    featureDescription: input.featureDescription ?? '',
-    featurePriority: input.featurePriority ?? 'medium',
-    featureLabels: input.featureLabels ?? [],
-    featureDomain: input.featureDomain ?? null,
+    missionTitle: input.missionTitle,
+    missionDescription: input.missionDescription ?? '',
+    missionPriority: input.missionPriority ?? 'medium',
+    missionLabels: input.missionLabels ?? [],
+    missionDomain: input.missionDomain ?? null,
     tasksTemplate: input.tasksTemplate ?? [],
     enabled: true,
     lastRunAt: null,
@@ -126,11 +126,11 @@ export function updateScheduledTask(id: string, input: UpdateScheduledTaskInput)
   if (input.intervalMinutes !== undefined) set.intervalMinutes = input.intervalMinutes;
   if (input.scheduledAt !== undefined) set.scheduledAt = input.scheduledAt;
   if (input.timezone !== undefined) set.timezone = input.timezone;
-  if (input.featureTitle !== undefined) set.featureTitle = input.featureTitle;
-  if (input.featureDescription !== undefined) set.featureDescription = input.featureDescription;
-  if (input.featurePriority !== undefined) set.featurePriority = input.featurePriority;
-  if (input.featureLabels !== undefined) set.featureLabels = input.featureLabels;
-  if (input.featureDomain !== undefined) set.featureDomain = input.featureDomain;
+  if (input.missionTitle !== undefined) set.missionTitle = input.missionTitle;
+  if (input.missionDescription !== undefined) set.missionDescription = input.missionDescription;
+  if (input.missionPriority !== undefined) set.missionPriority = input.missionPriority;
+  if (input.missionLabels !== undefined) set.missionLabels = input.missionLabels;
+  if (input.missionDomain !== undefined) set.missionDomain = input.missionDomain;
   if (input.tasksTemplate !== undefined) set.tasksTemplate = input.tasksTemplate;
   if (input.enabled !== undefined) set.enabled = input.enabled;
   if (input.templateId !== undefined) set.templateId = input.templateId;

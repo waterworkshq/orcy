@@ -14,12 +14,12 @@ const importArtifactSchema = z.object({
 });
 
 export const exportQuerySchema = z.object({
-  include: z.string().optional().default('columns,features,comments,templates,webhooks'),
-  format: z.enum(['full', 'features-only']).optional().default('full'),
+  include: z.string().optional().default('columns,missions,comments,templates,webhooks'),
+  format: z.enum(['full', 'missions-only']).optional().default('full'),
   status: z.string().optional(),
 });
 
-export const createFeatureSchema = z.object({
+export const createMissionSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(10000).default(''),
   acceptanceCriteria: z.string().max(10000).default(''),
@@ -32,7 +32,7 @@ export const createFeatureSchema = z.object({
   columnId: z.string().uuid().optional(),
 });
 
-export const updateFeatureSchema = z.object({
+export const updateMissionSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   description: z.string().max(10000).optional(),
   acceptanceCriteria: z.string().max(10000).optional(),
@@ -45,7 +45,7 @@ export const updateFeatureSchema = z.object({
   version: z.number().int().optional(),
 });
 
-export const featureQuerySchema = z.object({
+export const missionQuerySchema = z.object({
   status: z.enum(['not_started', 'in_progress', 'review', 'done', 'failed']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   search: z.string().optional(),
@@ -54,11 +54,11 @@ export const featureQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-export const moveFeatureSchema = z.object({
+export const moveMissionSchema = z.object({
   columnId: z.string().uuid(),
 });
 
-export const createTaskInFeatureSchema = z.object({
+export const createTaskInMissionSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(10000).default(''),
   priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
@@ -69,10 +69,10 @@ export const createTaskInFeatureSchema = z.object({
   order: z.number().int().default(0),
 });
 
-export const importBoardSchema = z.object({
+export const importHabitatSchema = z.object({
   version: z.number(),
   exportedAt: z.string().datetime(),
-  board: z.object({
+  habitat: z.object({
     name: z.string(),
     description: z.string().optional().default(''),
     columns: z.array(z.object({
@@ -84,7 +84,7 @@ export const importBoardSchema = z.object({
       nextColumnName: z.string().nullable().optional(),
       isTerminal: z.boolean().optional().default(false),
     })),
-    features: z.array(z.object({
+    missions: z.array(z.object({
       title: z.string(),
       description: z.string().optional().default(''),
       acceptanceCriteria: z.string().optional().default(''),
@@ -136,7 +136,7 @@ export const importBoardSchema = z.object({
   }),
 });
 
-export const createBoardSchema = z.object({
+export const createHabitatSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   defaultColumns: z.boolean().optional().default(true),
@@ -179,7 +179,7 @@ export const autoAssignSettingsSchema = z.object({
   excludeOfflineAgents: z.boolean().optional().default(true),
 });
 
-export const updateBoardSchema = z.object({
+export const updateHabitatSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
   retrySettings: retryPolicySchema.nullable().optional(),
@@ -317,7 +317,7 @@ export const eventsQuerySchema = z.object({
 
 const eventActionValues = ['created', 'claimed', 'started', 'submitted', 'approved', 'rejected', 'completed', 'failed', 'moved', 'released', 'dependency_resolved', 'delegated', 'cloned', 'retry_scheduled', 'retry_executed', 'escalated'] as const;
 
-export const boardEventsQuerySchema = z.object({
+export const habitatEventsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   offset: z.coerce.number().int().min(0).optional().default(0),
   action: z.enum(eventActionValues).optional(),
@@ -326,8 +326,8 @@ export const boardEventsQuerySchema = z.object({
   since: z.string().datetime({ offset: true }).optional(),
 });
 
-export type CreateBoardInput = z.infer<typeof createBoardSchema>;
-export type UpdateBoardInput = z.infer<typeof updateBoardSchema>;
+export type CreateHabitatInput = z.infer<typeof createHabitatSchema>;
+export type UpdateHabitatInput = z.infer<typeof updateHabitatSchema>;
 export type CreateColumnInput = z.infer<typeof createColumnSchema>;
 export type UpdateColumnInput = z.infer<typeof updateColumnSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
@@ -348,7 +348,7 @@ export type TaskQueryInput = z.infer<typeof taskQuerySchema>;
 export type EventsQueryInput = z.infer<typeof eventsQuerySchema>;
 
 export const dashboardQuerySchema = z.object({
-  boardId: z.string().uuid().optional(),
+  habitatId: z.string().uuid().optional(),
   period: z.enum(['7d', '30d', '90d']).optional().default('30d'),
 });
 
@@ -375,8 +375,8 @@ export const batchTaskSchema = z.discriminatedUnion('operation', [
 ]);
 
 export type BatchTaskInput = z.infer<typeof batchTaskSchema>;
-export type CreateFeatureInput = z.infer<typeof createFeatureSchema>;
-export type UpdateFeatureInput = z.infer<typeof updateFeatureSchema>;
-export type FeatureQueryInput = z.infer<typeof featureQuerySchema>;
-export type MoveFeatureInput = z.infer<typeof moveFeatureSchema>;
-export type CreateTaskInFeatureInput = z.infer<typeof createTaskInFeatureSchema>;
+export type CreateMissionInput = z.infer<typeof createMissionSchema>;
+export type UpdateMissionInput = z.infer<typeof updateMissionSchema>;
+export type MissionQueryInput = z.infer<typeof missionQuerySchema>;
+export type MoveMissionInput = z.infer<typeof moveMissionSchema>;
+export type CreateTaskInMissionInput = z.infer<typeof createTaskInMissionSchema>;

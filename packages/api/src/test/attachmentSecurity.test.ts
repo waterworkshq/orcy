@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { initTestDb, closeDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as attachmentRepo from '../repositories/attachment.js';
 import { attachmentRoutes } from '../routes/attachments.js';
@@ -79,9 +79,9 @@ function findRoute(routes: CapturedRoute[], method: string, pathPattern: string)
 }
 
 describe('Attachment Security', () => {
-  let boardId: string;
+  let habitatId: string;
   let columnId: string;
-  let featureId: string;
+  let missionId: string;
   let taskId: string;
   let agent1Id: string;
   let agent2Id: string;
@@ -90,29 +90,29 @@ describe('Attachment Security', () => {
   beforeEach(async () => {
     await initTestDb();
 
-    const board = boardRepo.createBoard({ name: 'Attachment Security Board' });
-    boardId = board.id;
+    const habitat = habitatRepo.createHabitat({ name: 'Attachment Security Habitat' });
+    habitatId = habitat.id;
 
     const col = columnRepo.createColumn({
-      boardId,
+      habitatId,
       name: 'Todo',
       order: 0,
     });
     columnId = col.id;
 
-    const feature = featureRepo.createFeature({
-      boardId,
+    const mission = missionRepo.createMission({
+      habitatId,
       columnId,
-      title: 'Test Feature',
+      title: 'Test Mission',
       description: 'desc',
       priority: 'medium',
       labels: [],
       createdBy: 'test',
     });
-    featureId = feature.id;
+    missionId = mission.id;
 
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Test Task',
       description: 'desc',
       priority: 'medium',

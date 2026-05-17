@@ -9,10 +9,10 @@ vi.mock('../sse/broadcaster.js', () => ({
 }));
 
 import {
-  joinBoard,
-  leaveBoard,
+  joinHabitat,
+  leaveHabitat,
   setViewingTask,
-  getBoardPresence,
+  getHabitatPresence,
   getTaskViewers,
   cleanupStalePresence,
   startPresenceCleanup,
@@ -33,135 +33,135 @@ describe('Presence Module', () => {
     vi.useRealTimers();
   });
 
-  it('should join a board and broadcast presence.joined', () => {
-    joinBoard('board-1', {
+  it('should join a habitat and broadcast presence.joined', () => {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userId: 'user-1',
       userName: 'Alice',
     });
 
-    expect(mockedPublish).toHaveBeenCalledWith('board-1', expect.objectContaining({
+    expect(mockedPublish).toHaveBeenCalledWith('habitat-1', expect.objectContaining({
       type: 'presence.joined',
     }));
 
-    const viewers = getBoardPresence('board-1');
+    const viewers = getHabitatPresence('habitat-1');
     expect(viewers).toHaveLength(1);
     expect(viewers[0].userName).toBe('Alice');
     expect(viewers[0].sessionId).toBe('sess-1');
   });
 
-  it('should leave a board and broadcast presence.left', () => {
-    joinBoard('board-1', {
+  it('should leave a habitat and broadcast presence.left', () => {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
     mockedPublish.mockClear();
 
-    leaveBoard('board-1', 'sess-1');
+    leaveHabitat('habitat-1', 'sess-1');
 
-    expect(mockedPublish).toHaveBeenCalledWith('board-1', expect.objectContaining({
+    expect(mockedPublish).toHaveBeenCalledWith('habitat-1', expect.objectContaining({
       type: 'presence.left',
     }));
-    expect(getBoardPresence('board-1')).toHaveLength(0);
+    expect(getHabitatPresence('habitat-1')).toHaveLength(0);
   });
 
   it('should set viewing task and broadcast presence.refresh', () => {
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
     mockedPublish.mockClear();
 
-    setViewingTask('board-1', 'sess-1', 'task-42');
+    setViewingTask('habitat-1', 'sess-1', 'task-42');
 
-    expect(mockedPublish).toHaveBeenCalledWith('board-1', expect.objectContaining({
+    expect(mockedPublish).toHaveBeenCalledWith('habitat-1', expect.objectContaining({
       type: 'presence.refresh',
     }));
 
-    const viewers = getBoardPresence('board-1');
+    const viewers = getHabitatPresence('habitat-1');
     expect(viewers[0].viewingTaskId).toBe('task-42');
   });
 
   it('should get task viewers', () => {
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-2',
       type: 'agent',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       agentName: 'Bot',
     });
 
-    setViewingTask('board-1', 'sess-1', 'task-42');
-    setViewingTask('board-1', 'sess-2', 'task-42');
+    setViewingTask('habitat-1', 'sess-1', 'task-42');
+    setViewingTask('habitat-1', 'sess-2', 'task-42');
 
-    const taskViewers = getTaskViewers('board-1', 'task-42');
+    const taskViewers = getTaskViewers('habitat-1', 'task-42');
     expect(taskViewers).toHaveLength(2);
   });
 
   it('should broadcast presence.summary after throttle delay', () => {
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
 
     vi.advanceTimersByTime(5_000);
     mockedPublish.mockClear();
 
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-2',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Bob',
     });
 
-    expect(mockedPublish).toHaveBeenCalledWith('board-1', expect.objectContaining({
+    expect(mockedPublish).toHaveBeenCalledWith('habitat-1', expect.objectContaining({
       type: 'presence.joined',
     }));
     mockedPublish.mockClear();
 
     vi.advanceTimersByTime(5_000);
 
-    expect(mockedPublish).toHaveBeenCalledWith('board-1', expect.objectContaining({
+    expect(mockedPublish).toHaveBeenCalledWith('habitat-1', expect.objectContaining({
       type: 'presence.summary',
     }));
   });
 
   it('should cleanup stale entries', () => {
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
 
-    const entry = getBoardPresence('board-1')[0];
+    const entry = getHabitatPresence('habitat-1')[0];
     expect(entry).toBeDefined();
 
     vi.advanceTimersByTime(130_000);
 
     const removed = cleanupStalePresence(120_000);
     expect(removed).toBe(1);
-    expect(getBoardPresence('board-1')).toHaveLength(0);
+    expect(getHabitatPresence('habitat-1')).toHaveLength(0);
   });
 
   it('should start and stop cleanup interval', () => {
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
 
@@ -169,21 +169,21 @@ describe('Presence Module', () => {
     vi.advanceTimersByTime(150_000);
     clearInterval(interval);
 
-    expect(getBoardPresence('board-1')).toHaveLength(0);
+    expect(getHabitatPresence('habitat-1')).toHaveLength(0);
   });
 
-  it('should handle leave for non-existent board gracefully', () => {
-    expect(() => leaveBoard('nonexistent', 'sess-1')).not.toThrow();
+  it('should handle leave for non-existent habitat gracefully', () => {
+    expect(() => leaveHabitat('nonexistent', 'sess-1')).not.toThrow();
   });
 
   it('should handle setViewingTask for non-existent session gracefully', () => {
-    joinBoard('board-1', {
+    joinHabitat('habitat-1', {
       sessionId: 'sess-1',
       type: 'human',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userName: 'Alice',
     });
 
-    expect(() => setViewingTask('board-1', 'nonexistent', 'task-1')).not.toThrow();
+    expect(() => setViewingTask('habitat-1', 'nonexistent', 'task-1')).not.toThrow();
   });
 });

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as templateRepo from '../repositories/template.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
@@ -10,7 +10,7 @@ import * as scheduledTaskService from '../services/scheduledTaskService.js';
 import { missions, tasks, columns as columnsTable, habitats, missionTemplates, scheduledTasks } from '../db/schema/index.js';
 import type { TaskPriority, TaskTemplateEntry } from '../models/index.js';
 
-let boardId: string;
+let habitatId: string;
 let columnId: string;
 
 beforeEach(async () => {
@@ -23,10 +23,10 @@ beforeEach(async () => {
   db.delete(habitats).run();
   db.delete(missionTemplates).run();
 
-  const board = boardRepo.createBoard({ name: 'Test Board' });
-  boardId = board.id;
+  const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+  habitatId = habitat.id;
 
-  const column = columnRepo.createColumn({ boardId, name: 'Backlog', order: 0, requiresClaim: false });
+  const column = columnRepo.createColumn({ habitatId, name: 'Backlog', order: 0, requiresClaim: false });
   columnId = column.id;
 });
 
@@ -78,16 +78,16 @@ describe('calculateNextRun', () => {
 describe('executeScheduledTask', () => {
   function createSchedule(overrides: Record<string, unknown> = {}) {
     return scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Daily Standup',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Daily standup feature',
-      featureDescription: 'Auto-created standup',
-      featurePriority: 'medium' as TaskPriority,
-      featureLabels: ['standup'],
+      missionTitle: 'Daily standup mission',
+      missionDescription: 'Auto-created standup',
+      missionPriority: 'medium' as TaskPriority,
+      missionLabels: ['standup'],
       tasksTemplate: [
-        { title: 'Review board', description: 'Check progress', order: 0 },
+        { title: 'Review habitat', description: 'Check progress', order: 0 },
       ] as TaskTemplateEntry[],
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
@@ -95,23 +95,23 @@ describe('executeScheduledTask', () => {
     });
   }
 
-  it('creates feature from schedule with no template', () => {
+  it('creates mission from schedule with no template', () => {
     const schedule = createSchedule();
 
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    expect(result.featureId).toBeTruthy();
+    expect(result.missionId).toBeTruthy();
 
-    const feature = featureRepo.getFeatureById(result.featureId!);
-    expect(feature).not.toBeNull();
-    expect(feature!.title).toBe('Daily standup feature');
-    expect(feature!.boardId).toBe(boardId);
+    const mission = missionRepo.getMissionById(result.missionId!);
+    expect(mission).not.toBeNull();
+    expect(mission!.title).toBe('Daily standup mission');
+    expect(mission!.habitatId).toBe(habitatId);
 
     const schedAfter = scheduledTaskRepo.getScheduledTaskById(schedule.id);
     expect(schedAfter!.runCount).toBe(1);
     expect(schedAfter!.lastRunAt).toBeTruthy();
-    expect(schedAfter!.lastCreatedMissionId).toBe(result.featureId);
+    expect(schedAfter!.lastCreatedMissionId).toBe(result.missionId);
     expect(schedAfter!.nextRunAt).not.toBe(schedule.nextRunAt);
   });
 
@@ -121,14 +121,14 @@ describe('executeScheduledTask', () => {
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    const createdTasks = taskRepo.getTasksByFeatureId(result.featureId!);
+    const createdTasks = taskRepo.getTasksByMissionId(result.missionId!);
     expect(createdTasks).toHaveLength(1);
-    expect(createdTasks[0].title).toBe('Review board');
+    expect(createdTasks[0].title).toBe('Review habitat');
   });
 
   it('uses template when templateId is set and template exists', () => {
     const template = templateRepo.createTemplate({
-      boardId,
+      habitatId,
       name: 'Sprint Template',
       titlePattern: 'Sprint Task',
       descriptionPattern: 'Sprint description',
@@ -146,16 +146,16 @@ describe('executeScheduledTask', () => {
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    const feature = featureRepo.getFeatureById(result.featureId!);
-    expect(feature!.title).toBe('Daily standup feature');
+    const mission = missionRepo.getMissionById(result.missionId!);
+    expect(mission!.title).toBe('Daily standup mission');
 
-    const createdTasks = taskRepo.getTasksByFeatureId(result.featureId!);
+    const createdTasks = taskRepo.getTasksByMissionId(result.missionId!);
     expect(createdTasks).toHaveLength(2);
   });
 
   it('falls back to stored fields when template is deleted', () => {
     const template = templateRepo.createTemplate({
-      boardId,
+      habitatId,
       name: 'Deleted Template',
       titlePattern: 'Original',
       descriptionPattern: 'Original desc',
@@ -171,12 +171,12 @@ describe('executeScheduledTask', () => {
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    const feature = featureRepo.getFeatureById(result.featureId!);
-    expect(feature!.title).toBe('Daily standup feature');
+    const mission = missionRepo.getMissionById(result.missionId!);
+    expect(mission!.title).toBe('Daily standup mission');
 
-    const createdTasks = taskRepo.getTasksByFeatureId(result.featureId!);
+    const createdTasks = taskRepo.getTasksByMissionId(result.missionId!);
     expect(createdTasks).toHaveLength(1);
-    expect(createdTasks[0].title).toBe('Review board');
+    expect(createdTasks[0].title).toBe('Review habitat');
   });
 
   it('returns error for non-existent schedule', () => {
@@ -197,11 +197,11 @@ describe('executeScheduledTask', () => {
 
   it('disables once-type schedule after successful execution', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'One-time task',
       scheduleType: 'once',
-      featureTitle: 'One-time feature',
-      featurePriority: 'medium' as TaskPriority,
+      missionTitle: 'One-time mission',
+      missionPriority: 'medium' as TaskPriority,
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
     });
@@ -209,7 +209,7 @@ describe('executeScheduledTask', () => {
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    expect(result.featureId).toBeTruthy();
+    expect(result.missionId).toBeTruthy();
 
     const after = scheduledTaskRepo.getScheduledTaskById(schedule.id);
     expect(after!.enabled).toBe(false);
@@ -236,11 +236,11 @@ describe('executeScheduledTask', () => {
 describe('processDueTasks', () => {
   it('executes enabled schedules with nextRunAt in past', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Due Task',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Past due feature',
+      missionTitle: 'Past due mission',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
@@ -256,11 +256,11 @@ describe('processDueTasks', () => {
 
   it('skips schedules with nextRunAt in future', () => {
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Future Task',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Future feature',
+      missionTitle: 'Future mission',
       nextRunAt: new Date(Date.now() + 3600_000).toISOString(),
       createdBy: 'human',
     });
@@ -272,11 +272,11 @@ describe('processDueTasks', () => {
 
   it('skips disabled schedules', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Disabled Task',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Disabled feature',
+      missionTitle: 'Disabled mission',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
@@ -289,11 +289,11 @@ describe('processDueTasks', () => {
 
   it('prevents concurrent duplicate execution via CAS lock', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'CAS Lock Test',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'CAS Feature',
+      missionTitle: 'CAS Mission',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
@@ -309,20 +309,20 @@ describe('processDueTasks', () => {
 
   it('handles multiple due schedules', () => {
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Task 1',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Feature 1',
+      missionTitle: 'Mission 1',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Task 2',
       scheduleType: 'cron',
       cronExpression: '0 10 * * *',
-      featureTitle: 'Feature 2',
+      missionTitle: 'Mission 2',
       nextRunAt: new Date(Date.now() - 120_000).toISOString(),
       createdBy: 'human',
     });
@@ -358,7 +358,7 @@ describe('processDueAuditExports', () => {
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
     db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-1', ${boardId}, 'Daily Export', 'csv', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
+      VALUES ('audit-1', ${habitatId}, 'Daily Export', 'csv', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -371,7 +371,7 @@ describe('processDueAuditExports', () => {
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
     db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-2', ${boardId}, 'Future Export', 'json', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() + 3600_000).toISOString()}, 'system', ${now})`);
+      VALUES ('audit-2', ${habitatId}, 'Future Export', 'json', '{}', '0 0 * * *', '{}', 1, ${new Date(Date.now() + 3600_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -383,7 +383,7 @@ describe('processDueAuditExports', () => {
     const { sql } = require('drizzle-orm');
     const now = new Date().toISOString();
     db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-3', ${boardId}, 'Disabled Export', 'csv', '{}', '0 0 * * *', '{}', 0, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
+      VALUES ('audit-3', ${habitatId}, 'Disabled Export', 'csv', '{}', '0 0 * * *', '{}', 0, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -396,7 +396,7 @@ describe('processDueAuditExports', () => {
     const now = new Date().toISOString();
     const maliciousFilters = JSON.stringify({ since: '2020-01-01T00:00:00Z', format: 'evil' });
     db.run(sql`INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, destination_config, enabled, next_run_at, created_by, created_at)
-      VALUES ('audit-filter', ${boardId}, 'Filter Override Test', 'csv', ${maliciousFilters}, '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
+      VALUES ('audit-filter', ${habitatId}, 'Filter Override Test', 'csv', ${maliciousFilters}, '0 0 * * *', '{}', 1, ${new Date(Date.now() - 60_000).toISOString()}, 'system', ${now})`);
 
     const result = scheduledTaskService.processDueAuditExports();
 
@@ -405,7 +405,7 @@ describe('processDueAuditExports', () => {
 
     const fs = require('fs');
     const path = require('path');
-    const exportDir = path.join(process.cwd(), 'exports', boardId);
+    const exportDir = path.join(process.cwd(), 'exports', habitatId);
     const files = fs.readdirSync(exportDir);
     expect(files.some((f: string) => f.endsWith('.csv'))).toBe(true);
   });
@@ -433,11 +433,11 @@ describe('processDueScheduledTasks', () => {
 
   it('runs both task and audit processors', () => {
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Task',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Feature',
+      missionTitle: 'Mission',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
@@ -452,11 +452,11 @@ describe('processDueScheduledTasks', () => {
 describe('scheduledTaskRepo', () => {
   it('creates and retrieves a scheduled task', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Test Schedule',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Test Feature',
+      missionTitle: 'Test Mission',
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
     });
@@ -470,37 +470,37 @@ describe('scheduledTaskRepo', () => {
     expect(retrieved!.runCount).toBe(0);
   });
 
-  it('lists scheduled tasks by board', () => {
+  it('lists scheduled tasks by habitat', () => {
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Task 1',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'F1',
+      missionTitle: 'F1',
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
     });
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Task 2',
       scheduleType: 'interval',
       intervalMinutes: 30,
-      featureTitle: 'F2',
+      missionTitle: 'F2',
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
     });
 
-    const list = scheduledTaskRepo.getScheduledTasksByBoardId(boardId);
+    const list = scheduledTaskRepo.getScheduledTasksByHabitatId(habitatId);
     expect(list).toHaveLength(2);
   });
 
   it('updates a scheduled task', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Original',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'F1',
+      missionTitle: 'F1',
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
     });
@@ -516,11 +516,11 @@ describe('scheduledTaskRepo', () => {
 
   it('deletes a scheduled task', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'ToDelete',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'F1',
+      missionTitle: 'F1',
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
     });
@@ -549,20 +549,20 @@ describe('scheduledTaskRepo', () => {
 
   it('getDueScheduledTasks returns only enabled tasks with past nextRunAt', () => {
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Due',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'F1',
+      missionTitle: 'F1',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
     scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Future',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'F2',
+      missionTitle: 'F2',
       nextRunAt: new Date(Date.now() + 3600_000).toISOString(),
       createdBy: 'human',
     });
@@ -574,11 +574,11 @@ describe('scheduledTaskRepo', () => {
 
   it('claimExecution updates execution fields', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'ClaimTest',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'F1',
+      missionTitle: 'F1',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
@@ -604,11 +604,11 @@ describe('scheduledTaskRepo', () => {
 
   it('claimExecution returns false for disabled task', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'DisabledClaim',
       scheduleType: 'interval',
       intervalMinutes: 60,
-      featureTitle: 'F1',
+      missionTitle: 'F1',
       nextRunAt: new Date(Date.now() - 60_000).toISOString(),
       createdBy: 'human',
     });
@@ -676,14 +676,14 @@ describe('substituteTokens', () => {
 describe('token substitution in execution', () => {
   function createSchedule(overrides: Record<string, unknown> = {}) {
     return scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Templated Schedule',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Sprint {{counter}} — {{date}}',
-      featureDescription: 'Week of {{date}}',
-      featurePriority: 'medium' as TaskPriority,
-      featureLabels: ['sprint'],
+      missionTitle: 'Sprint {{counter}} — {{date}}',
+      missionDescription: 'Week of {{date}}',
+      missionPriority: 'medium' as TaskPriority,
+      missionLabels: ['sprint'],
       tasksTemplate: [
         { title: 'Review sprint {{counter}} backlog', description: 'Check items', order: 0 },
       ] as TaskTemplateEntry[],
@@ -693,17 +693,17 @@ describe('token substitution in execution', () => {
     });
   }
 
-  it('resolves tokens in feature title, description, and task titles', () => {
+  it('resolves tokens in mission title, description, and task titles', () => {
     const schedule = createSchedule();
 
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    const feature = featureRepo.getFeatureById(result.featureId!);
-    expect(feature!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
-    expect(feature!.description).toMatch(/^Week of \d{4}-\d{2}-\d{2}$/);
+    const mission = missionRepo.getMissionById(result.missionId!);
+    expect(mission!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
+    expect(mission!.description).toMatch(/^Week of \d{4}-\d{2}-\d{2}$/);
 
-    const createdTasks = taskRepo.getTasksByFeatureId(result.featureId!);
+    const createdTasks = taskRepo.getTasksByMissionId(result.missionId!);
     expect(createdTasks).toHaveLength(1);
     expect(createdTasks[0].title).toMatch(/^Review sprint 1 backlog$/);
   });
@@ -713,7 +713,7 @@ describe('token substitution in execution', () => {
 
     const result1 = scheduledTaskService.executeScheduledTask(schedule.id);
     expect(result1.success).toBe(true);
-    const feature1 = featureRepo.getFeatureById(result1.featureId!);
+    const feature1 = missionRepo.getMissionById(result1.missionId!);
     expect(feature1!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
 
     scheduledTaskRepo.updateScheduledTask(schedule.id, {
@@ -722,13 +722,13 @@ describe('token substitution in execution', () => {
 
     const result2 = scheduledTaskService.executeScheduledTask(schedule.id);
     expect(result2.success).toBe(true);
-    const feature2 = featureRepo.getFeatureById(result2.featureId!);
+    const feature2 = missionRepo.getMissionById(result2.missionId!);
     expect(feature2!.title).toMatch(/^Sprint 2 — \d{4}-\d{2}-\d{2}$/);
   });
 
   it('resolves tokens via template path when templateId is set', () => {
     const template = templateRepo.createTemplate({
-      boardId,
+      habitatId,
       name: 'Sprint Template',
       titlePattern: 'Template Task',
       descriptionPattern: 'Template desc',
@@ -745,20 +745,20 @@ describe('token substitution in execution', () => {
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    const feature = featureRepo.getFeatureById(result.featureId!);
-    expect(feature!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
+    const mission = missionRepo.getMissionById(result.missionId!);
+    expect(mission!.title).toMatch(/^Sprint 1 — \d{4}-\d{2}-\d{2}$/);
   });
 
   it('passes non-templated titles through unchanged', () => {
     const schedule = scheduledTaskRepo.createScheduledTask({
-      boardId,
+      habitatId,
       name: 'Plain Schedule',
       scheduleType: 'cron',
       cronExpression: '0 9 * * *',
-      featureTitle: 'Daily Standup',
-      featureDescription: 'Auto standup',
-      featurePriority: 'medium' as TaskPriority,
-      featureLabels: [],
+      missionTitle: 'Daily Standup',
+      missionDescription: 'Auto standup',
+      missionPriority: 'medium' as TaskPriority,
+      missionLabels: [],
       tasksTemplate: [],
       nextRunAt: new Date().toISOString(),
       createdBy: 'human',
@@ -767,8 +767,8 @@ describe('token substitution in execution', () => {
     const result = scheduledTaskService.executeScheduledTask(schedule.id);
 
     expect(result.success).toBe(true);
-    const feature = featureRepo.getFeatureById(result.featureId!);
-    expect(feature!.title).toBe('Daily Standup');
-    expect(feature!.description).toBe('Auto standup');
+    const mission = missionRepo.getMissionById(result.missionId!);
+    expect(mission!.title).toBe('Daily Standup');
+    expect(mission!.description).toBe('Auto standup');
   });
 });

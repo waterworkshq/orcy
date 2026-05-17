@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getIntegrationsByBoard, getIntegrationById, createIntegration, updateIntegration, deleteIntegration } from '../repositories/chatIntegration.js';
-import { getBoardById } from '../repositories/board.js';
+import { getIntegrationsByHabitat, getIntegrationById, createIntegration, updateIntegration, deleteIntegration } from '../repositories/chatIntegration.js';
+import { getHabitatById } from '../repositories/board.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { verifySlackRequest, verifySlackRequestWithTimestamp, parseSlackCommand } from '../services/slackService.js';
@@ -36,11 +36,11 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
     { preHandler: [humanAuth, adminOnly] },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
       const { habitatId } = request.params;
-      const board = getBoardById(habitatId);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = getHabitatById(habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
-      const integrations = getIntegrationsByBoard(habitatId);
+      const integrations = getIntegrationsByHabitat(habitatId);
       return integrations.map(i => ({
         ...i,
         botToken: i.botToken ? '********' : null,
@@ -68,9 +68,9 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
         throw badRequest(`Unsafe webhook URL: ${urlValidation.reason}`);
       }
 
-      const board = getBoardById(habitatId);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = getHabitatById(habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
 
       if (events) {
@@ -82,7 +82,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
       }
 
       const integration = createIntegration({
-        boardId: habitatId,
+        habitatId: habitatId,
         provider,
         webhookUrl,
         channelId,

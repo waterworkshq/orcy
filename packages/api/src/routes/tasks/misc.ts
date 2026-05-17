@@ -68,8 +68,8 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound('Task not found');
       }
 
-      const boardId = taskRepo.getBoardIdForTask(task.id);
-      const enabled = boardId ? gitWorktreeService.isWorktreeEnabled(boardId) : false;
+      const habitatId = taskRepo.getHabitatIdForTask(task.id);
+      const enabled = habitatId ? gitWorktreeService.isWorktreeEnabled(habitatId) : false;
       const worktree = gitWorktreeService.getWorktreeInfo(request.params.id);
 
       return { worktree, enabled };

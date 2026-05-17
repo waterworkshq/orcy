@@ -25,7 +25,7 @@ vi.mock('../repositories/agent.js', () => ({
 
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(),
-  getBoardIdForTask: vi.fn().mockReturnValue('board-1'),
+  getHabitatIdForTask: vi.fn().mockReturnValue('habitat-1'),
 }));
 
 vi.mock('../sse/broadcaster.js', () => ({
@@ -67,7 +67,7 @@ describe('comment mentions', () => {
       { commentId: 'comment-1', mentionedType: 'agent', mentionedId: 'agent-1', mentionText: '@buildbot' },
     ]);
     expect(result.mentions).toHaveLength(2);
-    expect(sseBroadcaster.publish).toHaveBeenCalledWith('board-1', expect.objectContaining({ type: 'task.mentioned' }));
+    expect(sseBroadcaster.publish).toHaveBeenCalledWith('habitat-1', expect.objectContaining({ type: 'task.mentioned' }));
   });
 
   it('ignores unresolved mention text', () => {

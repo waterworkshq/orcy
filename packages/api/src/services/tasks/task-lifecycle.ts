@@ -6,7 +6,7 @@ import * as watcherService from '../watcherService.js';
 import * as retryService from '../retryService.js';
 import * as gitWorktreeService from '../gitWorktreeService.js';
 import * as pluginManager from '../../plugins/pluginManager.js';
-import * as missionService from '../missionService.js';
+import * as missionService from '../featureService.js';
 import * as timeTrackingService from '../timeTrackingService.js';
 import * as qualityGateService from '../qualityGateService.js';
 import * as dependencyService from '../dependencyService.js';

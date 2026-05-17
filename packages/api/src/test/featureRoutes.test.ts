@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  createFeatureSchema,
-  updateFeatureSchema,
-  featureQuerySchema,
-  moveFeatureSchema,
-  createTaskInFeatureSchema,
+  createMissionSchema,
+  updateMissionSchema,
+  missionQuerySchema,
+  moveMissionSchema,
+  createTaskInMissionSchema,
 } from '../models/schemas.js';
 
-describe('Feature Zod Schemas', () => {
-  describe('createFeatureSchema', () => {
+describe('Mission Zod Schemas', () => {
+  describe('createMissionSchema', () => {
     it('accepts valid minimal input', () => {
-      const result = createFeatureSchema.safeParse({ title: 'My Feature' });
+      const result = createMissionSchema.safeParse({ title: 'My Mission' });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.title).toBe('My Feature');
+        expect(result.data.title).toBe('My Mission');
         expect(result.data.description).toBe('');
         expect(result.data.acceptanceCriteria).toBe('');
         expect(result.data.priority).toBe('medium');
@@ -25,7 +25,7 @@ describe('Feature Zod Schemas', () => {
 
     it('accepts full valid input', () => {
       const input = {
-        title: 'Full Feature',
+        title: 'Full Mission',
         description: 'A detailed description',
         acceptanceCriteria: 'AC1, AC2',
         priority: 'critical',
@@ -36,76 +36,76 @@ describe('Feature Zod Schemas', () => {
         slaMinutes: 120,
         columnId: '00000000-0000-0000-0000-000000000003',
       };
-      const result = createFeatureSchema.safeParse(input);
+      const result = createMissionSchema.safeParse(input);
       expect(result.success).toBe(true);
     });
 
     it('rejects empty title', () => {
-      const result = createFeatureSchema.safeParse({ title: '' });
+      const result = createMissionSchema.safeParse({ title: '' });
       expect(result.success).toBe(false);
     });
 
     it('rejects title over 500 chars', () => {
-      const result = createFeatureSchema.safeParse({ title: 'x'.repeat(501) });
+      const result = createMissionSchema.safeParse({ title: 'x'.repeat(501) });
       expect(result.success).toBe(false);
     });
 
     it('rejects invalid priority', () => {
-      const result = createFeatureSchema.safeParse({ title: 'Feature', priority: 'urgent' });
+      const result = createMissionSchema.safeParse({ title: 'Mission', priority: 'urgent' });
       expect(result.success).toBe(false);
     });
 
     it('rejects non-UUID dependsOn', () => {
-      const result = createFeatureSchema.safeParse({ title: 'Feature', dependsOn: ['not-a-uuid'] });
+      const result = createMissionSchema.safeParse({ title: 'Mission', dependsOn: ['not-a-uuid'] });
       expect(result.success).toBe(false);
     });
 
     it('rejects negative slaMinutes', () => {
-      const result = createFeatureSchema.safeParse({ title: 'Feature', slaMinutes: -5 });
+      const result = createMissionSchema.safeParse({ title: 'Mission', slaMinutes: -5 });
       expect(result.success).toBe(false);
     });
 
     it('rejects non-datetime dueAt', () => {
-      const result = createFeatureSchema.safeParse({ title: 'Feature', dueAt: 'not-a-date' });
+      const result = createMissionSchema.safeParse({ title: 'Mission', dueAt: 'not-a-date' });
       expect(result.success).toBe(false);
     });
   });
 
-  describe('updateFeatureSchema', () => {
+  describe('updateMissionSchema', () => {
     it('accepts partial update', () => {
-      const result = updateFeatureSchema.safeParse({ title: 'Updated' });
+      const result = updateMissionSchema.safeParse({ title: 'Updated' });
       expect(result.success).toBe(true);
     });
 
     it('accepts nullable dueAt', () => {
-      const result = updateFeatureSchema.safeParse({ dueAt: null });
+      const result = updateMissionSchema.safeParse({ dueAt: null });
       expect(result.success).toBe(true);
     });
 
     it('accepts nullable slaMinutes', () => {
-      const result = updateFeatureSchema.safeParse({ slaMinutes: null });
+      const result = updateMissionSchema.safeParse({ slaMinutes: null });
       expect(result.success).toBe(true);
     });
 
     it('accepts version for optimistic locking', () => {
-      const result = updateFeatureSchema.safeParse({ title: 'Updated', version: 3 });
+      const result = updateMissionSchema.safeParse({ title: 'Updated', version: 3 });
       expect(result.success).toBe(true);
     });
 
     it('rejects empty title', () => {
-      const result = updateFeatureSchema.safeParse({ title: '' });
+      const result = updateMissionSchema.safeParse({ title: '' });
       expect(result.success).toBe(false);
     });
 
     it('rejects description over 10000 chars', () => {
-      const result = updateFeatureSchema.safeParse({ description: 'x'.repeat(10001) });
+      const result = updateMissionSchema.safeParse({ description: 'x'.repeat(10001) });
       expect(result.success).toBe(false);
     });
   });
 
-  describe('featureQuerySchema', () => {
+  describe('missionQuerySchema', () => {
     it('applies defaults', () => {
-      const result = featureQuerySchema.safeParse({});
+      const result = missionQuerySchema.safeParse({});
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.limit).toBe(20);
@@ -114,17 +114,17 @@ describe('Feature Zod Schemas', () => {
     });
 
     it('accepts valid status filter', () => {
-      const result = featureQuerySchema.safeParse({ status: 'in_progress' });
+      const result = missionQuerySchema.safeParse({ status: 'in_progress' });
       expect(result.success).toBe(true);
     });
 
     it('rejects invalid status', () => {
-      const result = featureQuerySchema.safeParse({ status: 'unknown' });
+      const result = missionQuerySchema.safeParse({ status: 'unknown' });
       expect(result.success).toBe(false);
     });
 
     it('coerces string limit to number', () => {
-      const result = featureQuerySchema.safeParse({ limit: '50' });
+      const result = missionQuerySchema.safeParse({ limit: '50' });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.limit).toBe(50);
@@ -132,31 +132,31 @@ describe('Feature Zod Schemas', () => {
     });
 
     it('rejects limit over 100', () => {
-      const result = featureQuerySchema.safeParse({ limit: 200 });
+      const result = missionQuerySchema.safeParse({ limit: 200 });
       expect(result.success).toBe(false);
     });
   });
 
-  describe('moveFeatureSchema', () => {
+  describe('moveMissionSchema', () => {
     it('accepts valid columnId', () => {
-      const result = moveFeatureSchema.safeParse({ columnId: '00000000-0000-0000-0000-000000000001' });
+      const result = moveMissionSchema.safeParse({ columnId: '00000000-0000-0000-0000-000000000001' });
       expect(result.success).toBe(true);
     });
 
     it('rejects non-UUID columnId', () => {
-      const result = moveFeatureSchema.safeParse({ columnId: 'not-a-uuid' });
+      const result = moveMissionSchema.safeParse({ columnId: 'not-a-uuid' });
       expect(result.success).toBe(false);
     });
 
     it('rejects missing columnId', () => {
-      const result = moveFeatureSchema.safeParse({});
+      const result = moveMissionSchema.safeParse({});
       expect(result.success).toBe(false);
     });
   });
 
-  describe('createTaskInFeatureSchema', () => {
+  describe('createTaskInMissionSchema', () => {
     it('accepts valid minimal input', () => {
-      const result = createTaskInFeatureSchema.safeParse({ title: 'My Task' });
+      const result = createTaskInMissionSchema.safeParse({ title: 'My Task' });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.title).toBe('My Task');
@@ -179,27 +179,27 @@ describe('Feature Zod Schemas', () => {
         dependsOn: ['00000000-0000-0000-0000-000000000001'],
         order: 5,
       };
-      const result = createTaskInFeatureSchema.safeParse(input);
+      const result = createTaskInMissionSchema.safeParse(input);
       expect(result.success).toBe(true);
     });
 
     it('rejects empty title', () => {
-      const result = createTaskInFeatureSchema.safeParse({ title: '' });
+      const result = createTaskInMissionSchema.safeParse({ title: '' });
       expect(result.success).toBe(false);
     });
 
     it('rejects title over 500 chars', () => {
-      const result = createTaskInFeatureSchema.safeParse({ title: 'x'.repeat(501) });
+      const result = createTaskInMissionSchema.safeParse({ title: 'x'.repeat(501) });
       expect(result.success).toBe(false);
     });
 
     it('rejects invalid priority', () => {
-      const result = createTaskInFeatureSchema.safeParse({ title: 'Task', priority: 'urgent' });
+      const result = createTaskInMissionSchema.safeParse({ title: 'Task', priority: 'urgent' });
       expect(result.success).toBe(false);
     });
 
     it('rejects negative estimatedMinutes', () => {
-      const result = createTaskInFeatureSchema.safeParse({ title: 'Task', estimatedMinutes: -10 });
+      const result = createTaskInMissionSchema.safeParse({ title: 'Task', estimatedMinutes: -10 });
       expect(result.success).toBe(false);
     });
   });

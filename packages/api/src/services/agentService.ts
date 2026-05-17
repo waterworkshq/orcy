@@ -1,6 +1,6 @@
 import * as agentRepo from '../repositories/agent.js';
 import * as taskRepo from '../repositories/task.js';
-import { getBoardIdForTask } from '../repositories/task.js';
+import { getHabitatIdForTask } from '../repositories/task.js';
 import * as timeTrackingService from './timeTrackingService.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as pluginManager from '../plugins/pluginManager.js';
@@ -135,13 +135,13 @@ export function releaseStaleTasks(thresholdMinutes = 30): void {
     if (agent.currentTaskId) {
       const task = taskRepo.releaseTask(agent.currentTaskId, 'stale_timeout');
       if (task) {
-        const boardId = getBoardIdForTask(task.id);
-        if (boardId) {
-          sseBroadcaster.publish(boardId, {
+        const habitatId = getHabitatIdForTask(task.id);
+        if (habitatId) {
+          sseBroadcaster.publish(habitatId, {
             type: 'task.released',
             data: { taskId: task.id, reason: 'stale_timeout' },
           });
-          sseBroadcaster.publish(boardId, { type: 'task.updated', data: task });
+          sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
         }
       }
     }

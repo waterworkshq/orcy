@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { initTestDb, closeDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as taskService from '../services/tasks/index.js';
 import { taskLifecycleRoutes } from '../routes/tasks/lifecycle.js';
@@ -87,17 +87,17 @@ function findRoute(routes: CapturedRoute[], pathPattern: string): RouteHandler {
 function setupBoardWithTask(
   agentId: string,
   status: string = 'pending'
-): { boardId: string; featureId: string; taskId: string } {
-  const board = boardRepo.createBoard({ name: 'Test Board' });
-  const column = columnRepo.createColumn({ boardId: board.id, name: 'Backlog' });
-  const feature = featureRepo.createFeature({
-    boardId: board.id,
+): { habitatId: string; missionId: string; taskId: string } {
+  const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+  const column = columnRepo.createColumn({ habitatId: habitat.id, name: 'Backlog' });
+  const mission = missionRepo.createMission({
+    habitatId: habitat.id,
     columnId: column.id,
-    title: 'Test Feature',
+    title: 'Test Mission',
     createdBy: 'test',
   });
   const task = taskRepo.createTask({
-    featureId: feature.id,
+    missionId: mission.id,
     title: 'Test Task',
     createdBy: 'test',
   });
@@ -114,7 +114,7 @@ function setupBoardWithTask(
     }
   }
 
-  return { boardId: board.id, featureId: feature.id, taskId: task.id };
+  return { habitatId: habitat.id, missionId: mission.id, taskId: task.id };
 }
 
 describe('Task Lifecycle Authorization', () => {
@@ -536,16 +536,16 @@ describe('Task Lifecycle Authorization', () => {
     });
 
     it('domain mismatch still blocks claim at route level', async () => {
-      const board = boardRepo.createBoard({ name: 'Domain Board' });
-      const column = columnRepo.createColumn({ boardId: board.id, name: 'Col' });
-      const feature = featureRepo.createFeature({
-        boardId: board.id,
+      const habitat = habitatRepo.createHabitat({ name: 'Domain Habitat' });
+      const column = columnRepo.createColumn({ habitatId: habitat.id, name: 'Col' });
+      const mission = missionRepo.createMission({
+        habitatId: habitat.id,
         columnId: column.id,
-        title: 'Domain Feature',
+        title: 'Domain Mission',
         createdBy: 'test',
       });
       const task = taskRepo.createTask({
-        featureId: feature.id,
+        missionId: mission.id,
         title: 'Backend Task',
         requiredDomain: 'backend',
         createdBy: 'test',

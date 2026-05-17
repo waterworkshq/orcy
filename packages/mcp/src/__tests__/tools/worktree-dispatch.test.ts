@@ -20,8 +20,8 @@ describe('WORKTREE_DISPATCH_TOOL', () => {
 });
 
 describe('WORKTREE_ACTIONS', () => {
-  it('routes get-worktree to boardGetWorktree', () => {
-    expect(WORKTREE_ACTIONS['get-worktree']).toBe(worktree.boardGetWorktree);
+  it('routes get-worktree to habitatGetWorktree', () => {
+    expect(WORKTREE_ACTIONS['get-worktree']).toBe(worktree.habitatGetWorktree);
   });
 
   it('has exactly 1 action', () => {

@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { boards, taskEvents, tasks, features } from '../db/schema/index.js';
+import { habitats, taskEvents, tasks, missions } from '../db/schema/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -26,17 +26,17 @@ export interface ArchiveResult {
   archivePath: string;
 }
 
-export function getRetentionSettings(boardId: string): { eventRetentionDays: number } {
+export function getRetentionSettings(habitatId: string): { eventRetentionDays: number } {
   const db = getDb();
-  const row = db.select({ eventRetentionDays: boards.eventRetentionDays })
-    .from(boards)
-    .where(eq(boards.id, boardId))
+  const row = db.select({ eventRetentionDays: habitats.eventRetentionDays })
+    .from(habitats)
+    .where(eq(habitats.id, habitatId))
     .get();
   return { eventRetentionDays: row?.eventRetentionDays ?? 90 };
 }
 
-export function archiveOldEvents(boardId: string): ArchiveResult {
-  const { eventRetentionDays } = getRetentionSettings(boardId);
+export function archiveOldEvents(habitatId: string): ArchiveResult {
+  const { eventRetentionDays } = getRetentionSettings(habitatId);
   const db = getDb();
 
   const cutoff = new Date(Date.now() - eventRetentionDays * 24 * 60 * 60 * 1000).toISOString();
@@ -53,12 +53,12 @@ export function archiveOldEvents(boardId: string): ArchiveResult {
     toStatus: taskEvents.toStatus,
     metadata: taskEvents.metadata,
     timestamp: taskEvents.timestamp,
-    boardId: features.boardId,
+    habitatId: missions.habitatId,
   })
   .from(taskEvents)
   .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-  .innerJoin(features, eq(tasks.featureId, features.id))
-  .where(and(eq(features.boardId, boardId), sql`${taskEvents.timestamp} < ${cutoff}`))
+  .innerJoin(missions, eq(tasks.missionId, missions.id))
+  .where(and(eq(missions.habitatId, habitatId), sql`${taskEvents.timestamp} < ${cutoff}`))
   .all();
 
   const events: Record<string, unknown>[] = rows as unknown as Record<string, unknown>[];
@@ -68,11 +68,11 @@ export function archiveOldEvents(boardId: string): ArchiveResult {
     return { archivedCount: 0, archivePath: '' };
   }
 
-  const boardDir = join(ARCHIVES_DIR, boardId);
-  if (!existsSync(boardDir)) mkdirSync(boardDir, { recursive: true });
+  const habitatDir = join(ARCHIVES_DIR, habitatId);
+  if (!existsSync(habitatDir)) mkdirSync(habitatDir, { recursive: true });
 
   const date = new Date().toISOString().split('T')[0];
-  const archivePath = join(boardDir, `${date}.json`);
+  const archivePath = join(habitatDir, `${date}.json`);
 
   let existing: Record<string, unknown>[] = [];
   if (existsSync(archivePath)) {
@@ -94,11 +94,11 @@ export function archiveOldEvents(boardId: string): ArchiveResult {
   return { archivedCount: events.length, archivePath };
 }
 
-export function archiveAllBoards(): ArchiveResult[] {
+export function archiveAllHabitats(): ArchiveResult[] {
   const db = getDb();
   const results: ArchiveResult[] = [];
-  const boardRows = db.select({ id: boards.id }).from(boards).all();
-  for (const row of boardRows) {
+  const habitatRows = db.select({ id: habitats.id }).from(habitats).all();
+  for (const row of habitatRows) {
     const result = archiveOldEvents(row.id);
     if (result.archivedCount > 0) results.push(result);
   }

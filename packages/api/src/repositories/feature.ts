@@ -52,14 +52,14 @@ export function createMission(input: CreateMissionInput): Mission {
 
   let columnId = input.columnId;
   if (!columnId) {
-    const boardColumns = db
+    const habitatColumns = db
       .select()
       .from(columns)
       .where(eq(columns.habitatId, input.habitatId))
       .orderBy(columns.order)
       .all();
-    columnId = boardColumns[0]?.id;
-    if (!columnId) throw new Error('Board has no columns');
+    columnId = habitatColumns[0]?.id;
+    if (!columnId) throw new Error('Habitat has no columns');
   }
 
   let displayOrder = input.displayOrder;

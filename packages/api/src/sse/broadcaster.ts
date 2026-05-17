@@ -6,78 +6,78 @@ import { processEvent as chatProcessEvent } from '../services/chatService.js';
 import { logger } from '../lib/logger.js';
 
 class SSEBroadcaster {
-  private boardStreams = new Map<string, Set<(event: SSEEvent) => void>>();
+  private habitatStreams = new Map<string, Set<(event: SSEEvent) => void>>();
 
-  subscribe(boardId: string, handler: (event: SSEEvent) => void): () => void {
-    if (!this.boardStreams.has(boardId)) {
-      this.boardStreams.set(boardId, new Set());
+  subscribe(habitatId: string, handler: (event: SSEEvent) => void): () => void {
+    if (!this.habitatStreams.has(habitatId)) {
+      this.habitatStreams.set(habitatId, new Set());
     }
-    this.boardStreams.get(boardId)!.add(handler);
+    this.habitatStreams.get(habitatId)!.add(handler);
 
     return () => {
-      this.boardStreams.get(boardId)?.delete(handler);
-      if (this.boardStreams.get(boardId)?.size === 0) {
-        this.boardStreams.delete(boardId);
+      this.habitatStreams.get(habitatId)?.delete(handler);
+      if (this.habitatStreams.get(habitatId)?.size === 0) {
+        this.habitatStreams.delete(habitatId);
       }
     };
   }
 
-  publish(boardId: string, event: SSEEvent): void {
-    const handlers = this.boardStreams.get(boardId);
+  publish(habitatId: string, event: SSEEvent): void {
+    const handlers = this.habitatStreams.get(habitatId);
     if (handlers) {
       for (const handler of handlers) {
         handler(event);
       }
     }
 
-    if (event.type.startsWith('task.') || event.type.startsWith('column.') || event.type.startsWith('agent.') || event.type.startsWith('anomaly.') || event.type.startsWith('feature.')) {
-      dispatchWebhooks(boardId, event).catch(err => {
+    if (event.type.startsWith('task.') || event.type.startsWith('column.') || event.type.startsWith('agent.') || event.type.startsWith('anomaly.') || event.type.startsWith('mission.')) {
+      dispatchWebhooks(habitatId, event).catch(err => {
         logger.error({ err }, 'Webhook dispatch error');
       });
-      chatProcessEvent(event.type, boardId, event.data as Record<string, unknown>).catch(err => {
+      chatProcessEvent(event.type, habitatId, event.data as Record<string, unknown>).catch(err => {
         logger.error({ err }, 'Chat push error');
       });
     }
 
-    this.triggerNotifications(boardId, event);
+    this.triggerNotifications(habitatId, event);
   }
 
   private notifySafe(
     eventType: NotificationEventType,
-    boardId: string,
+    habitatId: string,
     data: NotificationEventData,
     label: string
   ): void {
-    processEvent(eventType, boardId, data).catch(err => {
+    processEvent(eventType, habitatId, data).catch(err => {
       logger.error({ err, eventType, label }, `[notifications] ${label} error`);
     });
   }
 
-  private triggerNotifications(boardId: string, event: SSEEvent): void {
+  private triggerNotifications(habitatId: string, event: SSEEvent): void {
     switch (event.type) {
       case 'task.claimed':
-        this.notifySafe('task.assigned', boardId, {
+        this.notifySafe('task.assigned', habitatId, {
           taskId: event.data.taskId,
           actorId: event.data.agentId,
         }, 'task.assigned');
         break;
 
       case 'task.submitted':
-        this.notifySafe('task.submitted', boardId, {
+        this.notifySafe('task.submitted', habitatId, {
           taskId: event.data.taskId,
           actorId: event.data.agentId,
         }, 'task.submitted');
         break;
 
       case 'task.approved':
-        this.notifySafe('task.approved', boardId, {
+        this.notifySafe('task.approved', habitatId, {
           taskId: event.data.taskId,
           actorId: event.data.reviewerId,
         }, 'task.approved');
         break;
 
       case 'task.rejected':
-        this.notifySafe('task.rejected', boardId, {
+        this.notifySafe('task.rejected', habitatId, {
           taskId: event.data.taskId,
           actorId: undefined,
           reason: event.data.reason,
@@ -85,14 +85,14 @@ class SSEBroadcaster {
         break;
 
       case 'task.overdue':
-        this.notifySafe('task.overdue', boardId, {
+        this.notifySafe('task.overdue', habitatId, {
           taskId: event.data.taskId,
         }, 'task.overdue');
         break;
 
       case 'task.mentioned':
         if (event.data.mentionedType === 'human') {
-          this.notifySafe('comment.mentioned', boardId, {
+          this.notifySafe('comment.mentioned', habitatId, {
             taskId: event.data.taskId,
             mentionedUserId: event.data.mentionedId,
             mentionedByName: event.data.mentionedName,
@@ -100,10 +100,10 @@ class SSEBroadcaster {
         }
         break;
 
-      case 'feature.mentioned':
+      case 'mission.mentioned':
         if (event.data.mentionedType === 'human') {
-          this.notifySafe('comment.mentioned', boardId, {
-            featureId: event.data.featureId,
+          this.notifySafe('comment.mentioned', habitatId, {
+            missionId: event.data.missionId,
             mentionedUserId: event.data.mentionedId,
             mentionedByName: event.data.mentionedName,
           }, 'comment.mentioned');
@@ -111,15 +111,15 @@ class SSEBroadcaster {
         break;
 
       case 'task.watcher_notify':
-        this.notifySafe('task.watching', boardId, {
+        this.notifySafe('task.watching', habitatId, {
           taskId: event.data.taskId,
         }, 'task.watching');
         break;
     }
   }
 
-  getSubscriberCount(boardId: string): number {
-    return this.boardStreams.get(boardId)?.size ?? 0;
+  getSubscriberCount(habitatId: string): number {
+    return this.habitatStreams.get(habitatId)?.size ?? 0;
   }
 }
 

@@ -7,7 +7,7 @@ export function registerMessageCommands(program: any) {
 
   msg.command('send')
     .description('Send a message to another agent')
-    .argument('<boardId>', 'Habitat UUID')
+    .argument('<habitatId>', 'Habitat UUID')
     .argument('<subject>', 'Message subject')
     .argument('<body>', 'Message body')
     .option('--to-agent-id <id>', 'Recipient agent UUID')
@@ -15,7 +15,7 @@ export function registerMessageCommands(program: any) {
     .option('--task-id <id>', 'Optional task UUID to scope the message')
     .option('--message-type <type>', 'Message type: info, request, response, alert')
     .option('--priority <priority>', 'Priority: low, normal, high, urgent')
-    .action(withErrorHandling(async (boardId: string, subject: string, body: string, options: any) => {
+    .action(withErrorHandling(async (habitatId: string, subject: string, body: string, options: any) => {
       let toAgentId = options.toAgentId;
       if (!toAgentId && options.toAgentName) {
         const agents = await api.get<any>(`/api/agents?name=${encodeURIComponent(options.toAgentName)}`);
@@ -28,7 +28,7 @@ export function registerMessageCommands(program: any) {
       const config = getOrcyConfig();
       const agentId = config.agentId;
       const result = await api.post<any>(`/api/agents/${agentId}/messages`, {
-        boardId,
+        habitatId,
         toAgentId,
         taskId: options.taskId,
         subject,

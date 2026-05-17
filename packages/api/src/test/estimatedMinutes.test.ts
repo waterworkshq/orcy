@@ -4,7 +4,7 @@ import type { Task } from '../models/index.js';
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 'task-1',
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Test task',
     description: '',
     priority: 'medium',

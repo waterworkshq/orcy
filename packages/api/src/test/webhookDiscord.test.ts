@@ -3,7 +3,7 @@ import { formatDiscordPayload } from '../services/webhook-formatters/discord.js'
 import type { EventEnrichment } from '../services/webhook-formatters/standard.js';
 
 const taskEnrichment: EventEnrichment = {
-  boardName: 'Test Board',
+  habitatName: 'Test Habitat',
   task: {
     id: 'task-1',
     title: 'My Task',
@@ -17,7 +17,7 @@ const taskEnrichment: EventEnrichment = {
 };
 
 const noTaskEnrichment: EventEnrichment = {
-  boardName: 'Test Board',
+  habitatName: 'Test Habitat',
 };
 
 describe('webhook-formatters/discord', () => {

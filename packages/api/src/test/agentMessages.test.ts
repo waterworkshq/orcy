@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as agentMessageRepo from '../repositories/agentMessage.js';
 
 describe('AgentMessage Repository', () => {
-  let boardId: string;
+  let habitatId: string;
   let agent1Id: string;
   let agent2Id: string;
   let agent1ApiKey: string;
@@ -14,8 +14,8 @@ describe('AgentMessage Repository', () => {
   beforeAll(async () => {
     await initTestDb();
 
-    const board = boardRepo.createBoard({ name: 'Test Board Messages', description: 'Test' });
-    boardId = board.id;
+    const habitat = habitatRepo.createHabitat({ name: 'Test Habitat Messages', description: 'Test' });
+    habitatId = habitat.id;
 
     const agent1 = agentRepo.createAgent({ name: 'sender-agent', type: 'claude-code', domain: 'backend' });
     agent1Id = agent1.agent.id;
@@ -32,7 +32,7 @@ describe('AgentMessage Repository', () => {
 
   it('creates a message', () => {
     const message = agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Test Subject',
@@ -40,7 +40,7 @@ describe('AgentMessage Repository', () => {
     });
 
     expect(message.id).toBeDefined();
-    expect(message.boardId).toBe(boardId);
+    expect(message.habitatId).toBe(habitatId);
     expect(message.fromAgentId).toBe(agent1Id);
     expect(message.toAgentId).toBe(agent2Id);
     expect(message.subject).toBe('Test Subject');
@@ -52,7 +52,7 @@ describe('AgentMessage Repository', () => {
 
   it('creates a message with all options', () => {
     const message = agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       taskId: undefined,
@@ -68,7 +68,7 @@ describe('AgentMessage Repository', () => {
 
   it('gets a message by id', () => {
     const created = agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Get By ID Test',
@@ -88,14 +88,14 @@ describe('AgentMessage Repository', () => {
 
   it('lists messages for an agent', () => {
     agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'List Test 1',
       body: 'Body 1',
     });
     agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'List Test 2',
@@ -109,7 +109,7 @@ describe('AgentMessage Repository', () => {
 
   it('filters unread only', () => {
     const msg = agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Unread Filter Test',
@@ -127,7 +127,7 @@ describe('AgentMessage Repository', () => {
     const before = agentMessageRepo.getUnreadCount(agent2Id);
 
     agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Unread Count Test',
@@ -140,7 +140,7 @@ describe('AgentMessage Repository', () => {
 
   it('marks a message as read', () => {
     const msg = agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Mark Read Test',
@@ -156,14 +156,14 @@ describe('AgentMessage Repository', () => {
 
   it('marks all messages as read', () => {
     agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Mark All Read 1',
       body: 'Body',
     });
     agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Mark All Read 2',
@@ -179,7 +179,7 @@ describe('AgentMessage Repository', () => {
 
   it('deletes a message', () => {
     const msg = agentMessageRepo.createMessage({
-      boardId,
+      habitatId,
       fromAgentId: agent1Id,
       toAgentId: agent2Id,
       subject: 'Delete Test',

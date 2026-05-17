@@ -61,14 +61,14 @@ export const BOARD_BATCH_SET_TASK_PRIORITY_TOOL: Tool = {
   },
 };
 
-export async function boardBatchAssignTasks(
+export async function habitatBatchAssignTasks(
   client: KanbanApiClient,
   args: { boardId: string; taskIds: string[]; agentId: string }
 ) {
   return client.batchAssignTasks(args.boardId, args.taskIds, args.agentId);
 }
 
-export async function boardBatchSetTaskPriority(
+export async function habitatBatchSetTaskPriority(
   client: KanbanApiClient,
   args: { boardId: string; taskIds: string[]; priority: string }
 ) {
@@ -100,7 +100,7 @@ export const BOARD_BATCH_DELETE_TASKS_TOOL: Tool = {
   },
 };
 
-export async function boardBatchDeleteTasks(
+export async function habitatBatchDeleteTasks(
   client: KanbanApiClient,
   args: { boardId: string; taskIds: string[] }
 ) {

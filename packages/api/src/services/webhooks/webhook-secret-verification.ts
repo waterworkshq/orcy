@@ -1,11 +1,11 @@
 import { isRemotePosture, verifyGitHubHmac, verifyGitLabToken } from '../../config/integrationSecurity.js';
 import {
-  lookupBoardIdBySecret,
+  lookupHabitatIdBySecret,
   hasAnySecretsConfigured,
-  findBoardIdByGithubSignature,
+  findHabitatIdByGithubSignature,
   hasGithubSecretsConfigured,
 } from '../boardSecretCache.js';
-import * as boardRepo from '../../repositories/board.js';
+import * as habitatRepo from '../../repositories/board.js';
 
 export interface WebhookResponse {
   statusCode: number;
@@ -20,11 +20,11 @@ export interface WebhookSecretSource {
 export function createCodeReviewSecretSource(): WebhookSecretSource {
   return {
     verifyGitHubSignature(rawBody: string, signature: string | undefined) {
-      const matched = signature ? findBoardIdByGithubSignature(rawBody, signature) !== null : false;
+      const matched = signature ? findHabitatIdByGithubSignature(rawBody, signature) !== null : false;
       return { matched, secretsPresent: hasGithubSecretsConfigured() };
     },
     verifyGitLabToken(providedToken: string | undefined) {
-      const matched = providedToken ? lookupBoardIdBySecret(providedToken) !== null : false;
+      const matched = providedToken ? lookupHabitatIdBySecret(providedToken) !== null : false;
       return { matched, secretsPresent: hasAnySecretsConfigured() };
     },
   };
@@ -33,11 +33,11 @@ export function createCodeReviewSecretSource(): WebhookSecretSource {
 export function createCiCdSecretSource(): WebhookSecretSource {
   return {
     verifyGitHubSignature(rawBody: string, signature: string | undefined) {
-      const boards = boardRepo.listBoards();
+      const habitats = habitatRepo.listHabitats();
       let matched = false;
       let secretsPresent = false;
-      for (const board of boards) {
-        const raw = (board as unknown as Record<string, unknown>).ci_cd_settings;
+      for (const habitat of habitats) {
+        const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
         if (!raw || typeof raw !== 'string') continue;
         try {
           const settings = JSON.parse(raw) as { githubSecret?: string };
@@ -53,11 +53,11 @@ export function createCiCdSecretSource(): WebhookSecretSource {
       return { matched, secretsPresent };
     },
     verifyGitLabToken(providedToken: string | undefined) {
-      const boards = boardRepo.listBoards();
+      const habitats = habitatRepo.listHabitats();
       let matched = false;
       let secretsPresent = false;
-      for (const board of boards) {
-        const raw = (board as unknown as Record<string, unknown>).ci_cd_settings;
+      for (const habitat of habitats) {
+        const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
         if (!raw || typeof raw !== 'string') continue;
         try {
           const settings = JSON.parse(raw) as { gitlabSecret?: string };

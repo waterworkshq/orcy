@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   computeCycleTimeStats,
   computeThroughput,
-  computeBoardThroughput,
+  computeHabitatThroughput,
   computeCurrentStreak,
-  boardFilter,
+  habitatFilter,
   resolveDateWindow,
   getDateThresholds,
 } from '../repositories/events/stats-helpers.js';
@@ -80,13 +80,13 @@ describe('stats-helpers', () => {
     });
   });
 
-  describe('computeBoardThroughput', () => {
+  describe('computeHabitatThroughput', () => {
     const todayStart = '2026-01-15T00:00:00.000Z';
     const weekStart = '2026-01-08T00:00:00.000Z';
     const monthStart = '2026-01-01T00:00:00.000Z';
 
     it('returns zeros for empty array', () => {
-      const result = computeBoardThroughput([], todayStart, weekStart, monthStart);
+      const result = computeHabitatThroughput([], todayStart, weekStart, monthStart);
       expect(result).toEqual({ today: 0, thisWeek: 0, thisMonth: 0 });
     });
 
@@ -96,7 +96,7 @@ describe('stats-helpers', () => {
         { ts: '2026-01-10T10:00:00.000Z' },
         { ts: '2025-12-01T10:00:00.000Z' },
       ];
-      const result = computeBoardThroughput(rows, todayStart, weekStart, monthStart);
+      const result = computeHabitatThroughput(rows, todayStart, weekStart, monthStart);
       expect(result.today).toBe(1);
       expect(result.thisWeek).toBe(2);
       expect(result.thisMonth).toBe(2);
@@ -148,14 +148,14 @@ describe('stats-helpers', () => {
     });
   });
 
-  describe('boardFilter', () => {
-    it('returns eq condition when boardId provided', () => {
-      const filter = boardFilter('board-123');
+  describe('habitatFilter', () => {
+    it('returns eq condition when habitatId provided', () => {
+      const filter = habitatFilter('habitat-123');
       expect(filter).toBeDefined();
     });
 
-    it('returns 1=1 when boardId is undefined', () => {
-      const filter = boardFilter(undefined);
+    it('returns 1=1 when habitatId is undefined', () => {
+      const filter = habitatFilter(undefined);
       expect(filter).toBeDefined();
     });
   });

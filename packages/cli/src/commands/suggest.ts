@@ -7,12 +7,12 @@ export function registerSuggestCommands(program: any) {
 
   suggest.command('suggest-next-task')
     .description('Get AI-ranked task suggestions')
-    .argument('<boardId>', 'Habitat UUID')
+    .argument('<habitatId>', 'Habitat UUID')
     .option('--limit <n>', 'Max suggestions', '5')
-    .action(withErrorHandling(async (boardId: string, options: { limit: string }) => {
+    .action(withErrorHandling(async (habitatId: string, options: { limit: string }) => {
       const config = getOrcyConfig();
       const agentId = config.agentId;
-      const result = await api.get<any>(`/api/agents/${agentId}/suggestions?boardId=${encodeURIComponent(boardId)}&limit=${options.limit}`);
+      const result = await api.get<any>(`/api/agents/${agentId}/suggestions?habitatId=${encodeURIComponent(habitatId)}&limit=${options.limit}`);
       console.log(JSON.stringify(result, null, 2));
     }));
 }

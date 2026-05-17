@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
-import { requireBoardAccess } from '../middleware/team.js';
+import { requireHabitatAccess } from '../middleware/team.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as scheduledTaskService from '../services/scheduledTaskService.js';
 import { notFound, forbidden, unauthorized } from '../errors.js';
-import { getBoardById } from '../repositories/board.js';
-import { isTeamMemberByBoardId } from '../repositories/teamMember.js';
+import { getHabitatById } from '../repositories/board.js';
+import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 
 const createScheduledTaskSchema = z.object({
   name: z.string().min(1),
@@ -17,11 +17,11 @@ const createScheduledTaskSchema = z.object({
   intervalMinutes: z.number().int().min(1).optional().nullable(),
   scheduledAt: z.string().optional().nullable(),
   timezone: z.string().optional(),
-  featureTitle: z.string().min(1),
-  featureDescription: z.string().optional(),
-  featurePriority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
-  featureLabels: z.array(z.string()).optional(),
-  featureDomain: z.string().optional().nullable(),
+  missionTitle: z.string().min(1),
+  missionDescription: z.string().optional(),
+  missionPriority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  missionLabels: z.array(z.string()).optional(),
+  missionDomain: z.string().optional().nullable(),
   tasksTemplate: z.array(z.object({
     title: z.string(),
     description: z.string().optional(),
@@ -41,11 +41,11 @@ const updateScheduledTaskSchema = z.object({
   intervalMinutes: z.number().int().min(1).optional().nullable(),
   scheduledAt: z.string().optional().nullable(),
   timezone: z.string().optional(),
-  featureTitle: z.string().min(1).optional(),
-  featureDescription: z.string().optional(),
-  featurePriority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
-  featureLabels: z.array(z.string()).optional(),
-  featureDomain: z.string().optional().nullable(),
+  missionTitle: z.string().min(1).optional(),
+  missionDescription: z.string().optional(),
+  missionPriority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  missionLabels: z.array(z.string()).optional(),
+  missionDomain: z.string().optional().nullable(),
   tasksTemplate: z.array(z.object({
     title: z.string(),
     description: z.string().optional(),
@@ -64,22 +64,22 @@ function getUserId(request: FastifyRequest): string {
   return 'unknown';
 }
 
-function verifyTaskBoardAccess(request: FastifyRequest, boardId: string): void {
-  const board = getBoardById(boardId);
-  if (!board) {
-    throw notFound('Board not found');
+function verifyTaskHabitatAccess(request: FastifyRequest, habitatId: string): void {
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) {
+    throw notFound('Habitat not found');
   }
 
   if (request.agent) {
-    if (!board.teamId) return;
-    throw forbidden('Agents cannot access team boards', 'BOARD_ACCESS_DENIED');
+    if (!habitat.teamId) return;
+    throw forbidden('Agents cannot access team habitats', 'BOARD_ACCESS_DENIED');
   }
 
   if (request.user) {
-    if (!board.teamId) return;
-    const isMember = isTeamMemberByBoardId(boardId, request.user.id);
+    if (!habitat.teamId) return;
+    const isMember = isTeamMemberByHabitatId(habitatId, request.user.id);
     if (isMember) return;
-    throw forbidden('You do not have access to this board', 'BOARD_ACCESS_DENIED');
+    throw forbidden('You do not have access to this habitat', 'BOARD_ACCESS_DENIED');
   }
 
   throw unauthorized('Authentication required');
@@ -88,7 +88,7 @@ function verifyTaskBoardAccess(request: FastifyRequest, boardId: string): void {
 export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
     '/habitats/:habitatId/scheduled-tasks',
-    { preHandler: [humanAuth, requireBoardAccess] },
+    { preHandler: [humanAuth, requireHabitatAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const parsed = createScheduledTaskSchema.safeParse(request.body);
@@ -105,7 +105,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       );
 
       const schedule = scheduledTaskRepo.createScheduledTask({
-        boardId: params.habitatId,
+        habitatId: params.habitatId,
         templateId: body.templateId ?? null,
         name: body.name,
         description: body.description,
@@ -114,11 +114,11 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
         intervalMinutes: body.intervalMinutes ?? null,
         scheduledAt: body.scheduledAt ?? null,
         timezone: body.timezone,
-        featureTitle: body.featureTitle,
-        featureDescription: body.featureDescription,
-        featurePriority: body.featurePriority,
-        featureLabels: body.featureLabels,
-        featureDomain: body.featureDomain ?? null,
+        missionTitle: body.missionTitle,
+        missionDescription: body.missionDescription,
+        missionPriority: body.missionPriority,
+        missionLabels: body.missionLabels,
+        missionDomain: body.missionDomain ?? null,
         tasksTemplate: body.tasksTemplate,
         nextRunAt,
         createdBy: getUserId(request),
@@ -130,10 +130,10 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.get(
     '/habitats/:habitatId/scheduled-tasks',
-    { preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request: FastifyRequest) => {
       const params = request.params as { habitatId: string };
-      const tasks = scheduledTaskRepo.getScheduledTasksByBoardId(params.habitatId);
+      const tasks = scheduledTaskRepo.getScheduledTasksByHabitatId(params.habitatId);
       return { scheduledTasks: tasks };
     }
   );
@@ -147,7 +147,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!schedule) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, schedule.habitatId);
+      verifyTaskHabitatAccess(request, schedule.habitatId);
       return { scheduledTask: schedule };
     }
   );
@@ -161,7 +161,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.habitatId);
+      verifyTaskHabitatAccess(request, existing.habitatId);
 
       const parsed = updateScheduledTaskSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -198,7 +198,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.habitatId);
+      verifyTaskHabitatAccess(request, existing.habitatId);
 
       const deleted = scheduledTaskRepo.deleteScheduledTask(params.id);
       if (!deleted) {
@@ -217,7 +217,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!schedule) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, schedule.habitatId);
+      verifyTaskHabitatAccess(request, schedule.habitatId);
       const result = scheduledTaskService.executeScheduledTask(params.id);
       return result;
     }
@@ -232,7 +232,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.habitatId);
+      verifyTaskHabitatAccess(request, existing.habitatId);
 
       const updated = scheduledTaskRepo.updateScheduledTask(params.id, {
         enabled: true,
@@ -259,7 +259,7 @@ export async function scheduledTaskRoutes(fastify: FastifyInstance): Promise<voi
       if (!existing) {
         throw notFound('Scheduled task not found', 'SCHEDULED_TASK_NOT_FOUND');
       }
-      verifyTaskBoardAccess(request, existing.habitatId);
+      verifyTaskHabitatAccess(request, existing.habitatId);
 
       const updated = scheduledTaskRepo.updateScheduledTask(params.id, { enabled: false });
       if (!updated) {

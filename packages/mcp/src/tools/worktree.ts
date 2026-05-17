@@ -20,7 +20,7 @@ export const BOARD_GET_WORKTREE_TOOL: Tool = {
   },
 };
 
-export async function boardGetWorktree(
+export async function habitatGetWorktree(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {

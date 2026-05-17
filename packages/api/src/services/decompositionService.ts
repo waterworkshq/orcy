@@ -1,6 +1,6 @@
 import { getLLMConfig, callLLM, LLMMessage } from '../lib/llm.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import { badRequest, notFound, serviceUnavailable } from '../errors.js';
 
 export interface TaskProposal {
@@ -14,16 +14,16 @@ export interface TaskProposal {
 
 export interface DecompositionResult {
   proposals: TaskProposal[];
-  parentFeature: { id: string; title: string };
+  parentMission: { id: string; title: string };
 }
 
-const SYSTEM_PROMPT = `You are a feature decomposition assistant. Your job is to break down features into smaller, actionable tasks that agents can execute independently.
+const SYSTEM_PROMPT = `You are a mission decomposition assistant. Your job is to break down missions into smaller, actionable tasks that agents can execute independently.
 
 Rules:
 - Generate 3-8 tasks
 - Each task should be completable in 1-4 hours
 - Use verb-noun format for titles (e.g., "Implement authentication middleware", "Write unit tests for API endpoints")
-- Do NOT add requirements not in the original feature
+- Do NOT add requirements not in the original mission
 - Each task title should be clear and actionable
 - Tasks should be ordered logically (dependencies first)
 - Assign estimated minutes for each task
@@ -38,43 +38,43 @@ Output ONLY valid JSON in this exact format:
 
 priority must be one of: low, medium, high, critical`;
 
-function buildUserMessage(featureTitle: string, featureDescription: string, acceptanceCriteria: string): string {
-  let message = `Break down this feature into tasks:\n\nTitle: ${featureTitle}\n\nDescription: ${featureDescription || '(no description)'}`;
+function buildUserMessage(missionTitle: string, missionDescription: string, acceptanceCriteria: string): string {
+  let message = `Break down this feature into tasks:\n\nTitle: ${missionTitle}\n\nDescription: ${missionDescription || '(no description)'}`;
 
   if (acceptanceCriteria) {
     message += `\n\nAcceptance Criteria:\n${acceptanceCriteria}`;
   }
 
-  if (featureDescription.length < 20) {
+  if (missionDescription.length < 20) {
     message += '\n\nNote: The description is very short, so results may be limited.';
   }
 
   return message;
 }
 
-export async function decomposeFeature(featureId: string): Promise<DecompositionResult> {
+export async function decomposeMission(missionId: string): Promise<DecompositionResult> {
   const config = getLLMConfig();
   if (!config) {
     throw serviceUnavailable('AI decomposition not configured. Set LLM_API_KEY environment variable.');
   }
 
-  const feature = featureRepo.getFeatureById(featureId);
-  if (!feature) {
-    throw notFound('Feature not found');
+  const mission = missionRepo.getMissionById(missionId);
+  if (!mission) {
+    throw notFound('Mission not found');
   }
 
-  if (!feature.description || feature.description.trim().length === 0) {
+  if (!mission.description || mission.description.trim().length === 0) {
     throw badRequest('Add a description before decomposing');
   }
 
   const messages: LLMMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: buildUserMessage(feature.title, feature.description, feature.acceptanceCriteria) },
+    { role: 'user', content: buildUserMessage(mission.title, mission.description, mission.acceptanceCriteria) },
   ];
 
   const llmResponse = await callLLM(messages, config);
 
-  const result: DecompositionResult = { proposals: [], parentFeature: { id: feature.id, title: feature.title } };
+  const result: DecompositionResult = { proposals: [], parentMission: { id: mission.id, title: mission.title } };
 
   try {
     const text = llmResponse.content;
@@ -131,7 +131,7 @@ export async function decomposeTask(taskId: string): Promise<DecompositionResult
   ];
 
   const llmResponse = await callLLM(messages, config);
-  const result: DecompositionResult = { proposals: [], parentFeature: { id: task.missionId, title: task.title } };
+  const result: DecompositionResult = { proposals: [], parentMission: { id: task.missionId, title: task.title } };
 
   try {
     const text = llmResponse.content;

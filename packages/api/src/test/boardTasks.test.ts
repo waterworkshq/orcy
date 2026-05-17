@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as columnRepo from '../repositories/column.js';
 import { eq } from 'drizzle-orm';
-import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema/index.js';
-import { getTasksByBoardId } from '../repositories/task.js';
+import { taskEvents, tasks, columns as columnsTable, habitats, agents } from '../db/schema/index.js';
+import { getTasksByHabitatId } from '../repositories/task.js';
 import type { TaskListFilters } from '../repositories/task.js';
 
 vi.mock('../services/chatService.js', () => ({
@@ -17,9 +17,9 @@ vi.mock('../services/chatService.js', () => ({
   sendTestMessage: vi.fn().mockResolvedValue({ success: true, statusCode: 200, latencyMs: 0 }),
 }));
 
-let boardId: string;
+let habitatId: string;
 let columnId: string;
-let featureId: string;
+let missionId: string;
 let agentId: string;
 
 beforeEach(async () => {
@@ -28,25 +28,25 @@ beforeEach(async () => {
   db.delete(taskEvents).run();
   db.delete(tasks).run();
   db.delete(columnsTable).run();
-  db.delete(boards).run();
+  db.delete(habitats).run();
   db.delete(agents).run();
 
   const { agent } = agentRepo.createAgent({ name: 'test-agent', type: 'claude-code', domain: 'backend' });
   agentId = agent.id;
 
-  const board = boardRepo.createBoard({ name: 'Test Board' });
-  boardId = board.id;
+  const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+  habitatId = habitat.id;
 
-  const column = columnRepo.createColumn({ boardId, name: 'Backlog', order: 0, requiresClaim: false });
+  const column = columnRepo.createColumn({ habitatId, name: 'Backlog', order: 0, requiresClaim: false });
   columnId = column.id;
 
-  const feature = featureRepo.createFeature({
-    boardId,
+  const mission = missionRepo.createMission({
+    habitatId,
     columnId,
-    title: 'Test Feature',
+    title: 'Test Mission',
     createdBy: 'test-user',
   });
-  featureId = feature.id;
+  missionId = mission.id;
 });
 
 afterEach(() => {
@@ -55,7 +55,7 @@ afterEach(() => {
 
 function createTask(overrides: { title: string; priority: 'low' | 'medium' | 'high' | 'critical'; estimatedMinutes?: number | null }) {
   return taskRepo.createTask({
-    featureId,
+    missionId,
     title: overrides.title,
     priority: overrides.priority,
     estimatedMinutes: overrides.estimatedMinutes ?? null,
@@ -63,13 +63,13 @@ function createTask(overrides: { title: string; priority: 'low' | 'medium' | 'hi
   });
 }
 
-describe('getTasksByBoardId sort', () => {
+describe('getTasksByHabitatId sort', () => {
   it('returns default order (priority + createdAt ASC) when no sort params', () => {
     createTask({ title: 'Low task', priority: 'low' });
     createTask({ title: 'Critical task', priority: 'critical' });
     createTask({ title: 'Medium task', priority: 'medium' });
 
-    const result = getTasksByBoardId(boardId);
+    const result = getTasksByHabitatId(habitatId);
 
     expect(result.total).toBe(3);
     expect(result.tasks[0].priority).toBe('critical');
@@ -83,7 +83,7 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Middle task', priority: 'medium' });
 
     const filters: TaskListFilters = { sortBy: 'title', sortDirection: 'asc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks[0].title).toBe('Alpha task');
     expect(result.tasks[1].title).toBe('Middle task');
@@ -95,7 +95,7 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Zebra task', priority: 'low' });
 
     const filters: TaskListFilters = { sortBy: 'title', sortDirection: 'desc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks[0].title).toBe('Zebra task');
     expect(result.tasks[1].title).toBe('Alpha task');
@@ -108,7 +108,7 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Medium', priority: 'medium' });
 
     const filters: TaskListFilters = { sortBy: 'priority', sortDirection: 'asc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks.map(t => t.priority)).toEqual(['critical', 'high', 'medium', 'low']);
   });
@@ -119,7 +119,7 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Medium', priority: 'low', estimatedMinutes: 30 });
 
     const filters: TaskListFilters = { sortBy: 'estimatedMinutes', sortDirection: 'desc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks[0].title).toBe('Long');
     expect(result.tasks[1].title).toBe('Medium');
@@ -135,7 +135,7 @@ describe('getTasksByBoardId sort', () => {
     taskRepo.updateTask(t3.id, { status: 'claimed' });
 
     const filters: TaskListFilters = { sortBy: 'status', sortDirection: 'asc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks[0].title).toBe('Claimed');
     expect(result.tasks[1].title).toBe('Done');
@@ -147,7 +147,7 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Task B', priority: 'low' });
 
     const filters: TaskListFilters = { sortBy: 'updatedAt', sortDirection: 'desc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks).toHaveLength(2);
     const dates = result.tasks.map(t => t.updatedAt);
@@ -159,7 +159,7 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Critical', priority: 'critical' });
 
     const filters: TaskListFilters = { sortBy: 'nonexistent' as any };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks[0].priority).toBe('critical');
     expect(result.tasks[1].priority).toBe('low');
@@ -171,7 +171,7 @@ describe('getTasksByBoardId sort', () => {
     }
 
     const filters: TaskListFilters = { sortBy: 'estimatedMinutes', sortDirection: 'desc', limit: 2, offset: 1 };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.total).toBe(5);
     expect(result.tasks).toHaveLength(2);
@@ -186,7 +186,7 @@ describe('getTasksByBoardId sort', () => {
     taskRepo.updateTask(t1.id, { assignedAgentId: agentId });
 
     const filters: TaskListFilters = { sortBy: 'assignedAgentId', sortDirection: 'asc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.tasks).toHaveLength(2);
     expect(result.tasks.map(t => t.title)).toContain('Assigned');
@@ -201,7 +201,7 @@ describe('getTasksByBoardId sort', () => {
     taskRepo.updateTask(t2.id, { status: 'done' });
 
     const filters: TaskListFilters = { status: 'pending', sortBy: 'priority', sortDirection: 'asc' };
-    const result = getTasksByBoardId(boardId, filters);
+    const result = getTasksByHabitatId(habitatId, filters);
 
     expect(result.total).toBe(2);
     expect(result.tasks).toHaveLength(2);
@@ -209,9 +209,9 @@ describe('getTasksByBoardId sort', () => {
     expect(result.tasks[1].priority).toBe('low');
   });
 
-  it('returns empty array for board with no features', () => {
-    const emptyBoard = boardRepo.createBoard({ name: 'Empty Board' });
-    const result = getTasksByBoardId(emptyBoard.id);
+  it('returns empty array for habitat with no missions', () => {
+    const emptyBoard = habitatRepo.createHabitat({ name: 'Empty Habitat' });
+    const result = getTasksByHabitatId(emptyBoard.id);
     expect(result.tasks).toEqual([]);
     expect(result.total).toBe(0);
   });
@@ -220,9 +220,9 @@ describe('getTasksByBoardId sort', () => {
     createTask({ title: 'Low', priority: 'low' });
     createTask({ title: 'Critical', priority: 'critical' });
 
-    const resultNoFilters = getTasksByBoardId(boardId);
-    const resultEmptyFilters = getTasksByBoardId(boardId, {});
-    const resultOnlyLimit = getTasksByBoardId(boardId, { limit: 10 });
+    const resultNoFilters = getTasksByHabitatId(habitatId);
+    const resultEmptyFilters = getTasksByHabitatId(habitatId, {});
+    const resultOnlyLimit = getTasksByHabitatId(habitatId, { limit: 10 });
 
     expect(resultNoFilters.tasks[0].priority).toBe('critical');
     expect(resultEmptyFilters.tasks[0].priority).toBe('critical');
@@ -233,9 +233,9 @@ describe('getTasksByBoardId sort', () => {
 describe('search filter', () => {
   it('matches tasks by title partial text', () => {
     createTask({ title: 'Fix login bug', priority: 'high' });
-    createTask({ title: 'Add logout feature', priority: 'medium' });
+    createTask({ title: 'Add logout mission', priority: 'medium' });
 
-    const result = getTasksByBoardId(boardId, { search: 'login' });
+    const result = getTasksByHabitatId(habitatId, { search: 'login' });
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].title).toBe('Fix login bug');
@@ -249,7 +249,7 @@ describe('search filter', () => {
     db.update(tasks).set({ description: 'This is about security' }).where(eq(tasks.title, 'Task A')).run();
     db.update(tasks).set({ description: 'Something else' }).where(eq(tasks.title, 'Task B')).run();
 
-    const result = getTasksByBoardId(boardId, { search: 'security' });
+    const result = getTasksByHabitatId(habitatId, { search: 'security' });
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].title).toBe('Task A');
   });
@@ -258,7 +258,7 @@ describe('search filter', () => {
     createTask({ title: 'Task with 100% completion', priority: 'low' });
     createTask({ title: 'Task 100 done', priority: 'low' });
 
-    const result = getTasksByBoardId(boardId, { search: '100%' });
+    const result = getTasksByHabitatId(habitatId, { search: '100%' });
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].title).toBe('Task with 100% completion');
@@ -268,7 +268,7 @@ describe('search filter', () => {
     createTask({ title: 'Task A', priority: 'low' });
     createTask({ title: 'Task_B', priority: 'low' });
 
-    const result = getTasksByBoardId(boardId, { search: 'Task_B' });
+    const result = getTasksByHabitatId(habitatId, { search: 'Task_B' });
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].title).toBe('Task_B');
@@ -277,7 +277,7 @@ describe('search filter', () => {
   it('returns no results when search does not match', () => {
     createTask({ title: 'Some task', priority: 'low' });
 
-    const result = getTasksByBoardId(boardId, { search: 'nonexistent' });
+    const result = getTasksByHabitatId(habitatId, { search: 'nonexistent' });
 
     expect(result.tasks).toHaveLength(0);
     expect(result.total).toBe(0);
@@ -286,24 +286,24 @@ describe('search filter', () => {
   it('searches case-insensitively (SQLite LIKE default)', () => {
     createTask({ title: 'UPPERCASE Task', priority: 'low' });
 
-    const result = getTasksByBoardId(boardId, { search: 'uppercase' });
+    const result = getTasksByHabitatId(habitatId, { search: 'uppercase' });
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0].title).toBe('UPPERCASE Task');
   });
 });
 
-describe('board tasks route integration', () => {
-  it('GET /boards/:id/tasks route is registered and accessible', async () => {
+describe('habitat tasks route integration', () => {
+  it('GET /habitats/:id/tasks route is registered and accessible', async () => {
     const { taskRoutes } = await import('../routes/tasks/index.js');
     expect(taskRoutes).toBeDefined();
     expect(typeof taskRoutes).toBe('function');
   });
 
-  it('boardTasksRoutes function exists and is a valid route module', async () => {
-    const { boardTasksRoutes } = await import('../routes/tasks/boardTasks.js');
-    expect(boardTasksRoutes).toBeDefined();
-    expect(typeof boardTasksRoutes).toBe('function');
+  it('habitatTasksRoutes function exists and is a valid route module', async () => {
+    const { habitatTasksRoutes } = await import('../routes/tasks/boardTasks.js');
+    expect(habitatTasksRoutes).toBeDefined();
+    expect(typeof habitatTasksRoutes).toBe('function');
   });
 });
 

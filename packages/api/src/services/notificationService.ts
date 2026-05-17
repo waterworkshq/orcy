@@ -1,8 +1,8 @@
 import * as prefRepo from '../repositories/notificationPreferences.js';
 import type { NotificationPreferences } from '../repositories/notificationPreferences.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
-import * as boardRepo from '../repositories/board.js';
+import * as missionRepo from '../repositories/feature.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as userRepo from '../repositories/user.js';
 import * as watcherRepo from '../repositories/watcher.js';
@@ -15,7 +15,7 @@ export type NotificationEventType = 'task.assigned' | 'task.submitted' | 'task.a
 
 export type NotificationEventData = {
   taskId?: string;
-  featureId?: string;
+  missionId?: string;
   actorId?: string;
   reason?: string;
   mentionedUserId?: string;
@@ -54,14 +54,14 @@ function getPreferenceValue(prefs: NotificationPreferences, field: string): bool
   }
 }
 
-async function sendIfEnabled(userId: string, boardId: string, eventType: EventType, buildEmail: () => emailService.EmailPayload): Promise<void> {
-  const boardPrefs = prefRepo.getPreferences(userId, boardId);
+async function sendIfEnabled(userId: string, habitatId: string, eventType: EventType, buildEmail: () => emailService.EmailPayload): Promise<void> {
+  const habitatPrefs = prefRepo.getPreferences(userId, habitatId);
   const globalPrefs = prefRepo.getPreferences(userId, null);
 
   const prefField = eventTypeToField(eventType);
   if (!prefField) return;
 
-  const enabled = getPreferenceValue(boardPrefs, prefField) ?? getPreferenceValue(globalPrefs, prefField) ?? false;
+  const enabled = getPreferenceValue(habitatPrefs, prefField) ?? getPreferenceValue(globalPrefs, prefField) ?? false;
   if (!enabled) return;
 
   const email = getUserEmail(userId);
@@ -87,7 +87,7 @@ function eventTypeToField(eventType: EventType): string | null {
 
 export async function processEvent(
   eventType: NotificationEventType,
-  boardId: string,
+  habitatId: string,
   data: NotificationEventData
 ): Promise<void> {
   if (!emailService.isConfigured()) return;
@@ -95,10 +95,10 @@ export async function processEvent(
   const task = data.taskId ? taskRepo.getTaskById(data.taskId) : null;
   if (!task) return;
 
-  const feature = task.featureId ? featureRepo.getFeatureById(task.featureId) : null;
+  const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
 
-  const board = boardRepo.getBoardById(boardId);
-  const boardName = board?.name ?? 'Unknown Board';
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  const habitatName = habitat?.name ?? 'Unknown Habitat';
   const taskTitle = task.title;
   const actorName = data.actorId ? getActorName(data.actorId) : 'System';
 
@@ -110,7 +110,7 @@ export async function processEvent(
         queue.push({
           userId: task.assignedAgentId,
           eventType: 'task.assigned',
-          buildEmail: () => emailService.taskAssignedTemplate(taskTitle, boardName, actorName),
+          buildEmail: () => emailService.taskAssignedTemplate(taskTitle, habitatName, actorName),
         });
       }
       break;
@@ -122,7 +122,7 @@ export async function processEvent(
         queue.push({
           userId: row.id,
           eventType: 'task.submitted',
-          buildEmail: () => emailService.taskSubmittedTemplate(taskTitle, boardName, actorName),
+          buildEmail: () => emailService.taskSubmittedTemplate(taskTitle, habitatName, actorName),
         });
       }
       break;
@@ -132,7 +132,7 @@ export async function processEvent(
         queue.push({
           userId: task.assignedAgentId,
           eventType: 'task.approved',
-          buildEmail: () => emailService.taskApprovedTemplate(taskTitle, boardName, actorName),
+          buildEmail: () => emailService.taskApprovedTemplate(taskTitle, habitatName, actorName),
         });
       }
       break;
@@ -142,7 +142,7 @@ export async function processEvent(
         queue.push({
           userId: task.assignedAgentId,
           eventType: 'task.rejected',
-          buildEmail: () => emailService.taskRejectedTemplate(taskTitle, boardName, actorName, data.reason ?? 'No reason provided'),
+          buildEmail: () => emailService.taskRejectedTemplate(taskTitle, habitatName, actorName, data.reason ?? 'No reason provided'),
         });
       }
       break;
@@ -152,7 +152,7 @@ export async function processEvent(
         queue.push({
           userId: task.assignedAgentId,
           eventType: 'task.overdue',
-          buildEmail: () => emailService.taskOverdueTemplate(taskTitle, boardName, feature?.dueAt ?? feature?.slaDeadlineAt ?? 'Unknown'),
+          buildEmail: () => emailService.taskOverdueTemplate(taskTitle, habitatName, mission?.dueAt ?? mission?.slaDeadlineAt ?? 'Unknown'),
         });
       }
       const db2 = getDb();
@@ -161,7 +161,7 @@ export async function processEvent(
         queue.push({
           userId: row.id,
           eventType: 'task.overdue',
-          buildEmail: () => emailService.taskOverdueTemplate(taskTitle, boardName, feature?.dueAt ?? feature?.slaDeadlineAt ?? 'Unknown'),
+          buildEmail: () => emailService.taskOverdueTemplate(taskTitle, habitatName, mission?.dueAt ?? mission?.slaDeadlineAt ?? 'Unknown'),
         });
       }
       break;
@@ -171,7 +171,7 @@ export async function processEvent(
         queue.push({
           userId: data.mentionedUserId,
           eventType: 'comment.mentioned',
-          buildEmail: () => emailService.commentMentionedTemplate(taskTitle, boardName, data.mentionedByName ?? actorName, data.commentContent ?? ''),
+          buildEmail: () => emailService.commentMentionedTemplate(taskTitle, habitatName, data.mentionedByName ?? actorName, data.commentContent ?? ''),
         });
       }
       break;
@@ -184,7 +184,7 @@ export async function processEvent(
         queue.push({
           userId,
           eventType: 'task.watching',
-          buildEmail: () => emailService.taskWatchingTemplate(taskTitle, boardName, eventType),
+          buildEmail: () => emailService.taskWatchingTemplate(taskTitle, habitatName, eventType),
         });
       }
       break;
@@ -192,6 +192,6 @@ export async function processEvent(
   }
 
   for (const item of queue) {
-    await sendIfEnabled(item.userId, boardId, item.eventType, item.buildEmail);
+    await sendIfEnabled(item.userId, habitatId, item.eventType, item.buildEmail);
   }
 }

@@ -78,7 +78,7 @@ function baseTemplate(title: string, bodyHtml: string): string {
 </html>`;
 }
 
-export function taskAssignedTemplate(taskTitle: string, boardName: string, assignedBy: string): EmailPayload {
+export function taskAssignedTemplate(taskTitle: string, habitatName: string, assignedBy: string): EmailPayload {
   return {
     to: '',
     subject: `Task assigned to you: ${taskTitle}`,
@@ -87,14 +87,14 @@ export function taskAssignedTemplate(taskTitle: string, boardName: string, assig
       `<p style="margin: 0 0 12px; color: #374151;">You have been assigned a task.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Assigned by:</td><td style="padding: 8px 0; color: #1f2937;">${assignedBy}</td></tr>
        </table>`
     ),
   };
 }
 
-export function taskSubmittedTemplate(taskTitle: string, boardName: string, agentName: string): EmailPayload {
+export function taskSubmittedTemplate(taskTitle: string, habitatName: string, agentName: string): EmailPayload {
   return {
     to: '',
     subject: `Task submitted for review: ${taskTitle}`,
@@ -103,14 +103,14 @@ export function taskSubmittedTemplate(taskTitle: string, boardName: string, agen
       `<p style="margin: 0 0 12px; color: #374151;">A task has been submitted for review.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Submitted by:</td><td style="padding: 8px 0; color: #1f2937;">${agentName}</td></tr>
        </table>`
     ),
   };
 }
 
-export function taskApprovedTemplate(taskTitle: string, boardName: string, reviewerName: string): EmailPayload {
+export function taskApprovedTemplate(taskTitle: string, habitatName: string, reviewerName: string): EmailPayload {
   return {
     to: '',
     subject: `Task approved: ${taskTitle}`,
@@ -119,14 +119,14 @@ export function taskApprovedTemplate(taskTitle: string, boardName: string, revie
       `<p style="margin: 0 0 12px; color: #374151;">Your task has been approved.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Approved by:</td><td style="padding: 8px 0; color: #1f2937;">${reviewerName}</td></tr>
        </table>`
     ),
   };
 }
 
-export function taskRejectedTemplate(taskTitle: string, boardName: string, reviewerName: string, reason: string): EmailPayload {
+export function taskRejectedTemplate(taskTitle: string, habitatName: string, reviewerName: string, reason: string): EmailPayload {
   return {
     to: '',
     subject: `Task rejected: ${taskTitle}`,
@@ -135,7 +135,7 @@ export function taskRejectedTemplate(taskTitle: string, boardName: string, revie
       `<p style="margin: 0 0 12px; color: #374151;">Your task has been rejected.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Rejected by:</td><td style="padding: 8px 0; color: #1f2937;">${reviewerName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Reason:</td><td style="padding: 8px 0; color: #ef4444;">${reason}</td></tr>
        </table>`
@@ -143,7 +143,7 @@ export function taskRejectedTemplate(taskTitle: string, boardName: string, revie
   };
 }
 
-export function taskOverdueTemplate(taskTitle: string, boardName: string, deadline: string): EmailPayload {
+export function taskOverdueTemplate(taskTitle: string, habitatName: string, deadline: string): EmailPayload {
   return {
     to: '',
     subject: `Task overdue: ${taskTitle}`,
@@ -152,14 +152,14 @@ export function taskOverdueTemplate(taskTitle: string, boardName: string, deadli
       `<p style="margin: 0 0 12px; color: #374151;">A task has passed its deadline.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Deadline:</td><td style="padding: 8px 0; color: #ef4444;">${deadline}</td></tr>
        </table>`
     ),
   };
 }
 
-export function commentMentionedTemplate(taskTitle: string, boardName: string, mentionedByName: string, commentContent: string): EmailPayload {
+export function commentMentionedTemplate(taskTitle: string, habitatName: string, mentionedByName: string, commentContent: string): EmailPayload {
   return {
     to: '',
     subject: `You were mentioned in: ${taskTitle}`,
@@ -168,7 +168,7 @@ export function commentMentionedTemplate(taskTitle: string, boardName: string, m
       `<p style="margin: 0 0 12px; color: #374151;">You were mentioned in a comment.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Mentioned by:</td><td style="padding: 8px 0; color: #1f2937;">${mentionedByName}</td></tr>
        </table>
        <div style="margin-top: 12px; padding: 12px; background: #f9fafb; border-radius: 6px; border-left: 3px solid #4f46e5;">
@@ -178,7 +178,7 @@ export function commentMentionedTemplate(taskTitle: string, boardName: string, m
   };
 }
 
-export function taskWatchingTemplate(taskTitle: string, boardName: string, eventType: string): EmailPayload {
+export function taskWatchingTemplate(taskTitle: string, habitatName: string, eventType: string): EmailPayload {
   return {
     to: '',
     subject: `Watched task updated: ${taskTitle}`,
@@ -187,14 +187,14 @@ export function taskWatchingTemplate(taskTitle: string, boardName: string, event
       `<p style="margin: 0 0 12px; color: #374151;">A task you are watching has been updated.</p>
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Event:</td><td style="padding: 8px 0; color: #1f2937;">${eventType}</td></tr>
        </table>`
     ),
   };
 }
 
-export function anomalyAlertTemplate(anomalyType: string, severity: string, message: string, boardName: string): EmailPayload {
+export function anomalyAlertTemplate(anomalyType: string, severity: string, message: string, habitatName: string): EmailPayload {
   const severityColors: Record<string, string> = { low: '#3b82f6', medium: '#f59e0b', high: '#f97316', critical: '#ef4444' };
   const color = severityColors[severity] ?? '#6b7280';
   return {
@@ -202,9 +202,9 @@ export function anomalyAlertTemplate(anomalyType: string, severity: string, mess
     subject: `[Anomaly Alert] ${anomalyType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} — ${severity.toUpperCase()}`,
     html: baseTemplate(
       'Anomaly Detected',
-      `<p style="margin: 0 0 12px; color: #374151;">An anomaly has been detected on your board.</p>
+      `<p style="margin: 0 0 12px; color: #374151;">An anomaly has been detected on your habitat.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Board:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${boardName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${habitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Type:</td><td style="padding: 8px 0; color: #1f2937;">${anomalyType.replace(/_/g, ' ')}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Severity:</td><td style="padding: 8px 0; font-weight: 600; color: ${color};">${severity.toUpperCase()}</td></tr>
        </table>

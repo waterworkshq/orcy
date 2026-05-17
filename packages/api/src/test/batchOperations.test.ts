@@ -7,7 +7,7 @@ vi.mock('../repositories/task.js', () => ({
   updateTask: vi.fn(),
   deleteTask: vi.fn(),
   getTasksByDependency: vi.fn(),
-  getBoardIdForTask: vi.fn().mockReturnValue('board-1'),
+  getHabitatIdForTask: vi.fn().mockReturnValue('habitat-1'),
 }));
 
 vi.mock('../repositories/event.js', () => ({
@@ -29,7 +29,7 @@ vi.mock('../services/autoAssignService.js', () => ({
 }));
 
 vi.mock('../services/featureService.js', () => ({
-  recalculateFeatureStatus: vi.fn(),
+  recalculateMissionStatus: vi.fn(),
 }));
 
 vi.mock('../plugins/pluginManager.js', () => ({
@@ -37,11 +37,11 @@ vi.mock('../plugins/pluginManager.js', () => ({
 }));
 
 vi.mock('../repositories/feature.js', () => ({
-  getFeatureById: vi.fn().mockReturnValue({ id: 'feat-1', boardId: 'board-1' }),
+  getMissionById: vi.fn().mockReturnValue({ id: 'feat-1', habitatId: 'habitat-1' }),
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  getBoardById: vi.fn().mockReturnValue({ id: 'board-1', name: 'Test Board' }),
+  getHabitatById: vi.fn().mockReturnValue({ id: 'habitat-1', name: 'Test Habitat' }),
 }));
 
 vi.mock('../repositories/agent.js', () => ({
@@ -72,7 +72,7 @@ describe('batchOperateTasks', () => {
     });
 
     const result = batchOperateTasks(
-      'board-1',
+      'habitat-1',
       { taskIds: ['task-1', 'task-2'], operation: 'priority', payload: { priority: 'critical' } },
       'user-1',
       'human'
@@ -98,7 +98,7 @@ describe('batchOperateTasks', () => {
     vi.mocked(agentRepo.getAgentById).mockReturnValue(wrongDomainAgent as unknown as ReturnType<typeof agentRepo.getAgentById>);
 
     const result = batchOperateTasks(
-      'board-1',
+      'habitat-1',
       { taskIds: ['task-1'], operation: 'assign', payload: { assignedAgentId: 'agent-2' } },
       'user-1',
       'human'
@@ -130,7 +130,7 @@ describe('batchOperateTasks', () => {
     });
 
     const result = batchOperateTasks(
-      'board-1',
+      'habitat-1',
       { taskIds: ['task-1', 'task-2'], operation: 'delete', payload: {} },
       'user-1',
       'human'

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTask } from './task.js';
-import { makeFeature } from './feature.js';
-import { makeBoard } from './board.js';
+import { makeMission } from './feature.js';
+import { makeHabitat } from './board.js';
 import { makeColumn } from './column.js';
 import { makeAgent } from './agent.js';
 import { makeTaskEvent } from './event.js';
@@ -12,7 +12,7 @@ describe('factories', () => {
     it('produces valid Task with all default fields', () => {
       const task = makeTask();
       expect(task.id).toBeDefined();
-      expect(task.featureId).toBe('feat-1');
+      expect(task.missionId).toBe('mission-1');
       expect(task.title).toBe('Test task');
       expect(task.description).toBe('A test task description');
       expect(task.priority).toBe('medium');
@@ -66,38 +66,38 @@ describe('factories', () => {
     });
   });
 
-  describe('makeFeature', () => {
-    it('produces valid Feature', () => {
-      const feature = makeFeature();
-      expect(feature.id).toBeDefined();
-      expect(feature.boardId).toBe('board-1');
-      expect(feature.title).toBe('Test Feature');
-      expect(feature.status).toBe('not_started');
-      expect(feature.isArchived).toBe(false);
+  describe('makeMission', () => {
+    it('produces valid Mission', () => {
+      const mission = makeMission();
+      expect(mission.id).toBeDefined();
+      expect(mission.habitatId).toBe('habitat-1');
+      expect(mission.title).toBe('Test Mission');
+      expect(mission.status).toBe('not_started');
+      expect(mission.isArchived).toBe(false);
     });
 
     it('overrides work', () => {
-      const feature = makeFeature({ title: 'Custom', priority: 'high', status: 'in_progress' });
-      expect(feature.title).toBe('Custom');
-      expect(feature.priority).toBe('high');
-      expect(feature.status).toBe('in_progress');
+      const mission = makeMission({ title: 'Custom', priority: 'high', status: 'in_progress' });
+      expect(mission.title).toBe('Custom');
+      expect(mission.priority).toBe('high');
+      expect(mission.status).toBe('in_progress');
     });
   });
 
-  describe('makeBoard', () => {
-    it('produces valid Board', () => {
-      const board = makeBoard();
-      expect(board.id).toBeDefined();
-      expect(board.name).toBe('Test Board');
-      expect(board.teamId).toBeNull();
-      expect(board.createdAt).toBeDefined();
-      expect(board.updatedAt).toBeDefined();
+  describe('makeHabitat', () => {
+    it('produces valid Habitat', () => {
+      const habitat = makeHabitat();
+      expect(habitat.id).toBeDefined();
+      expect(habitat.name).toBe('Test Habitat');
+      expect(habitat.teamId).toBeNull();
+      expect(habitat.createdAt).toBeDefined();
+      expect(habitat.updatedAt).toBeDefined();
     });
 
     it('overrides work', () => {
-      const board = makeBoard({ name: 'Custom Board', teamId: 'team-1' });
-      expect(board.name).toBe('Custom Board');
-      expect(board.teamId).toBe('team-1');
+      const habitat = makeHabitat({ name: 'Custom Habitat', teamId: 'team-1' });
+      expect(habitat.name).toBe('Custom Habitat');
+      expect(habitat.teamId).toBe('team-1');
     });
   });
 
@@ -106,7 +106,7 @@ describe('factories', () => {
       const column = makeColumn();
       expect(column.id).toBeDefined();
       expect(column.name).toBe('Test Column');
-      expect(column.boardId).toBe('board-1');
+      expect(column.habitatId).toBe('habitat-1');
       expect(column.order).toBe(0);
     });
 

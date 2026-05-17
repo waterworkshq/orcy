@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { checkOverdueTasks } from '../services/scheduler.js';
 
-let _overdueData: { id: string; boardId: string }[] = [];
+let _overdueData: { id: string; habitatId: string }[] = [];
 let _dbShouldThrow = false;
 
 function createMockDb() {
@@ -42,21 +42,21 @@ vi.mock('../sse/broadcaster.js', () => ({
 vi.mock('../db/schema/index.js', () => {
   const table = (name: string) => ({ _table: name });
   return {
-    boards: table('boards'),
-    features: { id: 'id', boardId: 'boardId', dueAt: 'dueAt', slaDeadlineAt: 'slaDeadlineAt' },
-    featureDependencies: table('featureDependencies'),
-    featureEvents: table('featureEvents'),
-    featureWatchers: table('featureWatchers'),
-    columns: { id: 'id', name: 'name', boardId: 'boardId', ...table('columns') },
-    featureTemplates: table('featureTemplates'),
+    habitats: table('habitats'),
+    missions: { id: 'id', habitatId: 'habitatId', dueAt: 'dueAt', slaDeadlineAt: 'slaDeadlineAt' },
+    missionDependencies: table('missionDependencies'),
+    missionEvents: table('missionEvents'),
+    missionWatchers: table('missionWatchers'),
+    columns: { id: 'id', name: 'name', habitatId: 'habitatId', ...table('columns') },
+    missionTemplates: table('missionTemplates'),
     savedFilters: table('savedFilters'),
     chatIntegrations: table('chatIntegrations'),
-    featureComments: table('featureComments'),
-    featureCommentMentions: table('featureCommentMentions'),
+    missionComments: table('missionComments'),
+    missionCommentMentions: table('missionCommentMentions'),
     auditExportSchedules: table('auditExportSchedules'),
     scheduledTasks: table('scheduledTasks'),
-    boardHealthSnapshots: table('boardHealthSnapshots'),
-    tasks: { id: 'id', featureId: 'featureId', status: 'status' },
+    habitatHealthSnapshots: table('habitatHealthSnapshots'),
+    tasks: { id: 'id', missionId: 'missionId', status: 'status' },
     taskEvents: table('taskEvents'),
     taskDependencies: table('taskDependencies'),
     taskComments: table('taskComments'),
@@ -100,8 +100,8 @@ describe('checkOverdueTasks', () => {
 
   it('publishes events for all overdue tasks on first run', () => {
     _overdueData = [
-      { id: 't-1', boardId: 'b-1' },
-      { id: 't-2', boardId: 'b-1' },
+      { id: 't-1', habitatId: 'b-1' },
+      { id: 't-2', habitatId: 'b-1' },
     ];
     const notified = new Set<string>();
     const onError = vi.fn();
@@ -118,7 +118,7 @@ describe('checkOverdueTasks', () => {
   });
 
   it('does not publish events for already-notified tasks (dedup)', () => {
-    _overdueData = [{ id: 't-1', boardId: 'b-1' }];
+    _overdueData = [{ id: 't-1', habitatId: 'b-1' }];
     const notified = new Set<string>(['t-1']);
     const onError = vi.fn();
 
@@ -131,9 +131,9 @@ describe('checkOverdueTasks', () => {
 
   it('publishes only for newly overdue tasks when some are already notified', () => {
     _overdueData = [
-      { id: 't-1', boardId: 'b-1' },
-      { id: 't-2', boardId: 'b-1' },
-      { id: 't-3', boardId: 'b-2' },
+      { id: 't-1', habitatId: 'b-1' },
+      { id: 't-2', habitatId: 'b-1' },
+      { id: 't-3', habitatId: 'b-2' },
     ];
     const notified = new Set<string>(['t-1', 't-3']);
     const onError = vi.fn();
@@ -149,7 +149,7 @@ describe('checkOverdueTasks', () => {
   });
 
   it('removes resolved tasks from notified set and re-publishes if they become overdue again', () => {
-    _overdueData = [{ id: 't-1', boardId: 'b-1' }];
+    _overdueData = [{ id: 't-1', habitatId: 'b-1' }];
     const notified = new Set<string>(['t-1', 't-2']);
     const onError = vi.fn();
 
@@ -160,7 +160,7 @@ describe('checkOverdueTasks', () => {
 
     mockPublish.mockClear();
 
-    _overdueData = [{ id: 't-2', boardId: 'b-1' }];
+    _overdueData = [{ id: 't-2', habitatId: 'b-1' }];
     const rePublished = checkOverdueTasks(notified, onError);
 
     expect(rePublished).toBe(1);
@@ -172,8 +172,8 @@ describe('checkOverdueTasks', () => {
 
   it('updates the notified set with current overdue task ids', () => {
     _overdueData = [
-      { id: 't-1', boardId: 'b-1' },
-      { id: 't-2', boardId: 'b-1' },
+      { id: 't-1', habitatId: 'b-1' },
+      { id: 't-2', habitatId: 'b-1' },
     ];
     const notified = new Set<string>();
     const onError = vi.fn();

@@ -13,11 +13,11 @@ import { logger } from '../lib/logger.js';
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(),
   updateTask: vi.fn(),
-  getBoardIdForTask: vi.fn().mockReturnValue('board-1'),
+  getHabitatIdForTask: vi.fn().mockReturnValue('habitat-1'),
 }));
 
 vi.mock('../repositories/feature.js', () => ({
-  getFeatureById: vi.fn(() => ({ id: 'feat-1', boardId: 'board-1', isArchived: false })),
+  getMissionById: vi.fn(() => ({ id: 'feat-1', habitatId: 'habitat-1', isArchived: false })),
 }));
 
 vi.mock('../repositories/event.js', () => ({
@@ -35,17 +35,17 @@ vi.mock('../services/watcherService.js', () => ({
 }));
 
 vi.mock('../services/featureService.js', () => ({
-  recalculateFeatureStatus: vi.fn(),
+  recalculateMissionStatus: vi.fn(),
 }));
 
 import { updateTask } from '../services/tasks/task-crud.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureService from '../services/featureService.js';
+import * as missionService from '../services/featureService.js';
 
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Test task',
     description: 'Desc',
     priority: 'medium' as const,
@@ -80,12 +80,12 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('updateTask — feature recalculation', () => {
+describe('updateTask — mission recalculation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('recalculates feature status when task status changes', () => {
+  it('recalculates mission status when task status changes', () => {
     const current = makeTask({ status: 'approved' });
     const updated = { ...current, status: 'done' };
 
@@ -95,10 +95,10 @@ describe('updateTask — feature recalculation', () => {
     const result = updateTask('task-1', { status: 'done' }, 'user-1');
 
     expect(result.success).toBe(true);
-    expect(featureService.recalculateFeatureStatus).toHaveBeenCalledWith('feat-1');
+    expect(missionService.recalculateMissionStatus).toHaveBeenCalledWith('feat-1');
   });
 
-  it('does not recalculate feature status when status is unchanged', () => {
+  it('does not recalculate mission status when status is unchanged', () => {
     const current = makeTask({ status: 'approved' });
     const updated = { ...current, title: 'New title' };
 
@@ -107,7 +107,7 @@ describe('updateTask — feature recalculation', () => {
 
     updateTask('task-1', { title: 'New title' }, 'user-1');
 
-    expect(featureService.recalculateFeatureStatus).not.toHaveBeenCalled();
+    expect(missionService.recalculateMissionStatus).not.toHaveBeenCalled();
   });
 
   it('does not recalculate when status field is same as current', () => {
@@ -118,7 +118,7 @@ describe('updateTask — feature recalculation', () => {
 
     updateTask('task-1', { status: 'approved' }, 'user-1');
 
-    expect(featureService.recalculateFeatureStatus).not.toHaveBeenCalled();
+    expect(missionService.recalculateMissionStatus).not.toHaveBeenCalled();
   });
 
   it('still returns success when recalculation throws', () => {
@@ -127,7 +127,7 @@ describe('updateTask — feature recalculation', () => {
 
     vi.mocked(taskRepo.getTaskById).mockReturnValue(current as never);
     vi.mocked(taskRepo.updateTask).mockReturnValue({ success: true, task: updated } as never);
-    vi.mocked(featureService.recalculateFeatureStatus).mockImplementation(() => {
+    vi.mocked(missionService.recalculateMissionStatus).mockImplementation(() => {
       throw new Error('DB error');
     });
     const consoleSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});

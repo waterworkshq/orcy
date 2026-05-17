@@ -1,16 +1,16 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as agentService from '../services/agentService.js';
-import { getBoardById } from '../repositories/board.js';
-import { isTeamMemberByBoardId } from '../repositories/teamMember.js';
+import { getHabitatById } from '../repositories/board.js';
+import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import type { HumanRole } from './auth.js';
 import { extractAndVerifyJwt } from './jwt-verification.js';
 import { unauthorized, forbidden, notFound } from '../errors.js';
 
 const MAX_QUERY_TOKEN_AGE_SECONDS = 30;
 
-export function getBoardIdFromParams(request: FastifyRequest): string | undefined {
+export function getHabitatIdFromParams(request: FastifyRequest): string | undefined {
   const params = request.params as Record<string, string>;
-  return params.id ?? params.boardId;
+  return params.id ?? params.habitatId;
 }
 
 export async function authenticateRealtime(
@@ -40,25 +40,25 @@ export async function authenticateRealtime(
   request.user = { ...user!, role: user!.role as HumanRole };
 }
 
-export async function authorizeBoardAccess(
+export async function authorizeHabitatAccess(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const boardId = getBoardIdFromParams(request);
-  if (!boardId) return;
+  const habitatId = getHabitatIdFromParams(request);
+  if (!habitatId) return;
 
-  const board = getBoardById(boardId);
-  if (!board) {
-    throw notFound('Board not found');
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) {
+    throw notFound('Habitat not found');
   }
 
   if (request.agent) return;
 
   if (request.user) {
-    if (!board.teamId) return;
-    const isMember = isTeamMemberByBoardId(boardId, request.user.id);
+    if (!habitat.teamId) return;
+    const isMember = isTeamMemberByHabitatId(habitatId, request.user.id);
     if (isMember) return;
-    throw forbidden('You do not have access to this board', 'BOARD_ACCESS_DENIED');
+    throw forbidden('You do not have access to this habitat', 'BOARD_ACCESS_DENIED');
   }
 
   throw unauthorized('Authentication required');

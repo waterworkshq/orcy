@@ -129,12 +129,12 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     '/agents/:id/suggestions',
     { preHandler: agentOrHumanAuth },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const query = request.query as { boardId?: string; limit?: string };
-      if (!query.boardId) {
-        throw badRequest('boardId query parameter is required');
+      const query = request.query as { habitatId?: string; limit?: string };
+      if (!query.habitatId) {
+        throw badRequest('habitatId query parameter is required');
       }
       const limit = Math.min(Math.max(parseInt(query.limit ?? '5', 10) || 5, 1), 20);
-      return getSuggestionsForAgent(query.boardId, request.params.id, limit);
+      return getSuggestionsForAgent(query.habitatId, request.params.id, limit);
     }
   );
 }

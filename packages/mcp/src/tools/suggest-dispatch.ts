@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { boardSuggestNextTask } from './suggest.js';
+import { habitatSuggestNextTask } from './suggest.js';
 
 export const SUGGEST_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_suggest',
@@ -13,7 +13,7 @@ export const SUGGEST_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const SUGGEST_ACTIONS: Record<string, Handler> = {
-  'suggest-next-task': boardSuggestNextTask,
+  'suggest-next-task': habitatSuggestNextTask,
 };
 
 export const SUGGEST_DISPATCH_HANDLER = createDispatchHandler(SUGGEST_ACTIONS);

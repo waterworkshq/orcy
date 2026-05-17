@@ -16,7 +16,7 @@ export function moveTask(
   if (status) {
     const result = taskRepo.updateTask(taskId, { status });
     if (!result.success) return null;
-    const boardId = taskRepo.getBoardIdForTask(taskId) ?? '';
+    const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
     eventRepo.createEvent({
       taskId,
       actorType: _actorType,
@@ -24,7 +24,7 @@ export function moveTask(
       action: 'updated',
       metadata: { changedFields: ['status'], fromStatus: current.status, toStatus: status },
     });
-    sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
+    sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
     return result.task;
   }
 

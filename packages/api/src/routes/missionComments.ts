@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as featureCommentService from '../services/featureCommentService.js';
+import * as missionCommentService from '../services/featureCommentService.js';
 import { agentAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, unauthorized, notFound, forbidden } from '../errors.js';
 import { z } from 'zod';
@@ -36,7 +36,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
       const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
       try {
-        const comment = featureCommentService.addComment(
+        const comment = missionCommentService.addComment(
           request.params.missionId,
           authorType,
           authorId,
@@ -46,9 +46,9 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
         reply.code(201).send({ comment });
       } catch (err) {
         const error = err as Error;
-        if (error.message === 'Feature not found') {
-          throw notFound('Feature not found');
-        } else if (error.message === 'Parent comment not found' || error.message === 'Parent comment belongs to a different feature') {
+        if (error.message === 'Mission not found') {
+          throw notFound('Mission not found');
+        } else if (error.message === 'Parent comment not found' || error.message === 'Parent comment belongs to a different mission') {
           throw badRequest(error.message);
         } else {
           throw err;
@@ -66,7 +66,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
         throw badRequest('Invalid query', parsed.error.flatten());
       }
 
-      const result = featureCommentService.getComments(
+      const result = missionCommentService.getComments(
         request.params.missionId,
         parsed.data.limit,
         parsed.data.offset
@@ -92,7 +92,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
       const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
       try {
-        const comment = featureCommentService.editComment(
+        const comment = missionCommentService.editComment(
           request.params.commentId,
           authorType,
           authorId,
@@ -127,7 +127,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
       const authorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
       try {
-        featureCommentService.removeComment(request.params.commentId, authorType, authorId);
+        missionCommentService.removeComment(request.params.commentId, authorType, authorId);
         reply.code(204).send();
       } catch (err) {
         const error = err as Error;

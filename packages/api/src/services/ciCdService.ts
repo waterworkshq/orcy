@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import * as pipelineRepo from '../repositories/pipelineEvent.js';
 import * as taskRepo from '../repositories/task.js';
-import { getBoardIdForTask } from '../repositories/task.js';
-import * as boardRepo from '../repositories/board.js';
+import { getHabitatIdForTask } from '../repositories/task.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as eventRepo from '../repositories/event.js';
 import * as prRepo from '../repositories/pullRequest.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
@@ -17,10 +17,10 @@ export function verifyGitLabToken(providedToken: string, secret: string): boolea
   return secureVerifyGitLabToken(providedToken, secret);
 }
 
-function getCiCdSettingsForBoard(boardId: string): CiCdSettings | null {
-  const board = boardRepo.getBoardById(boardId);
-  if (!board) return null;
-  const raw = (board as unknown as Record<string, unknown>).ci_cd_settings;
+function getCiCdSettingsForHabitat(habitatId: string): CiCdSettings | null {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat) return null;
+  const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
   if (!raw || typeof raw !== 'string') return null;
   try {
     return JSON.parse(raw) as CiCdSettings;
@@ -29,10 +29,10 @@ function getCiCdSettingsForBoard(boardId: string): CiCdSettings | null {
   }
 }
 
-function findTaskAcrossBoards(repo: string, branch: string): string | null {
-  const boards = boardRepo.listBoards();
-  for (const board of boards) {
-    const settings = getCiCdSettingsForBoard(board.id);
+function findTaskAcrossHabitats(repo: string, branch: string): string | null {
+  const habitats = habitatRepo.listHabitats();
+  for (const habitat of habitats) {
+    const settings = getCiCdSettingsForHabitat(habitat.id);
     if (!settings) continue;
     const pattern = settings.taskPattern || '[?&;]taskId=([0-9a-f-]{36})';
     const taskId = prRepo.findTaskIdByPattern(branch, pattern);
@@ -47,9 +47,9 @@ function findTaskAcrossBoards(repo: string, branch: string): string | null {
 function getSettingsForTask(taskId: string): CiCdSettings | null {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return null;
-  const boardId = getBoardIdForTask(taskId);
-  if (!boardId) return null;
-  return getCiCdSettingsForBoard(boardId);
+  const habitatId = getHabitatIdForTask(taskId);
+  if (!habitatId) return null;
+  return getCiCdSettingsForHabitat(habitatId);
 }
 
 interface GitHubWorkflowRunEvent {
@@ -140,7 +140,7 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): { st
   const runId = String(run.id);
   const mappedStatus = mapGitHubStatus(run.status, run.conclusion);
 
-  const taskId = findTaskAcrossBoards(repo, branch);
+  const taskId = findTaskAcrossHabitats(repo, branch);
   if (!taskId) return { status: 'no_matching_task' };
 
   const task = taskRepo.getTaskById(taskId);
@@ -184,9 +184,9 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): { st
     metadata: { provider: 'github', runId, pipelineStatus: mappedStatus, repo, branch },
   });
 
-  const boardId = getBoardIdForTask(taskId);
-  if (boardId) {
-    sseBroadcaster.publish(boardId, {
+  const habitatId = getHabitatIdForTask(taskId);
+  if (habitatId) {
+    sseBroadcaster.publish(habitatId, {
       type: 'task.updated',
       data: taskRepo.getTaskById(taskId)!,
     });
@@ -202,7 +202,7 @@ export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent): { st
   const runId = String(job.run_id);
   const mappedStatus = mapGitHubStatus(job.status, job.conclusion);
 
-  const taskId = findTaskAcrossBoards(repo, branch);
+  const taskId = findTaskAcrossHabitats(repo, branch);
   if (!taskId) return { status: 'no_matching_task' };
 
   const task = taskRepo.getTaskById(taskId);
@@ -224,9 +224,9 @@ export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent): { st
     });
   }
 
-  const boardId2 = getBoardIdForTask(taskId);
-  if (boardId2) {
-    sseBroadcaster.publish(boardId2, {
+  const habitatId2 = getHabitatIdForTask(taskId);
+  if (habitatId2) {
+    sseBroadcaster.publish(habitatId2, {
       type: 'task.updated',
       data: taskRepo.getTaskById(taskId)!,
     });
@@ -242,7 +242,7 @@ export function handleGitLabPipelineEvent(body: GitLabPipelineEvent): { status: 
   const runId = String(attrs.id);
   const mappedStatus = mapGitLabStatus(attrs.status);
 
-  const taskId = findTaskAcrossBoards(repo, branch);
+  const taskId = findTaskAcrossHabitats(repo, branch);
   if (!taskId) return { status: 'no_matching_task' };
 
   const task = taskRepo.getTaskById(taskId);
@@ -284,9 +284,9 @@ export function handleGitLabPipelineEvent(body: GitLabPipelineEvent): { status: 
     metadata: { provider: 'gitlab', runId, pipelineStatus: mappedStatus, repo, branch },
   });
 
-  const boardId3 = getBoardIdForTask(taskId);
-  if (boardId3) {
-    sseBroadcaster.publish(boardId3, {
+  const habitatId3 = getHabitatIdForTask(taskId);
+  if (habitatId3) {
+    sseBroadcaster.publish(habitatId3, {
       type: 'task.updated',
       data: taskRepo.getTaskById(taskId)!,
     });
@@ -301,7 +301,7 @@ export function handleGitLabJobEvent(body: GitLabJobEvent): { status: string; ta
   const runId = String(body.pipeline_id);
   const mappedStatus = mapGitLabStatus(body.build_status);
 
-  const taskId = findTaskAcrossBoards(repo, branch);
+  const taskId = findTaskAcrossHabitats(repo, branch);
   if (!taskId) return { status: 'no_matching_task' };
 
   const task = taskRepo.getTaskById(taskId);
@@ -323,9 +323,9 @@ export function handleGitLabJobEvent(body: GitLabJobEvent): { status: string; ta
     });
   }
 
-  const boardId4 = getBoardIdForTask(taskId);
-  if (boardId4) {
-    sseBroadcaster.publish(boardId4, {
+  const habitatId4 = getHabitatIdForTask(taskId);
+  if (habitatId4) {
+    sseBroadcaster.publish(habitatId4, {
       type: 'task.updated',
       data: taskRepo.getTaskById(taskId)!,
     });

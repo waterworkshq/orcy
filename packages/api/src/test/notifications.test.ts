@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let _prefsData: Record<string, { id: string; userId: string; boardId: string | null; taskAssigned: number; taskSubmitted: number; taskApproved: number; taskRejected: number; taskOverdue: number; taskMentioned: number; taskWatching: number; createdAt: string; updatedAt: string }> = {};
+let _prefsData: Record<string, { id: string; userId: string; habitatId: string | null; taskAssigned: number; taskSubmitted: number; taskApproved: number; taskRejected: number; taskOverdue: number; taskMentioned: number; taskWatching: number; createdAt: string; updatedAt: string }> = {};
 let _idCounter = 0;
 
 function createMockDb() {
@@ -9,11 +9,11 @@ function createMockDb() {
     const chain = {
       values: (vals: any) => { _vals = vals; return chain; },
       run: () => {
-        const key = `${_vals.userId}:${_vals.boardId ?? 'global'}`;
+        const key = `${_vals.userId}:${_vals.habitatId ?? 'global'}`;
         _prefsData[key] = {
           id: _vals.id,
           userId: _vals.userId,
-          boardId: _vals.boardId ?? null,
+          habitatId: _vals.habitatId ?? null,
           taskAssigned: _vals.taskAssigned ?? 1,
           taskSubmitted: _vals.taskSubmitted ?? 1,
           taskApproved: _vals.taskApproved ?? 0,
@@ -38,15 +38,15 @@ function createMockDb() {
         for (const cond of _conditions) {
           if (cond?._type === 'and') {
             let userId: string | undefined;
-            let boardId: string | null | undefined;
-            let isNullBoard = false;
+            let habitatId: string | null | undefined;
+            let isNullHabitat = false;
             for (const c of cond.conditions) {
               if (c?.col === 'userId') userId = c.val;
-              if (c?.col === 'boardId') boardId = c.val;
-              if (c?._type === 'isNull_boardId') isNullBoard = true;
+              if (c?.col === 'habitatId') habitatId = c.val;
+              if (c?._type === 'isNull_habitatId') isNullHabitat = true;
             }
             if (userId) {
-              const key = isNullBoard ? `${userId}:global` : `${userId}:${boardId ?? 'global'}`;
+              const key = isNullHabitat ? `${userId}:global` : `${userId}:${habitatId ?? 'global'}`;
               return _prefsData[key] ? [_prefsData[key]] : [];
             }
           }
@@ -102,7 +102,7 @@ vi.mock('../db/schema/index.js', () => ({
   notificationPreferences: {
     id: 'id',
     userId: 'userId',
-    boardId: 'boardId',
+    habitatId: 'habitatId',
     taskAssigned: 'taskAssigned',
     taskSubmitted: 'taskSubmitted',
     taskApproved: 'taskApproved',
@@ -114,8 +114,8 @@ vi.mock('../db/schema/index.js', () => ({
     updatedAt: 'updatedAt',
   },
   users: { id: 'id', username: 'username', email: 'email' },
-  tasks: { id: 'id', boardId: 'boardId', title: 'title', status: 'status' },
-  boards: { id: 'id', name: 'name' },
+  tasks: { id: 'id', habitatId: 'habitatId', title: 'title', status: 'status' },
+  habitats: { id: 'id', name: 'name' },
   agents: { id: 'id', name: 'name' },
   taskComments: { id: 'id' },
   taskWatchers: { taskId: 'taskId', userId: 'userId' },
@@ -136,18 +136,18 @@ describe('notificationPreferences repository', () => {
     const { getPreferences } = await import('../repositories/notificationPreferences.js');
     const prefs = getPreferences('user-1', null);
     expect(prefs.userId).toBe('user-1');
-    expect(prefs.boardId).toBeNull();
+    expect(prefs.habitatId).toBeNull();
     expect(prefs.taskAssigned).toBe(true);
     expect(prefs.taskApproved).toBe(false);
     expect(prefs.taskRejected).toBe(true);
     expect(prefs.taskMentioned).toBe(true);
   });
 
-  it('creates default board preferences when none exist', async () => {
+  it('creates default habitat preferences when none exist', async () => {
     const { getPreferences } = await import('../repositories/notificationPreferences.js');
-    const prefs = getPreferences('user-1', 'board-1');
+    const prefs = getPreferences('user-1', 'habitat-1');
     expect(prefs.userId).toBe('user-1');
-    expect(prefs.boardId).toBe('board-1');
+    expect(prefs.habitatId).toBe('habitat-1');
     expect(prefs.taskAssigned).toBe(true);
   });
 
@@ -182,21 +182,21 @@ describe('emailService', () => {
 
   it('taskAssignedTemplate has correct subject', async () => {
     const { taskAssignedTemplate } = await import('../services/emailService.js');
-    const payload = taskAssignedTemplate('Fix bug', 'Board 1', 'admin');
+    const payload = taskAssignedTemplate('Fix bug', 'Habitat 1', 'admin');
     expect(payload.subject).toContain('Fix bug');
     expect(payload.html).toContain('Fix bug');
-    expect(payload.html).toContain('Board 1');
+    expect(payload.html).toContain('Habitat 1');
   });
 
   it('taskRejectedTemplate includes reason', async () => {
     const { taskRejectedTemplate } = await import('../services/emailService.js');
-    const payload = taskRejectedTemplate('Fix bug', 'Board 1', 'admin', 'Code quality issues');
+    const payload = taskRejectedTemplate('Fix bug', 'Habitat 1', 'admin', 'Code quality issues');
     expect(payload.html).toContain('Code quality issues');
   });
 
   it('commentMentionedTemplate includes comment content', async () => {
     const { commentMentionedTemplate } = await import('../services/emailService.js');
-    const payload = commentMentionedTemplate('Task 1', 'Board 1', 'user1', 'hey @admin check this');
+    const payload = commentMentionedTemplate('Task 1', 'Habitat 1', 'user1', 'hey @admin check this');
     expect(payload.html).toContain('hey @admin check this');
   });
 });
@@ -204,6 +204,6 @@ describe('emailService', () => {
 describe('notificationService', () => {
   it('processEvent returns early when SMTP not configured', async () => {
     const { processEvent } = await import('../services/notificationService.js');
-    await expect(processEvent('task.assigned', 'board-1', { taskId: 'task-1' })).resolves.toBeUndefined();
+    await expect(processEvent('task.assigned', 'habitat-1', { taskId: 'task-1' })).resolves.toBeUndefined();
   });
 });

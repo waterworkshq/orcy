@@ -1,25 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'crypto';
 
-type BoardMock = { id: string; name: string; code_review_settings?: string; ci_cd_settings?: string };
+type HabitatMock = { id: string; name: string; code_review_settings?: string; ci_cd_settings?: string };
 
-const boardMocks = vi.hoisted(() => {
-  const state: { boards: Record<string, BoardMock> } = { boards: {} };
+const habitatMocks = vi.hoisted(() => {
+  const state: { habitats: Record<string, HabitatMock> } = { habitats: {} };
 
   return {
     state,
-    createBoardMockDb: () => ({
+    createHabitatMockDb: () => ({
       insert: () => ({
-        values: (v: BoardMock) => ({ run: () => { state.boards[v.id] = v; } }),
+        values: (v: HabitatMock) => ({ run: () => { state.habitats[v.id] = v; } }),
       }),
       select: () => ({
         from: () => ({
           where: () => ({
             orderBy: () => ({
-              all: () => Object.values(state.boards),
+              all: () => Object.values(state.habitats),
             }),
           }),
-          all: () => Object.values(state.boards),
+          all: () => Object.values(state.habitats),
         }),
       }),
       update: () => ({
@@ -35,7 +35,7 @@ const boardMocks = vi.hoisted(() => {
 });
 
 vi.mock('../db/index.js', () => ({
-  getDb: () => boardMocks.createBoardMockDb(),
+  getDb: () => habitatMocks.createHabitatMockDb(),
   initDb: vi.fn(),
   closeDb: vi.fn(),
 }));
@@ -53,8 +53,8 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 vi.mock('../db/schema/index.js', () => ({
-  boards: { id: 'id', name: 'name', codeReviewSettings: 'codeReviewSettings', ciCdSettings: 'ciCdSettings' },
-  tasks: { id: 'id', boardId: 'boardId', title: 'title', status: 'status', artifacts: 'artifacts', featureId: 'featureId' },
+  habitats: { id: 'id', name: 'name', codeReviewSettings: 'codeReviewSettings', ciCdSettings: 'ciCdSettings' },
+  tasks: { id: 'id', habitatId: 'habitatId', title: 'title', status: 'status', artifacts: 'artifacts', missionId: 'missionId' },
   agents: { id: 'id', name: 'name' },
   pullRequests: { id: 'id', taskId: 'taskId', provider: 'provider', repo: 'repo', prNumber: 'prNumber' },
   pipelineEvents: { id: 'id', taskId: 'taskId', provider: 'provider', runId: 'runId', status: 'status' },
@@ -78,7 +78,7 @@ vi.mock('../repositories/pullRequest.js', () => ({
 
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(() => null),
-  getBoardIdForTask: vi.fn(() => null),
+  getHabitatIdForTask: vi.fn(() => null),
 }));
 
 vi.mock('../repositories/pipelineEvent.js', () => ({
@@ -89,8 +89,8 @@ vi.mock('../repositories/pipelineEvent.js', () => ({
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  listBoards: vi.fn(() => Object.values(boardMocks.state.boards)),
-  getBoardById: vi.fn((id: string) => boardMocks.state.boards[id] ?? null),
+  listHabitats: vi.fn(() => Object.values(habitatMocks.state.habitats)),
+  getHabitatById: vi.fn((id: string) => habitatMocks.state.habitats[id] ?? null),
 }));
 
 function makeGitHubSignature(payload: string | Buffer, secret: string): string {
@@ -344,13 +344,13 @@ describe('Service-level verification delegation', () => {
 
 describe('Route-level webhook fail-closed behavior', () => {
   beforeEach(() => {
-    boardMocks.state.boards = {};
+    habitatMocks.state.habitats = {};
   });
 
   describe('GitHub code-review webhook', () => {
     it('rejects dummy signature with unmatched repo secret (returns 401)', async () => {
-      boardMocks.state.boards['board-1'] = {
-        id: 'board-1',
+      habitatMocks.state.habitats['habitat-1'] = {
+        id: 'habitat-1',
         name: 'Test',
         code_review_settings: JSON.stringify({ githubSecret: 'actual-secret' }),
       };
@@ -361,8 +361,8 @@ describe('Route-level webhook fail-closed behavior', () => {
     });
 
     it('fails closed when secrets are configured but no signature provided', async () => {
-      boardMocks.state.boards['board-1'] = {
-        id: 'board-1',
+      habitatMocks.state.habitats['habitat-1'] = {
+        id: 'habitat-1',
         name: 'Test',
         code_review_settings: JSON.stringify({ githubSecret: 'actual-secret' }),
       };
@@ -374,8 +374,8 @@ describe('Route-level webhook fail-closed behavior', () => {
 
   describe('GitHub CI/CD webhook', () => {
     it('rejects invalid signature when secret configured', async () => {
-      boardMocks.state.boards['board-1'] = {
-        id: 'board-1',
+      habitatMocks.state.habitats['habitat-1'] = {
+        id: 'habitat-1',
         name: 'Test',
         ci_cd_settings: JSON.stringify({ githubSecret: 'ci-secret' }),
       };

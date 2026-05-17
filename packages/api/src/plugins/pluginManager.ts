@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { KanbanPlugin, PluginManifest, McpToolDefinition } from './types.js';
-import type { Task, Board, Agent } from '../models/index.js';
+import type { Task, Habitat, Agent } from '../models/index.js';
 import { readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -182,8 +182,8 @@ async function invokeHook(
   await Promise.all(promises);
 }
 
-export async function emitTaskCreated(task: Task, board: Board | null): Promise<void> {
-  await invokeHook('onTaskCreated', task, board);
+export async function emitTaskCreated(task: Task, habitat: Habitat | null): Promise<void> {
+  await invokeHook('onTaskCreated', task, habitat);
 }
 
 export async function emitTaskClaimed(task: Task, agent: Omit<Agent, 'apiKeyHash'>): Promise<void> {
@@ -202,8 +202,8 @@ export async function emitTaskRejected(task: Task, reason: string): Promise<void
   await invokeHook('onTaskRejected', task, reason);
 }
 
-export async function emitBoardCreated(board: Board): Promise<void> {
-  await invokeHook('onBoardCreated', board);
+export async function emitHabitatCreated(habitat: Habitat): Promise<void> {
+  await invokeHook('onHabitatCreated', habitat);
 }
 
 export async function emitAgentRegistered(agent: Omit<Agent, 'apiKeyHash'>): Promise<void> {

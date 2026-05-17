@@ -1,22 +1,22 @@
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as eventRepo from '../repositories/event.js';
 import * as agentRepo from '../repositories/agent.js';
 import { getDb } from '../db/index.js';
-import { tasks, features, columns, agents, taskEvents, featureEvents } from '../db/schema/index.js';
+import { tasks, missions, columns, agents, taskEvents, missionEvents } from '../db/schema/index.js';
 import { eq, and, sql, desc, asc, count, inArray, isNotNull } from 'drizzle-orm';
-import type { FeatureStatus, TaskStatus } from '../models/index.js';
+import type { MissionStatus, TaskStatus } from '../models/index.js';
 
-export interface BoardSummaryOptions {
+export interface HabitatSummaryOptions {
   since?: '24h' | '7d' | '30d' | 'all';
-  maxFeatures?: number;
+  maxMissions?: number;
   includeDigest?: boolean;
 }
 
-export interface FeatureNarrative {
-  featureTitle: string;
-  featureId: string;
+export interface MissionNarrative {
+  missionTitle: string;
+  missionId: string;
   priority: string;
   currentStatus: string;
   progress: { total: number; done: number };
@@ -32,10 +32,10 @@ export interface ActivityPeriod {
   period: string;
   from: string;
   to: string;
-  featureNarratives: FeatureNarrative[];
+  missionNarratives: MissionNarrative[];
   metrics: {
-    featuresCompleted: number;
-    featuresCreated: number;
+    missionsCompleted: number;
+    missionsCreated: number;
     tasksCompleted: number;
     tasksCreated: number;
     tasksRejected: number;
@@ -43,27 +43,27 @@ export interface ActivityPeriod {
   };
 }
 
-export interface BoardSummary {
-  board: {
+export interface HabitatSummary {
+  habitat: {
     name: string;
     description: string;
-    columns: { name: string; featureCount: number; isTerminal: boolean }[];
-    totalFeatures: number;
+    columns: { name: string; missionCount: number; isTerminal: boolean }[];
+    totalMissions: number;
   };
   snapshot: {
-    featuresByStatus: Record<string, number>;
+    missionsByStatus: Record<string, number>;
     tasksByStatus: Record<string, number>;
     byPriority: Record<string, number>;
     activeAgents: { name: string; currentTask: string | null }[];
-    blockedFeatures: { title: string; blockedBy: string[] }[];
-    overdueFeatures: { title: string; dueAt: string }[];
+    blockedMissions: { title: string; blockedBy: string[] }[];
+    overdueMissions: { title: string; dueAt: string }[];
   };
   recentActivity: ActivityPeriod[];
   digest: string;
   generatedAt: string;
 }
 
-const NARRATIVE_FEATURE_ACTIONS = new Set([
+const NARRATIVE_MISSION_ACTIONS = new Set([
   'created', 'status_changed', 'moved', 'completed', 'updated',
 ]);
 
@@ -74,56 +74,56 @@ const NARRATIVE_TASK_ACTIONS = new Set([
   'escalated',
 ]);
 
-export function generateBoardSummary(
-  boardId: string,
-  options: BoardSummaryOptions = {}
-): BoardSummary | null {
+export function generateHabitatSummary(
+  habitatId: string,
+  options: HabitatSummaryOptions = {}
+): HabitatSummary | null {
   const since = options.since ?? '7d';
-  const maxFeatures = Math.min(options.maxFeatures ?? 20, 50);
+  const maxMissions = Math.min(options.maxMissions ?? 20, 50);
   const includeDigest = options.includeDigest !== false;
 
-  const boardData = boardRepo.getBoardWithColumnsAndTasks(boardId);
-  if (!boardData) return null;
+  const habitatData = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
+  if (!habitatData) return null;
 
-  const { board, columns: boardColumns } = boardData;
-  const { features: featureList } = featureRepo.getFeaturesByBoardId(boardId);
-  const { tasks: allTasks } = taskRepo.getTasksByBoardId(boardId);
+  const { habitat, columns: habitatColumns } = habitatData;
+  const { missions: missionList } = missionRepo.getMissionsByHabitatId(habitatId);
+  const { tasks: allTasks } = taskRepo.getTasksByHabitatId(habitatId);
 
-  const columnFeatureCounts = new Map<string, number>();
-  for (const feature of featureList) {
-    columnFeatureCounts.set(feature.columnId, (columnFeatureCounts.get(feature.columnId) ?? 0) + 1);
+  const columnMissionCounts = new Map<string, number>();
+  for (const mission of missionList) {
+    columnMissionCounts.set(mission.columnId, (columnMissionCounts.get(mission.columnId) ?? 0) + 1);
   }
 
-  const columnsWithCounts = boardColumns.map(col => ({
+  const columnsWithCounts = habitatColumns.map(col => ({
     name: col.name,
-    featureCount: columnFeatureCounts.get(col.id) ?? 0,
+    missionCount: columnMissionCounts.get(col.id) ?? 0,
     isTerminal: col.isTerminal,
   }));
 
-  const snapshot = buildSnapshot(boardId, featureList, allTasks);
+  const snapshot = buildSnapshot(habitatId, missionList, allTasks);
 
   const sinceDate = computeSinceDate(since);
-  const events = fetchBoardEvents(boardId, sinceDate);
-  const featureEventsList = fetchFeatureEvents(boardId, sinceDate);
+  const events = fetchHabitatEvents(habitatId, sinceDate);
+  const missionEventsList = fetchMissionEvents(habitatId, sinceDate);
   const agentNameMap = buildAgentNameMap();
 
-  const featureNarratives = buildFeatureNarratives(featureList, allTasks, events, featureEventsList, agentNameMap, maxFeatures);
+  const missionNarratives = buildMissionNarratives(missionList, allTasks, events, missionEventsList, agentNameMap, maxMissions);
   const periodMetrics = computePeriodMetrics(events, sinceDate);
 
   const recentActivity = buildActivityPeriods(
-    since, sinceDate, events, featureEventsList, featureNarratives, featureList, allTasks, agentNameMap, maxFeatures
+    since, sinceDate, events, missionEventsList, missionNarratives, missionList, allTasks, agentNameMap, maxMissions
   );
 
   const digest = includeDigest
-    ? generateDigest(board.name, columnsWithCounts, snapshot, recentActivity, featureList.length)
+    ? generateDigest(habitat.name, columnsWithCounts, snapshot, recentActivity, missionList.length)
     : '';
 
   return {
-    board: {
-      name: board.name,
-      description: board.description,
+    habitat: {
+      name: habitat.name,
+      description: habitat.description,
       columns: columnsWithCounts,
-      totalFeatures: featureList.length,
+      totalMissions: missionList.length,
     },
     snapshot,
     recentActivity,
@@ -133,37 +133,37 @@ export function generateBoardSummary(
 }
 
 function buildSnapshot(
-  boardId: string,
-  featureList: any[],
+  habitatId: string,
+  missionList: any[],
   allTasks: any[]
 ) {
-  const featuresByStatus: Record<string, number> = {};
+  const missionsByStatus: Record<string, number> = {};
   const tasksByStatus: Record<string, number> = {};
   const byPriority: Record<string, number> = {};
-  const blockedFeatures: { title: string; blockedBy: string[] }[] = [];
-  const overdueFeatures: { title: string; dueAt: string }[] = [];
+  const blockedMissions: { title: string; blockedBy: string[] }[] = [];
+  const overdueMissions: { title: string; dueAt: string }[] = [];
 
   const now = new Date();
-  const featureMap = new Map(featureList.map(f => [f.id, f]));
+  const missionMap = new Map(missionList.map(f => [f.id, f]));
 
-  for (const feature of featureList) {
-    featuresByStatus[feature.status] = (featuresByStatus[feature.status] ?? 0) + 1;
-    byPriority[feature.priority] = (byPriority[feature.priority] ?? 0) + 1;
+  for (const mission of missionList) {
+    missionsByStatus[mission.status] = (missionsByStatus[mission.status] ?? 0) + 1;
+    byPriority[mission.priority] = (byPriority[mission.priority] ?? 0) + 1;
 
-    if (feature.dependsOn && feature.dependsOn.length > 0 && feature.status === 'not_started') {
-      const unresolvedDeps = feature.dependsOn
+    if (mission.dependsOn && mission.dependsOn.length > 0 && mission.status === 'not_started') {
+      const unresolvedDeps = mission.dependsOn
         .map((depId: string) => {
-          const dep = featureMap.get(depId);
+          const dep = missionMap.get(depId);
           return dep && dep.status !== 'done' ? dep.title : null;
         })
         .filter(Boolean) as string[];
       if (unresolvedDeps.length > 0) {
-        blockedFeatures.push({ title: feature.title, blockedBy: unresolvedDeps });
+        blockedMissions.push({ title: mission.title, blockedBy: unresolvedDeps });
       }
     }
 
-    if (feature.dueAt && new Date(feature.dueAt) < now && !['done'].includes(feature.status)) {
-      overdueFeatures.push({ title: feature.title, dueAt: feature.dueAt });
+    if (mission.dueAt && new Date(mission.dueAt) < now && !['done'].includes(mission.status)) {
+      overdueMissions.push({ title: mission.title, dueAt: mission.dueAt });
     }
   }
 
@@ -181,10 +181,10 @@ function buildSnapshot(
       return { name: a.name, currentTask };
     });
 
-  return { featuresByStatus, tasksByStatus, byPriority, activeAgents, blockedFeatures, overdueFeatures };
+  return { missionsByStatus, tasksByStatus, byPriority, activeAgents, blockedMissions, overdueMissions };
 }
 
-interface RawBoardEvent {
+interface RawHabitatEvent {
   id: string;
   taskId: string;
   taskTitle: string;
@@ -198,9 +198,9 @@ interface RawBoardEvent {
   timestamp: string;
 }
 
-interface RawFeatureEvent {
+interface RawMissionEvent {
   id: string;
-  featureId: string;
+  missionId: string;
   actorType: string;
   actorId: string;
   action: string;
@@ -210,8 +210,8 @@ interface RawFeatureEvent {
   timestamp: string;
 }
 
-function fetchBoardEvents(boardId: string, sinceDate: string): RawBoardEvent[] {
-  const result = eventRepo.getEventsByBoardId(boardId, 500, 0, { since: sinceDate });
+function fetchHabitatEvents(habitatId: string, sinceDate: string): RawHabitatEvent[] {
+  const result = eventRepo.getEventsByHabitatId(habitatId, 500, 0, { since: sinceDate });
   return result.events.map(e => ({
     id: e.id,
     taskId: e.taskId,
@@ -227,13 +227,13 @@ function fetchBoardEvents(boardId: string, sinceDate: string): RawBoardEvent[] {
   }));
 }
 
-function fetchFeatureEvents(boardId: string, sinceDate: string): RawFeatureEvent[] {
-  const result = eventRepo.getFeatureEventsByBoardId(boardId, 500, 0);
+function fetchMissionEvents(habitatId: string, sinceDate: string): RawMissionEvent[] {
+  const result = eventRepo.getMissionEventsByHabitatId(habitatId, 500, 0);
   return result.events
     .filter(e => e.timestamp >= sinceDate)
     .map(e => ({
       id: e.id,
-      featureId: e.featureId,
+      missionId: e.missionId,
       actorType: e.actorType,
       actorId: e.actorId,
       action: e.action,
@@ -253,80 +253,80 @@ function buildAgentNameMap(): Map<string, string> {
   return map;
 }
 
-function buildFeatureNarratives(
-  featureList: any[],
+function buildMissionNarratives(
+  missionList: any[],
   allTasks: any[],
-  events: RawBoardEvent[],
-  featureEvents: RawFeatureEvent[],
+  events: RawHabitatEvent[],
+  missionEvents: RawMissionEvent[],
   agentNameMap: Map<string, string>,
-  maxFeatures: number
-): FeatureNarrative[] {
-  const featureTaskMap = new Map<string, any[]>();
+  maxMissions: number
+): MissionNarrative[] {
+  const missionTaskMap = new Map<string, any[]>();
   for (const task of allTasks) {
-    const list = featureTaskMap.get(task.featureId) ?? [];
+    const list = missionTaskMap.get(task.missionId) ?? [];
     list.push(task);
-    featureTaskMap.set(task.featureId, list);
+    missionTaskMap.set(task.missionId, list);
   }
 
-  const taskFeatureMap = new Map<string, string>();
+  const taskMissionMap = new Map<string, string>();
   for (const task of allTasks) {
-    taskFeatureMap.set(task.id, task.featureId);
+    taskMissionMap.set(task.id, task.missionId);
   }
 
-  const featureTimeline = new Map<string, { action: string; actor: string; timestamp: string; detail?: string }[]>();
+  const missionTimeline = new Map<string, { action: string; actor: string; timestamp: string; detail?: string }[]>();
 
-  for (const event of featureEvents) {
-    if (!NARRATIVE_FEATURE_ACTIONS.has(event.action)) continue;
-    const timeline = featureTimeline.get(event.featureId) ?? [];
+  for (const event of missionEvents) {
+    if (!NARRATIVE_MISSION_ACTIONS.has(event.action)) continue;
+    const timeline = missionTimeline.get(event.missionId) ?? [];
     timeline.push({
       action: event.action,
       actor: resolveActorName(event.actorType, event.actorId, null, agentNameMap),
       timestamp: event.timestamp,
     });
-    featureTimeline.set(event.featureId, timeline);
+    missionTimeline.set(event.missionId, timeline);
   }
 
   for (const event of events) {
     if (!NARRATIVE_TASK_ACTIONS.has(event.action)) continue;
-    const featureId = taskFeatureMap.get(event.taskId);
-    if (!featureId) continue;
-    const timeline = featureTimeline.get(featureId) ?? [];
+    const missionId = taskMissionMap.get(event.taskId);
+    if (!missionId) continue;
+    const timeline = missionTimeline.get(missionId) ?? [];
     timeline.push({
       action: `task.${event.action}`,
       actor: resolveActorName(event.actorType, event.actorId, event.actorName, agentNameMap),
       timestamp: event.timestamp,
       detail: extractEventDetail(event),
     });
-    featureTimeline.set(featureId, timeline);
+    missionTimeline.set(missionId, timeline);
   }
 
-  const featureLastActivity = new Map<string, string>();
-  for (const [featureId, timeline] of featureTimeline) {
+  const missionLastActivity = new Map<string, string>();
+  for (const [missionId, timeline] of missionTimeline) {
     const sorted = timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    featureLastActivity.set(featureId, sorted[sorted.length - 1].timestamp);
+    missionLastActivity.set(missionId, sorted[sorted.length - 1].timestamp);
   }
 
-  const sortedFeatureIds = [...featureLastActivity.entries()]
+  const sortedMissionIds = [...missionLastActivity.entries()]
     .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, maxFeatures)
+    .slice(0, maxMissions)
     .map(([id]) => id);
 
-  const featureMap = new Map(featureList.map(f => [f.id, f]));
+  const missionMap = new Map(missionList.map(f => [f.id, f]));
 
-  return sortedFeatureIds.map(featureId => {
-    const feature = featureMap.get(featureId);
-    const featureTasks = featureTaskMap.get(featureId) ?? [];
-    const timeline = featureTimeline.get(featureId) ?? [];
+  return sortedMissionIds.map(missionId => {
+    const mission = missionMap.get(missionId);
+    const missionTasks = missionTaskMap.get(missionId) ?? [];
+    const timeline = missionTimeline.get(missionId) ?? [];
     timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
     return {
-      featureTitle: feature?.title ?? 'Unknown',
-      featureId,
-      priority: feature?.priority ?? 'medium',
-      currentStatus: feature?.status ?? 'unknown',
+      missionTitle: mission?.title ?? 'Unknown',
+      missionId,
+      priority: mission?.priority ?? 'medium',
+      currentStatus: mission?.status ?? 'unknown',
       progress: {
-        total: featureTasks.length,
-        done: featureTasks.filter(t => ['done', 'approved'].includes(t.status)).length,
+        total: missionTasks.length,
+        done: missionTasks.filter(t => ['done', 'approved'].includes(t.status)).length,
       },
       timeline,
     };
@@ -339,7 +339,7 @@ function resolveActorName(actorType: string, actorId: string, actorName: string 
   return actorName ?? agentNameMap.get(actorId) ?? actorId;
 }
 
-function extractEventDetail(event: RawBoardEvent): string | undefined {
+function extractEventDetail(event: RawHabitatEvent): string | undefined {
   const metadata = event.metadata;
   if (event.action === 'rejected' && metadata.reason) return String(metadata.reason);
   if (event.action === 'submitted' && metadata.result) {
@@ -351,7 +351,7 @@ function extractEventDetail(event: RawBoardEvent): string | undefined {
   return undefined;
 }
 
-function computePeriodMetrics(events: RawBoardEvent[], sinceDate: string) {
+function computePeriodMetrics(events: RawHabitatEvent[], sinceDate: string) {
   let tasksCompleted = 0;
   let tasksCreated = 0;
   let tasksRejected = 0;
@@ -378,47 +378,47 @@ function computePeriodMetrics(events: RawBoardEvent[], sinceDate: string) {
 function buildActivityPeriods(
   since: string,
   sinceDate: string,
-  allEvents: RawBoardEvent[],
-  allFeatureEvents: RawFeatureEvent[],
-  allNarratives: FeatureNarrative[],
-  featureList: any[],
+  allEvents: RawHabitatEvent[],
+  allMissionEvents: RawMissionEvent[],
+  allNarratives: MissionNarrative[],
+  missionList: any[],
   allTasks: any[],
   agentNameMap: Map<string, string>,
-  maxFeatures: number
+  maxMissions: number
 ): ActivityPeriod[] {
   const now = new Date();
   const buckets = computeBuckets(since, now);
 
-  const taskFeatureMap = new Map<string, string>();
+  const taskMissionMap = new Map<string, string>();
   for (const task of allTasks) {
-    taskFeatureMap.set(task.id, task.featureId);
+    taskMissionMap.set(task.id, task.missionId);
   }
 
   return buckets.map(bucket => {
     const bucketTaskEvents = allEvents.filter(e => e.timestamp >= bucket.from && e.timestamp < bucket.to);
-    const bucketFeatureEvents = allFeatureEvents.filter(e => e.timestamp >= bucket.from && e.timestamp < bucket.to);
+    const bucketMissionEvents = allMissionEvents.filter(e => e.timestamp >= bucket.from && e.timestamp < bucket.to);
 
-    const activeFeatureIds = new Set<string>();
-    for (const e of bucketFeatureEvents) activeFeatureIds.add(e.featureId);
+    const activeMissionIds = new Set<string>();
+    for (const e of bucketMissionEvents) activeMissionIds.add(e.missionId);
     for (const e of bucketTaskEvents) {
-      const fid = taskFeatureMap.get(e.taskId);
-      if (fid) activeFeatureIds.add(fid);
+      const fid = taskMissionMap.get(e.taskId);
+      if (fid) activeMissionIds.add(fid);
     }
 
-    const bucketNarratives = allNarratives.filter(n => activeFeatureIds.has(n.featureId));
+    const bucketNarratives = allNarratives.filter(n => activeMissionIds.has(n.missionId));
 
     const metrics = computePeriodMetrics(bucketTaskEvents, bucket.from);
-    const featuresCompleted = bucketFeatureEvents.filter(e => e.action === 'completed').length;
-    const featuresCreated = bucketFeatureEvents.filter(e => e.action === 'created').length;
+    const missionsCompleted = bucketMissionEvents.filter(e => e.action === 'completed').length;
+    const missionsCreated = bucketMissionEvents.filter(e => e.action === 'created').length;
 
     return {
       period: bucket.label,
       from: bucket.from,
       to: bucket.to,
-      featureNarratives: bucketNarratives,
+      missionNarratives: bucketNarratives,
       metrics: {
-        featuresCompleted,
-        featuresCreated,
+        missionsCompleted,
+        missionsCreated,
         tasksCompleted: metrics.tasksCompleted,
         tasksCreated: metrics.tasksCreated,
         tasksRejected: metrics.tasksRejected,
@@ -486,26 +486,26 @@ function computeSinceDate(since: string): string {
 }
 
 function generateDigest(
-  boardName: string,
-  columns: { name: string; featureCount: number; isTerminal: boolean }[],
-  snapshot: BoardSummary['snapshot'],
+  habitatName: string,
+  columns: { name: string; missionCount: number; isTerminal: boolean }[],
+  snapshot: HabitatSummary['snapshot'],
   activity: ActivityPeriod[],
-  totalFeatures: number
+  totalMissions: number
 ): string {
   const lines: string[] = [];
-  lines.push(`# Board Summary: ${boardName}`);
+  lines.push(`# Habitat Summary: ${habitatName}`);
   lines.push('');
 
   lines.push('## Current State');
-  const colSummary = columns.map(c => `${c.name}: ${c.featureCount}`).join(' | ');
+  const colSummary = columns.map(c => `${c.name}: ${c.missionCount}`).join(' | ');
   lines.push(`**Columns:** ${colSummary}`);
-  lines.push(`**Total features:** ${totalFeatures}`);
+  lines.push(`**Total missions:** ${totalMissions}`);
   lines.push('');
 
-  const statusParts = Object.entries(snapshot.featuresByStatus)
+  const statusParts = Object.entries(snapshot.missionsByStatus)
     .filter(([, count]) => count > 0)
     .map(([status, count]) => `${status}: ${count}`);
-  if (statusParts.length > 0) lines.push(`**Features by status:** ${statusParts.join(', ')}`);
+  if (statusParts.length > 0) lines.push(`**Missions by status:** ${statusParts.join(', ')}`);
 
   const taskParts = Object.entries(snapshot.tasksByStatus)
     .filter(([, count]) => count > 0)
@@ -524,30 +524,30 @@ function generateDigest(
     lines.push('');
   }
 
-  if (snapshot.blockedFeatures.length > 0) {
-    lines.push('## Blocked Features');
-    for (const bf of snapshot.blockedFeatures) lines.push(`- "${bf.title}" — blocked by: ${bf.blockedBy.join(', ')}`);
+  if (snapshot.blockedMissions.length > 0) {
+    lines.push('## Blocked Missions');
+    for (const bf of snapshot.blockedMissions) lines.push(`- "${bf.title}" — blocked by: ${bf.blockedBy.join(', ')}`);
     lines.push('');
   }
 
-  if (snapshot.overdueFeatures.length > 0) {
-    lines.push('## Overdue Features');
-    for (const of of snapshot.overdueFeatures) lines.push(`- "${of.title}" — due: ${formatTimestamp(of.dueAt)}`);
+  if (snapshot.overdueMissions.length > 0) {
+    lines.push('## Overdue Missions');
+    for (const of of snapshot.overdueMissions) lines.push(`- "${of.title}" — due: ${formatTimestamp(of.dueAt)}`);
     lines.push('');
   }
 
   for (const period of activity) {
-    if (period.featureNarratives.length === 0 && period.metrics.featuresCompleted === 0) continue;
+    if (period.missionNarratives.length === 0 && period.metrics.missionsCompleted === 0) continue;
     lines.push(`## Activity: ${formatPeriodLabel(period.period)}`);
     lines.push(
-      `Features completed: ${period.metrics.featuresCompleted} | ` +
+      `Missions completed: ${period.metrics.missionsCompleted} | ` +
       `Tasks completed: ${period.metrics.tasksCompleted} | ` +
       `Rejected: ${period.metrics.tasksRejected}`
     );
     lines.push('');
 
-    for (const narrative of period.featureNarratives) {
-      lines.push(`### "${narrative.featureTitle}" (${narrative.priority}, ${narrative.currentStatus}) [${narrative.progress.done}/${narrative.progress.total} tasks]`);
+    for (const narrative of period.missionNarratives) {
+      lines.push(`### "${narrative.missionTitle}" (${narrative.priority}, ${narrative.currentStatus}) [${narrative.progress.done}/${narrative.progress.total} tasks]`);
       for (const event of narrative.timeline.slice(-5)) {
         const detail = event.detail ? `: "${event.detail}"` : '';
         lines.push(`  → ${capitalize(event.action)} by ${event.actor} @ ${formatTimestamp(event.timestamp)}${detail}`);

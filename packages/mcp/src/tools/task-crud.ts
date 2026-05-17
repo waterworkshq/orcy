@@ -101,7 +101,7 @@ export const BOARD_UPDATE_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardUpdateTask(
+export async function habitatUpdateTask(
   client: KanbanApiClient,
   args: {
     taskId: string;
@@ -203,7 +203,7 @@ export const BOARD_DELETE_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardDeleteTask(
+export async function habitatDeleteTask(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {

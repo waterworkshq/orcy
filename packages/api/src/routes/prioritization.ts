@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
-import { requireBoardAccess } from '../middleware/team.js';
+import { requireHabitatAccess } from '../middleware/team.js';
 import * as prioritizationService from '../services/prioritizationService.js';
 import * as taskRepo from '../repositories/task.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import { notFound } from '../errors.js';
 
 import type { PrioritizationSettings } from '../models/index.js';
@@ -27,7 +27,7 @@ const nonRecursiveConditionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('pending_duration'), greaterThanHours: z.number() }),
   z.object({ type: z.literal('dependency_count'), greaterThan: z.number(), direction: z.union([z.literal('blocking'), z.literal('blocked_by')]) }),
   z.object({ type: z.literal('rejection_count'), greaterThan: z.number() }),
-  z.object({ type: z.literal('feature_status'), status: z.string() }),
+  z.object({ type: z.literal('mission_status'), status: z.string() }),
   z.object({ type: z.literal('agent_idle'), greaterThanMinutes: z.number() }),
   z.object({ type: z.literal('label_match'), labels: z.array(z.string()) }),
   z.object({ type: z.literal('priority_is'), priority: z.string() }),
@@ -58,7 +58,7 @@ const updateRulesSchema = z.object({
 export async function prioritizationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/habitats/:habitatId/rules',
-    { preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const settings = prioritizationService.getPrioritizationRules(params.habitatId);
@@ -68,7 +68,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.put(
     '/habitats/:habitatId/rules',
-    { preHandler: [humanAuth, requireBoardAccess] },
+    { preHandler: [humanAuth, requireHabitatAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const parsed = updateRulesSchema.safeParse(request.body);
@@ -76,26 +76,26 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
         return reply.status(400).send({ error: 'Invalid rules payload', details: parsed.error.flatten() });
       }
 
-      const board = boardRepo.getBoardById(params.habitatId);
-      if (!board) {
-        throw notFound('Board not found', 'BOARD_NOT_FOUND');
+      const habitat = habitatRepo.getHabitatById(params.habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found', 'HABITAT_NOT_FOUND');
       }
 
-      const current = board.prioritizationSettings ?? prioritizationService.getDefaultPrioritizationSettings();
+      const current = habitat.prioritizationSettings ?? prioritizationService.getDefaultPrioritizationSettings();
       const updated: PrioritizationSettings = {
         ...current,
         ...parsed.data,
         rules: parsed.data.rules ?? current.rules,
       };
 
-      boardRepo.updateBoard(params.habitatId, { prioritizationSettings: updated });
+      habitatRepo.updateHabitat(params.habitatId, { prioritizationSettings: updated });
       return { rules: updated };
     }
   );
 
   fastify.post(
     '/habitats/:habitatId/rules/evaluate',
-    { preHandler: [humanAuth, requireBoardAccess] },
+    { preHandler: [humanAuth, requireHabitatAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const result = prioritizationService.applyPrioritization(params.habitatId);
@@ -105,7 +105,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
 
   fastify.get(
     '/habitats/:habitatId/priority-report',
-    { preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const query = request.query as { limit?: string };
@@ -114,10 +114,10 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
         PRIORITY_REPORT_MAX_LIMIT,
       );
 
-      const { tasks: boardTasks } = taskRepo.getTasksByBoardId(params.habitatId, { limit });
+      const { tasks: habitatTasks } = taskRepo.getTasksByHabitatId(params.habitatId, { limit });
 
       const distribution: Record<string, number> = {};
-      for (const task of boardTasks) {
+      for (const task of habitatTasks) {
         distribution[task.priority] = (distribution[task.priority] ?? 0) + 1;
       }
 
@@ -128,8 +128,8 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
       }
 
       return {
-        boardId: params.habitatId,
-        totalTasks: boardTasks.length,
+        habitatId: params.habitatId,
+        totalTasks: habitatTasks.length,
         distribution,
         ruleHits,
         lastEvaluatedAt: new Date().toISOString(),

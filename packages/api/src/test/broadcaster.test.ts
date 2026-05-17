@@ -33,7 +33,7 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
   });
 
   it('calls notificationService.processEvent with correct args for task.claimed', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.claimed',
       data: { taskId: 't-1', agentId: 'a-1' },
     });
@@ -41,14 +41,14 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.assigned',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1', actorId: 'a-1' }
       );
     });
   });
 
   it('calls processEvent for task.submitted', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.submitted',
       data: { taskId: 't-1', agentId: 'a-1' },
     });
@@ -56,14 +56,14 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.submitted',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1', actorId: 'a-1' }
       );
     });
   });
 
   it('calls processEvent for task.approved', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.approved',
       data: { taskId: 't-1', reviewerId: 'r-1' },
     });
@@ -71,14 +71,14 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.approved',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1', actorId: 'r-1' }
       );
     });
   });
 
   it('calls processEvent for task.rejected', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.rejected',
       data: { taskId: 't-1', reason: 'bad code' },
     });
@@ -86,61 +86,61 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.rejected',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1', actorId: undefined, reason: 'bad code' }
       );
     });
   });
 
   it('calls processEvent for task.overdue', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.overdue',
-      data: { taskId: 't-1', boardId: 'board-1', detectedAt: new Date().toISOString() },
+      data: { taskId: 't-1', habitatId: 'habitat-1', detectedAt: new Date().toISOString() },
     } as SSEEvent);
 
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.overdue',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1' }
       );
     });
   });
 
   it('calls processEvent for task.mentioned when mentionedType is human', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.mentioned',
-      data: { taskId: 't-1', commentId: 'c-1', mentionedType: 'human', mentionedId: 'u-1', mentionedName: 'Alice', boardId: 'board-1' },
+      data: { taskId: 't-1', commentId: 'c-1', mentionedType: 'human', mentionedId: 'u-1', mentionedName: 'Alice', habitatId: 'habitat-1' },
     } as SSEEvent);
 
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'comment.mentioned',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1', mentionedUserId: 'u-1', mentionedByName: 'Alice' }
       );
     });
   });
 
   it('does not call processEvent for task.mentioned when mentionedType is agent', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.mentioned',
-      data: { taskId: 't-1', commentId: 'c-1', mentionedType: 'agent', mentionedId: 'a-1', mentionedName: 'Bot', boardId: 'board-1' },
+      data: { taskId: 't-1', commentId: 'c-1', mentionedType: 'agent', mentionedId: 'a-1', mentionedName: 'Bot', habitatId: 'habitat-1' },
     } as SSEEvent);
 
     expect(notificationService.processEvent).not.toHaveBeenCalled();
   });
 
   it('calls processEvent for task.watcher_notify', async () => {
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.watcher_notify',
-      data: { taskId: 't-1', taskTitle: 'Test', eventType: 'updated', watcherUserIds: [], boardId: 'board-1' },
+      data: { taskId: 't-1', taskTitle: 'Test', eventType: 'updated', watcherUserIds: [], habitatId: 'habitat-1' },
     } as SSEEvent);
 
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.watching',
-        'board-1',
+        'habitat-1',
         { taskId: 't-1' }
       );
     });
@@ -150,7 +150,7 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
     const error = new Error('notify failed');
     vi.mocked(notificationService.processEvent).mockRejectedValueOnce(error);
 
-    sseBroadcaster.publish('board-1', {
+    sseBroadcaster.publish('habitat-1', {
       type: 'task.claimed',
       data: { taskId: 't-1', agentId: 'a-1' },
     });
@@ -167,7 +167,7 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
     vi.mocked(notificationService.processEvent).mockRejectedValueOnce(new Error('boom'));
 
     expect(() => {
-      sseBroadcaster.publish('board-1', {
+      sseBroadcaster.publish('habitat-1', {
         type: 'task.claimed',
         data: { taskId: 't-1', agentId: 'a-1' },
       });

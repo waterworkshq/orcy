@@ -20,8 +20,8 @@ export const habitats = sqliteTable('habitats', {
   prioritizationSettings: text('prioritization_settings', { mode: 'json' }).$type<PrioritizationSettings | null>(),
   teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
 }, (table) => [
-  index('idx_boards_name').on(table.name),
-  index('idx_boards_team_id').on(table.teamId),
+  index('idx_habitats_name').on(table.name),
+  index('idx_habitats_team_id').on(table.teamId),
 ]);
 
 export const missions = sqliteTable('missions', {
@@ -50,12 +50,12 @@ export const missions = sqliteTable('missions', {
   completedAt: text('completed_at'),
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
 }, (table) => [
-  index('idx_features_habitat_column').on(table.habitatId, table.columnId),
-  index('idx_features_status').on(table.status),
-  index('idx_features_priority').on(table.priority),
-  index('idx_features_column_order').on(table.columnId, table.displayOrder),
-  index('idx_features_due_at').on(table.dueAt),
-  index('idx_features_sla_deadline_at').on(table.slaDeadlineAt),
+  index('idx_missions_habitat_column').on(table.habitatId, table.columnId),
+  index('idx_missions_status').on(table.status),
+  index('idx_missions_priority').on(table.priority),
+  index('idx_missions_column_order').on(table.columnId, table.displayOrder),
+  index('idx_missions_due_at').on(table.dueAt),
+  index('idx_missions_sla_deadline_at').on(table.slaDeadlineAt),
 ]);
 
 export const missionDependencies = sqliteTable('mission_dependencies', {
@@ -63,7 +63,7 @@ export const missionDependencies = sqliteTable('mission_dependencies', {
   dependsOnId: text('depends_on_id').notNull().references(() => missions.id, { onDelete: 'cascade' }),
 }, (table) => [
   primaryKey({ columns: [table.missionId, table.dependsOnId] }),
-  index('idx_feature_deps_depends_on').on(table.dependsOnId),
+  index('idx_mission_deps_depends_on').on(table.dependsOnId),
 ]);
 
 export const missionEvents = sqliteTable('mission_events', {
@@ -79,8 +79,8 @@ export const missionEvents = sqliteTable('mission_events', {
   metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>().notNull().$defaultFn(() => ({})),
   timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_feature_events_mission').on(table.missionId),
-  index('idx_feature_events_timestamp').on(table.timestamp),
+  index('idx_mission_events_mission').on(table.missionId),
+  index('idx_mission_events_timestamp').on(table.timestamp),
 ]);
 
 export const missionWatchers = sqliteTable('mission_watchers', {
@@ -89,7 +89,7 @@ export const missionWatchers = sqliteTable('mission_watchers', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   primaryKey({ columns: [table.missionId, table.userId] }),
-  index('idx_feature_watchers_user').on(table.userId),
+  index('idx_mission_watchers_user').on(table.userId),
 ]);
 
 const missionCommentsColumns = {
@@ -104,8 +104,8 @@ const missionCommentsColumns = {
 };
 
 export const missionComments = sqliteTable('mission_comments', missionCommentsColumns, (table) => [
-  index('idx_feature_comments_mission_id').on(table.missionId, table.createdAt),
-  index('idx_feature_comments_parent').on(table.parentId),
+  index('idx_mission_comments_mission_id').on(table.missionId, table.createdAt),
+  index('idx_mission_comments_parent').on(table.parentId),
 ]);
 
 export const missionCommentMentions = sqliteTable('mission_comment_mentions', {
@@ -116,9 +116,9 @@ export const missionCommentMentions = sqliteTable('mission_comment_mentions', {
   mentionText: text('mention_text').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_feature_mentions_comment_id').on(table.commentId),
-  index('idx_feature_mentions_target').on(table.mentionedType, table.mentionedId),
-  uniqueIndex('idx_feature_mentions_unique').on(table.commentId, table.mentionedType, table.mentionedId, table.mentionText),
+  index('idx_mission_mentions_comment_id').on(table.commentId),
+  index('idx_mission_mentions_target').on(table.mentionedType, table.mentionedId),
+  uniqueIndex('idx_mission_mentions_unique').on(table.commentId, table.mentionedType, table.mentionedId, table.mentionText),
 ]);
 
 const columnsColumns = {
@@ -216,11 +216,11 @@ export const scheduledTasks = sqliteTable('scheduled_tasks', {
   intervalMinutes: integer('interval_minutes'),
   scheduledAt: text('scheduled_at'),
   timezone: text('timezone').notNull().default('UTC'),
-  featureTitle: text('feature_title').notNull(),
-  featureDescription: text('feature_description').notNull().default(''),
-  featurePriority: text('feature_priority').$type<TaskPriority>().notNull().default('medium'),
-  featureLabels: text('feature_labels', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
-  featureDomain: text('feature_domain'),
+  missionTitle: text('mission_title').notNull(),
+  missionDescription: text('mission_description').notNull().default(''),
+  missionPriority: text('mission_priority').$type<TaskPriority>().notNull().default('medium'),
+  missionLabels: text('mission_labels', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
+  missionDomain: text('mission_domain'),
   tasksTemplate: text('tasks_template', { mode: 'json' }).$type<TaskTemplateEntry[]>().notNull().$defaultFn(() => []),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   lastRunAt: text('last_run_at'),

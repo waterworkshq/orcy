@@ -28,13 +28,13 @@ const DEFAULT_PREFS = {
   taskWatching: 1,
 };
 
-export function getPreferences(userId: string, boardId?: string | null): NotificationPreferences {
+export function getPreferences(userId: string, habitatId?: string | null): NotificationPreferences {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const rows = boardId
+  const rows = habitatId
     ? db.select().from(notificationPreferences).where(
-        and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.habitatId, boardId))
+        and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.habitatId, habitatId))
       ).all()
     : db.select().from(notificationPreferences).where(
         and(eq(notificationPreferences.userId, userId), isNull(notificationPreferences.habitatId))
@@ -59,11 +59,11 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
   }
 
   const id = uuidv4();
-  const boardIdVal = boardId ?? null;
+  const habitatIdVal = habitatId ?? null;
   db.insert(notificationPreferences).values({
     id,
     userId,
-    habitatId: boardIdVal,
+    habitatId: habitatIdVal,
     ...DEFAULT_PREFS,
     createdAt: now,
     updatedAt: now,
@@ -72,7 +72,7 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
   return {
     id,
     userId,
-    habitatId: boardIdVal,
+    habitatId: habitatIdVal,
     taskAssigned: DEFAULT_PREFS.taskAssigned === 1,
     taskSubmitted: DEFAULT_PREFS.taskSubmitted === 1,
     taskApproved: DEFAULT_PREFS.taskApproved === 1,
@@ -87,12 +87,12 @@ export function getPreferences(userId: string, boardId?: string | null): Notific
 
 export function upsertPreferences(
   userId: string,
-  boardId: string | null | undefined,
-  updates: Partial<Omit<NotificationPreferences, 'id' | 'userId' | 'boardId' | 'createdAt' | 'updatedAt'>>
+  habitatId: string | null | undefined,
+  updates: Partial<Omit<NotificationPreferences, 'id' | 'userId' | 'habitatId' | 'createdAt' | 'updatedAt'>>
 ): NotificationPreferences {
   const db = getDb();
   const now = new Date().toISOString();
-  const existing = getPreferences(userId, boardId);
+  const existing = getPreferences(userId, habitatId);
 
   const merged = {
     taskAssigned: updates.taskAssigned ?? existing.taskAssigned,

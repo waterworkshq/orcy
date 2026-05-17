@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { joinBoard, leaveBoard, setViewingTask, getBoardPresence } from '../sse/presence.js';
+import { joinHabitat, leaveHabitat, setViewingTask, getHabitatPresence } from '../sse/presence.js';
 import type { PresenceType } from '../models/index.js';
 import { badRequest } from '../errors.js';
 
 interface JoinBody {
   sessionId: string;
   type: PresenceType;
-  boardId: string;
+  habitatId: string;
   userId?: string;
   userName?: string;
   agentId?: string;
@@ -15,13 +15,13 @@ interface JoinBody {
 
 interface HeartbeatBody {
   sessionId: string;
-  boardId: string;
+  habitatId: string;
   viewingTaskId?: string | null;
 }
 
 interface LeaveBody {
   sessionId: string;
-  boardId: string;
+  habitatId: string;
 }
 
 /**
@@ -40,11 +40,11 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: JoinBody }>(
     '/presence/join',
     async (request: FastifyRequest<{ Body: JoinBody }>, reply: FastifyReply) => {
-      const { sessionId, type, boardId, userId, userName, agentId, agentName } = request.body;
-      if (!sessionId || !type || !boardId) {
-        throw badRequest('sessionId, type, and boardId are required');
+      const { sessionId, type, habitatId, userId, userName, agentId, agentName } = request.body;
+      if (!sessionId || !type || !habitatId) {
+        throw badRequest('sessionId, type, and habitatId are required');
       }
-      joinBoard(boardId, { sessionId, type, habitatId: boardId, userId, userName, agentId, agentName, viewingTaskId: null });
+      joinHabitat(habitatId, { sessionId, type, habitatId: habitatId, userId, userName, agentId, agentName, viewingTaskId: null });
       return { success: true };
     }
   );
@@ -53,11 +53,11 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: HeartbeatBody }>(
     '/presence/heartbeat',
     async (request: FastifyRequest<{ Body: HeartbeatBody }>, reply: FastifyReply) => {
-      const { sessionId, boardId, viewingTaskId } = request.body;
-      if (!sessionId || !boardId) {
-        throw badRequest('sessionId and boardId are required');
+      const { sessionId, habitatId, viewingTaskId } = request.body;
+      if (!sessionId || !habitatId) {
+        throw badRequest('sessionId and habitatId are required');
       }
-      setViewingTask(boardId, sessionId, viewingTaskId ?? null);
+      setViewingTask(habitatId, sessionId, viewingTaskId ?? null);
       return { success: true };
     }
   );
@@ -66,11 +66,11 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: LeaveBody }>(
     '/presence/leave',
     async (request: FastifyRequest<{ Body: LeaveBody }>, reply: FastifyReply) => {
-      const { sessionId, boardId } = request.body;
-      if (!sessionId || !boardId) {
-        throw badRequest('sessionId and boardId are required');
+      const { sessionId, habitatId } = request.body;
+      if (!sessionId || !habitatId) {
+        throw badRequest('sessionId and habitatId are required');
       }
-      leaveBoard(boardId, sessionId);
+      leaveHabitat(habitatId, sessionId);
       return { success: true };
     }
   );
@@ -80,7 +80,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
     '/presence/viewers/:habitatId',
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
       const { habitatId } = request.params;
-      const viewers = getBoardPresence(habitatId);
+      const viewers = getHabitatPresence(habitatId);
       return { viewers };
     }
   );

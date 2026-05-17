@@ -1,34 +1,34 @@
-import * as featureCommentRepo from '../repositories/featureComment.js';
-import * as featureCommentMentionRepo from '../repositories/featureCommentMention.js';
+import * as missionCommentRepo from '../repositories/featureComment.js';
+import * as missionCommentMentionRepo from '../repositories/featureCommentMention.js';
 import { resolveMentions } from './commentHelper.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
-import { getFeatureById } from '../repositories/feature.js';
+import { getMissionById } from '../repositories/feature.js';
 import { notFound, forbidden, badRequest } from '../errors.js';
 
 export function addComment(
-  featureId: string,
+  missionId: string,
   authorType: 'human' | 'agent',
   authorId: string,
   content: string,
   parentId?: string | null
 ) {
-  const feature = getFeatureById(featureId);
-  if (!feature) {
-    throw notFound('Feature not found');
+  const mission = getMissionById(missionId);
+  if (!mission) {
+    throw notFound('Mission not found');
   }
 
   if (parentId) {
-    const parent = featureCommentRepo.getCommentById(parentId);
+    const parent = missionCommentRepo.getCommentById(parentId);
     if (!parent) {
       throw notFound('Parent comment not found');
     }
-    if (parent.featureId !== featureId) {
-      throw badRequest('Parent comment belongs to a different feature');
+    if (parent.missionId !== missionId) {
+      throw badRequest('Parent comment belongs to a different mission');
     }
   }
 
-  const comment = featureCommentRepo.createComment({
-    featureId,
+  const comment = missionCommentRepo.createComment({
+    missionId,
     authorType,
     authorId,
     content,
@@ -36,7 +36,7 @@ export function addComment(
   });
 
   const resolvedMentions = resolveMentions(content);
-  const createdMentions = featureCommentMentionRepo.createMentions(
+  const createdMentions = missionCommentMentionRepo.createMentions(
     resolvedMentions.map((mention) => ({
       commentId: comment.id,
       mentionedType: mention.mentionedType,
@@ -51,21 +51,21 @@ export function addComment(
 
   const enrichedComment = { ...comment, mentions };
 
-  sseBroadcaster.publish(feature.boardId, {
-    type: 'feature.commented',
-    data: { featureId, comment: enrichedComment },
+  sseBroadcaster.publish(mission.habitatId, {
+    type: 'mission.commented',
+    data: { missionId, comment: enrichedComment },
   });
 
   for (const mention of mentions) {
-    sseBroadcaster.publish(feature.boardId, {
-      type: 'feature.mentioned',
+    sseBroadcaster.publish(mission.habitatId, {
+      type: 'mission.mentioned',
       data: {
-        featureId,
+        missionId,
         commentId: comment.id,
         mentionedType: mention.mentionedType,
         mentionedId: mention.mentionedId,
         mentionedName: mention.mentionedName ?? mention.mentionText.slice(1),
-        boardId: feature.boardId,
+        habitatId: mission.habitatId,
       },
     });
   }
@@ -73,8 +73,8 @@ export function addComment(
   return enrichedComment;
 }
 
-export function getComments(featureId: string, limit?: number, offset?: number) {
-  return featureCommentRepo.getCommentsByFeatureId(featureId, limit, offset);
+export function getComments(missionId: string, limit?: number, offset?: number) {
+  return missionCommentRepo.getCommentsByMissionId(missionId, limit, offset);
 }
 
 export function editComment(
@@ -83,7 +83,7 @@ export function editComment(
   authorId: string,
   content: string
 ) {
-  const comment = featureCommentRepo.getCommentById(commentId);
+  const comment = missionCommentRepo.getCommentById(commentId);
   if (!comment) {
     throw notFound('Comment not found');
   }
@@ -92,7 +92,7 @@ export function editComment(
     throw forbidden('Not authorized to edit this comment');
   }
 
-  return featureCommentRepo.updateComment(commentId, content);
+  return missionCommentRepo.updateComment(commentId, content);
 }
 
 export function removeComment(
@@ -100,7 +100,7 @@ export function removeComment(
   authorType: 'human' | 'agent',
   authorId: string
 ) {
-  const comment = featureCommentRepo.getCommentById(commentId);
+  const comment = missionCommentRepo.getCommentById(commentId);
   if (!comment) {
     throw notFound('Comment not found');
   }
@@ -109,13 +109,13 @@ export function removeComment(
     throw forbidden('Not authorized to delete this comment');
   }
 
-  const feature = getFeatureById(comment.featureId);
-  const result = featureCommentRepo.deleteComment(commentId);
+  const mission = getMissionById(comment.missionId);
+  const result = missionCommentRepo.deleteComment(commentId);
 
-  if (feature) {
-    sseBroadcaster.publish(feature.boardId, {
-      type: 'feature.comment_deleted',
-      data: { featureId: comment.featureId, commentId },
+  if (mission) {
+    sseBroadcaster.publish(mission.habitatId, {
+      type: 'mission.comment_deleted',
+      data: { missionId: comment.missionId, commentId },
     });
   }
 

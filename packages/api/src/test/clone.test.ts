@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(),
   createTask: vi.fn(),
-  getBoardIdForTask: vi.fn().mockReturnValue('board-1'),
+  getHabitatIdForTask: vi.fn().mockReturnValue('habitat-1'),
 }));
 
 vi.mock('../repositories/event.js', () => ({
@@ -27,7 +27,7 @@ vi.mock('../repositories/comment.js', () => ({
 }));
 
 vi.mock('../repositories/feature.js', () => ({
-  getFeatureById: vi.fn().mockReturnValue({ id: 'feat-1', boardId: 'board-1' }),
+  getMissionById: vi.fn().mockReturnValue({ id: 'feat-1', habitatId: 'habitat-1' }),
 }));
 
 vi.mock('../services/watcherService.js', () => ({
@@ -39,7 +39,7 @@ vi.mock('../services/autoAssignService.js', () => ({
 }));
 
 vi.mock('../services/featureService.js', () => ({
-  recalculateFeatureStatus: vi.fn(),
+  recalculateMissionStatus: vi.fn(),
 }));
 
 vi.mock('../plugins/pluginManager.js', () => ({
@@ -47,7 +47,7 @@ vi.mock('../plugins/pluginManager.js', () => ({
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  getBoardById: vi.fn().mockReturnValue({ id: 'board-1', name: 'Test Board' }),
+  getHabitatById: vi.fn().mockReturnValue({ id: 'habitat-1', name: 'Test Habitat' }),
 }));
 
 import { cloneTask } from '../services/tasks/index.js';
@@ -60,7 +60,7 @@ import * as commentRepo from '../repositories/comment.js';
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     title: 'Original task',
     description: 'Desc',
     priority: 'high',
@@ -127,7 +127,7 @@ describe('cloneTask', () => {
 
     expect(result).toEqual({ success: true, task: clonedTask });
     expect(taskRepo.createTask).toHaveBeenCalledWith({
-      featureId: 'feat-1',
+      missionId: 'feat-1',
       title: 'Original task (Copy)',
       description: 'Desc',
       priority: 'high',
@@ -142,11 +142,11 @@ describe('cloneTask', () => {
       actorId: 'user-2',
       metadata: { sourceTaskId: 'task-1', sourceTitle: 'Original task' },
     }));
-    expect(sseBroadcaster.publish).toHaveBeenCalledWith('board-1', {
+    expect(sseBroadcaster.publish).toHaveBeenCalledWith('habitat-1', {
       type: 'task.cloned',
       data: { sourceTaskId: 'task-1', clonedTask },
     });
-    expect(sseBroadcaster.publish).toHaveBeenCalledWith('board-1', {
+    expect(sseBroadcaster.publish).toHaveBeenCalledWith('habitat-1', {
       type: 'task.created',
       data: clonedTask,
     });

@@ -1,5 +1,5 @@
 import * as pulseRepo from '../repositories/pulse.js';
-import * as missionRepo from '../repositories/mission.js';
+import * as missionRepo from '../repositories/feature.js';
 import { logger } from '../lib/logger.js';
 
 export function emitAutoSignal(opts: {

@@ -3,14 +3,14 @@ import { makeTask } from './factories/task.js';
 
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(),
-  getBoardIdForTask: vi.fn(() => 'board-1'),
+  getHabitatIdForTask: vi.fn(() => 'habitat-1'),
   failTask: vi.fn(),
   getTasksByDependency: vi.fn(() => []),
   claimTask: vi.fn(),
 }));
 
 vi.mock('../repositories/feature.js', () => ({
-  getFeatureById: vi.fn(),
+  getMissionById: vi.fn(),
 }));
 
 vi.mock('../repositories/agent.js', () => ({
@@ -48,7 +48,7 @@ vi.mock('../plugins/pluginManager.js', () => ({
 }));
 
 vi.mock('../services/featureService.js', () => ({
-  recalculateFeatureStatus: vi.fn(),
+  recalculateMissionStatus: vi.fn(),
 }));
 
 vi.mock('../services/timeTrackingService.js', () => ({

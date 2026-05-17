@@ -1,4 +1,4 @@
-export { createTask, updateTask, deleteTask, getTask, getTasksByBoard, cloneTask } from './task-crud.js';
+export { createTask, updateTask, deleteTask, getTask, getTasksByHabitat, cloneTask } from './task-crud.js';
 export { claimTask, startTask, submitTask, approveTask, rejectTask, completeTask, releaseTask, failTask } from './task-lifecycle.js';
 export { delegateTask, claimDelegatedTask } from './task-delegation.js';
 export { moveTask, reorderTask } from './task-movement.js';

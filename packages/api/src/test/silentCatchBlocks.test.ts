@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeAgent } from './factories/agent.js';
 import { makeTask } from './factories/task.js';
-import { makeBoard } from './factories/board.js';
+import { makeHabitat } from './factories/board.js';
 import { mockRequest, mockReply } from './factories/mockRequest.js';
 
 vi.mock('../lib/logger.js', () => ({
@@ -32,16 +32,16 @@ vi.mock('../repositories/agent.js', () => ({
 
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn(),
-  getBoardIdForTask: vi.fn(),
+  getHabitatIdForTask: vi.fn(),
   releaseTask: vi.fn(),
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  getBoardById: vi.fn().mockReturnValue(null),
-  createBoard: vi.fn(),
-  updateBoard: vi.fn(),
-  deleteBoard: vi.fn(),
-  listBoards: vi.fn().mockReturnValue([]),
+  getHabitatById: vi.fn().mockReturnValue(null),
+  createHabitat: vi.fn(),
+  updateHabitat: vi.fn(),
+  deleteHabitat: vi.fn(),
+  listHabitats: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock('../services/timeTrackingService.js', () => ({
@@ -76,7 +76,7 @@ import { heartbeat } from '../services/agentService.js';
 import { recordWork } from '../services/timeTrackingService.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as taskRepo from '../repositories/task.js';
-import { getBoardById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/board.js';
 import { execFileSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import {
@@ -87,16 +87,16 @@ import {
 
 
 const VALID_TASK_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const VALID_BOARD_ID = 'board-1234';
+const VALID_HABITAT_ID = 'habitat-1234';
 const VALID_REPO_PATH = '/home/user/project';
 
 describe('Silent catch block remediation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetActiveWorktrees();
-    vi.mocked(getBoardById).mockReturnValue(null);
+    vi.mocked(getHabitatById).mockReturnValue(null);
     vi.mocked(taskRepo.getTaskById).mockReturnValue(null);
-    vi.mocked(taskRepo.getBoardIdForTask).mockReturnValue(null);
+    vi.mocked(taskRepo.getHabitatIdForTask).mockReturnValue(null);
   });
 
   describe('middleware/rateLimit.ts - getAgentRateLimit', () => {
@@ -163,7 +163,7 @@ describe('Silent catch block remediation', () => {
         toStatus: null,
         metadata: null,
         timestamp: new Date().toISOString(),
-        boardId: 'board-1',
+        habitatId: 'habitat-1',
       }]);
 
       const chainable = {
@@ -184,7 +184,7 @@ describe('Silent catch block remediation', () => {
       vi.mocked(getDb).mockReturnValue(mockDb as unknown as ReturnType<typeof getDb>);
 
       const { archiveOldEvents } = await import('../services/auditArchivalService.js');
-      archiveOldEvents('board-1');
+      archiveOldEvents('habitat-1');
 
       expect(logger.warn).toHaveBeenCalledWith(
         { err: expect.any(Error), archivePath: expect.any(String) },
@@ -194,11 +194,11 @@ describe('Silent catch block remediation', () => {
   });
 
   describe('services/gitWorktreeService.ts - cleanup catch blocks', () => {
-    function setupBoardWithWorktree() {
-      vi.mocked(getBoardById).mockReturnValue(
-        makeBoard({
-          id: VALID_BOARD_ID,
-          name: 'Test Board',
+    function setupHabitatWithWorktree() {
+      vi.mocked(getHabitatById).mockReturnValue(
+        makeHabitat({
+          id: VALID_HABITAT_ID,
+          name: 'Test Habitat',
           description: '',
           gitWorktreeSettings: {
             repoPath: VALID_REPO_PATH,
@@ -212,14 +212,14 @@ describe('Silent catch block remediation', () => {
     }
 
     it('logs warning when fallback worktree creation fails', () => {
-      setupBoardWithWorktree();
+      setupHabitatWithWorktree();
 
       vi.mocked(execFileSync)
         .mockImplementationOnce(() => { throw new Error('worktree add failed'); })
         .mockImplementationOnce(() => { throw new Error('detached add failed'); })
         .mockImplementationOnce(() => { throw new Error('branch list failed'); });
 
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
 
       expect(result).toBeNull();
       expect(logger.warn).toHaveBeenCalledWith(
@@ -229,14 +229,14 @@ describe('Silent catch block remediation', () => {
     });
 
     it('logs warning when branch deletion fails during removeWorktree', () => {
-      setupBoardWithWorktree();
+      setupHabitatWithWorktree();
 
       vi.mocked(execFileSync)
         .mockImplementationOnce(() => 'worktree created')
         .mockImplementationOnce(() => { throw new Error('worktree remove failed'); })
         .mockImplementationOnce(() => { throw new Error('branch delete failed'); });
 
-      const entry = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const entry = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(entry).not.toBeNull();
 
       const removed = removeWorktree(VALID_TASK_ID);

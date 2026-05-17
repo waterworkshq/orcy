@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { tasks, agents, taskEvents, taskDependencies, features } from '../db/schema/index.js';
+import { tasks, agents, taskEvents, taskDependencies, missions } from '../db/schema/index.js';
 import { eq, and, sql, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { dateDayExpr } from '../db/dialect-helpers.js';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
@@ -71,7 +71,7 @@ const PRIORITY_BOOST: Record<TaskPriority, number> = {
 
 const NO_ACTIVITY_THRESHOLD_HOURS = 24;
 
-export function calculateVelocity(boardId: string): VelocityMetrics {
+export function calculateVelocity(habitatId: string): VelocityMetrics {
   const db = getDb();
   const now = Date.now();
   const msDay = 24 * 60 * 60 * 1000;
@@ -79,14 +79,14 @@ export function calculateVelocity(boardId: string): VelocityMetrics {
 
   function countCompleted(sinceDate: string, agentId?: string): number {
     const conditions = [
-      eq(features.boardId, boardId),
+      eq(missions.habitatId, habitatId),
       inArray(tasks.status, ['approved', 'done']),
       sql`${tasks.completedAt} >= ${sinceDate}`,
     ];
     if (agentId) conditions.push(eq(tasks.assignedAgentId, agentId));
     const row = db.select({ count: sql<number>`count(*)` })
       .from(tasks)
-      .innerJoin(features, eq(tasks.featureId, features.id))
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
       .where(and(...conditions))
       .get();
     return row?.count ?? 0;
@@ -99,8 +99,8 @@ export function calculateVelocity(boardId: string): VelocityMetrics {
   const agentRows = db.selectDistinct({ id: agents.id, name: agents.name })
     .from(agents)
     .innerJoin(tasks, eq(tasks.assignedAgentId, agents.id))
-    .innerJoin(features, eq(tasks.featureId, features.id))
-    .where(eq(features.boardId, boardId))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(eq(missions.habitatId, habitatId))
     .all();
 
   const perAgent: VelocityMetrics['perAgent'] = {};
@@ -116,7 +116,7 @@ export function calculateVelocity(boardId: string): VelocityMetrics {
   return { days7, days14, days30, perAgent };
 }
 
-export function estimateCompletionDates(boardId: string, velocity: VelocityMetrics): TaskEstimate[] {
+export function estimateCompletionDates(habitatId: string, velocity: VelocityMetrics): TaskEstimate[] {
   const db = getDb();
   const now = Date.now();
   const msDay = 24 * 60 * 60 * 1000;
@@ -129,14 +129,14 @@ export function estimateCompletionDates(boardId: string, velocity: VelocityMetri
     status: tasks.status,
     priority: tasks.priority,
     assignedAgentId: tasks.assignedAgentId,
-    dueAt: features.dueAt,
+    dueAt: missions.dueAt,
     lastActivity: sql<string | null>`(SELECT MAX(${taskEvents.timestamp}) FROM ${taskEvents} WHERE ${taskEvents.taskId} = ${tasks.id})`,
   })
   .from(tasks)
-  .innerJoin(features, eq(tasks.featureId, features.id))
+  .innerJoin(missions, eq(tasks.missionId, missions.id))
   .where(
     and(
-      eq(features.boardId, boardId),
+      eq(missions.habitatId, habitatId),
       notInArray(tasks.status, ['approved', 'done', 'failed'])
     )
   )
@@ -218,7 +218,7 @@ export function estimateCompletionDates(boardId: string, velocity: VelocityMetri
   return estimates;
 }
 
-export function detectAtRiskTasks(boardId: string, estimates: TaskEstimate[]): AtRiskTask[] {
+export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]): AtRiskTask[] {
   const db = getDb();
   const now = Date.now();
   const msHour = 60 * 60 * 1000;
@@ -263,15 +263,15 @@ export function detectAtRiskTasks(boardId: string, estimates: TaskEstimate[]): A
     title: tasks.title,
     status: tasks.status,
     assignedAgentId: tasks.assignedAgentId,
-    dueAt: features.dueAt,
+    dueAt: missions.dueAt,
     updatedAt: tasks.updatedAt,
     lastActivity: sql<string | null>`(SELECT MAX(${taskEvents.timestamp}) FROM ${taskEvents} WHERE ${taskEvents.taskId} = ${tasks.id})`,
   })
   .from(tasks)
-  .innerJoin(features, eq(tasks.featureId, features.id))
+  .innerJoin(missions, eq(tasks.missionId, missions.id))
   .where(
     and(
-      eq(features.boardId, boardId),
+      eq(missions.habitatId, habitatId),
       inArray(tasks.status, ['claimed', 'in_progress'])
     )
   )
@@ -301,14 +301,14 @@ export function detectAtRiskTasks(boardId: string, estimates: TaskEstimate[]): A
     title: tasks.title,
     status: tasks.status,
     assignedAgentId: tasks.assignedAgentId,
-    dueAt: features.dueAt,
+    dueAt: missions.dueAt,
     lastActivity: sql<string | null>`(SELECT MAX(${taskEvents.timestamp}) FROM ${taskEvents} WHERE ${taskEvents.taskId} = ${tasks.id})`,
   })
   .from(tasks)
-  .innerJoin(features, eq(tasks.featureId, features.id))
+  .innerJoin(missions, eq(tasks.missionId, missions.id))
   .where(
     and(
-      eq(features.boardId, boardId),
+      eq(missions.habitatId, habitatId),
       eq(tasks.status, 'pending'),
       sql`EXISTS (
         SELECT 1 FROM ${taskDependencies}
@@ -355,14 +355,14 @@ export function detectAtRiskTasks(boardId: string, estimates: TaskEstimate[]): A
   });
 }
 
-export function getPredictions(boardId: string): PredictionResponse {
-  const velocity = calculateVelocity(boardId);
-  const estimates = estimateCompletionDates(boardId, velocity);
-  const atRiskTasks = detectAtRiskTasks(boardId, estimates);
+export function getPredictions(habitatId: string): PredictionResponse {
+  const velocity = calculateVelocity(habitatId);
+  const estimates = estimateCompletionDates(habitatId, velocity);
+  const atRiskTasks = detectAtRiskTasks(habitatId, estimates);
   return { velocity, estimates, atRiskTasks };
 }
 
-export function getBurndown(boardId: string, days: number): BurndownResponse {
+export function getBurndown(habitatId: string, days: number): BurndownResponse {
   const db = getDb();
   const now = new Date();
   const msDay = 24 * 60 * 60 * 1000;
@@ -370,13 +370,13 @@ export function getBurndown(boardId: string, days: number): BurndownResponse {
   const endDate = now;
   const startDate = new Date(now.getTime() - days * msDay);
 
-  const totalRow = db.select({ count: sql<number>`count(*)` }).from(tasks).innerJoin(features, eq(tasks.featureId, features.id)).where(eq(features.boardId, boardId)).get();
+  const totalRow = db.select({ count: sql<number>`count(*)` }).from(tasks).innerJoin(missions, eq(tasks.missionId, missions.id)).where(eq(missions.habitatId, habitatId)).get();
   const totalTasks = totalRow?.count ?? 0;
 
   const completedRow = db.select({ count: sql<number>`count(*)` })
     .from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
-    .where(and(eq(features.boardId, boardId), inArray(tasks.status, ['approved', 'done'])))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(and(eq(missions.habitatId, habitatId), inArray(tasks.status, ['approved', 'done'])))
     .get();
   const completedTasks = completedRow?.count ?? 0;
 
@@ -388,10 +388,10 @@ export function getBurndown(boardId: string, days: number): BurndownResponse {
     count: sql<number>`count(*)`,
   })
   .from(tasks)
-  .innerJoin(features, eq(tasks.featureId, features.id))
+  .innerJoin(missions, eq(tasks.missionId, missions.id))
   .where(
     and(
-      eq(features.boardId, boardId),
+      eq(missions.habitatId, habitatId),
       inArray(tasks.status, ['approved', 'done']),
       isNotNull(tasks.completedAt),
       sql`${tasks.completedAt} >= ${startDate.toISOString()}`
@@ -408,10 +408,10 @@ export function getBurndown(boardId: string, days: number): BurndownResponse {
 
   const cumulativeRow = db.select({ count: sql<number>`count(*)` })
     .from(tasks)
-    .innerJoin(features, eq(tasks.featureId, features.id))
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
-        eq(features.boardId, boardId),
+        eq(missions.habitatId, habitatId),
         inArray(tasks.status, ['approved', 'done']),
         isNotNull(tasks.completedAt),
         sql`${tasks.completedAt} < ${startDate.toISOString()}`

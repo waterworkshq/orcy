@@ -18,8 +18,8 @@ export async function dashboardRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest('Invalid query params', parsed.error.flatten());
       }
 
-      const { boardId, period } = parsed.data;
-      const stats = getDashboardStats(boardId, period);
+      const { habitatId, period } = parsed.data;
+      const stats = getDashboardStats(habitatId, period);
       return stats;
     }
   );

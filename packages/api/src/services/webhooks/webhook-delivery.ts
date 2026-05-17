@@ -173,7 +173,7 @@ export async function sendTestWebhook(subscription: WebhookSubscription): Promis
     timestamp: new Date().toISOString(),
     event: 'test',
     data: {
-      boardName: 'Test Board',
+      habitatName: 'Test Habitat',
       task: {
         id: 'test-task-id',
         title: 'Test Task',

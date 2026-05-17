@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { scoreTask, sortTasksBySmartScore, PRIORITY_WEIGHTS, computeCapabilityWeight } from '../services/taskScoring.js';
-import type { TaskPriority, Feature } from '../models/index.js';
+import type { TaskPriority, Mission } from '../models/index.js';
 import { makeTask } from './factories/task.js';
-import { makeFeature } from './factories/feature.js';
+import { makeMission } from './factories/feature.js';
 
-const mockGetFeatureById = vi.hoisted(() => vi.fn<(featureId: string) => Feature | null>().mockReturnValue(null));
+const mockGetMissionById = vi.hoisted(() => vi.fn<(missionId: string) => Mission | null>().mockReturnValue(null));
 
 vi.mock('../repositories/feature.js', () => ({
-  getFeatureById: mockGetFeatureById,
+  getMissionById: mockGetMissionById,
 }));
 
 describe('taskScoring', () => {
@@ -41,35 +41,35 @@ describe('taskScoring', () => {
     const base = { id: '1', title: 't', priority: 'medium' as TaskPriority, createdAt: new Date().toISOString() };
 
     it('adds 30 for overdue tasks', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ dueAt: new Date(Date.now() - 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ dueAt: new Date(Date.now() - 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(50);
     });
 
     it('adds 25 for tasks due within 24h', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ dueAt: new Date(Date.now() + 3600000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ dueAt: new Date(Date.now() + 3600000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(45);
     });
 
     it('adds 15 for tasks due within 3 days', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ dueAt: new Date(Date.now() + 2 * 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ dueAt: new Date(Date.now() + 2 * 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(35);
     });
 
     it('adds 5 for tasks due within 7 days', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ dueAt: new Date(Date.now() + 5 * 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ dueAt: new Date(Date.now() + 5 * 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(25);
     });
 
     it('adds 0 for no due date', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ dueAt: null }));
+      mockGetMissionById.mockReturnValue(makeMission({ dueAt: null }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeLessThan(21);
@@ -144,49 +144,49 @@ describe('taskScoring', () => {
     const base = { id: '1', title: 't', priority: 'medium' as TaskPriority, createdAt: new Date().toISOString() };
 
     it('adds 35 for breached SLA (deadline in past)', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() - 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: new Date(Date.now() - 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(55);
     });
 
     it('adds 28 for SLA deadline within 24h', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 3600000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: new Date(Date.now() + 3600000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(48);
     });
 
     it('adds 18 for SLA deadline within 3 days', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 2 * 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: new Date(Date.now() + 2 * 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(38);
     });
 
     it('adds 8 for SLA deadline within 7 days', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 5 * 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: new Date(Date.now() + 5 * 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(28);
     });
 
     it('adds 0 for SLA deadline far in the future', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: new Date(Date.now() + 30 * 86400000).toISOString() }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: new Date(Date.now() + 30 * 86400000).toISOString() }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeLessThan(21);
     });
 
     it('adds 0 for null slaDeadlineAt', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: null }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: null }));
       const task = makeTask({ ...base });
       const score = scoreTask(task);
       expect(score).toBeLessThan(21);
     });
 
     it('null slaDeadlineAt does not affect total score', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({ slaDeadlineAt: null, dueAt: null }));
+      mockGetMissionById.mockReturnValue(makeMission({ slaDeadlineAt: null, dueAt: null }));
       const task = makeTask({ ...base, priority: 'medium' });
       const score = scoreTask(task);
       expect(score).toBeGreaterThanOrEqual(20);
@@ -194,7 +194,7 @@ describe('taskScoring', () => {
     });
 
     it('SLA and due urgency weights stack', () => {
-      mockGetFeatureById.mockReturnValue(makeFeature({
+      mockGetMissionById.mockReturnValue(makeMission({
         dueAt: new Date(Date.now() - 86400000).toISOString(),
         slaDeadlineAt: new Date(Date.now() - 86400000).toISOString(),
       }));
@@ -221,13 +221,13 @@ describe('taskScoring', () => {
 
     it('prioritizes overdue tasks over non-overdue same priority', () => {
       const now = new Date().toISOString();
-      mockGetFeatureById.mockImplementation((id: string) => {
-        if (id === 'feat-overdue') return makeFeature({ dueAt: new Date(Date.now() - 86400000).toISOString() });
-        return makeFeature({ dueAt: null });
+      mockGetMissionById.mockImplementation((id: string) => {
+        if (id === 'feat-overdue') return makeMission({ dueAt: new Date(Date.now() - 86400000).toISOString() });
+        return makeMission({ dueAt: null });
       });
       const taskList = [
-        makeTask({ id: '1', title: 'not overdue', priority: 'medium', createdAt: now, featureId: 'feat-future' }),
-        makeTask({ id: '2', title: 'overdue', priority: 'medium', createdAt: now, featureId: 'feat-overdue' }),
+        makeTask({ id: '1', title: 'not overdue', priority: 'medium', createdAt: now, missionId: 'feat-future' }),
+        makeTask({ id: '2', title: 'overdue', priority: 'medium', createdAt: now, missionId: 'feat-overdue' }),
       ];
 
       const sorted = sortTasksBySmartScore(taskList);

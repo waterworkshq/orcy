@@ -3,12 +3,12 @@ import { taskEvents, tasks, missions, agents, columns, habitats, webhookDeliveri
 import { eq, and, isNotNull, sql, count, desc, asc, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { cycleTimeMinutes } from '../../db/dialect-helpers.js';
-import { boardFilter, resolveDateWindow, computeCurrentStreak } from './stats-helpers.js';
+import { habitatFilter, resolveDateWindow, computeCurrentStreak } from './stats-helpers.js';
 import type { DashboardStats } from '../../models/index.js';
 
 function queryThroughput(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
   startDate: string,
 ): { date: string; count: number }[] {
   const rows = db
@@ -23,7 +23,7 @@ function queryThroughput(
       and(
         eq(taskEvents.action, 'completed'),
         sql`${taskEvents.timestamp} >= ${startDate}`,
-        ...(boardId ? [eq(missions.habitatId, boardId)] : []),
+        ...(habitatId ? [eq(missions.habitatId, habitatId)] : []),
       ),
     )
     .groupBy(sql`DATE(${taskEvents.timestamp})`)
@@ -34,7 +34,7 @@ function queryThroughput(
 
 function queryCycleTime(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
   startDate: string,
 ): { date: string; avgMinutes: number; medianMinutes: number }[] {
   const rows = db
@@ -50,7 +50,7 @@ function queryCycleTime(
         sql`${tasks.completedAt} >= ${startDate}`,
         isNotNull(tasks.claimedAt),
         isNotNull(tasks.completedAt),
-        ...(boardId ? [eq(missions.habitatId, boardId)] : []),
+        ...(habitatId ? [eq(missions.habitatId, habitatId)] : []),
       ),
     )
     .groupBy(sql`DATE(${tasks.completedAt})`)
@@ -67,7 +67,7 @@ function queryCycleTime(
 
 function queryRejectionRate(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
   startDate: string,
 ): { date: string; rejections: number; total: number }[] {
   const rows = db
@@ -83,7 +83,7 @@ function queryRejectionRate(
       and(
         inArray(taskEvents.action, ['submitted', 'rejected', 'approved']),
         sql`${taskEvents.timestamp} >= ${startDate}`,
-        ...(boardId ? [eq(missions.habitatId, boardId)] : []),
+        ...(habitatId ? [eq(missions.habitatId, habitatId)] : []),
       ),
     )
     .groupBy(sql`DATE(${taskEvents.timestamp})`)
@@ -94,7 +94,7 @@ function queryRejectionRate(
 
 function queryAgentLeaderboard(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
   startDate: string,
 ): DashboardStats['agentLeaderboard'] {
   const leaderboardRows = db
@@ -114,7 +114,7 @@ function queryAgentLeaderboard(
       ),
     )
     .leftJoin(missions, eq(tasks.missionId, missions.id))
-    .where(boardId ? eq(missions.habitatId, boardId) : undefined)
+    .where(habitatId ? eq(missions.habitatId, habitatId) : undefined)
     .groupBy(agents.id)
     .orderBy(desc(sql`COUNT(CASE WHEN ${tasks.status} IN ('approved', 'done') THEN 1 END)`))
     .limit(10)
@@ -163,7 +163,7 @@ function queryAgentLeaderboard(
 
 function queryTaskByPriority(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
 ): { critical: number; high: number; medium: number; low: number } {
   const row = db
     .select({
@@ -174,7 +174,7 @@ function queryTaskByPriority(
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(boardFilter(boardId))
+    .where(habitatFilter(habitatId))
     .get();
   return {
     critical: row?.critical || 0,
@@ -186,7 +186,7 @@ function queryTaskByPriority(
 
 function queryTaskByStatus(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
 ): { pending: number; claimed: number; in_progress: number; submitted: number; done: number } {
   const row = db
     .select({
@@ -198,7 +198,7 @@ function queryTaskByStatus(
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(boardFilter(boardId))
+    .where(habitatFilter(habitatId))
     .get();
   return {
     pending: row?.pending || 0,
@@ -211,9 +211,9 @@ function queryTaskByStatus(
 
 function queryWipHealth(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
 ): DashboardStats['wipHealth'] {
-  const wipCondition = boardId ? eq(columns.habitatId, boardId) : sql`1=1`;
+  const wipCondition = habitatId ? eq(columns.habitatId, habitatId) : sql`1=1`;
   const wipRows = db
     .select({
       columnId: columns.id,
@@ -288,7 +288,7 @@ function queryWebhookStats(
 
 function querySummaryStats(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
 ): {
   totalCompleted: number;
   totalInProgress: number;
@@ -304,7 +304,7 @@ function querySummaryStats(
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(boardFilter(boardId))
+    .where(habitatFilter(habitatId))
     .get();
   return {
     totalCompleted: row?.totalCompleted || 0,
@@ -316,7 +316,7 @@ function querySummaryStats(
 
 function queryRejectionTotal(
   db: ReturnType<typeof getDb>,
-  boardId: string | undefined,
+  habitatId: string | undefined,
 ): { rejections: number; totalReviews: number } {
   const row = db
     .select({
@@ -327,29 +327,29 @@ function queryRejectionTotal(
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
-      and(inArray(taskEvents.action, ['submitted', 'approved', 'rejected']), boardFilter(boardId)),
+      and(inArray(taskEvents.action, ['submitted', 'approved', 'rejected']), habitatFilter(habitatId)),
     )
     .get();
   return { rejections: row?.rejections || 0, totalReviews: row?.totalReviews || 0 };
 }
 
 export function getDashboardStats(
-  boardId?: string,
+  habitatId?: string,
   period: '7d' | '30d' | '90d' = '30d',
 ): DashboardStats {
   const db = getDb();
   const { startDate } = resolveDateWindow(period);
 
-  const throughput = queryThroughput(db, boardId, startDate);
-  const cycleTime = queryCycleTime(db, boardId, startDate);
-  const rejectionRate = queryRejectionRate(db, boardId, startDate);
-  const agentLeaderboard = queryAgentLeaderboard(db, boardId, startDate);
-  const taskByPriority = queryTaskByPriority(db, boardId);
-  const taskByStatus = queryTaskByStatus(db, boardId);
-  const wipHealth = queryWipHealth(db, boardId);
+  const throughput = queryThroughput(db, habitatId, startDate);
+  const cycleTime = queryCycleTime(db, habitatId, startDate);
+  const rejectionRate = queryRejectionRate(db, habitatId, startDate);
+  const agentLeaderboard = queryAgentLeaderboard(db, habitatId, startDate);
+  const taskByPriority = queryTaskByPriority(db, habitatId);
+  const taskByStatus = queryTaskByStatus(db, habitatId);
+  const wipHealth = queryWipHealth(db, habitatId);
   const webhookStats = queryWebhookStats(db, startDate);
-  const summaryStats = querySummaryStats(db, boardId);
-  const rejTotal = queryRejectionTotal(db, boardId);
+  const summaryStats = querySummaryStats(db, habitatId);
+  const rejTotal = queryRejectionTotal(db, habitatId);
 
   return {
     throughput,

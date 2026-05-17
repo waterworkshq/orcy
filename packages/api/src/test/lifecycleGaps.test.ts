@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initTestDb, closeDb, getDb } from '../db/index.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
-import * as boardService from '../services/boardService.js';
+import * as missionRepo from '../repositories/feature.js';
+import * as habitatService from '../services/boardService.js';
 import * as columnRepo from '../repositories/column.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as timeRepo from '../repositories/timeTracking.js';
@@ -12,23 +12,23 @@ import * as qualityRepo from '../repositories/qualityGate.js';
 import * as qualityService from '../services/qualityGateService.js';
 import { claimTask, startTask, submitTask } from '../services/tasks/task-lifecycle.js';
 
-let boardId: string;
+let habitatId: string;
 let columnId: string;
-let featureId: string;
+let missionId: string;
 let agentId: string;
 
-function setupBoard() {
-  const { board, columns } = boardService.createBoard({ name: 'Test Board', defaultColumns: true });
-  boardId = board.id;
+function setupHabitat() {
+  const { habitat, columns } = habitatService.createHabitat({ name: 'Test Habitat', defaultColumns: true });
+  habitatId = habitat.id;
   columnId = columns[0].id;
 
-  const feature = featureRepo.createFeature({
-    boardId,
+  const mission = missionRepo.createMission({
+    habitatId,
     columnId,
-    title: 'Test Feature',
+    title: 'Test Mission',
     createdBy: 'test-user',
   });
-  featureId = feature.id;
+  missionId = mission.id;
 
   const { agent } = agentRepo.createAgent({
     name: `test-agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -41,7 +41,7 @@ function setupBoard() {
 
 beforeEach(async () => {
   await initTestDb();
-  setupBoard();
+  setupHabitat();
 });
 
 afterEach(() => {
@@ -51,7 +51,7 @@ afterEach(() => {
 describe('Time Tracking', () => {
   it('creates a time record for a task', () => {
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Time-tracked task',
       createdBy: 'test-user',
     });
@@ -70,7 +70,7 @@ describe('Time Tracking', () => {
 
   it('calculates total minutes for a task', () => {
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Total minutes task',
       createdBy: 'test-user',
     });
@@ -84,7 +84,7 @@ describe('Time Tracking', () => {
 
   it('updates task time metrics', () => {
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Metrics task',
       createdBy: 'test-user',
       estimatedMinutes: 60,
@@ -99,7 +99,7 @@ describe('Time Tracking', () => {
 
   it('returns task time report', () => {
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Report task',
       createdBy: 'test-user',
       estimatedMinutes: 30,
@@ -115,9 +115,9 @@ describe('Time Tracking', () => {
     expect(report!.heartbeatHistory).toHaveLength(1);
   });
 
-  it('returns board metrics', () => {
+  it('returns habitat metrics', () => {
     const task1 = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Metrics task 1',
       createdBy: 'test-user',
       estimatedMinutes: 60,
@@ -126,14 +126,14 @@ describe('Time Tracking', () => {
     timeRepo.createTimeRecord({ taskId: task1.id, minutesSpent: 30, statusDuringWork: 'in_progress' });
     taskRepo.updateTask(task1.id, { actualMinutes: 30, completedAt: new Date().toISOString() });
 
-    const metrics = timeService.getBoardMetrics(boardId);
+    const metrics = timeService.getHabitatMetrics(habitatId);
     expect(metrics).toBeDefined();
     expect(metrics.totalActualMinutes).toBeGreaterThanOrEqual(30);
   });
 
   it('calculates completion metrics', () => {
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Completion task',
       createdBy: 'test-user',
       estimatedMinutes: 120,
@@ -154,35 +154,35 @@ describe('Time Tracking', () => {
     expect(updated?.completedAt).not.toBeNull();
   });
 
-  it('recalculates feature metrics', () => {
+  it('recalculates mission metrics', () => {
     const task = taskRepo.createTask({
-      featureId,
-      title: 'Feature metrics task',
+      missionId,
+      title: 'Mission metrics task',
       createdBy: 'test-user',
       estimatedMinutes: 60,
     });
 
     timeRepo.createTimeRecord({ taskId: task.id, minutesSpent: 30, statusDuringWork: 'in_progress' });
     timeRepo.updateTaskTimeMetrics(task.id);
-    timeRepo.recalculateFeatureMetrics(featureId);
+    timeRepo.recalculateMissionMetrics(missionId);
 
-    const feature = featureRepo.getFeatureById(featureId);
-    expect(feature?.plannedMinutes).toBe(60);
-    expect(feature?.actualMinutes).toBe(30);
+    const mission = missionRepo.getMissionById(missionId);
+    expect(mission?.plannedMinutes).toBe(60);
+    expect(mission?.actualMinutes).toBe(30);
   });
 });
 
 describe('Dependency Validation', () => {
   it('adds a task dependency', () => {
-    const task1 = taskRepo.createTask({ featureId, title: 'Task 1', createdBy: 'test-user' });
-    const task2 = taskRepo.createTask({ featureId, title: 'Task 2', createdBy: 'test-user' });
+    const task1 = taskRepo.createTask({ missionId, title: 'Task 1', createdBy: 'test-user' });
+    const task2 = taskRepo.createTask({ missionId, title: 'Task 2', createdBy: 'test-user' });
 
     const result = dependencyService.addTaskDependency(task1.id, task2.id);
     expect(result.success).toBe(true);
   });
 
   it('prevents self-dependency', () => {
-    const task = taskRepo.createTask({ featureId, title: 'Self dep task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Self dep task', createdBy: 'test-user' });
 
     const result = dependencyService.addTaskDependency(task.id, task.id);
     expect(result.success).toBe(false);
@@ -190,8 +190,8 @@ describe('Dependency Validation', () => {
   });
 
   it('prevents circular dependencies', () => {
-    const task1 = taskRepo.createTask({ featureId, title: 'Circular 1', createdBy: 'test-user' });
-    const task2 = taskRepo.createTask({ featureId, title: 'Circular 2', createdBy: 'test-user' });
+    const task1 = taskRepo.createTask({ missionId, title: 'Circular 1', createdBy: 'test-user' });
+    const task2 = taskRepo.createTask({ missionId, title: 'Circular 2', createdBy: 'test-user' });
 
     dependencyService.addTaskDependency(task1.id, task2.id);
 
@@ -201,8 +201,8 @@ describe('Dependency Validation', () => {
   });
 
   it('removes a task dependency', () => {
-    const task1 = taskRepo.createTask({ featureId, title: 'Remove dep 1', createdBy: 'test-user' });
-    const task2 = taskRepo.createTask({ featureId, title: 'Remove dep 2', createdBy: 'test-user' });
+    const task1 = taskRepo.createTask({ missionId, title: 'Remove dep 1', createdBy: 'test-user' });
+    const task2 = taskRepo.createTask({ missionId, title: 'Remove dep 2', createdBy: 'test-user' });
 
     dependencyService.addTaskDependency(task1.id, task2.id);
     const removed = dependencyService.removeTaskDependency(task1.id, task2.id);
@@ -210,8 +210,8 @@ describe('Dependency Validation', () => {
   });
 
   it('gets task dependencies', () => {
-    const task1 = taskRepo.createTask({ featureId, title: 'Get dep 1', createdBy: 'test-user' });
-    const task2 = taskRepo.createTask({ featureId, title: 'Get dep 2', createdBy: 'test-user' });
+    const task1 = taskRepo.createTask({ missionId, title: 'Get dep 1', createdBy: 'test-user' });
+    const task2 = taskRepo.createTask({ missionId, title: 'Get dep 2', createdBy: 'test-user' });
 
     dependencyService.addTaskDependency(task1.id, task2.id);
 
@@ -221,8 +221,8 @@ describe('Dependency Validation', () => {
   });
 
   it('validates task completion with unmet deps', () => {
-    const task1 = taskRepo.createTask({ featureId, title: 'Blocked task', createdBy: 'test-user' });
-    const task2 = taskRepo.createTask({ featureId, title: 'Blocking task', createdBy: 'test-user' });
+    const task1 = taskRepo.createTask({ missionId, title: 'Blocked task', createdBy: 'test-user' });
+    const task2 = taskRepo.createTask({ missionId, title: 'Blocking task', createdBy: 'test-user' });
 
     dependencyService.addTaskDependency(task1.id, task2.id);
 
@@ -233,8 +233,8 @@ describe('Dependency Validation', () => {
   });
 
   it('validates task completion with met deps', () => {
-    const task1 = taskRepo.createTask({ featureId, title: 'Unblocked task', createdBy: 'test-user' });
-    const task2 = taskRepo.createTask({ featureId, title: 'Done dep', createdBy: 'test-user' });
+    const task1 = taskRepo.createTask({ missionId, title: 'Unblocked task', createdBy: 'test-user' });
+    const task2 = taskRepo.createTask({ missionId, title: 'Done dep', createdBy: 'test-user' });
 
     dependencyService.addTaskDependency(task1.id, task2.id);
     taskRepo.updateTask(task2.id, { status: 'approved', completedAt: new Date().toISOString() });
@@ -243,15 +243,15 @@ describe('Dependency Validation', () => {
     expect(validation.canComplete).toBe(true);
   });
 
-  it('gets dependency graph for a feature', () => {
-    const feat2 = featureRepo.createFeature({
-      boardId,
+  it('gets dependency graph for a mission', () => {
+    const feat2 = missionRepo.createMission({
+      habitatId,
       columnId,
-      title: 'Dep Feature',
+      title: 'Dep Mission',
       createdBy: 'test-user',
     });
 
-    dependencyService.addFeatureDependency(feat2.id, featureId);
+    dependencyService.addMissionDependency(feat2.id, missionId);
 
     const graph = dependencyService.getDependencyGraph(feat2.id);
     expect(graph.nodes.length).toBeGreaterThanOrEqual(2);
@@ -292,7 +292,7 @@ describe('Quality Gates', () => {
       category: 'testing',
       items: [{ title: 'Item 1', required: true }],
     });
-    const task = taskRepo.createTask({ featureId, title: 'Quality task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Quality task', createdBy: 'test-user' });
 
     const checklist = qualityRepo.createTaskChecklist(task.id, template.id);
     expect(checklist.taskId).toBe(task.id);
@@ -308,7 +308,7 @@ describe('Quality Gates', () => {
       category: 'testing',
       items: [{ title: 'Check item', required: true }],
     });
-    const task = taskRepo.createTask({ featureId, title: 'Update item task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Update item task', createdBy: 'test-user' });
     const checklist = qualityRepo.createTaskChecklist(task.id, template.id);
     const items = qualityRepo.getChecklistItems(checklist.id);
 
@@ -329,7 +329,7 @@ describe('Quality Gates', () => {
       category: 'testing',
       items: [{ title: 'Required item', required: true }, { title: 'Optional item', required: false }],
     });
-    const task = taskRepo.createTask({ featureId, title: 'Status task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Status task', createdBy: 'test-user' });
     const checklist = qualityRepo.createTaskChecklist(task.id, template.id);
     const items = qualityRepo.getChecklistItems(checklist.id);
 
@@ -353,7 +353,7 @@ describe('Quality Gates', () => {
       isRequired: true,
       items: [{ title: 'Tests pass', required: true }],
     });
-    const task = taskRepo.createTask({ featureId, title: 'Validate task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Validate task', createdBy: 'test-user' });
     qualityRepo.createTaskChecklist(task.id, template.id);
 
     const validation = qualityService.validateQualityGates(task.id);
@@ -368,7 +368,7 @@ describe('Quality Gates', () => {
       isRequired: true,
       items: [{ title: 'Tests pass', required: true }],
     });
-    const task = taskRepo.createTask({ featureId, title: 'Report task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Report task', createdBy: 'test-user' });
     qualityRepo.createTaskChecklist(task.id, template.id);
 
     const report = qualityService.getQualityReport(task.id);
@@ -385,7 +385,7 @@ describe('Quality Gates', () => {
       isRequired: true,
       items: [{ title: 'Tests pass', required: true }],
     });
-    const task = taskRepo.createTask({ featureId, title: 'Approval task', createdBy: 'test-user' });
+    const task = taskRepo.createTask({ missionId, title: 'Approval task', createdBy: 'test-user' });
     qualityRepo.createTaskChecklist(task.id, template.id);
 
     const status = qualityService.getApprovalStatus(task.id);
@@ -405,20 +405,20 @@ describe('Quality Gates', () => {
 });
 
 describe('Submit Task Quality Gate Validation', () => {
-  let featureId: string;
+  let missionId: string;
   let agentId: string;
 
   beforeEach(async () => {
     await initTestDb();
 
-    const { board, columns } = boardService.createBoard({ name: 'Test Board', defaultColumns: true });
-    const feature = featureRepo.createFeature({
-      boardId: board.id,
+    const { habitat, columns } = habitatService.createHabitat({ name: 'Test Habitat', defaultColumns: true });
+    const mission = missionRepo.createMission({
+      habitatId: habitat.id,
       columnId: columns[0].id,
       title: 'Quality Submit Test',
       createdBy: 'test-user',
     });
-    featureId = feature.id;
+    missionId = mission.id;
 
     const { agent } = agentRepo.createAgent({
       name: `submit-test-agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -435,7 +435,7 @@ describe('Submit Task Quality Gate Validation', () => {
 
   function prepareTaskForSubmit() {
     const task = taskRepo.createTask({
-      featureId,
+      missionId,
       title: 'Submit test task',
       createdBy: 'test-user',
     });

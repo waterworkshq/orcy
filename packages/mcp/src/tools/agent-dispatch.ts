@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { boardRegisterAgent, boardListAgents, boardHeartbeat, boardGetMyStats } from './agent.js';
+import { habitatRegisterAgent, habitatListAgents, habitatHeartbeat, habitatGetMyStats } from './agent.js';
 import { AGENT_TYPES, AGENT_STATUSES } from './constants.js';
 
 export const AGENT_DISPATCH_TOOL: Tool = createDispatchTool({
@@ -28,10 +28,10 @@ export const AGENT_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const AGENT_ACTIONS: Record<string, Handler> = {
-  'register': boardRegisterAgent,
-  'list': boardListAgents,
-  'heartbeat': boardHeartbeat,
-  'get-stats': boardGetMyStats,
+  'register': habitatRegisterAgent,
+  'list': habitatListAgents,
+  'heartbeat': habitatHeartbeat,
+  'get-stats': habitatGetMyStats,
 };
 
 export const AGENT_DISPATCH_HANDLER = createDispatchHandler(AGENT_ACTIONS);

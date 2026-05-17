@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { initTestDb, closeDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as agentMessageRepo from '../repositories/agentMessage.js';
 import { agentMessageRoutes, requireSelfAgent } from '../routes/agentMessages.js';
 import { isAppError } from '../errors.js';
@@ -71,7 +71,7 @@ function findRoute(routes: CapturedRoute[], method: string, pathPattern: string)
 }
 
 describe('Agent Message Security', () => {
-  let boardId: string;
+  let habitatId: string;
   let agent1Id: string;
   let agent2Id: string;
   let agent3Id: string;
@@ -80,8 +80,8 @@ describe('Agent Message Security', () => {
   beforeEach(async () => {
     await initTestDb();
 
-    const board = boardRepo.createBoard({ name: 'Security Test Board' });
-    boardId = board.id;
+    const habitat = habitatRepo.createHabitat({ name: 'Security Test Habitat' });
+    habitatId = habitat.id;
 
     const a1 = agentRepo.createAgent({ name: 'agent-a', type: 'claude-code', domain: 'backend' });
     agent1Id = a1.agent.id;
@@ -112,7 +112,7 @@ describe('Agent Message Security', () => {
   describe('Message ownership — repository layer', () => {
     it('allows recipient to mark a message read', () => {
       const msg = agentMessageRepo.createMessage({
-        boardId,
+        habitatId,
         fromAgentId: agent1Id,
         toAgentId: agent2Id,
         subject: 'Test',
@@ -126,7 +126,7 @@ describe('Agent Message Security', () => {
 
     it('allows sender to mark a message read (permitted participant)', () => {
       const msg = agentMessageRepo.createMessage({
-        boardId,
+        habitatId,
         fromAgentId: agent1Id,
         toAgentId: agent2Id,
         subject: 'Test',
@@ -143,7 +143,7 @@ describe('Agent Message Security', () => {
       const handler = findRoute(routes, 'POST', '/agents/:agentId/messages');
       const { request, reply, sent } = mockReqRes({
         params: { agentId: agent2Id },
-        body: { boardId, toAgentId: agent1Id, subject: 'hi', body: 'hello' },
+        body: { habitatId, toAgentId: agent1Id, subject: 'hi', body: 'hello' },
         agent: { id: agent1Id, name: 'agent-a' },
       });
 
@@ -165,7 +165,7 @@ describe('Agent Message Security', () => {
 
     it('agent A cannot read agent B messages (with messages in DB)', async () => {
       agentMessageRepo.createMessage({
-        boardId,
+        habitatId,
         fromAgentId: agent1Id,
         toAgentId: agent2Id,
         subject: 'Private to B',
@@ -200,7 +200,7 @@ describe('Agent Message Security', () => {
 
     it('agent B (recipient) can delete a message from agent A', async () => {
       const msg = agentMessageRepo.createMessage({
-        boardId,
+        habitatId,
         fromAgentId: agent1Id,
         toAgentId: agent2Id,
         subject: 'Hello',
@@ -222,7 +222,7 @@ describe('Agent Message Security', () => {
 
     it('unrelated agent C cannot delete agent A-B message', async () => {
       const msg = agentMessageRepo.createMessage({
-        boardId, fromAgentId: agent1Id, toAgentId: agent2Id,
+        habitatId, fromAgentId: agent1Id, toAgentId: agent2Id,
         subject: 'secret', body: 'confidential',
       });
       const handler = findRoute(routes, 'DELETE', '/agents/messages/:id');
@@ -239,7 +239,7 @@ describe('Agent Message Security', () => {
 
     it('unrelated agent C cannot mark agent A-B message read', async () => {
       const msg = agentMessageRepo.createMessage({
-        boardId, fromAgentId: agent1Id, toAgentId: agent2Id,
+        habitatId, fromAgentId: agent1Id, toAgentId: agent2Id,
         subject: 'secret', body: 'confidential',
       });
       const handler = findRoute(routes, 'PUT', '/agents/messages/:id/read');

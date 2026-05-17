@@ -49,24 +49,24 @@ export function getWatchers(taskId: string): TaskWatcher[] {
 /**
  * Notify all watchers of a task event via SSE.
  * @param taskId - ID of the task
- * @param boardId - ID of the board (for SSE broadcast scope)
+ * @param habitatId - ID of the habitat (for SSE broadcast scope)
  * @param eventType - Type of event (e.g., 'task.created')
  */
-export function notifyWatchers(taskId: string, boardId: string, eventType: string): void {
+export function notifyWatchers(taskId: string, habitatId: string, eventType: string): void {
   const watcherUserIds = watcherRepo.getWatcherUserIdsForTask(taskId);
   if (watcherUserIds.length === 0) return;
 
   const task = taskRepo.getTaskById(taskId);
   const taskTitle = task?.title ?? 'Unknown task';
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.watcher_notify',
     data: {
       taskId,
       taskTitle,
       eventType,
       watcherUserIds,
-      boardId,
+      habitatId,
     },
   });
 }

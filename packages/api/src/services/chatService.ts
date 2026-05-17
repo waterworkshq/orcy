@@ -1,5 +1,5 @@
-import { getEnabledIntegrationsByBoard } from '../repositories/chatIntegration.js';
-import { getTaskById, getTasksByBoardId, getBoardIdForTask } from '../repositories/task.js';
+import { getEnabledIntegrationsByHabitat } from '../repositories/chatIntegration.js';
+import { getTaskById, getTasksByHabitatId, getHabitatIdForTask } from '../repositories/task.js';
 import { getAgentById } from '../repositories/agent.js';
 import { approveTask, rejectTask } from '../repositories/task.js';
 import { formatSlackMessage, formatSlackTaskList, formatSlackTaskInfo, formatSlackHelp, formatSlackResponse, sendToSlack } from './slackService.js';
@@ -16,11 +16,11 @@ const EVENT_TYPE_MAP: Record<string, string> = {
   'task.overdue': 'task_overdue',
 };
 
-export async function processEvent(eventType: string, boardId: string, data: Record<string, unknown>): Promise<void> {
+export async function processEvent(eventType: string, habitatId: string, data: Record<string, unknown>): Promise<void> {
   const mappedEvent = EVENT_TYPE_MAP[eventType];
   if (!mappedEvent) return;
 
-  const integrations = getEnabledIntegrationsByBoard(boardId);
+  const integrations = getEnabledIntegrationsByHabitat(habitatId);
   if (integrations.length === 0) return;
 
   let taskId: string | undefined;
@@ -60,7 +60,7 @@ export async function processEvent(eventType: string, boardId: string, data: Rec
 }
 
 export async function executeCommand(
-  boardId: string,
+  habitatId: string,
   action: string,
   args: string[],
   _userId?: string
@@ -68,7 +68,7 @@ export async function executeCommand(
   switch (action) {
     case 'list':
     case 'tasks': {
-      const { tasks } = getTasksByBoardId(boardId, { status: 'pending', limit: 10 });
+      const { tasks } = getTasksByHabitatId(habitatId, { status: 'pending', limit: 10 });
       return {
         response: { slack: formatSlackTaskList(tasks), discord: formatDiscordTaskList(tasks) },
         provider: 'slack',
@@ -86,7 +86,7 @@ export async function executeCommand(
           provider: 'slack',
         };
       }
-      const task = findTask(boardId, taskId);
+      const task = findTask(habitatId, taskId);
       if (!task) {
         return {
           response: {
@@ -119,7 +119,7 @@ export async function executeCommand(
           provider: 'slack',
         };
       }
-      const task = findTask(boardId, taskId);
+      const task = findTask(habitatId, taskId);
       if (!task) {
         return {
           response: {
@@ -160,7 +160,7 @@ export async function executeCommand(
           provider: 'slack',
         };
       }
-      const task = findTask(boardId, taskId);
+      const task = findTask(habitatId, taskId);
       if (!task) {
         return {
           response: {
@@ -207,22 +207,22 @@ export async function executeCommand(
   }
 }
 
-function findTask(boardId: string, taskIdOrShort: string): ReturnType<typeof getTaskById> {
+function findTask(habitatId: string, taskIdOrShort: string): ReturnType<typeof getTaskById> {
   const task = getTaskById(taskIdOrShort);
   if (task) {
-    const taskBoardId = getBoardIdForTask(task.id);
-    if (taskBoardId === boardId) return task;
+    const taskHabitatId = getHabitatIdForTask(task.id);
+    if (taskHabitatId === habitatId) return task;
   }
 
-  const { tasks } = getTasksByBoardId(boardId);
+  const { tasks } = getTasksByHabitatId(habitatId);
   return tasks.find(t => t.id.startsWith(taskIdOrShort)) ?? null;
 }
 
 export async function sendAnomalyAlert(
-  boardId: string,
+  habitatId: string,
   anomaly: { type: string; severity: string; message: string; data: Record<string, unknown> },
 ): Promise<void> {
-  const integrations = getEnabledIntegrationsByBoard(boardId);
+  const integrations = getEnabledIntegrationsByHabitat(habitatId);
   if (integrations.length === 0) return;
 
   const severityEmoji: Record<string, string> = {

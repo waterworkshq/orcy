@@ -2,10 +2,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as pulseRepo from '../repositories/pulse.js';
 import * as reactionRepo from '../repositories/pulseReaction.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as taskService from '../services/tasks/index.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
 import { logger } from '../lib/logger.js';
@@ -37,7 +37,7 @@ function checkReplyScope(replyToId: string | undefined, habitatId: string, scope
   if (!replyToId) return;
   const parent = pulseRepo.getPulseById(replyToId);
   if (!parent) throw notFound('Reply target pulse not found');
-  if (parent.boardId !== habitatId) throw forbidden('Cannot reply across boards');
+  if (parent.habitatId !== habitatId) throw forbidden('Cannot reply across habitats');
   if (parent.scope !== scope) throw forbidden('Cannot reply across scopes');
 }
 
@@ -63,7 +63,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest(`Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
       }
 
-      const mission = featureRepo.getFeatureById(missionId);
+      const mission = missionRepo.getMissionById(missionId);
       if (!mission) {
         throw notFound('Mission not found');
       }
@@ -93,7 +93,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const pulse = pulseRepo.createPulse({
         missionId,
-        boardId: mission.boardId,
+        habitatId: mission.habitatId,
         fromType: caller.type,
         fromId: caller.id,
         toType,
@@ -111,7 +111,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.signalType === 'blocker' && !mission.isArchived) {
         try {
           const task = taskService.createTask({
-            featureId: missionId,
+            missionId: missionId,
             title: `Clear Blocker: ${body.subject}`,
             description: `Auto-generated blocker clearance task.\n\nBlocker: ${body.body ?? ''}\n\nSource signal: ${pulse.id}${body.taskId ? `\nBlocked task: ${body.taskId}` : ''}`,
             priority: 'high',
@@ -127,7 +127,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       try {
-        sseBroadcaster.publish(pulse.boardId, {
+        sseBroadcaster.publish(pulse.habitatId, {
           type: 'pulse.signal_posted',
           data: {
             pulseId: pulse.id,
@@ -153,7 +153,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       const { missionId } = (request.params as { missionId: string });
       const query = request.query as { signalType?: string; signalTypes?: string; isAuto?: string; since?: string; limit?: string; offset?: string };
 
-      const mission = featureRepo.getFeatureById(missionId);
+      const mission = missionRepo.getMissionById(missionId);
       if (!mission) {
         throw notFound('Mission not found');
       }
@@ -183,7 +183,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { missionId } = (request.params as { missionId: string });
 
-      const mission = featureRepo.getFeatureById(missionId);
+      const mission = missionRepo.getMissionById(missionId);
       if (!mission) {
         throw notFound('Mission not found');
       }
@@ -275,9 +275,9 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest(`Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
       }
 
-      const board = boardRepo.getBoardById(habitatId);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
 
       const caller = getCallerInfo(request);
@@ -304,7 +304,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       validateMetadata(body.metadata);
 
       const pulse = pulseRepo.createPulse({
-        boardId: habitatId,
+        habitatId: habitatId,
         scope: 'habitat',
         fromType: caller.type,
         fromId: caller.id,
@@ -323,7 +323,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.signalType === 'blocker') {
         try {
           const task = taskService.createTask({
-            featureId: habitatId,
+            missionId: habitatId,
             title: `Clear Blocker: ${body.subject}`,
             description: `Auto-generated habitat blocker clearance task.\n\nBlocker: ${body.body ?? ''}\n\nSource signal: ${pulse.id}`,
             priority: 'high',
@@ -368,7 +368,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         : undefined;
       const { limit, offset } = parsePagination(query);
 
-      const result = pulseRepo.getPulsesByBoard(habitatId, {
+      const result = pulseRepo.getPulsesByHabitat(habitatId, {
         signalTypes,
         signalType: query.signalType as pulseRepo.SignalType | undefined,
         scope: query.scope as pulseRepo.PulseScope | undefined,
@@ -386,9 +386,9 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { habitatId } = (request.params as { habitatId: string });
 
-      const board = boardRepo.getBoardById(habitatId);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
 
       const caller = getCallerInfo(request);

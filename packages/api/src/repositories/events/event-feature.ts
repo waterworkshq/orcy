@@ -74,8 +74,8 @@ export function getMissionEventsByMissionId(
   return { events: result, total: totalResult?.count ?? 0 };
 }
 
-export function getMissionEventsByBoardId(
-  boardId: string,
+export function getMissionEventsByHabitatId(
+  habitatId: string,
   limit = 50,
   offset = 0,
 ): { events: MissionEvent[]; total: number } {
@@ -84,7 +84,7 @@ export function getMissionEventsByBoardId(
   const missionIds = db
     .select({ id: missions.id })
     .from(missions)
-    .where(eq(missions.habitatId, boardId))
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(r => r.id);
 

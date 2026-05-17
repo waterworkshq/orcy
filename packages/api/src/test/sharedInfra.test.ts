@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { boards, featureTemplates } from '../db/schema/index.js';
-import type { PrioritizationSettings, PrioritizationRule, PrioritizationRuleCondition, PrioritizationRuleAction, TaskTemplateEntry, FeatureTemplate } from '../models/index.js';
+import { habitats, missionTemplates } from '../db/schema/index.js';
+import type { PrioritizationSettings, PrioritizationRule, PrioritizationRuleCondition, PrioritizationRuleAction, TaskTemplateEntry, MissionTemplate } from '../models/index.js';
 import type { CreateTemplateInput, UpdateTemplateInput } from '../repositories/template.js';
 
 describe('Shared Infra: PrioritizationSettings type', () => {
@@ -49,7 +49,7 @@ describe('Shared Infra: PrioritizationSettings type', () => {
       { type: 'pending_duration', greaterThanHours: 48 },
       { type: 'dependency_count', greaterThan: 2, direction: 'blocking' },
       { type: 'rejection_count', greaterThan: 3 },
-      { type: 'feature_status', status: 'in_progress' },
+      { type: 'mission_status', status: 'in_progress' },
       { type: 'agent_idle', greaterThanMinutes: 30 },
       { type: 'label_match', labels: ['urgent'] },
       { type: 'priority_is', priority: 'high' },
@@ -98,19 +98,19 @@ describe('Shared Infra: TaskTemplateEntry type', () => {
 });
 
 describe('Shared Infra: Schema changes', () => {
-  it('boards table has prioritizationSettings column', () => {
-    expect(boards.prioritizationSettings).toBeDefined();
+  it('habitats table has prioritizationSettings column', () => {
+    expect(habitats.prioritizationSettings).toBeDefined();
   });
 
-  it('featureTemplates table has tasksTemplate column', () => {
-    expect(featureTemplates.tasksTemplate).toBeDefined();
+  it('missionTemplates table has tasksTemplate column', () => {
+    expect(missionTemplates.tasksTemplate).toBeDefined();
   });
 });
 
 describe('Shared Infra: Template repository inputs', () => {
   it('CreateTemplateInput accepts tasksTemplate array', () => {
     const input: CreateTemplateInput = {
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       name: 'Bug Template',
       titlePattern: 'Fix: ',
       tasksTemplate: [
@@ -126,7 +126,7 @@ describe('Shared Infra: Template repository inputs', () => {
 
   it('CreateTemplateInput works without tasksTemplate', () => {
     const input: CreateTemplateInput = {
-      boardId: null,
+      habitatId: null,
       name: 'Simple',
       titlePattern: 'Do ',
       createdBy: 'user-1',

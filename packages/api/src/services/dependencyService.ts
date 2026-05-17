@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { taskDependencies, featureDependencies, tasks, features } from '../db/schema/index.js';
+import { taskDependencies, missionDependencies, tasks, missions } from '../db/schema/index.js';
 import { eq, and, notInArray, inArray } from 'drizzle-orm';
 import type { DependencyValidationResult } from '../models/index.js';
 import { logger } from '../lib/logger.js';
@@ -107,19 +107,19 @@ export function validateTaskCompletion(taskId: string): DependencyValidationResu
   return { canComplete: true };
 }
 
-export function addFeatureDependency(featureId: string, dependsOnId: string): { success: boolean; reason?: string } {
-  if (featureId === dependsOnId) {
+export function addMissionDependency(missionId: string, dependsOnId: string): { success: boolean; reason?: string } {
+  if (missionId === dependsOnId) {
     return { success: false, reason: 'self_dependency' };
   }
 
-  if (wouldCreateCycle(featureId, dependsOnId, 'feature')) {
+  if (wouldCreateCycle(missionId, dependsOnId, 'mission')) {
     return { success: false, reason: 'circular_dependency' };
   }
 
   const db = getDb();
   try {
-    db.insert(featureDependencies).values({
-      featureId,
+    db.insert(missionDependencies).values({
+      missionId,
       dependsOnId,
     }).run();
     return { success: true };
@@ -127,48 +127,48 @@ export function addFeatureDependency(featureId: string, dependsOnId: string): { 
     if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return { success: false, reason: 'already_exists' };
     }
-    logger.error({ err, featureId, dependsOnId }, 'Unexpected DB error adding feature dependency');
+    logger.error({ err, missionId, dependsOnId }, 'Unexpected DB error adding mission dependency');
     throw err;
   }
 }
 
-export function removeFeatureDependency(featureId: string, dependsOnId: string): boolean {
+export function removeMissionDependency(missionId: string, dependsOnId: string): boolean {
   const db = getDb();
   try {
-    db.delete(featureDependencies)
-      .where(and(eq(featureDependencies.featureId, featureId), eq(featureDependencies.dependsOnId, dependsOnId)))
+    db.delete(missionDependencies)
+      .where(and(eq(missionDependencies.missionId, missionId), eq(missionDependencies.dependsOnId, dependsOnId)))
       .run();
     return true;
   } catch (err) {
-    logger.warn({ err, featureId, dependsOnId }, 'Failed to remove feature dependency');
+    logger.warn({ err, missionId, dependsOnId }, 'Failed to remove mission dependency');
     return false;
   }
 }
 
-export function getFeatureDependencies(featureId: string): {
-  dependsOn: { featureId: string; title: string; status: string }[];
-  blocking: { featureId: string; title: string; status: string }[];
+export function getMissionDependencies(missionId: string): {
+  dependsOn: { missionId: string; title: string; status: string }[];
+  blocking: { missionId: string; title: string; status: string }[];
 } {
   const db = getDb();
 
   const dependsOnRows = db.select({
-    featureId: featureDependencies.dependsOnId,
-    title: features.title,
-    status: features.status,
+    missionId: missionDependencies.dependsOnId,
+    title: missions.title,
+    status: missions.status,
   })
-    .from(featureDependencies)
-    .innerJoin(features, eq(featureDependencies.dependsOnId, features.id))
-    .where(eq(featureDependencies.featureId, featureId))
+    .from(missionDependencies)
+    .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
+    .where(eq(missionDependencies.missionId, missionId))
     .all();
 
   const blockingRows = db.select({
-    featureId: featureDependencies.featureId,
-    title: features.title,
-    status: features.status,
+    missionId: missionDependencies.missionId,
+    title: missions.title,
+    status: missions.status,
   })
-    .from(featureDependencies)
-    .innerJoin(features, eq(featureDependencies.featureId, features.id))
-    .where(eq(featureDependencies.dependsOnId, featureId))
+    .from(missionDependencies)
+    .innerJoin(missions, eq(missionDependencies.missionId, missions.id))
+    .where(eq(missionDependencies.dependsOnId, missionId))
     .all();
 
   return {
@@ -177,14 +177,14 @@ export function getFeatureDependencies(featureId: string): {
   };
 }
 
-export function validateFeatureCompletion(featureId: string): DependencyValidationResult {
+export function validateMissionCompletion(missionId: string): DependencyValidationResult {
   const db = getDb();
 
-  const featureTasks = db.select().from(tasks)
-    .where(eq(tasks.featureId, featureId))
+  const missionTasks = db.select().from(tasks)
+    .where(eq(tasks.missionId, missionId))
     .all();
 
-  const incompleteTasks = featureTasks.filter(t => t.status !== 'done' && t.status !== 'approved');
+  const incompleteTasks = missionTasks.filter(t => t.status !== 'done' && t.status !== 'approved');
   if (incompleteTasks.length > 0) {
     return {
       canComplete: false,
@@ -198,13 +198,13 @@ export function validateFeatureCompletion(featureId: string): DependencyValidati
   }
 
   const deps = db.select({
-    featureId: featureDependencies.dependsOnId,
-    title: features.title,
-    status: features.status,
+    missionId: missionDependencies.dependsOnId,
+    title: missions.title,
+    status: missions.status,
   })
-    .from(featureDependencies)
-    .innerJoin(features, eq(featureDependencies.dependsOnId, features.id))
-    .where(eq(featureDependencies.featureId, featureId))
+    .from(missionDependencies)
+    .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
+    .where(eq(missionDependencies.missionId, missionId))
     .all();
 
   const incompleteDeps = deps.filter(d => d.status !== 'done');
@@ -213,7 +213,7 @@ export function validateFeatureCompletion(featureId: string): DependencyValidati
       canComplete: false,
       reason: 'BLOCKED_BY_FEATURE_DEPENDENCIES',
       blockedBy: incompleteDeps.map(d => ({
-        taskId: d.featureId,
+        taskId: d.missionId,
         title: d.title,
         status: d.status,
       })),
@@ -223,7 +223,7 @@ export function validateFeatureCompletion(featureId: string): DependencyValidati
   return { canComplete: true };
 }
 
-export function getDependencyGraph(featureId: string): {
+export function getDependencyGraph(missionId: string): {
   nodes: { id: string; title: string; status: string }[];
   edges: { from: string; to: string }[];
 } {
@@ -236,13 +236,13 @@ export function getDependencyGraph(featureId: string): {
     if (visited.has(fid)) return;
     visited.add(fid);
 
-    const feature = db.select().from(features).where(eq(features.id, fid)).get();
-    if (!feature) return;
-    nodes.push({ id: feature.id, title: feature.title, status: feature.status });
+    const mission = db.select().from(missions).where(eq(missions.id, fid)).get();
+    if (!mission) return;
+    nodes.push({ id: mission.id, title: mission.title, status: mission.status });
 
-    const deps = db.select({ dependsOnId: featureDependencies.dependsOnId })
-      .from(featureDependencies)
-      .where(eq(featureDependencies.featureId, fid))
+    const deps = db.select({ dependsOnId: missionDependencies.dependsOnId })
+      .from(missionDependencies)
+      .where(eq(missionDependencies.missionId, fid))
       .all();
 
     for (const dep of deps) {
@@ -251,11 +251,11 @@ export function getDependencyGraph(featureId: string): {
     }
   }
 
-  traverse(featureId);
+  traverse(missionId);
   return { nodes, edges };
 }
 
-function wouldCreateCycle(fromId: string, toId: string, type: 'task' | 'feature'): boolean {
+function wouldCreateCycle(fromId: string, toId: string, type: 'task' | 'mission'): boolean {
   const db = getDb();
   const visited = new Set<string>();
   const stack = [toId];
@@ -275,9 +275,9 @@ function wouldCreateCycle(fromId: string, toId: string, type: 'task' | 'feature'
         stack.push(dep.dependsOnId);
       }
     } else {
-      const deps = db.select({ dependsOnId: featureDependencies.dependsOnId })
-        .from(featureDependencies)
-        .where(eq(featureDependencies.featureId, current))
+      const deps = db.select({ dependsOnId: missionDependencies.dependsOnId })
+        .from(missionDependencies)
+        .where(eq(missionDependencies.missionId, current))
         .all();
       for (const dep of deps) {
         stack.push(dep.dependsOnId);

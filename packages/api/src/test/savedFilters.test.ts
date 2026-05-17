@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let _filters: Record<string, { id: string; boardId: string; userId: string; name: string; filterConfig: Record<string, unknown>; isBuiltin: boolean; createdAt: string }> = {};
+let _filters: Record<string, { id: string; habitatId: string; userId: string; name: string; filterConfig: Record<string, unknown>; isBuiltin: boolean; createdAt: string }> = {};
 
 function createMockDb() {
   const doInsert = () => {
@@ -10,7 +10,7 @@ function createMockDb() {
       run: () => {
         _filters[_vals.id] = {
           id: _vals.id,
-          boardId: _vals.boardId,
+          habitatId: _vals.habitatId,
           userId: _vals.userId,
           name: _vals.name,
           filterConfig: _vals.filterConfig,
@@ -32,7 +32,7 @@ function createMockDb() {
       all: () => {
         if (_condition?._type === 'savedFilters_list') {
           return Object.values(_filters).filter(
-            f => f.boardId === _condition._boardId && (f.userId === _condition._userId || f.isBuiltin)
+            f => f.habitatId === _condition._habitatId && (f.userId === _condition._userId || f.isBuiltin)
           ).sort((a, b) => {
             if (a.isBuiltin !== b.isBuiltin) return a.isBuiltin ? -1 : 1;
             return a.createdAt.localeCompare(b.createdAt);
@@ -70,9 +70,9 @@ function createMockDb() {
         const val = _condition?.val;
         if (col === 'id' && val) {
           delete _filters[val];
-        } else if (col === 'boardId' && val) {
+        } else if (col === 'habitatId' && val) {
           Object.keys(_filters).forEach(k => {
-            if (_filters[k].boardId === val) delete _filters[k];
+            if (_filters[k].habitatId === val) delete _filters[k];
           });
         }
       },
@@ -100,7 +100,7 @@ vi.mock('drizzle-orm', () => ({
   or: (...conditions: any[]) => ({ _type: 'or', conditions }),
   sql: (strings: any, ...values: any[]) => {
     const sqlStr = strings.join('?');
-    if (sqlStr.includes('boardId') && sqlStr.includes('userId')) {
+    if (sqlStr.includes('habitatId') && sqlStr.includes('userId')) {
       return { _type: 'savedFilters_list', _boardId: values[0], _userId: values[1] };
     }
     return { _type: 'sql', strings, values };
@@ -110,7 +110,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../db/schema/index.js', () => ({
   savedFilters: {
     id: 'id',
-    boardId: 'boardId',
+    habitatId: 'habitatId',
     userId: 'userId',
     name: 'name',
     filterConfig: 'filterConfig',
@@ -124,7 +124,7 @@ describe('SavedFilter types', () => {
     type T = import('../repositories/savedFilter.js').SavedFilter;
     const filter: T = {
       id: 'sf-1',
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       userId: 'user-1',
       name: 'My View',
       filterConfig: { priority: 'high' },
@@ -146,10 +146,10 @@ describe('savedFilter repository', () => {
 
   it('createSavedFilter creates a filter and returns it', async () => {
     const { createSavedFilter, getSavedFilterById } = await import('../repositories/savedFilter.js');
-    const filter = createSavedFilter('board-1', 'user-1', 'My Tasks', { assignedAgentId: 'user-1' });
+    const filter = createSavedFilter('habitat-1', 'user-1', 'My Tasks', { assignedAgentId: 'user-1' });
     expect(filter).toBeDefined();
     expect(filter.name).toBe('My Tasks');
-    expect(filter.boardId).toBe('board-1');
+    expect(filter.habitatId).toBe('habitat-1');
     expect(filter.userId).toBe('user-1');
     expect(filter.isBuiltin).toBe(false);
 
@@ -160,10 +160,10 @@ describe('savedFilter repository', () => {
 
   it('getSavedFilters returns user filters and built-in filters', async () => {
     const { createSavedFilter, seedBuiltinFilters, getSavedFilters } = await import('../repositories/savedFilter.js');
-    seedBuiltinFilters('board-2');
-    createSavedFilter('board-2', 'user-2', 'Custom View', { priority: 'high' });
+    seedBuiltinFilters('habitat-2');
+    createSavedFilter('habitat-2', 'user-2', 'Custom View', { priority: 'high' });
 
-    const filters = getSavedFilters('board-2', 'user-2');
+    const filters = getSavedFilters('habitat-2', 'user-2');
     expect(filters.length).toBeGreaterThanOrEqual(3);
     const builtinCount = filters.filter(f => f.isBuiltin).length;
     expect(builtinCount).toBeGreaterThanOrEqual(2);
@@ -173,7 +173,7 @@ describe('savedFilter repository', () => {
 
   it('updateSavedFilter updates name and config', async () => {
     const { createSavedFilter, updateSavedFilter } = await import('../repositories/savedFilter.js');
-    const filter = createSavedFilter('board-3', 'user-3', 'Old Name', { priority: 'low' });
+    const filter = createSavedFilter('habitat-3', 'user-3', 'Old Name', { priority: 'low' });
     const updated = updateSavedFilter(filter.id, 'New Name', { priority: 'critical' });
     expect(updated).toBeDefined();
     expect(updated!.name).toBe('New Name');
@@ -188,7 +188,7 @@ describe('savedFilter repository', () => {
 
   it('deleteSavedFilter removes a filter', async () => {
     const { createSavedFilter, deleteSavedFilter, getSavedFilterById } = await import('../repositories/savedFilter.js');
-    const filter = createSavedFilter('board-4', 'user-4', 'ToDelete', {});
+    const filter = createSavedFilter('habitat-4', 'user-4', 'ToDelete', {});
     expect(getSavedFilterById(filter.id)).toBeDefined();
 
     const result = deleteSavedFilter(filter.id);
@@ -204,8 +204,8 @@ describe('savedFilter repository', () => {
 
   it('seedBuiltinFilters creates built-in views', async () => {
     const { seedBuiltinFilters, getSavedFilters } = await import('../repositories/savedFilter.js');
-    seedBuiltinFilters('board-5');
-    const filters = getSavedFilters('board-5', 'any-user');
+    seedBuiltinFilters('habitat-5');
+    const filters = getSavedFilters('habitat-5', 'any-user');
     const builtins = filters.filter(f => f.isBuiltin);
     expect(builtins.length).toBeGreaterThanOrEqual(2);
     const names = builtins.map(f => f.name);
@@ -216,12 +216,12 @@ describe('savedFilter repository', () => {
     });
   });
 
-  it('deleteSavedFiltersByBoard removes all filters for a board', async () => {
-    const { createSavedFilter, seedBuiltinFilters, deleteSavedFiltersByBoard, getSavedFilters } = await import('../repositories/savedFilter.js');
-    createSavedFilter('board-6', 'user-6', 'View A', {});
-    seedBuiltinFilters('board-6');
-    expect(getSavedFilters('board-6', 'user-6').length).toBeGreaterThanOrEqual(3);
-    deleteSavedFiltersByBoard('board-6');
-    expect(getSavedFilters('board-6', 'user-6').length).toBe(0);
+  it('deleteSavedFiltersByHabitat removes all filters for a habitat', async () => {
+    const { createSavedFilter, seedBuiltinFilters, deleteSavedFiltersByHabitat, getSavedFilters } = await import('../repositories/savedFilter.js');
+    createSavedFilter('habitat-6', 'user-6', 'View A', {});
+    seedBuiltinFilters('habitat-6');
+    expect(getSavedFilters('habitat-6', 'user-6').length).toBeGreaterThanOrEqual(3);
+    deleteSavedFiltersByHabitat('habitat-6');
+    expect(getSavedFilters('habitat-6', 'user-6').length).toBe(0);
   });
 });

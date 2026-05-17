@@ -1,8 +1,8 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { boardListWebhooks, boardCreateWebhook, boardDeleteWebhook } from './webhook.js';
-import { boardListTemplates, boardCreateTemplate, boardDeleteTemplate } from './template.js';
-import { boardBatchAssignTasks, boardBatchSetTaskPriority, boardBatchDeleteTasks } from './task-batch.js';
+import { habitatListWebhooks, habitatCreateWebhook, habitatDeleteWebhook } from './webhook.js';
+import { habitatListTemplates, habitatCreateTemplate, habitatDeleteTemplate } from './template.js';
+import { habitatBatchAssignTasks, habitatBatchSetTaskPriority, habitatBatchDeleteTasks } from './task-batch.js';
 import { adminExportAuditLog, adminGetAuditSummary } from './audit.js';
 import { adminListScheduledTasks, adminCreateScheduledTask, adminRunScheduledTask, adminGetScheduledTask, adminUpdateScheduledTask, adminDeleteScheduledTask, adminToggleScheduledTask } from './scheduled-task.js';
 import { PRIORITY_LEVELS, WEBHOOK_FORMATS } from './constants.js';
@@ -91,15 +91,15 @@ export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const ADMIN_ACTIONS: Record<string, Handler> = {
-  'list-webhooks': boardListWebhooks,
-  'create-webhook': boardCreateWebhook,
-  'delete-webhook': boardDeleteWebhook,
-  'list-templates': boardListTemplates,
-  'create-template': boardCreateTemplate,
-  'delete-template': boardDeleteTemplate,
-  'batch-assign-tasks': boardBatchAssignTasks,
-  'batch-set-priority': boardBatchSetTaskPriority,
-  'batch-delete-tasks': boardBatchDeleteTasks,
+  'list-webhooks': habitatListWebhooks,
+  'create-webhook': habitatCreateWebhook,
+  'delete-webhook': habitatDeleteWebhook,
+  'list-templates': habitatListTemplates,
+  'create-template': habitatCreateTemplate,
+  'delete-template': habitatDeleteTemplate,
+  'batch-assign-tasks': habitatBatchAssignTasks,
+  'batch-set-priority': habitatBatchSetTaskPriority,
+  'batch-delete-tasks': habitatBatchDeleteTasks,
   'export-audit-log': adminExportAuditLog,
   'get-audit-summary': adminGetAuditSummary,
   'list-scheduled-tasks': adminListScheduledTasks,

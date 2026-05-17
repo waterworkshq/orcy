@@ -24,7 +24,7 @@ export const BOARD_CLAIM_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardClaimTask(
+export async function habitatClaimTask(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {
@@ -64,7 +64,7 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardSubmitTask(
+export async function habitatSubmitTask(
   client: KanbanApiClient,
   args: { taskId: string; result: string; artifacts?: { type: string; url: string; description: string }[] }
 ) {
@@ -100,7 +100,7 @@ export const BOARD_COMPLETE_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardCompleteTask(
+export async function habitatCompleteTask(
   client: KanbanApiClient,
   args: { taskId: string; reviewNote?: string; artifacts?: { type: string; url: string; description: string }[] }
 ) {
@@ -130,7 +130,7 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardReleaseTask(
+export async function habitatReleaseTask(
   client: KanbanApiClient,
   args: { taskId: string; reason: string }
 ) {
@@ -155,7 +155,7 @@ export const BOARD_RETRY_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardRetryTask(
+export async function habitatRetryTask(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {

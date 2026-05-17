@@ -1,9 +1,9 @@
 import { execFileSync } from 'child_process';
 import { existsSync, rmSync } from 'fs';
 import * as path from 'path';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as taskRepo from '../repositories/task.js';
-import { getBoardIdForTask } from '../repositories/task.js';
+import { getHabitatIdForTask } from '../repositories/task.js';
 import type { GitWorktreeSettings } from '../models/index.js';
 import { logger } from '../lib/logger.js';
 
@@ -91,15 +91,15 @@ function resolveSettings(settings: GitWorktreeSettings) {
 
 export function createWorktree(
   taskId: string,
-  boardId: string
+  habitatId: string
 ): { path: string; branch: string; repoRoot: string } | null {
   const existing = activeWorktrees.get(taskId);
   if (existing) return existing;
 
-  const board = boardRepo.getBoardById(boardId);
-  if (!board?.gitWorktreeSettings) return null;
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat?.gitWorktreeSettings) return null;
 
-  const settings = board.gitWorktreeSettings;
+  const settings = habitat.gitWorktreeSettings;
   let repoPath: string;
   try {
     repoPath = resolveSettings(settings).repoPath;
@@ -185,13 +185,13 @@ export function getWorktreeInfo(taskId: string): { path: string; branch: string;
   const task = taskRepo.getTaskById(taskId);
   if (!task) return null;
 
-  const boardId = getBoardIdForTask(taskId);
-  if (!boardId) return null;
+  const habitatId = getHabitatIdForTask(taskId);
+  if (!habitatId) return null;
 
-  const board = boardRepo.getBoardById(boardId);
-  if (!board?.gitWorktreeSettings) return null;
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat?.gitWorktreeSettings) return null;
 
-  const settings = board.gitWorktreeSettings;
+  const settings = habitat.gitWorktreeSettings;
   let repoPath: string;
   try {
     repoPath = resolveSettings(settings).repoPath;
@@ -222,12 +222,12 @@ export function _resetActiveWorktrees(): void {
   activeWorktrees.clear();
 }
 
-export function isWorktreeEnabled(boardId: string): boolean {
-  const board = boardRepo.getBoardById(boardId);
-  return !!board?.gitWorktreeSettings;
+export function isWorktreeEnabled(habitatId: string): boolean {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  return !!habitat?.gitWorktreeSettings;
 }
 
-export function getWorktreeSettings(boardId: string): GitWorktreeSettings | null {
-  const board = boardRepo.getBoardById(boardId);
-  return board?.gitWorktreeSettings ?? null;
+export function getWorktreeSettings(habitatId: string): GitWorktreeSettings | null {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  return habitat?.gitWorktreeSettings ?? null;
 }

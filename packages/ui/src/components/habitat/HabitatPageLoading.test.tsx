@@ -262,14 +262,14 @@ describe('BoardPage parallel feature loading', () => {
   });
 
   it('handles error from initial board/agents fetch', async () => {
-    mocks.boardsGet.mockRejectedValue(new Error('Board not found'));
+    mocks.boardsGet.mockRejectedValue(new Error('Habitat not found'));
     mocks.featuresList.mockResolvedValue({ features: [], total: 0 });
 
     await act(async () => {
       render(<BoardPage />);
     });
 
-    expect(storeActions.setError).toHaveBeenCalledWith('Board not found');
+    expect(storeActions.setError).toHaveBeenCalledWith('Habitat not found');
     expect(storeActions.setLoading).toHaveBeenCalledWith(false);
   });
 

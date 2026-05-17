@@ -1,9 +1,9 @@
 import { getDb } from '../db/index.js';
-import { tasks, features, agents, taskDependencies } from '../db/schema/index.js';
+import { tasks, missions, agents, taskDependencies } from '../db/schema/index.js';
 import { eq, and, sql, isNotNull, inArray, count, notInArray } from 'drizzle-orm';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import { scoreTask } from './taskScoring.js';
 import { logger } from '../lib/logger.js';
@@ -14,7 +14,7 @@ import type {
   PrioritizationRuleAction,
   Task,
   TaskPriority,
-  Feature,
+  Mission,
 } from '../models/index.js';
 
 const TERMINAL_STATUSES: Task['status'][] = ['done', 'approved', 'failed'];
@@ -78,29 +78,29 @@ export function getDefaultPrioritizationSettings(): PrioritizationSettings {
   };
 }
 
-export function getPrioritizationRules(boardId: string): PrioritizationSettings {
-  const board = boardRepo.getBoardById(boardId);
-  if (!board) return getDefaultPrioritizationSettings();
-  return board.prioritizationSettings ?? getDefaultPrioritizationSettings();
+export function getPrioritizationRules(habitatId: string): PrioritizationSettings {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat) return getDefaultPrioritizationSettings();
+  return habitat.prioritizationSettings ?? getDefaultPrioritizationSettings();
 }
 
 export interface EvaluationContext {
-  featureMap: Map<string, Feature | null>;
+  missionMap: Map<string, Mission | null>;
   agentHeartbeatMap: Map<string, string>;
   blockingCountMap: Map<string, number>;
   blockedByCountMap: Map<string, number>;
 }
 
-export function buildEvaluationContext(boardTasks: Task[]): EvaluationContext {
+export function buildEvaluationContext(habitatTasks: Task[]): EvaluationContext {
   const db = getDb();
 
-  const featureIds = [...new Set(boardTasks.map(t => t.featureId))];
-  const agentIds = [...new Set(boardTasks.map(t => t.assignedAgentId).filter((id): id is string => id !== null))];
-  const taskIds = boardTasks.map(t => t.id);
+  const missionIds = [...new Set(habitatTasks.map(t => t.missionId))];
+  const agentIds = [...new Set(habitatTasks.map(t => t.assignedAgentId).filter((id): id is string => id !== null))];
+  const taskIds = habitatTasks.map(t => t.id);
 
-  const featureMap = new Map<string, Feature | null>();
-  for (const fid of featureIds) {
-    featureMap.set(fid, featureRepo.getFeatureById(fid));
+  const missionMap = new Map<string, Mission | null>();
+  for (const fid of missionIds) {
+    missionMap.set(fid, missionRepo.getMissionById(fid));
   }
 
   const agentHeartbeatMap = new Map<string, string>();
@@ -143,28 +143,28 @@ export function buildEvaluationContext(boardTasks: Task[]): EvaluationContext {
     }
   }
 
-  return { featureMap, agentHeartbeatMap, blockingCountMap, blockedByCountMap };
+  return { missionMap, agentHeartbeatMap, blockingCountMap, blockedByCountMap };
 }
 
 function evaluateOverdue(task: Task, condition: Extract<PrioritizationRuleCondition, { type: 'overdue' }>, context: EvaluationContext): boolean {
-  const feature = context.featureMap.get(task.featureId);
-  if (!feature?.dueAt) return false;
+  const mission = context.missionMap.get(task.missionId);
+  if (!mission?.dueAt) return false;
   const byDays = condition.byDays ?? 0;
-  const threshold = new Date(feature.dueAt).getTime() + byDays * 86_400_000;
+  const threshold = new Date(mission.dueAt).getTime() + byDays * 86_400_000;
   return Date.now() > threshold;
 }
 
 function evaluateSlaApproaching(task: Task, condition: Extract<PrioritizationRuleCondition, { type: 'sla_approaching' }>, context: EvaluationContext): boolean {
-  const feature = context.featureMap.get(task.featureId);
-  if (!feature?.slaDeadlineAt) return false;
-  const msRemaining = new Date(feature.slaDeadlineAt).getTime() - Date.now();
+  const mission = context.missionMap.get(task.missionId);
+  if (!mission?.slaDeadlineAt) return false;
+  const msRemaining = new Date(mission.slaDeadlineAt).getTime() - Date.now();
   return msRemaining > 0 && msRemaining <= condition.withinHours * 3_600_000;
 }
 
 function evaluateDueSoon(task: Task, condition: Extract<PrioritizationRuleCondition, { type: 'due_soon' }>, context: EvaluationContext): boolean {
-  const feature = context.featureMap.get(task.featureId);
-  if (!feature?.dueAt) return false;
-  const msRemaining = new Date(feature.dueAt).getTime() - Date.now();
+  const mission = context.missionMap.get(task.missionId);
+  if (!mission?.dueAt) return false;
+  const msRemaining = new Date(mission.dueAt).getTime() - Date.now();
   return msRemaining > 0 && msRemaining <= condition.withinDays * 86_400_000;
 }
 
@@ -184,10 +184,10 @@ function evaluateRejectionCount(task: Task, condition: Extract<PrioritizationRul
   return task.rejectedCount > condition.greaterThan;
 }
 
-function evaluateFeatureStatus(task: Task, condition: Extract<PrioritizationRuleCondition, { type: 'feature_status' }>, context: EvaluationContext): boolean {
-  const feature = context.featureMap.get(task.featureId);
-  if (!feature) return false;
-  return feature.status === condition.status;
+function evaluateMissionStatus(task: Task, condition: Extract<PrioritizationRuleCondition, { type: 'mission_status' }>, context: EvaluationContext): boolean {
+  const mission = context.missionMap.get(task.missionId);
+  if (!mission) return false;
+  return mission.status === condition.status;
 }
 
 function evaluateAgentIdle(task: Task, condition: Extract<PrioritizationRuleCondition, { type: 'agent_idle' }>, context: EvaluationContext): boolean {
@@ -221,8 +221,8 @@ export function evaluateCondition(task: Task, condition: PrioritizationRuleCondi
       return evaluateDependencyCount(task, condition, context);
     case 'rejection_count':
       return evaluateRejectionCount(task, condition);
-    case 'feature_status':
-      return evaluateFeatureStatus(task, condition, context);
+    case 'mission_status':
+      return evaluateMissionStatus(task, condition, context);
     case 'agent_idle':
       return evaluateAgentIdle(task, condition, context);
     case 'label_match':
@@ -280,14 +280,14 @@ export interface RuleEvaluationResult {
   matched: boolean;
 }
 
-export function evaluateRules(boardId: string): RuleEvaluationResult[] {
-  const settings = getPrioritizationRules(boardId);
+export function evaluateRules(habitatId: string): RuleEvaluationResult[] {
+  const settings = getPrioritizationRules(habitatId);
   if (!settings.enabled) return [];
 
-  const { tasks: boardTasks } = taskRepo.getTasksByBoardId(boardId);
-  if (boardTasks.length === 0) return [];
+  const { tasks: habitatTasks } = taskRepo.getTasksByHabitatId(habitatId);
+  if (habitatTasks.length === 0) return [];
 
-  const activeTasks = boardTasks.filter(t => !TERMINAL_STATUSES.includes(t.status));
+  const activeTasks = habitatTasks.filter(t => !TERMINAL_STATUSES.includes(t.status));
   if (activeTasks.length === 0) return [];
 
   const context = buildEvaluationContext(activeTasks);
@@ -321,7 +321,7 @@ export function evaluateRules(boardId: string): RuleEvaluationResult[] {
 }
 
 export interface PrioritizationResult {
-  boardId: string;
+  habitatId: string;
   evaluatedTasks: number;
   changedTasks: number;
   results: Array<{
@@ -332,8 +332,8 @@ export interface PrioritizationResult {
   }>;
 }
 
-export function applyPrioritization(boardId: string): PrioritizationResult {
-  const evaluations = evaluateRules(boardId);
+export function applyPrioritization(habitatId: string): PrioritizationResult {
+  const evaluations = evaluateRules(habitatId);
 
   const results: PrioritizationResult['results'] = [];
   let changedCount = 0;
@@ -353,7 +353,7 @@ export function applyPrioritization(boardId: string): PrioritizationResult {
     const scoreBonus = evaluation.action.type === 'set_score_bonus' ? evaluation.action.value : 0;
     const finalScore = baseScore + scoreBonus;
 
-    sseBroadcaster.publish(boardId, {
+    sseBroadcaster.publish(habitatId, {
       type: 'task.priority_changed',
       data: {
         taskId: evaluation.taskId,
@@ -373,25 +373,25 @@ export function applyPrioritization(boardId: string): PrioritizationResult {
   }
 
   return {
-    boardId,
+    habitatId,
     evaluatedTasks: evaluations.length,
     changedTasks: changedCount,
     results,
   };
 }
 
-export function applyAllBoards(): PrioritizationResult[] {
-  const boards = boardRepo.listBoards();
+export function applyAllHabitats(): PrioritizationResult[] {
+  const habitats = habitatRepo.listHabitats();
   const results: PrioritizationResult[] = [];
 
-  for (const board of boards) {
+  for (const habitat of habitats) {
     try {
-      const result = applyPrioritization(board.id);
+      const result = applyPrioritization(habitat.id);
       if (result.evaluatedTasks > 0) {
         results.push(result);
       }
     } catch (err) {
-      logger.error({ err, boardId: board.id }, 'Failed to apply prioritization for board');
+      logger.error({ err, habitatId: habitat.id }, 'Failed to apply prioritization for habitat');
     }
   }
 

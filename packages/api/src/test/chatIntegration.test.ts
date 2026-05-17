@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let _integrations: Record<string, {
   id: string;
-  boardId: string;
+  habitatId: string;
   provider: string;
   webhookUrl: string;
   channelId: string | null;
@@ -21,7 +21,7 @@ function createMockDb() {
       run: () => {
         _integrations[_vals.id] = {
           id: _vals.id,
-          boardId: _vals.boardId,
+          habitatId: _vals.habitatId,
           provider: _vals.provider,
           webhookUrl: _vals.webhookUrl,
           channelId: _vals.channelId ?? null,
@@ -48,11 +48,11 @@ function createMockDb() {
         for (const cond of _conditions) {
           if (cond?._type === 'and') {
             for (const c of cond.conditions) {
-              if (c?.col === 'boardId') results = results.filter(r => r.boardId === c.val);
+              if (c?.col === 'habitatId') results = results.filter(r => r.habitatId === c.val);
               if (c?.col === 'enabled') results = results.filter(r => r.enabled === c.val);
             }
           }
-          if (cond?.col === 'boardId') results = results.filter(r => r.boardId === cond.val);
+          if (cond?.col === 'habitatId') results = results.filter(r => r.habitatId === cond.val);
           if (cond?.col === 'enabled') results = results.filter(r => r.enabled === cond.val);
           if (cond?.col === 'id') results = results.filter(r => r.id === cond.val);
         }
@@ -119,7 +119,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('../db/schema/index.js', () => ({
   chatIntegrations: {
     id: 'id',
-    boardId: 'boardId',
+    habitatId: 'habitatId',
     provider: 'provider',
     webhookUrl: 'webhookUrl',
     channelId: 'channelId',
@@ -130,8 +130,8 @@ vi.mock('../db/schema/index.js', () => ({
     updatedAt: 'updatedAt',
   },
   agents: { id: 'id', name: 'name', status: 'status', domain: 'domain', capabilities: 'capabilities', apiKey: 'apiKey', currentTaskId: 'currentTaskId', createdAt: 'createdAt', lastHeartbeat: 'lastHeartbeat', metadata: 'metadata', rateLimitPerMinute: 'rateLimitPerMinute', type: 'type' },
-  tasks: { id: 'id', boardId: 'boardId', columnId: 'columnId', title: 'title', description: 'description', priority: 'priority', labels: 'labels', assignedAgentId: 'assignedAgentId', status: 'status' },
-  boards: { id: 'id', name: 'name' },
+  tasks: { id: 'id', habitatId: 'habitatId', columnId: 'columnId', title: 'title', description: 'description', priority: 'priority', labels: 'labels', assignedAgentId: 'assignedAgentId', status: 'status' },
+  habitats: { id: 'id', name: 'name' },
 }));
 
 vi.mock('uuid', () => ({
@@ -146,13 +146,13 @@ describe('ChatIntegration Repository', () => {
   it('creates and retrieves an integration', async () => {
     const { createIntegration, getIntegrationById } = await import('../repositories/chatIntegration.js');
     const integration = createIntegration({
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       provider: 'slack',
       webhookUrl: 'https://hooks.slack.com/services/test',
       channelId: 'C123',
       events: ['task_created', 'task_claimed'],
     });
-    expect(integration.boardId).toBe('board-1');
+    expect(integration.habitatId).toBe('habitat-1');
     expect(integration.provider).toBe('slack');
     expect(integration.webhookUrl).toBe('https://hooks.slack.com/services/test');
     expect(integration.events).toEqual(['task_created', 'task_claimed']);
@@ -163,19 +163,19 @@ describe('ChatIntegration Repository', () => {
     expect(fetched!.provider).toBe('slack');
   });
 
-  it('lists integrations by board', async () => {
-    const { createIntegration, getIntegrationsByBoard } = await import('../repositories/chatIntegration.js');
-    createIntegration({ boardId: 'board-1', provider: 'slack', webhookUrl: 'https://slack.test' });
-    createIntegration({ boardId: 'board-1', provider: 'discord', webhookUrl: 'https://discord.test' });
-    createIntegration({ boardId: 'board-2', provider: 'slack', webhookUrl: 'https://slack2.test' });
+  it('lists integrations by habitat', async () => {
+    const { createIntegration, getIntegrationsByHabitat } = await import('../repositories/chatIntegration.js');
+    createIntegration({ habitatId: 'habitat-1', provider: 'slack', webhookUrl: 'https://slack.test' });
+    createIntegration({ habitatId: 'habitat-1', provider: 'discord', webhookUrl: 'https://discord.test' });
+    createIntegration({ habitatId: 'habitat-2', provider: 'slack', webhookUrl: 'https://slack2.test' });
 
-    const list = getIntegrationsByBoard('board-1');
+    const list = getIntegrationsByHabitat('habitat-1');
     expect(list.length).toBe(2);
   });
 
   it('updates an integration', async () => {
     const { createIntegration, updateIntegration, getIntegrationById } = await import('../repositories/chatIntegration.js');
-    const integration = createIntegration({ boardId: 'board-1', provider: 'slack', webhookUrl: 'https://old.test' });
+    const integration = createIntegration({ habitatId: 'habitat-1', provider: 'slack', webhookUrl: 'https://old.test' });
     const success = updateIntegration(integration.id, { webhookUrl: 'https://new.test', enabled: false });
     expect(success).toBe(true);
     const updated = getIntegrationById(integration.id);
@@ -185,7 +185,7 @@ describe('ChatIntegration Repository', () => {
 
   it('deletes an integration', async () => {
     const { createIntegration, deleteIntegration, getIntegrationById } = await import('../repositories/chatIntegration.js');
-    const integration = createIntegration({ boardId: 'board-1', provider: 'slack', webhookUrl: 'https://test.test' });
+    const integration = createIntegration({ habitatId: 'habitat-1', provider: 'slack', webhookUrl: 'https://test.test' });
     const success = deleteIntegration(integration.id);
     expect(success).toBe(true);
     const fetched = getIntegrationById(integration.id);
@@ -194,8 +194,8 @@ describe('ChatIntegration Repository', () => {
 
   it('getEnabledIntegrations returns only enabled', async () => {
     const { createIntegration, getEnabledIntegrations } = await import('../repositories/chatIntegration.js');
-    createIntegration({ boardId: 'board-1', provider: 'slack', webhookUrl: 'https://test1.test' });
-    const disabled = createIntegration({ boardId: 'board-1', provider: 'discord', webhookUrl: 'https://test2.test' });
+    createIntegration({ habitatId: 'habitat-1', provider: 'slack', webhookUrl: 'https://test1.test' });
+    const disabled = createIntegration({ habitatId: 'habitat-1', provider: 'discord', webhookUrl: 'https://test2.test' });
     const { updateIntegration } = await import('../repositories/chatIntegration.js');
     updateIntegration(disabled.id, { enabled: false });
     const enabled = getEnabledIntegrations();
@@ -355,11 +355,11 @@ describe('ChatService processEvent', () => {
 
   it('skips unmapped event types', async () => {
     const { processEvent } = await import('../services/chatService.js');
-    await expect(processEvent('board.created', 'board-1', {})).resolves.toBeUndefined();
+    await expect(processEvent('habitat.created', 'habitat-1', {})).resolves.toBeUndefined();
   });
 
   it('skips when no integrations', async () => {
     const { processEvent } = await import('../services/chatService.js');
-    await expect(processEvent('task.created', 'board-1', {})).resolves.toBeUndefined();
+    await expect(processEvent('task.created', 'habitat-1', {})).resolves.toBeUndefined();
   });
 });

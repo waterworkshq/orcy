@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { boardHealthSnapshots } from '../db/schema/index.js';
+import { habitatHealthSnapshots } from '../db/schema/index.js';
 import { desc, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import * as capacityService from './capacityService.js';
@@ -42,8 +42,8 @@ export interface HealthDimensions {
   };
 }
 
-export interface BoardHealthReport {
-  boardId: string;
+export interface HabitatHealthReport {
+  habitatId: string;
   score: number;
   grade: string;
   dimensions: HealthDimensions;
@@ -59,8 +59,8 @@ function getGrade(score: number): string {
   return 'F';
 }
 
-function computeFlowScore(boardId: string): { score: number; cycleTimeTrend: number; throughputTrend: number; wipUtilization: number } {
-  const metrics = timeTrackingRepo.getBoardMetrics(boardId);
+function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: number; throughputTrend: number; wipUtilization: number } {
+  const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
 
   const cycleTimeTrend = 0;
   const throughputTrend = 0;
@@ -68,7 +68,7 @@ function computeFlowScore(boardId: string): { score: number; cycleTimeTrend: num
   let wipScore = 70;
   let wipUtilization = 0;
   try {
-    const dashboardStats = eventDashboard.getDashboardStats(boardId) as any;
+    const dashboardStats = eventDashboard.getDashboardStats(habitatId) as any;
     if (dashboardStats?.wipHealth) {
       const wipValues = Object.values(dashboardStats.wipHealth) as string[];
       const exceeded = wipValues.filter((v: string) => v === 'exceeded').length;
@@ -91,14 +91,14 @@ function computeFlowScore(boardId: string): { score: number; cycleTimeTrend: num
   return { score: flowScore, cycleTimeTrend, throughputTrend, wipUtilization };
 }
 
-function computeQualityScore(boardId: string): { score: number; rejectionRate: number; estimationAccuracy: number; onTimeCompletionRate: number } {
-  const metrics = timeTrackingRepo.getBoardMetrics(boardId);
+function computeQualityScore(habitatId: string): { score: number; rejectionRate: number; estimationAccuracy: number; onTimeCompletionRate: number } {
+  const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
   let rejectionRate = 0;
   let estimationAccuracy = metrics.averageEstimationAccuracy || 1;
   const onTimeCompletionRate = metrics.onTimeCompletionRate;
 
   try {
-    const dashboardStats = eventDashboard.getDashboardStats(boardId) as any;
+    const dashboardStats = eventDashboard.getDashboardStats(habitatId) as any;
     if (dashboardStats?.rejectionRate && typeof dashboardStats.rejectionRate !== 'object') {
       rejectionRate = dashboardStats.rejectionRate;
     }
@@ -120,14 +120,14 @@ function computeQualityScore(boardId: string): { score: number; rejectionRate: n
   return { score: qualityScore, rejectionRate, estimationAccuracy, onTimeCompletionRate };
 }
 
-function computeDeliveryScore(boardId: string): { score: number; overdueTasks: number; atRiskTasks: number; slaCompliance: number } {
-  const metrics = timeTrackingRepo.getBoardMetrics(boardId);
+function computeDeliveryScore(habitatId: string): { score: number; overdueTasks: number; atRiskTasks: number; slaCompliance: number } {
+  const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
   const overdueTasks = metrics.overdueTasks;
 
   let atRiskTasks = 0;
   let slaCompliance = 1;
   try {
-    const predictions = predictionService.getPredictions(boardId);
+    const predictions = predictionService.getPredictions(habitatId);
     atRiskTasks = predictions.atRiskTasks.length;
   } catch {}
 
@@ -143,13 +143,13 @@ function computeDeliveryScore(boardId: string): { score: number; overdueTasks: n
   return { score: deliveryScore, overdueTasks, atRiskTasks, slaCompliance };
 }
 
-function computeCapacityScore(boardId: string): { score: number; agentUtilization: number; agentAvailability: number; backlogToAgentRatio: number } {
+function computeCapacityScore(habitatId: string): { score: number; agentUtilization: number; agentAvailability: number; backlogToAgentRatio: number } {
   let agentUtilization = 0;
   let agentAvailability = 0;
   let backlogToAgentRatio = 0;
 
   try {
-    const capacity = capacityService.getCapacityReport(boardId);
+    const capacity = capacityService.getCapacityReport(habitatId);
     if (capacity) {
       agentUtilization = capacity.summary.averageUtilization;
       agentAvailability = capacity.summary.totalAvailable;
@@ -167,13 +167,13 @@ function computeCapacityScore(boardId: string): { score: number; agentUtilizatio
   return { score: capacityScore, agentUtilization, agentAvailability, backlogToAgentRatio };
 }
 
-function computeStabilityScore(boardId: string): { score: number; anomalyCount: number; criticalAnomalies: number; staleTaskCount: number } {
+function computeStabilityScore(habitatId: string): { score: number; anomalyCount: number; criticalAnomalies: number; staleTaskCount: number } {
   let anomalyCount = 0;
   let criticalAnomalies = 0;
   let staleTaskCount = 0;
 
   try {
-    const anomalies = anomalyService.scanBoard(boardId);
+    const anomalies = anomalyService.scanHabitat(habitatId);
     anomalyCount = anomalies.length;
     criticalAnomalies = anomalies.filter(a => a.severity === 'critical').length;
     staleTaskCount = anomalies.filter(a => a.type === 'stale_in_progress').length;
@@ -229,18 +229,18 @@ function generateRecommendations(score: number, dimensions: HealthDimensions): s
   }
 
   if (recs.length === 0 && score >= 90) {
-    recs.push('Board is healthy — keep up the good work!');
+    recs.push('Habitat is healthy — keep up the good work!');
   }
 
   return recs;
 }
 
-export function calculateHealth(boardId: string): BoardHealthReport {
-  const flow = computeFlowScore(boardId);
-  const quality = computeQualityScore(boardId);
-  const delivery = computeDeliveryScore(boardId);
-  const capacity = computeCapacityScore(boardId);
-  const stability = computeStabilityScore(boardId);
+export function calculateHealth(habitatId: string): HabitatHealthReport {
+  const flow = computeFlowScore(habitatId);
+  const quality = computeQualityScore(habitatId);
+  const delivery = computeDeliveryScore(habitatId);
+  const capacity = computeCapacityScore(habitatId);
+  const stability = computeStabilityScore(habitatId);
 
   const score = Math.round(
     flow.score * 0.25 +
@@ -259,9 +259,9 @@ export function calculateHealth(boardId: string): BoardHealthReport {
   const id = uuid();
 
   try {
-    db.insert(boardHealthSnapshots).values({
+    db.insert(habitatHealthSnapshots).values({
       id,
-      boardId,
+      habitatId,
       score,
       grade: grade as 'A' | 'B' | 'C' | 'D' | 'F',
       dimensions: JSON.stringify(dimensions),
@@ -278,23 +278,23 @@ export function calculateHealth(boardId: string): BoardHealthReport {
     }).run();
   } catch {}
 
-  return { boardId, score, grade, dimensions, recommendations, snapshotAt };
+  return { habitatId, score, grade, dimensions, recommendations, snapshotAt };
 }
 
-export function getCurrentHealth(boardId: string): BoardHealthReport | null {
+export function getCurrentHealth(habitatId: string): HabitatHealthReport | null {
   const db = getDb();
   const row = db
     .select()
-    .from(boardHealthSnapshots)
-    .where(eq(boardHealthSnapshots.boardId, boardId))
-    .orderBy(desc(boardHealthSnapshots.snapshotAt))
+    .from(habitatHealthSnapshots)
+    .where(eq(habitatHealthSnapshots.habitatId, habitatId))
+    .orderBy(desc(habitatHealthSnapshots.snapshotAt))
     .limit(1)
     .get();
 
   if (!row) return null;
 
   return {
-    boardId: row.boardId,
+    habitatId: row.habitatId,
     score: row.score,
     grade: row.grade,
     dimensions: JSON.parse(row.dimensions),
@@ -303,21 +303,21 @@ export function getCurrentHealth(boardId: string): BoardHealthReport | null {
   };
 }
 
-export function getHealthHistory(boardId: string, days = 30): BoardHealthReport[] {
+export function getHealthHistory(habitatId: string, days = 30): HabitatHealthReport[] {
   const db = getDb();
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   const rows = db
     .select()
-    .from(boardHealthSnapshots)
+    .from(habitatHealthSnapshots)
     .where(
-      sql`${boardHealthSnapshots.boardId} = ${boardId} AND ${boardHealthSnapshots.snapshotAt} >= ${since}`
+      sql`${habitatHealthSnapshots.habitatId} = ${habitatId} AND ${habitatHealthSnapshots.snapshotAt} >= ${since}`
     )
-    .orderBy(desc(boardHealthSnapshots.snapshotAt))
+    .orderBy(desc(habitatHealthSnapshots.snapshotAt))
     .all();
 
   return rows.map(row => ({
-    boardId: row.boardId,
+    habitatId: row.habitatId,
     score: row.score,
     grade: row.grade,
     dimensions: JSON.parse(row.dimensions),

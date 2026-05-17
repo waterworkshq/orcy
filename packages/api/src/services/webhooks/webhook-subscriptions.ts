@@ -6,7 +6,7 @@ import { generateSecret } from '../../utils/webhookSigning.js';
 
 export interface WebhookSubscription {
   id: string;
-  boardId: string | null;
+  habitatId: string | null;
   name: string;
   url: string;
   secret: string | null;
@@ -17,7 +17,7 @@ export interface WebhookSubscription {
 }
 
 export function createWebhookSubscription(
-  boardId: string | null,
+  habitatId: string | null,
   name: string,
   url: string,
   format: 'standard' | 'slack' | 'discord',
@@ -31,7 +31,7 @@ export function createWebhookSubscription(
 
   db.insert(webhookSubscriptions).values({
     id,
-    boardId,
+    habitatId,
     name,
     url,
     secret,
@@ -45,7 +45,7 @@ export function createWebhookSubscription(
 
   return {
     id,
-    boardId,
+    habitatId,
     name,
     url,
     secret,
@@ -56,16 +56,16 @@ export function createWebhookSubscription(
   };
 }
 
-export function getWebhookSubscriptions(boardId?: string | null): WebhookSubscription[] {
+export function getWebhookSubscriptions(habitatId?: string | null): WebhookSubscription[] {
   const db = getDb();
 
-  if (boardId === undefined) {
+  if (habitatId === undefined) {
     return db.select().from(webhookSubscriptions).all();
-  } else if (boardId === null) {
-    return db.select().from(webhookSubscriptions).where(isNull(webhookSubscriptions.boardId)).all();
+  } else if (habitatId === null) {
+    return db.select().from(webhookSubscriptions).where(isNull(webhookSubscriptions.habitatId)).all();
   } else {
     return db.select().from(webhookSubscriptions).where(
-      or(eq(webhookSubscriptions.boardId, boardId), isNull(webhookSubscriptions.boardId))
+      or(eq(webhookSubscriptions.habitatId, habitatId), isNull(webhookSubscriptions.habitatId))
     ).all();
   }
 }

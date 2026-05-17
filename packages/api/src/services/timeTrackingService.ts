@@ -1,6 +1,6 @@
 import * as timeRepo from '../repositories/timeTracking.js';
 import * as taskRepo from '../repositories/task.js';
-import type { TaskTimeReport, TaskTimeRecord, BoardMetrics } from '../models/index.js';
+import type { TaskTimeReport, TaskTimeRecord, HabitatMetrics } from '../models/index.js';
 
 export function recordWork(
   taskId: string,
@@ -19,7 +19,7 @@ export function recordWork(
 
   const task = taskRepo.getTaskById(taskId);
   if (task) {
-    timeRepo.recalculateFeatureMetrics(task.featureId);
+    timeRepo.recalculateMissionMetrics(task.missionId);
   }
 
   return record;
@@ -42,8 +42,8 @@ export function getTaskTimeReport(taskId: string): TaskTimeReport | null {
   };
 }
 
-export function getBoardMetrics(boardId: string): BoardMetrics {
-  return timeRepo.getBoardMetrics(boardId);
+export function getHabitatMetrics(habitatId: string): HabitatMetrics {
+  return timeRepo.getHabitatMetrics(habitatId);
 }
 
 export function calculateAndSetCompletionMetrics(taskId: string): void {
@@ -75,5 +75,5 @@ export function calculateAndSetCompletionMetrics(taskId: string): void {
     completedAt: now,
   });
 
-  timeRepo.recalculateFeatureMetrics(task.featureId);
+  timeRepo.recalculateMissionMetrics(task.missionId);
 }

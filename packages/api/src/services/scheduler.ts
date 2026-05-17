@@ -2,12 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { releaseStaleTasks } from './agentService.js';
 import { startRetryProcessor as startTaskRetryProcessor } from './retryService.js';
 import { startPresenceCleanup } from '../sse/presence.js';
-import { scanAllBoards } from './anomalyService.js';
-import { archiveAllBoards, archiveOldEvents } from './auditArchivalService.js';
-import { applyAllBoards } from './prioritizationService.js';
+import { scanAllHabitats } from './anomalyService.js';
+import { archiveAllHabitats, archiveOldEvents } from './auditArchivalService.js';
+import { applyAllHabitats } from './prioritizationService.js';
 import { startScheduledTaskProcessor as startScheduledTaskPoller } from './scheduledTaskService.js';
 import { getDb } from '../db/index.js';
-import { tasks, features } from '../db/schema/index.js';
+import { tasks, missions } from '../db/schema/index.js';
 import { and, or, sql, notInArray, eq } from 'drizzle-orm';
 import { nowExpr } from '../db/dialect-helpers.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
@@ -21,13 +21,13 @@ export function checkOverdueTasks(
   try {
     const db = getDb();
     const nowSql = nowExpr();
-    const overdueRows = db.select({ id: tasks.id, boardId: features.boardId })
+    const overdueRows = db.select({ id: tasks.id, habitatId: missions.habitatId })
       .from(tasks)
-      .innerJoin(features, eq(tasks.featureId, features.id))
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
       .where(
         and(
           notInArray(tasks.status, ['done', 'approved', 'failed']),
-          or(sql`${features.dueAt} < ${nowSql}`, sql`${features.slaDeadlineAt} < ${nowSql}`)
+          or(sql`${missions.dueAt} < ${nowSql}`, sql`${missions.slaDeadlineAt} < ${nowSql}`)
         )
       )
       .all();
@@ -38,9 +38,9 @@ export function checkOverdueTasks(
 
     for (const row of overdueRows) {
       if (!notifiedIds.has(row.id)) {
-        sseBroadcaster.publish(row.boardId, {
+        sseBroadcaster.publish(row.habitatId, {
           type: 'task.overdue',
-          data: { taskId: row.id, boardId: row.boardId, detectedAt: now },
+          data: { taskId: row.id, habitatId: row.habitatId, detectedAt: now },
         });
         published++;
       }
@@ -85,7 +85,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
 
   intervals.push(setInterval(() => {
     try {
-      scanAllBoards();
+      scanAllHabitats();
     } catch (err) {
       fastify.log.error({ err }, 'Error scanning for anomalies');
     }
@@ -93,7 +93,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
 
   intervals.push(setInterval(() => {
     try {
-      const results = archiveAllBoards();
+      const results = archiveAllHabitats();
       if (results.length > 0) {
         fastify.log.info({ results }, 'Audit archival completed');
       }
@@ -104,7 +104,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
 
   intervals.push(setInterval(() => {
     try {
-      const results = applyAllBoards();
+      const results = applyAllHabitats();
       if (results.length > 0) {
         fastify.log.info({ count: results.length }, 'Prioritization evaluation completed');
       }

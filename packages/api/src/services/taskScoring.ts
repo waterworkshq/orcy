@@ -1,5 +1,5 @@
 import type { Task, TaskPriority } from '../models/index.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 
 export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
   critical: 40,
@@ -19,9 +19,9 @@ export function scoreTask(
   agentCapabilities?: string[]
 ): number {
   const priorityWeight = PRIORITY_WEIGHTS[task.priority] ?? 20;
-  const feature = task.featureId ? featureRepo.getFeatureById(task.featureId) : null;
-  const urgencyWeight = computeUrgencyWeight(feature?.dueAt ?? null);
-  const slaUrgencyWeight = computeSlaUrgencyWeight(feature?.slaDeadlineAt ?? null);
+  const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
+  const urgencyWeight = computeUrgencyWeight(mission?.dueAt ?? null);
+  const slaUrgencyWeight = computeSlaUrgencyWeight(mission?.slaDeadlineAt ?? null);
   const ageWeight = computeAgeWeight(task.createdAt);
   const capabilityWeight = computeCapabilityWeight(
     task,

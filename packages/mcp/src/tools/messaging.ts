@@ -52,7 +52,7 @@ export const BOARD_SEND_MESSAGE_TOOL: Tool = {
   },
 };
 
-export async function boardSendMessage(
+export async function habitatSendMessage(
   client: KanbanApiClient,
   args: { toAgentId?: string; toAgentName?: string; boardId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' }
 ) {
@@ -113,7 +113,7 @@ export const BOARD_GET_MESSAGES_TOOL: Tool = {
   },
 };
 
-export async function boardGetMessages(
+export async function habitatGetMessages(
   client: KanbanApiClient,
   args: { unreadOnly?: boolean; taskId?: string; limit?: number; offset?: number }
 ) {

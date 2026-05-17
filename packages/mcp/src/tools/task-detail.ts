@@ -23,7 +23,7 @@ export const BOARD_GET_TASK_CONTEXT_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskContext(
+export async function habitatGetTaskContext(
   client: KanbanApiClient,
   args: { taskId: string }
 ): Promise<TaskContext & { task: EnrichedTaskEvent extends any ? any : never }> {
@@ -60,7 +60,7 @@ export const BOARD_GET_TASK_EVENTS_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskEvents(
+export async function habitatGetTaskEvents(
   client: KanbanApiClient,
   args: { taskId: string; limit?: number; offset?: number }
 ): Promise<{ events: EnrichedTaskEvent[]; total: number }> {
@@ -103,7 +103,7 @@ export const BOARD_GET_TASK_COMMENTS_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskComments(
+export async function habitatGetTaskComments(
   client: KanbanApiClient,
   args: { taskId: string; limit?: number; offset?: number }
 ): Promise<{ comments: EnrichedComment[]; total: number }> {
@@ -145,7 +145,7 @@ export const BOARD_ADD_TASK_COMMENT_TOOL: Tool = {
   },
 };
 
-export async function boardAddTaskComment(
+export async function habitatAddTaskComment(
   client: KanbanApiClient,
   args: { taskId: string; content: string; parentId?: string }
 ) {

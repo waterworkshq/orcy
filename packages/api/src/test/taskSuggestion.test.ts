@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { Task, TaskPriority, Feature, Agent } from '../models/index.js';
+import type { Task, TaskPriority, Mission, Agent } from '../models/index.js';
 import { scoreTask, computeSlaUrgencyWeight, computeCapabilityWeight } from '../services/taskScoring.js';
 
-const mockGetFeatureById = vi.hoisted(() => vi.fn<(featureId: string) => Feature | null>().mockReturnValue(null));
+const mockGetMissionById = vi.hoisted(() => vi.fn<(missionId: string) => Mission | null>().mockReturnValue(null));
 
 vi.mock('../repositories/feature.js', () => ({
-  getFeatureById: mockGetFeatureById,
+  getMissionById: mockGetMissionById,
 }));
 
-function makeFeature(overrides?: Partial<Feature>): Feature {
+function makeMission(overrides?: Partial<Mission>): Mission {
   const now = new Date().toISOString();
   return {
-    id: 'feat-1', boardId: 'board-1', columnId: 'col-1',
+    id: 'feat-1', habitatId: 'habitat-1', columnId: 'col-1',
     title: 'Test', description: '', acceptanceCriteria: '',
     priority: 'medium', labels: [], status: 'not_started',
     displayOrder: 0, dependsOn: [], blocks: [],
@@ -25,7 +25,7 @@ function makeFeature(overrides?: Partial<Feature>): Feature {
 
 function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'title' | 'priority' | 'createdAt'>): Task {
   return {
-    featureId: 'feat-1',
+    missionId: 'feat-1',
     description: '',
     assignedAgentId: null,
     delegatedToAgentId: null,
@@ -68,15 +68,15 @@ describe('taskSuggestion scoring factors', () => {
 
   it('overdue task scores higher than non-overdue', () => {
     const now = new Date().toISOString();
-    mockGetFeatureById.mockImplementation((id: string) => {
-      if (id === 'feat-overdue') return makeFeature({ dueAt: new Date(Date.now() - 86400000).toISOString() });
-      return makeFeature({ dueAt: null });
+    mockGetMissionById.mockImplementation((id: string) => {
+      if (id === 'feat-overdue') return makeMission({ dueAt: new Date(Date.now() - 86400000).toISOString() });
+      return makeMission({ dueAt: null });
     });
     const overdue = makeTask({
-      id: '1', title: 'overdue', priority: 'medium', createdAt: now, featureId: 'feat-overdue',
+      id: '1', title: 'overdue', priority: 'medium', createdAt: now, missionId: 'feat-overdue',
     });
     const future = makeTask({
-      id: '2', title: 'future', priority: 'medium', createdAt: now, featureId: 'feat-future',
+      id: '2', title: 'future', priority: 'medium', createdAt: now, missionId: 'feat-future',
     });
 
     expect(scoreTask(overdue)).toBeGreaterThan(scoreTask(future));
@@ -175,7 +175,7 @@ describe('taskSuggestion scoring factors', () => {
 
   it('combined factors produce higher scores for well-matched tasks', () => {
     const now = new Date().toISOString();
-    mockGetFeatureById.mockReturnValue(makeFeature({ dueAt: null }));
+    mockGetMissionById.mockReturnValue(makeMission({ dueAt: null }));
     const wellMatched = makeTask({
       id: '1', title: 'matched', priority: 'critical', createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
       requiredDomain: 'backend',
@@ -207,16 +207,16 @@ describe('SLA urgency is not double-counted', () => {
   it('scoreTask already includes SLA urgency weight', () => {
     const now = new Date().toISOString();
     const breachedSla = new Date(Date.now() - 1000).toISOString();
-    mockGetFeatureById.mockImplementation((id: string) => {
-      if (id === 'feat-sla') return makeFeature({ slaDeadlineAt: breachedSla });
-      return makeFeature({ slaDeadlineAt: null });
+    mockGetMissionById.mockImplementation((id: string) => {
+      if (id === 'feat-sla') return makeMission({ slaDeadlineAt: breachedSla });
+      return makeMission({ slaDeadlineAt: null });
     });
 
     const slaTask = makeTask({
-      id: 'sla', title: 'sla', priority: 'medium', createdAt: now, featureId: 'feat-sla',
+      id: 'sla', title: 'sla', priority: 'medium', createdAt: now, missionId: 'feat-sla',
     });
     const noSlaTask = makeTask({
-      id: 'nosla', title: 'nosla', priority: 'medium', createdAt: now, featureId: 'feat-nosla',
+      id: 'nosla', title: 'nosla', priority: 'medium', createdAt: now, missionId: 'feat-nosla',
     });
 
     const scoreDiff = scoreTask(slaTask) - scoreTask(noSlaTask);
@@ -226,16 +226,16 @@ describe('SLA urgency is not double-counted', () => {
   it('scoreTask SLA contribution is exactly computeSlaUrgencyWeight output', () => {
     const now = new Date().toISOString();
     const within24h = new Date(Date.now() + 12 * 3600000).toISOString();
-    mockGetFeatureById.mockImplementation((id: string) => {
-      if (id === 'feat-sla') return makeFeature({ slaDeadlineAt: within24h });
-      return makeFeature({ slaDeadlineAt: null });
+    mockGetMissionById.mockImplementation((id: string) => {
+      if (id === 'feat-sla') return makeMission({ slaDeadlineAt: within24h });
+      return makeMission({ slaDeadlineAt: null });
     });
 
     const slaTask = makeTask({
-      id: 'sla', title: 'sla', priority: 'low', createdAt: now, featureId: 'feat-sla',
+      id: 'sla', title: 'sla', priority: 'low', createdAt: now, missionId: 'feat-sla',
     });
     const noSlaTask = makeTask({
-      id: 'nosla', title: 'nosla', priority: 'low', createdAt: now, featureId: 'feat-nosla',
+      id: 'nosla', title: 'nosla', priority: 'low', createdAt: now, missionId: 'feat-nosla',
     });
 
     const expectedWeight = computeSlaUrgencyWeight(within24h);

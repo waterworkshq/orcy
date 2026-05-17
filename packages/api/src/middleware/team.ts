@@ -1,29 +1,29 @@
-export { authorizeBoardAccess as requireBoardAccess } from './realtimeAuth.js';
+export { authorizeHabitatAccess as requireHabitatAccess } from './realtimeAuth.js';
 
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { isTeamMemberByBoardId, getMember } from '../repositories/teamMember.js';
+import { isTeamMemberByHabitatId, getMember } from '../repositories/teamMember.js';
 import { getTeamById } from '../repositories/team.js';
 import { unauthorized, forbidden, badRequest, notFound } from '../errors.js';
 
-export async function teamBoardAccess(
+export async function teamHabitatAccess(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
   if (!request.user) return;
 
-  const boardId = (request.params as { id: string }).id;
-  if (!boardId) return;
+  const habitatId = (request.params as { id: string }).id;
+  if (!habitatId) return;
 
-  const isMember = isTeamMemberByBoardId(boardId, request.user.id);
+  const isMember = isTeamMemberByHabitatId(habitatId, request.user.id);
   if (isMember) return;
 
-  const { getBoardById } = await import('../repositories/board.js');
-  const board = getBoardById(boardId);
-  if (!board) return;
+  const { getHabitatById } = await import('../repositories/board.js');
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) return;
 
-  if (!board.teamId) return;
+  if (!habitat.teamId) return;
 
-  throw forbidden('You do not have access to this board', 'BOARD_ACCESS_DENIED');
+  throw forbidden('You do not have access to this habitat', 'BOARD_ACCESS_DENIED');
 }
 
 export async function teamAdminOrOwner(

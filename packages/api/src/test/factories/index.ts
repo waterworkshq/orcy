@@ -1,6 +1,6 @@
 export { makeTask } from './task.js';
-export { makeFeature } from './feature.js';
-export { makeBoard } from './board.js';
+export { makeMission } from './feature.js';
+export { makeHabitat } from './board.js';
 export { makeColumn } from './column.js';
 export { makeAgent } from './agent.js';
 export { makeTaskEvent } from './event.js';

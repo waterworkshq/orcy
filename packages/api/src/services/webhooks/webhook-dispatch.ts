@@ -27,13 +27,13 @@ function formatPayload(format: WebhookSubscription['format'], enrichment: EventE
   return formatter(enrichment, eventType, deliveryId);
 }
 
-function getSubscriptionsForEvent(boardId: string, eventType: string): WebhookSubscription[] {
+function getSubscriptionsForEvent(habitatId: string, eventType: string): WebhookSubscription[] {
   const db = getDb();
 
   const allSubs = db.select()
     .from(webhookSubscriptions)
     .where(and(
-      or(eq(webhookSubscriptions.boardId, boardId), isNull(webhookSubscriptions.boardId)),
+      or(eq(webhookSubscriptions.habitatId, habitatId), isNull(webhookSubscriptions.habitatId)),
       eq(webhookSubscriptions.enabled, 1)
     ))
     .all();
@@ -51,9 +51,9 @@ function getSubscriptionsForEvent(boardId: string, eventType: string): WebhookSu
 async function dispatchToSubscription(
   subscription: WebhookSubscription,
   event: SSEEvent,
-  boardId: string
+  habitatId: string
 ): Promise<void> {
-  const enrichment = enrichEvent(boardId, event);
+  const enrichment = enrichEvent(habitatId, event);
   const eventType = event.type;
   const deliveryId = uuid();
 
@@ -67,11 +67,11 @@ async function dispatchToSubscription(
   handleDeliveryOutcome(deliveryId, result, 1);
 }
 
-export async function dispatchWebhooks(boardId: string, event: SSEEvent): Promise<void> {
-  const subscriptions = getSubscriptionsForEvent(boardId, event.type);
+export async function dispatchWebhooks(habitatId: string, event: SSEEvent): Promise<void> {
+  const subscriptions = getSubscriptionsForEvent(habitatId, event.type);
 
   for (const subscription of subscriptions) {
-    dispatchToSubscription(subscription, event, boardId).catch(err => {
+    dispatchToSubscription(subscription, event, habitatId).catch(err => {
       logger.error({ err, subscriptionId: subscription.id }, 'Webhook dispatch error');
     });
   }

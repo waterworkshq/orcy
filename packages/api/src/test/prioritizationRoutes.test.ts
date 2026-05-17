@@ -42,7 +42,7 @@ vi.mock('../services/prioritizationService.js', () => ({
     fallbackToManual: true,
   })),
   applyPrioritization: vi.fn(() => ({
-    boardId: 'board-1',
+    habitatId: 'habitat-1',
     evaluatedTasks: 0,
     changedTasks: 0,
     results: [],
@@ -51,16 +51,16 @@ vi.mock('../services/prioritizationService.js', () => ({
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  getBoardById: vi.fn(() => ({
-    id: 'board-1',
-    name: 'Test Board',
+  getHabitatById: vi.fn(() => ({
+    id: 'habitat-1',
+    name: 'Test Habitat',
     prioritizationSettings: null,
   })),
-  updateBoard: vi.fn(),
+  updateHabitat: vi.fn(),
 }));
 
 vi.mock('../repositories/task.js', () => ({
-  getTasksByBoardId: vi.fn(() => ({ tasks: [], total: 0 })),
+  getTasksByHabitatId: vi.fn(() => ({ tasks: [], total: 0 })),
 }));
 
 vi.mock('../middleware/auth.js', () => ({
@@ -69,7 +69,7 @@ vi.mock('../middleware/auth.js', () => ({
 }));
 
 vi.mock('../middleware/team.js', () => ({
-  requireBoardAccess: vi.fn((_req: any, _reply: any, done: any) => done()),
+  requireHabitatAccess: vi.fn((_req: any, _reply: any, done: any) => done()),
 }));
 
 vi.mock('../errors.js', () => ({
@@ -87,27 +87,27 @@ describe('prioritizationRoutes', () => {
     expect(routes).toHaveLength(4);
   });
 
-  it('registers GET /boards/:id/rules', () => {
+  it('registers GET /habitats/:habitatId/rules', () => {
     const routes = capturePrioritizationRoutes();
-    const route = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/rules');
+    const route = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/rules');
     expect(route).toBeDefined();
   });
 
-  it('registers PUT /boards/:id/rules', () => {
+  it('registers PUT /habitats/:habitatId/rules', () => {
     const routes = capturePrioritizationRoutes();
-    const route = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const route = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
     expect(route).toBeDefined();
   });
 
-  it('registers POST /boards/:id/rules/evaluate', () => {
+  it('registers POST /habitats/:habitatId/rules/evaluate', () => {
     const routes = capturePrioritizationRoutes();
-    const route = routes.find(r => r.method === 'POST' && r.path === '/boards/:id/rules/evaluate');
+    const route = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/rules/evaluate');
     expect(route).toBeDefined();
   });
 
-  it('registers GET /boards/:id/priority-report', () => {
+  it('registers GET /habitats/:habitatId/priority-report', () => {
     const routes = capturePrioritizationRoutes();
-    const route = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/priority-report');
+    const route = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/priority-report');
     expect(route).toBeDefined();
   });
 });
@@ -116,66 +116,66 @@ describe('prioritization route auth', () => {
   it('GET /rules uses agentOrHumanAuth', async () => {
     const { agentOrHumanAuth } = await import('../middleware/auth.js');
     const routes = capturePrioritizationRoutes();
-    const getRules = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/rules');
+    const getRules = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/rules');
     expect(getRules!.preHandler).toContain(agentOrHumanAuth);
   });
 
   it('PUT /rules uses humanAuth', async () => {
     const { humanAuth } = await import('../middleware/auth.js');
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
     expect(putRules!.preHandler).toContain(humanAuth);
   });
 
   it('POST /rules/evaluate uses humanAuth', async () => {
     const { humanAuth } = await import('../middleware/auth.js');
     const routes = capturePrioritizationRoutes();
-    const evaluate = routes.find(r => r.method === 'POST' && r.path === '/boards/:id/rules/evaluate');
+    const evaluate = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/rules/evaluate');
     expect(evaluate!.preHandler).toContain(humanAuth);
   });
 
   it('GET /priority-report uses agentOrHumanAuth', async () => {
     const { agentOrHumanAuth } = await import('../middleware/auth.js');
     const routes = capturePrioritizationRoutes();
-    const report = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/priority-report');
+    const report = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/priority-report');
     expect(report!.preHandler).toContain(agentOrHumanAuth);
   });
 
-  it('all endpoints require board access', async () => {
-    const { requireBoardAccess } = await import('../middleware/team.js');
+  it('all endpoints require habitat access', async () => {
+    const { requireHabitatAccess } = await import('../middleware/team.js');
     const routes = capturePrioritizationRoutes();
     for (const route of routes) {
-      expect(route.preHandler).toContain(requireBoardAccess);
+      expect(route.preHandler).toContain(requireHabitatAccess);
     }
   });
 });
 
-describe('GET /boards/:id/rules handler', () => {
+describe('GET /habitats/:habitatId/rules handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('returns current rules', async () => {
     const routes = capturePrioritizationRoutes();
-    const getRules = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/rules');
+    const getRules = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/rules');
     const { getPrioritizationRules } = await import('../services/prioritizationService.js');
 
     const reply: any = {};
-    const result = await getRules!.handler({ params: { id: 'board-1' } } as any, reply);
-    expect(getPrioritizationRules).toHaveBeenCalledWith('board-1');
+    const result = await getRules!.handler({ params: { habitatId: 'habitat-1' } } as any, reply);
+    expect(getPrioritizationRules).toHaveBeenCalledWith('habitat-1');
     expect(result).toHaveProperty('rules');
   });
 });
 
-describe('PUT /boards/:id/rules handler', () => {
+describe('PUT /habitats/:habitatId/rules handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('saves prioritization rules to board settings', async () => {
+  it('saves prioritization rules to habitat settings', async () => {
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
-    const { updateBoard } = await import('../repositories/board.js');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
+    const { updateHabitat } = await import('../repositories/board.js');
 
     const newRules = {
       enabled: true,
@@ -192,26 +192,26 @@ describe('PUT /boards/:id/rules handler', () => {
     };
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
-    await putRules!.handler({ params: { id: 'board-1' }, body: newRules } as any, reply);
-    expect(updateBoard).toHaveBeenCalledWith('board-1', { prioritizationSettings: expect.objectContaining(newRules) });
+    await putRules!.handler({ params: { habitatId: 'habitat-1' }, body: newRules } as any, reply);
+    expect(updateHabitat).toHaveBeenCalledWith('habitat-1', { prioritizationSettings: expect.objectContaining(newRules) });
   });
 
   it('returns 400 for invalid payload', async () => {
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
-    await putRules!.handler({ params: { id: 'board-1' }, body: { rules: 'invalid' } } as any, reply);
+    await putRules!.handler({ params: { habitatId: 'habitat-1' }, body: { rules: 'invalid' } } as any, reply);
     expect(reply.status).toHaveBeenCalledWith(400);
   });
 
   it('returns 400 when rule has missing fields', async () => {
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
     await putRules!.handler({
-      params: { id: 'board-1' },
+      params: { habitatId: 'habitat-1' },
       body: {
         rules: [{
           completely: 'wrong',
@@ -224,11 +224,11 @@ describe('PUT /boards/:id/rules handler', () => {
 
   it('returns 400 when rule condition has invalid type', async () => {
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
     await putRules!.handler({
-      params: { id: 'board-1' },
+      params: { habitatId: 'habitat-1' },
       body: {
         rules: [{
           id: 'r-1',
@@ -245,11 +245,11 @@ describe('PUT /boards/:id/rules handler', () => {
 
   it('returns 400 when rule action has mismatched value type', async () => {
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
     await putRules!.handler({
-      params: { id: 'board-1' },
+      params: { habitatId: 'habitat-1' },
       body: {
         rules: [{
           id: 'r-1',
@@ -266,12 +266,12 @@ describe('PUT /boards/:id/rules handler', () => {
 
   it('accepts rules with recursive and condition', async () => {
     const routes = capturePrioritizationRoutes();
-    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/boards/:id/rules');
-    const { updateBoard } = await import('../repositories/board.js');
+    const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
+    const { updateHabitat } = await import('../repositories/board.js');
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
     await putRules!.handler({
-      params: { id: 'board-1' },
+      params: { habitatId: 'habitat-1' },
       body: {
         enabled: true,
         rules: [{
@@ -290,38 +290,38 @@ describe('PUT /boards/:id/rules handler', () => {
         }],
       },
     } as any, reply);
-    expect(updateBoard).toHaveBeenCalled();
+    expect(updateHabitat).toHaveBeenCalled();
   });
 });
 
-describe('POST /boards/:id/rules/evaluate handler', () => {
+describe('POST /habitats/:habitatId/rules/evaluate handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('triggers evaluation and returns results', async () => {
     const routes = capturePrioritizationRoutes();
-    const evaluate = routes.find(r => r.method === 'POST' && r.path === '/boards/:id/rules/evaluate');
+    const evaluate = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/rules/evaluate');
     const { applyPrioritization } = await import('../services/prioritizationService.js');
 
     const reply: any = {};
-    const result = await evaluate!.handler({ params: { id: 'board-1' } } as any, reply);
-    expect(applyPrioritization).toHaveBeenCalledWith('board-1');
+    const result = await evaluate!.handler({ params: { habitatId: 'habitat-1' } } as any, reply);
+    expect(applyPrioritization).toHaveBeenCalledWith('habitat-1');
     expect(result).toHaveProperty('evaluation');
   });
 });
 
-describe('GET /boards/:id/priority-report handler', () => {
+describe('GET /habitats/:habitatId/priority-report handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('returns distribution counts with default limit', async () => {
     const routes = capturePrioritizationRoutes();
-    const report = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/priority-report');
-    const { getTasksByBoardId } = await import('../repositories/task.js');
+    const report = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/priority-report');
+    const { getTasksByHabitatId } = await import('../repositories/task.js');
 
-    (getTasksByBoardId as any).mockReturnValue({
+    (getTasksByHabitatId as any).mockReturnValue({
       tasks: [
         { id: 't1', priority: 'high' },
         { id: 't2', priority: 'high' },
@@ -331,10 +331,10 @@ describe('GET /boards/:id/priority-report handler', () => {
     });
 
     const reply: any = {};
-    const result = await report!.handler({ params: { id: 'board-1' }, query: {} } as any, reply);
-    expect(getTasksByBoardId).toHaveBeenCalledWith('board-1', { limit: 500 });
+    const result = await report!.handler({ params: { habitatId: 'habitat-1' }, query: {} } as any, reply);
+    expect(getTasksByHabitatId).toHaveBeenCalledWith('habitat-1', { limit: 500 });
     expect(result).toEqual({
-      boardId: 'board-1',
+      habitatId: 'habitat-1',
       totalTasks: 3,
       distribution: { high: 2, low: 1 },
       ruleHits: {},
@@ -342,27 +342,27 @@ describe('GET /boards/:id/priority-report handler', () => {
     });
   });
 
-  it('forwards custom limit to getTasksByBoardId', async () => {
+  it('forwards custom limit to getTasksByHabitatId', async () => {
     const routes = capturePrioritizationRoutes();
-    const report = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/priority-report');
-    const { getTasksByBoardId } = await import('../repositories/task.js');
+    const report = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/priority-report');
+    const { getTasksByHabitatId } = await import('../repositories/task.js');
 
-    (getTasksByBoardId as any).mockReturnValue({ tasks: [], total: 0 });
+    (getTasksByHabitatId as any).mockReturnValue({ tasks: [], total: 0 });
 
     const reply: any = {};
-    await report!.handler({ params: { id: 'board-1' }, query: { limit: '100' } } as any, reply);
-    expect(getTasksByBoardId).toHaveBeenCalledWith('board-1', { limit: 100 });
+    await report!.handler({ params: { habitatId: 'habitat-1' }, query: { limit: '100' } } as any, reply);
+    expect(getTasksByHabitatId).toHaveBeenCalledWith('habitat-1', { limit: 100 });
   });
 
   it('clamps limit to max of 2000', async () => {
     const routes = capturePrioritizationRoutes();
-    const report = routes.find(r => r.method === 'GET' && r.path === '/boards/:id/priority-report');
-    const { getTasksByBoardId } = await import('../repositories/task.js');
+    const report = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/priority-report');
+    const { getTasksByHabitatId } = await import('../repositories/task.js');
 
-    (getTasksByBoardId as any).mockReturnValue({ tasks: [], total: 0 });
+    (getTasksByHabitatId as any).mockReturnValue({ tasks: [], total: 0 });
 
     const reply: any = {};
-    await report!.handler({ params: { id: 'board-1' }, query: { limit: '99999' } } as any, reply);
-    expect(getTasksByBoardId).toHaveBeenCalledWith('board-1', { limit: 2000 });
+    await report!.handler({ params: { habitatId: 'habitat-1' }, query: { limit: '99999' } } as any, reply);
+    expect(getTasksByHabitatId).toHaveBeenCalledWith('habitat-1', { limit: 2000 });
   });
 });

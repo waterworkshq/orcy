@@ -1,16 +1,16 @@
 import { getDb } from '../db/index.js';
 import { habitats, columns, missions } from '../db/schema/index.js';
 import { eq, and, like, or, isNull, inArray, sql, desc } from 'drizzle-orm';
-import type { Board, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings, PrioritizationSettings } from '../models/index.js';
+import type { Habitat, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings, PrioritizationSettings } from '../models/index.js';
 import { v4 as uuid } from 'uuid';
 
-export interface CreateBoardInput {
+export interface CreateHabitatInput {
   name: string;
   description?: string;
   teamId?: string | null;
 }
 
-export interface UpdateBoardInput {
+export interface UpdateHabitatInput {
   name?: string;
   description?: string;
   retrySettings?: RetryPolicy | null;
@@ -21,7 +21,7 @@ export interface UpdateBoardInput {
   prioritizationSettings?: PrioritizationSettings | null;
 }
 
-export function createBoard(input: CreateBoardInput): Board {
+export function createHabitat(input: CreateHabitatInput): Habitat {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
@@ -35,10 +35,10 @@ export function createBoard(input: CreateBoardInput): Board {
     teamId: input.teamId ?? null,
   }).run();
 
-  return getBoardById(id)!;
+  return getHabitatById(id)!;
 }
 
-export function getBoardById(id: string): Board | null {
+export function getHabitatById(id: string): Habitat | null {
   const db = getDb();
   const row = db
     .select()
@@ -48,7 +48,7 @@ export function getBoardById(id: string): Board | null {
   return row ?? null;
 }
 
-export function listBoards(name?: string, teamIds?: string[]): Board[] {
+export function listHabitats(name?: string, teamIds?: string[]): Habitat[] {
   const db = getDb();
 
   const conditions = [];
@@ -72,7 +72,7 @@ export function listBoards(name?: string, teamIds?: string[]): Board[] {
     .all();
 }
 
-export function updateBoard(id: string, input: UpdateBoardInput): Board | null {
+export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | null {
   const db = getDb();
   const values: Partial<typeof habitats.$inferInsert> = {};
   values.updatedAt = new Date().toISOString();
@@ -90,23 +90,23 @@ export function updateBoard(id: string, input: UpdateBoardInput): Board | null {
     .set(values)
     .where(eq(habitats.id, id))
     .run();
-  return getBoardById(id);
+  return getHabitatById(id);
 }
 
-export function deleteBoard(id: string): void {
+export function deleteHabitat(id: string): void {
   const db = getDb();
   db.delete(habitats).where(eq(habitats.id, id)).run();
 }
 
-export function getBoardWithColumnsAndTasks(boardId: string): { board: Board; columns: Column[] } | null {
+export function getHabitatWithColumnsAndTasks(habitatId: string): { habitat: Habitat; columns: Column[] } | null {
   const db = getDb();
   const result = db.query.habitats.findFirst({
-    where: eq(habitats.id, boardId),
+    where: eq(habitats.id, habitatId),
     with: {
       columns: {
         orderBy: columns.order,
         with: {
-          features: true,
+          missions: true,
         },
       },
     },
@@ -115,9 +115,9 @@ export function getBoardWithColumnsAndTasks(boardId: string): { board: Board; co
   if (!result) return null;
 
   const cols = result.columns.map((c: Record<string, unknown>) => {
-    const { features: _, ...col } = c;
+    const { missions: _, ...col } = c;
     return col as unknown as Column;
   });
-  const { columns: _, ...boardData } = result;
-  return { board: boardData as unknown as Board, columns: cols };
+  const { columns: _, ...habitatData } = result;
+  return { habitat: habitatData as unknown as Habitat, columns: cols };
 }

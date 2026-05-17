@@ -1,8 +1,8 @@
 import { eq, sql } from 'drizzle-orm';
 import { missions } from '../../db/schema/index.js';
 
-export function boardFilter(boardId: string | undefined) {
-  return boardId ? eq(missions.habitatId, boardId) : sql`1=1`;
+export function habitatFilter(habitatId: string | undefined) {
+  return habitatId ? eq(missions.habitatId, habitatId) : sql`1=1`;
 }
 
 export function resolveDateWindow(period: '7d' | '30d' | '90d'): { days: number; startDate: string } {
@@ -49,7 +49,7 @@ export function computeThroughput(
   return { today, last7d, last30d };
 }
 
-export function computeBoardThroughput(
+export function computeHabitatThroughput(
   rows: { ts: string }[],
   todayStart: string,
   weekStart: string,

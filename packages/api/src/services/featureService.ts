@@ -64,23 +64,23 @@ export function deriveMissionStatus(missionId: string): MissionStatus {
 }
 
 export function resolveTargetColumn(habitatId: string, status: MissionStatus): string | null {
-  const boardColumns = columnRepo.getColumnsByHabitatId(habitatId);
-  if (boardColumns.length === 0) return null;
+  const habitatColumns = columnRepo.getColumnsByHabitatId(habitatId);
+  if (habitatColumns.length === 0) return null;
 
-  const nonTerminal = boardColumns.filter(c => !c.isTerminal);
-  const terminal = boardColumns.find(c => c.isTerminal);
+  const nonTerminal = habitatColumns.filter(c => !c.isTerminal);
+  const terminal = habitatColumns.find(c => c.isTerminal);
 
   switch (status) {
     case 'not_started':
-      return boardColumns[0]?.id ?? null;
+      return habitatColumns[0]?.id ?? null;
     case 'in_progress':
       if (nonTerminal.length < 2) return null;
-      return boardColumns[1]?.id ?? null;
+      return habitatColumns[1]?.id ?? null;
     case 'review':
       if (nonTerminal.length < 3) return null;
       return nonTerminal[nonTerminal.length - 1]?.id ?? null;
     case 'done':
-      return terminal?.id ?? boardColumns[boardColumns.length - 1]?.id ?? null;
+      return terminal?.id ?? habitatColumns[habitatColumns.length - 1]?.id ?? null;
     case 'failed':
       return null;
     default:

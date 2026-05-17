@@ -3,7 +3,7 @@ import * as agentRepo from '../../repositories/agent.js';
 import * as eventRepo from '../../repositories/event.js';
 import { sseBroadcaster } from '../../sse/broadcaster.js';
 import * as watcherService from '../watcherService.js';
-import * as missionService from '../missionService.js';
+import * as missionService from '../featureService.js';
 import type { Task } from '../../models/index.js';
 import { validateAgentCapabilities } from './helpers.js';
 
@@ -54,7 +54,7 @@ export function delegateTask(
   const result = taskRepo.updateTask(taskId, { delegatedToAgentId: toAgentId });
   if (!result.success) return { success: false, reason: 'update_failed', message: 'Failed to update task' };
 
-  const boardId = taskRepo.getBoardIdForTask(taskId) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
 
   eventRepo.createEvent({
     taskId,
@@ -64,11 +64,11 @@ export function delegateTask(
     metadata: { toAgentId, reason: reason ?? null },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.delegated',
     data: { taskId, fromAgentId, toAgentId },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
 
   return { success: true, task: result.task };
 }
@@ -98,7 +98,7 @@ export function claimDelegatedTask(taskId: string, agentId: string): { success: 
   const result = taskRepo.claimDelegatedTask(taskId, agentId);
 
   if (result.success) {
-    const boardId = taskRepo.getBoardIdForTask(taskId) ?? '';
+    const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
 
     eventRepo.createEvent({
       taskId,
@@ -109,14 +109,14 @@ export function claimDelegatedTask(taskId: string, agentId: string): { success: 
       metadata: { delegatedClaim: true },
     });
 
-    sseBroadcaster.publish(boardId, {
+    sseBroadcaster.publish(habitatId, {
       type: 'task.claimed',
       data: { taskId, agentId },
     });
-    sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
-    if (boardId) watcherService.notifyWatchers(taskId, boardId, 'task.claimed');
+    sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
+    if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.claimed');
 
-    featureService.recalculateFeatureStatus(current.featureId);
+    missionService.recalculateMissionStatus(current.missionId);
   }
 
   return result;

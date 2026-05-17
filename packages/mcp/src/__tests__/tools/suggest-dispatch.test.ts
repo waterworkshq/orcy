@@ -20,8 +20,8 @@ describe('SUGGEST_DISPATCH_TOOL', () => {
 });
 
 describe('SUGGEST_ACTIONS', () => {
-  it('routes suggest-next-task to boardSuggestNextTask', () => {
-    expect(SUGGEST_ACTIONS['suggest-next-task']).toBe(suggest.boardSuggestNextTask);
+  it('routes suggest-next-task to habitatSuggestNextTask', () => {
+    expect(SUGGEST_ACTIONS['suggest-next-task']).toBe(suggest.habitatSuggestNextTask);
   });
 
   it('has exactly 1 action', () => {

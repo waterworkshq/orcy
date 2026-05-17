@@ -27,7 +27,7 @@ export const BOARD_SUGGEST_NEXT_TASK_TOOL: Tool = {
   },
 };
 
-export async function boardSuggestNextTask(
+export async function habitatSuggestNextTask(
   client: KanbanApiClient,
   args: { boardId: string; limit?: number }
 ) {

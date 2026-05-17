@@ -3,7 +3,7 @@ import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as orgRepo from '../repositories/organization.js';
 import * as teamRepo from '../repositories/team.js';
 import * as memberRepo from '../repositories/teamMember.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import { users } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 
@@ -164,50 +164,50 @@ describe('Multi-Tenant / Team Support', () => {
     });
   });
 
-  describe('Board-Team Association', () => {
-    it('creates a board with teamId', () => {
-      const org = orgRepo.createOrganization({ name: 'Board Org', slug: unique('board-org') });
-      const team = teamRepo.createTeam({ organizationId: org.id, name: 'Board Team', slug: unique('board-team') });
+  describe('Habitat-Team Association', () => {
+    it('creates a habitat with teamId', () => {
+      const org = orgRepo.createOrganization({ name: 'Habitat Org', slug: unique('habitat-org') });
+      const team = teamRepo.createTeam({ organizationId: org.id, name: 'Habitat Team', slug: unique('habitat-team') });
 
-      const board = boardRepo.createBoard({ name: 'Team Board', teamId: team.id });
-      expect(board.teamId).toBe(team.id);
+      const habitat = habitatRepo.createHabitat({ name: 'Team Habitat', teamId: team.id });
+      expect(habitat.teamId).toBe(team.id);
 
-      const found = boardRepo.getBoardById(board.id);
+      const found = habitatRepo.getHabitatById(habitat.id);
       expect(found!.teamId).toBe(team.id);
     });
 
-    it('creates a board without teamId', () => {
-      const board = boardRepo.createBoard({ name: 'Public Board' });
-      expect(board.teamId).toBeNull();
+    it('creates a habitat without teamId', () => {
+      const habitat = habitatRepo.createHabitat({ name: 'Public Habitat' });
+      expect(habitat.teamId).toBeNull();
     });
 
-    it('lists boards filtered by team ids', () => {
+    it('lists habitats filtered by team ids', () => {
       const org = orgRepo.createOrganization({ name: 'Filter Org', slug: unique('filter-org') });
       const team1 = teamRepo.createTeam({ organizationId: org.id, name: 'Filter Team 1', slug: unique('filter-t1') });
       const team2 = teamRepo.createTeam({ organizationId: org.id, name: 'Filter Team 2', slug: unique('filter-t2') });
 
-      boardRepo.createBoard({ name: 'Team 1 Board', teamId: team1.id });
-      boardRepo.createBoard({ name: 'Team 2 Board', teamId: team2.id });
-      boardRepo.createBoard({ name: 'No Team Board' });
+      habitatRepo.createHabitat({ name: 'Team 1 Habitat', teamId: team1.id });
+      habitatRepo.createHabitat({ name: 'Team 2 Habitat', teamId: team2.id });
+      habitatRepo.createHabitat({ name: 'No Team Habitat' });
 
-      const onlyTeam1 = boardRepo.listBoards(undefined, [team1.id]);
+      const onlyTeam1 = habitatRepo.listHabitats(undefined, [team1.id]);
       expect(onlyTeam1.some(b => b.teamId === team1.id)).toBe(true);
       expect(onlyTeam1.some(b => b.teamId === team2.id)).toBe(false);
       expect(onlyTeam1.some(b => b.teamId === null)).toBe(true);
     });
 
-    it('checks membership by board id', () => {
+    it('checks membership by habitat id', () => {
       const org = orgRepo.createOrganization({ name: 'Access Org', slug: unique('access-org') });
       const team = teamRepo.createTeam({ organizationId: org.id, name: 'Access Team', slug: unique('access-team') });
 
-      const board = boardRepo.createBoard({ name: 'Access Board', teamId: team.id });
+      const habitat = habitatRepo.createHabitat({ name: 'Access Habitat', teamId: team.id });
 
       const uid = unique('auth-user');
       ensureUser(uid);
       memberRepo.addMember({ teamId: team.id, userId: uid, role: 'member' });
 
-      expect(memberRepo.isTeamMemberByBoardId(board.id, uid)).toBe(true);
-      expect(memberRepo.isTeamMemberByBoardId(board.id, 'other-user')).toBe(false);
+      expect(memberRepo.isTeamMemberByHabitatId(habitat.id, uid)).toBe(true);
+      expect(memberRepo.isTeamMemberByHabitatId(habitat.id, 'other-user')).toBe(false);
     });
 
     it('lists teams by user id', () => {

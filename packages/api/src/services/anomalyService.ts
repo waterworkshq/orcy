@@ -1,16 +1,16 @@
 import { getDb } from '../db/index.js';
-import { tasks, features, agents, users, taskEvents } from '../db/schema/index.js';
+import { tasks, missions, agents, users, taskEvents } from '../db/schema/index.js';
 import { eq, and, sql, isNotNull, notInArray, inArray, desc, ne } from 'drizzle-orm';
 import { cycleTimeMinutes } from '../db/dialect-helpers.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as emailService from './emailService.js';
 import * as chatService from './chatService.js';
 import { logger } from '../lib/logger.js';
-import type { Anomaly, AnomalySettings, Board } from '../models/index.js';
+import type { Anomaly, AnomalySettings, Habitat } from '../models/index.js';
 
 const DEFAULT_SETTINGS: AnomalySettings = {
   enabled: true,
@@ -34,10 +34,10 @@ export function getDefaultAnomalySettings(): AnomalySettings {
   return { ...DEFAULT_SETTINGS, thresholds: { ...DEFAULT_SETTINGS.thresholds }, notifications: { ...DEFAULT_SETTINGS.notifications } };
 }
 
-export function getAnomalySettings(boardId: string): AnomalySettings {
-  const board = boardRepo.getBoardById(boardId);
-  if (!board) return getDefaultAnomalySettings();
-  return board.anomalySettings ?? getDefaultAnomalySettings();
+export function getAnomalySettings(habitatId: string): AnomalySettings {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat) return getDefaultAnomalySettings();
+  return habitat.anomalySettings ?? getDefaultAnomalySettings();
 }
 
 export interface AnomalyResult {
@@ -47,19 +47,19 @@ export interface AnomalyResult {
   data: Record<string, unknown>;
 }
 
-export function detectStaleInProgress(boardId: string, settings: AnomalySettings): AnomalyResult[] {
+export function detectStaleInProgress(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const db = getDb();
   const thresholdMs = settings.thresholds.staleInProgressMinutes * 60 * 1000;
   const now = Date.now();
 
-  const boardFeatureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const habitatMissionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return [];
+  if (habitatMissionIds.length === 0) return [];
 
   const rows = db.select({
     id: tasks.id,
@@ -68,7 +68,7 @@ export function detectStaleInProgress(boardId: string, settings: AnomalySettings
     assignedAgentId: tasks.assignedAgentId,
   })
   .from(tasks)
-  .where(and(inArray(tasks.featureId, boardFeatureIds), eq(tasks.status, 'in_progress'), isNotNull(tasks.startedAt)))
+  .where(and(inArray(tasks.missionId, habitatMissionIds), eq(tasks.status, 'in_progress'), isNotNull(tasks.startedAt)))
   .all();
 
   const anomalies: AnomalyResult[] = [];
@@ -92,18 +92,18 @@ export function detectStaleInProgress(boardId: string, settings: AnomalySettings
   return anomalies;
 }
 
-export function detectRejectionSpike(boardId: string, settings: AnomalySettings): AnomalyResult[] {
+export function detectRejectionSpike(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const db = getDb();
   const windowSize = settings.thresholds.rejectionWindowTasks;
 
-  const boardFeatureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const habitatMissionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return [];
+  if (habitatMissionIds.length === 0) return [];
 
   const rows = db.select({
     id: tasks.id,
@@ -112,7 +112,7 @@ export function detectRejectionSpike(boardId: string, settings: AnomalySettings)
     rejectedCount: tasks.rejectedCount,
   })
   .from(tasks)
-  .where(inArray(tasks.featureId, boardFeatureIds))
+  .where(inArray(tasks.missionId, habitatMissionIds))
   .orderBy(desc(tasks.updatedAt))
   .limit(windowSize)
   .all();
@@ -139,20 +139,20 @@ export function detectRejectionSpike(boardId: string, settings: AnomalySettings)
   return [];
 }
 
-export function detectCycleTimeDegradation(boardId: string, settings: AnomalySettings): AnomalyResult[] {
+export function detectCycleTimeDegradation(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const db = getDb();
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
-  const boardFeatureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const habitatMissionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return [];
+  if (habitatMissionIds.length === 0) return [];
 
   function getAvgCycleTime(since: string, until: string): number {
     const ctExpr = cycleTimeMinutes(tasks.completedAt, tasks.claimedAt);
@@ -162,7 +162,7 @@ export function detectCycleTimeDegradation(boardId: string, settings: AnomalySet
     .from(tasks)
     .where(
       and(
-        inArray(tasks.featureId, boardFeatureIds),
+        inArray(tasks.missionId, habitatMissionIds),
         isNotNull(tasks.claimedAt),
         isNotNull(tasks.completedAt),
         inArray(tasks.status, ['approved', 'done']),
@@ -192,21 +192,21 @@ export function detectCycleTimeDegradation(boardId: string, settings: AnomalySet
   return [];
 }
 
-export function detectBacklogGrowth(boardId: string, settings: AnomalySettings): AnomalyResult[] {
+export function detectBacklogGrowth(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const db = getDb();
 
-  const boardFeatureIds = db
-    .select({ id: features.id })
-    .from(features)
-    .where(eq(features.boardId, boardId))
+  const habitatMissionIds = db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
     .all()
     .map(f => f.id);
 
-  if (boardFeatureIds.length === 0) return [];
+  if (habitatMissionIds.length === 0) return [];
 
   const pendingRow = db.select({ count: sql<number>`count(*)` })
     .from(tasks)
-    .where(and(inArray(tasks.featureId, boardFeatureIds), inArray(tasks.status, ['pending', 'claimed'])))
+    .where(and(inArray(tasks.missionId, habitatMissionIds), inArray(tasks.status, ['pending', 'claimed'])))
     .get();
   const pendingCount = pendingRow?.count ?? 0;
 
@@ -214,7 +214,7 @@ export function detectBacklogGrowth(boardId: string, settings: AnomalySettings):
     .from(tasks)
     .where(
       and(
-        inArray(tasks.featureId, boardFeatureIds),
+        inArray(tasks.missionId, habitatMissionIds),
         inArray(tasks.status, ['claimed', 'in_progress', 'submitted']),
         isNotNull(tasks.assignedAgentId)
       )
@@ -237,7 +237,7 @@ export function detectBacklogGrowth(boardId: string, settings: AnomalySettings):
   return [];
 }
 
-export function detectAgentOffline(boardId: string, settings: AnomalySettings): AnomalyResult[] {
+export function detectAgentOffline(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const db = getDb();
   const thresholdMs = settings.thresholds.agentOfflineMinutes * 60 * 1000;
   const now = Date.now();
@@ -275,45 +275,45 @@ export function detectAgentOffline(boardId: string, settings: AnomalySettings): 
   return anomalies;
 }
 
-export function detectAnomalies(boardId: string): AnomalyResult[] {
-  const settings = getAnomalySettings(boardId);
+export function detectAnomalies(habitatId: string): AnomalyResult[] {
+  const settings = getAnomalySettings(habitatId);
   if (!settings.enabled) return [];
 
   return [
-    ...detectStaleInProgress(boardId, settings),
-    ...detectRejectionSpike(boardId, settings),
-    ...detectCycleTimeDegradation(boardId, settings),
-    ...detectBacklogGrowth(boardId, settings),
-    ...detectAgentOffline(boardId, settings),
+    ...detectStaleInProgress(habitatId, settings),
+    ...detectRejectionSpike(habitatId, settings),
+    ...detectCycleTimeDegradation(habitatId, settings),
+    ...detectBacklogGrowth(habitatId, settings),
+    ...detectAgentOffline(habitatId, settings),
   ];
 }
 
-export function scanBoard(boardId: string): AnomalyResult[] {
-  const settings = getAnomalySettings(boardId);
+export function scanHabitat(habitatId: string): AnomalyResult[] {
+  const settings = getAnomalySettings(habitatId);
   if (!settings.enabled) return [];
 
-  const anomalies = detectAnomalies(boardId);
+  const anomalies = detectAnomalies(habitatId);
   if (anomalies.length === 0) return [];
 
-  const board = boardRepo.getBoardById(boardId);
-  const boardName = board?.name ?? 'Unknown Board';
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  const habitatName = habitat?.name ?? 'Unknown Habitat';
   const now = new Date().toISOString();
 
   for (const anomaly of anomalies) {
     if (settings.notifications.sse) {
-      sseBroadcaster.publish(boardId, {
+      sseBroadcaster.publish(habitatId, {
         type: 'anomaly.detected',
-        data: { ...anomaly, boardId, detectedAt: now },
+        data: { ...anomaly, habitatId, detectedAt: now },
       });
     }
 
     if (settings.notifications.email && emailService.isConfigured() && (anomaly.severity === 'high' || anomaly.severity === 'critical')) {
-      sendAnomalyEmails(boardId, boardName, anomaly);
+      sendAnomalyEmails(habitatId, habitatName, anomaly);
     }
 
     if (settings.notifications.chat) {
-      chatService.sendAnomalyAlert(boardId, anomaly).catch((err) => {
-        logger.error({ err, boardId, anomalyType: anomaly.type }, 'Failed to send anomaly chat notification');
+      chatService.sendAnomalyAlert(habitatId, anomaly).catch((err) => {
+        logger.error({ err, habitatId, anomalyType: anomaly.type }, 'Failed to send anomaly chat notification');
       });
     }
   }
@@ -321,7 +321,7 @@ export function scanBoard(boardId: string): AnomalyResult[] {
   return anomalies;
 }
 
-function sendAnomalyEmails(boardId: string, boardName: string, anomaly: AnomalyResult): void {
+function sendAnomalyEmails(habitatId: string, habitatName: string, anomaly: AnomalyResult): void {
   const db = getDb();
   const adminRows = db.select({ id: users.id, email: users.email })
     .from(users)
@@ -329,22 +329,22 @@ function sendAnomalyEmails(boardId: string, boardName: string, anomaly: AnomalyR
     .all();
   for (const row of adminRows) {
     if (!row.email) continue;
-    const payload = emailService.anomalyAlertTemplate(anomaly.type, anomaly.severity, anomaly.message, boardName);
+    const payload = emailService.anomalyAlertTemplate(anomaly.type, anomaly.severity, anomaly.message, habitatName);
     payload.to = row.email;
     emailService.sendEmail(payload).catch(err => {
-      logger.error({ err, boardId, anomalyType: anomaly.type }, 'Failed to send anomaly email');
+      logger.error({ err, habitatId, anomalyType: anomaly.type }, 'Failed to send anomaly email');
     });
   }
 }
 
-export function scanAllBoards(): { boardId: string; anomalies: AnomalyResult[] }[] {
-  const boards = boardRepo.listBoards();
-  const results: { boardId: string; anomalies: AnomalyResult[] }[] = [];
+export function scanAllHabitats(): { habitatId: string; anomalies: AnomalyResult[] }[] {
+  const habitats = habitatRepo.listHabitats();
+  const results: { habitatId: string; anomalies: AnomalyResult[] }[] = [];
 
-  for (const board of boards) {
-    const anomalies = scanBoard(board.id);
+  for (const habitat of habitats) {
+    const anomalies = scanHabitat(habitat.id);
     if (anomalies.length > 0) {
-      results.push({ boardId: board.id, anomalies });
+      results.push({ habitatId: habitat.id, anomalies });
     }
   }
 

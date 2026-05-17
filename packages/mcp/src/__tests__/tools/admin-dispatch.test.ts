@@ -42,44 +42,44 @@ describe('ADMIN_DISPATCH_TOOL', () => {
 });
 
 describe('ADMIN_ACTIONS — webhook actions', () => {
-  it('routes list-webhooks to boardListWebhooks', () => {
-    expect(ADMIN_ACTIONS['list-webhooks']).toBe(webhook.boardListWebhooks);
+  it('routes list-webhooks to habitatListWebhooks', () => {
+    expect(ADMIN_ACTIONS['list-webhooks']).toBe(webhook.habitatListWebhooks);
   });
 
-  it('routes create-webhook to boardCreateWebhook', () => {
-    expect(ADMIN_ACTIONS['create-webhook']).toBe(webhook.boardCreateWebhook);
+  it('routes create-webhook to habitatCreateWebhook', () => {
+    expect(ADMIN_ACTIONS['create-webhook']).toBe(webhook.habitatCreateWebhook);
   });
 
-  it('routes delete-webhook to boardDeleteWebhook', () => {
-    expect(ADMIN_ACTIONS['delete-webhook']).toBe(webhook.boardDeleteWebhook);
+  it('routes delete-webhook to habitatDeleteWebhook', () => {
+    expect(ADMIN_ACTIONS['delete-webhook']).toBe(webhook.habitatDeleteWebhook);
   });
 });
 
 describe('ADMIN_ACTIONS — template actions', () => {
-  it('routes list-templates to boardListTemplates', () => {
-    expect(ADMIN_ACTIONS['list-templates']).toBe(template.boardListTemplates);
+  it('routes list-templates to habitatListTemplates', () => {
+    expect(ADMIN_ACTIONS['list-templates']).toBe(template.habitatListTemplates);
   });
 
-  it('routes create-template to boardCreateTemplate', () => {
-    expect(ADMIN_ACTIONS['create-template']).toBe(template.boardCreateTemplate);
+  it('routes create-template to habitatCreateTemplate', () => {
+    expect(ADMIN_ACTIONS['create-template']).toBe(template.habitatCreateTemplate);
   });
 
-  it('routes delete-template to boardDeleteTemplate', () => {
-    expect(ADMIN_ACTIONS['delete-template']).toBe(template.boardDeleteTemplate);
+  it('routes delete-template to habitatDeleteTemplate', () => {
+    expect(ADMIN_ACTIONS['delete-template']).toBe(template.habitatDeleteTemplate);
   });
 });
 
 describe('ADMIN_ACTIONS — batch actions', () => {
-  it('routes batch-assign-tasks to boardBatchAssignTasks', () => {
-    expect(ADMIN_ACTIONS['batch-assign-tasks']).toBe(taskBatch.boardBatchAssignTasks);
+  it('routes batch-assign-tasks to habitatBatchAssignTasks', () => {
+    expect(ADMIN_ACTIONS['batch-assign-tasks']).toBe(taskBatch.habitatBatchAssignTasks);
   });
 
-  it('routes batch-set-priority to boardBatchSetTaskPriority', () => {
-    expect(ADMIN_ACTIONS['batch-set-priority']).toBe(taskBatch.boardBatchSetTaskPriority);
+  it('routes batch-set-priority to habitatBatchSetTaskPriority', () => {
+    expect(ADMIN_ACTIONS['batch-set-priority']).toBe(taskBatch.habitatBatchSetTaskPriority);
   });
 
-  it('routes batch-delete-tasks to boardBatchDeleteTasks', () => {
-    expect(ADMIN_ACTIONS['batch-delete-tasks']).toBe(taskBatch.boardBatchDeleteTasks);
+  it('routes batch-delete-tasks to habitatBatchDeleteTasks', () => {
+    expect(ADMIN_ACTIONS['batch-delete-tasks']).toBe(taskBatch.habitatBatchDeleteTasks);
   });
 });
 

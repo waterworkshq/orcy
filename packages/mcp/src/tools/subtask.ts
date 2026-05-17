@@ -20,7 +20,7 @@ export const BOARD_LIST_SUBTASKS_TOOL: Tool = {
   },
 };
 
-export async function boardListTaskSubtasks(
+export async function habitatListTaskSubtasks(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {
@@ -58,7 +58,7 @@ export const BOARD_CREATE_SUBTASK_TOOL: Tool = {
   },
 };
 
-export async function boardCreateTaskSubtask(
+export async function habitatCreateTaskSubtask(
   client: KanbanApiClient,
   args: { taskId: string; title: string; order?: number; assigneeId?: string }
 ) {
@@ -91,7 +91,7 @@ export const BOARD_DELETE_SUBTASK_TOOL: Tool = {
   },
 };
 
-export async function boardDeleteTaskSubtask(
+export async function habitatDeleteTaskSubtask(
   client: KanbanApiClient,
   args: { taskId: string; subtaskId: string }
 ) {

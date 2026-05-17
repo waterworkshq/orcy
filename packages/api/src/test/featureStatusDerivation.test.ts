@@ -31,7 +31,7 @@ vi.mock('../plugins/pluginManager.js', () => ({
   emitTaskSubmitted: vi.fn().mockResolvedValue(undefined),
   emitTaskApproved: vi.fn().mockResolvedValue(undefined),
   emitTaskRejected: vi.fn().mockResolvedValue(undefined),
-  emitBoardCreated: vi.fn().mockResolvedValue(undefined),
+  emitHabitatCreated: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../services/watcherService.js', () => ({
@@ -57,39 +57,39 @@ vi.mock('../services/gitWorktreeService.js', () => ({
 }));
 
 vi.mock('../services/featureService.js', () => ({
-  recalculateFeatureStatus: vi.fn(),
+  recalculateMissionStatus: vi.fn(),
 }));
 
 import { validateTransition, VALID_TRANSITIONS } from '../services/tasks/index.js';
 import type { TaskStatus } from '../models/index.js';
 
-describe('Feature Status Derivation', () => {
-  describe('deriveFeatureStatus - all pending tasks', () => {
+describe('Mission Status Derivation', () => {
+  describe('deriveMissionStatus - all pending tasks', () => {
     it('returns not_started when all tasks are pending', () => {
       expect('not_started').toBe('not_started');
     });
   });
 
-  describe('deriveFeatureStatus - all done', () => {
+  describe('deriveMissionStatus - all done', () => {
     it('returns done when all tasks are done', () => {
       expect('done').toBe('done');
     });
   });
 
-  describe('deriveFeatureStatus - all submitted', () => {
+  describe('deriveMissionStatus - all submitted', () => {
     it('returns review when all tasks are submitted', () => {
       expect('review').toBe('review');
     });
   });
 
-  describe('deriveFeatureStatus - mixed with failed', () => {
+  describe('deriveMissionStatus - mixed with failed', () => {
     it('returns failed when tasks failed and none active', () => {
       expect('failed').toBe('failed');
     });
   });
 });
 
-describe('Task State Machine - Feature-Aware', () => {
+describe('Task State Machine - Mission-Aware', () => {
   it('valid transitions remain unchanged', () => {
     expect(validateTransition('pending', 'claimed')).toBe(true);
     expect(validateTransition('claimed', 'in_progress')).toBe(true);
@@ -117,7 +117,7 @@ describe('Task State Machine - Feature-Aware', () => {
 });
 
 describe('Status Derivation Algorithm - Pure Logic', () => {
-  function deriveFeatureStatus(taskStatuses: string[]): string {
+  function deriveMissionStatus(taskStatuses: string[]): string {
     if (taskStatuses.length === 0) return 'not_started';
 
     if (taskStatuses.every(s => s === 'done' || s === 'approved') && taskStatuses.some(s => s === 'done')) {
@@ -141,48 +141,48 @@ describe('Status Derivation Algorithm - Pure Logic', () => {
   }
 
   describe('not_started', () => {
-    it('all pending', () => expect(deriveFeatureStatus(['pending', 'pending'])).toBe('not_started'));
-    it('empty tasks', () => expect(deriveFeatureStatus([])).toBe('not_started'));
+    it('all pending', () => expect(deriveMissionStatus(['pending', 'pending'])).toBe('not_started'));
+    it('empty tasks', () => expect(deriveMissionStatus([])).toBe('not_started'));
   });
 
   describe('in_progress', () => {
-    it('one claimed, rest pending', () => expect(deriveFeatureStatus(['claimed', 'pending'])).toBe('in_progress'));
-    it('one in_progress', () => expect(deriveFeatureStatus(['in_progress', 'pending'])).toBe('in_progress'));
-    it('one submitted, one pending', () => expect(deriveFeatureStatus(['submitted', 'pending'])).toBe('in_progress'));
-    it('one approved, one pending', () => expect(deriveFeatureStatus(['approved', 'pending'])).toBe('in_progress'));
-    it('one rejected', () => expect(deriveFeatureStatus(['rejected', 'pending'])).toBe('in_progress'));
-    it('mixed active states', () => expect(deriveFeatureStatus(['claimed', 'in_progress', 'submitted'])).toBe('in_progress'));
+    it('one claimed, rest pending', () => expect(deriveMissionStatus(['claimed', 'pending'])).toBe('in_progress'));
+    it('one in_progress', () => expect(deriveMissionStatus(['in_progress', 'pending'])).toBe('in_progress'));
+    it('one submitted, one pending', () => expect(deriveMissionStatus(['submitted', 'pending'])).toBe('in_progress'));
+    it('one approved, one pending', () => expect(deriveMissionStatus(['approved', 'pending'])).toBe('in_progress'));
+    it('one rejected', () => expect(deriveMissionStatus(['rejected', 'pending'])).toBe('in_progress'));
+    it('mixed active states', () => expect(deriveMissionStatus(['claimed', 'in_progress', 'submitted'])).toBe('in_progress'));
   });
 
   describe('review', () => {
-    it('all submitted', () => expect(deriveFeatureStatus(['submitted', 'submitted'])).toBe('review'));
-    it('submitted and approved', () => expect(deriveFeatureStatus(['submitted', 'approved'])).toBe('review'));
-    it('submitted, approved, done', () => expect(deriveFeatureStatus(['submitted', 'approved', 'done'])).toBe('review'));
-    it('all approved (no done)', () => expect(deriveFeatureStatus(['approved', 'approved'])).toBe('review'));
+    it('all submitted', () => expect(deriveMissionStatus(['submitted', 'submitted'])).toBe('review'));
+    it('submitted and approved', () => expect(deriveMissionStatus(['submitted', 'approved'])).toBe('review'));
+    it('submitted, approved, done', () => expect(deriveMissionStatus(['submitted', 'approved', 'done'])).toBe('review'));
+    it('all approved (no done)', () => expect(deriveMissionStatus(['approved', 'approved'])).toBe('review'));
   });
 
   describe('done', () => {
-    it('all done', () => expect(deriveFeatureStatus(['done', 'done'])).toBe('done'));
-    it('done and approved', () => expect(deriveFeatureStatus(['done', 'approved'])).toBe('done'));
-    it('all approved with one done', () => expect(deriveFeatureStatus(['approved', 'done'])).toBe('done'));
+    it('all done', () => expect(deriveMissionStatus(['done', 'done'])).toBe('done'));
+    it('done and approved', () => expect(deriveMissionStatus(['done', 'approved'])).toBe('done'));
+    it('all approved with one done', () => expect(deriveMissionStatus(['approved', 'done'])).toBe('done'));
   });
 
   describe('failed', () => {
-    it('all failed', () => expect(deriveFeatureStatus(['failed', 'failed'])).toBe('failed'));
-    it('failed and pending', () => expect(deriveFeatureStatus(['failed', 'pending'])).toBe('failed'));
-    it('failed and approved', () => expect(deriveFeatureStatus(['failed', 'approved'])).toBe('failed'));
-    it('NOT failed when has active tasks', () => expect(deriveFeatureStatus(['failed', 'in_progress'])).toBe('in_progress'));
-    it('NOT failed when has submitted', () => expect(deriveFeatureStatus(['failed', 'submitted'])).toBe('in_progress'));
-    it('NOT failed when has claimed', () => expect(deriveFeatureStatus(['failed', 'claimed'])).toBe('in_progress'));
+    it('all failed', () => expect(deriveMissionStatus(['failed', 'failed'])).toBe('failed'));
+    it('failed and pending', () => expect(deriveMissionStatus(['failed', 'pending'])).toBe('failed'));
+    it('failed and approved', () => expect(deriveMissionStatus(['failed', 'approved'])).toBe('failed'));
+    it('NOT failed when has active tasks', () => expect(deriveMissionStatus(['failed', 'in_progress'])).toBe('in_progress'));
+    it('NOT failed when has submitted', () => expect(deriveMissionStatus(['failed', 'submitted'])).toBe('in_progress'));
+    it('NOT failed when has claimed', () => expect(deriveMissionStatus(['failed', 'claimed'])).toBe('in_progress'));
   });
 
   describe('edge cases', () => {
-    it('single pending task', () => expect(deriveFeatureStatus(['pending'])).toBe('not_started'));
-    it('single done task', () => expect(deriveFeatureStatus(['done'])).toBe('done'));
-    it('single approved task (no done)', () => expect(deriveFeatureStatus(['approved'])).toBe('review'));
-    it('single submitted task', () => expect(deriveFeatureStatus(['submitted'])).toBe('review'));
-    it('single failed task', () => expect(deriveFeatureStatus(['failed'])).toBe('failed'));
-    it('single claimed task', () => expect(deriveFeatureStatus(['claimed'])).toBe('in_progress'));
+    it('single pending task', () => expect(deriveMissionStatus(['pending'])).toBe('not_started'));
+    it('single done task', () => expect(deriveMissionStatus(['done'])).toBe('done'));
+    it('single approved task (no done)', () => expect(deriveMissionStatus(['approved'])).toBe('review'));
+    it('single submitted task', () => expect(deriveMissionStatus(['submitted'])).toBe('review'));
+    it('single failed task', () => expect(deriveMissionStatus(['failed'])).toBe('failed'));
+    it('single claimed task', () => expect(deriveMissionStatus(['claimed'])).toBe('in_progress'));
   });
 });
 
@@ -234,7 +234,7 @@ describe('Column Auto-Advancement - Pure Logic', () => {
     expect(resolveTargetColumn(standardColumns, standardTerminal, 'failed')).toBeNull();
   });
 
-  it('handles 3-column board (Backlog, In Progress, Done)', () => {
+  it('handles 3-column habitat (Backlog, In Progress, Done)', () => {
     const cols = ['Backlog', 'In Progress', 'Done'];
     const terminal = [false, false, true];
     expect(resolveTargetColumn(cols, terminal, 'not_started')).toBe(0);
@@ -243,7 +243,7 @@ describe('Column Auto-Advancement - Pure Logic', () => {
     expect(resolveTargetColumn(cols, terminal, 'done')).toBe(2);
   });
 
-  it('handles 2-column board (Todo, Done) — skips in_progress and review', () => {
+  it('handles 2-column habitat (Todo, Done) — skips in_progress and review', () => {
     const cols = ['Todo', 'Done'];
     const terminal = [false, true];
     expect(resolveTargetColumn(cols, terminal, 'not_started')).toBe(0);
@@ -252,7 +252,7 @@ describe('Column Auto-Advancement - Pure Logic', () => {
     expect(resolveTargetColumn(cols, terminal, 'done')).toBe(1);
   });
 
-  it('handles 5-column board', () => {
+  it('handles 5-column habitat', () => {
     const cols = ['Backlog', 'Ready', 'In Progress', 'Review', 'Done'];
     const terminal = [false, false, false, false, true];
     expect(resolveTargetColumn(cols, terminal, 'not_started')).toBe(0);
@@ -261,7 +261,7 @@ describe('Column Auto-Advancement - Pure Logic', () => {
     expect(resolveTargetColumn(cols, terminal, 'done')).toBe(4);
   });
 
-  it('handles 1-column board — only not_started works', () => {
+  it('handles 1-column habitat — only not_started works', () => {
     const cols = ['Todo'];
     const terminal = [false];
     expect(resolveTargetColumn(cols, terminal, 'not_started')).toBe(0);
@@ -271,26 +271,26 @@ describe('Column Auto-Advancement - Pure Logic', () => {
   });
 });
 
-describe('Feature Repository Interface', () => {
-  it('CreateFeatureInput has required fields', () => {
+describe('Mission Repository Interface', () => {
+  it('CreateMissionInput has required fields', () => {
     const input = {
-      boardId: 'board-1',
-      title: 'Test Feature',
+      habitatId: 'habitat-1',
+      title: 'Test Mission',
       createdBy: 'user-1',
     };
-    expect(input.boardId).toBeDefined();
+    expect(input.habitatId).toBeDefined();
     expect(input.title).toBeDefined();
     expect(input.createdBy).toBeDefined();
   });
 
-  it('CreateTaskInput uses featureId not boardId', () => {
+  it('CreateTaskInput uses missionId not habitatId', () => {
     const input = {
-      featureId: 'feat-1',
+      missionId: 'feat-1',
       title: 'Test Task',
       createdBy: 'user-1',
     };
-    expect(input.featureId).toBeDefined();
-    expect((input as Record<string, unknown>).boardId).toBeUndefined();
+    expect(input.missionId).toBeDefined();
+    expect((input as Record<string, unknown>).habitatId).toBeUndefined();
     expect((input as Record<string, unknown>).columnId).toBeUndefined();
   });
 });

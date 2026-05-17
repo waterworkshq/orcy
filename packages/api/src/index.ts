@@ -10,8 +10,8 @@ import fastifyRawBody from 'fastify-raw-body';
 import fs from 'node:fs';
 import { ORCY_PATHS } from '@orcy/shared';
 import { habitatRoutes } from './routes/habitats.js';
-import { boardAnalyticsRoutes } from './routes/board-analytics.js';
-import { boardExportRoutes } from './routes/board-export.js';
+import { habitatAnalyticsRoutes } from './routes/board-analytics.js';
+import { habitatExportRoutes } from './routes/board-export.js';
 import { columnRoutes } from './routes/columns.js';
 import { taskRoutes } from './routes/tasks.js';
 import { missionRoutes } from './routes/missions.js';
@@ -23,9 +23,9 @@ import { webhookRoutes } from './routes/webhookOutgoing.js';
 import { commentRoutes } from './routes/comments.js';
 import { missionCommentRoutes } from './routes/missionComments.js';
 import { auditExportRoutes } from './routes/auditExport.js';
-import { boardHealthRoutes } from './routes/boardHealth.js';
-import * as boardRepo from './repositories/board.js';
-import * as boardHealthService from './services/boardHealthService.js';
+import { habitatHealthRoutes } from './routes/boardHealth.js';
+import * as habitatRepo from './repositories/board.js';
+import * as habitatHealthService from './services/boardHealthService.js';
 import { templateRoutes } from './routes/templates.js';
 import { subtaskRoutes } from './routes/subtasks.js';
 import { presenceRoutes } from './routes/presence.js';
@@ -45,7 +45,7 @@ import { dependencyRoutes } from './routes/dependencies.js';
 import { qualityGateRoutes } from './routes/qualityGates.js';
 import { prioritizationRoutes } from './routes/prioritization.js';
 import { scheduledTaskRoutes } from './routes/scheduledTasks.js';
-import { rebuildCache as rebuildBoardSecretCache } from './services/boardSecretCache.js';
+import { rebuildCache as rebuildHabitatSecretCache } from './services/boardSecretCache.js';
 import { archiveOldEvents } from './services/auditArchivalService.js';
 import { seedDefaultTemplates as seedQualityTemplates } from './services/qualityGateService.js';
 import { startAllSchedulers } from './services/scheduler.js';
@@ -114,8 +114,8 @@ fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOS
 
 async function registerApiRoutes(f: FastifyInstance) {
   await f.register(habitatRoutes);
-  await f.register(boardAnalyticsRoutes);
-  await f.register(boardExportRoutes);
+  await f.register(habitatAnalyticsRoutes);
+  await f.register(habitatExportRoutes);
   await f.register(columnRoutes);
   await f.register(taskRoutes);
   await f.register(missionRoutes);
@@ -124,7 +124,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(commentRoutes);
   await f.register(missionCommentRoutes);
   await f.register(auditExportRoutes);
-  await f.register(boardHealthRoutes);
+  await f.register(habitatHealthRoutes);
   await f.register(subtaskRoutes);
   await f.register(templateRoutes);
   await f.register(webhookRoutes);
@@ -209,9 +209,9 @@ if (!process.env.DB_PATH && process.env.NODE_ENV !== 'production') {
 }
 
 try {
-  rebuildBoardSecretCache();
+  rebuildHabitatSecretCache();
 } catch (err) {
-  fastify.log.error({ err }, 'Failed to rebuild board secret cache');
+  fastify.log.error({ err }, 'Failed to rebuild habitat secret cache');
 }
 
 try {
@@ -224,12 +224,12 @@ const schedulers = startAllSchedulers(fastify);
 
 const healthSnapshotInterval = setInterval(async () => {
   try {
-    const boards = boardRepo.listBoards();
-    for (const board of boards) {
+    const habitats = habitatRepo.listHabitats();
+    for (const habitat of habitats) {
       try {
-        boardHealthService.calculateHealth(board.id);
+        habitatHealthService.calculateHealth(habitat.id);
       } catch (err) {
-        fastify.log.error({ err, boardId: board.id }, 'Health snapshot failed');
+        fastify.log.error({ err, habitatId: habitat.id }, 'Health snapshot failed');
       }
     }
   } catch (err) {

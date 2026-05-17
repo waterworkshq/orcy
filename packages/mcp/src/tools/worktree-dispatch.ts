@@ -1,6 +1,6 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { boardGetWorktree } from './worktree.js';
+import { habitatGetWorktree } from './worktree.js';
 
 export const WORKTREE_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_worktree',
@@ -12,7 +12,7 @@ export const WORKTREE_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const WORKTREE_ACTIONS: Record<string, Handler> = {
-  'get-worktree': boardGetWorktree,
+  'get-worktree': habitatGetWorktree,
 };
 
 export const WORKTREE_DISPATCH_HANDLER = createDispatchHandler(WORKTREE_ACTIONS);

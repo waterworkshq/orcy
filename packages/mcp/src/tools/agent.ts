@@ -36,7 +36,7 @@ export const BOARD_REGISTER_AGENT_TOOL: Tool = {
   },
 };
 
-export async function boardRegisterAgent(
+export async function habitatRegisterAgent(
   client: KanbanApiClient,
   args: { name: string; type: 'claude-code' | 'codex' | 'opencode'; domain: string; capabilities?: string }
 ) {
@@ -78,7 +78,7 @@ export const BOARD_LIST_AGENTS_TOOL: Tool = {
   },
 };
 
-export async function boardListAgents(
+export async function habitatListAgents(
   client: KanbanApiClient,
   args: { status?: string; domain?: string }
 ) {
@@ -121,7 +121,7 @@ export const BOARD_HEARTBEAT_TOOL: Tool = {
   },
 };
 
-export async function boardHeartbeat(
+export async function habitatHeartbeat(
   client: KanbanApiClient,
   args: { taskId?: string; progress?: string }
 ) {
@@ -140,7 +140,7 @@ export const BOARD_GET_MY_STATS_TOOL: Tool = {
   },
 };
 
-export async function boardGetMyStats(
+export async function habitatGetMyStats(
   client: KanbanApiClient,
   _args: Record<string, never>
 ) {

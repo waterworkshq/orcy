@@ -1,8 +1,8 @@
 import * as taskRepo from '../repositories/task.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as eventRepo from '../repositories/event.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
-import * as featureService from './featureService.js';
+import * as missionService from './featureService.js';
 import { logger } from '../lib/logger.js';
 import type { Task, RetryPolicy } from '../models/index.js';
 
@@ -21,10 +21,10 @@ export function getDefaultPolicy(): RetryPolicy {
 
 export function getEffectivePolicy(task: Task): RetryPolicy | null {
   if (task.retryPolicy) return task.retryPolicy;
-  const boardId = taskRepo.getBoardIdForTask(task.id);
-  if (!boardId) return null;
-  const board = boardRepo.getBoardById(boardId);
-  if (board?.retrySettings) return board.retrySettings;
+  const habitatId = taskRepo.getHabitatIdForTask(task.id);
+  if (!habitatId) return null;
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (habitat?.retrySettings) return habitat.retrySettings;
   return null;
 }
 
@@ -57,7 +57,7 @@ export function scheduleRetry(task: Task): Task | null {
   const result = taskRepo.updateTask(task.id, { nextRetryAt });
   if (!result.success) return null;
 
-  const boardId = taskRepo.getBoardIdForTask(task.id) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
 
   eventRepo.createEvent({
     taskId: task.id,
@@ -67,7 +67,7 @@ export function scheduleRetry(task: Task): Task | null {
     metadata: { nextRetryAt, retryCount: task.retryCount, backoffSeconds },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.retry_scheduled',
     data: { taskId: task.id, nextRetryAt, retryCount: task.retryCount },
   });
@@ -88,7 +88,7 @@ export function executeRetry(task: Task): Task | null {
 
   if (!result.success) return null;
 
-  const boardId = taskRepo.getBoardIdForTask(task.id) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
 
   eventRepo.createEvent({
     taskId: task.id,
@@ -99,13 +99,13 @@ export function executeRetry(task: Task): Task | null {
     metadata: { retryCount: newRetryCount },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.retry_executed',
     data: { taskId: task.id, retryCount: newRetryCount },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
 
-  featureService.recalculateFeatureStatus(task.featureId);
+  missionService.recalculateMissionStatus(task.missionId);
 
   return result.task;
 }
@@ -120,7 +120,7 @@ export function escalateToHuman(task: Task): Task | null {
 
   if (!result.success) return null;
 
-  const boardId = taskRepo.getBoardIdForTask(task.id) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
 
   eventRepo.createEvent({
     taskId: task.id,
@@ -134,13 +134,13 @@ export function escalateToHuman(task: Task): Task | null {
     },
   });
 
-  sseBroadcaster.publish(boardId, {
+  sseBroadcaster.publish(habitatId, {
     type: 'task.escalated',
     data: { taskId: task.id, retryCount: task.retryCount, reason: task.rejectionReason ?? 'max retries exceeded' },
   });
-  sseBroadcaster.publish(boardId, { type: 'task.updated', data: result.task });
+  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
 
-  featureService.recalculateFeatureStatus(task.featureId);
+  missionService.recalculateMissionStatus(task.missionId);
 
   return result.task;
 }

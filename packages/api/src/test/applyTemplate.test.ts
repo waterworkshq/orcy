@@ -3,37 +3,37 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { validatorCompiler, serializerCompiler } from 'fastify-type-provider-zod';
 import jwt from 'jsonwebtoken';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as templateRepo from '../repositories/template.js';
 import { templateRoutes } from '../routes/templates.js';
-import { featureTemplates, tasks, features, columns as columnsTable, boards } from '../db/schema/index.js';
+import { missionTemplates, tasks, missions, columns as columnsTable, habitats } from '../db/schema/index.js';
 import { sql } from 'drizzle-orm';
 import type { TaskTemplateEntry, TaskPriority } from '../models/index.js';
 
-let boardId: string;
+let habitatId: string;
 let columnId: string;
-let featureId: string;
+let missionId: string;
 
 beforeEach(async () => {
   await initTestDb();
   const db = getDb();
   db.delete(tasks).run();
-  db.delete(features).run();
+  db.delete(missions).run();
   db.delete(columnsTable).run();
-  db.delete(boards).run();
-  db.delete(featureTemplates).run();
+  db.delete(habitats).run();
+  db.delete(missionTemplates).run();
 
-  const board = boardRepo.createBoard({ name: 'Test Board' });
-  boardId = board.id;
+  const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+  habitatId = habitat.id;
 
-  const column = columnRepo.createColumn({ boardId, name: 'Backlog', order: 0, requiresClaim: false });
+  const column = columnRepo.createColumn({ habitatId, name: 'Backlog', order: 0, requiresClaim: false });
   columnId = column.id;
 
-  const feature = featureRepo.createFeature({ boardId, columnId, title: 'Existing Feature', createdBy: 'human' });
-  featureId = feature.id;
+  const mission = missionRepo.createMission({ habitatId, columnId, title: 'Existing Mission', createdBy: 'human' });
+  missionId = mission.id;
 });
 
 afterEach(() => {
@@ -43,7 +43,7 @@ afterEach(() => {
 describe('applyTemplate', () => {
   function createTestTemplate(overrides: { tasksTemplate?: TaskTemplateEntry[] } = {}) {
     return templateRepo.createTemplate({
-      boardId,
+      habitatId,
       name: 'Test Template',
       titlePattern: 'Sprint Task',
       descriptionPattern: '## Goal\nComplete the work',
@@ -60,23 +60,23 @@ describe('applyTemplate', () => {
     });
   }
 
-  it('creates feature with correct title and priority', () => {
+  it('creates mission with correct title and priority', () => {
     const template = createTestTemplate();
 
-    const result = templateRepo.applyTemplate(template.id, boardId);
+    const result = templateRepo.applyTemplate(template.id, habitatId);
 
     expect(result).not.toBeNull();
-    expect(result!.feature.title).toBe('Sprint Task');
-    expect(result!.feature.description).toBe('## Goal\nComplete the work');
-    expect(result!.feature.priority).toBe('high');
-    expect(result!.feature.labels).toEqual(['sprint', 'backend']);
-    expect(result!.feature.boardId).toBe(boardId);
+    expect(result!.mission.title).toBe('Sprint Task');
+    expect(result!.mission.description).toBe('## Goal\nComplete the work');
+    expect(result!.mission.priority).toBe('high');
+    expect(result!.mission.labels).toEqual(['sprint', 'backend']);
+    expect(result!.mission.habitatId).toBe(habitatId);
   });
 
   it('creates child tasks from tasksTemplate array', () => {
     const template = createTestTemplate();
 
-    const result = templateRepo.applyTemplate(template.id, boardId);
+    const result = templateRepo.applyTemplate(template.id, habitatId);
 
     expect(result).not.toBeNull();
     expect(result!.tasks).toHaveLength(3);
@@ -90,7 +90,7 @@ describe('applyTemplate', () => {
     expect(result!.tasks[2].requiredDomain).toBe('qa');
 
     for (const task of result!.tasks) {
-      expect(task.featureId).toBe(result!.feature.id);
+      expect(task.missionId).toBe(result!.mission.id);
     }
   });
 
@@ -98,12 +98,12 @@ describe('applyTemplate', () => {
     const template = createTestTemplate();
     expect(template.usageCount).toBe(0);
 
-    templateRepo.applyTemplate(template.id, boardId);
+    templateRepo.applyTemplate(template.id, habitatId);
 
     const updated = templateRepo.getTemplateById(template.id);
     expect(updated!.usageCount).toBe(1);
 
-    templateRepo.applyTemplate(template.id, boardId);
+    templateRepo.applyTemplate(template.id, habitatId);
 
     const updatedAgain = templateRepo.getTemplateById(template.id);
     expect(updatedAgain!.usageCount).toBe(2);
@@ -112,7 +112,7 @@ describe('applyTemplate', () => {
   it('with overrides overrides template defaults', () => {
     const template = createTestTemplate();
 
-    const result = templateRepo.applyTemplate(template.id, boardId, {
+    const result = templateRepo.applyTemplate(template.id, habitatId, {
       title: 'Custom Title',
       description: 'Custom description',
       priority: 'critical' as TaskPriority,
@@ -120,35 +120,35 @@ describe('applyTemplate', () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.feature.title).toBe('Custom Title');
-    expect(result!.feature.description).toBe('Custom description');
-    expect(result!.feature.priority).toBe('critical');
-    expect(result!.feature.labels).toEqual(['custom']);
+    expect(result!.mission.title).toBe('Custom Title');
+    expect(result!.mission.description).toBe('Custom description');
+    expect(result!.mission.priority).toBe('critical');
+    expect(result!.mission.labels).toEqual(['custom']);
   });
 
   it('returns null for non-existent template', () => {
-    const result = templateRepo.applyTemplate('non-existent-id', boardId);
+    const result = templateRepo.applyTemplate('non-existent-id', habitatId);
 
     expect(result).toBeNull();
   });
 
-  it('handles empty tasksTemplate array (creates feature only)', () => {
+  it('handles empty tasksTemplate array (creates mission only)', () => {
     const template = createTestTemplate({ tasksTemplate: [] });
 
-    const result = templateRepo.applyTemplate(template.id, boardId);
+    const result = templateRepo.applyTemplate(template.id, habitatId);
 
     expect(result).not.toBeNull();
-    expect(result!.feature.title).toBe('Sprint Task');
+    expect(result!.mission.title).toBe('Sprint Task');
     expect(result!.tasks).toHaveLength(0);
   });
 
-  it('uses provided createdBy for feature and tasks', () => {
+  it('uses provided createdBy for mission and tasks', () => {
     const template = createTestTemplate();
 
-    const result = templateRepo.applyTemplate(template.id, boardId, undefined, 'agent-42');
+    const result = templateRepo.applyTemplate(template.id, habitatId, undefined, 'agent-42');
 
     expect(result).not.toBeNull();
-    expect(result!.feature.createdBy).toBe('agent-42');
+    expect(result!.mission.createdBy).toBe('agent-42');
     for (const task of result!.tasks) {
       expect(task.createdBy).toBe('agent-42');
     }
@@ -157,10 +157,10 @@ describe('applyTemplate', () => {
   it('defaults createdBy to system when not provided', () => {
     const template = createTestTemplate();
 
-    const result = templateRepo.applyTemplate(template.id, boardId);
+    const result = templateRepo.applyTemplate(template.id, habitatId);
 
     expect(result).not.toBeNull();
-    expect(result!.feature.createdBy).toBe('system');
+    expect(result!.mission.createdBy).toBe('system');
     for (const task of result!.tasks) {
       expect(task.createdBy).toBe('system');
     }
@@ -168,29 +168,29 @@ describe('applyTemplate', () => {
 
   it('tasks are persisted in the database', () => {
     const template = createTestTemplate();
-    const result = templateRepo.applyTemplate(template.id, boardId);
+    const result = templateRepo.applyTemplate(template.id, habitatId);
 
-    const dbTasks = taskRepo.getTasksByFeatureId(result!.feature.id);
+    const dbTasks = taskRepo.getTasksByMissionId(result!.mission.id);
     expect(dbTasks).toHaveLength(3);
     expect(dbTasks.map(t => t.title).sort()).toEqual(['Implementation', 'Setup', 'Testing'].sort());
   });
 
-  it('feature is persisted in the database', () => {
+  it('mission is persisted in the database', () => {
     const template = createTestTemplate();
-    const result = templateRepo.applyTemplate(template.id, boardId);
+    const result = templateRepo.applyTemplate(template.id, habitatId);
 
-    const dbFeature = featureRepo.getFeatureById(result!.feature.id);
-    expect(dbFeature).not.toBeNull();
-    expect(dbFeature!.title).toBe('Sprint Task');
+    const dbMission = missionRepo.getMissionById(result!.mission.id);
+    expect(dbMission).not.toBeNull();
+    expect(dbMission!.title).toBe('Sprint Task');
   });
 
   it('rolls back all changes on failure within transaction', () => {
     const db = getDb();
-    const featureCountBefore = db.select({ count: sql<number>`COUNT(*)` }).from(features).get()!.count;
+    const missionCountBefore = db.select({ count: sql<number>`COUNT(*)` }).from(missions).get()!.count;
     const taskCountBefore = db.select({ count: sql<number>`COUNT(*)` }).from(tasks).get()!.count;
 
     const template = templateRepo.createTemplate({
-      boardId,
+      habitatId,
       name: 'Rollback Test',
       titlePattern: 'Rollback',
       tasksTemplate: [
@@ -226,7 +226,7 @@ describe('applyTemplate', () => {
 
     let threw = false;
     try {
-      templateRepo.applyTemplate(template.id, boardId);
+      templateRepo.applyTemplate(template.id, habitatId);
     } catch {
       threw = true;
     }
@@ -235,17 +235,17 @@ describe('applyTemplate', () => {
 
     expect(threw).toBe(true);
 
-    const featureCountAfter = db.select({ count: sql<number>`COUNT(*)` }).from(features).get()!.count;
+    const missionCountAfter = db.select({ count: sql<number>`COUNT(*)` }).from(missions).get()!.count;
     const taskCountAfter = db.select({ count: sql<number>`COUNT(*)` }).from(tasks).get()!.count;
     const usageCountAfter = templateRepo.getTemplateById(template.id)!.usageCount;
 
-    expect(featureCountAfter).toBe(featureCountBefore);
+    expect(missionCountAfter).toBe(missionCountBefore);
     expect(taskCountAfter).toBe(taskCountBefore);
     expect(usageCountAfter).toBe(usageCountBefore);
   });
 });
 
-describe('POST /features/:id/apply-template/:templateId - board association', () => {
+describe('POST /missions/:id/apply-template/:templateId - habitat association', () => {
   let app: FastifyInstance | null = null;
   const JWT_SECRET = 'dev-secret-change-in-production';
 
@@ -266,10 +266,10 @@ describe('POST /features/:id/apply-template/:templateId - board association', ()
     await initTestDb();
     const db = getDb();
     db.delete(tasks).run();
-    db.delete(features).run();
+    db.delete(missions).run();
     db.delete(columnsTable).run();
-    db.delete(boards).run();
-    db.delete(featureTemplates).run();
+    db.delete(habitats).run();
+    db.delete(missionTemplates).run();
 
     app = await buildApp();
   });
@@ -279,26 +279,26 @@ describe('POST /features/:id/apply-template/:templateId - board association', ()
     closeDb();
   });
 
-  it('returns 403 when template belongs to a different board', async () => {
-    const boardA = boardRepo.createBoard({ name: 'Board A' });
-    const boardB = boardRepo.createBoard({ name: 'Board B' });
+  it('returns 403 when template belongs to a different habitat', async () => {
+    const habitatA = habitatRepo.createHabitat({ name: 'Habitat A' });
+    const habitatB = habitatRepo.createHabitat({ name: 'Habitat B' });
 
-    const colA = columnRepo.createColumn({ boardId: boardA.id, name: 'Backlog', order: 0, requiresClaim: false });
-    const colB = columnRepo.createColumn({ boardId: boardB.id, name: 'Backlog', order: 0, requiresClaim: false });
+    const colA = columnRepo.createColumn({ habitatId: habitatA.id, name: 'Backlog', order: 0, requiresClaim: false });
+    const colB = columnRepo.createColumn({ habitatId: habitatB.id, name: 'Backlog', order: 0, requiresClaim: false });
 
     const template = templateRepo.createTemplate({
-      boardId: boardA.id,
-      name: 'Board A Template',
-      titlePattern: 'From Board A',
+      habitatId: habitatA.id,
+      name: 'Habitat A Template',
+      titlePattern: 'From Habitat A',
       createdBy: 'human',
     });
 
-    const feature = featureRepo.createFeature({ boardId: boardB.id, columnId: colB.id, title: 'Feature on B', createdBy: 'human' });
+    const mission = missionRepo.createMission({ habitatId: habitatB.id, columnId: colB.id, title: 'Mission on B', createdBy: 'human' });
 
     const token = makeToken({ sub: 'user-1', username: 'admin', role: 'admin' });
     const res = await app!.inject({
       method: 'POST',
-      url: `/features/${feature.id}/apply-template/${template.id}`,
+      url: `/missions/${mission.id}/apply-template/${template.id}`,
       headers: { authorization: `Bearer ${token}` },
     });
 
@@ -307,53 +307,53 @@ describe('POST /features/:id/apply-template/:templateId - board association', ()
     expect(body.error).toMatch(/template.*not.*belong|forbidden/i);
   });
 
-  it('allows applying same-board template', async () => {
-    const board = boardRepo.createBoard({ name: 'Board' });
-    const col = columnRepo.createColumn({ boardId: board.id, name: 'Backlog', order: 0, requiresClaim: false });
+  it('allows applying same-habitat template', async () => {
+    const habitat = habitatRepo.createHabitat({ name: 'Habitat' });
+    const col = columnRepo.createColumn({ habitatId: habitat.id, name: 'Backlog', order: 0, requiresClaim: false });
 
     const template = templateRepo.createTemplate({
-      boardId: board.id,
-      name: 'Same Board Template',
-      titlePattern: 'Same Board Task',
+      habitatId: habitat.id,
+      name: 'Same Habitat Template',
+      titlePattern: 'Same Habitat Task',
       createdBy: 'human',
     });
 
-    const feature = featureRepo.createFeature({ boardId: board.id, columnId: col.id, title: 'Feature', createdBy: 'human' });
+    const mission = missionRepo.createMission({ habitatId: habitat.id, columnId: col.id, title: 'Mission', createdBy: 'human' });
 
     const token = makeToken({ sub: 'user-1', username: 'admin', role: 'admin' });
     const res = await app!.inject({
       method: 'POST',
-      url: `/features/${feature.id}/apply-template/${template.id}`,
+      url: `/missions/${mission.id}/apply-template/${template.id}`,
       headers: { authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.feature.title).toBe('Same Board Task');
+    expect(body.mission.title).toBe('Same Habitat Task');
   });
 
-  it('allows applying global template (boardId = null) to any board', async () => {
-    const board = boardRepo.createBoard({ name: 'Any Board' });
-    const col = columnRepo.createColumn({ boardId: board.id, name: 'Backlog', order: 0, requiresClaim: false });
+  it('allows applying global template (habitatId = null) to any habitat', async () => {
+    const habitat = habitatRepo.createHabitat({ name: 'Any Habitat' });
+    const col = columnRepo.createColumn({ habitatId: habitat.id, name: 'Backlog', order: 0, requiresClaim: false });
 
     const template = templateRepo.createTemplate({
-      boardId: null,
+      habitatId: null,
       name: 'Global Template',
       titlePattern: 'Global Task',
       createdBy: 'system',
     });
 
-    const feature = featureRepo.createFeature({ boardId: board.id, columnId: col.id, title: 'Feature', createdBy: 'human' });
+    const mission = missionRepo.createMission({ habitatId: habitat.id, columnId: col.id, title: 'Mission', createdBy: 'human' });
 
     const token = makeToken({ sub: 'user-1', username: 'admin', role: 'admin' });
     const res = await app!.inject({
       method: 'POST',
-      url: `/features/${feature.id}/apply-template/${template.id}`,
+      url: `/missions/${mission.id}/apply-template/${template.id}`,
       headers: { authorization: `Bearer ${token}` },
     });
 
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.feature.title).toBe('Global Task');
+    expect(body.mission.title).toBe('Global Task');
   });
 });

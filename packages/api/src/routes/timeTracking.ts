@@ -21,7 +21,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
     '/habitats/:habitatId/metrics',
     { preHandler: agentOrHumanAuth },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
-      return timeTrackingService.getBoardMetrics(request.params.habitatId);
+      return timeTrackingService.getHabitatMetrics(request.params.habitatId);
     }
   );
 

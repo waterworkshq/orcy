@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { getTasksByBoardId } from '../../repositories/task.js';
+import { getTasksByHabitatId } from '../../repositories/task.js';
 import type { TaskSortField } from '../../repositories/task.js';
 import { agentOrHumanAuth } from '../../middleware/auth.js';
-import { requireBoardAccess } from '../../middleware/team.js';
+import { requireHabitatAccess } from '../../middleware/team.js';
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
-const boardTasksQuerySchema = z.object({
+const habitatTasksQuerySchema = z.object({
   status: z.enum(['pending', 'claimed', 'in_progress', 'submitted', 'approved', 'rejected', 'done', 'failed']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   search: z.string().optional(),
@@ -20,12 +20,12 @@ const boardTasksQuerySchema = z.object({
   sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
-export async function boardTasksRoutes(fastify: FastifyInstance): Promise<void> {
+export async function habitatTasksRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/tasks',
     {
-      schema: { params: habitatIdParamsSchema, querystring: boardTasksQuerySchema },
-      preHandler: [agentOrHumanAuth, requireBoardAccess],
+      schema: { params: habitatIdParamsSchema, querystring: habitatTasksQuerySchema },
+      preHandler: [agentOrHumanAuth, requireHabitatAccess],
     },
     async (request, reply) => {
       const { habitatId } = request.params;
@@ -36,7 +36,7 @@ export async function boardTasksRoutes(fastify: FastifyInstance): Promise<void> 
 
       const assignedAgentId = query.assignedAgentId === '' ? null : query.assignedAgentId;
 
-      const result = getTasksByBoardId(habitatId, {
+      const result = getTasksByHabitatId(habitatId, {
         status: query.status,
         priority: query.priority,
         search: query.search,

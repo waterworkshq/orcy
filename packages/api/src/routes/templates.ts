@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as templateRepo from '../repositories/template.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { z } from 'zod';
@@ -44,7 +44,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
     '/habitats/:habitatId/templates',
     { preHandler: agentOrHumanAuth },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
-      const templates = templateRepo.getTemplatesByBoardId(request.params.habitatId);
+      const templates = templateRepo.getTemplatesByHabitatId(request.params.habitatId);
       return { templates };
     }
   );
@@ -62,7 +62,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
       const userId = request.user?.id ?? 'anonymous';
 
       const template = templateRepo.createTemplate({
-        boardId: request.params.habitatId,
+        habitatId: request.params.habitatId,
         name: parsed.data.name,
         titlePattern: parsed.data.titlePattern,
         descriptionPattern: parsed.data.descriptionPattern,
@@ -153,9 +153,9 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest('Validation failed', parsed.error.flatten());
       }
 
-      const existingFeature = featureRepo.getFeatureById(request.params.missionId);
-      if (!existingFeature) {
-        throw notFound('Feature not found');
+      const existingMission = missionRepo.getMissionById(request.params.missionId);
+      if (!existingMission) {
+        throw notFound('Mission not found');
       }
 
       const template = templateRepo.getTemplateById(request.params.templateId);
@@ -163,14 +163,14 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound('Template not found');
       }
 
-      if (template.boardId !== null && template.boardId !== existingFeature.boardId) {
-        throw forbidden('Template does not belong to this board');
+      if (template.habitatId !== null && template.habitatId !== existingMission.habitatId) {
+        throw forbidden('Template does not belong to this habitat');
       }
 
       const userId = request.user?.id ?? 'anonymous';
       const result = templateRepo.applyTemplate(
         request.params.templateId,
-        existingFeature.boardId,
+        existingMission.habitatId,
         parsed.data,
         userId,
       );
@@ -179,7 +179,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound('Template not found');
       }
 
-      reply.code(201).send({ feature: result.feature, tasks: result.tasks });
+      reply.code(201).send({ mission: result.mission, tasks: result.tasks });
     }
   );
 }

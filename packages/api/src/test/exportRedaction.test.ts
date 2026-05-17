@@ -70,10 +70,10 @@ describe('Export Redaction', () => {
 
   describe('export defaults — unit', () => {
     it('default export include list excludes webhooks', () => {
-      const defaultInclude = ['columns', 'features', 'comments', 'templates'];
+      const defaultInclude = ['columns', 'missions', 'comments', 'templates'];
       expect(defaultInclude).not.toContain('webhooks');
       expect(defaultInclude).toContain('columns');
-      expect(defaultInclude).toContain('features');
+      expect(defaultInclude).toContain('missions');
     });
   });
 });

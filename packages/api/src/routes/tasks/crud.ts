@@ -44,7 +44,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (!result.success) {
         if (result.archived) {
-          throw forbidden('Cannot modify a task in an archived feature');
+          throw forbidden('Cannot modify a task in an archived mission');
         } else if (result.notFound) {
           throw notFound('Task not found');
         } else if (result.versionMismatch) {
@@ -63,7 +63,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
       const result = taskService.deleteTask(request.params.id);
       if (!result.success) {
         if (result.reason === 'archived') {
-          throw forbidden('Cannot delete a task in an archived feature');
+          throw forbidden('Cannot delete a task in an archived mission');
         } else if (result.reason === 'not_found') {
           throw notFound('Task not found');
         } else {

@@ -1,5 +1,5 @@
 import * as subtaskRepo from '../repositories/subtask.js';
-import { getTaskById, getBoardIdForTask } from '../repositories/task.js';
+import { getTaskById, getHabitatIdForTask } from '../repositories/task.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import type { SSEEvent } from '../models/index.js';
 
@@ -27,9 +27,9 @@ export function createSubtask(taskId: string, input: { title: string; order?: nu
 
   const subtask = subtaskRepo.createSubtask({ taskId, ...input });
   
-  const boardId = getBoardIdForTask(taskId);
-  if (boardId) {
-    sseBroadcaster.publish(boardId, {
+  const habitatId = getHabitatIdForTask(taskId);
+  if (habitatId) {
+    sseBroadcaster.publish(habitatId, {
       type: 'subtask.created',
       data: { taskId, subtask },
     } as SSEEvent);
@@ -53,9 +53,9 @@ export function updateSubtask(subtaskId: string, data: { title?: string; complet
 
   const task = getTaskById(existing.taskId);
   if (task) {
-    const boardId = getBoardIdForTask(existing.taskId);
-    if (boardId) {
-      sseBroadcaster.publish(boardId, {
+    const habitatId = getHabitatIdForTask(existing.taskId);
+    if (habitatId) {
+      sseBroadcaster.publish(habitatId, {
         type: 'subtask.updated',
         data: { taskId: existing.taskId, subtask: updated },
       } as SSEEvent);
@@ -78,9 +78,9 @@ export function deleteSubtask(subtaskId: string) {
   subtaskRepo.deleteSubtask(subtaskId);
 
   if (task) {
-    const boardId = getBoardIdForTask(existing.taskId);
-    if (boardId) {
-      sseBroadcaster.publish(boardId, {
+    const habitatId = getHabitatIdForTask(existing.taskId);
+    if (habitatId) {
+      sseBroadcaster.publish(habitatId, {
         type: 'subtask.deleted',
         data: { taskId: existing.taskId, subtaskId },
       } as SSEEvent);

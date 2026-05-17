@@ -25,20 +25,20 @@ describe('AGENT_DISPATCH_TOOL', () => {
 });
 
 describe('AGENT_ACTIONS', () => {
-  it('routes register to boardRegisterAgent', () => {
-    expect(AGENT_ACTIONS['register']).toBe(agent.boardRegisterAgent);
+  it('routes register to habitatRegisterAgent', () => {
+    expect(AGENT_ACTIONS['register']).toBe(agent.habitatRegisterAgent);
   });
 
-  it('routes list to boardListAgents', () => {
-    expect(AGENT_ACTIONS['list']).toBe(agent.boardListAgents);
+  it('routes list to habitatListAgents', () => {
+    expect(AGENT_ACTIONS['list']).toBe(agent.habitatListAgents);
   });
 
-  it('routes heartbeat to boardHeartbeat', () => {
-    expect(AGENT_ACTIONS['heartbeat']).toBe(agent.boardHeartbeat);
+  it('routes heartbeat to habitatHeartbeat', () => {
+    expect(AGENT_ACTIONS['heartbeat']).toBe(agent.habitatHeartbeat);
   });
 
-  it('routes get-stats to boardGetMyStats', () => {
-    expect(AGENT_ACTIONS['get-stats']).toBe(agent.boardGetMyStats);
+  it('routes get-stats to habitatGetMyStats', () => {
+    expect(AGENT_ACTIONS['get-stats']).toBe(agent.habitatGetMyStats);
   });
 
   it('has exactly 4 actions', () => {

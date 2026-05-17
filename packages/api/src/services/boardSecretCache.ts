@@ -1,42 +1,42 @@
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import { verifyGitHubHmac } from '../config/integrationSecurity.js';
 
-const secretToBoardId = new Map<string, string>();
-const githubSecretToBoardId = new Map<string, string>();
+const secretToHabitatId = new Map<string, string>();
+const githubSecretToHabitatId = new Map<string, string>();
 
 export function rebuildCache(): void {
-  secretToBoardId.clear();
-  githubSecretToBoardId.clear();
-  const boards = boardRepo.listBoards();
-  for (const board of boards) {
-    const settings = board.codeReviewSettings;
+  secretToHabitatId.clear();
+  githubSecretToHabitatId.clear();
+  const habitats = habitatRepo.listHabitats();
+  for (const habitat of habitats) {
+    const settings = habitat.codeReviewSettings;
     if (!settings) continue;
     if (settings.gitlabSecret) {
-      secretToBoardId.set(settings.gitlabSecret, board.id);
+      secretToHabitatId.set(settings.gitlabSecret, habitat.id);
     }
     if (settings.githubSecret) {
-      githubSecretToBoardId.set(settings.githubSecret, board.id);
+      githubSecretToHabitatId.set(settings.githubSecret, habitat.id);
     }
   }
 }
 
-export function lookupBoardIdBySecret(secret: string): string | null {
-  return secretToBoardId.get(secret) ?? null;
+export function lookupHabitatIdBySecret(secret: string): string | null {
+  return secretToHabitatId.get(secret) ?? null;
 }
 
-export function findBoardIdByGithubSignature(rawBody: string, signature: string): string | null {
-  for (const [secret, boardId] of githubSecretToBoardId) {
+export function findHabitatIdByGithubSignature(rawBody: string, signature: string): string | null {
+  for (const [secret, habitatId] of githubSecretToHabitatId) {
     if (verifyGitHubHmac(rawBody, signature, secret)) {
-      return boardId;
+      return habitatId;
     }
   }
   return null;
 }
 
 export function hasGithubSecretsConfigured(): boolean {
-  return githubSecretToBoardId.size > 0;
+  return githubSecretToHabitatId.size > 0;
 }
 
 export function hasAnySecretsConfigured(): boolean {
-  return secretToBoardId.size > 0 || githubSecretToBoardId.size > 0;
+  return secretToHabitatId.size > 0 || githubSecretToHabitatId.size > 0;
 }

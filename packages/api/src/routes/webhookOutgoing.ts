@@ -9,14 +9,14 @@ import {
   getDeliveriesForSubscription,
   sendTestWebhook,
 } from '../services/webhookDispatcher.js';
-import { getBoardById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/board.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { validateOutboundUrl, filterUnsafeHeaders } from '../config/integrationSecurity.js';
 import { badRequest, notFound, internalError } from '../errors.js';
 
 interface CreateWebhookBody {
-  boardId: string | null;
+  habitatId: string | null;
   name: string;
   url: string;
   format?: 'standard' | 'slack' | 'discord';
@@ -47,12 +47,12 @@ const VALID_EVENTS = [
  */
 export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /webhooks - List webhook subscriptions. Auth: humanAuth + adminOnly. Returns subscriptions */
-  fastify.get<{ Querystring: { boardId?: string } }>(
+  fastify.get<{ Querystring: { habitatId?: string } }>(
     '/webhooks',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Querystring: { boardId?: string } }>, reply: FastifyReply) => {
-      const boardId = request.query.boardId || undefined;
-      const subscriptions = getWebhookSubscriptions(boardId);
+    async (request: FastifyRequest<{ Querystring: { habitatId?: string } }>, reply: FastifyReply) => {
+      const habitatId = request.query.habitatId || undefined;
+      const subscriptions = getWebhookSubscriptions(habitatId);
       return subscriptions.map(sub => ({
         ...sub,
         secret: sub.secret ? '********' : null,
@@ -65,7 +65,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
     '/webhooks',
     { preHandler: [humanAuth, adminOnly] },
     async (request: FastifyRequest<{ Body: CreateWebhookBody }>, reply: FastifyReply) => {
-      const { boardId, name, url, format = 'standard', events = [], headers = {} } = request.body;
+      const { habitatId, name, url, format = 'standard', events = [], headers = {} } = request.body;
 
       if (!name || !url) {
         throw badRequest('name and url are required');
@@ -81,10 +81,10 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest(`Blocked custom headers: ${headerFilter.blocked.join(', ')}. Remove sensitive headers or request explicit allowlisting.`);
       }
 
-      if (boardId) {
-        const board = getBoardById(boardId);
-        if (!board) {
-          throw notFound('Board not found');
+      if (habitatId) {
+        const habitat = getHabitatById(habitatId);
+        if (!habitat) {
+          throw notFound('Habitat not found');
         }
       }
 
@@ -95,7 +95,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const subscription = createWebhookSubscription(
-        boardId || null,
+        habitatId || null,
         name,
         url,
         format,

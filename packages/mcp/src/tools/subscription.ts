@@ -21,7 +21,7 @@ export const BOARD_SUBSCRIBE_TOOL: Tool = {
   },
 };
 
-export async function boardSubscribe(
+export async function habitatSubscribe(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
@@ -50,7 +50,7 @@ export const BOARD_UNSUBSCRIBE_TOOL: Tool = {
   },
 };
 
-export async function boardUnsubscribe(
+export async function habitatUnsubscribe(
   _client: KanbanApiClient,
   args: { boardId: string }
 ) {

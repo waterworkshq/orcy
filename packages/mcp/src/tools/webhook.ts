@@ -18,7 +18,7 @@ export const BOARD_LIST_WEBHOOKS_TOOL: Tool = {
   },
 };
 
-export async function boardListWebhooks(
+export async function habitatListWebhooks(
   client: KanbanApiClient,
   args: { boardId: string }
 ) {
@@ -62,7 +62,7 @@ export const BOARD_CREATE_WEBHOOK_TOOL: Tool = {
   },
 };
 
-export async function boardCreateWebhook(
+export async function habitatCreateWebhook(
   client: KanbanApiClient,
   args: { boardId: string; name: string; url: string; events: string[]; format?: 'standard' | 'slack' | 'discord' }
 ) {
@@ -92,7 +92,7 @@ export const BOARD_DELETE_WEBHOOK_TOOL: Tool = {
   },
 };
 
-export async function boardDeleteWebhook(
+export async function habitatDeleteWebhook(
   client: KanbanApiClient,
   args: { webhookId: string }
 ) {

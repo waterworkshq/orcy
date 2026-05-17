@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import * as insightRepo from '../repositories/insight.js';
 import * as pulseRepo from '../repositories/pulse.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, notFound, unauthorized, forbidden } from '../errors.js';
 import { getCallerInfo } from './pulse-shared.js';
@@ -45,18 +45,18 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest('Body exceeds maximum length');
       }
 
-      if (sourcePulse.boardId !== habitatId) {
-        throw badRequest('Source pulse does not belong to this board');
+      if (sourcePulse.habitatId !== habitatId) {
+        throw badRequest('Source pulse does not belong to this habitat');
       }
 
       let sourceMission: string | undefined;
       if (sourcePulse.missionId) {
-        const mission = featureRepo.getFeatureById(sourcePulse.missionId);
+        const mission = missionRepo.getMissionById(sourcePulse.missionId);
         sourceMission = mission?.title;
       }
 
       const insight = insightRepo.createInsight({
-        boardId: habitatId,
+        habitatId: habitatId,
         sourcePulseId: body.sourcePulseId,
         sourceMission,
         signalType: sourcePulse.signalType,
@@ -77,7 +77,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
       const { habitatId } = (request.params as { habitatId: string });
       const query = request.query as { signalType?: string; isActive?: string; limit?: string; offset?: string };
 
-      const result = insightRepo.getInsightsByBoard(habitatId, {
+      const result = insightRepo.getInsightsByHabitat(habitatId, {
         signalType: query.signalType as pulseRepo.SignalType | undefined,
         isActive: query.isActive !== undefined ? query.isActive === 'true' : undefined,
         limit: query.limit ? parseInt(query.limit, 10) : undefined,
@@ -104,7 +104,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound('Insight not found');
       }
 
-      if (insight.boardId !== habitatId) {
+      if (insight.habitatId !== habitatId) {
         throw notFound('Insight not found');
       }
 

@@ -3,11 +3,11 @@ import { formatStandardPayload } from '../services/webhook-formatters/standard.j
 import type { EventEnrichment } from '../services/webhook-formatters/standard.js';
 
 const baseEnrichment: EventEnrichment = {
-  boardName: 'Test Board',
+  habitatName: 'Test Habitat',
 };
 
 const taskEnrichment: EventEnrichment = {
-  boardName: 'Test Board',
+  habitatName: 'Test Habitat',
   task: {
     id: 'task-1',
     title: 'My Task',
@@ -26,7 +26,7 @@ describe('webhook-formatters/standard', () => {
     expect(result).toEqual({
       id: 'del-123',
       timestamp: expect.any(String),
-      boardId: 'Test Board',
+      habitatId: 'Test Habitat',
       event: 'task.created',
       data: baseEnrichment,
     });

@@ -15,7 +15,7 @@ let _pipelineEvents: Record<string, {
 
 let _tasks: Record<string, {
   id: string;
-  boardId: string;
+  habitatId: string;
   status: string;
   title: string;
   artifacts: string;
@@ -116,8 +116,8 @@ vi.mock('../db/schema/index.js', () => ({
     commitSha: 'commitSha',
     createdAt: 'createdAt',
   },
-  tasks: { id: 'id', boardId: 'boardId', title: 'title', status: 'status', artifacts: 'artifacts' },
-  boards: { id: 'id', name: 'name', ciCdSettings: 'ciCdSettings' },
+  tasks: { id: 'id', habitatId: 'habitatId', title: 'title', status: 'status', artifacts: 'artifacts' },
+  habitats: { id: 'id', name: 'name', ciCdSettings: 'ciCdSettings' },
   agents: { id: 'id', name: 'name' },
   pullRequests: { id: 'id', taskId: 'taskId' },
 }));
@@ -140,13 +140,13 @@ vi.mock('../repositories/pullRequest.js', () => ({
 }));
 
 vi.mock('../repositories/task.js', () => ({
-  getTaskById: vi.fn((id: string) => _tasks[id] ? { id, boardId: _tasks[id].boardId, artifacts: JSON.parse(_tasks[id].artifacts || '[]') } : null),
+  getTaskById: vi.fn((id: string) => _tasks[id] ? { id, habitatId: _tasks[id].habitatId, artifacts: JSON.parse(_tasks[id].artifacts || '[]') } : null),
   addArtifact: vi.fn(),
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  listBoards: vi.fn(() => []),
-  getBoardById: vi.fn(),
+  listHabitats: vi.fn(() => []),
+  getHabitatById: vi.fn(),
 }));
 
 describe('PipelineEvent type', () => {
@@ -224,7 +224,7 @@ describe('GitHub workflow_run event handling', () => {
         name: 'CI',
         status: 'completed',
         conclusion: 'success',
-        head_branch: 'feature/test',
+        head_branch: 'mission/test',
         head_sha: 'abc123',
         repository: { full_name: 'org/repo' },
         html_url: 'https://github.com/org/repo/actions/runs/42',

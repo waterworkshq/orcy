@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
-import { taskEvents, tasks, columns as columnsTable, boards, agents, taskDependencies, features } from '../db/schema/index.js';
+import { taskEvents, tasks, columns as columnsTable, habitats, agents, taskDependencies, missions } from '../db/schema/index.js';
 import { eq, and } from 'drizzle-orm';
 import {
   getDefaultPrioritizationSettings,
@@ -13,16 +13,16 @@ import {
   evaluateCondition,
   evaluateRules,
   applyPrioritization,
-  applyAllBoards,
+  applyAllHabitats,
   buildEvaluationContext,
 } from '../services/prioritizationService.js';
 import type { EvaluationContext } from '../services/prioritizationService.js';
-import type { PrioritizationSettings, PrioritizationRule, Feature, Task } from '../models/index.js';
-import { makeTask, makeFeature } from './factories/index.js';
+import type { PrioritizationSettings, PrioritizationRule, Mission, Task } from '../models/index.js';
+import { makeTask, makeMission } from './factories/index.js';
 
-let boardId: string;
+let habitatId: string;
 let columnId: string;
-let featureId: string;
+let missionId: string;
 let agentId: string;
 
 beforeEach(async () => {
@@ -31,7 +31,7 @@ beforeEach(async () => {
   db.delete(taskEvents).run();
   db.delete(tasks).run();
   db.delete(columnsTable).run();
-  db.delete(boards).run();
+  db.delete(habitats).run();
   db.delete(agents).run();
 
   vi.clearAllMocks();
@@ -39,14 +39,14 @@ beforeEach(async () => {
   const { agent } = agentRepo.createAgent({ name: 'test-agent', type: 'claude-code', domain: 'backend' });
   agentId = agent.id;
 
-  const board = boardRepo.createBoard({ name: 'Test Board' });
-  boardId = board.id;
+  const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+  habitatId = habitat.id;
 
-  const columns = columnRepo.createColumn({ boardId, name: 'Backlog', order: 0, requiresClaim: false });
+  const columns = columnRepo.createColumn({ habitatId, name: 'Backlog', order: 0, requiresClaim: false });
   columnId = columns.id;
 
-  const feature = featureRepo.createFeature({ boardId, columnId, title: 'Test Feature', createdBy: 'human' });
-  featureId = feature.id;
+  const mission = missionRepo.createMission({ habitatId, columnId, title: 'Test Mission', createdBy: 'human' });
+  missionId = mission.id;
 });
 
 afterEach(() => {
@@ -55,7 +55,7 @@ afterEach(() => {
 
 function createTaskWithOverrides(overrides: Partial<Task> = {}): Task {
   return taskRepo.createTask({
-    featureId,
+    missionId,
     title: overrides.title ?? 'Test Task',
     createdBy: 'human',
     priority: overrides.priority ?? 'medium',
@@ -64,9 +64,9 @@ function createTaskWithOverrides(overrides: Partial<Task> = {}): Task {
 }
 
 function makeContext(overrides: Partial<EvaluationContext> = {}): EvaluationContext {
-  const featureMap = overrides.featureMap ?? new Map<string, Feature | null>();
+  const missionMap = overrides.missionMap ?? new Map<string, Mission | null>();
   return {
-    featureMap,
+    missionMap,
     agentHeartbeatMap: overrides.agentHeartbeatMap ?? new Map<string, string>(),
     blockingCountMap: overrides.blockingCountMap ?? new Map<string, number>(),
     blockedByCountMap: overrides.blockedByCountMap ?? new Map<string, number>(),
@@ -91,13 +91,13 @@ describe('getDefaultPrioritizationSettings', () => {
 });
 
 describe('getPrioritizationRules', () => {
-  it('returns defaults when board has no settings', () => {
-    const settings = getPrioritizationRules(boardId);
+  it('returns defaults when habitat has no settings', () => {
+    const settings = getPrioritizationRules(habitatId);
     expect(settings.enabled).toBe(true);
     expect(settings.rules.length).toBeGreaterThan(0);
   });
 
-  it('returns board settings when configured', () => {
+  it('returns habitat settings when configured', () => {
     const db = getDb();
     const custom: PrioritizationSettings = {
       enabled: false,
@@ -105,14 +105,14 @@ describe('getPrioritizationRules', () => {
       rules: [],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: custom }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: custom }).where(eq(habitats.id, habitatId)).run();
 
-    const settings = getPrioritizationRules(boardId);
+    const settings = getPrioritizationRules(habitatId);
     expect(settings.enabled).toBe(false);
     expect(settings.evaluateIntervalMinutes).toBe(10);
   });
 
-  it('returns defaults for nonexistent board', () => {
+  it('returns defaults for nonexistent habitat', () => {
     const settings = getPrioritizationRules('nonexistent');
     expect(settings.enabled).toBe(true);
   });
@@ -121,36 +121,36 @@ describe('getPrioritizationRules', () => {
 describe('evaluateCondition: overdue', () => {
   it('matches task past dueAt', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const db = getDb();
-    db.update(features).set({ dueAt: new Date(Date.now() - 86_400_000).toISOString() }).where(eq(features.id, featureId)).run();
+    db.update(missions).set({ dueAt: new Date(Date.now() - 86_400_000).toISOString() }).where(eq(missions.id, missionId)).run();
 
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt: new Date(Date.now() - 86_400_000).toISOString() }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt: new Date(Date.now() - 86_400_000).toISOString() }]]) });
     const result = evaluateCondition(task, { type: 'overdue' }, ctx);
     expect(result).toBe(true);
   });
 
   it('does not match task before dueAt', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt: new Date(Date.now() + 86_400_000 * 7).toISOString() }]]) });
+    const mission = missionRepo.getMissionById(missionId)!;
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt: new Date(Date.now() + 86_400_000 * 7).toISOString() }]]) });
     const result = evaluateCondition(task, { type: 'overdue' }, ctx);
     expect(result).toBe(false);
   });
 
   it('does not match task without dueAt', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt: null }]]) });
+    const mission = missionRepo.getMissionById(missionId)!;
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt: null }]]) });
     const result = evaluateCondition(task, { type: 'overdue' }, ctx);
     expect(result).toBe(false);
   });
 
   it('respects byDays parameter', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const justOverdue = new Date(Date.now() - 86_400_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt: justOverdue }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt: justOverdue }]]) });
     expect(evaluateCondition(task, { type: 'overdue', byDays: 0 }, ctx)).toBe(true);
     expect(evaluateCondition(task, { type: 'overdue', byDays: 3 }, ctx)).toBe(false);
   });
@@ -159,27 +159,27 @@ describe('evaluateCondition: overdue', () => {
 describe('evaluateCondition: sla_approaching', () => {
   it('matches task within SLA window', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const slaDeadline = new Date(Date.now() + 2 * 3_600_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, slaDeadlineAt: slaDeadline }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, slaDeadlineAt: slaDeadline }]]) });
     const result = evaluateCondition(task, { type: 'sla_approaching', withinHours: 4 }, ctx);
     expect(result).toBe(true);
   });
 
   it('does not match task outside SLA window', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const slaDeadline = new Date(Date.now() + 10 * 3_600_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, slaDeadlineAt: slaDeadline }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, slaDeadlineAt: slaDeadline }]]) });
     const result = evaluateCondition(task, { type: 'sla_approaching', withinHours: 4 }, ctx);
     expect(result).toBe(false);
   });
 
   it('does not match breached SLA', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const slaDeadline = new Date(Date.now() - 3_600_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, slaDeadlineAt: slaDeadline }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, slaDeadlineAt: slaDeadline }]]) });
     const result = evaluateCondition(task, { type: 'sla_approaching', withinHours: 4 }, ctx);
     expect(result).toBe(false);
   });
@@ -188,17 +188,17 @@ describe('evaluateCondition: sla_approaching', () => {
 describe('evaluateCondition: due_soon', () => {
   it('matches task due within specified days', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const dueAt = new Date(Date.now() + 12 * 3_600_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt }]]) });
     expect(evaluateCondition(task, { type: 'due_soon', withinDays: 1 }, ctx)).toBe(true);
   });
 
   it('does not match task due later', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const dueAt = new Date(Date.now() + 5 * 86_400_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt }]]) });
     expect(evaluateCondition(task, { type: 'due_soon', withinDays: 1 }, ctx)).toBe(false);
   });
 });
@@ -278,19 +278,19 @@ describe('evaluateCondition: rejection_count', () => {
   });
 });
 
-describe('evaluateCondition: feature_status', () => {
-  it('matches task in feature with matching status', () => {
+describe('evaluateCondition: mission_status', () => {
+  it('matches task in mission with matching status', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, status: 'in_progress' }]]) });
-    expect(evaluateCondition(task, { type: 'feature_status', status: 'in_progress' }, ctx)).toBe(true);
+    const mission = missionRepo.getMissionById(missionId)!;
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, status: 'in_progress' }]]) });
+    expect(evaluateCondition(task, { type: 'mission_status', status: 'in_progress' }, ctx)).toBe(true);
   });
 
-  it('does not match task in feature with different status', () => {
+  it('does not match task in mission with different status', () => {
     const task = createTaskWithOverrides();
-    const feature = featureRepo.getFeatureById(featureId)!;
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, status: 'not_started' }]]) });
-    expect(evaluateCondition(task, { type: 'feature_status', status: 'in_progress' }, ctx)).toBe(false);
+    const mission = missionRepo.getMissionById(missionId)!;
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, status: 'not_started' }]]) });
+    expect(evaluateCondition(task, { type: 'mission_status', status: 'in_progress' }, ctx)).toBe(false);
   });
 });
 
@@ -362,9 +362,9 @@ describe('evaluateCondition: and', () => {
     db.update(tasks).set({ rejectedCount: 5 }).where(eq(tasks.id, task.id)).run();
     const updated = taskRepo.getTaskById(task.id)!;
 
-    const feature = featureRepo.getFeatureById(featureId)!;
+    const mission = missionRepo.getMissionById(missionId)!;
     const dueAt = new Date(Date.now() - 86_400_000).toISOString();
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt }]]) });
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt }]]) });
 
     expect(evaluateCondition(updated, {
       type: 'and',
@@ -377,8 +377,8 @@ describe('evaluateCondition: and', () => {
 
   it('does not match when one condition is false', () => {
     const task = createTaskWithOverrides({ priority: 'low' });
-    const feature = featureRepo.getFeatureById(featureId)!;
-    const ctx = makeContext({ featureMap: new Map([[featureId, { ...feature, dueAt: null }]]) });
+    const mission = missionRepo.getMissionById(missionId)!;
+    const ctx = makeContext({ missionMap: new Map([[missionId, { ...mission, dueAt: null }]]) });
 
     expect(evaluateCondition(task, {
       type: 'and',
@@ -417,10 +417,10 @@ describe('evaluateCondition: or', () => {
 describe('evaluateRules', () => {
   it('returns empty when prioritization disabled', () => {
     const db = getDb();
-    db.update(boards).set({ prioritizationSettings: { enabled: false, evaluateIntervalMinutes: 5, rules: [], fallbackToManual: true } }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: { enabled: false, evaluateIntervalMinutes: 5, rules: [], fallbackToManual: true } }).where(eq(habitats.id, habitatId)).run();
 
     createTaskWithOverrides();
-    const result = evaluateRules(boardId);
+    const result = evaluateRules(habitatId);
     expect(result).toHaveLength(0);
   });
 
@@ -435,7 +435,7 @@ describe('evaluateRules', () => {
     const failedTask = createTaskWithOverrides({ title: 'Failed' });
     db.update(tasks).set({ status: 'failed' }).where(eq(tasks.id, failedTask.id)).run();
 
-    const result = evaluateRules(boardId);
+    const result = evaluateRules(habitatId);
     const matchedIds = result.map(r => r.taskId);
     expect(matchedIds).not.toContain(doneTask.id);
     expect(matchedIds).not.toContain(approvedTask.id);
@@ -467,10 +467,10 @@ describe('evaluateRules', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task = createTaskWithOverrides({ priority: 'medium', labels: ['urgent'], title: 'Both match' });
-    const result = evaluateRules(boardId);
+    const result = evaluateRules(habitatId);
 
     const taskResults = result.filter(r => r.taskId === task.id);
     expect(taskResults).toHaveLength(1);
@@ -494,13 +494,13 @@ describe('evaluateRules', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task1 = createTaskWithOverrides({ priority: 'low', title: 'Low 1' });
     const task2 = createTaskWithOverrides({ priority: 'medium', title: 'Medium' });
     const task3 = createTaskWithOverrides({ priority: 'low', title: 'Low 2' });
 
-    const result = evaluateRules(boardId);
+    const result = evaluateRules(habitatId);
     const matchedIds = result.map(r => r.taskId);
     expect(matchedIds).toContain(task1.id);
     expect(matchedIds).not.toContain(task2.id);
@@ -526,11 +526,11 @@ describe('applyPrioritization', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task = createTaskWithOverrides({ priority: 'low', title: 'Low task' });
 
-    const result = applyPrioritization(boardId);
+    const result = applyPrioritization(habitatId);
 
     expect(result.changedTasks).toBe(1);
     expect(result.results[0].taskId).toBe(task.id);
@@ -557,10 +557,10 @@ describe('applyPrioritization', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     createTaskWithOverrides({ priority: 'medium' });
-    const result = applyPrioritization(boardId);
+    const result = applyPrioritization(habitatId);
     expect(result.changedTasks).toBe(0);
     expect(result.results).toHaveLength(0);
   });
@@ -582,10 +582,10 @@ describe('applyPrioritization', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task = createTaskWithOverrides({ priority: 'medium' });
-    const result = applyPrioritization(boardId);
+    const result = applyPrioritization(habitatId);
 
     expect(result.changedTasks).toBe(1);
     expect(result.results[0].score).toBeGreaterThanOrEqual(20);
@@ -611,10 +611,10 @@ describe('applyPrioritization', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task = createTaskWithOverrides({ priority: 'low' });
-    applyPrioritization(boardId);
+    applyPrioritization(habitatId);
 
     const updated = taskRepo.getTaskById(task.id);
     expect(updated?.priority).toBe('high');
@@ -637,7 +637,7 @@ describe('applyPrioritization', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task1 = createTaskWithOverrides({ priority: 'low', title: 'Low 1' });
     const task2 = createTaskWithOverrides({ priority: 'low', title: 'Low 2' });
@@ -651,7 +651,7 @@ describe('applyPrioritization', () => {
       return originalGetTaskById(id);
     });
 
-    const result = applyPrioritization(boardId);
+    const result = applyPrioritization(habitatId);
 
     getTaskByIdSpy.mockRestore();
 
@@ -680,21 +680,21 @@ describe('applyPrioritization', () => {
       ],
       fallbackToManual: true,
     };
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
 
     const task = createTaskWithOverrides({ labels: [] });
-    applyPrioritization(boardId);
+    applyPrioritization(habitatId);
 
     const updated = taskRepo.getTaskById(task.id);
     expect(updated?.labels).toContain('auto-prioritized');
   });
 });
 
-describe('applyAllBoards', () => {
-  it('iterates all boards', () => {
-    const board2 = boardRepo.createBoard({ name: 'Board 2' });
-    const col2 = columnRepo.createColumn({ boardId: board2.id, name: 'Col', order: 0, requiresClaim: false });
-    featureRepo.createFeature({ boardId: board2.id, columnId: col2.id, title: 'Feature 2', createdBy: 'human' });
+describe('applyAllHabitats', () => {
+  it('iterates all habitats', () => {
+    const habitat2 = habitatRepo.createHabitat({ name: 'Habitat 2' });
+    const col2 = columnRepo.createColumn({ habitatId: habitat2.id, name: 'Col', order: 0, requiresClaim: false });
+    missionRepo.createMission({ habitatId: habitat2.id, columnId: col2.id, title: 'Mission 2', createdBy: 'human' });
 
     const customSettings: PrioritizationSettings = {
       enabled: true,
@@ -712,21 +712,21 @@ describe('applyAllBoards', () => {
       fallbackToManual: true,
     };
     const db = getDb();
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, board2.id)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitat2.id)).run();
 
-    createTaskWithOverrides({ priority: 'low', title: 'Low on board 1' });
-    const board2Features = featureRepo.getFeaturesByBoardId(board2.id);
-    taskRepo.createTask({ featureId: board2Features.features[0].id, title: 'Low on board 2', priority: 'low', createdBy: 'human' });
+    createTaskWithOverrides({ priority: 'low', title: 'Low on habitat 1' });
+    const habitat2Missions = missionRepo.getMissionsByHabitatId(habitat2.id);
+    taskRepo.createTask({ missionId: habitat2Missions.missions[0].id, title: 'Low on habitat 2', priority: 'low', createdBy: 'human' });
 
-    const results = applyAllBoards();
+    const results = applyAllHabitats();
     expect(results.length).toBeGreaterThan(0);
-    const boardIds = results.map(r => r.boardId);
-    expect(boardIds).toContain(boardId);
-    expect(boardIds).toContain(board2.id);
+    const habitatIds = results.map(r => r.habitatId);
+    expect(habitatIds).toContain(habitatId);
+    expect(habitatIds).toContain(habitat2.id);
   });
 
-  it('continues on per-board errors', () => {
+  it('continues on per-habitat errors', () => {
     const customSettings: PrioritizationSettings = {
       enabled: true,
       evaluateIntervalMinutes: 5,
@@ -743,10 +743,10 @@ describe('applyAllBoards', () => {
       fallbackToManual: true,
     };
     const db = getDb();
-    db.update(boards).set({ prioritizationSettings: customSettings }).where(eq(boards.id, boardId)).run();
+    db.update(habitats).set({ prioritizationSettings: customSettings }).where(eq(habitats.id, habitatId)).run();
     createTaskWithOverrides({ priority: 'low' });
 
-    const results = applyAllBoards();
+    const results = applyAllHabitats();
     expect(results.length).toBeGreaterThanOrEqual(0);
   });
 });
@@ -765,6 +765,6 @@ describe('buildEvaluationContext', () => {
     expect(ctx.blockingCountMap.get(task1.id)).toBe(1);
     expect(ctx.blockedByCountMap.get(task2.id)).toBe(1);
     expect(ctx.agentHeartbeatMap.has(agentId)).toBe(true);
-    expect(ctx.featureMap.has(featureId)).toBe(true);
+    expect(ctx.missionMap.has(missionId)).toBe(true);
   });
 });

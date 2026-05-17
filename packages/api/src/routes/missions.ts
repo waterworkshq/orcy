@@ -1,22 +1,22 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import * as featureService from '../services/featureService.js';
+import * as missionService from '../services/featureService.js';
 import * as taskRepo from '../repositories/task.js';
 import * as taskService from '../services/tasks/index.js';
-import * as featureRepo from '../repositories/feature.js';
-import * as featureEventRepo from '../repositories/events/event-feature.js';
+import * as missionRepo from '../repositories/feature.js';
+import * as missionEventRepo from '../repositories/events/event-feature.js';
 import * as decompositionService from '../services/decompositionService.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import {
-  createFeatureSchema,
-  updateFeatureSchema,
-  featureQuerySchema,
-  moveFeatureSchema,
-  createTaskInFeatureSchema,
+  createMissionSchema,
+  updateMissionSchema,
+  missionQuerySchema,
+  moveMissionSchema,
+  createTaskInMissionSchema,
 } from '../models/schemas.js';
 import { agentOrHumanAuth, agentAuth, humanAuth } from '../middleware/auth.js';
-import { requireBoard } from './middleware/preHandlers.js';
+import { requireHabitat } from './middleware/preHandlers.js';
 import { badRequest, notFound, forbidden, conflict, internalError, AppError } from '../errors.js';
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
@@ -25,13 +25,13 @@ const missionIdParamsSchema = z.object({ missionId: z.string() });
 export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats/:habitatId/missions',
-    { schema: { params: habitatIdParamsSchema, body: createFeatureSchema }, preHandler: [agentOrHumanAuth, requireBoard()] },
+    { schema: { params: habitatIdParamsSchema, body: createMissionSchema }, preHandler: [agentOrHumanAuth, requireHabitat()] },
     async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
-      const feature = featureService.createFeature({
-        boardId: request.params.habitatId,
+      const mission = missionService.createMission({
+        habitatId: request.params.habitatId,
         columnId: parsed.columnId,
         title: parsed.title,
         description: parsed.description,
@@ -45,21 +45,21 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
         createdBy: actorId,
       });
 
-      reply.code(201).send({ feature });
+      reply.code(201).send({ mission });
     }
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/missions',
-    { schema: { params: habitatIdParamsSchema, querystring: featureQuerySchema }, preHandler: [agentOrHumanAuth] },
+    { schema: { params: habitatIdParamsSchema, querystring: missionQuerySchema }, preHandler: [agentOrHumanAuth] },
     async (request, reply) => {
       const parsed = request.query;
-      const board = boardRepo.getBoardById(request.params.habitatId);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = habitatRepo.getHabitatById(request.params.habitatId);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
 
-      const result = featureService.listFeatures(request.params.habitatId, {
+      const result = missionService.listMissions(request.params.habitatId, {
         status: parsed.status,
         priority: parsed.priority,
         isArchived: parsed.isArchived,
@@ -67,7 +67,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
         offset: parsed.offset,
       });
 
-      return { features: result.features, total: result.total };
+      return { missions: result.missions, total: result.total };
     }
   );
 
@@ -75,11 +75,11 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     '/missions/:missionId',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureService.getFeatureWithProgress(request.params.missionId);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionService.getMissionWithProgress(request.params.missionId);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
-      return { feature };
+      return { mission };
     }
   );
 
@@ -87,16 +87,16 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     '/missions/:missionId/details',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureService.getFeatureWithProgress(request.params.missionId);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionService.getMissionWithProgress(request.params.missionId);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
 
-      const tasks = taskRepo.getTasksByFeatureId(request.params.missionId);
-      const { events } = featureEventRepo.getMissionEventsByMissionId(request.params.missionId, 50);
+      const tasks = taskRepo.getTasksByMissionId(request.params.missionId);
+      const { events } = missionEventRepo.getMissionEventsByMissionId(request.params.missionId, 50);
       const dependencies = {
-        dependsOn: feature.dependsOn,
-        blocks: feature.blocks,
+        dependsOn: mission.dependsOn,
+        blocks: mission.blocks,
       };
 
       const byStatus: Record<string, number> = {};
@@ -106,7 +106,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
       const completed = tasks.filter(t => ['done', 'approved'].includes(t.status)).length;
 
       return {
-        feature,
+        mission,
         tasks,
         events,
         progress: { completed, total: tasks.length, percentage: tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0, byStatus },
@@ -117,20 +117,20 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.withTypeProvider<ZodTypeProvider>().patch(
     '/missions/:missionId',
-    { schema: { params: missionIdParamsSchema, body: updateFeatureSchema }, preHandler: agentOrHumanAuth },
+    { schema: { params: missionIdParamsSchema, body: updateMissionSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
-      const feature = featureRepo.getFeatureById(request.params.missionId);
-      if (feature?.isArchived) {
-        throw forbidden('Cannot modify an archived feature');
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (mission?.isArchived) {
+        throw forbidden('Cannot modify an archived mission');
       }
 
-      const result = featureService.updateFeature(request.params.missionId, parsed, actorId);
+      const result = missionService.updateMission(request.params.missionId, parsed, actorId);
       if (!result.success) {
         if (result.notFound) {
-          throw notFound('Feature not found');
+          throw notFound('Mission not found');
         } else if (result.versionMismatch) {
           reply.header('Retry-After', '5');
           reply.header('X-Current-Version', String(result.currentVersion));
@@ -139,11 +139,11 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
             yourVersion: parsed.version,
           });
         } else if (result.archived) {
-          throw forbidden('Cannot modify an archived feature');
+          throw forbidden('Cannot modify an archived mission');
         }
-        throw internalError('Failed to update feature');
+        throw internalError('Failed to update mission');
       }
-      return { feature: result.feature };
+      return { mission: result.mission };
     }
   );
 
@@ -152,14 +152,14 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
-      const result = featureService.archiveFeature(request.params.missionId, actorId);
+      const result = missionService.archiveMission(request.params.missionId, actorId);
       if (!result.success) {
-        if (result.reason === 'not_found') throw notFound('Feature not found');
-        if (result.reason === 'not_done') throw badRequest('Only completed features can be archived');
-        if (result.reason === 'already_archived') throw badRequest('Feature is already archived');
-        throw internalError('Failed to archive feature');
+        if (result.reason === 'not_found') throw notFound('Mission not found');
+        if (result.reason === 'not_done') throw badRequest('Only completed missions can be archived');
+        if (result.reason === 'already_archived') throw badRequest('Mission is already archived');
+        throw internalError('Failed to archive mission');
       }
-      return { feature: result.feature };
+      return { mission: result.mission };
     }
   );
 
@@ -168,13 +168,13 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
-      const result = featureService.unarchiveFeature(request.params.missionId, actorId);
+      const result = missionService.unarchiveMission(request.params.missionId, actorId);
       if (!result.success) {
-        if (result.reason === 'not_found') throw notFound('Feature not found');
-        if (result.reason === 'not_archived') throw badRequest('Feature is not archived');
-        throw internalError('Failed to unarchive feature');
+        if (result.reason === 'not_found') throw notFound('Mission not found');
+        if (result.reason === 'not_archived') throw badRequest('Mission is not archived');
+        throw internalError('Failed to unarchive mission');
       }
-      return { feature: result.feature };
+      return { mission: result.mission };
     }
   );
 
@@ -182,14 +182,14 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     '/missions/:missionId',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const result = featureService.deleteFeature(request.params.missionId);
+      const result = missionService.deleteMission(request.params.missionId);
       if (!result.success) {
         if (result.reason === 'not_found') {
-          throw notFound('Feature not found');
+          throw notFound('Mission not found');
         } else if (result.reason === 'has_dependents') {
-          throw conflict('Feature has dependent features', { dependents: true });
+          throw conflict('Mission has dependent missions', { dependents: true });
         }
-        throw internalError('Failed to delete feature');
+        throw internalError('Failed to delete mission');
       }
       reply.code(204).send();
     }
@@ -197,17 +197,17 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/missions/:missionId/move',
-    { schema: { params: missionIdParamsSchema, body: moveFeatureSchema }, preHandler: agentOrHumanAuth },
+    { schema: { params: missionIdParamsSchema, body: moveMissionSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const actorType = request.agent ? 'agent' : 'human';
 
-      const feature = featureService.moveFeatureToColumn(request.params.missionId, parsed.columnId, actorId, actorType);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionService.moveMissionToColumn(request.params.missionId, parsed.columnId, actorId, actorType);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
-      return { feature };
+      return { mission };
     }
   );
 
@@ -215,33 +215,33 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     '/missions/:missionId/tasks',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureRepo.getFeatureById(request.params.missionId);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
 
-      const tasks = taskRepo.getTasksByFeatureId(request.params.missionId);
+      const tasks = taskRepo.getTasksByMissionId(request.params.missionId);
       return { tasks, total: tasks.length };
     }
   );
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/missions/:missionId/tasks',
-    { schema: { params: missionIdParamsSchema, body: createTaskInFeatureSchema }, preHandler: agentOrHumanAuth },
+    { schema: { params: missionIdParamsSchema, body: createTaskInMissionSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const parsed = request.body;
-      const feature = featureRepo.getFeatureById(request.params.missionId);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
-      if (feature.isArchived) {
-        throw forbidden('Cannot add tasks to an archived feature');
+      if (mission.isArchived) {
+        throw forbidden('Cannot add tasks to an archived mission');
       }
 
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
 
       const task = taskService.createTask({
-        featureId: feature.id,
+        missionId: mission.id,
         title: parsed.title,
         description: parsed.description,
         priority: parsed.priority,
@@ -260,12 +260,12 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     '/missions/:missionId/progress',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
     async (request, reply) => {
-      const feature = featureRepo.getFeatureById(request.params.missionId);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
 
-      const tasks = taskRepo.getTasksByFeatureId(request.params.missionId);
+      const tasks = taskRepo.getTasksByMissionId(request.params.missionId);
       const byStatus: Record<string, number> = {};
       for (const t of tasks) {
         byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
@@ -285,16 +285,16 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     '/missions/:missionId/decompose',
     { schema: { params: missionIdParamsSchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const feature = featureRepo.getFeatureById(request.params.missionId);
-      if (!feature) {
-        throw notFound('Feature not found');
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (!mission) {
+        throw notFound('Mission not found');
       }
 
-      if (!feature.description || feature.description.trim().length === 0) {
+      if (!mission.description || mission.description.trim().length === 0) {
         throw badRequest('Add a description before decomposing');
       }
 
-      const result = await decompositionService.decomposeFeature(request.params.missionId);
+      const result = await decompositionService.decomposeMission(request.params.missionId);
       return result;
     }
   );

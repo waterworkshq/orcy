@@ -408,7 +408,7 @@ describe('sendTestWebhook SSRF blocking', () => {
     const { sendTestWebhook } = await import('../services/webhooks/webhook-delivery.js');
     const result = await sendTestWebhook({
       id: 'sub-1',
-      boardId: null,
+      habitatId: null,
       name: 'Test',
       url: 'http://localhost:3000/hook',
       secret: null,
@@ -426,7 +426,7 @@ describe('sendTestWebhook SSRF blocking', () => {
     const { sendTestWebhook } = await import('../services/webhooks/webhook-delivery.js');
     const result = await sendTestWebhook({
       id: 'sub-2',
-      boardId: null,
+      habitatId: null,
       name: 'Test',
       url: 'http://10.0.0.1/hook',
       secret: null,

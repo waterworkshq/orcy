@@ -14,8 +14,8 @@ import { initTestDb, closeDb } from '../db/index.js';
 import { perAgentRateLimit } from '../middleware/rateLimit.js';
 
 import { habitatRoutes } from '../routes/habitats.js';
-import { boardAnalyticsRoutes } from '../routes/board-analytics.js';
-import { boardExportRoutes } from '../routes/board-export.js';
+import { habitatAnalyticsRoutes } from '../routes/board-analytics.js';
+import { habitatExportRoutes } from '../routes/board-export.js';
 import { columnRoutes } from '../routes/columns.js';
 import { taskRoutes } from '../routes/tasks.js';
 import { missionRoutes } from '../routes/missions.js';
@@ -42,8 +42,8 @@ import { qualityGateRoutes } from '../routes/qualityGates.js';
 
 async function registerApiRoutes(f: FastifyInstance) {
   await f.register(habitatRoutes);
-  await f.register(boardAnalyticsRoutes);
-  await f.register(boardExportRoutes);
+  await f.register(habitatAnalyticsRoutes);
+  await f.register(habitatExportRoutes);
   await f.register(columnRoutes);
   await f.register(taskRoutes);
   await f.register(missionRoutes);
@@ -118,7 +118,7 @@ describe('Route Inventory', () => {
       await registerApiRoutes(f);
 
       f.post<{ Params: { id: string } }>(
-        '/boards/:id/archive-events',
+        '/habitats/:id/archive-events',
         { preHandler: humanAuth },
         async () => ({}),
       );
@@ -132,7 +132,7 @@ describe('Route Inventory', () => {
       await registerApiRoutes(f);
 
       f.post<{ Params: { id: string } }>(
-        '/boards/:id/archive-events',
+        '/habitats/:id/archive-events',
         { preHandler: humanAuth },
         async () => ({}),
       );
@@ -173,9 +173,9 @@ describe('Route Inventory', () => {
       expect(isPublicRoute('POST', '/webhooks/github-ci')).toBe(true);
     });
 
-    it('does not identify board routes as public', () => {
-      expect(isPublicRoute('GET', '/boards')).toBe(false);
-      expect(isPublicRoute('POST', '/boards')).toBe(false);
+    it('does not identify habitat routes as public', () => {
+      expect(isPublicRoute('GET', '/habitats')).toBe(false);
+      expect(isPublicRoute('POST', '/habitats')).toBe(false);
     });
 
     it('does not identify task routes as public', () => {
@@ -271,8 +271,8 @@ describe('Route Inventory', () => {
   });
 
   describe('route inventory completeness', () => {
-    it('captures board routes', () => {
-      const boardRoutes = allRoutes.filter((r) => r.url.includes('/boards'));
+    it('captures habitat routes', () => {
+      const boardRoutes = allRoutes.filter((r) => r.url.includes('/habitats'));
       expect(boardRoutes.length).toBeGreaterThan(0);
     });
 
@@ -310,7 +310,7 @@ describe('Route Inventory', () => {
   describe('findUnauthenticatedNonPublicRoutes', () => {
     it('returns only routes without auth that are not public', () => {
       const routes: RouteAuthInfo[] = [
-        { method: 'GET', url: '/boards', hasAuth: true, preHandlerNames: ['humanAuth'], isPublic: false },
+        { method: 'GET', url: '/habitats', hasAuth: true, preHandlerNames: ['humanAuth'], isPublic: false },
         { method: 'GET', url: '/agents', hasAuth: false, preHandlerNames: [], isPublic: true },
         { method: 'GET', url: '/tasks', hasAuth: false, preHandlerNames: [], isPublic: false },
       ];

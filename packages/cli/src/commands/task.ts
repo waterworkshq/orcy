@@ -6,30 +6,30 @@ export function registerTaskCommands(program: any) {
   const task = program.command('task').description('Task operations');
 
   task.command('list-in-mission')
-    .description('List all tasks within a feature')
-    .argument('<featureId>', 'Mission UUID')
-    .action(withErrorHandling(async (featureId: string) => {
-      const result = await api.get<any>(`/api/features/${featureId}/tasks`);
+    .description('List all tasks within a mission')
+    .argument('<missionId>', 'Mission UUID')
+    .action(withErrorHandling(async (missionId: string) => {
+      const result = await api.get<any>(`/api/missions/${missionId}/tasks`);
       console.log(JSON.stringify(result, null, 2));
     }));
 
   task.command('create-in-mission')
-    .description('Create a task within a feature')
-    .argument('<featureId>', 'Mission UUID')
+    .description('Create a task within a mission')
+    .argument('<missionId>', 'Mission UUID')
     .argument('<title>', 'Task title')
     .option('--description <desc>', 'Task description')
     .option('--priority <priority>', 'Priority (low, medium, high, critical)')
     .option('--domain <domain>', 'Required agent domain (frontend, backend, devops, testing, fullstack)')
     .option('--capabilities <caps>', 'Comma-separated required capabilities')
     .option('--estimated-minutes <n>', 'Estimated time in minutes')
-    .action(withErrorHandling(async (featureId: string, title: string, options: any) => {
+    .action(withErrorHandling(async (missionId: string, title: string, options: any) => {
       const body: Record<string, any> = { title };
       if (options.description) body.description = options.description;
       if (options.priority) body.priority = options.priority;
       if (options.domain) body.requiredDomain = options.domain;
       if (options.capabilities) body.requiredCapabilities = options.capabilities.split(',').map((s: string) => s.trim());
       if (options.estimatedMinutes) body.estimatedMinutes = Number(options.estimatedMinutes);
-      const result = await api.post<any>(`/api/features/${featureId}/tasks`, body);
+      const result = await api.post<any>(`/api/missions/${missionId}/tasks`, body);
       console.log(JSON.stringify(result, null, 2));
     }));
 

@@ -28,9 +28,9 @@ vi.mock('../db/index.js', () => {
 });
 
 vi.mock('../db/schema/index.js', () => ({
-  boards: { id: 'id', name: 'name' },
+  habitats: { id: 'id', name: 'name' },
   webhookSubscriptions: {
-    id: 'id', boardId: 'boardId', name: 'name', url: 'url',
+    id: 'id', habitatId: 'habitatId', name: 'name', url: 'url',
     secret: 'secret', events: 'events', headers: 'headers',
     format: 'format', enabled: 'enabled', createdAt: 'createdAt', updatedAt: 'updatedAt',
   },
@@ -69,7 +69,7 @@ describe('webhookDispatcher — integration', () => {
 
   describe('createWebhookSubscription', () => {
     it('creates subscription and returns it with generated secret', () => {
-      const sub = createWebhookSubscription('board-1', 'Test Hook', 'https://example.com/hook', 'standard', ['task.created'], {});
+      const sub = createWebhookSubscription('habitat-1', 'Test Hook', 'https://example.com/hook', 'standard', ['task.created'], {});
       expect(sub.name).toBe('Test Hook');
       expect(sub.url).toBe('https://example.com/hook');
       expect(sub.format).toBe('standard');

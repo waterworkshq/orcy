@@ -10,10 +10,10 @@ export function requireSelfAgent(request: FastifyRequest, agentId: string): bool
 }
 
 export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post<{ Params: { agentId: string }; Body: { boardId: string; toAgentId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' } }>(
+  fastify.post<{ Params: { agentId: string }; Body: { habitatId: string; toAgentId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' } }>(
     '/agents/:agentId/messages',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { agentId: string }; Body: { boardId: string; toAgentId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { agentId: string }; Body: { habitatId: string; toAgentId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' } }>, reply: FastifyReply) => {
       const { agentId } = request.params;
       const body = request.body;
 
@@ -21,8 +21,8 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
         throw forbidden('Agent can only send messages as itself');
       }
 
-      if (!body.subject || !body.body || !body.toAgentId || !body.boardId) {
-        throw badRequest('Missing required fields: boardId, toAgentId, subject, body');
+      if (!body.subject || !body.body || !body.toAgentId || !body.habitatId) {
+        throw badRequest('Missing required fields: habitatId, toAgentId, subject, body');
       }
 
       const toAgent = agentRepo.getAgentById(body.toAgentId);
@@ -33,7 +33,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
       const authenticatedAgentId = request.agent.id;
 
       const message = agentMessageRepo.createMessage({
-        boardId: body.boardId,
+        habitatId: body.habitatId,
         fromAgentId: authenticatedAgentId,
         toAgentId: body.toAgentId,
         taskId: body.taskId,
@@ -43,7 +43,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
         priority: body.priority,
       });
 
-      sseBroadcaster.publish(body.boardId, {
+      sseBroadcaster.publish(body.habitatId, {
         type: 'agent.message_received',
         data: {
           messageId: message.id,
@@ -54,7 +54,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
           messageType: message.messageType,
           priority: message.priority,
           taskId: message.taskId,
-          boardId: body.boardId,
+          habitatId: body.habitatId,
         },
       });
 

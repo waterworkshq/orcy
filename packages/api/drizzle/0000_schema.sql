@@ -50,7 +50,7 @@ CREATE UNIQUE INDEX `idx_team_members_unique` ON `team_members` (`team_id`,`user
 CREATE INDEX `idx_team_members_team_id` ON `team_members` (`team_id`);--> statement-breakpoint
 CREATE INDEX `idx_team_members_user_id` ON `team_members` (`user_id`);--> statement-breakpoint
 
-CREATE TABLE `boards` (
+CREATE TABLE `habitats` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
@@ -67,12 +67,12 @@ CREATE TABLE `boards` (
 	FOREIGN KEY (`team_id`) REFERENCES `teams`(`id`) ON UPDATE no action ON DELETE set null
 );
 --> statement-breakpoint
-CREATE INDEX `idx_boards_name` ON `boards` (`name`);--> statement-breakpoint
-CREATE INDEX `idx_boards_team_id` ON `boards` (`team_id`);--> statement-breakpoint
+CREATE INDEX `idx_habitats_name` ON `habitats` (`name`);--> statement-breakpoint
+CREATE INDEX `idx_habitats_team_id` ON `habitats` (`team_id`);--> statement-breakpoint
 
 CREATE TABLE `columns` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text NOT NULL,
+	`habitat_id` text NOT NULL,
 	`name` text NOT NULL,
 	`order` integer NOT NULL,
 	`wip_limit` integer,
@@ -80,17 +80,17 @@ CREATE TABLE `columns` (
 	`requires_claim` integer DEFAULT true NOT NULL,
 	`next_column_id` text,
 	`is_terminal` integer DEFAULT false NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`next_column_id`) REFERENCES `columns`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `idx_columns_board_order` ON `columns` (`board_id`,`order`);--> statement-breakpoint
-CREATE INDEX `idx_columns_board_id` ON `columns` (`board_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_columns_board_order` ON `columns` (`habitat_id`,`order`);--> statement-breakpoint
+CREATE INDEX `idx_columns_habitat_id` ON `columns` (`habitat_id`);--> statement-breakpoint
 CREATE INDEX `idx_columns_next` ON `columns` (`next_column_id`);--> statement-breakpoint
 
-CREATE TABLE `features` (
+CREATE TABLE `missions` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text NOT NULL,
+	`habitat_id` text NOT NULL,
 	`column_id` text NOT NULL,
 	`title` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
@@ -113,29 +113,29 @@ CREATE TABLE `features` (
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
 	`updated_at` text DEFAULT '(datetime(''now''))' NOT NULL,
 	`version` integer DEFAULT 1 NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`column_id`) REFERENCES `columns`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `idx_features_board_column` ON `features` (`board_id`,`column_id`);--> statement-breakpoint
-CREATE INDEX `idx_features_status` ON `features` (`status`);--> statement-breakpoint
-CREATE INDEX `idx_features_priority` ON `features` (`priority`);--> statement-breakpoint
-CREATE INDEX `idx_features_column_order` ON `features` (`column_id`,`display_order`);--> statement-breakpoint
-CREATE INDEX `idx_features_due_at` ON `features` (`due_at`);--> statement-breakpoint
+CREATE INDEX `idx_missions_board_column` ON `missions` (`habitat_id`,`column_id`);--> statement-breakpoint
+CREATE INDEX `idx_missions_status` ON `missions` (`status`);--> statement-breakpoint
+CREATE INDEX `idx_missions_priority` ON `missions` (`priority`);--> statement-breakpoint
+CREATE INDEX `idx_missions_column_order` ON `missions` (`column_id`,`display_order`);--> statement-breakpoint
+CREATE INDEX `idx_missions_due_at` ON `missions` (`due_at`);--> statement-breakpoint
 
-CREATE TABLE `feature_dependencies` (
-	`feature_id` text NOT NULL,
+CREATE TABLE `mission_dependencies` (
+	`mission_id` text NOT NULL,
 	`depends_on_id` text NOT NULL,
-	PRIMARY KEY(`feature_id`, `depends_on_id`),
-	FOREIGN KEY (`feature_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`depends_on_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade
+	PRIMARY KEY(`mission_id`, `depends_on_id`),
+	FOREIGN KEY (`mission_id`) REFERENCES `missions`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`depends_on_id`) REFERENCES `missions`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_feature_deps_depends_on` ON `feature_dependencies` (`depends_on_id`);--> statement-breakpoint
+CREATE INDEX `idx_mission_deps_depends_on` ON `mission_dependencies` (`depends_on_id`);--> statement-breakpoint
 
-CREATE TABLE `feature_events` (
+CREATE TABLE `mission_events` (
 	`id` text PRIMARY KEY NOT NULL,
-	`feature_id` text NOT NULL,
+	`mission_id` text NOT NULL,
 	`actor_type` text NOT NULL,
 	`actor_id` text NOT NULL,
 	`action` text NOT NULL,
@@ -145,26 +145,26 @@ CREATE TABLE `feature_events` (
 	`to_status` text,
 	`metadata` text NOT NULL DEFAULT '{}',
 	`timestamp` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`feature_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`mission_id`) REFERENCES `missions`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_feature_events_feature` ON `feature_events` (`feature_id`);--> statement-breakpoint
-CREATE INDEX `idx_feature_events_timestamp` ON `feature_events` (`timestamp`);--> statement-breakpoint
+CREATE INDEX `idx_mission_events_feature` ON `mission_events` (`mission_id`);--> statement-breakpoint
+CREATE INDEX `idx_mission_events_timestamp` ON `mission_events` (`timestamp`);--> statement-breakpoint
 
-CREATE TABLE `feature_watchers` (
-	`feature_id` text NOT NULL,
+CREATE TABLE `mission_watchers` (
+	`mission_id` text NOT NULL,
 	`user_id` text NOT NULL,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
-	PRIMARY KEY(`feature_id`, `user_id`),
-	FOREIGN KEY (`feature_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade,
+	PRIMARY KEY(`mission_id`, `user_id`),
+	FOREIGN KEY (`mission_id`) REFERENCES `missions`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_feature_watchers_user` ON `feature_watchers` (`user_id`);--> statement-breakpoint
+CREATE INDEX `idx_mission_watchers_user` ON `mission_watchers` (`user_id`);--> statement-breakpoint
 
-CREATE TABLE `feature_templates` (
+CREATE TABLE `mission_templates` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text,
+	`habitat_id` text,
 	`name` text NOT NULL,
 	`title_pattern` text DEFAULT '' NOT NULL,
 	`description_pattern` text DEFAULT '' NOT NULL,
@@ -177,15 +177,15 @@ CREATE TABLE `feature_templates` (
 	`usage_count` integer DEFAULT 0 NOT NULL,
 	`created_by` text NOT NULL,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_templates_board` ON `feature_templates` (`board_id`);--> statement-breakpoint
-CREATE INDEX `idx_templates_default` ON `feature_templates` (`is_default`);--> statement-breakpoint
+CREATE INDEX `idx_templates_board` ON `mission_templates` (`habitat_id`);--> statement-breakpoint
+CREATE INDEX `idx_templates_default` ON `mission_templates` (`is_default`);--> statement-breakpoint
 
 CREATE TABLE `tasks` (
 	`id` text PRIMARY KEY NOT NULL,
-	`feature_id` text NOT NULL,
+	`mission_id` text NOT NULL,
 	`title` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
 	`priority` text DEFAULT 'medium' NOT NULL,
@@ -215,13 +215,13 @@ CREATE TABLE `tasks` (
 	`retry_policy` text,
 	`retry_count` integer DEFAULT 0 NOT NULL,
 	`next_retry_at` text,
-	FOREIGN KEY (`feature_id`) REFERENCES `features`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`mission_id`) REFERENCES `missions`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`assigned_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`delegated_to_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
-CREATE INDEX `idx_tasks_feature` ON `tasks` (`feature_id`);--> statement-breakpoint
-CREATE INDEX `idx_tasks_feature_order` ON `tasks` (`feature_id`,`order`);--> statement-breakpoint
+CREATE INDEX `idx_tasks_feature` ON `tasks` (`mission_id`);--> statement-breakpoint
+CREATE INDEX `idx_tasks_feature_order` ON `tasks` (`mission_id`,`order`);--> statement-breakpoint
 CREATE INDEX `idx_tasks_status` ON `tasks` (`status`);--> statement-breakpoint
 CREATE INDEX `idx_tasks_assigned_agent` ON `tasks` (`assigned_agent_id`);--> statement-breakpoint
 CREATE INDEX `idx_tasks_required_domain` ON `tasks` (`required_domain`);--> statement-breakpoint
@@ -366,7 +366,7 @@ CREATE INDEX `idx_agents_current_task` ON `agents` (`current_task_id`);--> state
 
 CREATE TABLE `agent_messages` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text NOT NULL,
+	`habitat_id` text NOT NULL,
 	`from_agent_id` text NOT NULL,
 	`to_agent_id` text NOT NULL,
 	`task_id` text,
@@ -376,7 +376,7 @@ CREATE TABLE `agent_messages` (
 	`priority` text DEFAULT 'normal' NOT NULL,
 	`read_at` text,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`from_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`to_agent_id`) REFERENCES `agents`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`task_id`) REFERENCES `tasks`(`id`) ON UPDATE no action ON DELETE cascade
@@ -384,19 +384,19 @@ CREATE TABLE `agent_messages` (
 --> statement-breakpoint
 CREATE INDEX `idx_agent_messages_to_agent` ON `agent_messages` (`to_agent_id`);--> statement-breakpoint
 CREATE INDEX `idx_agent_messages_from_agent` ON `agent_messages` (`from_agent_id`);--> statement-breakpoint
-CREATE INDEX `idx_agent_messages_board` ON `agent_messages` (`board_id`);--> statement-breakpoint
+CREATE INDEX `idx_agent_messages_board` ON `agent_messages` (`habitat_id`);--> statement-breakpoint
 CREATE INDEX `idx_agent_messages_task` ON `agent_messages` (`task_id`);--> statement-breakpoint
 CREATE INDEX `idx_agent_messages_read` ON `agent_messages` (`read_at`);--> statement-breakpoint
 
 CREATE TABLE `saved_filters` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text NOT NULL,
+	`habitat_id` text NOT NULL,
 	`user_id` text NOT NULL,
 	`name` text NOT NULL,
 	`filter_config` text NOT NULL,
 	`is_builtin` integer DEFAULT false,
 	`created_at` text DEFAULT '(datetime(''now''))',
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 
@@ -434,7 +434,7 @@ CREATE TABLE `pull_requests` (
 CREATE TABLE `notification_preferences` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
-	`board_id` text,
+	`habitat_id` text,
 	`task_assigned` integer DEFAULT 1 NOT NULL,
 	`task_submitted` integer DEFAULT 1 NOT NULL,
 	`task_approved` integer DEFAULT 0 NOT NULL,
@@ -444,14 +444,14 @@ CREATE TABLE `notification_preferences` (
 	`task_watching` integer DEFAULT 1 NOT NULL,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
 	`updated_at` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `idx_notif_prefs_user_board` ON `notification_preferences` (`user_id`,`board_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_notif_prefs_user_board` ON `notification_preferences` (`user_id`,`habitat_id`);--> statement-breakpoint
 
 CREATE TABLE `chat_integrations` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text NOT NULL,
+	`habitat_id` text NOT NULL,
 	`provider` text NOT NULL,
 	`webhook_url` text NOT NULL,
 	`channel_id` text,
@@ -460,16 +460,16 @@ CREATE TABLE `chat_integrations` (
 	`events` text NOT NULL,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
 	`updated_at` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_chat_integrations_board` ON `chat_integrations` (`board_id`);--> statement-breakpoint
+CREATE INDEX `idx_chat_integrations_board` ON `chat_integrations` (`habitat_id`);--> statement-breakpoint
 CREATE INDEX `idx_chat_integrations_provider` ON `chat_integrations` (`provider`);--> statement-breakpoint
 CREATE INDEX `idx_chat_integrations_enabled` ON `chat_integrations` (`enabled`);--> statement-breakpoint
 
 CREATE TABLE `webhook_subscriptions` (
 	`id` text PRIMARY KEY NOT NULL,
-	`board_id` text,
+	`habitat_id` text,
 	`name` text NOT NULL,
 	`url` text NOT NULL,
 	`secret` text,
@@ -479,10 +479,10 @@ CREATE TABLE `webhook_subscriptions` (
 	`enabled` integer DEFAULT 1 NOT NULL,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
 	`updated_at` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`board_id`) REFERENCES `boards`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`habitat_id`) REFERENCES `habitats`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_webhook_subscriptions_board` ON `webhook_subscriptions` (`board_id`);--> statement-breakpoint
+CREATE INDEX `idx_webhook_subscriptions_board` ON `webhook_subscriptions` (`habitat_id`);--> statement-breakpoint
 CREATE INDEX `idx_webhook_subscriptions_enabled` ON `webhook_subscriptions` (`enabled`);--> statement-breakpoint
 
 CREATE TABLE `webhook_deliveries` (

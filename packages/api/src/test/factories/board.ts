@@ -9,8 +9,8 @@ export function makeHabitat(overrides: Partial<Habitat> = {}): Habitat {
   const now = new Date().toISOString();
   return {
     id,
-    name: 'Test Board',
-    description: 'A test board description',
+    name: 'Test Habitat',
+    description: 'A test habitat description',
     teamId: null,
     retrySettings: null,
     anomalySettings: null,
@@ -23,5 +23,5 @@ export function makeHabitat(overrides: Partial<Habitat> = {}): Habitat {
     createdAt: now,
     updatedAt: now,
     ...overrides,
-  } as Board;
+  } as Habitat;
 }

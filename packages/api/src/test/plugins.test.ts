@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as pluginManager from '../plugins/pluginManager.js';
-import type { Task, Board, Agent } from '../models/index.js';
+import type { Task, Habitat, Agent } from '../models/index.js';
 
 vi.mock('../lib/logger.js', () => ({
   logger: {
@@ -212,7 +212,7 @@ describe('Plugin Manager', () => {
         export default {
           name: 'hook-test',
           version: '1.0.0',
-          hooks: { onTaskCreated: (task, board) => { globalThis.__pluginTestCalls.push({ hook: 'onTaskCreated', args: [task, board] }); } },
+          hooks: { onTaskCreated: (task, habitat) => { globalThis.__pluginTestCalls.push({ hook: 'onTaskCreated', args: [task, habitat] }); } },
         };
       `;
       await writeFile(`${tmpDir}/hook-test.mjs`, code);
@@ -221,12 +221,12 @@ describe('Plugin Manager', () => {
       await pluginManager.loadPlugins();
 
       const fakeTask = { id: 't1', title: 'Test' } as Task;
-      const fakeBoard = { id: 'b1', name: 'Board' } as Board;
-      await pluginManager.emitTaskCreated(fakeTask, fakeBoard);
+      const fakeHabitat = { id: 'b1', name: 'Habitat' } as Habitat;
+      await pluginManager.emitTaskCreated(fakeTask, fakeHabitat);
 
       expect(hookCalls).toHaveLength(1);
       expect(hookCalls[0].hook).toBe('onTaskCreated');
-      expect(hookCalls[0].args).toEqual([fakeTask, fakeBoard]);
+      expect(hookCalls[0].args).toEqual([fakeTask, fakeHabitat]);
 
       await rm(tmpDir, { recursive: true });
     });
@@ -345,29 +345,29 @@ describe('Plugin Manager', () => {
     });
   });
 
-  describe('emitBoardCreated', () => {
-    it('invokes onBoardCreated hook', async () => {
-      const tmpDir = `/tmp/test-plugins-board-${Date.now()}`;
+  describe('emitHabitatCreated', () => {
+    it('invokes onHabitatCreated hook', async () => {
+      const tmpDir = `/tmp/test-plugins-habitat-${Date.now()}`;
       const { mkdir, writeFile, rm } = await import('node:fs/promises');
       await mkdir(tmpDir, { recursive: true });
 
       const code = `
         export default {
-          name: 'board-test',
+          name: 'habitat-test',
           version: '1.0.0',
-          hooks: { onBoardCreated: (board) => { globalThis.__pluginTestCalls.push({ hook: 'onBoardCreated', args: [board] }); } },
+          hooks: { onHabitatCreated: (habitat) => { globalThis.__pluginTestCalls.push({ hook: 'onHabitatCreated', args: [habitat] }); } },
         };
       `;
-      await writeFile(`${tmpDir}/board-test.mjs`, code);
+      await writeFile(`${tmpDir}/habitat-test.mjs`, code);
 
       pluginManager.setPluginDirectory(tmpDir);
       await pluginManager.loadPlugins();
 
-      const fakeBoard = { id: 'b1', name: 'Board' } as Board;
-      await pluginManager.emitBoardCreated(fakeBoard);
+      const fakeHabitat = { id: 'b1', name: 'Habitat' } as Habitat;
+      await pluginManager.emitHabitatCreated(fakeHabitat);
 
       expect(hookCalls).toHaveLength(1);
-      expect(hookCalls[0].args).toEqual([fakeBoard]);
+      expect(hookCalls[0].args).toEqual([fakeHabitat]);
 
       await rm(tmpDir, { recursive: true });
     });

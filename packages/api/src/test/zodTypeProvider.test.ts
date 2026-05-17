@@ -7,7 +7,7 @@ import { z } from 'zod';
  * correctly infers request.body / request.query / request.params types.
  *
  * This mirrors the setup in src/index.ts and the pilot routes in
- * src/routes/tasks/crud.ts and src/routes/features.ts.
+ * src/routes/tasks/crud.ts and src/routes/missions.ts.
  */
 
 interface ZodV3TypeProvider extends FastifyTypeProvider {

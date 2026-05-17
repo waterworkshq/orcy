@@ -23,14 +23,14 @@ describe('Unified schema (0000_schema.sql)', () => {
   });
 
   it('has all core tables', () => {
-    const core = ['users', 'boards', 'columns', 'features', 'tasks', 'agents'];
+    const core = ['users', 'habitats', 'columns', 'missions', 'tasks', 'agents'];
     for (const name of core) {
       expect(tableNames).toContain(name);
     }
   });
 
-  it('has feature-related tables', () => {
-    const feat = ['feature_dependencies', 'feature_events', 'feature_watchers', 'feature_templates'];
+  it('has mission-related tables', () => {
+    const feat = ['mission_dependencies', 'mission_events', 'mission_watchers', 'mission_templates'];
     for (const name of feat) {
       expect(tableNames).toContain(name);
     }
@@ -45,19 +45,19 @@ describe('Unified schema (0000_schema.sql)', () => {
     }
   });
 
-  it('has feature_templates, NOT task_templates', () => {
-    expect(tableNames).toContain('feature_templates');
+  it('has mission_templates, NOT task_templates', () => {
+    expect(tableNames).toContain('mission_templates');
     expect(tableNames).not.toContain('task_templates');
   });
 
-  it('tasks table has feature_id, not legacy columns', () => {
+  it('tasks table has mission_id, not legacy columns', () => {
     const tasksCreate = createTables.find(s => s.includes('`tasks`'))!;
     expect(tasksCreate).toBeDefined();
-    expect(tasksCreate).toContain('`feature_id`');
+    expect(tasksCreate).toContain('`mission_id`');
     expect(tasksCreate).toContain('`order`');
     expect(tasksCreate).toContain('`actual_minutes`');
     expect(tasksCreate).toContain('`cycle_time_minutes`');
-    expect(tasksCreate).not.toContain('`board_id`');
+    expect(tasksCreate).not.toContain('`habitat_id`');
     expect(tasksCreate).not.toContain('`column_id`');
     expect(tasksCreate).not.toContain('`display_order`');
     expect(tasksCreate).not.toContain('`labels`');
@@ -65,18 +65,18 @@ describe('Unified schema (0000_schema.sql)', () => {
     expect(tasksCreate).not.toContain('`blocks`');
   });
 
-  it('features table has archive and time columns', () => {
-    const featuresCreate = createTables.find(s => s.includes('`features`'))!;
-    expect(featuresCreate).toContain('`is_archived`');
-    expect(featuresCreate).toContain('`actual_minutes`');
-    expect(featuresCreate).toContain('`planned_minutes`');
-    expect(featuresCreate).toContain('`planning_accuracy`');
-    expect(featuresCreate).toContain('`completed_at`');
-    expect(featuresCreate).toContain('`acceptance_criteria`');
+  it('missions table has archive and time columns', () => {
+    const missionsCreate = createTables.find(s => s.includes('`missions`'))!;
+    expect(missionsCreate).toContain('`is_archived`');
+    expect(missionsCreate).toContain('`actual_minutes`');
+    expect(missionsCreate).toContain('`planned_minutes`');
+    expect(missionsCreate).toContain('`planning_accuracy`');
+    expect(missionsCreate).toContain('`completed_at`');
+    expect(missionsCreate).toContain('`acceptance_criteria`');
   });
 
-  it('feature_templates has tasks_template column', () => {
-    const tmplCreate = createTables.find(s => s.includes('`feature_templates`'))!;
+  it('mission_templates has tasks_template column', () => {
+    const tmplCreate = createTables.find(s => s.includes('`mission_templates`'))!;
     expect(tmplCreate).toContain('`tasks_template`');
   });
 
@@ -99,15 +99,15 @@ describe('Unified schema (0000_schema.sql)', () => {
     expect(createIndexes.length).toBe(72);
   });
 
-  it('features table created before tasks (FK ordering)', () => {
-    const featIdx = tableNames.indexOf('features');
+  it('missions table created before tasks (FK ordering)', () => {
+    const featIdx = tableNames.indexOf('missions');
     const taskIdx = tableNames.indexOf('tasks');
     expect(featIdx).toBeLessThan(taskIdx);
   });
 
-  it('users table created before boards (FK ordering)', () => {
+  it('users table created before habitats (FK ordering)', () => {
     const usersIdx = tableNames.indexOf('users');
-    const boardsIdx = tableNames.indexOf('boards');
-    expect(usersIdx).toBeLessThan(boardsIdx);
+    const habitatsIdx = tableNames.indexOf('habitats');
+    expect(usersIdx).toBeLessThan(habitatsIdx);
   });
 });

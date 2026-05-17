@@ -18,7 +18,7 @@ export const BOARD_GET_TASK_TIME_REPORT_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskTimeReport(
+export async function habitatGetTaskTimeReport(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {
@@ -66,7 +66,7 @@ export const BOARD_GET_TASK_BLOCKED_STATUS_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskBlockedStatus(
+export async function habitatGetTaskBlockedStatus(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {
@@ -94,7 +94,7 @@ export const BOARD_ADD_TASK_DEPENDENCY_TOOL: Tool = {
   },
 };
 
-export async function boardAddTaskDependency(
+export async function habitatAddTaskDependency(
   client: KanbanApiClient,
   args: { taskId: string; dependsOnTaskId: string }
 ) {
@@ -121,7 +121,7 @@ export const BOARD_REMOVE_TASK_DEPENDENCY_TOOL: Tool = {
   },
 };
 
-export async function boardRemoveTaskDependency(
+export async function habitatRemoveTaskDependency(
   client: KanbanApiClient,
   args: { taskId: string; dependencyTaskId: string }
 ) {
@@ -145,7 +145,7 @@ export const BOARD_GET_TASK_QUALITY_CHECKLIST_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskQualityChecklist(
+export async function habitatGetTaskQualityChecklist(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {
@@ -188,7 +188,7 @@ export const BOARD_UPDATE_QUALITY_CHECKLIST_ITEM_TOOL: Tool = {
   },
 };
 
-export async function boardUpdateQualityChecklistItem(
+export async function habitatUpdateQualityChecklistItem(
   client: KanbanApiClient,
   args: { taskId: string; checklistId: string; itemId: string; isCompleted?: boolean; evidenceUrl?: string; notes?: string }
 ) {
@@ -216,7 +216,7 @@ export const BOARD_VALIDATE_QUALITY_GATES_TOOL: Tool = {
   },
 };
 
-export async function boardValidateQualityGates(
+export async function habitatValidateQualityGates(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {
@@ -240,7 +240,7 @@ export const BOARD_GET_TASK_APPROVAL_STATUS_TOOL: Tool = {
   },
 };
 
-export async function boardGetTaskApprovalStatus(
+export async function habitatGetTaskApprovalStatus(
   client: KanbanApiClient,
   args: { taskId: string }
 ) {

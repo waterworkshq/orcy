@@ -1,14 +1,14 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { sseBroadcaster } from '../sse/broadcaster.js';
-import { authenticateRealtime, authorizeBoardAccess } from '../middleware/realtimeAuth.js';
+import { authenticateRealtime, authorizeHabitatAccess } from '../middleware/realtimeAuth.js';
 import type { SSEEvent } from '../models/index.js';
 
 export async function sseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/stream',
-    { preHandler: [authenticateRealtime, authorizeBoardAccess] },
+    { preHandler: [authenticateRealtime, authorizeHabitatAccess] },
     async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
-      const boardId = request.params.habitatId;
+      const habitatId = request.params.habitatId;
 
       reply.raw.setHeader('Content-Type', 'text/event-stream');
       reply.raw.setHeader('Cache-Control', 'no-cache');
@@ -17,12 +17,12 @@ export async function sseRoutes(fastify: FastifyInstance): Promise<void> {
 
       const encoder = new TextEncoder();
 
-      const unsubscribe = sseBroadcaster.subscribe(boardId, (event: SSEEvent) => {
+      const unsubscribe = sseBroadcaster.subscribe(habitatId, (event: SSEEvent) => {
         const data = `data: ${JSON.stringify(event)}\n\n`;
         reply.raw.write(encoder.encode(data));
       });
 
-      reply.raw.write(encoder.encode(`data: ${JSON.stringify({ type: 'connected', data: { boardId } })}\n\n`));
+      reply.raw.write(encoder.encode(`data: ${JSON.stringify({ type: 'connected', data: { habitatId } })}\n\n`));
 
       request.raw.on('close', () => {
         unsubscribe();

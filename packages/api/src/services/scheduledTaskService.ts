@@ -1,7 +1,7 @@
 import { CronExpressionParser } from 'cron-parser';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as templateRepo from '../repositories/template.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
 import * as auditExportService from './auditExportService.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
@@ -55,21 +55,21 @@ function buildTokenContext(schedule: ScheduledTask) {
   return { runCount: schedule.runCount + 1, timezone: schedule.timezone ?? 'UTC' };
 }
 
-function createFeatureFromSchedule(schedule: ScheduledTask): { featureId: string; featureTitle: string } {
+function createMissionFromSchedule(schedule: ScheduledTask): { missionId: string; missionTitle: string } {
   const ctx = buildTokenContext(schedule);
-  const resolvedTitle = substituteTokens(schedule.featureTitle, ctx);
-  const feature = featureRepo.createFeature({
-    boardId: schedule.boardId,
+  const resolvedTitle = substituteTokens(schedule.missionTitle, ctx);
+  const mission = missionRepo.createMission({
+    habitatId: schedule.habitatId,
     title: resolvedTitle,
-    description: substituteTokens(schedule.featureDescription, ctx),
-    priority: schedule.featurePriority,
-    labels: schedule.featureLabels,
+    description: substituteTokens(schedule.missionDescription, ctx),
+    priority: schedule.missionPriority,
+    labels: schedule.missionLabels,
     createdBy: 'system',
   });
 
   for (const entry of (schedule.tasksTemplate ?? []) as TaskTemplateEntry[]) {
     taskRepo.createTask({
-      featureId: feature.id,
+      missionId: mission.id,
       title: substituteTokens(entry.title, ctx),
       description: entry.description,
       priority: entry.priority,
@@ -81,10 +81,10 @@ function createFeatureFromSchedule(schedule: ScheduledTask): { featureId: string
     });
   }
 
-  return { featureId: feature.id, featureTitle: resolvedTitle };
+  return { missionId: mission.id, missionTitle: resolvedTitle };
 }
 
-export function executeScheduledTask(id: string): { success: boolean; featureId?: string; error?: string; skipped?: boolean } {
+export function executeScheduledTask(id: string): { success: boolean; missionId?: string; error?: string; skipped?: boolean } {
   const schedule = scheduledTaskRepo.getScheduledTaskById(id);
   if (!schedule) {
     return { success: false, error: 'Scheduled task not found' };
@@ -107,54 +107,54 @@ export function executeScheduledTask(id: string): { success: boolean; featureId?
   }
 
   try {
-    let featureId: string;
-    let featureTitle: string;
+    let missionId: string;
+    let missionTitle: string;
 
     if (schedule.templateId) {
       const ctx = buildTokenContext(schedule);
-      const resolvedTitle = substituteTokens(schedule.featureTitle, ctx);
+      const resolvedTitle = substituteTokens(schedule.missionTitle, ctx);
       const result = templateRepo.applyTemplate(
         schedule.templateId,
-        schedule.boardId,
+        schedule.habitatId,
         {
           title: resolvedTitle,
-          description: substituteTokens(schedule.featureDescription, ctx),
-          priority: schedule.featurePriority,
-          labels: schedule.featureLabels,
+          description: substituteTokens(schedule.missionDescription, ctx),
+          priority: schedule.missionPriority,
+          labels: schedule.missionLabels,
         },
         'system',
       );
 
       if (result) {
-        featureId = result.feature.id;
-        featureTitle = resolvedTitle;
+        missionId = result.mission.id;
+        missionTitle = resolvedTitle;
       } else {
-        const fallback = createFeatureFromSchedule(schedule);
-        featureId = fallback.featureId;
-        featureTitle = fallback.featureTitle;
+        const fallback = createMissionFromSchedule(schedule);
+        missionId = fallback.missionId;
+        missionTitle = fallback.missionTitle;
       }
     } else {
-      const direct = createFeatureFromSchedule(schedule);
-      featureId = direct.featureId;
-      featureTitle = direct.featureTitle;
+      const direct = createMissionFromSchedule(schedule);
+      missionId = direct.missionId;
+      missionTitle = direct.missionTitle;
     }
 
-    scheduledTaskRepo.finalizeExecution(id, featureId);
+    scheduledTaskRepo.finalizeExecution(id, missionId);
 
     if (schedule.scheduleType === 'once') {
       scheduledTaskRepo.updateScheduledTask(id, { enabled: false });
     }
 
-    sseBroadcaster.publish(schedule.boardId, {
+    sseBroadcaster.publish(schedule.habitatId, {
       type: 'scheduled_task.executed',
-      data: { scheduleId: id, featureId, featureTitle },
+      data: { scheduleId: id, missionId, missionTitle },
     });
 
-    return { success: true, featureId };
+    return { success: true, missionId };
   } catch (err) {
     logger.error({ err, scheduleId: id }, 'Error executing scheduled task');
 
-    sseBroadcaster.publish(schedule.boardId, {
+    sseBroadcaster.publish(schedule.habitatId, {
       type: 'scheduled_task.failed',
       data: { scheduleId: id, error: (err as Error).message },
     });
@@ -209,20 +209,20 @@ export function processDueAuditExports(): { executed: number; failed: number } {
         }
       }
 
-      const boardId = schedule.board_id ?? schedule.boardId;
+      const habitatId = schedule.habitat_id ?? schedule.habitatId;
       const format = schedule.format;
       const filters = typeof schedule.filters === 'string' ? JSON.parse(schedule.filters) : (schedule.filters ?? {});
 
       const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
       const query = { format, since, userFilters: filters || {} };
 
-      const filename = auditExportService.getExportFilename(boardId, format);
-      const safeBoardDir = sanitizeFilename(boardId);
-      const exportDir = join(process.cwd(), 'exports', safeBoardDir);
+      const filename = auditExportService.getExportFilename(habitatId, format);
+      const safeHabitatDir = sanitizeFilename(habitatId);
+      const exportDir = join(process.cwd(), 'exports', safeHabitatDir);
       mkdirSync(exportDir, { recursive: true });
       const filePath = join(exportDir, filename);
 
-      const content = generateAuditExportContent(boardId, format, query);
+      const content = generateAuditExportContent(habitatId, format, query);
       writeFileSync(filePath, content, 'utf-8');
 
       const nextRunAt = calculateNextRun('cron', schedule.schedule, null);
@@ -245,9 +245,9 @@ export function processDueAuditExports(): { executed: number; failed: number } {
   return { executed, failed };
 }
 
-function generateAuditExportContent(boardId: string, format: string, query: Record<string, unknown>): string {
+function generateAuditExportContent(habitatId: string, format: string, query: Record<string, unknown>): string {
   const summary = auditExportService.getAuditSummary(
-    boardId,
+    habitatId,
     query.since as string | undefined,
   );
 

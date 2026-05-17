@@ -1,7 +1,7 @@
 import * as prRepo from '../repositories/pullRequest.js';
 import * as taskRepo from '../repositories/task.js';
-import { getBoardIdForTask } from '../repositories/task.js';
-import * as boardRepo from '../repositories/board.js';
+import { getHabitatIdForTask } from '../repositories/task.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as eventRepo from '../repositories/event.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import type { CodeReviewSettings } from '../models/index.js';
@@ -52,10 +52,10 @@ function mapMRState(attrs: { state: string }): 'open' | 'merged' | 'closed' {
   return 'open';
 }
 
-function getSettingsForBoard(boardId: string): CodeReviewSettings | null {
-  const board = boardRepo.getBoardById(boardId);
-  if (!board) return null;
-  const raw = (board as unknown as Record<string, unknown>).code_review_settings;
+function getSettingsForHabitat(habitatId: string): CodeReviewSettings | null {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat) return null;
+  const raw = (habitat as unknown as Record<string, unknown>).code_review_settings;
   if (!raw || typeof raw !== 'string') return null;
   try {
     return JSON.parse(raw) as CodeReviewSettings;
@@ -64,10 +64,10 @@ function getSettingsForBoard(boardId: string): CodeReviewSettings | null {
   }
 }
 
-function findTaskAcrossBoards(repo: string, branchName: string, mrTitle: string): string | null {
-  const boards = boardRepo.listBoards();
-  for (const board of boards) {
-    const settings = getSettingsForBoard(board.id);
+function findTaskAcrossHabitats(repo: string, branchName: string, mrTitle: string): string | null {
+  const habitats = habitatRepo.listHabitats();
+  for (const habitat of habitats) {
+    const settings = getSettingsForHabitat(habitat.id);
     if (settings) {
       const pattern = settings.taskPattern || '[?&;]taskId=([0-9a-f-]{36})';
       const taskIdFromBranch = prRepo.findTaskIdByPattern(branchName, pattern);
@@ -94,7 +94,7 @@ export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): { status
   const mrUrl = attrs.url;
   const mrState = mapMRState(attrs);
 
-  const taskId = findTaskAcrossBoards(repo, branchName, mrTitle);
+  const taskId = findTaskAcrossHabitats(repo, branchName, mrTitle);
   if (!taskId) return { status: 'no_matching_task' };
 
   const task = taskRepo.getTaskById(taskId);
@@ -118,9 +118,9 @@ export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): { status
       });
     }
 
-    const boardId = getBoardIdForTask(taskId);
-    if (boardId) {
-      sseBroadcaster.publish(boardId, {
+    const habitatId = getHabitatIdForTask(taskId);
+    if (habitatId) {
+      sseBroadcaster.publish(habitatId, {
         type: 'task.updated',
         data: task,
       });
@@ -133,8 +133,8 @@ export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): { status
     if (existing) {
       prRepo.updatePullRequest(existing.id, { state: 'merged' });
 
-      const settingsBoardId = getBoardIdForTask(taskId);
-      const settings = settingsBoardId ? getSettingsForBoard(settingsBoardId) : null;
+      const settingsHabitatId = getHabitatIdForTask(taskId);
+      const settings = settingsHabitatId ? getSettingsForHabitat(settingsHabitatId) : null;
       if (settings?.autoApproveOnMerge && task.status === 'submitted') {
         const approved = taskRepo.approveTask(taskId);
         if (approved) {
@@ -145,9 +145,9 @@ export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): { status
             action: 'approved',
             metadata: { provider: 'gitlab', repo, prNumber: mrNumber, autoApproved: true },
           });
-          const boardId2 = getBoardIdForTask(taskId);
-          if (boardId2) {
-            sseBroadcaster.publish(boardId2, {
+          const habitatId2 = getHabitatIdForTask(taskId);
+          if (habitatId2) {
+            sseBroadcaster.publish(habitatId2, {
               type: 'task.approved',
               data: { taskId, reviewerId: 'gitlab-webhook' },
             });
@@ -155,9 +155,9 @@ export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): { status
         }
       }
 
-      const boardId3 = getBoardIdForTask(taskId);
-      if (boardId3) {
-        sseBroadcaster.publish(boardId3, {
+      const habitatId3 = getHabitatIdForTask(taskId);
+      if (habitatId3) {
+        sseBroadcaster.publish(habitatId3, {
           type: 'task.updated',
           data: task,
         });

@@ -51,24 +51,24 @@ describe('TASK_DISPATCH_TOOL', () => {
 
 describe('TASK_ACTIONS', () => {
   describe('lifecycle actions', () => {
-    it('routes claim to boardClaimTask', () => {
-      expect(TASK_ACTIONS['claim']).toBe(taskLifecycle.boardClaimTask);
+    it('routes claim to habitatClaimTask', () => {
+      expect(TASK_ACTIONS['claim']).toBe(taskLifecycle.habitatClaimTask);
     });
 
-    it('routes submit to boardSubmitTask', () => {
-      expect(TASK_ACTIONS['submit']).toBe(taskLifecycle.boardSubmitTask);
+    it('routes submit to habitatSubmitTask', () => {
+      expect(TASK_ACTIONS['submit']).toBe(taskLifecycle.habitatSubmitTask);
     });
 
-    it('routes complete to boardCompleteTask', () => {
-      expect(TASK_ACTIONS['complete']).toBe(taskLifecycle.boardCompleteTask);
+    it('routes complete to habitatCompleteTask', () => {
+      expect(TASK_ACTIONS['complete']).toBe(taskLifecycle.habitatCompleteTask);
     });
 
-    it('routes release to boardReleaseTask', () => {
-      expect(TASK_ACTIONS['release']).toBe(taskLifecycle.boardReleaseTask);
+    it('routes release to habitatReleaseTask', () => {
+      expect(TASK_ACTIONS['release']).toBe(taskLifecycle.habitatReleaseTask);
     });
 
-    it('routes retry to boardRetryTask', () => {
-      expect(TASK_ACTIONS['retry']).toBe(taskLifecycle.boardRetryTask);
+    it('routes retry to habitatRetryTask', () => {
+      expect(TASK_ACTIONS['retry']).toBe(taskLifecycle.habitatRetryTask);
     });
   });
 
@@ -81,82 +81,82 @@ describe('TASK_ACTIONS', () => {
       expect(TASK_ACTIONS['create-in-mission']).toBe(mission.missionCreateTask);
     });
 
-    it('routes update to boardUpdateTask', () => {
-      expect(TASK_ACTIONS['update']).toBe(taskCrud.boardUpdateTask);
+    it('routes update to habitatUpdateTask', () => {
+      expect(TASK_ACTIONS['update']).toBe(taskCrud.habitatUpdateTask);
     });
 
-    it('routes delete to boardDeleteTask', () => {
-      expect(TASK_ACTIONS['delete']).toBe(taskCrud.boardDeleteTask);
+    it('routes delete to habitatDeleteTask', () => {
+      expect(TASK_ACTIONS['delete']).toBe(taskCrud.habitatDeleteTask);
     });
   });
 
   describe('detail actions', () => {
-    it('routes get-context to boardGetTaskContext', () => {
-      expect(TASK_ACTIONS['get-context']).toBe(taskDetail.boardGetTaskContext);
+    it('routes get-context to habitatGetTaskContext', () => {
+      expect(TASK_ACTIONS['get-context']).toBe(taskDetail.habitatGetTaskContext);
     });
 
-    it('routes get-events to boardGetTaskEvents', () => {
-      expect(TASK_ACTIONS['get-events']).toBe(taskDetail.boardGetTaskEvents);
+    it('routes get-events to habitatGetTaskEvents', () => {
+      expect(TASK_ACTIONS['get-events']).toBe(taskDetail.habitatGetTaskEvents);
     });
 
-    it('routes get-comments to boardGetTaskComments', () => {
-      expect(TASK_ACTIONS['get-comments']).toBe(taskDetail.boardGetTaskComments);
+    it('routes get-comments to habitatGetTaskComments', () => {
+      expect(TASK_ACTIONS['get-comments']).toBe(taskDetail.habitatGetTaskComments);
     });
 
-    it('routes add-comment to boardAddTaskComment', () => {
-      expect(TASK_ACTIONS['add-comment']).toBe(taskDetail.boardAddTaskComment);
+    it('routes add-comment to habitatAddTaskComment', () => {
+      expect(TASK_ACTIONS['add-comment']).toBe(taskDetail.habitatAddTaskComment);
     });
   });
 
   describe('query actions', () => {
-    it('routes get-time-report to boardGetTaskTimeReport', () => {
-      expect(TASK_ACTIONS['get-time-report']).toBe(lifecycleGaps.boardGetTaskTimeReport);
+    it('routes get-time-report to habitatGetTaskTimeReport', () => {
+      expect(TASK_ACTIONS['get-time-report']).toBe(lifecycleGaps.habitatGetTaskTimeReport);
     });
 
-    it('routes get-blocked-status to boardGetTaskBlockedStatus', () => {
-      expect(TASK_ACTIONS['get-blocked-status']).toBe(lifecycleGaps.boardGetTaskBlockedStatus);
+    it('routes get-blocked-status to habitatGetTaskBlockedStatus', () => {
+      expect(TASK_ACTIONS['get-blocked-status']).toBe(lifecycleGaps.habitatGetTaskBlockedStatus);
     });
 
-    it('routes get-approval-status to boardGetTaskApprovalStatus', () => {
-      expect(TASK_ACTIONS['get-approval-status']).toBe(lifecycleGaps.boardGetTaskApprovalStatus);
+    it('routes get-approval-status to habitatGetTaskApprovalStatus', () => {
+      expect(TASK_ACTIONS['get-approval-status']).toBe(lifecycleGaps.habitatGetTaskApprovalStatus);
     });
   });
 
   describe('dependency actions', () => {
-    it('routes add-dependency to boardAddTaskDependency', () => {
-      expect(TASK_ACTIONS['add-dependency']).toBe(lifecycleGaps.boardAddTaskDependency);
+    it('routes add-dependency to habitatAddTaskDependency', () => {
+      expect(TASK_ACTIONS['add-dependency']).toBe(lifecycleGaps.habitatAddTaskDependency);
     });
 
-    it('routes remove-dependency to boardRemoveTaskDependency', () => {
-      expect(TASK_ACTIONS['remove-dependency']).toBe(lifecycleGaps.boardRemoveTaskDependency);
+    it('routes remove-dependency to habitatRemoveTaskDependency', () => {
+      expect(TASK_ACTIONS['remove-dependency']).toBe(lifecycleGaps.habitatRemoveTaskDependency);
     });
   });
 
   describe('quality checklist actions', () => {
-    it('routes get-quality-checklist to boardGetTaskQualityChecklist', () => {
-      expect(TASK_ACTIONS['get-quality-checklist']).toBe(lifecycleGaps.boardGetTaskQualityChecklist);
+    it('routes get-quality-checklist to habitatGetTaskQualityChecklist', () => {
+      expect(TASK_ACTIONS['get-quality-checklist']).toBe(lifecycleGaps.habitatGetTaskQualityChecklist);
     });
 
-    it('routes update-quality-checklist-item to boardUpdateQualityChecklistItem', () => {
-      expect(TASK_ACTIONS['update-quality-checklist-item']).toBe(lifecycleGaps.boardUpdateQualityChecklistItem);
+    it('routes update-quality-checklist-item to habitatUpdateQualityChecklistItem', () => {
+      expect(TASK_ACTIONS['update-quality-checklist-item']).toBe(lifecycleGaps.habitatUpdateQualityChecklistItem);
     });
 
-    it('routes validate-quality-gates to boardValidateQualityGates', () => {
-      expect(TASK_ACTIONS['validate-quality-gates']).toBe(lifecycleGaps.boardValidateQualityGates);
+    it('routes validate-quality-gates to habitatValidateQualityGates', () => {
+      expect(TASK_ACTIONS['validate-quality-gates']).toBe(lifecycleGaps.habitatValidateQualityGates);
     });
   });
 
   describe('subtask actions', () => {
-    it('routes list-subtasks to boardListTaskSubtasks', () => {
-      expect(TASK_ACTIONS['list-subtasks']).toBe(subtask.boardListTaskSubtasks);
+    it('routes list-subtasks to habitatListTaskSubtasks', () => {
+      expect(TASK_ACTIONS['list-subtasks']).toBe(subtask.habitatListTaskSubtasks);
     });
 
-    it('routes create-subtask to boardCreateTaskSubtask', () => {
-      expect(TASK_ACTIONS['create-subtask']).toBe(subtask.boardCreateTaskSubtask);
+    it('routes create-subtask to habitatCreateTaskSubtask', () => {
+      expect(TASK_ACTIONS['create-subtask']).toBe(subtask.habitatCreateTaskSubtask);
     });
 
-    it('routes delete-subtask to boardDeleteTaskSubtask', () => {
-      expect(TASK_ACTIONS['delete-subtask']).toBe(subtask.boardDeleteTaskSubtask);
+    it('routes delete-subtask to habitatDeleteTaskSubtask', () => {
+      expect(TASK_ACTIONS['delete-subtask']).toBe(subtask.habitatDeleteTaskSubtask);
     });
   });
 

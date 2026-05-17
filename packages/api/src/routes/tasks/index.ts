@@ -5,7 +5,7 @@ import { taskDelegationRoutes } from './delegation.js';
 import { taskWatcherRoutes } from './watchers.js';
 import { taskMiscRoutes } from './misc.js';
 import { taskBatchRoutes } from './batch.js';
-import { boardTasksRoutes } from './boardTasks.js';
+import { habitatTasksRoutes } from './boardTasks.js';
 
 export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
   await fastify.register(taskCrudRoutes);
@@ -14,5 +14,5 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
   await fastify.register(taskWatcherRoutes);
   await fastify.register(taskMiscRoutes);
   await fastify.register(taskBatchRoutes);
-  await fastify.register(boardTasksRoutes);
+  await fastify.register(habitatTasksRoutes);
 }

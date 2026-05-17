@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
-import { makeBoard } from './factories/board.js';
+import { makeHabitat } from './factories/board.js';
 import { makeTask } from './factories/task.js';
 
 vi.mock('../db/index.js', () => ({
@@ -19,25 +19,25 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('../repositories/board.js', () => ({
-  getBoardById: vi.fn().mockReturnValue(null),
-  createBoard: vi.fn(),
-  updateBoard: vi.fn(),
-  deleteBoard: vi.fn(),
-  listBoards: vi.fn().mockReturnValue([]),
+  getHabitatById: vi.fn().mockReturnValue(null),
+  createHabitat: vi.fn(),
+  updateHabitat: vi.fn(),
+  deleteHabitat: vi.fn(),
+  listHabitats: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock('../repositories/task.js', () => ({
   getTaskById: vi.fn().mockReturnValue(null),
-  getBoardIdForTask: vi.fn().mockReturnValue(null),
+  getHabitatIdForTask: vi.fn().mockReturnValue(null),
 }));
 
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
-import { getBoardById } from '../repositories/board.js';
-import { getTaskById, getBoardIdForTask } from '../repositories/task.js';
+import { getHabitatById } from '../repositories/board.js';
+import { getTaskById, getHabitatIdForTask } from '../repositories/task.js';
 
 const VALID_TASK_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-const VALID_BOARD_ID = 'board-1234';
+const VALID_HABITAT_ID = 'habitat-1234';
 const VALID_REPO_PATH = '/home/user/project';
 const VALID_SETTINGS = {
   repoPath: VALID_REPO_PATH,
@@ -45,11 +45,11 @@ const VALID_SETTINGS = {
   autoCleanup: true,
 };
 
-function setupBoardWithSettings(settings = VALID_SETTINGS) {
-  vi.mocked(getBoardById).mockReturnValue(
-    makeBoard({
-      id: VALID_BOARD_ID,
-      name: 'Test Board',
+function setupHabitatWithSettings(settings = VALID_SETTINGS) {
+  vi.mocked(getHabitatById).mockReturnValue(
+    makeHabitat({
+      id: VALID_HABITAT_ID,
+      name: 'Test Habitat',
       description: '',
       gitWorktreeSettings: settings,
       createdAt: '',
@@ -67,9 +67,9 @@ async function getModule() {
 describe('Git Worktree Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getBoardById).mockReturnValue(null);
+    vi.mocked(getHabitatById).mockReturnValue(null);
     vi.mocked(getTaskById).mockReturnValue(null);
-    vi.mocked(getBoardIdForTask).mockReturnValue(null);
+    vi.mocked(getHabitatIdForTask).mockReturnValue(null);
   });
 
   describe('WorktreeValidationError', () => {
@@ -117,7 +117,7 @@ describe('Git Worktree Service', () => {
     it('accepts safe prefixes', async () => {
       const { validateBranchPrefix } = await getModule();
       expect(validateBranchPrefix('task')).toBe('task');
-      expect(validateBranchPrefix('feature/agent-1')).toBe('feature/agent-1');
+      expect(validateBranchPrefix('mission/agent-1')).toBe('mission/agent-1');
       expect(validateBranchPrefix('my_branch.v2')).toBe('my_branch.v2');
     });
 
@@ -168,31 +168,31 @@ describe('Git Worktree Service', () => {
   });
 
   describe('createWorktree', () => {
-    it('returns null when board has no gitWorktreeSettings', async () => {
+    it('returns null when habitat has no gitWorktreeSettings', async () => {
       const { createWorktree } = await getModule();
-      const result = createWorktree('nonexistent-task', 'nonexistent-board');
+      const result = createWorktree('nonexistent-task', 'nonexistent-habitat');
       expect(result).toBeNull();
     });
 
     it('returns null when repoPath is invalid', async () => {
-      setupBoardWithSettings({ ...VALID_SETTINGS, repoPath: 'relative/path' });
+      setupHabitatWithSettings({ ...VALID_SETTINGS, repoPath: 'relative/path' });
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result).toBeNull();
     });
 
     it('returns null when branchPrefix is invalid', async () => {
-      setupBoardWithSettings({ ...VALID_SETTINGS, branchPrefix: 'task;rm -rf /' });
+      setupHabitatWithSettings({ ...VALID_SETTINGS, branchPrefix: 'task;rm -rf /' });
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result).toBeNull();
     });
 
     it('uses argv arrays not shell strings', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const { createWorktree } = await getModule();
-      createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(execFileSync).toHaveBeenCalledWith(
         'git',
         expect.arrayContaining(['worktree', 'add']),
@@ -201,17 +201,17 @@ describe('Git Worktree Service', () => {
     });
 
     it('returns worktree entry on success', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result).not.toBeNull();
       expect(result!.repoRoot).toBe(VALID_REPO_PATH);
       expect(result!.branch).toBe(`task/${VALID_TASK_ID}`);
     });
 
     it('falls back to existing branch when initial add fails', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       let callCount = 0;
       vi.mocked(execFileSync).mockImplementation(() => {
         callCount++;
@@ -220,24 +220,24 @@ describe('Git Worktree Service', () => {
         return '';
       });
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result).not.toBeNull();
     });
 
     it('returns cached entry on second call', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const { createWorktree } = await getModule();
-      const first = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
-      const second = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const first = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
+      const second = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(first).toBe(second);
     });
 
     it('computes worktree path inside parent directory', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result!.path).toContain('task-aaaaaaaa');
       const parent = path.resolve(VALID_REPO_PATH, '..');
       expect(result!.path.startsWith(parent + path.sep)).toBe(true);
@@ -252,10 +252,10 @@ describe('Git Worktree Service', () => {
     });
 
     it('removes worktree using argv-based git command', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const mod = await getModule();
-      mod.createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      mod.createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       const result = mod.removeWorktree(VALID_TASK_ID);
       expect(result).toBe(true);
       expect(execFileSync).toHaveBeenCalledWith(
@@ -266,7 +266,7 @@ describe('Git Worktree Service', () => {
     });
 
     it('falls back to safe deletion when git worktree remove fails', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       let callCount = 0;
       vi.mocked(execFileSync).mockImplementation(() => {
         callCount++;
@@ -276,16 +276,16 @@ describe('Git Worktree Service', () => {
       });
       vi.mocked(existsSync).mockReturnValue(true);
       const mod = await getModule();
-      mod.createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      mod.createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       const result = mod.removeWorktree(VALID_TASK_ID);
       expect(result).toBe(true);
     });
 
     it('never passes shell strings to execFileSync', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const mod = await getModule();
-      mod.createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      mod.createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       mod.removeWorktree(VALID_TASK_ID);
       for (const call of vi.mocked(execFileSync).mock.calls) {
         expect(typeof call[0]).toBe('string');
@@ -308,18 +308,18 @@ describe('Git Worktree Service', () => {
     });
 
     it('returns cached entry if available', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const mod = await getModule();
-      const created = mod.createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const created = mod.createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       const info = mod.getWorktreeInfo(VALID_TASK_ID);
       expect(info).toBe(created);
     });
 
     it('detects existing worktree on disk', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(getTaskById).mockReturnValue(makeTask({ id: VALID_TASK_ID }));
-      vi.mocked(getBoardIdForTask).mockReturnValue(VALID_BOARD_ID);
+      vi.mocked(getHabitatIdForTask).mockReturnValue(VALID_HABITAT_ID);
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(execFileSync).mockReturnValue('.git\n');
       const { getWorktreeInfo } = await getModule();
@@ -329,9 +329,9 @@ describe('Git Worktree Service', () => {
     });
 
     it('returns null when worktree directory does not exist', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(getTaskById).mockReturnValue(makeTask({ id: VALID_TASK_ID }));
-      vi.mocked(getBoardIdForTask).mockReturnValue(VALID_BOARD_ID);
+      vi.mocked(getHabitatIdForTask).mockReturnValue(VALID_HABITAT_ID);
       vi.mocked(existsSync).mockReturnValue(false);
       const { getWorktreeInfo } = await getModule();
       const result = getWorktreeInfo(VALID_TASK_ID);
@@ -339,18 +339,18 @@ describe('Git Worktree Service', () => {
     });
 
     it('returns null when computeWorktreePath fails for non-cached info lookup', async () => {
-      setupBoardWithSettings({ ...VALID_SETTINGS, repoPath: '/' });
+      setupHabitatWithSettings({ ...VALID_SETTINGS, repoPath: '/' });
       vi.mocked(getTaskById).mockReturnValue(makeTask({ id: VALID_TASK_ID }));
-      vi.mocked(getBoardIdForTask).mockReturnValue(VALID_BOARD_ID);
+      vi.mocked(getHabitatIdForTask).mockReturnValue(VALID_HABITAT_ID);
       const { getWorktreeInfo } = await getModule();
       const result = getWorktreeInfo(VALID_TASK_ID);
       expect(result).toBeNull();
     });
 
     it('returns null when git rev-parse fails for non-cached info lookup', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(getTaskById).mockReturnValue(makeTask({ id: VALID_TASK_ID }));
-      vi.mocked(getBoardIdForTask).mockReturnValue(VALID_BOARD_ID);
+      vi.mocked(getHabitatIdForTask).mockReturnValue(VALID_HABITAT_ID);
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(execFileSync).mockImplementation(() => {
         throw new Error('not a git repo');
@@ -362,28 +362,28 @@ describe('Git Worktree Service', () => {
   });
 
   describe('isWorktreeEnabled', () => {
-    it('returns false for nonexistent board', async () => {
+    it('returns false for nonexistent habitat', async () => {
       const { isWorktreeEnabled } = await getModule();
-      expect(isWorktreeEnabled('nonexistent-board')).toBe(false);
+      expect(isWorktreeEnabled('nonexistent-habitat')).toBe(false);
     });
 
-    it('returns true when board has worktree settings', async () => {
-      setupBoardWithSettings();
+    it('returns true when habitat has worktree settings', async () => {
+      setupHabitatWithSettings();
       const { isWorktreeEnabled } = await getModule();
-      expect(isWorktreeEnabled(VALID_BOARD_ID)).toBe(true);
+      expect(isWorktreeEnabled(VALID_HABITAT_ID)).toBe(true);
     });
   });
 
   describe('getWorktreeSettings', () => {
-    it('returns null for nonexistent board', async () => {
+    it('returns null for nonexistent habitat', async () => {
       const { getWorktreeSettings } = await getModule();
-      expect(getWorktreeSettings('nonexistent-board')).toBeNull();
+      expect(getWorktreeSettings('nonexistent-habitat')).toBeNull();
     });
 
-    it('returns settings when board has them', async () => {
-      setupBoardWithSettings();
+    it('returns settings when habitat has them', async () => {
+      setupHabitatWithSettings();
       const { getWorktreeSettings } = await getModule();
-      const result = getWorktreeSettings(VALID_BOARD_ID);
+      const result = getWorktreeSettings(VALID_HABITAT_ID);
       expect(result).toEqual(VALID_SETTINGS);
     });
   });
@@ -403,9 +403,9 @@ describe('Git Worktree Service', () => {
 
     for (const payload of injectionPayloads) {
       it(`rejects branchPrefix injection: ${JSON.stringify(payload)}`, async () => {
-        setupBoardWithSettings({ ...VALID_SETTINGS, branchPrefix: payload });
+        setupHabitatWithSettings({ ...VALID_SETTINGS, branchPrefix: payload });
         const { createWorktree } = await getModule();
-        const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+        const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
         expect(result).toBeNull();
         expect(execFileSync).not.toHaveBeenCalled();
       });
@@ -414,31 +414,31 @@ describe('Git Worktree Service', () => {
 
   describe('Path traversal regression tests', () => {
     it('rejects repoPath with traversal', async () => {
-      setupBoardWithSettings({ ...VALID_SETTINGS, repoPath: '/home/user/../../../etc' });
+      setupHabitatWithSettings({ ...VALID_SETTINGS, repoPath: '/home/user/../../../etc' });
       const { createWorktree } = await getModule();
-      expect(createWorktree(VALID_TASK_ID, VALID_BOARD_ID)).toBeNull();
+      expect(createWorktree(VALID_TASK_ID, VALID_HABITAT_ID)).toBeNull();
     });
 
     it('rejects relative repoPath', async () => {
-      setupBoardWithSettings({ ...VALID_SETTINGS, repoPath: './project' });
+      setupHabitatWithSettings({ ...VALID_SETTINGS, repoPath: './project' });
       const { createWorktree } = await getModule();
-      expect(createWorktree(VALID_TASK_ID, VALID_BOARD_ID)).toBeNull();
+      expect(createWorktree(VALID_TASK_ID, VALID_HABITAT_ID)).toBeNull();
     });
 
     it('rejects repoPath that is just a slash', async () => {
-      setupBoardWithSettings({ ...VALID_SETTINGS, repoPath: '/' });
+      setupHabitatWithSettings({ ...VALID_SETTINGS, repoPath: '/' });
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result).toBeNull();
     });
   });
 
   describe('Valid worktree lifecycle (integration)', () => {
     it('create returns path, branch, and repoRoot', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const { createWorktree } = await getModule();
-      const result = createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      const result = createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       expect(result).toEqual({
         path: expect.stringContaining('task-aaaaaaaa'),
         branch: `task/${VALID_TASK_ID}`,
@@ -447,10 +447,10 @@ describe('Git Worktree Service', () => {
     });
 
     it('remove cleans active cache and deletes branch', async () => {
-      setupBoardWithSettings();
+      setupHabitatWithSettings();
       vi.mocked(execFileSync).mockReturnValue('');
       const mod = await getModule();
-      mod.createWorktree(VALID_TASK_ID, VALID_BOARD_ID);
+      mod.createWorktree(VALID_TASK_ID, VALID_HABITAT_ID);
       const removed = mod.removeWorktree(VALID_TASK_ID);
       expect(removed).toBe(true);
       expect(mod.getWorktreeInfo(VALID_TASK_ID)).toBeNull();

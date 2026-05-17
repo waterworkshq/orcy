@@ -182,42 +182,42 @@ describe('Realtime Auth Middleware', () => {
     });
   });
 
-  describe('authorizeBoardAccess', () => {
-    it('returns 404 when board does not exist', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
+  describe('authorizeHabitatAccess', () => {
+    it('returns 404 when habitat does not exist', async () => {
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
       const { request, reply, sent } = mockReqRes({
-        params: { boardId: 'nonexistent-board-id' },
+        params: { habitatId: 'nonexistent-habitat-id' },
         agent: { id: 'agent-1', domain: 'backend' },
       });
       try {
-        await authorizeBoardAccess(request, reply);
+        await authorizeHabitatAccess(request, reply);
       } catch (err) {
         expect(isAppError(err)).toBe(true);
         if (isAppError(err)) expect(err.statusCode).toBe(404);
       }
     });
 
-    it('allows agent principal access to any board', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
-      const { createBoard } = await import('../repositories/board.js');
+    it('allows agent principal access to any habitat', async () => {
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
+      const { createHabitat } = await import('../repositories/board.js');
       const { createTeam } = await import('../repositories/team.js');
       const { createOrganization } = await import('../repositories/organization.js');
 
       const org = createOrganization({ name: 'Org', slug: 'org-rt' });
       const team = createTeam({ organizationId: org.id, name: 'Team', slug: 'team-rt' });
-      const board = createBoard({ name: 'Agent Board', teamId: team.id });
+      const habitat = createHabitat({ name: 'Agent Habitat', teamId: team.id });
 
       const { request, reply, sent } = mockReqRes({
-        params: { boardId: board.id },
+        params: { habitatId: habitat.id },
         agent: { id: 'agent-1', domain: 'backend' },
       });
-      await authorizeBoardAccess(request, reply);
+      await authorizeHabitatAccess(request, reply);
       expect(sent.code).toBeNull();
     });
 
-    it('allows human team member access to board', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
-      const { createBoard } = await import('../repositories/board.js');
+    it('allows human team member access to habitat', async () => {
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
+      const { createHabitat } = await import('../repositories/board.js');
       const { createTeam } = await import('../repositories/team.js');
       const { addMember } = await import('../repositories/teamMember.js');
       const { createOrganization } = await import('../repositories/organization.js');
@@ -225,67 +225,67 @@ describe('Realtime Auth Middleware', () => {
       ensureUser('user-1');
       const org = createOrganization({ name: 'Org2', slug: 'org-rt2' });
       const team = createTeam({ organizationId: org.id, name: 'Team2', slug: 'team-rt2' });
-      const board = createBoard({ name: 'Human Board', teamId: team.id });
+      const habitat = createHabitat({ name: 'Human Habitat', teamId: team.id });
       addMember({ teamId: team.id, userId: 'user-1', role: 'member' });
 
       const { request, reply, sent } = mockReqRes({
-        params: { boardId: board.id },
+        params: { habitatId: habitat.id },
         user: { id: 'user-1', role: 'viewer', type: 'human' },
       });
-      await authorizeBoardAccess(request, reply);
+      await authorizeHabitatAccess(request, reply);
       expect(sent.code).toBeNull();
     });
 
-    it('denies non-member human access to a team board', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
-      const { createBoard } = await import('../repositories/board.js');
+    it('denies non-member human access to a team habitat', async () => {
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
+      const { createHabitat } = await import('../repositories/board.js');
       const { createTeam } = await import('../repositories/team.js');
       const { createOrganization } = await import('../repositories/organization.js');
 
       const org = createOrganization({ name: 'Org3', slug: 'org-rt3' });
       const team = createTeam({ organizationId: org.id, name: 'Team3', slug: 'team-rt3' });
-      const board = createBoard({ name: 'Protected Board', teamId: team.id });
+      const habitat = createHabitat({ name: 'Protected Habitat', teamId: team.id });
 
       const { request, reply, sent } = mockReqRes({
-        params: { boardId: board.id },
+        params: { habitatId: habitat.id },
         user: { id: 'stranger-user', role: 'viewer', type: 'human' },
       });
       try {
-        await authorizeBoardAccess(request, reply);
+        await authorizeHabitatAccess(request, reply);
       } catch (err) {
         expect(isAppError(err)).toBe(true);
         if (isAppError(err)) {
           expect(err.statusCode).toBe(403);
-          expect(err.message).toBe('You do not have access to this board');
+          expect(err.message).toBe('You do not have access to this habitat');
         }
       }
     });
 
-    it('allows human access to a board with no team', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
-      const { createBoard } = await import('../repositories/board.js');
+    it('allows human access to a habitat with no team', async () => {
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
+      const { createHabitat } = await import('../repositories/board.js');
 
-      const board = createBoard({ name: 'Open Board' });
+      const habitat = createHabitat({ name: 'Open Habitat' });
 
       const { request, reply, sent } = mockReqRes({
-        params: { boardId: board.id },
+        params: { habitatId: habitat.id },
         user: { id: 'any-user', role: 'viewer', type: 'human' },
       });
-      await authorizeBoardAccess(request, reply);
+      await authorizeHabitatAccess(request, reply);
       expect(sent.code).toBeNull();
     });
 
     it('returns 401 when no principal is set', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
-      const { createBoard } = await import('../repositories/board.js');
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
+      const { createHabitat } = await import('../repositories/board.js');
 
-      const board = createBoard({ name: 'Auth Board' });
+      const habitat = createHabitat({ name: 'Auth Habitat' });
 
       const { request, reply, sent } = mockReqRes({
-        params: { boardId: board.id },
+        params: { habitatId: habitat.id },
       });
       try {
-        await authorizeBoardAccess(request, reply);
+        await authorizeHabitatAccess(request, reply);
       } catch (err) {
         expect(isAppError(err)).toBe(true);
         if (isAppError(err)) {
@@ -296,44 +296,44 @@ describe('Realtime Auth Middleware', () => {
     });
 
     it('works with :id param (SSE route style)', async () => {
-      const { authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
-      const { createBoard } = await import('../repositories/board.js');
+      const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
+      const { createHabitat } = await import('../repositories/board.js');
 
-      const board = createBoard({ name: 'SSE Board' });
+      const habitat = createHabitat({ name: 'SSE Habitat' });
 
       const { request, reply, sent } = mockReqRes({
-        params: { id: board.id },
+        params: { id: habitat.id },
         user: { id: 'user-1', role: 'admin', type: 'human' },
       });
-      await authorizeBoardAccess(request, reply);
+      await authorizeHabitatAccess(request, reply);
       expect(sent.code).toBeNull();
     });
   });
 });
 
 describe('Realtime Auth — Integration', () => {
-  let boardId: string;
-  let teamBoardId: string;
+  let habitatId: string;
+  let teamHabitatId: string;
   let agentApiKey: string;
   let humanToken: string;
 
   beforeEach(async () => {
     await initTestDb();
 
-    const { createBoard } = await import('../repositories/board.js');
+    const { createHabitat } = await import('../repositories/board.js');
     const { createAgent } = await import('../repositories/agent.js');
     const { createTeam } = await import('../repositories/team.js');
     const { addMember } = await import('../repositories/teamMember.js');
     const { createOrganization } = await import('../repositories/organization.js');
     const jwt = (await import('jsonwebtoken')).default;
 
-    const board = createBoard({ name: 'Open Integration Board' });
-    boardId = board.id;
+    const habitat = createHabitat({ name: 'Open Integration Habitat' });
+    habitatId = habitat.id;
 
     const org = createOrganization({ name: 'Int Org', slug: 'int-org' });
     const team = createTeam({ organizationId: org.id, name: 'Int Team', slug: 'int-team' });
-    const teamBoard = createBoard({ name: 'Team Board', teamId: team.id });
-    teamBoardId = teamBoard.id;
+    const teamHabitat = createHabitat({ name: 'Team Habitat', teamId: team.id });
+    teamHabitatId = teamHabitat.id;
     ensureUser('user-1');
     addMember({ teamId: team.id, userId: 'user-1', role: 'member' });
 
@@ -353,7 +353,7 @@ describe('Realtime Auth — Integration', () => {
     it('SSE subscription rejects anonymous requests', async () => {
       const { authenticateRealtime } = await import('../middleware/realtimeAuth.js');
       const { request, reply, sent } = mockReqRes({
-        params: { id: boardId },
+        params: { id: habitatId },
       });
       try {
         await authenticateRealtime(request, reply);
@@ -363,8 +363,8 @@ describe('Realtime Auth — Integration', () => {
       }
     });
 
-    it('SSE subscription enforces board access rules', async () => {
-      const { authenticateRealtime, authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
+    it('SSE subscription enforces habitat access rules', async () => {
+      const { authenticateRealtime, authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
       const jwt = (await import('jsonwebtoken')).default;
 
       const strangerToken = jwt.sign(
@@ -374,7 +374,7 @@ describe('Realtime Auth — Integration', () => {
       );
 
       const { request, reply, sent } = mockReqRes({
-        params: { id: teamBoardId },
+        params: { id: teamHabitatId },
         headers: { authorization: `Bearer ${strangerToken}` },
       });
       await authenticateRealtime(request, reply);
@@ -382,7 +382,7 @@ describe('Realtime Auth — Integration', () => {
 
       const { reply: authReply, sent: authSent } = mockReply();
       try {
-        await authorizeBoardAccess(request, authReply);
+        await authorizeHabitatAccess(request, authReply);
       } catch (err) {
         expect(isAppError(err)).toBe(true);
         if (isAppError(err)) expect(err.statusCode).toBe(403);
@@ -390,17 +390,17 @@ describe('Realtime Auth — Integration', () => {
     });
 
     it('SSE allows authorized human team member', async () => {
-      const { authenticateRealtime, authorizeBoardAccess } = await import('../middleware/realtimeAuth.js');
+      const { authenticateRealtime, authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
 
       const { request, reply, sent } = mockReqRes({
-        params: { id: teamBoardId },
+        params: { id: teamHabitatId },
         headers: { authorization: `Bearer ${humanToken}` },
       });
       await authenticateRealtime(request, reply);
       expect(sent.code).toBeNull();
 
       const { reply: authReply, sent: authSent } = mockReply();
-      await authorizeBoardAccess(request, authReply);
+      await authorizeHabitatAccess(request, authReply);
       expect(authSent.code).toBeNull();
     });
   });
@@ -418,7 +418,7 @@ describe('Realtime Auth — Integration', () => {
       );
 
       const { request, reply, sent } = mockReqRes({
-        params: { id: boardId },
+        params: { id: habitatId },
         query: { token: staleToken },
       });
       try {
@@ -440,7 +440,7 @@ describe('Realtime Auth — Integration', () => {
       );
 
       const { request, reply, sent } = mockReqRes({
-        params: { id: boardId },
+        params: { id: habitatId },
         query: { token: freshToken },
       });
       await authenticateRealtime(request, reply);
@@ -450,19 +450,19 @@ describe('Realtime Auth — Integration', () => {
   });
 });
 
-describe('getBoardIdFromParams', () => {
-  it('extracts boardId from :boardId param', async () => {
-    const { getBoardIdFromParams } = await import('../middleware/realtimeAuth.js');
-    expect(getBoardIdFromParams(mockRequest({ params: { boardId: 'abc-123' } }))).toBe('abc-123');
+describe('getHabitatIdFromParams', () => {
+  it('extracts habitatId from :habitatId param', async () => {
+    const { getHabitatIdFromParams } = await import('../middleware/realtimeAuth.js');
+    expect(getHabitatIdFromParams(mockRequest({ params: { habitatId: 'abc-123' } }))).toBe('abc-123');
   });
 
-  it('extracts boardId from :id param', async () => {
-    const { getBoardIdFromParams } = await import('../middleware/realtimeAuth.js');
-    expect(getBoardIdFromParams(mockRequest({ params: { id: 'xyz-789' } }))).toBe('xyz-789');
+  it('extracts habitatId from :id param', async () => {
+    const { getHabitatIdFromParams } = await import('../middleware/realtimeAuth.js');
+    expect(getHabitatIdFromParams(mockRequest({ params: { id: 'xyz-789' } }))).toBe('xyz-789');
   });
 
   it('returns undefined when no matching param', async () => {
-    const { getBoardIdFromParams } = await import('../middleware/realtimeAuth.js');
-    expect(getBoardIdFromParams(mockRequest({ params: { other: 'foo' } }))).toBeUndefined();
+    const { getHabitatIdFromParams } = await import('../middleware/realtimeAuth.js');
+    expect(getHabitatIdFromParams(mockRequest({ params: { other: 'foo' } }))).toBeUndefined();
   });
 });

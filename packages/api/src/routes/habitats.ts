@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import * as boardService from '../services/boardService.js';
-import { createBoardSchema, updateBoardSchema, retryPolicySchema, autoAssignSettingsSchema } from '../models/schemas.js';
-import type { CreateBoardInput, UpdateBoardInput } from '../models/schemas.js';
+import * as habitatService from '../services/boardService.js';
+import { createHabitatSchema, updateHabitatSchema, retryPolicySchema, autoAssignSettingsSchema } from '../models/schemas.js';
+import type { CreateHabitatInput, UpdateHabitatInput } from '../models/schemas.js';
 import type { RetryPolicy } from '../models/index.js';
 import { agentOrHumanAuth, humanAuth, agentAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
-import { requireBoardAccess } from '../middleware/team.js';
+import { requireHabitatAccess } from '../middleware/team.js';
 import { listTeamsByUserId } from '../repositories/team.js';
 import { notFound } from '../errors.js';
 
@@ -26,49 +26,49 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
       } else if (request.agent) {
         teamIds = undefined;
       }
-      const boards = boardService.listBoards(query.name, teamIds);
-      return { boards };
+      const habitats = habitatService.listHabitats(query.name, teamIds);
+      return { habitats };
     }
   );
 
   /** POST /habitats - Create a new board. Auth: humanAuth. Returns { board, columns } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats',
-    { schema: { body: createBoardSchema }, preHandler: humanAuth },
+    { schema: { body: createHabitatSchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const { board, columns } = boardService.createBoard({
+      const { habitat, columns } = habitatService.createHabitat({
         ...request.body,
         defaultColumns: request.body.defaultColumns ?? true,
         teamId: request.body.teamId,
       });
 
-      reply.code(201).send({ board, columns });
+      reply.code(201).send({ habitat, columns });
     }
   );
 
   /** POST /habitats/agent - Create a board via agent. Auth: agentAuth. Returns { success, board, columns } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats/agent',
-    { schema: { body: createBoardSchema }, preHandler: agentAuth },
+    { schema: { body: createHabitatSchema }, preHandler: agentAuth },
     async (request, reply) => {
-      const { board, columns } = boardService.createBoard({
+      const { habitat, columns } = habitatService.createHabitat({
         ...request.body,
         defaultColumns: request.body.defaultColumns ?? true,
         teamId: request.body.teamId,
       });
 
-      reply.code(201).send({ success: true, board, columns });
+      reply.code(201).send({ success: true, habitat, columns });
     }
   );
 
   /** GET /habitats/:habitatId - Get a board by ID. Auth: agentOrHumanAuth + board access. Returns board or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId',
-    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireBoardAccess] },
+    { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, reply) => {
-      const result = boardService.getBoard(request.params.habitatId);
+      const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
-        throw notFound('Board not found');
+        throw notFound('Habitat not found');
       }
       return result;
     }
@@ -77,13 +77,13 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
   /** PATCH /habitats/:habitatId - Update a board. Auth: humanAuth. Returns { board } or 404 */
   fastify.withTypeProvider<ZodTypeProvider>().patch(
     '/habitats/:habitatId',
-    { schema: { params: habitatIdParamsSchema, body: updateBoardSchema }, preHandler: humanAuth },
+    { schema: { params: habitatIdParamsSchema, body: updateHabitatSchema }, preHandler: humanAuth },
     async (request, reply) => {
-      const board = boardService.updateBoard(request.params.habitatId, request.body as Parameters<typeof boardService.updateBoard>[1]);
-      if (!board) {
-        throw notFound('Board not found');
+      const habitat = habitatService.updateHabitat(request.params.habitatId, request.body as Parameters<typeof habitatService.updateHabitat>[1]);
+      if (!habitat) {
+        throw notFound('Habitat not found');
       }
-      return { board };
+      return { habitat };
     }
   );
 
@@ -92,7 +92,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
     '/habitats/:habitatId',
     { schema: { params: habitatIdParamsSchema }, preHandler: [humanAuth, adminOnly] },
     async (request, reply) => {
-      boardService.deleteBoard(request.params.habitatId);
+      habitatService.deleteHabitat(request.params.habitatId);
       reply.code(204).send();
     }
   );

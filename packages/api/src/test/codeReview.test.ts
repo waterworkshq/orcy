@@ -18,7 +18,7 @@ let _prs: Record<string, {
 
 let _tasks: Record<string, {
   id: string;
-  boardId: string;
+  habitatId: string;
   status: string;
   title: string;
 }> = {};
@@ -146,8 +146,8 @@ vi.mock('../db/schema/index.js', () => ({
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
   },
-  tasks: { id: 'id', boardId: 'boardId', title: 'title', status: 'status', artifacts: 'artifacts' },
-  boards: { id: 'id', name: 'name', codeReviewSettings: 'codeReviewSettings' },
+  tasks: { id: 'id', habitatId: 'habitatId', title: 'title', status: 'status', artifacts: 'artifacts' },
+  habitats: { id: 'id', name: 'name', codeReviewSettings: 'codeReviewSettings' },
   agents: { id: 'id', name: 'name' },
 }));
 
@@ -170,7 +170,7 @@ describe('PullRequest type', () => {
       prNumber: 42,
       prTitle: 'Fix bug',
       prUrl: 'https://github.com/org/repo/pull/42',
-      branchName: 'feature/abc-123',
+      branchName: 'mission/abc-123',
       state: 'open',
       reviewStatus: 'pending',
       createdAt: '2026-04-10T00:00:00Z',
@@ -201,7 +201,7 @@ describe('findTaskIdByPattern', () => {
     const { findTaskIdByPattern } = await import('../repositories/pullRequest.js');
     const taskId = '550e8400-e29b-41d4-a716-446655440000';
     const result = findTaskIdByPattern(
-      `feature/${taskId}-fix`,
+      `mission/${taskId}-fix`,
       '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
     );
     expect(result).toBe(taskId);
@@ -209,7 +209,7 @@ describe('findTaskIdByPattern', () => {
 
   it('returns null when no match', async () => {
     const { findTaskIdByPattern } = await import('../repositories/pullRequest.js');
-    const result = findTaskIdByPattern('feature/no-uuid-here', '([0-9a-f-]{36})');
+    const result = findTaskIdByPattern('mission/no-uuid-here', '([0-9a-f-]{36})');
     expect(result).toBeNull();
   });
 
@@ -276,7 +276,7 @@ describe('GitHub PR event handling', () => {
         html_url: 'https://github.com/org/repo/pull/1',
         state: 'open',
         merged: false,
-        head: { ref: 'feature/test' },
+        head: { ref: 'mission/test' },
         base: { repo: { full_name: 'org/repo' } },
       },
     });
@@ -301,7 +301,7 @@ describe('GitLab MR event handling', () => {
         url: 'https://gitlab.com/org/repo/-/merge_requests/1',
         state: 'opened',
         merge_status: 'unchecked',
-        source_branch: 'feature/test',
+        source_branch: 'mission/test',
         target_project_id: 1,
       },
       project: { path_with_namespace: 'org/repo' },
@@ -344,7 +344,7 @@ describe('PullRequest repository', () => {
       prNumber: 42,
       prTitle: 'Fix bug',
       prUrl: 'https://github.com/org/repo/pull/42',
-      branchName: 'feature/test',
+      branchName: 'mission/test',
     });
     expect(pr.provider).toBe('github');
     expect(pr.prNumber).toBe(42);

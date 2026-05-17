@@ -2,7 +2,7 @@ import * as commentRepo from '../repositories/comment.js';
 import * as commentMentionRepo from '../repositories/commentMention.js';
 import { resolveMentions } from './commentHelper.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
-import { getTaskById, getBoardIdForTask } from '../repositories/task.js';
+import { getTaskById, getHabitatIdForTask } from '../repositories/task.js';
 import { notFound, forbidden, badRequest } from '../errors.js';
 
 /**
@@ -60,15 +60,15 @@ export function addComment(
 
   const enrichedComment = { ...comment, mentions };
 
-  const boardId = getBoardIdForTask(taskId);
-  if (boardId) {
-    sseBroadcaster.publish(boardId, {
+  const habitatId = getHabitatIdForTask(taskId);
+  if (habitatId) {
+    sseBroadcaster.publish(habitatId, {
       type: 'task.commented',
       data: { taskId, comment: enrichedComment },
     });
 
     for (const mention of mentions) {
-      sseBroadcaster.publish(boardId, {
+      sseBroadcaster.publish(habitatId, {
         type: 'task.mentioned',
         data: {
           taskId,
@@ -76,7 +76,7 @@ export function addComment(
           mentionedType: mention.mentionedType,
           mentionedId: mention.mentionedId,
           mentionedName: mention.mentionedName ?? mention.mentionText.slice(1),
-          boardId,
+          habitatId,
         },
       });
     }
@@ -147,9 +147,9 @@ export function removeComment(
   const result = commentRepo.deleteComment(commentId);
 
   if (task) {
-    const boardId = getBoardIdForTask(comment.taskId);
-    if (boardId) {
-      sseBroadcaster.publish(boardId, {
+    const habitatId = getHabitatIdForTask(comment.taskId);
+    if (habitatId) {
+      sseBroadcaster.publish(habitatId, {
         type: 'task.comment_deleted',
         data: { taskId: comment.taskId, commentId },
       });

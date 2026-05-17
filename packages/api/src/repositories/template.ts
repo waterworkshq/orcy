@@ -56,7 +56,7 @@ export function createTemplate(input: CreateTemplateInput): MissionTemplate {
   return getTemplateById(id)!;
 }
 
-export function getTemplatesByBoardId(habitatId: string): MissionTemplate[] {
+export function getTemplatesByHabitatId(habitatId: string): MissionTemplate[] {
   const db = getDb();
   return db
     .select()
@@ -156,7 +156,7 @@ export function applyTemplate(
   const db = getDb();
   const actor = createdBy ?? 'system';
   const now = new Date().toISOString();
-  const featureId = uuid();
+  const missionId = uuid();
 
   const columnId = db
     .select()
@@ -164,7 +164,7 @@ export function applyTemplate(
     .where(eq(columns.habitatId, habitatId))
     .orderBy(columns.order)
     .all()[0]?.id;
-  if (!columnId) throw new Error('Board has no columns');
+  if (!columnId) throw new Error('Habitat has no columns');
 
   const maxOrder = db
     .select({ value: max(missions.displayOrder) })
@@ -178,7 +178,7 @@ export function applyTemplate(
 
   db.transaction((tx) => {
     tx.insert(missions).values({
-      id: featureId,
+      id: missionId,
       habitatId,
       columnId,
       title: overrides?.title ?? template.titlePattern,
@@ -205,7 +205,7 @@ export function applyTemplate(
 
       tx.insert(tasks).values({
         id: taskId,
-        missionId: featureId,
+        missionId: missionId,
         title: entry.title,
         description: entry.description ?? '',
         priority: entry.priority ?? 'medium',
@@ -228,7 +228,7 @@ export function applyTemplate(
       .run();
   });
 
-  const createdMission = missionRepo.getMissionById(featureId)!;
+  const createdMission = missionRepo.getMissionById(missionId)!;
   const createdTasks = createdTaskIds
     .map(id => taskRepo.getTaskById(id))
     .filter((t): t is NonNullable<typeof t> => t !== null);

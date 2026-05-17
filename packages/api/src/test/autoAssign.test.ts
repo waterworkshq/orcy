@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import * as columnRepo from '../repositories/column.js';
 import * as taskRepo from '../repositories/task.js';
-import * as featureRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as eventRepo from '../repositories/event.js';
-import { taskEvents, tasks, columns as columnsTable, boards, agents } from '../db/schema/index.js';
+import { taskEvents, tasks, columns as columnsTable, habitats, agents } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 import {
   assignTask,
@@ -21,9 +21,9 @@ import {
 } from '../services/autoAssignService.js';
 import type { AutoAssignSettings, Task } from '../models/index.js';
 
-let boardId: string;
+let habitatId: string;
 let columnId: string;
-let featureId: string;
+let missionId: string;
 
 const defaultSettings: AutoAssignSettings = getDefaultAutoAssignSettings();
 
@@ -33,18 +33,18 @@ beforeEach(async () => {
   db.delete(taskEvents).run();
   db.delete(tasks).run();
   db.delete(columnsTable).run();
-  db.delete(boards).run();
+  db.delete(habitats).run();
   db.delete(agents).run();
   resetRoundRobinCounter();
 
-  const board = boardRepo.createBoard({ name: 'Test Board' });
-  boardId = board.id;
+  const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+  habitatId = habitat.id;
 
-  const columns = columnRepo.createColumn({ boardId, name: 'Backlog', order: 0, requiresClaim: false });
+  const columns = columnRepo.createColumn({ habitatId, name: 'Backlog', order: 0, requiresClaim: false });
   columnId = columns.id;
 
-  const feature = featureRepo.createFeature({ boardId, columnId, title: 'Test Feature', createdBy: 'test' });
-  featureId = feature.id;
+  const mission = missionRepo.createMission({ habitatId, columnId, title: 'Test Mission', createdBy: 'test' });
+  missionId = mission.id;
 });
 
 afterEach(() => {
@@ -57,7 +57,7 @@ function createTestAgent(name: string, domain: string = 'backend', capabilities:
 
 function createTestTask(title: string, options?: { requiredDomain?: string; requiredCapabilities?: string[] }) {
   return taskRepo.createTask({
-    featureId,
+    missionId,
     title,
     createdBy: 'test',
     requiredDomain: options?.requiredDomain ?? null,
@@ -78,17 +78,17 @@ describe('getDefaultAutoAssignSettings', () => {
 });
 
 describe('getAutoAssignSettings', () => {
-  it('returns defaults when board has no settings', () => {
-    const settings = getAutoAssignSettings(boardId);
+  it('returns defaults when habitat has no settings', () => {
+    const settings = getAutoAssignSettings(habitatId);
     expect(settings.enabled).toBe(false);
     expect(settings.strategy).toBe('best_match');
   });
 
-  it('returns board settings when configured', () => {
-    boardRepo.updateBoard(boardId, {
+  it('returns habitat settings when configured', () => {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'round_robin', maxTasksPerAgent: 3, requireDomainMatch: true, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
-    const settings = getAutoAssignSettings(boardId);
+    const settings = getAutoAssignSettings(habitatId);
     expect(settings.enabled).toBe(true);
     expect(settings.strategy).toBe('round_robin');
     expect(settings.maxTasksPerAgent).toBe(3);
@@ -118,7 +118,7 @@ describe('getEligibleAgents', () => {
     const task = createTestTask('task');
 
     const settings = { ...defaultSettings, enabled: true, maxTasksPerAgent: 5 };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(2);
   });
 
@@ -133,7 +133,7 @@ describe('getEligibleAgents', () => {
 
     const task = createTestTask('newTask');
     const settings = { ...defaultSettings, enabled: true, maxTasksPerAgent: 5 };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(1);
     expect(eligible[0].id).toBe(agent2.id);
   });
@@ -144,7 +144,7 @@ describe('getEligibleAgents', () => {
 
     const task = createTestTask('task', { requiredDomain: 'backend' });
     const settings = { ...defaultSettings, enabled: true, requireDomainMatch: true };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(1);
     expect(eligible[0].id).toBe(backendAgent.id);
   });
@@ -155,7 +155,7 @@ describe('getEligibleAgents', () => {
 
     const task = createTestTask('task', { requiredDomain: 'backend' });
     const settings = { ...defaultSettings, enabled: true, requireDomainMatch: false };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(2);
   });
 
@@ -165,7 +165,7 @@ describe('getEligibleAgents', () => {
 
     const task = createTestTask('task', { requiredCapabilities: ['typescript'] });
     const settings = { ...defaultSettings, enabled: true, requireCapabilityMatch: true };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(1);
     expect(eligible[0].id).toBe(tsAgent.id);
   });
@@ -177,7 +177,7 @@ describe('getEligibleAgents', () => {
 
     const task = createTestTask('task');
     const settings = { ...defaultSettings, enabled: true, excludeOfflineAgents: true };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(1);
     expect(eligible[0].id).toBe(onlineAgent.id);
   });
@@ -189,14 +189,14 @@ describe('getEligibleAgents', () => {
 
     const task = createTestTask('task');
     const settings = { ...defaultSettings, enabled: true, excludeOfflineAgents: false };
-    const eligible = getEligibleAgents(boardId, task, settings);
+    const eligible = getEligibleAgents(habitatId, task, settings);
     expect(eligible.length).toBe(2);
   });
 });
 
 describe('selectAgentRoundRobin', () => {
   it('returns null for empty agents list', () => {
-    expect(selectAgentRoundRobin([], boardId)).toBeNull();
+    expect(selectAgentRoundRobin([], habitatId)).toBeNull();
   });
 
   it('cycles through agents in order', () => {
@@ -207,9 +207,9 @@ describe('selectAgentRoundRobin', () => {
       { id: a2.id, name: 'a2', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const first = selectAgentRoundRobin(agents, boardId);
-    const second = selectAgentRoundRobin(agents, boardId);
-    const third = selectAgentRoundRobin(agents, boardId);
+    const first = selectAgentRoundRobin(agents, habitatId);
+    const second = selectAgentRoundRobin(agents, habitatId);
+    const third = selectAgentRoundRobin(agents, habitatId);
 
     expect(first!.id).toBe(a1.id);
     expect(second!.id).toBe(a2.id);
@@ -255,7 +255,7 @@ describe('selectAgentLeastLoaded', () => {
 describe('selectAgentBestMatch', () => {
   it('returns null for empty agents list', () => {
     const task = createTestTask('t');
-    expect(selectAgentBestMatch([], task, boardId)).toBeNull();
+    expect(selectAgentBestMatch([], task, habitatId)).toBeNull();
   });
 
   it('gives bonus for domain match', () => {
@@ -269,7 +269,7 @@ describe('selectAgentBestMatch', () => {
       { id: matchAgent.id, name: 'match', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentBestMatch(agents, task, boardId);
+    const selected = selectAgentBestMatch(agents, task, habitatId);
     expect(selected!.id).toBe(matchAgent.id);
   });
 
@@ -284,7 +284,7 @@ describe('selectAgentBestMatch', () => {
       { id: capAgent.id, name: 'cap', domain: 'backend', capabilities: ['typescript', 'react', 'node', 'jest'], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentBestMatch(agents, task, boardId);
+    const selected = selectAgentBestMatch(agents, task, habitatId);
     expect(selected!.id).toBe(capAgent.id);
   });
 
@@ -299,7 +299,7 @@ describe('selectAgentBestMatch', () => {
       { id: free.id, name: 'free', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentBestMatch(agents, task, boardId);
+    const selected = selectAgentBestMatch(agents, task, habitatId);
     expect(selected!.id).toBe(free.id);
   });
 });
@@ -307,10 +307,10 @@ describe('selectAgentBestMatch', () => {
 describe('assignTask', () => {
   it('returns no_eligible_agents when no agents exist', () => {
     const task = createTestTask('t');
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'best_match', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(false);
     expect(result.reason).toBe('no_eligible_agents');
   });
@@ -318,7 +318,7 @@ describe('assignTask', () => {
   it('returns auto_assign_disabled when not enabled', () => {
     const task = createTestTask('t');
     createTestAgent('agent1');
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(false);
     expect(result.reason).toBe('auto_assign_disabled');
   });
@@ -327,10 +327,10 @@ describe('assignTask', () => {
     const { agent } = createTestAgent('agent1');
     const task = createTestTask('t');
     taskRepo.claimTask(task.id, agent.id);
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'best_match', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(false);
     expect(result.reason).toBe('already_assigned');
   });
@@ -338,10 +338,10 @@ describe('assignTask', () => {
   it('assigns task with best_match strategy', () => {
     const { agent } = createTestAgent('agent1');
     const task = createTestTask('t');
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'best_match', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(true);
     expect(result.agentId).toBe(agent.id);
 
@@ -353,16 +353,16 @@ describe('assignTask', () => {
   it('assigns task with round_robin strategy', () => {
     const { agent: a1 } = createTestAgent('a1');
     const { agent: a2 } = createTestAgent('a2');
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'round_robin', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
 
     const task1 = createTestTask('t1');
-    const result1 = assignTask(task1.id, boardId);
+    const result1 = assignTask(task1.id, habitatId);
     expect(result1.success).toBe(true);
 
     const task2 = createTestTask('t2');
-    const result2 = assignTask(task2.id, boardId);
+    const result2 = assignTask(task2.id, habitatId);
     expect(result2.success).toBe(true);
 
     expect(result1.agentId).not.toBe(result2.agentId);
@@ -380,12 +380,12 @@ describe('assignTask', () => {
       taskRepo.claimTask(t.id, busy.id);
     }
 
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'least_loaded', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
 
     const task = createTestTask('t');
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(true);
     expect(result.agentId).toBe(free.id);
   });
@@ -393,10 +393,10 @@ describe('assignTask', () => {
   it('creates an auto_assign event', () => {
     createTestAgent('agent1');
     const task = createTestTask('t');
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'best_match', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
-    assignTask(task.id, boardId);
+    assignTask(task.id, habitatId);
 
     const { events } = eventRepo.getEventsByTaskId(task.id);
     const autoEvent = events.find(e => e.actorId === 'auto_assign');
@@ -411,10 +411,10 @@ describe('assignTask', () => {
     const { agent: backendAgent } = createTestAgent('backend-agent', 'backend');
 
     const task = createTestTask('t', { requiredDomain: 'backend' });
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'best_match', maxTasksPerAgent: 5, requireDomainMatch: true, requireCapabilityMatch: false, excludeOfflineAgents: true },
     });
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(true);
     expect(result.agentId).toBe(backendAgent.id);
   });
@@ -424,10 +424,10 @@ describe('assignTask', () => {
     createTestAgent('py-agent', 'backend', ['python']);
 
     const task = createTestTask('t', { requiredCapabilities: ['typescript'] });
-    boardRepo.updateBoard(boardId, {
+    habitatRepo.updateHabitat(habitatId, {
       autoAssignSettings: { enabled: true, strategy: 'best_match', maxTasksPerAgent: 5, requireDomainMatch: false, requireCapabilityMatch: true, excludeOfflineAgents: true },
     });
-    const result = assignTask(task.id, boardId);
+    const result = assignTask(task.id, habitatId);
     expect(result.success).toBe(true);
     expect(result.agentId).toBe(tsAgent.id);
   });

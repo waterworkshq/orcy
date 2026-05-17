@@ -3,7 +3,7 @@ import { tasks } from '../db/schema/index.js';
 import { eq, and, sql, inArray, isNotNull } from 'drizzle-orm';
 import { cycleTimeMinutes } from '../db/dialect-helpers.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as boardRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/board.js';
 import { getAutoAssignSettings } from './autoAssignService.js';
 
 export interface AgentCapacity {
@@ -32,12 +32,12 @@ export interface CapacityReport {
   suggestions: string[];
 }
 
-export function getCapacityReport(boardId: string): CapacityReport | null {
-  const board = boardRepo.getBoardById(boardId);
-  if (!board) return null;
+export function getCapacityReport(habitatId: string): CapacityReport | null {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat) return null;
 
   const db = getDb();
-  const settings = getAutoAssignSettings(boardId);
+  const settings = getAutoAssignSettings(habitatId);
   const maxTasks = settings.maxTasksPerAgent;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 

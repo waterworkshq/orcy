@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { boardExportRoutes } from '../routes/board-export.js';
+import { habitatExportRoutes } from '../routes/board-export.js';
 import { habitatRoutes } from '../routes/habitats.js';
 
 interface CapturedRoute {
@@ -24,11 +24,11 @@ function captureExportRoutes(): CapturedRoute[] {
       routes.push({ method: 'GET', path, preHandler: Array.isArray(preHandler) ? preHandler : preHandler ? [preHandler] : [] });
     }),
   };
-  boardExportRoutes(fakeFastify);
+  habitatExportRoutes(fakeFastify);
   return routes;
 }
 
-function captureBoardRoutes(): CapturedRoute[] {
+function captureHabitatRoutes(): CapturedRoute[] {
   const routes: CapturedRoute[] = [];
   const fakeFastify: any = {
     withTypeProvider: vi.fn(() => fakeFastify),
@@ -45,10 +45,10 @@ function captureBoardRoutes(): CapturedRoute[] {
   return routes;
 }
 
-describe('boardExportRoutes', () => {
-  it('exports a function named boardExportRoutes', () => {
-    expect(boardExportRoutes).toBeInstanceOf(Function);
-    expect(boardExportRoutes.name).toBe('boardExportRoutes');
+describe('habitatExportRoutes', () => {
+  it('exports a function named habitatExportRoutes', () => {
+    expect(habitatExportRoutes).toBeInstanceOf(Function);
+    expect(habitatExportRoutes.name).toBe('habitatExportRoutes');
   });
 
   it('registers 4 endpoints', () => {
@@ -56,29 +56,29 @@ describe('boardExportRoutes', () => {
     expect(routes).toHaveLength(4);
   });
 
-  it('registers GET /boards/:id/export', () => {
+  it('registers GET /habitats/:habitatId/export', () => {
     const routes = captureExportRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/export')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/export')).toBeDefined();
   });
 
-  it('registers POST /boards/import', () => {
+  it('registers POST /habitats/import', () => {
     const routes = captureExportRoutes();
-    expect(routes.find(r => r.path === '/boards/import')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/import')).toBeDefined();
   });
 
-  it('registers POST /boards/:id/import', () => {
+  it('registers POST /habitats/:habitatId/import', () => {
     const routes = captureExportRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/import')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/import')).toBeDefined();
   });
 
-  it('registers GET /boards/:id/anomalies', () => {
+  it('registers GET /habitats/:habitatId/anomalies', () => {
     const routes = captureExportRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/anomalies')).toBeDefined();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/anomalies')).toBeDefined();
   });
 
   it('export endpoint has humanAuth preHandler', () => {
     const routes = captureExportRoutes();
-    const route = routes.find(r => r.path === '/boards/:id/export');
+    const route = routes.find(r => r.path === '/habitats/:habitatId/export');
     expect(route).toBeDefined();
     expect(route!.preHandler).toHaveLength(1);
     const handlerName = typeof route!.preHandler[0] === 'function' ? route!.preHandler[0].name || String(route!.preHandler[0]) : String(route!.preHandler[0]);
@@ -87,7 +87,7 @@ describe('boardExportRoutes', () => {
 
   it('import endpoints have humanAuth preHandler', () => {
     const routes = captureExportRoutes();
-    for (const path of ['/boards/import', '/boards/:id/import']) {
+    for (const path of ['/habitats/import', '/habitats/:habitatId/import']) {
       const route = routes.find(r => r.path === path);
       expect(route).toBeDefined();
       expect(route!.preHandler).toHaveLength(1);
@@ -96,32 +96,32 @@ describe('boardExportRoutes', () => {
     }
   });
 
-  it('anomalies endpoint has agentOrHumanAuth + requireBoardAccess preHandlers', () => {
+  it('anomalies endpoint has agentOrHumanAuth + requireHabitatAccess preHandlers', () => {
     const routes = captureExportRoutes();
-    const route = routes.find(r => r.path === '/boards/:id/anomalies');
+    const route = routes.find(r => r.path === '/habitats/:habitatId/anomalies');
     expect(route).toBeDefined();
     expect(route!.preHandler.length).toBeGreaterThanOrEqual(2);
   });
 });
 
-describe('boards.ts no longer contains export/import/anomalies handlers', () => {
-  it('does not register GET /boards/:id/export', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/export')).toBeUndefined();
+describe('habitats.ts no longer contains export/import/anomalies handlers', () => {
+  it('does not register GET /habitats/:habitatId/export', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/export')).toBeUndefined();
   });
 
-  it('does not register POST /boards/import', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/import')).toBeUndefined();
+  it('does not register POST /habitats/import', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/import')).toBeUndefined();
   });
 
-  it('does not register POST /boards/:id/import', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/import')).toBeUndefined();
+  it('does not register POST /habitats/:habitatId/import', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/import')).toBeUndefined();
   });
 
-  it('does not register GET /boards/:id/anomalies', () => {
-    const routes = captureBoardRoutes();
-    expect(routes.find(r => r.path === '/boards/:id/anomalies')).toBeUndefined();
+  it('does not register GET /habitats/:habitatId/anomalies', () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find(r => r.path === '/habitats/:habitatId/anomalies')).toBeUndefined();
   });
 });

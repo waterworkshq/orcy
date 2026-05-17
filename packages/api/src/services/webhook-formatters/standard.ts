@@ -1,5 +1,5 @@
 export interface EventEnrichment {
-  boardName: string;
+  habitatName: string;
   task?: {
     id: string;
     title: string;
@@ -18,7 +18,7 @@ export function formatStandardPayload(enrichment: EventEnrichment, eventType: st
   return {
     id: deliveryId,
     timestamp: new Date().toISOString(),
-    boardId: enrichment.boardName,
+    habitatId: enrichment.habitatName,
     event: eventType,
     data: enrichment,
   };

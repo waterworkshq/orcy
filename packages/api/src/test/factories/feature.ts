@@ -12,7 +12,7 @@ export function makeMission(overrides: Partial<Mission> = {}): Mission {
     habitatId: 'habitat-1',
     columnId: 'col-1',
     title: 'Test Mission',
-    description: 'A test feature description',
+    description: 'A test mission description',
     acceptanceCriteria: '',
     priority: 'medium' as TaskPriority,
     labels: [],
