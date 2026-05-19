@@ -111,4 +111,10 @@ export const queryKeys = {
     all: ['notificationPrefs'] as const,
     board: (boardId: string) => [...queryKeys.notificationPrefs.all, boardId] as const,
   },
+  sprints: {
+    all: ['sprints'] as const,
+    list: (habitatId: string) => [...queryKeys.sprints.all, 'list', habitatId] as const,
+    active: (habitatId: string) => [...queryKeys.sprints.all, 'active', habitatId] as const,
+    detail: (sprintId: string) => [...queryKeys.sprints.all, 'detail', sprintId] as const,
+  },
 };

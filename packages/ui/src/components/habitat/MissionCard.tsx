@@ -123,6 +123,12 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
         <Badge variant={(FEATURE_STATUS_VARIANT[feature.status] ?? 'pending') as any}>
           {feature.status.replace('_', ' ')}
         </Badge>
+        {feature.sprintId && (
+          <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+            sprint
+          </span>
+        )}
       </div>
 
       {total > 0 && (

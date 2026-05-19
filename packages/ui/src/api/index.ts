@@ -32,6 +32,8 @@ import type {
   CapacityReport,
   PredictionResponse,
   BurndownResponse,
+  Sprint,
+  SprintMetrics,
   Organization,
   Team,
   TeamMember,
@@ -1070,6 +1072,31 @@ export const api = {
   reviewers: {
     list: (taskId: string) =>
       request<{ reviewers: TaskReviewer[] }>(`/tasks/${taskId}/reviewers`),
+  },
+
+  sprints: {
+    list: (habitatId: string) =>
+      request<{ sprints: Sprint[] }>(`/habitats/${habitatId}/sprints`),
+    getActive: (habitatId: string) =>
+      request<{ sprint: Sprint | null }>(`/habitats/${habitatId}/sprints/active`),
+    create: (habitatId: string, body: Record<string, unknown>) =>
+      request<{ sprint: Sprint }>(`/habitats/${habitatId}/sprints`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    start: (sprintId: string) =>
+      request<{ sprint: Sprint }>(`/sprints/${sprintId}/start`, { method: 'POST' }),
+    complete: (sprintId: string) =>
+      request<{ sprint: Sprint }>(`/sprints/${sprintId}/complete`, { method: 'POST' }),
+    cancel: (sprintId: string) =>
+      request<{ sprint: Sprint }>(`/sprints/${sprintId}/cancel`, { method: 'POST' }),
+    addMission: (sprintId: string, missionId: string) =>
+      request<{ sprint: Sprint }>(`/sprints/${sprintId}/missions`, {
+        method: 'POST',
+        body: JSON.stringify({ missionId }),
+      }),
+    removeMission: (sprintId: string, missionId: string) =>
+      request<{ sprint: Sprint }>(`/sprints/${sprintId}/missions/${missionId}`, { method: 'DELETE' }),
   },
 };
 

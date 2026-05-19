@@ -60,6 +60,9 @@ import type {
   TaskReviewer,
   ReviewerStatus,
   ReviewerType,
+  Sprint,
+  SprintStatus,
+  SprintMetrics,
 } from '@orcy/shared';
 
 export type {
@@ -124,6 +127,9 @@ export type {
   TaskReviewer,
   ReviewerStatus,
   ReviewerType,
+  Sprint,
+  SprintStatus,
+  SprintMetrics,
 };
 
 export interface EnrichedHabitatEvent {

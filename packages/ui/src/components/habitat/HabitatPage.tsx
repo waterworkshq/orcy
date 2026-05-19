@@ -24,6 +24,8 @@ import { MobileNav } from './MobileNav.js';
 import { Plus, Users, BarChart3, Settings, HelpCircle, Activity, Eye, CheckSquare, Square, Menu, GitBranch } from 'lucide-react';
 import { HabitatPulsePanel } from './HabitatPulsePanel.js';
 import { InsightsPanel } from './InsightsPanel.js';
+import { SprintSelector } from './SprintSelector.js';
+import { SprintPlanningPanel } from './SprintPlanningPanel.js';
 import type { Column } from '../../types/index.js';
 import { useRegisterDrawerBridge } from '../layout/DrawerBridgeContext.js';
 import { SkeletonCard } from '../ui/SkeletonCard.js';
@@ -57,6 +59,7 @@ export function HabitatPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showDepGraph, setShowDepGraph] = useState(false);
+  const [showSprintPlanning, setShowSprintPlanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobile();
   const registerDrawerBridge = useRegisterDrawerBridge();
@@ -245,6 +248,7 @@ export function HabitatPage() {
               <span className="text-on-surface-variant text-xs">/</span>
               <span className="text-xs font-medium text-on-surface truncate">{board?.name ?? 'Habitat'}</span>
               {habitatId && <HealthScoreWidget habitatId={habitatId} />}
+              {habitatId && <SprintSelector habitatId={habitatId} onOpenPlanning={() => setShowSprintPlanning(true)} />}
               {board && (
                 <button
                   type="button"
@@ -435,6 +439,7 @@ export function HabitatPage() {
       )}
 
       {showAgentPanel && <AgentPanel onClose={() => setShowAgentPanel(false)} />}
+      {showSprintPlanning && habitatId && <SprintPlanningPanel habitatId={habitatId} onClose={() => setShowSprintPlanning(false)} />}
       {showCreateTask && (
         <Suspense fallback={null}>
           <CreateTaskForm
