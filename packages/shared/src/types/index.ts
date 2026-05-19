@@ -22,3 +22,9 @@ export type { QualityChecklistTemplate, QualityChecklistItem, TaskQualityCheckli
 export type { BatchTaskOperation, BatchTaskPayload, BatchTaskResult, BatchTaskResponse, BatchTaskRequest } from './batch.js';
 
 export type { WebhookSubscription, WebhookDelivery, PipelineEventStatus, PipelineEvent } from './webhook.js';
+
+export type { ReviewRuleStrategy, ReviewerStatus, ReviewerType } from './review.js';
+export type { ReviewRule, TaskReviewer, ReviewRuleCreateInput, ReviewRuleUpdateInput } from './review.js';
+
+export type { SprintStatus, CarryOverPolicy } from './sprint.js';
+export type { Sprint, SprintMetrics, SprintCreateInput, SprintUpdateInput } from './sprint.js';

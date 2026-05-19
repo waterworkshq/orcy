@@ -19,6 +19,7 @@ export const habitats = sqliteTable('habitats', {
   gitWorktreeSettings: text('git_worktree_settings', { mode: 'json' }).$type<GitWorktreeSettings | null>(),
   prioritizationSettings: text('prioritization_settings', { mode: 'json' }).$type<PrioritizationSettings | null>(),
   teamId: text('team_id').references(() => teams.id, { onDelete: 'set null' }),
+  carryOverPolicy: text('carry_over_policy').notNull().default('backlog'),
 }, (table) => [
   index('idx_habitats_name').on(table.name),
   index('idx_habitats_team_id').on(table.teamId),
@@ -49,6 +50,7 @@ export const missions = sqliteTable('missions', {
   planningAccuracy: integer('planning_accuracy'),
   completedAt: text('completed_at'),
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
+  sprintId: text('sprint_id'),
 }, (table) => [
   index('idx_missions_habitat_column').on(table.habitatId, table.columnId),
   index('idx_missions_status').on(table.status),
@@ -56,6 +58,7 @@ export const missions = sqliteTable('missions', {
   index('idx_missions_column_order').on(table.columnId, table.displayOrder),
   index('idx_missions_due_at').on(table.dueAt),
   index('idx_missions_sla_deadline_at').on(table.slaDeadlineAt),
+  index('idx_missions_sprint').on(table.sprintId),
 ]);
 
 export const missionDependencies = sqliteTable('mission_dependencies', {
@@ -249,4 +252,25 @@ export const habitatHealthSnapshots = sqliteTable('habitat_health_snapshots', {
 }, (table) => [
   index('idx_health_snapshots_habitat').on(table.habitatId),
   index('idx_health_snapshots_time').on(table.habitatId, table.snapshotAt),
+]);
+
+export const sprints = sqliteTable('sprints', {
+  id: text('id').primaryKey(),
+  habitatId: text('habitat_id').notNull().references(() => habitats.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  goal: text('goal').notNull().default(''),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date').notNull(),
+  status: text('status').notNull().default('planning'),
+  committedMissionIds: text('committed_mission_ids', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
+  completedMissionIds: text('completed_mission_ids', { mode: 'json' }).$type<string[]>().notNull().$defaultFn(() => []),
+  capacityMinutes: integer('capacity_minutes'),
+  notes: text('notes').notNull().default(''),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_sprints_habitat').on(table.habitatId),
+  index('idx_sprints_status').on(table.status),
+  index('idx_sprints_dates').on(table.startDate, table.endDate),
 ]);

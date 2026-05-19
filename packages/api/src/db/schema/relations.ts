@@ -1,6 +1,7 @@
 import { relations } from 'drizzle-orm';
-import { habitats, columns, missions, missionDependencies, missionEvents, missionWatchers, missionComments, missionCommentMentions, missionTemplates, savedFilters, chatIntegrations, auditExportSchedules, scheduledTasks } from './board.js';
+import { habitats, columns, missions, missionDependencies, missionEvents, missionWatchers, missionComments, missionCommentMentions, missionTemplates, savedFilters, chatIntegrations, auditExportSchedules, scheduledTasks, sprints } from './board.js';
 import { tasks, taskEvents, taskComments, taskSubtasks, taskWatchers, taskCommentMentions, taskAttachments, taskTimeRecords } from './task.js';
+import { reviewRules, taskReviewers } from './review.js';
 import { agents, agentMessages } from './agent.js';
 import { users, notificationPreferences, organizations, teams, teamMembers } from './user.js';
 import { webhookSubscriptions, webhookDeliveries } from './webhook.js';
@@ -14,6 +15,8 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   columns: many(columns),
   missions: many(missions),
   insights: many(projectInsights),
+  sprints: many(sprints),
+  reviewRules: many(reviewRules),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -41,6 +44,10 @@ export const missionsRelations = relations(missions, ({ one, many }) => ({
   column: one(columns, {
     fields: [missions.columnId],
     references: [columns.id],
+  }),
+  sprint: one(sprints, {
+    fields: [missions.sprintId],
+    references: [sprints.id],
   }),
   tasks: many(tasks),
   events: many(missionEvents),
@@ -413,5 +420,27 @@ export const scheduledTasksRelations = relations(scheduledTasks, ({ one }) => ({
   template: one(missionTemplates, {
     fields: [scheduledTasks.templateId],
     references: [missionTemplates.id],
+  }),
+}));
+
+export const sprintsRelations = relations(sprints, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [sprints.habitatId],
+    references: [habitats.id],
+  }),
+  missions: many(missions),
+}));
+
+export const reviewRulesRelations = relations(reviewRules, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [reviewRules.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const taskReviewersRelations = relations(taskReviewers, ({ one }) => ({
+  task: one(tasks, {
+    fields: [taskReviewers.taskId],
+    references: [tasks.id],
   }),
 }));

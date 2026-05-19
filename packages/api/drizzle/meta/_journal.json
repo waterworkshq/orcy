@@ -57,6 +57,27 @@
       "when": 1779206400000,
       "tag": "0008_fix_stale_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779300000000,
+      "tag": "0009_review_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1779300001000,
+      "tag": "0010_add_sprints",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1779300002000,
+      "tag": "0011_notifications_expand",
+      "breakpoints": true
     }
   ]
 }

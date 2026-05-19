@@ -81,7 +81,12 @@ export type SSEEvent =
   | { type: 'task.priority_changed'; data: { taskId: string; ruleName: string; oldPriority: string | null; newPriority: string; score: number } }
   | { type: 'scheduled_task.executed'; data: { scheduleId: string; missionId: string; missionTitle: string } }
   | { type: 'scheduled_task.failed'; data: { scheduleId: string; error: string } }
-  | { type: 'scheduled_task.created'; data: { scheduleId: string; name: string } };
+  | { type: 'scheduled_task.created'; data: { scheduleId: string; name: string } }
+  | { type: 'task.review_assigned'; data: { taskId: string; reviewerId: string; reviewerType: string } }
+  | { type: 'task.review_completed'; data: { taskId: string; reviewerId: string; status: string } }
+  | { type: 'sprint.created'; data: { sprintId: string; habitatId: string } }
+  | { type: 'sprint.started'; data: { sprintId: string; habitatId: string } }
+  | { type: 'sprint.completed'; data: { sprintId: string; habitatId: string; completedMissions: number; carriedOver: number } };
 
 export type PresenceEvent =
   | { type: 'presence.joined'; data: { habitatId: string; presence: PresenceEntry } }

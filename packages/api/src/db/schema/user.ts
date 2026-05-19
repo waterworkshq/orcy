@@ -26,6 +26,8 @@ export const notificationPreferences = sqliteTable('notification_preferences', {
   taskOverdue: integer('task_overdue').notNull().default(1),
   taskMentioned: integer('task_mentioned').notNull().default(1),
   taskWatching: integer('task_watching').notNull().default(1),
+  taskReviewAssigned: integer('task_review_assigned').notNull().default(1),
+  taskPriorityChanged: integer('task_priority_changed').notNull().default(1),
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
   updatedAt: text('updated_at').notNull().default("(datetime('now'))"),
 }, (table) => [
