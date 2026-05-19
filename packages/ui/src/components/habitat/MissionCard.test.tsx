@@ -38,6 +38,7 @@ const baseFeature: MissionWithProgress = {
     planningAccuracy: null,
     completedAt: null,
     isArchived: false,
+    sprintId: null,
   progress: {
     total: 4,
     pending: 1,

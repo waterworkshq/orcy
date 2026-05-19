@@ -19,6 +19,7 @@ function makeMission(overrides?: Partial<Mission>): Mission {
     createdBy: 'test', createdAt: now, updatedAt: now,
     version: 1, actualMinutes: null, plannedMinutes: null,
     planningAccuracy: null, completedAt: null, isArchived: false,
+    sprintId: null,
     ...overrides,
   };
 }

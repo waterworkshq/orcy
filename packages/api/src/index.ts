@@ -45,6 +45,8 @@ import { dependencyRoutes } from './routes/dependencies.js';
 import { qualityGateRoutes } from './routes/qualityGates.js';
 import { prioritizationRoutes } from './routes/prioritization.js';
 import { scheduledTaskRoutes } from './routes/scheduledTasks.js';
+import { reviewRuleRoutes } from './routes/reviewRules.js';
+import { sprintRoutes } from './routes/sprints.js';
 import { rebuildCache as rebuildHabitatSecretCache } from './services/boardSecretCache.js';
 import { archiveOldEvents } from './services/auditArchivalService.js';
 import { seedDefaultTemplates as seedQualityTemplates } from './services/qualityGateService.js';
@@ -144,6 +146,8 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(qualityGateRoutes);
   await f.register(prioritizationRoutes);
   await f.register(scheduledTaskRoutes);
+  await f.register(reviewRuleRoutes);
+  await f.register(sprintRoutes);
 }
 
 await fastify.register(async (f) => {

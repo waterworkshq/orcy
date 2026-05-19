@@ -17,6 +17,8 @@ import {
   MESSAGE_DISPATCH_HANDLER,
   PULSE_DISPATCH_HANDLER,
   SUBSCRIPTION_DISPATCH_HANDLER,
+  REVIEW_DISPATCH_HANDLER,
+  SPRINT_DISPATCH_HANDLER,
 } from './tools/index.js';
 import { KanbanApiClient } from './api.js';
 import { setNotificationSender, cleanupAll as cleanupSubscriptions } from './subscriptions.js';
@@ -91,6 +93,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_habitat_message: MESSAGE_DISPATCH_HANDLER,
   orcy_pulse: PULSE_DISPATCH_HANDLER,
   orcy_habitat_subscription: SUBSCRIPTION_DISPATCH_HANDLER,
+  orcy_review: REVIEW_DISPATCH_HANDLER,
+  orcy_sprint: SPRINT_DISPATCH_HANDLER,
 };
 
 // ---------------------------------------------------------------------------

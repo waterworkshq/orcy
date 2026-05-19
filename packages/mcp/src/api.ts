@@ -10,6 +10,13 @@ import type {
   MissionTemplate,
   Mission,
   MissionWithProgress,
+  ReviewRule,
+  ReviewRuleCreateInput,
+  ReviewRuleUpdateInput,
+  TaskReviewer,
+  Sprint,
+  SprintCreateInput,
+  SprintUpdateInput,
 } from '@orcy/shared';
 import type {
   ClaimTaskResponse,
@@ -1167,5 +1174,83 @@ export class KanbanApiClient {
 
   async disableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
     return this.request<{ scheduledTask: any }>('POST', `/api/scheduled-tasks/${scheduledTaskId}/disable`);
+  }
+
+  // -- Review Rules --
+
+  async listReviewRules(habitatId: string): Promise<{ reviewRules: ReviewRule[] }> {
+    return this.request<{ reviewRules: ReviewRule[] }>('GET', `/api/habitats/${habitatId}/review-rules`);
+  }
+
+  async createReviewRule(habitatId: string, input: ReviewRuleCreateInput): Promise<{ reviewRule: ReviewRule }> {
+    return this.request<{ reviewRule: ReviewRule }>('POST', `/api/habitats/${habitatId}/review-rules`, input);
+  }
+
+  async updateReviewRule(ruleId: string, input: ReviewRuleUpdateInput): Promise<{ reviewRule: ReviewRule | null }> {
+    return this.request<{ reviewRule: ReviewRule | null }>('PATCH', `/api/review-rules/${ruleId}`, input);
+  }
+
+  async deleteReviewRule(ruleId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/review-rules/${ruleId}`);
+  }
+
+  // -- Task Reviewers --
+
+  async listTaskReviewers(taskId: string): Promise<{ reviewers: TaskReviewer[] }> {
+    return this.request<{ reviewers: TaskReviewer[] }>('GET', `/api/tasks/${taskId}/reviewers`);
+  }
+
+  async addTaskReviewer(taskId: string, input: { reviewerId: string; reviewerType: 'human' | 'agent' }): Promise<{ reviewer: TaskReviewer }> {
+    return this.request<{ reviewer: TaskReviewer }>('POST', `/api/tasks/${taskId}/reviewers`, input);
+  }
+
+  async removeTaskReviewer(taskId: string, reviewerId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/tasks/${taskId}/reviewers/${reviewerId}`);
+  }
+
+  // -- Sprints --
+
+  async listSprints(habitatId: string): Promise<{ sprints: Sprint[] }> {
+    return this.request<{ sprints: Sprint[] }>('GET', `/api/habitats/${habitatId}/sprints`);
+  }
+
+  async getActiveSprint(habitatId: string): Promise<{ sprint: Sprint | null }> {
+    return this.request<{ sprint: Sprint | null }>('GET', `/api/habitats/${habitatId}/sprints/active`);
+  }
+
+  async getSprint(sprintId: string): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('GET', `/api/sprints/${sprintId}`);
+  }
+
+  async createSprint(habitatId: string, input: SprintCreateInput): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('POST', `/api/habitats/${habitatId}/sprints`, input);
+  }
+
+  async updateSprint(sprintId: string, input: SprintUpdateInput): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('PATCH', `/api/sprints/${sprintId}`, input);
+  }
+
+  async deleteSprint(sprintId: string): Promise<void> {
+    await this.request<void>('DELETE', `/api/sprints/${sprintId}`);
+  }
+
+  async startSprint(sprintId: string): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('POST', `/api/sprints/${sprintId}/start`);
+  }
+
+  async completeSprint(sprintId: string): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('POST', `/api/sprints/${sprintId}/complete`);
+  }
+
+  async cancelSprint(sprintId: string): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('POST', `/api/sprints/${sprintId}/cancel`);
+  }
+
+  async addMissionToSprint(sprintId: string, missionId: string): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('POST', `/api/sprints/${sprintId}/missions`, { missionId });
+  }
+
+  async removeMissionFromSprint(sprintId: string, missionId: string): Promise<{ sprint: Sprint }> {
+    return this.request<{ sprint: Sprint }>('DELETE', `/api/sprints/${sprintId}/missions/${missionId}`);
   }
 }

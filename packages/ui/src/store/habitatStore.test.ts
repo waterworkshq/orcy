@@ -58,6 +58,7 @@ const makeFeature = (id: string, columnId: string): Mission => ({
   updatedAt: '2026-04-10T00:00:00.000Z',
   version: 1,
   isArchived: false,
+  sprintId: null,
   actualMinutes: null,
   plannedMinutes: null,
   planningAccuracy: null,

@@ -22,6 +22,10 @@ export * from './suggest.js';
 export * from './mission.js';
 export * from './lifecycle-gaps.js';
 export * from './task-batch.js';
+export * from './review.js';
+export * from './review-dispatch.js';
+export * from './sprint.js';
+export * from './sprint-dispatch.js';
 
 // Re-export dispatch utilities (for tests)
 export * from './dispatch-utils.js';
@@ -67,6 +71,14 @@ import {
   SUBSCRIPTION_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_HANDLER,
 } from './subscription-dispatch.js';
+import {
+  REVIEW_DISPATCH_TOOL,
+  REVIEW_DISPATCH_HANDLER,
+} from './review-dispatch.js';
+import {
+  SPRINT_DISPATCH_TOOL,
+  SPRINT_DISPATCH_HANDLER,
+} from './sprint-dispatch.js';
 import { ORCY_INITIAL_INSTRUCTIONS_TOOL } from './instructions.js';
 import { PULSE_SKILL_TOOL } from './pulse-skill.js';
 
@@ -82,6 +94,8 @@ export {
   MESSAGE_DISPATCH_HANDLER,
   PULSE_DISPATCH_HANDLER,
   SUBSCRIPTION_DISPATCH_HANDLER,
+  REVIEW_DISPATCH_HANDLER,
+  SPRINT_DISPATCH_HANDLER,
 };
 export {
   HABITAT_DISPATCH_TOOL,
@@ -94,6 +108,8 @@ export {
   MESSAGE_DISPATCH_TOOL,
   PULSE_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_TOOL,
+  REVIEW_DISPATCH_TOOL,
+  SPRINT_DISPATCH_TOOL,
 };
 
 export const ALL_TOOLS: Tool[] = [
@@ -109,4 +125,6 @@ export const ALL_TOOLS: Tool[] = [
   MESSAGE_DISPATCH_TOOL,
   PULSE_DISPATCH_TOOL,
   SUBSCRIPTION_DISPATCH_TOOL,
+  REVIEW_DISPATCH_TOOL,
+  SPRINT_DISPATCH_TOOL,
 ];

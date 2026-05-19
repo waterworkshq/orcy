@@ -33,6 +33,7 @@ function makeFeature(
     updatedAt: new Date().toISOString(),
     version: 1,
     isArchived: false,
+    sprintId: null,
     actualMinutes: null,
     plannedMinutes: null,
     planningAccuracy: null,

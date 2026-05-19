@@ -31,6 +31,7 @@ const mockFeatures: MissionWithProgress[] = [
     planningAccuracy: null,
     completedAt: null,
     isArchived: false,
+    sprintId: null,
     progress: {
       total: 3,
       pending: 0,
@@ -71,6 +72,7 @@ const mockArchivedFeatures: MissionWithProgress[] = [
     planningAccuracy: null,
     completedAt: null,
     isArchived: true,
+    sprintId: null,
     progress: {
       total: 2,
       pending: 0,
@@ -108,6 +110,7 @@ const mockArchivedFeatures: MissionWithProgress[] = [
     planningAccuracy: null,
     completedAt: null,
     isArchived: true,
+    sprintId: null,
     progress: {
       total: 1,
       pending: 0,

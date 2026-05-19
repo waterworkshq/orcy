@@ -45,6 +45,7 @@ export interface Mission {
   planningAccuracy: number | null;
   completedAt: string | null;
   isArchived: boolean;
+  sprintId: string | null;
 }
 
 export interface MissionWithProgress extends Mission {

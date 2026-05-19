@@ -153,6 +153,7 @@ describe('Model Types: Mission Interface', () => {
       planningAccuracy: null,
       completedAt: null,
       isArchived: false,
+      sprintId: null,
     };
     expect(mission.id).toBe('feat-1');
     expect(mission.status).toBe('not_started');
