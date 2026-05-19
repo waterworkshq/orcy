@@ -11,7 +11,7 @@ import { getDb } from '../db/index.js';
 import { users } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 
-export type NotificationEventType = 'task.assigned' | 'task.submitted' | 'task.approved' | 'task.rejected' | 'task.overdue' | 'comment.mentioned' | 'task.watching';
+export type NotificationEventType = 'task.assigned' | 'task.submitted' | 'task.approved' | 'task.rejected' | 'task.overdue' | 'comment.mentioned' | 'task.watching' | 'task.priority_changed' | 'task.review_assigned';
 
 export type NotificationEventData = {
   taskId?: string;
@@ -21,6 +21,9 @@ export type NotificationEventData = {
   mentionedUserId?: string;
   mentionedByName?: string;
   commentContent?: string;
+  oldPriority?: string;
+  newPriority?: string;
+  reviewerId?: string;
 };
 
 type EventType = NotificationEventType;
@@ -50,6 +53,8 @@ function getPreferenceValue(prefs: NotificationPreferences, field: string): bool
     case 'taskOverdue': return prefs.taskOverdue;
     case 'taskMentioned': return prefs.taskMentioned;
     case 'taskWatching': return prefs.taskWatching;
+    case 'taskPriorityChanged': return prefs.taskPriorityChanged;
+    case 'taskReviewAssigned': return prefs.taskReviewAssigned;
     default: return undefined;
   }
 }
@@ -81,6 +86,8 @@ function eventTypeToField(eventType: EventType): string | null {
     case 'task.overdue': return 'taskOverdue';
     case 'comment.mentioned': return 'taskMentioned';
     case 'task.watching': return 'taskWatching';
+    case 'task.priority_changed': return 'taskPriorityChanged';
+    case 'task.review_assigned': return 'taskReviewAssigned';
     default: return null;
   }
 }
@@ -185,6 +192,28 @@ export async function processEvent(
           userId,
           eventType: 'task.watching',
           buildEmail: () => emailService.taskWatchingTemplate(taskTitle, habitatName, eventType),
+        });
+      }
+      break;
+    }
+    case 'task.priority_changed': {
+      const db3 = getDb();
+      const adminRows3 = db3.select({ id: users.id }).from(users).where(eq(users.role, 'admin')).all();
+      for (const row of adminRows3) {
+        queue.push({
+          userId: row.id,
+          eventType: 'task.priority_changed',
+          buildEmail: () => emailService.priorityChangedTemplate(taskTitle, habitatName, data.oldPriority ?? 'medium', data.newPriority ?? 'medium'),
+        });
+      }
+      break;
+    }
+    case 'task.review_assigned': {
+      if (data.reviewerId) {
+        queue.push({
+          userId: data.reviewerId,
+          eventType: 'task.review_assigned',
+          buildEmail: () => emailService.reviewAssignedTemplate(taskTitle, habitatName, actorName),
         });
       }
       break;

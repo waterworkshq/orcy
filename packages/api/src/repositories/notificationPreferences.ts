@@ -14,6 +14,8 @@ export interface NotificationPreferences {
   taskOverdue: boolean;
   taskMentioned: boolean;
   taskWatching: boolean;
+  taskReviewAssigned: boolean;
+  taskPriorityChanged: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,6 +28,8 @@ const DEFAULT_PREFS = {
   taskOverdue: 1,
   taskMentioned: 1,
   taskWatching: 1,
+  taskReviewAssigned: 1,
+  taskPriorityChanged: 1,
 };
 
 export function getPreferences(userId: string, habitatId?: string | null): NotificationPreferences {
@@ -53,6 +57,8 @@ export function getPreferences(userId: string, habitatId?: string | null): Notif
       taskOverdue: row.taskOverdue === 1,
       taskMentioned: row.taskMentioned === 1,
       taskWatching: row.taskWatching === 1,
+      taskReviewAssigned: row.taskReviewAssigned === 1,
+      taskPriorityChanged: row.taskPriorityChanged === 1,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -80,6 +86,8 @@ export function getPreferences(userId: string, habitatId?: string | null): Notif
     taskOverdue: DEFAULT_PREFS.taskOverdue === 1,
     taskMentioned: DEFAULT_PREFS.taskMentioned === 1,
     taskWatching: DEFAULT_PREFS.taskWatching === 1,
+    taskReviewAssigned: DEFAULT_PREFS.taskReviewAssigned === 1,
+    taskPriorityChanged: DEFAULT_PREFS.taskPriorityChanged === 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -102,6 +110,8 @@ export function upsertPreferences(
     taskOverdue: updates.taskOverdue ?? existing.taskOverdue,
     taskMentioned: updates.taskMentioned ?? existing.taskMentioned,
     taskWatching: updates.taskWatching ?? existing.taskWatching,
+    taskReviewAssigned: updates.taskReviewAssigned ?? existing.taskReviewAssigned,
+    taskPriorityChanged: updates.taskPriorityChanged ?? existing.taskPriorityChanged,
   };
 
   db.update(notificationPreferences).set({
@@ -112,6 +122,8 @@ export function upsertPreferences(
     taskOverdue: merged.taskOverdue ? 1 : 0,
     taskMentioned: merged.taskMentioned ? 1 : 0,
     taskWatching: merged.taskWatching ? 1 : 0,
+    taskReviewAssigned: merged.taskReviewAssigned ? 1 : 0,
+    taskPriorityChanged: merged.taskPriorityChanged ? 1 : 0,
     updatedAt: now,
   }).where(eq(notificationPreferences.id, existing.id)).run();
 

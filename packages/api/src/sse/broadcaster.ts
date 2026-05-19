@@ -30,7 +30,7 @@ class SSEBroadcaster {
       }
     }
 
-    if (event.type.startsWith('task.') || event.type.startsWith('column.') || event.type.startsWith('agent.') || event.type.startsWith('anomaly.') || event.type.startsWith('mission.')) {
+    if (event.type.startsWith('task.') || event.type.startsWith('column.') || event.type.startsWith('agent.') || event.type.startsWith('anomaly.') || event.type.startsWith('mission.') || event.type.startsWith('sprint.')) {
       dispatchWebhooks(habitatId, event).catch(err => {
         logger.error({ err }, 'Webhook dispatch error');
       });
@@ -114,6 +114,21 @@ class SSEBroadcaster {
         this.notifySafe('task.watching', habitatId, {
           taskId: event.data.taskId,
         }, 'task.watching');
+        break;
+
+      case 'task.review_assigned':
+        this.notifySafe('task.review_assigned', habitatId, {
+          taskId: event.data.taskId,
+          reviewerId: event.data.reviewerId,
+        }, 'task.review_assigned');
+        break;
+
+      case 'task.priority_changed':
+        this.notifySafe('task.priority_changed', habitatId, {
+          taskId: event.data.taskId,
+          oldPriority: event.data.oldPriority ?? undefined,
+          newPriority: event.data.newPriority,
+        }, 'task.priority_changed');
         break;
     }
   }

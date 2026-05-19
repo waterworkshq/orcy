@@ -292,6 +292,13 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
             { missingQualityItems: result.missingQualityItems }
           );
         }
+        if (result.error === 'REVIEW_REQUIRED') {
+          throw unprocessableEntity(
+            'Task requires review approval before completion',
+            'REVIEW_REQUIRED',
+            {}
+          );
+        }
         throw conflict(
           result.error ?? 'Cannot complete task in current state. Task must be in submitted status.',
           { blockedBy: result.blockedBy, missingQualityItems: result.missingQualityItems }

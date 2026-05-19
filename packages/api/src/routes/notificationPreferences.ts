@@ -13,6 +13,8 @@ const preferencesSchema = z.object({
   taskOverdue: z.boolean().optional(),
   taskMentioned: z.boolean().optional(),
   taskWatching: z.boolean().optional(),
+  taskReviewAssigned: z.boolean().optional(),
+  taskPriorityChanged: z.boolean().optional(),
 });
 
 const updateEmailSchema = z.object({

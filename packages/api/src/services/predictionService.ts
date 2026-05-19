@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { tasks, agents, taskEvents, taskDependencies, missions } from '../db/schema/index.js';
+import { tasks, agents, taskEvents, taskDependencies, missions, sprints } from '../db/schema/index.js';
 import { eq, and, sql, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { dateDayExpr } from '../db/dialect-helpers.js';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
@@ -71,7 +71,7 @@ const PRIORITY_BOOST: Record<TaskPriority, number> = {
 
 const NO_ACTIVITY_THRESHOLD_HOURS = 24;
 
-export function calculateVelocity(habitatId: string): VelocityMetrics {
+export function calculateVelocity(habitatId: string, options?: { sprintId?: string }): VelocityMetrics {
   const db = getDb();
   const now = Date.now();
   const msDay = 24 * 60 * 60 * 1000;
@@ -84,6 +84,7 @@ export function calculateVelocity(habitatId: string): VelocityMetrics {
       sql`${tasks.completedAt} >= ${sinceDate}`,
     ];
     if (agentId) conditions.push(eq(tasks.assignedAgentId, agentId));
+    if (options?.sprintId) conditions.push(eq(missions.sprintId, options.sprintId));
     const row = db.select({ count: sql<number>`count(*)` })
       .from(tasks)
       .innerJoin(missions, eq(tasks.missionId, missions.id))
@@ -362,21 +363,43 @@ export function getPredictions(habitatId: string): PredictionResponse {
   return { velocity, estimates, atRiskTasks };
 }
 
-export function getBurndown(habitatId: string, days: number): BurndownResponse {
+export function getBurndown(habitatId: string, days: number, options?: { sprintId?: string }): BurndownResponse {
   const db = getDb();
   const now = new Date();
   const msDay = 24 * 60 * 60 * 1000;
 
-  const endDate = now;
-  const startDate = new Date(now.getTime() - days * msDay);
+  const sprintFilter = options?.sprintId ? eq(missions.sprintId, options.sprintId) : undefined;
 
-  const totalRow = db.select({ count: sql<number>`count(*)` }).from(tasks).innerJoin(missions, eq(tasks.missionId, missions.id)).where(eq(missions.habitatId, habitatId)).get();
+  let startDate: Date;
+  let effectiveDays: number;
+
+  if (options?.sprintId) {
+    const sprintRow = db.select({ startDate: sprints.startDate, endDate: sprints.endDate }).from(sprints).where(eq(sprints.id, options.sprintId)).get();
+    if (sprintRow) {
+      startDate = new Date(sprintRow.startDate);
+      const sprintEnd = new Date(sprintRow.endDate);
+      effectiveDays = Math.max(1, Math.ceil((sprintEnd.getTime() - startDate.getTime()) / msDay));
+    } else {
+      startDate = new Date(now.getTime() - days * msDay);
+      effectiveDays = days;
+    }
+  } else {
+    startDate = new Date(now.getTime() - days * msDay);
+    effectiveDays = days;
+  }
+
+  const endDate = now;
+
+  const baseConditions = [eq(missions.habitatId, habitatId)];
+  if (sprintFilter) baseConditions.push(sprintFilter);
+
+  const totalRow = db.select({ count: sql<number>`count(*)` }).from(tasks).innerJoin(missions, eq(tasks.missionId, missions.id)).where(and(...baseConditions)).get();
   const totalTasks = totalRow?.count ?? 0;
 
   const completedRow = db.select({ count: sql<number>`count(*)` })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(and(eq(missions.habitatId, habitatId), inArray(tasks.status, ['approved', 'done'])))
+    .where(and(...baseConditions, inArray(tasks.status, ['approved', 'done'])))
     .get();
   const completedTasks = completedRow?.count ?? 0;
 
@@ -391,7 +414,7 @@ export function getBurndown(habitatId: string, days: number): BurndownResponse {
   .innerJoin(missions, eq(tasks.missionId, missions.id))
   .where(
     and(
-      eq(missions.habitatId, habitatId),
+      ...baseConditions,
       inArray(tasks.status, ['approved', 'done']),
       isNotNull(tasks.completedAt),
       sql`${tasks.completedAt} >= ${startDate.toISOString()}`
@@ -411,7 +434,7 @@ export function getBurndown(habitatId: string, days: number): BurndownResponse {
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
-        eq(missions.habitatId, habitatId),
+        ...baseConditions,
         inArray(tasks.status, ['approved', 'done']),
         isNotNull(tasks.completedAt),
         sql`${tasks.completedAt} < ${startDate.toISOString()}`
@@ -421,9 +444,9 @@ export function getBurndown(habitatId: string, days: number): BurndownResponse {
   let cumulativeCompleted = cumulativeRow?.count ?? 0;
 
   const data: BurndownDataPoint[] = [];
-  const idealPerDay = totalTasks > 0 ? totalTasks / days : 0;
+  const idealPerDay = totalTasks > 0 ? totalTasks / effectiveDays : 0;
 
-  for (let i = 0; i <= days; i++) {
+  for (let i = 0; i <= effectiveDays; i++) {
     const currentDate = new Date(startDate.getTime() + i * msDay);
     const dateStr = currentDate.toISOString().split('T')[0];
 
@@ -443,7 +466,7 @@ export function getBurndown(habitatId: string, days: number): BurndownResponse {
   }
 
   const completedInPeriod = cumulativeCompleted - (totalTasks - remainingTasks - (cumulativeCompleted - completedTasks));
-  const averageDailyVelocity = days > 0 ? completedTasks / days : 0;
+  const averageDailyVelocity = effectiveDays > 0 ? completedTasks / effectiveDays : 0;
 
   let estimatedCompletionDate: string | null = null;
   if (averageDailyVelocity > 0 && remainingTasks > 0) {

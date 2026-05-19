@@ -1,12 +1,12 @@
 import { getDb } from '../db/index.js';
 import { sprints, missions } from '../db/schema/index.js';
 import { eq, and, inArray } from 'drizzle-orm';
+import { logger } from '../lib/logger.js';
+import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as sprintRepo from '../repositories/sprint.js';
 import * as missionRepo from '../repositories/feature.js';
 import * as habitatRepo from '../repositories/board.js';
 import type { Sprint, SprintCreateInput, SprintUpdateInput, CarryOverPolicy } from '@orcy/shared';
-import { logger } from '../lib/logger.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
 
 export function getSprint(sprintId: string): Sprint | null {
   return sprintRepo.getById(sprintId);
@@ -228,4 +228,24 @@ export function removeMissionFromSprint(sprintId: string, missionId: string): Sp
   const updated = sprintRepo.removeMission(sprintId, missionId);
   if (!updated) throw new Error('REMOVE_MISSION_FAILED');
   return updated;
+}
+
+export function autoCompleteSprints(): number {
+  const expired = sprintRepo.getExpiredActiveSprints();
+  let completed = 0;
+
+  for (const sprint of expired) {
+    try {
+      completeSprint(sprint.id);
+      completed++;
+    } catch (err) {
+      logger.error({ err, sprintId: sprint.id }, 'Failed to auto-complete expired sprint');
+    }
+  }
+
+  if (completed > 0) {
+    logger.info({ completed, total: expired.length }, 'Auto-completed expired sprints');
+  }
+
+  return completed;
 }

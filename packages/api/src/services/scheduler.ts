@@ -6,6 +6,7 @@ import { scanAllHabitats } from './anomalyService.js';
 import { archiveAllHabitats, archiveOldEvents } from './auditArchivalService.js';
 import { applyAllHabitats } from './prioritizationService.js';
 import { startScheduledTaskProcessor as startScheduledTaskPoller } from './scheduledTaskService.js';
+import { autoCompleteSprints } from './sprintService.js';
 import { getDb } from '../db/index.js';
 import { tasks, missions } from '../db/schema/index.js';
 import { and, or, sql, notInArray, eq } from 'drizzle-orm';
@@ -114,6 +115,14 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
   }, 5 * 60_000));
 
   intervals.push(startScheduledTaskPoller(60_000));
+
+  intervals.push(setInterval(() => {
+    try {
+      autoCompleteSprints();
+    } catch (err) {
+      fastify.log.error({ err }, 'Error auto-completing expired sprints');
+    }
+  }, 5 * 60_000));
 
   return {
     stop() {

@@ -209,8 +209,42 @@ export function anomalyAlertTemplate(anomalyType: string, severity: string, mess
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Severity:</td><td style="padding: 8px 0; font-weight: 600; color: ${color};">${severity.toUpperCase()}</td></tr>
        </table>
        <div style="margin-top: 12px; padding: 12px; background: #f9fafb; border-radius: 6px; border-left: 3px solid ${color};">
-         <p style="margin: 0; font-size: 14px; color: #374151;">${message}</p>
-       </div>`
+          <p style="margin: 0; font-size: 14px; color: #374151;">${message}</p>
+        </div>`
+    ),
+  };
+}
+
+export function priorityChangedTemplate(taskTitle: string, habitatName: string, oldPriority: string, newPriority: string): EmailPayload {
+  const priorityColors: Record<string, string> = { low: '#3b82f6', medium: '#6b7280', high: '#f59e0b', critical: '#ef4444' };
+  return {
+    to: '',
+    subject: `Task priority changed: ${taskTitle}`,
+    html: baseTemplate(
+      'Task Priority Changed',
+      `<p style="margin: 0 0 12px; color: #374151;">A task's priority has been updated.</p>
+       <table style="width: 100%; border-collapse: collapse;">
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">From:</td><td style="padding: 8px 0; font-weight: 600; color: ${priorityColors[oldPriority] ?? '#6b7280'};">${oldPriority.toUpperCase()}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">To:</td><td style="padding: 8px 0; font-weight: 600; color: ${priorityColors[newPriority] ?? '#6b7280'};">${newPriority.toUpperCase()}</td></tr>
+       </table>`
+    ),
+  };
+}
+
+export function reviewAssignedTemplate(taskTitle: string, habitatName: string, assignedBy: string): EmailPayload {
+  return {
+    to: '',
+    subject: `Review requested: ${taskTitle}`,
+    html: baseTemplate(
+      'Review Requested',
+      `<p style="margin: 0 0 12px; color: #374151;">You have been assigned to review a task.</p>
+       <table style="width: 100%; border-collapse: collapse;">
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Requested by:</td><td style="padding: 8px 0; color: #1f2937;">${assignedBy}</td></tr>
+       </table>`
     ),
   };
 }

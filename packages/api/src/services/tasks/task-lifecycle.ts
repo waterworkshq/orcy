@@ -18,6 +18,7 @@ import {
 } from './helpers.js';
 import { logger } from '../../lib/logger.js';
 import * as pulseService from '../pulseService.js';
+import * as reviewAssignment from '../reviewAssignmentService.js';
 
 function getHabitatId(task: Task): string {
   const habitatId = taskRepo.getHabitatIdForTask(task.id);
@@ -202,6 +203,20 @@ export function submitTask(
     taskId: task.id,
   });
 
+  try {
+    const reviewResult = reviewAssignment.assignReviewers(taskId, habitatId, agentId);
+    if (!reviewResult.skipped) {
+      for (const reviewer of reviewResult.assigned) {
+        sseBroadcaster.publish(habitatId, {
+          type: 'task.review_assigned',
+          data: { taskId, reviewerId: reviewer.reviewerId, reviewerType: 'human' },
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, taskId }, 'Failed to assign reviewers — task still submitted');
+  }
+
   return { task };
 }
 
@@ -220,10 +235,9 @@ export function completeTask(
   if (current.status !== 'submitted' && current.status !== 'approved') return { task: null };
 
   if (current.status === 'submitted') {
-    logger.warn(
-      { taskId, agentId, isSelfApproval: true },
-      'Agent self-completing task without human review — this will require review assignment in a future release'
-    );
+    if (reviewAssignment.hasAssignedReviewers(taskId)) {
+      return { task: null, error: 'REVIEW_REQUIRED' };
+    }
   }
 
   const depValidation = dependencyService.validateTaskCompletion(taskId);
@@ -312,6 +326,24 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
   if (!current) return null;
 
   if (!validateTransition(current.status, 'approved')) return null;
+
+  if (reviewAssignment.hasAssignedReviewers(taskId)) {
+    if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId)) {
+      return null;
+    }
+
+    reviewAssignment.recordApproval(taskId, reviewerId);
+
+    const habitatId = getHabitatId(current);
+    sseBroadcaster.publish(habitatId, {
+      type: 'task.review_completed',
+      data: { taskId, reviewerId, status: 'approved' },
+    });
+
+    if (!reviewAssignment.hasAllRequiredApprovals(taskId)) {
+      return taskRepo.getTaskById(taskId);
+    }
+  }
 
   const task = taskRepo.approveTask(taskId);
   if (!task) return null;
