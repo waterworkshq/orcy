@@ -11,7 +11,8 @@ export function getByHabitatId(habitatId: string): Sprint[] {
 
 export function getById(id: string): Sprint | null {
   const db = getDb();
-  return db.select().from(sprints).where(eq(sprints.id, id)).get() as Sprint | null;
+  const row = db.select().from(sprints).where(eq(sprints.id, id)).get();
+  return (row as Sprint) ?? null;
 }
 
 export function getActiveForHabitat(habitatId: string): Sprint | null {
