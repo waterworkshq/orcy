@@ -136,7 +136,7 @@ describe('PrioritizationTab', () => {
     expect(template.textContent).toContain('pending_duration');
     expect(template.textContent).toContain('dependency_count');
     expect(template.textContent).toContain('rejection_count');
-    expect(template.textContent).toContain('feature_status');
+    expect(template.textContent).toContain('mission_status');
     expect(template.textContent).toContain('agent_idle');
     expect(template.textContent).toContain('label_match');
     expect(template.textContent).toContain('priority_is');

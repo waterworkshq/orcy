@@ -219,6 +219,13 @@ export function completeTask(
 
   if (current.status !== 'submitted' && current.status !== 'approved') return { task: null };
 
+  if (current.status === 'submitted') {
+    logger.warn(
+      { taskId, agentId, isSelfApproval: true },
+      'Agent self-completing task without human review — this will require review assignment in a future release'
+    );
+  }
+
   const depValidation = dependencyService.validateTaskCompletion(taskId);
   if (!depValidation.canComplete) {
     return {

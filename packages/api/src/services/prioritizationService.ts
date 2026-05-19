@@ -339,7 +339,11 @@ export function applyPrioritization(habitatId: string): PrioritizationResult {
   let changedCount = 0;
 
   for (const evaluation of evaluations) {
+    let oldPriority: string | null = null;
     try {
+      const taskBefore = taskRepo.getTaskById(evaluation.taskId);
+      oldPriority = taskBefore?.priority ?? null;
+
       applyAction(evaluation.taskId, evaluation.action);
     } catch (err) {
       logger.error({ err, taskId: evaluation.taskId, ruleName: evaluation.ruleName }, 'Failed to apply prioritization action for task');
@@ -353,14 +357,18 @@ export function applyPrioritization(habitatId: string): PrioritizationResult {
     const scoreBonus = evaluation.action.type === 'set_score_bonus' ? evaluation.action.value : 0;
     const finalScore = baseScore + scoreBonus;
 
-    sseBroadcaster.publish(habitatId, {
-      type: 'task.priority_changed',
-      data: {
-        taskId: evaluation.taskId,
-        ruleName: evaluation.ruleName,
-        score: finalScore,
-      },
-    });
+    if (task.priority !== oldPriority) {
+      sseBroadcaster.publish(habitatId, {
+        type: 'task.priority_changed',
+        data: {
+          taskId: evaluation.taskId,
+          ruleName: evaluation.ruleName,
+          oldPriority,
+          newPriority: task.priority,
+          score: finalScore,
+        },
+      });
+    }
 
     results.push({
       taskId: evaluation.taskId,

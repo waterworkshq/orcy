@@ -65,9 +65,9 @@ const RULE_TEMPLATE = `[
   },
   {
     "id": "rule-7",
-    "name": "Feature at risk → high",
+    "name": "Mission at risk → high",
     "enabled": true,
-    "condition": { "type": "feature_status", "status": "at_risk" },
+    "condition": { "type": "mission_status", "status": "at_risk" },
     "action": { "type": "set_priority", "value": "high" },
     "priority": 7
   },

@@ -78,7 +78,7 @@ export type SSEEvent =
   | { type: 'mission.commented'; data: { missionId: string; comment: MissionComment } }
   | { type: 'mission.comment_deleted'; data: { missionId: string; commentId: string } }
   | { type: 'mission.mentioned'; data: { missionId: string; commentId: string; mentionedType: 'human' | 'agent'; mentionedId: string; mentionedName: string; habitatId: string } }
-  | { type: 'task.priority_changed'; data: { taskId: string; ruleName: string; score: number } }
+  | { type: 'task.priority_changed'; data: { taskId: string; ruleName: string; oldPriority: string | null; newPriority: string; score: number } }
   | { type: 'scheduled_task.executed'; data: { scheduleId: string; missionId: string; missionTitle: string } }
   | { type: 'scheduled_task.failed'; data: { scheduleId: string; error: string } }
   | { type: 'scheduled_task.created'; data: { scheduleId: string; name: string } };
