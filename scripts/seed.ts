@@ -1,5 +1,6 @@
 import { initDb, getDb } from '../packages/api/src/db/index.js';
-import { createBoard } from '../packages/api/src/services/boardService.js';
+import { createHabitat } from '../packages/api/src/services/boardService.js';
+import { createMission } from '../packages/api/src/services/featureService.js';
 import { createTask } from '../packages/api/src/services/taskService.js';
 import { createAgent } from '../packages/api/src/services/agentService.js';
 
@@ -13,18 +14,29 @@ async function seed() {
   await initDb(dbPath);
   getDb();
 
-  const { board, columns } = createBoard({
+  const { habitat, columns } = createHabitat({
     name: 'Sprint 24',
     description: 'Q2 2026 Sprint - Agent Kanban development',
     defaultColumns: true,
   });
 
-  console.log(`Created board: ${board.name} (${board.id})`);
+  console.log(`Created habitat: ${habitat.name} (${habitat.id})`);
   console.log(`Created ${columns.length} columns:`);
-  columns.forEach(c => console.log(`  - ${c.name} (${c.id})`));
+  columns.forEach((c: { name: string; id: string }) => console.log(`  - ${c.name} (${c.id})`));
 
-  const todoColumn = columns.find(c => c.name === 'Todo')!;
-  const inProgressColumn = columns.find(c => c.name === 'In Progress')!;
+  const backlogColumn = columns.find((c: { name: string }) => c.name === 'Backlog' || c.name === 'Todo')!;
+
+  const mission = createMission({
+    habitatId: habitat.id,
+    columnId: backlogColumn.id,
+    title: 'Phase 1 — Core Platform',
+    description: 'Build the foundational monorepo, task lifecycle, MCP server, and kanban UI.',
+    priority: 'high',
+    labels: ['phase-1'],
+    createdBy: 'system',
+  });
+
+  console.log(`Created mission: ${mission.title} (${mission.id})`);
 
   const tasks = [
     {
@@ -50,21 +62,21 @@ async function seed() {
     },
     {
       title: 'Create MCP server with all 6 tools',
-      description: 'Build the MCP stdio server with board_list_tasks, board_claim_task, board_update_task_status, board_submit_task, board_get_task_context, board_release_task, and board_heartbeat tools.',
+      description: 'Build the MCP stdio server with orcy_list_tasks, orcy_claim_task, orcy_update_task_status, orcy_submit_task, orcy_get_task_context, orcy_release_task, and orcy_heartbeat tools.',
       priority: 'high' as const,
       labels: ['backend', 'mcp'],
       requiredDomain: 'backend',
     },
     {
       title: 'Design database schema for all entities',
-      description: 'Design SQLite schema for boards, columns, tasks, agents, task_events, and task_dependencies. Include all indexes and foreign keys.',
+      description: 'Design SQLite schema for habitats, columns, missions, tasks, agents, task_events, and task_dependencies. Include all indexes and foreign keys.',
       priority: 'high' as const,
       labels: ['backend', 'database'],
       requiredDomain: 'backend',
     },
     {
-      title: 'Implement SSE real-time board updates',
-      description: 'Add Server-Sent Events endpoint for real-time board updates. Publish task.created, task.moved, task.claimed, task.updated events.',
+      title: 'Implement SSE real-time habitat updates',
+      description: 'Add Server-Sent Events endpoint for real-time habitat updates. Publish task.created, task.moved, task.claimed, task.updated events.',
       priority: 'medium' as const,
       labels: ['backend', 'frontend'],
       requiredDomain: 'frontend',
@@ -95,8 +107,7 @@ async function seed() {
   const createdTasks: Array<{ id: string; title: string }> = [];
   for (const taskInput of tasks) {
     const task = createTask({
-      boardId: board.id,
-      columnId: todoColumn.id,
+      missionId: mission.id,
       ...taskInput,
       createdBy: 'system',
     });
@@ -105,8 +116,7 @@ async function seed() {
   }
 
   createTask({
-    boardId: board.id,
-    columnId: inProgressColumn.id,
+    missionId: mission.id,
     title: 'Implement stale task detection background job',
     description: 'Build background job that runs every 60 seconds to detect and release tasks that have been idle for more than 30 minutes.',
     priority: 'high',
@@ -138,7 +148,7 @@ async function seed() {
   console.log(`  ${agent2.name}: ${key2}`);
 
   console.log('\nSeed complete!');
-  console.log(`Board ID: ${board.id}`);
+  console.log(`Habitat ID: ${habitat.id}`);
   console.log(`API running at: http://127.0.0.1:${process.env.PORT ?? '3000'}`);
 }
 

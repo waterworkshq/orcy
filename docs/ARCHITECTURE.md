@@ -23,8 +23,8 @@ This document covers the system architecture, design decisions, key flows, and i
                     Kanban API
 
 ┌──────────────────────────────────────────────────────────┐
-│  Board → Features → Tasks → Subtasks                     │
-│  Features flow through columns, tasks have state machine  │
+│  Habitat → Missions → Tasks → Subtasks                     │
+│  Missions flow through columns, tasks have state machine   │
 │  Background intervals: stale detection, health snapshots, │
 │    prioritization evaluation (5min), scheduled tasks (1m) │
 └──────────────────────────────────────────────────────────┘
@@ -38,25 +38,25 @@ This document covers the system architecture, design decisions, key flows, and i
 
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
-| Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes `features.ts` for 13 feature endpoints |
-| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts` for status derivation engine, `prioritizationService.ts` for rule evaluation, `scheduledTaskService.ts` for recurring task execution |
-| Repositories | `src/repositories/` | Drizzle-backed data access (board, feature, task, column, agent, comment, template, webhook, event-feature) |
-| Models | `src/models/` | TypeScript types, Zod schemas. Includes `Feature`, `FeatureWithProgress`, `FeatureStatus` types |
+| Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes `missions.ts` for 13 mission endpoints |
+| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts` for mission status derivation engine, `prioritizationService.ts` for rule evaluation, `scheduledTaskService.ts` for recurring task execution |
+| Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, comment, template, webhook, event-mission) |
+| Models | `src/models/` | TypeScript types, Zod schemas. Includes `Mission`, `MissionWithProgress`, `MissionStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
-| SSE | `src/sse/` | Event broadcaster (pub/sub) — broadcasts both task and feature events |
-| DB | `src/db/` | Database initialization, Drizzle ORM schema (25 tables including features) |
+| SSE | `src/sse/` | Event broadcaster (pub/sub) — broadcasts both task and mission events |
+| DB | `src/db/` | Database initialization, Drizzle ORM schema (25+ tables including missions) |
 | Plugins | `src/plugins/` | Plugin system for extensibility |
 
 ### UI (`packages/ui`)
 
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
-| Pages | `src/components/board/` | BoardListPage, BoardPage |
+| Pages | `src/pages/` | HabitatListPage, HabitatPage, MissionDetailPage |
 | Components | `src/components/ui/` | Button, Badge, Card, Dialog, ErrorBoundary |
-| Board | `src/components/board/` | Board, Column, TaskCard, TaskDetailPanel |
+| Habitat | `src/components/habitat/` | Habitat, Column, TaskCard, TaskDetailPanel |
 | Store | `src/store/` | Zustand state management + SSE handler |
 | API | `src/api/` | Typed REST client |
-| Lib | `src/lib/` | React Query hooks (`useBoardData`, `useTaskData`) + cache key factory (`queryKeys`) |
+| Lib | `src/lib/` | React Query hooks (`useHabitatData`, `useTaskData`) + cache key factory (`queryKeys`) |
 | Hooks | `src/hooks/` | SSE connection management + React Query cache invalidation |
 | Types | `src/types/` | TypeScript interfaces |
 
@@ -66,8 +66,8 @@ This document covers the system architecture, design decisions, key flows, and i
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
 | `src/tools/index.ts` | All tool exports + 11 dispatch tool files (16 tools including prioritization and scheduled task actions) |
-| `src/tools/board-dispatch.ts` | Board dispatch: list, find, summary, metrics, settings |
-| `src/tools/feature-dispatch.ts` | Feature dispatch: list, create, delete, archive, get-context |
+| `src/tools/habitat-dispatch.ts` | Habitat dispatch: list, find, summary, metrics, settings |
+| `src/tools/mission-dispatch.ts` | Mission dispatch: list, create, delete, archive, get-context |
 | `src/tools/task-dispatch.ts` | Task dispatch: claim, submit, complete, release, update, comments |
 | `src/tools/agent-dispatch.ts` | Agent dispatch: register, heartbeat, stats |
 | `src/tools/suggest-dispatch.ts` | Suggest dispatch: suggest-next-task |
@@ -78,42 +78,42 @@ This document covers the system architecture, design decisions, key flows, and i
 
 ## Key Flows
 
-### Feature Discovery & Task Claiming Flow
+### Mission Discovery & Task Claiming Flow
 
 ```
 Agent                MCP Server              API
   │                     │                     │
-  │  board({action:"summary"})  │                     │
+  │  orcy_habitat({action:"summary"})  │                     │
   │────────────────────>│  GET /summary       │
   │                     │────────────────────>│
-  │                     │  { features, ... }  │
+  │                     │  { missions, ... }  │
   │                     │<────────────────────│
   │  { digest, ... }    │                     │
   │<────────────────────│                     │
   │                     │                     │
-  │  board_feature({action:"list"})  │           │
-  │────────────────────>│  GET /features      │
+  │  orcy_habitat_mission({action:"list"})  │          │
+  │────────────────────>│  GET /missions      │
   │                     │────────────────────>│
-  │                     │  { features: [...] } │
+  │                     │  { missions: [...] } │
   │                     │<────────────────────│
-  │  { features }       │                     │
+  │  { missions }       │                     │
   │<────────────────────│                     │
   │                     │                     │
-  │  board_feature({action:"get-context"})│         │
-  │────────────────────>│  GET /features/:id/details
+  │  orcy_habitat_mission({action:"get-context"})│     │
+  │────────────────────>│  GET /missions/:id/details
   │                     │────────────────────>│
-  │                     │  { feature, tasks } │
+  │                     │  { mission, tasks } │
   │                     │<────────────────────│
-  │  { feature+tasks }  │                     │
+  │  { mission+tasks }  │                     │
   │<────────────────────│                     │
   │                     │                     │
-  │  board_task({action:"claim"})│              │
+  │  orcy_habitat_task({action:"claim"})│              │
   │────────────────────>│  POST /tasks/:id/claim
   │                     │────────────────────>│
   │                     │                     │  Check state machine
   │                     │                     │  Atomic claim (version)
   │                     │                     │  Create event          
-  │                     │                     │  Recalculate feature status
+  │                     │                     │  Recalculate mission status
   │                     │                     │  Broadcast SSE         
   │                     │  { task }           │                        
   │                     │<────────────────────│                        
@@ -121,33 +121,33 @@ Agent                MCP Server              API
   │<────────────────────│                     │                        
 ```
 
-### Task Submission & Feature Status Recalculation Flow
+### Task Submission & Mission Status Recalculation Flow
 
 ```
-Agent              API                Feature Service        SSE Broadcast         Human
+Agent              API                Mission Service        SSE Broadcast         Human
   │                 │                      │                       │                   │
   │  submit         │                      │                       │                   │
   │────────────────>│                      │                       │                   │
   │                 │  Update task status   │                       │                   │
   │                 │  Create task event    │                       │                   │
   │                 │                      │                       │                   │
-  │                 │  recalculateFeatureStatus(featureId)          │                   │
+  │                 │  recalculateMissionStatus(missionId)          │                   │
   │                 │─────────────────────>│                       │                   │
-  │                 │                      │  deriveFeatureStatus() │                   │
+  │                 │                      │  deriveMissionStatus() │                   │
   │                 │                      │  autoAdvanceColumn()   │                   │
-  │                 │                      │  createFeatureEvent()  │                   │
-  │                 │  { feature }         │                       │                   │
+  │                 │                      │  createMissionEvent()  │                   │
+  │                 │  { mission }         │                       │                   │
   │                 │<─────────────────────│                       │                   │
   │                 │                      │                       │                   │
   │                 │  Broadcast task event ──────────────────────>│                   │
-  │                 │  Broadcast feature event ──────────────────>│  UI updates        │
-  │  { success }    │                      │                       │  shows feature     │
+  │                 │  Broadcast mission event ──────────────────>│  UI updates        │
+  │  { success }    │                      │                       │  shows mission     │
   │<────────────────│                      │                       │  progress change   │
   │                 │                      │                       │                   │
   │                 │                      │                       │     approve/reject │
   │                 │<─────────────────────│<──────────────────────│<──────────────────│
   │                 │  Update task status   │                       │                   │
-  │                 │  Recalculate feature  │                       │                   │
+  │                 │  Recalculate mission  │                       │                   │
   │                 │  Broadcast ─────────────────────────────────>│                   │
 ```
 
@@ -156,10 +156,10 @@ Agent              API                Feature Service        SSE Broadcast      
 ```
 API Service                    SSE Broadcaster              UI Client
     │                              │                          │
-    │  publish(boardId, event)     │                          │
+    │  publish(habitatId, event)     │                          │
     │─────────────────────────────>│                          │
     │                              │  iterate subscribers     │
-    │                              │  for boardId             │
+    │                              │  for habitatId           │
     │                              │                          │
     │                              │  data: JSON(event)       │
     │                              │─────────────────────────>│
@@ -170,7 +170,7 @@ API Service                    SSE Broadcaster              UI Client
 
 ### SSE Global Channel
 
-Agent-related events (status changes, heartbeats) are published to the `'global'` board ID in the SSE broadcaster, not to specific board channels. This means board-level SSE subscribers will NOT receive agent events. Only board-scoped events (task CRUD, moves, etc.) are published to the specific board ID.
+Agent-related events (status changes, heartbeats) are published to the `'global'` channel in the SSE broadcaster, not to specific habitat channels. This means habitat-level SSE subscribers will NOT receive agent events. Only habitat-scoped events (task CRUD, moves, etc.) are published to the specific habitat ID.
 
 ---
 
@@ -289,12 +289,11 @@ To avoid a cascade of parallel requests when opening a task detail panel, endpoi
   task, subtasks, pullRequests, pipelineEvents, events,
   comments, totalComments,
   attachments, watchers, isWatching,
-  feature, siblingTasks,
-  dependencies, blockedBy, blocking, boardContext
+  mission, siblingTasks,
+  dependencies, blockedBy, blocking, habitatContext
 }
-```
 
-Similarly, `GET /features/:id/details` returns feature + tasks + events + progress in one call.
+Similarly, `GET /missions/:id/details` returns mission + tasks + events + progress in one call.
 
 **Trade-offs:**
 
@@ -302,41 +301,41 @@ Similarly, `GET /features/:id/details` returns feature + tasks + events + progre
 - Cache invalidation must cover all keys; SSE hook invalidates both `tasks.detail` and `tasks.details`
 - React StrictMode doubles effect execution in dev — batching absorbs this overhead
 
-### ADR-9: Hierarchical Kanban — Features → Tasks → Subtasks
+### ADR-9: Hierarchical Kanban — Missions → Tasks → Subtasks
 
-**Decision:** Replace the flat Board → Tasks model with Board → Features → Tasks → Subtasks. Features become the board-level cards; tasks become feature-internal work units.
+**Decision:** Replace the flat Habitat → Tasks model with Habitat → Missions → Tasks → Subtasks. Missions become the habitat-level cards; tasks become mission-internal work units.
 
 **Rationale:**
 
-- Aligns with how teams think about work — features as deliverables, tasks as implementation steps
-- Feature status auto-derived from child tasks eliminates manual status management
-- Cleaner separation of concerns: features own board position/timeline, tasks own agent assignment
-- Feature-level dependencies are more meaningful than task-level cross-board deps
+- Aligns with how teams think about work — missions as deliverables, tasks as implementation steps
+- Mission status auto-derived from child tasks eliminates manual status management
+- Cleaner separation of concerns: missions own habitat position/timeline, tasks own agent assignment
+- Mission-level dependencies are more meaningful than task-level cross-habitat deps
 
 **Trade-offs:**
 
 - Breaking change — no backward compatibility with flat task model
 - Required restructuring the codebase
-- Additional API complexity (13 new feature endpoints)
-- Agents must learn feature-centric workflow (`board_feature({action:"get-context"})` before claiming)
+- Additional API complexity (13 new mission endpoints)
+- Agents must learn mission-centric workflow (`orcy_habitat_mission({action:"get-context"})` before claiming)
 
-### ADR-10: Feature Status Derivation Engine
+### ADR-10: Mission Status Derivation Engine
 
-**Decision:** Feature status is always derived from child task states. No manual status field.
+**Decision:** Mission status is always derived from child task states. No manual status field.
 
 **Rationale:**
 
-- Eliminates status drift between features and their tasks
+- Eliminates status drift between missions and their tasks
 - Single source of truth — task states drive everything
-- Automatic column advancement keeps the board visually accurate
-- Humans retain veto power via manual column override (POST /features/:id/move)
+- Automatic column advancement keeps the habitat visually accurate
+- Humans retain veto power via manual column override (POST /missions/:id/move)
 - Completed work can be archived (`isArchived` flag) while retaining 'done' status for metrics, rather than introducing an 'archived' status in the state machine.
 
 **Trade-offs:**
 
 - Recalculation on every task state change (minimal performance impact)
-- Edge case: empty features default to `not_started`
-- Feature status changes are side effects, not directly triggered
+- Edge case: empty missions default to `not_started`
+- Mission status changes are side effects, not directly triggered
 
 ---
 
@@ -344,15 +343,15 @@ Similarly, `GET /features/:id/details` returns feature + tasks + events + progre
 
 ### Entity Responsibility Matrix
 
-| Concern | Feature | Task | Subtask |
+| Concern | Mission | Task | Subtask |
 |---------|---------|------|---------|
-| Board column position | Yes | No | No |
+| Habitat column position | Yes | No | No |
 | State machine | No (derived) | Yes | No |
 | Agent assignment | No (deferred) | Yes | No |
 | Result / artifacts | No | Yes | No |
 | Comments | No (on tasks) | Yes | No |
-| Events / audit trail | Yes (feature-level) | Yes (task-level) | No |
-| Dependencies | Yes (cross-feature) | Yes (within-feature) | No |
+| Events / audit trail | Yes (mission-level) | Yes (task-level) | No |
+| Dependencies | Yes (cross-mission) | Yes (within-mission) | No |
 | Priority | Yes | Yes | No |
 | Labels | Yes | No | No |
 | SLA / due date | Yes | No | No |
@@ -387,7 +386,7 @@ Agent / Human
   ├─► orcy_pulse({action: "post", missionId, signalType, subject})
   │     │
   │     ├─► POST /api/missions/:id/pulse
-  │     │     ├─► INSERT INTO pulses (missionId, boardId, fromType, signalType, ...)
+  │     │     ├─► INSERT INTO pulses (missionId, habitatId, fromType, signalType, ...)
   │     │     ├─► IF signalType = 'blocker' → taskService.createTask("Clear Blocker: ...")
   │     │     └─► SSE broadcast: pulse.signal_posted
   │     │
@@ -488,12 +487,12 @@ Tasks use the following state machine. Two paths lead to `done`: the **gated pat
 
 ---
 
-### Feature Status Derivation
+### Mission Status Derivation
 
-Feature status is **auto-derived** from child task states. There is no manual status management.
+Mission status is **auto-derived** from child task states. There is no manual status management.
 
 ```
-Feature Status Derivation Rules:
+Mission Status Derivation Rules:
 ─────────────────────────────────
 not_started  ← all tasks are pending
 in_progress  ← any task is claimed/in_progress/submitted/approved/rejected
@@ -504,7 +503,7 @@ failed       ← any task failed and none actively being worked on
 
 ### Column Auto-Advancement
 
-After deriving feature status, the feature's column position is automatically updated:
+After deriving mission status, the mission's column position is automatically updated:
 
 ```
 Status → Column Mapping:
@@ -520,7 +519,7 @@ failed       → stays in current column (no auto-advance)
 
 The derivation engine runs after every task state change:
 
-| Task Service Method | Triggers Feature Status Derivation |
+| Task Service Method | Triggers Mission Status Derivation |
 |---------------------|-------------------------------------|
 | `claimTask()` | Yes |
 | `startTask()` | Yes |
@@ -537,27 +536,27 @@ The derivation engine runs after every task state change:
 
 ## Dependency Resolution
 
-### Feature-Level Dependencies
+### Mission-Level Dependencies
 
-Features declare dependencies on other features. Tasks inherit dependency filtering from their parent feature.
+Missions declare dependencies on other missions. Tasks inherit dependency filtering from their parent mission.
 
-1. When creating a feature, specify `dependsOn: ["feature-uuid-1", "feature-uuid-2"]`
-2. The `getAvailableTasksForAgent()` function checks feature-level dependencies via `feature_dependencies`
-3. Tasks within a feature with unmet dependencies are not shown to agents
-4. When a feature reaches `done` status, dependent features become available
+1. When creating a mission, specify `dependsOn: ["mission-uuid-1", "mission-uuid-2"]`
+2. The `getAvailableTasksForAgent()` function checks mission-level dependencies via `mission_dependencies`
+3. Tasks within a mission with unmet dependencies are not shown to agents
+4. When a mission reaches `done` status, dependent missions become available
 
-### Task-Level Dependencies (Within Feature)
+### Task-Level Dependencies (Within Mission)
 
-Tasks can also have within-feature dependencies on sibling tasks:
+Tasks can also have within-mission dependencies on sibling tasks:
 
-1. `task_dependencies` table tracks within-feature task dependencies
-2. `getAvailableTasksForAgent()` checks both feature-level and task-level dependencies
-3. Within-feature dependencies are enforced at the application level
+1. `task_dependencies` table tracks within-mission task dependencies
+2. `getAvailableTasksForAgent()` checks both mission-level and task-level dependencies
+3. Within-mission dependencies are enforced at the application level
 
 ### Dependency Rules
 
-- Feature-level dependencies only (no cross-feature task dependencies per ADR-005)
-- Within-feature task dependencies allowed
+- Mission-level dependencies only (no cross-mission task dependencies per ADR-005)
+- Within-mission task dependencies allowed
 - Circular dependencies are not detected at creation time — validate client-side
 - Self-dependency prevented at database level via CHECK constraint
 
@@ -570,7 +569,7 @@ A background interval (60 seconds) checks for stale agents and releases their ta
 1. Find all agents whose `lastHeartbeat` was > 30 minutes ago and whose status is not `offline`
 2. Mark each stale agent as `offline` (clear their `currentTaskId`)
 3. If the agent had a current task → release it back to `pending` (with reason `stale_timeout`)
-4. Broadcast SSE events for the agent status change (to `'global'` channel) and task release (to board channel)
+4. Broadcast SSE events for the agent status change (to `'global'` channel) and task release (to habitat channel)
 
 Configuration is in `packages/api/src/index.ts`:
 
@@ -588,8 +587,8 @@ Dynamic prioritization rules engine that auto-recalculates task priority based o
 ```
 prioritizationService.ts
 ├── evaluateCondition(task, rule, context) — recursive, handles all 10 condition types + And/Or
-├── evaluateRules(boardId) — aggregates all rule evaluations for a board
-├── applyPrioritization(boardId) — orchestrator: fetch tasks, evaluate, apply actions, broadcast SSE
+├── evaluateRules(habitatId) — aggregates all rule evaluations for a habitat
+├── applyPrioritization(habitatId) — orchestrator: fetch tasks, evaluate, apply actions, broadcast SSE
 └── applyAllBoards() — batch iterator for background interval
 ```
 
@@ -597,15 +596,15 @@ prioritizationService.ts
 
 | Type | Evaluates |
 |------|-----------|
-| `overdue` | Task's feature past `dueAt` |
-| `sla_approaching` | Feature `slaDeadlineAt` within threshold |
-| `due_soon` | Feature `dueAt` within threshold |
+| `overdue` | Task's mission past `dueAt` |
+| `sla_approaching` | Mission `slaDeadlineAt` within threshold |
+| `due_soon` | Mission `dueAt` within threshold |
 | `pending_duration` | Task pending longer than threshold |
 | `dependency_count` | Task blocked by N tasks |
 | `rejection_count` | Task rejected N times |
-| `feature_status` | Parent feature has specific status |
+| `feature_status` | Parent mission has specific status |
 | `agent_idle` | No agent activity for N minutes |
-| `label_match` | Feature has matching labels |
+| `label_match` | Mission has matching labels |
 | `priority_is` | Task has specific priority |
 | `and` / `or` | Compound conditions |
 
@@ -615,7 +614,7 @@ prioritizationService.ts
 |--------|--------|
 | `set_priority` | Set task priority to specific level |
 | `bump_priority` | Increase priority by N levels |
-| `add_label` | Add label to feature |
+| `add_label` | Add label to mission |
 | `set_score_bonus` | Boost sorting score |
 
 ### Background Interval
@@ -637,14 +636,14 @@ Prioritization rules evaluate every 5 minutes via `scheduler.ts`:
 
 ## Scheduled Task Service
 
-Recurring scheduled creation of features and tasks from templates. Follows the `retryService` pattern with background polling.
+Recurring scheduled creation of missions and tasks from templates. Follows the `retryService` pattern with background polling.
 
 ### Architecture
 
 ```
 scheduledTaskService.ts
 ├── processDueScheduledTasks() — polls for due tasks and executes them
-├── executeScheduledTask(scheduledTask) — creates feature + tasks from template
+├── executeScheduledTask(scheduledTask) — creates mission + tasks from template
 ├── calculateNextRun(scheduledTask) — computes nextRunAt using cron-parser
 └── CRUD operations — create, update, delete, enable, disable
 ```
@@ -655,7 +654,7 @@ Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
 
 - Interval: 60,000ms (1 minute)
 - Polls `scheduled_tasks` where `nextRunAt <= now` AND `enabled = true`
-- Each execution: creates feature from template → creates child tasks → updates `lastRunAt`/`nextRunAt`/`runCount`
+- Each execution: creates mission from template → creates child tasks → updates `lastRunAt`/`nextRunAt`/`runCount`
 - Catches up on missed executions after restart (polls all due, not just current tick)
 - Wired to also process audit export schedules in the same polling loop
 
@@ -663,6 +662,6 @@ Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
 
 | Event | Trigger | Payload |
 |-------|---------|---------|
-| `scheduled_task.executed` | Scheduled task creates feature | `{ scheduleId, featureId, featureTitle }` |
+| `scheduled_task.executed` | Scheduled task creates mission | `{ scheduleId, missionId, missionTitle }` |
 | `scheduled_task.failed` | Execution fails | `{ scheduleId, error }` |
 | `scheduled_task.created` | New schedule configured | `{ scheduleId, name }` |

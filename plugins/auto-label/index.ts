@@ -1,5 +1,5 @@
 import type { KanbanPlugin } from '../../packages/api/src/plugins/types.js';
-import * as taskRepo from '../../packages/api/src/repositories/task.js';
+import { logger } from '../../packages/api/src/lib/logger.js';
 
 const LABEL_RULES: Array<{ pattern: RegExp; labels: string[] }> = [
   { pattern: /\b(fix|bug|error|crash|broken)\b/i, labels: ['bug'] },
@@ -29,15 +29,10 @@ const autoLabelPlugin: KanbanPlugin = {
   version: '1.0.0',
   hooks: {
     onTaskCreated(task) {
-      const newLabels = extractLabels(task.title);
-      if (newLabels.length === 0) return;
-
-      const existing = new Set(task.labels || []);
-      for (const label of newLabels) {
-        existing.add(label);
+      const suggestedLabels = extractLabels(task.title);
+      if (suggestedLabels.length > 0) {
+        logger.info({ taskId: task.id, suggestedLabels }, 'Auto-label plugin: suggested labels for task');
       }
-
-      taskRepo.updateTask(task.id, { labels: [...existing] });
     },
   },
 };
