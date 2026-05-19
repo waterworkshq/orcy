@@ -2,6 +2,22 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.10.2 — 2026-05-19
+
+### Bug Fixes
+
+#### fix prioritization template naming, enrich priority_changed SSE event, add self-approval deprecation warning ([`c095214`](https://github.com/waterworkshq/orcy/commit/c095214638f5535a4198215d3129c49a05020ad1))
+
+1. PrioritizationTab RULE_TEMPLATE: feature_status → mission_status, label fix
+2. prioritizationService: capture old priority before action, only emit
+3. task.priority_changed when priority actually changes, include
+4. oldPriority/newPriority in SSE event data
+5. task-lifecycle: add deprecation warning when agents self-complete
+6. tasks without human review (gated enforcement in v0.11 review rules)
+7. shared/events: update task.priority_changed discriminated union type
+
+
+
 ## 0.10.1 — 2026-05-19
 
 ### Bug Fixes
@@ -154,21 +170,3 @@
 10. Mock HealthScoreWidget, FilterBar, and other components in UI tests
 11. Add icon mocks to MissionDetailPage tests
 12. Update HabitatSettingsDialog tests with QueryClient provider
-
-
-
-## 0.9.4 — 2026-05-15
-
-### Bug Fixes
-
-#### generate single-version release notes for GitHub releases ([`98e2863`](https://github.com/waterworkshq/orcy/commit/98e28634d517c2c5acecff8f4b4339efb087b33b))
-
-1. Use git-cliff --current -o - instead of -o /dev/null so release-it
-2. captures the current version's notes only for the GitHub release body.
-
-
-#### add token hints to scheduled task form ([`a1aad58`](https://github.com/waterworkshq/orcy/commit/a1aad58d38ebf03943fd8d1f553190a7537d2ffc))
-
-1. Add TokenHints component to display available tokens ({{date}}, {{counter}}) with examples below Feature Title and Description inputs. Include test IDs for verification and ensure form submission works correctly with token syntax.
-
-3. Include unit tests for token hint rendering and form submission behavior.
