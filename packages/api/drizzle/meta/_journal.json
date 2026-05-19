@@ -50,6 +50,13 @@
       "when": 1778718444384,
       "tag": "0006_supreme_stranger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1779206400000,
+      "tag": "0008_fix_stale_fks",
+      "breakpoints": true
     }
   ]
 }

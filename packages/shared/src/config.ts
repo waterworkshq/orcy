@@ -3,13 +3,17 @@ import { ORCY_PATHS } from './paths.js';
 
 function loadDotEnv(): Record<string, string> {
   const env: Record<string, string> = {};
-  if (!existsSync(ORCY_PATHS.envFile)) return env;
-  for (const line of readFileSync(ORCY_PATHS.envFile, 'utf-8').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+  try {
+    if (!existsSync(ORCY_PATHS.envFile)) return env;
+    for (const line of readFileSync(ORCY_PATHS.envFile, 'utf-8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+    }
+  } catch {
+    return env;
   }
   return env;
 }
