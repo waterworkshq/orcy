@@ -57,6 +57,8 @@ import type {
   ScheduledTask,
   TaskTemplateEntry,
   SavedFilter,
+  ReviewRule,
+  TaskReviewer,
 } from '../types/index.js';
 
 const BASE = '/api';
@@ -1046,6 +1048,28 @@ export const api = {
       }),
     deactivate: (boardId: string, id: string) =>
       request<{ success: boolean }>(`/habitats/${boardId}/insights/${id}`, { method: 'DELETE' }),
+  },
+
+  reviewRules: {
+    list: (habitatId: string) =>
+      request<{ reviewRules: ReviewRule[] }>(`/habitats/${habitatId}/review-rules`),
+    create: (habitatId: string, body: Record<string, unknown>) =>
+      request<{ reviewRule: ReviewRule }>(`/habitats/${habitatId}/review-rules`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (ruleId: string, body: Record<string, unknown>) =>
+      request<{ reviewRule: ReviewRule }>(`/review-rules/${ruleId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    delete: (ruleId: string) =>
+      request<void>(`/review-rules/${ruleId}`, { method: 'DELETE' }),
+  },
+
+  reviewers: {
+    list: (taskId: string) =>
+      request<{ reviewers: TaskReviewer[] }>(`/tasks/${taskId}/reviewers`),
   },
 };
 

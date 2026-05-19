@@ -10,7 +10,7 @@ import { useTaskDependencies, type UseTaskDependenciesResult } from './useTaskDe
 import { useTaskReview, type UseTaskReviewResult } from './useTaskReview.js';
 import { useTaskActions, type UseTaskActionsResult } from './useTaskActions.js';
 import { useTaskWatch, type UseTaskWatchResult } from './useTaskWatch.js';
-import type { Task, Subtask, SubtaskProposal, Agent, TaskEvent, PullRequest, PipelineEvent, TaskAttachment, TaskComment, CrossHabitatDependency } from '../types/index.js';
+import type { Task, Subtask, SubtaskProposal, Agent, TaskEvent, PullRequest, PipelineEvent, TaskAttachment, TaskComment, CrossHabitatDependency, TaskReviewer } from '../types/index.js';
 
 export interface UseTaskDetailPanelOptions {
   editTaskId?: string | null;
@@ -57,6 +57,10 @@ export interface UseTaskDetailPanelResult {
   handleDeleteSubtask: (subtask: Subtask) => Promise<void>;
   handleApprove: (reviewerId: string) => Promise<void>;
   handleReject: (reviewerId: string, reason: string) => Promise<void>;
+  reviewers: TaskReviewer[];
+  currentUserId: string | undefined;
+  currentUserIsReviewer: boolean;
+  reviewProgress: { approved: number; total: number };
   handleDelete: () => Promise<void>;
   handleClone: () => Promise<void>;
   handleDecompose: () => Promise<void>;

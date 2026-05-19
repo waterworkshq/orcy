@@ -57,6 +57,9 @@ import type {
   ScheduledTask,
   ScheduleType,
   TaskTemplateEntry,
+  TaskReviewer,
+  ReviewerStatus,
+  ReviewerType,
 } from '@orcy/shared';
 
 export type {
@@ -118,6 +121,9 @@ export type {
   ScheduledTask,
   ScheduleType,
   TaskTemplateEntry,
+  TaskReviewer,
+  ReviewerStatus,
+  ReviewerType,
 };
 
 export interface EnrichedHabitatEvent {
@@ -509,4 +515,23 @@ export interface SavedFilter {
   filterConfig: Record<string, unknown>;
   isBuiltin: boolean;
   createdAt: string;
+}
+
+export type ReviewRuleStrategy = 'domain_expert' | 'round_robin' | 'least_loaded' | 'random' | 'fixed';
+
+export interface ReviewRule {
+  id: string;
+  habitatId: string;
+  name: string;
+  enabled: number;
+  priority: number;
+  matchDomain: string | null;
+  matchLabels: string[];
+  matchPriority: string | null;
+  assignmentStrategy: ReviewRuleStrategy;
+  requiredReviews: number;
+  antiSelfReview: number;
+  fixedReviewerIds: string[];
+  createdAt: string;
+  updatedAt: string;
 }

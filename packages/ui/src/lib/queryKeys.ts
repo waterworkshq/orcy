@@ -31,6 +31,7 @@ export const queryKeys = {
     pipelineEvents: (taskId: string) => [...queryKeys.tasks.all, 'pipelineEvents', taskId] as const,
     comments: (taskId: string) => [...queryKeys.tasks.all, 'comments', taskId] as const,
     quality: (taskId: string) => [...queryKeys.tasks.all, 'quality', taskId] as const,
+    reviewers: (taskId: string) => [...queryKeys.tasks.all, 'reviewers', taskId] as const,
   },
   agents: {
     all: ['agents'] as const,

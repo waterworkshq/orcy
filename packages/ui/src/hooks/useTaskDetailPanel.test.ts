@@ -45,6 +45,12 @@ vi.mock('../api/index.js', () => ({
       unwatch: vi.fn(),
       decompose: vi.fn(),
     },
+    reviewers: {
+      list: vi.fn().mockResolvedValue({ reviewers: [] }),
+    },
+    auth: {
+      me: vi.fn().mockResolvedValue({ user: { id: 'test-user', username: 'test', role: 'admin' } }),
+    },
   },
 }));
 
@@ -71,6 +77,11 @@ vi.mock('../lib/queryKeys.js', () => ({
       subtasks: vi.fn(() => ['subtasks']),
       watchers: vi.fn(() => ['watchers']),
       detail: vi.fn(() => ['detail']),
+      details: vi.fn(() => ['details']),
+      reviewers: vi.fn(() => ['reviewers']),
+    },
+    user: {
+      profile: vi.fn(() => ['user', 'profile']),
     },
   },
 }));

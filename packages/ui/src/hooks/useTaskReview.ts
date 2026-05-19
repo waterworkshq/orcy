@@ -1,21 +1,51 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys.js';
 import { useHabitatStore } from '../store/habitatStore.js';
 import { api } from '../api/index.js';
 import { notify } from '../lib/toast.js';
-import type { Task } from '../types/index.js';
+import type { Task, TaskReviewer, Agent } from '../types/index.js';
 
 export interface UseTaskReviewResult {
   submitting: boolean;
   handleApprove: (reviewerId: string) => Promise<void>;
   handleReject: (reviewerId: string, reason: string) => Promise<void>;
+  reviewers: TaskReviewer[];
+  currentUserId: string | undefined;
+  currentUserIsReviewer: boolean;
+  reviewProgress: { approved: number; total: number };
+  agents: Agent[];
 }
 
 export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
-  const { updateTask } = useHabitatStore();
+  const { updateTask, agents } = useHabitatStore();
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
+
+  const { data: reviewersData } = useQuery({
+    queryKey: queryKeys.tasks.reviewers(task?.id ?? ''),
+    queryFn: () => api.reviewers.list(task!.id),
+    enabled: !!task?.id && task.status === 'submitted',
+    staleTime: 10_000,
+  });
+
+  const { data: userData } = useQuery({
+    queryKey: queryKeys.user.profile(),
+    queryFn: () => api.auth.me(),
+    staleTime: 5 * 60_000,
+  });
+
+  const reviewers = reviewersData?.reviewers ?? [];
+  const currentUserId = userData?.user?.id;
+
+  const currentUserIsReviewer = currentUserId
+    ? reviewers.some(r => r.reviewerId === currentUserId && r.status === 'pending')
+    : false;
+
+  const reviewProgress = {
+    approved: reviewers.filter(r => r.status === 'approved').length,
+    total: reviewers.length,
+  };
 
   async function handleApprove(reviewerId: string) {
     if (!task) return;
@@ -24,6 +54,7 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
       const result = await api.tasks.approve(task.id, reviewerId);
       updateTask(result.task);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(task.id) });
       notify.success('Task approved');
     } catch (e) {
       notify.error((e as Error).message);
@@ -39,6 +70,7 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
       const result = await api.tasks.reject(task.id, reviewerId, reason);
       updateTask(result.task);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(task.id) });
       notify.success('Task rejected');
     } catch (e) {
       notify.error((e as Error).message);
@@ -47,5 +79,14 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
     }
   }
 
-  return { submitting, handleApprove, handleReject };
+  return {
+    submitting,
+    handleApprove,
+    handleReject,
+    reviewers,
+    currentUserId,
+    currentUserIsReviewer,
+    reviewProgress,
+    agents,
+  };
 }

@@ -224,6 +224,11 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
               onApprove={p.handleApprove}
               onReject={p.handleReject}
               isSubmitting={p.submitting}
+              reviewers={p.reviewers}
+              currentUserId={p.currentUserId}
+              currentUserIsReviewer={p.currentUserIsReviewer}
+              reviewProgress={p.reviewProgress}
+              agents={p.agents}
             />
           )}
 
