@@ -2,6 +2,22 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.10.1 — 2026-05-19
+
+### Bug Fixes
+
+#### fix stale pulse FK refs and shared config TOCTOU ([`21d76ed`](https://github.com/waterworkshq/orcy/commit/21d76ed5d155879459e281e290502239304dd903))
+
+1. Add migration 0008_fix_stale_fks to recreate pulses table with correct
+2. FK references (habitats/missions instead of boards/features). Fixes
+3. pulse auto-signals silently failing in test DB and fresh production
+4. installs where migration 0007 was never applied (missing from journal).
+5. Register 0008 in drizzle journal and test migration runner.
+6. Wrap loadDotEnv() in try/catch to handle TOCTOU race when .env file
+7. disappears between existsSync and readFileSync.
+
+
+
 ## 0.10.0 — 2026-05-19
 
 ### Bug Fixes
@@ -156,17 +172,3 @@
 1. Add TokenHints component to display available tokens ({{date}}, {{counter}}) with examples below Feature Title and Description inputs. Include test IDs for verification and ensure form submission works correctly with token syntax.
 
 3. Include unit tests for token hint rendering and form submission behavior.
-
-
-
-## 0.9.3 — 2026-05-15
-
-### Bug Fixes
-
-#### complete R16 React Query unification with review fixes ([`5d5b369`](https://github.com/waterworkshq/orcy/commit/5d5b3695a94211e58a064ada2c8d82230aee88cd))
-
-1. Migrate all 17 UI components from useEffect+api/Zustand patterns to
-2. React Query. Includes review round 1 fixes: mutation hooks for
-3. CreateMissionForm/CreateTaskForm, cache invalidation in
-4. FeatureCommentSection, standardized query keys, expanded test coverage,
-5. and ConfirmDialog migration.
