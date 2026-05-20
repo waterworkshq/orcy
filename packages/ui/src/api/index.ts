@@ -60,6 +60,9 @@ import type {
   TaskTemplateEntry,
   SavedFilter,
   ReviewRule,
+  ReviewRuleCreateInput,
+  ReviewRuleUpdateInput,
+  SprintCreateInput,
   TaskReviewer,
 } from '../types/index.js';
 
@@ -1055,12 +1058,12 @@ export const api = {
   reviewRules: {
     list: (habitatId: string) =>
       request<{ reviewRules: ReviewRule[] }>(`/habitats/${habitatId}/review-rules`),
-    create: (habitatId: string, body: Record<string, unknown>) =>
+    create: (habitatId: string, body: ReviewRuleCreateInput) =>
       request<{ reviewRule: ReviewRule }>(`/habitats/${habitatId}/review-rules`, {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    update: (ruleId: string, body: Record<string, unknown>) =>
+    update: (ruleId: string, body: ReviewRuleUpdateInput) =>
       request<{ reviewRule: ReviewRule }>(`/review-rules/${ruleId}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -1079,7 +1082,7 @@ export const api = {
       request<{ sprints: Sprint[] }>(`/habitats/${habitatId}/sprints`),
     getActive: (habitatId: string) =>
       request<{ sprint: Sprint | null }>(`/habitats/${habitatId}/sprints/active`),
-    create: (habitatId: string, body: Record<string, unknown>) =>
+    create: (habitatId: string, body: SprintCreateInput) =>
       request<{ sprint: Sprint }>(`/habitats/${habitatId}/sprints`, {
         method: 'POST',
         body: JSON.stringify(body),

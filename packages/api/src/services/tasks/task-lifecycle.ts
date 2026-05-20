@@ -209,7 +209,7 @@ export function submitTask(
       for (const reviewer of reviewResult.assigned) {
         sseBroadcaster.publish(habitatId, {
           type: 'task.review_assigned',
-          data: { taskId, reviewerId: reviewer.reviewerId, reviewerType: 'human' },
+          data: { taskId, reviewerId: reviewer.reviewerId, reviewerType: 'human', actorId: agentId },
         });
       }
     }
@@ -387,6 +387,12 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
 
   if (!validateTransition(current.status, 'rejected')) return null;
 
+  if (reviewAssignment.hasAssignedReviewers(taskId)) {
+    if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId)) {
+      return null;
+    }
+  }
+
   const task = taskRepo.rejectTask(taskId, reason);
   if (!task) return null;
 
@@ -403,7 +409,7 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
 
   sseBroadcaster.publish(habitatId, {
     type: 'task.rejected',
-    data: { taskId, reason },
+    data: { taskId, reason, reviewerId },
   });
   sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
   if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.rejected');

@@ -66,12 +66,14 @@ export function deleteSprint(sprintId: string): void {
     throw new Error('CANNOT_DELETE_ACTIVE_SPRINT');
   }
 
-  for (const missionId of existing.committedMissionIds) {
-    const db = getDb();
-    db.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
-  }
+  const db = getDb();
+  db.transaction((tx) => {
+    for (const missionId of existing.committedMissionIds) {
+      tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+    }
+    tx.delete(sprints).where(eq(sprints.id, sprintId)).run();
+  });
 
-  sprintRepo.remove(sprintId);
   logger.info({ sprintId }, 'Sprint deleted');
 }
 
@@ -115,11 +117,21 @@ export function completeSprint(sprintId: string): Sprint {
   const habitat = habitatRepo.getHabitatById(existing.habitatId);
   const carryOverPolicy: CarryOverPolicy = (habitat as any)?.carryOverPolicy ?? 'backlog';
 
-  handleCarryOver(db, sprintId, existing.habitatId, carriedOverMissionIds, carryOverPolicy);
+  const now = new Date().toISOString();
 
-  sprintRepo.markMissionsCompleted(sprintId, completedMissionIds);
+  db.transaction((tx) => {
+    handleCarryOver(tx, sprintId, existing.habitatId, carriedOverMissionIds, carryOverPolicy);
 
-  const updated = sprintRepo.update(sprintId, { status: 'completed' });
+    const sprint = tx.select().from(sprints).where(eq(sprints.id, sprintId)).get() as Sprint | undefined;
+    if (sprint) {
+      const completed = [...new Set([...sprint.completedMissionIds, ...completedMissionIds])];
+      tx.update(sprints).set({ completedMissionIds: completed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+    }
+
+    tx.update(sprints).set({ status: 'completed', updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+  });
+
+  const updated = sprintRepo.getById(sprintId);
   if (!updated) throw new Error('SPRINT_COMPLETE_FAILED');
 
   sseBroadcaster.publish(updated.habitatId, {
@@ -142,7 +154,7 @@ export function completeSprint(sprintId: string): Sprint {
 }
 
 function handleCarryOver(
-  db: any,
+  tx: any,
   sprintId: string,
   habitatId: string,
   incompleteMissionIds: string[],
@@ -153,12 +165,12 @@ function handleCarryOver(
   switch (policy) {
     case 'backlog': {
       for (const missionId of incompleteMissionIds) {
-        db.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+        tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
       }
-      const sprint = sprintRepo.getById(sprintId);
+      const sprint = tx.select().from(sprints).where(eq(sprints.id, sprintId)).get() as Sprint | undefined;
       if (sprint) {
         const remaining = sprint.committedMissionIds.filter(id => !incompleteMissionIds.includes(id));
-        db.update(sprints).set({ committedMissionIds: remaining }).where(eq(sprints.id, sprintId)).run();
+        tx.update(sprints).set({ committedMissionIds: remaining }).where(eq(sprints.id, sprintId)).run();
       }
       break;
     }
@@ -166,11 +178,16 @@ function handleCarryOver(
       const nextSprint = findNextPlanningSprint(habitatId, sprintId);
       if (nextSprint) {
         for (const missionId of incompleteMissionIds) {
-          sprintRepo.addMission(nextSprint.id, missionId);
+          const sprint = tx.select().from(sprints).where(eq(sprints.id, nextSprint.id)).get() as Sprint | undefined;
+          if (!sprint) continue;
+          const committed = [...sprint.committedMissionIds];
+          if (!committed.includes(missionId)) committed.push(missionId);
+          tx.update(sprints).set({ committedMissionIds: committed }).where(eq(sprints.id, nextSprint.id)).run();
+          tx.update(missions).set({ sprintId: nextSprint.id }).where(eq(missions.id, missionId)).run();
         }
       } else {
         for (const missionId of incompleteMissionIds) {
-          db.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+          tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
         }
       }
       break;
@@ -195,11 +212,15 @@ export function cancelSprint(sprintId: string): Sprint {
   }
 
   const db = getDb();
-  for (const missionId of existing.committedMissionIds) {
-    db.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
-  }
+  db.transaction((tx) => {
+    for (const missionId of existing.committedMissionIds) {
+      tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+    }
+    const now = new Date().toISOString();
+    tx.update(sprints).set({ status: 'cancelled', updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+  });
 
-  const updated = sprintRepo.update(sprintId, { status: 'cancelled' });
+  const updated = sprintRepo.getById(sprintId);
   if (!updated) throw new Error('SPRINT_CANCEL_FAILED');
 
   logger.info({ sprintId, habitatId: updated.habitatId }, 'Sprint cancelled');

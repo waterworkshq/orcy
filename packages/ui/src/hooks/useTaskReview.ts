@@ -18,7 +18,8 @@ export interface UseTaskReviewResult {
 }
 
 export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
-  const { updateTask, agents } = useHabitatStore();
+  const updateTask = useHabitatStore((s) => s.updateTask);
+  const agents = useHabitatStore((s) => s.agents);
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
 

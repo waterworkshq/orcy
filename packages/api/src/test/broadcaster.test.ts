@@ -80,14 +80,14 @@ describe('SSEBroadcaster notifySafe (via triggerNotifications)', () => {
   it('calls processEvent for task.rejected', async () => {
     sseBroadcaster.publish('habitat-1', {
       type: 'task.rejected',
-      data: { taskId: 't-1', reason: 'bad code' },
+      data: { taskId: 't-1', reason: 'bad code', reviewerId: 'rev-1' },
     });
 
     await vi.waitFor(() => {
       expect(notificationService.processEvent).toHaveBeenCalledWith(
         'task.rejected',
         'habitat-1',
-        { taskId: 't-1', actorId: undefined, reason: 'bad code' }
+        { taskId: 't-1', actorId: 'rev-1', reason: 'bad code' }
       );
     });
   });

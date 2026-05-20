@@ -278,7 +278,7 @@ export function ReviewPanel({
         </div>
       )}
 
-      {(currentUserIsReviewer || !hasReviewers) && !allApproved && (
+      {(currentUserIsReviewer || !hasReviewers) && !allApproved && !showAutoAdvanceConfirm && (
         <div className="flex gap-2">
           <Tooltip content={qualityBlocked ? 'Cannot approve: breach gates not met' : 'Accept this work and move forward'}>
             <Button

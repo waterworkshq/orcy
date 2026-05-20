@@ -2,6 +2,15 @@ import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { logger } from '../lib/logger.js';
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const SMTP_HOST = process.env.SMTP_HOST ?? '';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT ?? '587', 10);
 const SMTP_USER = process.env.SMTP_USER ?? '';
@@ -59,16 +68,17 @@ export async function sendEmail(payload: EmailPayload): Promise<boolean> {
 }
 
 function baseTemplate(title: string, bodyHtml: string): string {
+  const safeTitle = escapeHtml(title);
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>${title}</title></head>
+<head><meta charset="utf-8"><title>${safeTitle}</title></head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f5f5f5;">
   <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
     <div style="background: #4f46e5; padding: 20px; color: #fff;">
       <h1 style="margin: 0; font-size: 18px;">Orcy</h1>
     </div>
     <div style="padding: 24px;">
-      <h2 style="margin: 0 0 16px; font-size: 16px; color: #1f2937;">${title}</h2>
+      <h2 style="margin: 0 0 16px; font-size: 16px; color: #1f2937;">${safeTitle}</h2>
       ${bodyHtml}
       <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
       <p style="margin: 0; font-size: 12px; color: #9ca3af;">You received this email because of your notification preferences in Orcy.</p>
@@ -79,6 +89,9 @@ function baseTemplate(title: string, bodyHtml: string): string {
 }
 
 export function taskAssignedTemplate(taskTitle: string, habitatName: string, assignedBy: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeAssignedBy = escapeHtml(assignedBy);
   return {
     to: '',
     subject: `Task assigned to you: ${taskTitle}`,
@@ -86,15 +99,18 @@ export function taskAssignedTemplate(taskTitle: string, habitatName: string, ass
       'Task Assigned',
       `<p style="margin: 0 0 12px; color: #374151;">You have been assigned a task.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Assigned by:</td><td style="padding: 8px 0; color: #1f2937;">${assignedBy}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Assigned by:</td><td style="padding: 8px 0; color: #1f2937;">${safeAssignedBy}</td></tr>
        </table>`
     ),
   };
 }
 
 export function taskSubmittedTemplate(taskTitle: string, habitatName: string, agentName: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeAgentName = escapeHtml(agentName);
   return {
     to: '',
     subject: `Task submitted for review: ${taskTitle}`,
@@ -102,15 +118,18 @@ export function taskSubmittedTemplate(taskTitle: string, habitatName: string, ag
       'Task Submitted for Review',
       `<p style="margin: 0 0 12px; color: #374151;">A task has been submitted for review.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Submitted by:</td><td style="padding: 8px 0; color: #1f2937;">${agentName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Submitted by:</td><td style="padding: 8px 0; color: #1f2937;">${safeAgentName}</td></tr>
        </table>`
     ),
   };
 }
 
 export function taskApprovedTemplate(taskTitle: string, habitatName: string, reviewerName: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeReviewerName = escapeHtml(reviewerName);
   return {
     to: '',
     subject: `Task approved: ${taskTitle}`,
@@ -118,15 +137,19 @@ export function taskApprovedTemplate(taskTitle: string, habitatName: string, rev
       'Task Approved',
       `<p style="margin: 0 0 12px; color: #374151;">Your task has been approved.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Approved by:</td><td style="padding: 8px 0; color: #1f2937;">${reviewerName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Approved by:</td><td style="padding: 8px 0; color: #1f2937;">${safeReviewerName}</td></tr>
        </table>`
     ),
   };
 }
 
 export function taskRejectedTemplate(taskTitle: string, habitatName: string, reviewerName: string, reason: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeReviewerName = escapeHtml(reviewerName);
+  const safeReason = escapeHtml(reason);
   return {
     to: '',
     subject: `Task rejected: ${taskTitle}`,
@@ -134,16 +157,18 @@ export function taskRejectedTemplate(taskTitle: string, habitatName: string, rev
       'Task Rejected',
       `<p style="margin: 0 0 12px; color: #374151;">Your task has been rejected.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Rejected by:</td><td style="padding: 8px 0; color: #1f2937;">${reviewerName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Reason:</td><td style="padding: 8px 0; color: #ef4444;">${reason}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Rejected by:</td><td style="padding: 8px 0; color: #1f2937;">${safeReviewerName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Reason:</td><td style="padding: 8px 0; color: #ef4444;">${safeReason}</td></tr>
        </table>`
     ),
   };
 }
 
 export function taskOverdueTemplate(taskTitle: string, habitatName: string, deadline: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
   return {
     to: '',
     subject: `Task overdue: ${taskTitle}`,
@@ -151,8 +176,8 @@ export function taskOverdueTemplate(taskTitle: string, habitatName: string, dead
       'Task Overdue',
       `<p style="margin: 0 0 12px; color: #374151;">A task has passed its deadline.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Deadline:</td><td style="padding: 8px 0; color: #ef4444;">${deadline}</td></tr>
        </table>`
     ),
@@ -160,6 +185,10 @@ export function taskOverdueTemplate(taskTitle: string, habitatName: string, dead
 }
 
 export function commentMentionedTemplate(taskTitle: string, habitatName: string, mentionedByName: string, commentContent: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeMentionedByName = escapeHtml(mentionedByName);
+  const safeCommentContent = escapeHtml(commentContent);
   return {
     to: '',
     subject: `You were mentioned in: ${taskTitle}`,
@@ -167,18 +196,21 @@ export function commentMentionedTemplate(taskTitle: string, habitatName: string,
       'You Were Mentioned',
       `<p style="margin: 0 0 12px; color: #374151;">You were mentioned in a comment.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Mentioned by:</td><td style="padding: 8px 0; color: #1f2937;">${mentionedByName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Mentioned by:</td><td style="padding: 8px 0; color: #1f2937;">${safeMentionedByName}</td></tr>
        </table>
        <div style="margin-top: 12px; padding: 12px; background: #f9fafb; border-radius: 6px; border-left: 3px solid #4f46e5;">
-         <p style="margin: 0; font-size: 14px; color: #374151;">${commentContent}</p>
+         <p style="margin: 0; font-size: 14px; color: #374151;">${safeCommentContent}</p>
        </div>`
     ),
   };
 }
 
 export function taskWatchingTemplate(taskTitle: string, habitatName: string, eventType: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeEventType = escapeHtml(eventType);
   return {
     to: '',
     subject: `Watched task updated: ${taskTitle}`,
@@ -186,9 +218,9 @@ export function taskWatchingTemplate(taskTitle: string, habitatName: string, eve
       'Watched Task Updated',
       `<p style="margin: 0 0 12px; color: #374151;">A task you are watching has been updated.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Event:</td><td style="padding: 8px 0; color: #1f2937;">${eventType}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Event:</td><td style="padding: 8px 0; color: #1f2937;">${safeEventType}</td></tr>
        </table>`
     ),
   };
@@ -197,6 +229,9 @@ export function taskWatchingTemplate(taskTitle: string, habitatName: string, eve
 export function anomalyAlertTemplate(anomalyType: string, severity: string, message: string, habitatName: string): EmailPayload {
   const severityColors: Record<string, string> = { low: '#3b82f6', medium: '#f59e0b', high: '#f97316', critical: '#ef4444' };
   const color = severityColors[severity] ?? '#6b7280';
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeAnomalyType = escapeHtml(anomalyType.replace(/_/g, ' '));
+  const safeMessage = escapeHtml(message);
   return {
     to: '',
     subject: `[Anomaly Alert] ${anomalyType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} — ${severity.toUpperCase()}`,
@@ -204,12 +239,12 @@ export function anomalyAlertTemplate(anomalyType: string, severity: string, mess
       'Anomaly Detected',
       `<p style="margin: 0 0 12px; color: #374151;">An anomaly has been detected on your habitat.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Type:</td><td style="padding: 8px 0; color: #1f2937;">${anomalyType.replace(/_/g, ' ')}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Type:</td><td style="padding: 8px 0; color: #1f2937;">${safeAnomalyType}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Severity:</td><td style="padding: 8px 0; font-weight: 600; color: ${color};">${severity.toUpperCase()}</td></tr>
        </table>
        <div style="margin-top: 12px; padding: 12px; background: #f9fafb; border-radius: 6px; border-left: 3px solid ${color};">
-          <p style="margin: 0; font-size: 14px; color: #374151;">${message}</p>
+          <p style="margin: 0; font-size: 14px; color: #374151;">${safeMessage}</p>
         </div>`
     ),
   };
@@ -217,6 +252,10 @@ export function anomalyAlertTemplate(anomalyType: string, severity: string, mess
 
 export function priorityChangedTemplate(taskTitle: string, habitatName: string, oldPriority: string, newPriority: string): EmailPayload {
   const priorityColors: Record<string, string> = { low: '#3b82f6', medium: '#6b7280', high: '#f59e0b', critical: '#ef4444' };
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeOldPriority = escapeHtml(oldPriority);
+  const safeNewPriority = escapeHtml(newPriority);
   return {
     to: '',
     subject: `Task priority changed: ${taskTitle}`,
@@ -224,16 +263,19 @@ export function priorityChangedTemplate(taskTitle: string, habitatName: string, 
       'Task Priority Changed',
       `<p style="margin: 0 0 12px; color: #374151;">A task's priority has been updated.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">From:</td><td style="padding: 8px 0; font-weight: 600; color: ${priorityColors[oldPriority] ?? '#6b7280'};">${oldPriority.toUpperCase()}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">To:</td><td style="padding: 8px 0; font-weight: 600; color: ${priorityColors[newPriority] ?? '#6b7280'};">${newPriority.toUpperCase()}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">From:</td><td style="padding: 8px 0; font-weight: 600; color: ${priorityColors[oldPriority] ?? '#6b7280'};">${safeOldPriority.toUpperCase()}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">To:</td><td style="padding: 8px 0; font-weight: 600; color: ${priorityColors[newPriority] ?? '#6b7280'};">${safeNewPriority.toUpperCase()}</td></tr>
        </table>`
     ),
   };
 }
 
 export function reviewAssignedTemplate(taskTitle: string, habitatName: string, assignedBy: string): EmailPayload {
+  const safeTaskTitle = escapeHtml(taskTitle);
+  const safeHabitatName = escapeHtml(habitatName);
+  const safeAssignedBy = escapeHtml(assignedBy);
   return {
     to: '',
     subject: `Review requested: ${taskTitle}`,
@@ -241,9 +283,9 @@ export function reviewAssignedTemplate(taskTitle: string, habitatName: string, a
       'Review Requested',
       `<p style="margin: 0 0 12px; color: #374151;">You have been assigned to review a task.</p>
        <table style="width: 100%; border-collapse: collapse;">
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${taskTitle}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${habitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Requested by:</td><td style="padding: 8px 0; color: #1f2937;">${assignedBy}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Requested by:</td><td style="padding: 8px 0; color: #1f2937;">${safeAssignedBy}</td></tr>
        </table>`
     ),
   };

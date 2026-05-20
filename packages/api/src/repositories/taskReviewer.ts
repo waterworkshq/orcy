@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { taskReviewers } from '../db/schema/index.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import type { TaskReviewer, ReviewerStatus } from '@orcy/shared';
 import { v4 as uuid } from 'uuid';
 
@@ -46,11 +46,23 @@ export function updateStatus(id: string, status: ReviewerStatus, reviewNote?: st
 
 export function getApprovedCount(taskId: string): number {
   const db = getDb();
-  const result = db.select({ count: eq(taskReviewers.status, 'approved') })
+  const result = db.select({ count: sql<number>`count(*)` })
     .from(taskReviewers)
     .where(and(eq(taskReviewers.taskId, taskId), eq(taskReviewers.status, 'approved')))
-    .all();
-  return result.length;
+    .get();
+  return result?.count ?? 0;
+}
+
+export function getPendingCountByReviewer(reviewerId: string): number {
+  const db = getDb();
+  const result = db.select({ count: sql<number>`count(*)` })
+    .from(taskReviewers)
+    .where(and(
+      eq(taskReviewers.reviewerId, reviewerId),
+      eq(taskReviewers.status, 'pending')
+    ))
+    .get();
+  return result?.count ?? 0;
 }
 
 export function getPendingReviewers(taskId: string): TaskReviewer[] {

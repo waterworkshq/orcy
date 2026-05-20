@@ -79,7 +79,7 @@ class SSEBroadcaster {
       case 'task.rejected':
         this.notifySafe('task.rejected', habitatId, {
           taskId: event.data.taskId,
-          actorId: undefined,
+          actorId: event.data.reviewerId,
           reason: event.data.reason,
         }, 'task.rejected');
         break;
@@ -120,6 +120,7 @@ class SSEBroadcaster {
         this.notifySafe('task.review_assigned', habitatId, {
           taskId: event.data.taskId,
           reviewerId: event.data.reviewerId,
+          actorId: event.data.actorId,
         }, 'task.review_assigned');
         break;
 

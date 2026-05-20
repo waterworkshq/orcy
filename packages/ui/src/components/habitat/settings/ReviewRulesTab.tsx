@@ -5,7 +5,7 @@ import { Button } from '../../ui/Button.js';
 import { ConfirmDialog } from '../../ui/ConfirmDialog.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
-import type { ReviewRule, ReviewRuleStrategy } from '../../../types/index.js';
+import type { ReviewRule, ReviewRuleStrategy, ReviewRuleCreateInput, ReviewRuleUpdateInput } from '../../../types/index.js';
 
 interface ReviewRulesTabProps {
   habitatId: string;
@@ -99,7 +99,7 @@ export function ReviewRulesTab({ habitatId }: ReviewRulesTabProps) {
 
     setSaving(true);
     try {
-      const body: Record<string, unknown> = {
+      const createBody: ReviewRuleCreateInput = {
         name: form.name.trim(),
         enabled: form.enabled,
         priority: form.priority,
@@ -112,10 +112,11 @@ export function ReviewRulesTab({ habitatId }: ReviewRulesTabProps) {
       };
 
       if (editingId === 'new') {
-        await api.reviewRules.create(habitatId, body);
+        await api.reviewRules.create(habitatId, createBody);
         notify.success('Review rule created');
       } else if (editingId) {
-        await api.reviewRules.update(editingId, body);
+        const updateBody: ReviewRuleUpdateInput = { ...createBody };
+        await api.reviewRules.update(editingId, updateBody);
         notify.success('Review rule updated');
       }
 

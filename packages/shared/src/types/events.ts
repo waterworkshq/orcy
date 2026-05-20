@@ -35,7 +35,7 @@ export type SSEEvent =
   | { type: 'task.claimed'; data: { taskId: string; agentId: string } }
   | { type: 'task.submitted'; data: { taskId: string; agentId: string } }
   | { type: 'task.approved'; data: { taskId: string; reviewerId: string } }
-  | { type: 'task.rejected'; data: { taskId: string; reason: string } }
+  | { type: 'task.rejected'; data: { taskId: string; reason: string; reviewerId: string } }
   | { type: 'task.completed'; data: { taskId: string } }
   | { type: 'task.failed'; data: { taskId: string; reason: string } }
   | { type: 'task.released'; data: { taskId: string; reason: string } }
@@ -82,7 +82,7 @@ export type SSEEvent =
   | { type: 'scheduled_task.executed'; data: { scheduleId: string; missionId: string; missionTitle: string } }
   | { type: 'scheduled_task.failed'; data: { scheduleId: string; error: string } }
   | { type: 'scheduled_task.created'; data: { scheduleId: string; name: string } }
-  | { type: 'task.review_assigned'; data: { taskId: string; reviewerId: string; reviewerType: string } }
+  | { type: 'task.review_assigned'; data: { taskId: string; reviewerId: string; reviewerType: string; actorId: string } }
   | { type: 'task.review_completed'; data: { taskId: string; reviewerId: string; status: string } }
   | { type: 'sprint.created'; data: { sprintId: string; habitatId: string } }
   | { type: 'sprint.started'; data: { sprintId: string; habitatId: string } }

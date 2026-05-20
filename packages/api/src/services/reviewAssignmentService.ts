@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { users, teamMembers, habitats } from '../db/schema/index.js';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
 import * as taskRepo from '../repositories/task.js';
@@ -55,7 +55,7 @@ export function getEligibleReviewers(habitatId: string, excludeUserId?: string):
   const userRows = db
     .select({ id: users.id, username: users.username, displayName: users.displayName })
     .from(users)
-    .where(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`)
+    .where(inArray(users.id, userIds))
     .all();
 
   return userRows
@@ -64,7 +64,7 @@ export function getEligibleReviewers(habitatId: string, excludeUserId?: string):
       id: u.id,
       username: u.username,
       displayName: u.displayName,
-      pendingReviewCount: taskReviewerRepo.getByTaskId.length,
+      pendingReviewCount: taskReviewerRepo.getPendingCountByReviewer(u.id),
     }));
 }
 

@@ -312,9 +312,9 @@ export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]):
       eq(missions.habitatId, habitatId),
       eq(tasks.status, 'pending'),
       sql`EXISTS (
-        SELECT 1 FROM ${taskDependencies}
-        INNER JOIN tasks AS dep ON ${taskDependencies.dependsOnId} = dep.id
-        WHERE ${taskDependencies.taskId} = ${tasks.id} AND ${tasks.status} NOT IN ('approved', 'done')
+        SELECT 1 FROM task_dependencies td
+        INNER JOIN tasks dep ON td.depends_on_id = dep.id
+        WHERE td.task_id = ${tasks.id} AND dep.status NOT IN ('approved', 'done')
       )`
     )
   )

@@ -100,8 +100,10 @@ export function addMission(sprintId: string, missionId: string): Sprint | null {
   }
 
   const now = new Date().toISOString();
-  db.update(sprints).set({ committedMissionIds: committed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
-  db.update(missions).set({ sprintId }).where(eq(missions.id, missionId)).run();
+  db.transaction((tx) => {
+    tx.update(sprints).set({ committedMissionIds: committed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+    tx.update(missions).set({ sprintId }).where(eq(missions.id, missionId)).run();
+  });
 
   return getById(sprintId);
 }
@@ -114,8 +116,10 @@ export function removeMission(sprintId: string, missionId: string): Sprint | nul
   const committed = sprint.committedMissionIds.filter(id => id !== missionId);
   const now = new Date().toISOString();
 
-  db.update(sprints).set({ committedMissionIds: committed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
-  db.update(missions).set({ sprintId: null }).where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId))).run();
+  db.transaction((tx) => {
+    tx.update(sprints).set({ committedMissionIds: committed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+    tx.update(missions).set({ sprintId: null }).where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId))).run();
+  });
 
   return getById(sprintId);
 }
@@ -136,5 +140,7 @@ export function markMissionsCompleted(sprintId: string, missionIds: string[]): v
   const completed = [...new Set([...sprint.completedMissionIds, ...missionIds])];
   const now = new Date().toISOString();
 
-  db.update(sprints).set({ completedMissionIds: completed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+  db.transaction((tx) => {
+    tx.update(sprints).set({ completedMissionIds: completed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
+  });
 }

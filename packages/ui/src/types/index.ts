@@ -63,6 +63,9 @@ import type {
   Sprint,
   SprintStatus,
   SprintMetrics,
+  ReviewRuleCreateInput,
+  ReviewRuleUpdateInput,
+  SprintCreateInput,
 } from '@orcy/shared';
 
 export type {
@@ -130,6 +133,9 @@ export type {
   Sprint,
   SprintStatus,
   SprintMetrics,
+  ReviewRuleCreateInput,
+  ReviewRuleUpdateInput,
+  SprintCreateInput,
 };
 
 export interface EnrichedHabitatEvent {

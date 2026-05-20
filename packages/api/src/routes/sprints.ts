@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as sprintService from '../services/sprintService.js';
+import * as sprintRepo from '../repositories/sprint.js';
 import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
-import { badRequest, notFound } from '../errors.js';
+import { requireHabitatAccess } from '../middleware/team.js';
+import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
+import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
+import { getHabitatById } from '../repositories/board.js';
 import { z } from 'zod';
 
 const createSprintSchema = z.object({
@@ -26,10 +30,35 @@ const addMissionSchema = z.object({
   missionId: z.string().min(1),
 });
 
+function verifySprintHabitatAccess(request: FastifyRequest, habitatId: string): void {
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) throw notFound('Habitat not found');
+
+  if (request.agent) {
+    if (!habitat.teamId) return;
+    throw forbidden('Agents cannot access team habitats', 'BOARD_ACCESS_DENIED');
+  }
+
+  if (request.user) {
+    if (!habitat.teamId) return;
+    if (isTeamMemberByHabitatId(habitatId, request.user.id)) return;
+    throw forbidden('You do not have access to this habitat', 'BOARD_ACCESS_DENIED');
+  }
+
+  throw unauthorized('Authentication required');
+}
+
+function requireSprintAccess(request: FastifyRequest): void {
+  const sprintId = (request.params as { id: string }).id;
+  const sprint = sprintRepo.getById(sprintId);
+  if (!sprint) throw notFound('Sprint not found');
+  verifySprintHabitatAccess(request, sprint.habitatId);
+}
+
 export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/sprints',
-    { preHandler: agentOrHumanAuth },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request) => {
       const sprints = sprintService.getSprintsForHabitat(request.params.habitatId);
       return { sprints };
@@ -38,7 +67,7 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/sprints/active',
-    { preHandler: agentOrHumanAuth },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request) => {
       const sprint = sprintService.getActiveSprint(request.params.habitatId);
       if (!sprint) return { sprint: null };
@@ -48,7 +77,7 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createSprintSchema> }>(
     '/habitats/:habitatId/sprints',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = createSprintSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -70,8 +99,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { id: string } }>(
     '/sprints/:id',
-    { preHandler: agentOrHumanAuth },
+    { preHandler: [agentOrHumanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       const sprint = sprintService.getSprint(request.params.id);
       if (!sprint) throw notFound('Sprint not found');
       return { sprint };
@@ -80,8 +110,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateSprintSchema> }>(
     '/sprints/:id',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       const parsed = updateSprintSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -102,8 +133,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: { id: string } }>(
     '/sprints/:id',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      requireSprintAccess(request);
       try {
         sprintService.deleteSprint(request.params.id);
         reply.code(204).send();
@@ -119,8 +151,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { id: string } }>(
     '/sprints/:id/start',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       try {
         const sprint = sprintService.startSprint(request.params.id);
         return { sprint };
@@ -136,8 +169,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { id: string } }>(
     '/sprints/:id/complete',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       try {
         const sprint = sprintService.completeSprint(request.params.id);
         return { sprint };
@@ -153,8 +187,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { id: string } }>(
     '/sprints/:id/cancel',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       try {
         const sprint = sprintService.cancelSprint(request.params.id);
         return { sprint };
@@ -170,8 +205,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof addMissionSchema> }>(
     '/sprints/:id/missions',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       const parsed = addMissionSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -196,8 +232,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: { id: string; missionId: string } }>(
     '/sprints/:id/missions/:missionId',
-    { preHandler: humanAuth },
+    { preHandler: [humanAuth] },
     async (request) => {
+      requireSprintAccess(request);
       try {
         const sprint = sprintService.removeMissionFromSprint(request.params.id, request.params.missionId);
         return { sprint };
