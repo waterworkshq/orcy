@@ -16,6 +16,8 @@ const PREF_LABELS: Array<{ key: keyof NotificationPreferences; label: string; de
   { key: 'taskOverdue', label: 'Task Overdue', description: 'When a task passes its deadline' },
   { key: 'taskMentioned', label: 'Mentioned', description: 'When you are @mentioned in a comment' },
   { key: 'taskWatching', label: 'Watched Tasks', description: 'When a watched task is updated' },
+  { key: 'taskReviewAssigned', label: 'Review Assigned', description: 'When you are assigned as a reviewer' },
+  { key: 'taskPriorityChanged', label: 'Priority Changed', description: 'When a task priority is changed by a rule' },
 ];
 
 interface NotificationsTabProps {

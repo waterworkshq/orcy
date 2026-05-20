@@ -90,6 +90,32 @@ export function useSSE(boardId: string) {
         qc.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
         qc.invalidateQueries({ queryKey: queryKeys.insights.byBoard(boardId) });
         break;
+      case 'task.review_assigned':
+      case 'task.review_completed':
+        if (taskId) {
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(taskId) });
+        }
+        if (event.type === 'task.review_completed' && taskId) {
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+        }
+        break;
+      case 'task.priority_changed':
+        if (taskId) {
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+        }
+        qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+        break;
+      case 'sprint.created':
+      case 'sprint.started':
+      case 'sprint.completed':
+        qc.invalidateQueries({ queryKey: queryKeys.sprints.list(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.sprints.active(boardId) });
+        if ('sprintId' in event.data) {
+          qc.invalidateQueries({ queryKey: queryKeys.sprints.detail((event.data as { sprintId: string }).sprintId) });
+        }
+        break;
     }
   }, [boardId, queryClient]);
 

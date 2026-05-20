@@ -70,6 +70,8 @@ const mockPrefs = {
   taskOverdue: true,
   taskMentioned: false,
   taskWatching: true,
+  taskReviewAssigned: true,
+  taskPriorityChanged: false,
   createdAt: '2024-01-01',
   updatedAt: '2024-01-01',
 };
@@ -129,6 +131,8 @@ describe('NotificationsTab', () => {
       expect(screen.getByText('Task Overdue')).toBeTruthy();
       expect(screen.getByText('Mentioned')).toBeTruthy();
       expect(screen.getByText('Watched Tasks')).toBeTruthy();
+      expect(screen.getByText('Review Assigned')).toBeTruthy();
+      expect(screen.getByText('Priority Changed')).toBeTruthy();
     });
   });
 
@@ -154,7 +158,7 @@ describe('NotificationsTab', () => {
 
     await waitFor(() => {
       const checkboxes = screen.getAllByRole('checkbox');
-      expect(checkboxes.length).toBe(7);
+      expect(checkboxes.length).toBe(9);
     });
   });
 

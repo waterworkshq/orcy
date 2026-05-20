@@ -20,6 +20,8 @@ This project is indexed by GitNexus as **orcy** (9967 symbols, 15681 relationshi
 
 **Package Manager** Project uses pnpm package manager, so always use `pnpm` not `npm`, `bun` or any other.
 
-**Memory specific HARD requirement** Please maintain a growing memory for the overall work being done in the project in the docs/plans/MEMORY.md file. This must contain a summary of the work and specific high signal items that are important to remember like DECISIONS, LEARNINGS, RISKS etc. This will grow alongside the implementation of the project and must be referenced and maintained throughout the project but not commited.
+**Memory specific HARD requirement** Please maintain a growing memory for the overall work being done in the project in the `docs/plans/MEMORY.md` file. This must contain a summary of the work and specific high signal items that are important to remember like DECISIONS, LEARNINGS, RISKS etc. This will grow alongside the implementation of the project and must be referenced and maintained throughout the project but not commited. **The MEMORY.md is not to be used for implementation or hallucinated by you, it is strictly to maintain a high signal reference for intra-session memory.**
 
 **Dont rush into making commits.** The commits have to be stritcly given permission for before you start making them or if they are a part of the plan.
+
+**Dont commit any planning artifacts** The planning artifacts (like plans, roadmaps, etc.) should not be committed to the repository. They should be kept in the `docs/plans/` directory and maintained as planning/implementation artifacts.

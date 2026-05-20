@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.10.0 | **Updated:** 2026-05-17
+> **Version:** v0.11.0 | **Updated:** 2026-05-20
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -21,25 +21,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.9 | Work Your Way — task board view (table/list with sorting, filtering, bulk ops), dynamic prioritization rules engine (10 condition types, auto-recalculates priority), recurring scheduled tasks (cron/interval/one-time, template-based feature creation) |
 | v0.9.1–v0.9.4 | Patch fixes — post-release audit (20 issues), API docs restoration, R16 React Query unification (17 components), release tooling fixes, scheduled task title templating (`{{date}}`/`{{counter}}` tokens) |
 | v0.10.0 | "Breaking Change" — naming consistency (`board→habitat`, `feature→mission` across 5 packages, 9 DB tables, 200 routes, 12 MCP tools, 12 SSE event types), unified `orcy_*` MCP tool prefix |
+| v0.11.0 | "Guardrails" — review assignment rules (domain routing, anti-self-review, multi-reviewer approval gates), sprint/iteration management (time-boxed sprints, burndown, carry-over policies), visual rule builder (data-driven config tables with sortable cards), mobile table view (card-based responsive fallback), notification preferences (review assigned + priority changed toggles), SSE cache invalidation for all new event types |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.11.0 — "Guardrails"
-
-Structure around how work moves through the pod.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Review Assignment Rules | "I keep reviewing my own PRs" → domain routing, anti-self-review |
-| Sprint / Iteration Management | "What are we doing this sprint?" → time-boxed sprints, burndown, carry-over |
-| Dynamic Prioritization polish | Visual rule builder (replace JSON editor), email notifications for priority changes |
-| Mobile table view | "I need to check tasks from my phone" → card-based responsive table fallback for the Task Board View |
-
-**Why together:** Governance theme. Review rules and sprint management add structure to work flow. Prioritization polish and mobile table view build on v0.9.0's foundation — completing the priority lifecycle (configure rules visually, get notified) and extending the table view to all devices.
 
 ---
 

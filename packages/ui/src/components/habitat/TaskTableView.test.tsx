@@ -169,6 +169,14 @@ vi.mock('../../api/index.js', () => ({
   },
 }));
 
+vi.mock('../../hooks/useMediaQuery.js', () => ({
+  useIsMobile: () => false,
+}));
+
+vi.mock('./TaskCardList.js', () => ({
+  TaskCardList: () => <div data-testid="task-card-list-mock" />,
+}));
+
 describe('TaskTableView', () => {
   beforeEach(() => {
     vi.clearAllMocks();

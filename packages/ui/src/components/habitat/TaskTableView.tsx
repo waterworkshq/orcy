@@ -8,6 +8,8 @@ import { TaskBulkActionBar } from './TaskBulkActionBar.js';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useBoardTasks, type BoardTasksFilters } from '../../lib/useHabitatData.js';
 import { useDebounce } from '../../hooks/useDebounce.js';
+import { useIsMobile } from '../../hooks/useMediaQuery.js';
+import { TaskCardList } from './TaskCardList.js';
 import type { TaskPriority, TaskStatus } from '../../types/index.js';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -33,6 +35,7 @@ interface TaskTableViewProps {
 }
 
 export function TaskTableView({ habitatId }: TaskTableViewProps) {
+  const isMobile = useIsMobile();
   const columns = React.useMemo(() => getTaskTableColumns(), []);
 
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
@@ -170,6 +173,17 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
         <div className="flex items-center justify-center py-12 text-sm text-[var(--on-surface-variant)]">
           Loading tasks...
         </div>
+      ) : isMobile ? (
+        <TaskCardList
+          tasks={tasks}
+          selectedIds={selectedTaskIds}
+          onSelectionChange={(ids) => {
+            const mapping: RowSelectionState = {};
+            ids.forEach((id) => { mapping[id] = true; });
+            setRowSelection(mapping);
+            selectTaskIds(ids);
+          }}
+        />
       ) : (
         <DataTable
           columns={columns}

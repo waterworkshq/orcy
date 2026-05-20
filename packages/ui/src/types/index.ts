@@ -280,6 +280,8 @@ export interface NotificationPreferences {
   taskOverdue: boolean;
   taskMentioned: boolean;
   taskWatching: boolean;
+  taskReviewAssigned: boolean;
+  taskPriorityChanged: boolean;
   createdAt: string;
   updatedAt: string;
 }
