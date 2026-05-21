@@ -207,10 +207,29 @@ export function commentMentionedTemplate(taskTitle: string, habitatName: string,
   };
 }
 
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  'task.submitted': 'Task Submitted',
+  'task.approved': 'Task Approved',
+  'task.rejected': 'Task Rejected',
+  'task.priority_changed': 'Priority Changed',
+  'task.review_assigned': 'Review Assigned',
+  'task.review_completed': 'Review Completed',
+  'task.status_changed': 'Status Changed',
+  'task.updated': 'Task Updated',
+  'task.comment_added': 'Comment Added',
+  'task.completed': 'Task Completed',
+  'comment.mentioned': 'You Were Mentioned',
+};
+
+function formatEventTypeLabel(eventType: string): string {
+  return EVENT_TYPE_LABELS[eventType] ?? eventType.replace(/^task\./, '').replace(/^comment\./, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 export function taskWatchingTemplate(taskTitle: string, habitatName: string, eventType: string): EmailPayload {
   const safeTaskTitle = escapeHtml(taskTitle);
   const safeHabitatName = escapeHtml(habitatName);
-  const safeEventType = escapeHtml(eventType);
+  const label = formatEventTypeLabel(eventType);
+  const safeLabel = escapeHtml(label);
   return {
     to: '',
     subject: `Watched task updated: ${taskTitle}`,
@@ -220,7 +239,7 @@ export function taskWatchingTemplate(taskTitle: string, habitatName: string, eve
        <table style="width: 100%; border-collapse: collapse;">
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Task:</td><td style="padding: 8px 0; font-weight: 600; color: #1f2937;">${safeTaskTitle}</td></tr>
          <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Habitat:</td><td style="padding: 8px 0; color: #1f2937;">${safeHabitatName}</td></tr>
-         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Event:</td><td style="padding: 8px 0; color: #1f2937;">${safeEventType}</td></tr>
+         <tr><td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Event:</td><td style="padding: 8px 0; color: #1f2937;">${safeLabel}</td></tr>
        </table>`
     ),
   };

@@ -30,6 +30,11 @@ export function createSprint(habitatId: string, input: SprintCreateInput, create
     throw new Error('END_DATE_MUST_BE_AFTER_START_DATE');
   }
 
+  const overlapping = sprintRepo.getOverlappingForHabitat(habitatId, input.startDate, input.endDate);
+  if (overlapping) {
+    throw new Error('SPRINT_DATES_OVERLAP');
+  }
+
   const sprint = sprintRepo.create(habitatId, {
     name: input.name,
     goal: input.goal,

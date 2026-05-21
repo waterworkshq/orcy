@@ -78,6 +78,13 @@
       "when": 1779300002000,
       "tag": "0011_notifications_expand",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1779400000000,
+      "tag": "0012_task_reviewer_constraints",
+      "breakpoints": true
     }
   ]
 }

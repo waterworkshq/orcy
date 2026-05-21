@@ -146,3 +146,15 @@ export function markMissionsCompleted(sprintId: string, missionIds: string[]): v
     tx.update(sprints).set({ completedMissionIds: completed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
   });
 }
+
+export function getOverlappingForHabitat(habitatId: string, startDate: string, endDate: string): Sprint | null {
+  const db = getDb();
+  const row = db.select().from(sprints)
+    .where(and(
+      eq(sprints.habitatId, habitatId),
+      sql`${sprints.startDate} < ${endDate}`,
+      sql`${sprints.endDate} > ${startDate}`,
+    ))
+    .get();
+  return (row as Sprint) ?? null;
+}

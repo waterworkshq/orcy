@@ -39,7 +39,7 @@ export function updateUserEmail(userId: string, email: string): void {
   const db = getDb();
   const now = new Date().toISOString();
   db.update(users)
-    .set({ email, updatedAt: now })
+    .set({ email: email || null, updatedAt: now })
     .where(eq(users.id, userId))
     .run();
 }

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { habitats } from './board.js';
 import { tasks } from './task.js';
 
@@ -33,4 +33,6 @@ export const taskReviewers = sqliteTable('task_reviewers', {
 }, (table) => [
   index('idx_task_reviewers_task').on(table.taskId),
   index('idx_task_reviewers_reviewer').on(table.reviewerId),
+  index('idx_task_reviewers_task_status').on(table.taskId, table.status),
+  uniqueIndex('uq_task_reviewers_task_reviewer').on(table.taskId, table.reviewerId),
 ]);

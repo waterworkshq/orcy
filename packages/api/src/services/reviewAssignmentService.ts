@@ -145,10 +145,11 @@ export function assignReviewers(taskId: string, habitatId: string, excludeReview
     if (remaining.length === 0) break;
 
     const selected = selectReviewer(remaining, primaryRule.assignmentStrategy, habitatId, primaryRule.fixedReviewerIds);
-    if (!selected) break;
+      if (!selected) break;
 
-    taskReviewerRepo.create(taskId, 'human', selected.id);
-    assigned.push({ reviewerId: selected.id, reviewerName: selected.displayName || selected.username });
+      if (taskReviewerRepo.findByTaskAndReviewer(taskId, selected.id)) continue;
+      taskReviewerRepo.create(taskId, 'human', selected.id);
+      assigned.push({ reviewerId: selected.id, reviewerName: selected.displayName || selected.username });
   }
 
   if (assigned.length === 0) {
