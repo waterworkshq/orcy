@@ -2,6 +2,31 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.11.2 — 2026-05-21
+
+### Bug Fixes
+
+#### address remaining review issues — 35 fixes across 7 batches ([`248f21d`](https://github.com/waterworkshq/orcy/commit/248f21d059a8ee44f838a0197a6b8be837b51c5f))
+
+1. Backend services:
+2. Remove status from SprintUpdateInput (P2-5)
+3. Add endDate > startDate validation in createSprint (P0-8)
+4. Fix carryOverPolicy as any cast (P0-12)
+5. Add CAS-style status guard in completeSprint (P2-3)
+6. Sort findNextPlanningSprint by startDate (P2-10)
+7. Fix burndown endDate to use sprint end date (P2-7)
+8. Remove dead code in predictionService (P2-9)
+9. Add race condition guard in approveTask (P1-4)
+10. Use requiredCount in hasAllRequiredApprovals (P1-7)
+11. Add idempotency to recordApproval (P1-11)
+12. Fix isSelfApproval to be dynamic (P1-15)
+13. Notify task assignee on priority change (P3-3)
+14. Pass commentContent for mentioned notifications (P3-5)
+15. Parallel email dispatch with Promise.allSettled (P3-6)
+16. Add Zod date validation on sprint routes (P2-6)
+
+
+
 ## 0.11.1 — 2026-05-21
 
 ### Bug Fixes
@@ -155,19 +180,3 @@
 3. useSSE: cache invalidation for review/sprint/priority events (5 cases)
 4. NotificationPreferences UI type synced with backend
 5. Cross-feature integration tests: sprint+review lifecycle (5 tests)
-
-
-
-## 0.10.2 — 2026-05-19
-
-### Bug Fixes
-
-#### fix prioritization template naming, enrich priority_changed SSE event, add self-approval deprecation warning ([`c095214`](https://github.com/waterworkshq/orcy/commit/c095214638f5535a4198215d3129c49a05020ad1))
-
-1. PrioritizationTab RULE_TEMPLATE: feature_status → mission_status, label fix
-2. prioritizationService: capture old priority before action, only emit
-3. task.priority_changed when priority actually changes, include
-4. oldPriority/newPriority in SSE event data
-5. task-lifecycle: add deprecation warning when agents self-complete
-6. tasks without human review (gated enforcement in v0.11 review rules)
-7. shared/events: update task.priority_changed discriminated union type
