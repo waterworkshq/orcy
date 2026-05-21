@@ -119,7 +119,18 @@ export function assignReviewers(taskId: string, habitatId: string, excludeReview
   }
 
   const primaryRule = matchedRules[0];
-  const eligible = getEligibleReviewers(habitatId, excludeReviewerId);
+
+  // Build exclusion list: agent (excludeReviewerId) + task creator (antiSelfReview)
+  const excludeIds: string[] = excludeReviewerId ? [excludeReviewerId] : [];
+  if (primaryRule.antiSelfReview) {
+    const task = taskRepo.getTaskById(taskId);
+    if (task?.createdBy) {
+      excludeIds.push(task.createdBy);
+    }
+  }
+
+  const eligible = getEligibleReviewers(habitatId, excludeReviewerId)
+    .filter(r => !excludeIds.includes(r.id));
   if (eligible.length === 0) {
     return { assigned: [], skipped: true, reason: 'no_eligible_reviewers' };
   }
@@ -142,7 +153,7 @@ export function assignReviewers(taskId: string, habitatId: string, excludeReview
     return { assigned: [], skipped: true, reason: 'no_reviewer_selected' };
   }
 
-  logger.info({ taskId, habitatId, assignedCount: assigned.length, ruleName: primaryRule.name }, 'Reviewers assigned');
+  logger.info({ taskId, habitatId, assignedCount: assigned.length, ruleName: primaryRule.name, antiSelfReview: primaryRule.antiSelfReview }, 'Reviewers assigned');
   return { assigned, skipped: false };
 }
 

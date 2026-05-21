@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { NumberField } from '../../ui/NumberField.js';
 import { Button } from '../../ui/Button.js';
 import { ConfirmDialog } from '../../ui/ConfirmDialog.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
+import { queryKeys } from '../../../lib/queryKeys.js';
 import type { ReviewRule, ReviewRuleStrategy, ReviewRuleCreateInput, ReviewRuleUpdateInput } from '../../../types/index.js';
 
 interface ReviewRulesTabProps {
@@ -46,25 +48,45 @@ const DEFAULT_FORM: RuleFormData = {
 };
 
 export function ReviewRulesTab({ habitatId }: ReviewRulesTabProps) {
-  const [rules, setRules] = useState<ReviewRule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleFormData>(DEFAULT_FORM);
-  const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const loadRules = useCallback(async () => {
-    try {
-      const result = await api.reviewRules.list(habitatId);
-      setRules(result.reviewRules);
-    } catch (err) {
-      notify.error((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [habitatId]);
+  const { data: rules = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.reviewRules.list(habitatId),
+    queryFn: () => api.reviewRules.list(habitatId).then(r => r.reviewRules),
+    enabled: !!habitatId,
+  });
 
-  useEffect(() => { loadRules(); }, [loadRules]);
+  const createMutation = useMutation({
+    mutationFn: (body: ReviewRuleCreateInput) => api.reviewRules.create(habitatId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewRules.list(habitatId) });
+      notify.success('Review rule created');
+    },
+    onError: (err: Error) => { notify.error(err.message); },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ReviewRuleUpdateInput }) => api.reviewRules.update(id, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewRules.list(habitatId) });
+      notify.success('Review rule updated');
+    },
+    onError: (err: Error) => { notify.error(err.message); },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.reviewRules.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviewRules.list(habitatId) });
+      notify.success('Review rule deleted');
+    },
+    onError: (err: Error) => { notify.error(err.message); },
+  });
+
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   function startEdit(rule: ReviewRule) {
     setEditingId(rule.id);
@@ -97,59 +119,48 @@ export function ReviewRulesTab({ habitatId }: ReviewRulesTabProps) {
       return;
     }
 
-    setSaving(true);
-    try {
-      const createBody: ReviewRuleCreateInput = {
-        name: form.name.trim(),
-        enabled: form.enabled,
-        priority: form.priority,
-        matchDomain: form.matchDomain || null,
-        matchPriority: form.matchPriority || null,
-        matchLabels: form.matchLabels ? form.matchLabels.split(',').map(s => s.trim()).filter(Boolean) : [],
-        assignmentStrategy: form.assignmentStrategy,
-        requiredReviews: parseInt(form.requiredReviews, 10) || 1,
-        antiSelfReview: form.antiSelfReview,
-      };
+    const createBody: ReviewRuleCreateInput = {
+      name: form.name.trim(),
+      enabled: form.enabled,
+      priority: form.priority,
+      matchDomain: form.matchDomain || null,
+      matchPriority: form.matchPriority || null,
+      matchLabels: form.matchLabels ? form.matchLabels.split(',').map(s => s.trim()).filter(Boolean) : [],
+      assignmentStrategy: form.assignmentStrategy,
+      requiredReviews: parseInt(form.requiredReviews, 10) || 1,
+      antiSelfReview: form.antiSelfReview,
+    };
 
+    try {
       if (editingId === 'new') {
-        await api.reviewRules.create(habitatId, createBody);
-        notify.success('Review rule created');
+        await createMutation.mutateAsync(createBody);
       } else if (editingId) {
         const updateBody: ReviewRuleUpdateInput = { ...createBody };
-        await api.reviewRules.update(editingId, updateBody);
-        notify.success('Review rule updated');
+        await updateMutation.mutateAsync({ id: editingId, body: updateBody });
       }
-
       setEditingId(null);
       setForm(DEFAULT_FORM);
-      await loadRules();
-    } catch (err) {
-      notify.error((err as Error).message);
-    } finally {
-      setSaving(false);
+    } catch {
+      // Error handled by mutation onError
     }
   }
 
   async function handleDelete() {
     if (!deleteId) return;
     try {
-      await api.reviewRules.delete(deleteId);
-      notify.success('Review rule deleted');
+      await deleteMutation.mutateAsync(deleteId);
       setDeleteId(null);
       if (editingId === deleteId) {
         setEditingId(null);
         setForm(DEFAULT_FORM);
       }
-      await loadRules();
-    } catch (err) {
-      notify.error((err as Error).message);
+    } catch {
+      // Error handled by mutation onError
     }
   }
 
   function toggleRuleEnabled(rule: ReviewRule) {
-    api.reviewRules.update(rule.id, { enabled: rule.enabled ? 0 : 1 })
-      .then(() => loadRules())
-      .catch(err => notify.error((err as Error).message));
+    updateMutation.mutate({ id: rule.id, body: { enabled: rule.enabled ? 0 : 1 } });
   }
 
   if (loading) {

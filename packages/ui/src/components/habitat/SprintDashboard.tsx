@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { shallow } from 'zustand/shallow';
 import { BurndownChart } from '../dashboard/BurndownChart.js';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useBoardBurndown } from '../../lib/useHabitatData.js';
 import type { Sprint, BurndownDataPoint } from '../../types/index.js';
 import { CheckCircle, Clock, TrendingUp, Target } from 'lucide-react';
+
+const TERMINAL_STATUSES = ['done', 'approved'] as const;
 
 interface SprintDashboardProps {
   sprint: Sprint;
@@ -30,22 +33,29 @@ function MetricCard({ icon: Icon, label, value, subtitle, color }: {
 }
 
 export function SprintDashboard({ sprint, habitatId }: SprintDashboardProps) {
-  const features = useHabitatStore((s) => s.features);
-  const tasks = useHabitatStore((s) => s.tasks);
+  const features = useHabitatStore((s) => s.features, shallow);
+  const tasks = useHabitatStore((s) => s.tasks, shallow);
 
-  const sprintMissions = features.filter(f => sprint.committedMissionIds.includes(f.id));
-  const sprintTasks = tasks.filter(t => sprintMissions.some(m => m.id === t.missionId));
+  const sprintMissions = useMemo(
+    () => features.filter(f => sprint.committedMissionIds.includes(f.id)),
+    [features, sprint.committedMissionIds]
+  );
+
+  const sprintTasks = useMemo(
+    () => tasks.filter(t => sprintMissions.some(m => m.id === t.missionId)),
+    [tasks, sprintMissions]
+  );
 
   const totalMissions = sprint.committedMissionIds.length;
   const completedMissions = sprint.completedMissionIds.length;
   const missionPct = totalMissions > 0 ? Math.round((completedMissions / totalMissions) * 100) : 0;
 
   const totalTasks = sprintTasks.length;
-  const completedTasks = sprintTasks.filter(t => ['done', 'approved'].includes(t.status)).length;
+  const completedTasks = sprintTasks.filter(t => (TERMINAL_STATUSES as readonly string[]).includes(t.status)).length;
   const taskPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   const daysTotal = Math.ceil((new Date(sprint.endDate).getTime() - new Date(sprint.startDate).getTime()) / (1000 * 60 * 60 * 24));
-  const daysElapsed = Math.ceil((Date.now() - new Date(sprint.startDate).getTime()) / (1000 * 60 * 60 * 24));
+  const daysElapsed = Math.max(1, Math.floor((Date.now() - new Date(sprint.startDate).getTime()) / (1000 * 60 * 60 * 24)));
   const daysRemaining = Math.max(0, daysTotal - daysElapsed);
 
   const velocity = daysElapsed > 0 ? (completedTasks / daysElapsed).toFixed(1) : '0';

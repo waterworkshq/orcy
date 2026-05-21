@@ -117,4 +117,8 @@ export const queryKeys = {
     active: (habitatId: string) => [...queryKeys.sprints.all, 'active', habitatId] as const,
     detail: (sprintId: string) => [...queryKeys.sprints.all, 'detail', sprintId] as const,
   },
+  reviewRules: {
+    all: ['reviewRules'] as const,
+    list: (habitatId: string) => [...queryKeys.reviewRules.all, 'list', habitatId] as const,
+  },
 };
