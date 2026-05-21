@@ -174,14 +174,14 @@ describe('ReviewPanel', () => {
     it('shows freeform reviewer ID input', () => {
       renderPanel({ reviewers: [], reviewProgress: { approved: 0, total: 0 } });
 
-      expect(screen.getByPlaceholderText('Enter reviewer ID')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Your user ID')).toBeTruthy();
       expect(screen.getByText('Approve')).toBeTruthy();
     });
 
     it('calls onApprove with legacy reviewer ID', async () => {
       renderPanel({ reviewers: [], reviewProgress: { approved: 0, total: 0 } });
 
-      const input = screen.getByPlaceholderText('Enter reviewer ID');
+      const input = screen.getByPlaceholderText('Your user ID');
       await fireEvent.change(input, { target: { value: 'human-legacy' } });
       await fireEvent.click(screen.getByText('Approve'));
 

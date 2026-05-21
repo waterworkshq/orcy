@@ -30,7 +30,9 @@ export function create(taskId: string, reviewerType: 'human' | 'agent', reviewer
     reviewNote: null,
   }).run();
 
-  return getById(id)!;
+  const result = getById(id);
+  if (!result) throw new Error(`Failed to create taskReviewer: insert succeeded but read returned null`);
+  return result;
 }
 
 export function updateStatus(id: string, status: ReviewerStatus, reviewNote?: string): TaskReviewer | null {

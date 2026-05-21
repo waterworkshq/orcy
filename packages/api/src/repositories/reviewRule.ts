@@ -44,7 +44,9 @@ export function create(habitatId: string, input: ReviewRuleCreateInput): ReviewR
     updatedAt: now,
   }).run();
 
-  return getById(id)!;
+  const result = getById(id);
+  if (!result) throw new Error(`Failed to create reviewRule: insert succeeded but read returned null`);
+  return result;
 }
 
 export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | null {
@@ -54,7 +56,7 @@ export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | n
   const existing = getById(id);
   if (!existing) return null;
 
-  const values: Record<string, unknown> = { updatedAt: now };
+  const values: Partial<typeof reviewRules.$inferInsert> = { updatedAt: now };
   if (input.name !== undefined) values.name = input.name;
   if (input.enabled !== undefined) values.enabled = input.enabled;
   if (input.priority !== undefined) values.priority = input.priority;
@@ -66,7 +68,7 @@ export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | n
   if (input.antiSelfReview !== undefined) values.antiSelfReview = input.antiSelfReview;
   if (input.fixedReviewerIds !== undefined) values.fixedReviewerIds = input.fixedReviewerIds;
 
-  db.update(reviewRules).set(values as any).where(eq(reviewRules.id, id)).run();
+  db.update(reviewRules).set(values).where(eq(reviewRules.id, id)).run();
   return getById(id);
 }
 

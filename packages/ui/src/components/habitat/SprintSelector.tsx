@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys.js';
 import { api } from '../../api/index.js';
@@ -26,6 +26,13 @@ export function SprintSelector({ habitatId, onOpenPlanning }: SprintSelectorProp
 
   const sprint = data?.sprint;
 
+  const daysRemaining = useMemo(() => {
+    if (!sprint) return 0;
+    const daysTotal = Math.ceil((new Date(sprint.endDate).getTime() - new Date(sprint.startDate).getTime()) / (1000 * 60 * 60 * 24));
+    const daysElapsed = Math.floor((Date.now() - new Date(sprint.startDate).getTime()) / (1000 * 60 * 60 * 24));
+    return Math.max(0, daysTotal - daysElapsed);
+  }, [sprint]);
+
   if (!sprint) {
     return (
       <button
@@ -39,7 +46,7 @@ export function SprintSelector({ habitatId, onOpenPlanning }: SprintSelectorProp
     );
   }
 
-  const daysLeft = getDaysRemaining(sprint.endDate);
+  const daysLeft = daysRemaining;
 
   return (
     <button

@@ -23,10 +23,12 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
 
+  const taskId = task?.id ?? '';
+
   const { data: reviewersData } = useQuery({
-    queryKey: queryKeys.tasks.reviewers(task?.id ?? ''),
-    queryFn: () => api.reviewers.list(task!.id),
-    enabled: !!task?.id && task.status === 'submitted',
+    queryKey: queryKeys.tasks.reviewers(taskId),
+    queryFn: () => api.reviewers.list(taskId),
+    enabled: !!taskId && task?.status === 'submitted',
     staleTime: 10_000,
   });
 

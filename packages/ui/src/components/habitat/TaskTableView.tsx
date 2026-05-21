@@ -181,7 +181,6 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
             const mapping: RowSelectionState = {};
             ids.forEach((id) => { mapping[id] = true; });
             setRowSelection(mapping);
-            selectTaskIds(ids);
           }}
         />
       ) : (

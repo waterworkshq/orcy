@@ -11,8 +11,8 @@ import { z } from 'zod';
 const createSprintSchema = z.object({
   name: z.string().min(1).max(200),
   goal: z.string().max(2000).optional(),
-  startDate: z.string().min(1),
-  endDate: z.string().min(1),
+  startDate: z.string().min(1).refine(v => !isNaN(Date.parse(v)), 'Invalid start date'),
+  endDate: z.string().min(1).refine(v => !isNaN(Date.parse(v)), 'Invalid end date'),
   capacityMinutes: z.number().int().nullable().optional(),
   notes: z.string().max(5000).optional(),
 });
@@ -20,8 +20,8 @@ const createSprintSchema = z.object({
 const updateSprintSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   goal: z.string().max(2000).optional(),
-  startDate: z.string().min(1).optional(),
-  endDate: z.string().min(1).optional(),
+  startDate: z.string().min(1).refine(v => !isNaN(Date.parse(v)), 'Invalid start date').optional(),
+  endDate: z.string().min(1).refine(v => !isNaN(Date.parse(v)), 'Invalid end date').optional(),
   capacityMinutes: z.number().int().nullable().optional(),
   notes: z.string().max(5000).optional(),
 });
@@ -91,6 +91,9 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err: any) {
         if (err.message === 'HABITAT_ALREADY_HAS_ACTIVE_SPRINT') {
           throw badRequest('Habitat already has an active sprint');
+        }
+        if (err.message === 'END_DATE_MUST_BE_AFTER_START_DATE') {
+          throw badRequest('End date must be after start date');
         }
         throw err;
       }

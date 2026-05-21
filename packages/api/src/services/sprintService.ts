@@ -26,6 +26,10 @@ export function createSprint(habitatId: string, input: SprintCreateInput, create
     throw new Error('HABITAT_ALREADY_HAS_ACTIVE_SPRINT');
   }
 
+  if (new Date(input.endDate) <= new Date(input.startDate)) {
+    throw new Error('END_DATE_MUST_BE_AFTER_START_DATE');
+  }
+
   const sprint = sprintRepo.create(habitatId, {
     name: input.name,
     goal: input.goal,
@@ -115,11 +119,18 @@ export function completeSprint(sprintId: string): Sprint {
   }
 
   const habitat = habitatRepo.getHabitatById(existing.habitatId);
-  const carryOverPolicy: CarryOverPolicy = (habitat as any)?.carryOverPolicy ?? 'backlog';
+  // Habitat DB row includes carryOverPolicy but the Habitat type doesn't expose it yet
+  const carryOverPolicy: CarryOverPolicy = (habitat as { carryOverPolicy?: string })?.carryOverPolicy as CarryOverPolicy ?? 'backlog';
 
   const now = new Date().toISOString();
 
   db.transaction((tx) => {
+    // CAS-style guard: re-read status inside the transaction to prevent double-complete races
+    const current = tx.select({ status: sprints.status }).from(sprints).where(eq(sprints.id, sprintId)).get();
+    if (!current || current.status !== 'active') {
+      throw new Error('SPRINT_NOT_ACTIVE');
+    }
+
     handleCarryOver(tx, sprintId, existing.habitatId, carriedOverMissionIds, carryOverPolicy);
 
     const sprint = tx.select().from(sprints).where(eq(sprints.id, sprintId)).get() as Sprint | undefined;
@@ -199,9 +210,10 @@ function handleCarryOver(
 }
 
 function findNextPlanningSprint(habitatId: string, excludeSprintId: string): Sprint | null {
-  const sprints = sprintRepo.getByHabitatId(habitatId);
-  const planning = sprints.find(s => s.status === 'planning' && s.id !== excludeSprintId);
-  return planning ?? null;
+  const allSprints = sprintRepo.getByHabitatId(habitatId);
+  return allSprints
+    .filter(s => s.status === 'planning' && s.id !== excludeSprintId)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
 }
 
 export function cancelSprint(sprintId: string): Sprint {

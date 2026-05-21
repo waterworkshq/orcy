@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Drawer } from '../ui/Drawer.js';
 import { Button } from '../ui/Button.js';
@@ -31,6 +31,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
   const [expandedSprintId, setExpandedSprintId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
+  const [missionLoading, setMissionLoading] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -66,6 +67,10 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
   async function handleCreate() {
     if (!form.name.trim()) {
       notify.warning('Sprint name is required');
+      return;
+    }
+    if (new Date(form.endDate) <= new Date(form.startDate)) {
+      notify.warning('End date must be after start date');
       return;
     }
     setCreating(true);
@@ -128,20 +133,26 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
   }
 
   async function handleAddMission(sprintId: string, missionId: string) {
+    setMissionLoading(missionId);
     try {
       await api.sprints.addMission(sprintId, missionId);
       refresh();
     } catch (err) {
       notify.error((err as Error).message);
+    } finally {
+      setMissionLoading(null);
     }
   }
 
   async function handleRemoveMission(sprintId: string, missionId: string) {
+    setMissionLoading(missionId);
     try {
       await api.sprints.removeMission(sprintId, missionId);
       refresh();
     } catch (err) {
       notify.error((err as Error).message);
+    } finally {
+      setMissionLoading(null);
     }
   }
 
@@ -164,6 +175,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
               onToggle={() => setExpandedSprintId(prev => prev === activeSprint.id ? null : activeSprint.id)}
               habitatFeatures={habitatFeatures}
               acting={acting}
+              missionLoading={missionLoading}
               onStart={handleStart}
               onComplete={handleComplete}
               onCancel={handleCancel}
@@ -247,6 +259,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
                 onToggle={() => setExpandedSprintId(prev => prev === sprint.id ? null : sprint.id)}
                 habitatFeatures={habitatFeatures}
                 acting={acting}
+                missionLoading={missionLoading}
                 onStart={handleStart}
                 onComplete={handleComplete}
                 onCancel={handleCancel}
@@ -273,6 +286,7 @@ function SprintCard({
   onToggle,
   habitatFeatures,
   acting,
+  missionLoading,
   onStart,
   onComplete,
   onCancel,
@@ -285,6 +299,7 @@ function SprintCard({
   onToggle: () => void;
   habitatFeatures: Array<{ id: string; title: string }>;
   acting: string | null;
+  missionLoading: string | null;
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
   onCancel: (id: string) => void;
@@ -293,6 +308,11 @@ function SprintCard({
   habitatId: string;
 }) {
   const isActing = acting === sprint.id;
+
+  const availableFeatures = useMemo(
+    () => habitatFeatures.filter(f => !sprint.committedMissionIds.includes(f.id)),
+    [habitatFeatures, sprint.committedMissionIds]
+  );
 
   return (
     <div className="rounded-lg border border-border">
@@ -354,6 +374,7 @@ function SprintCard({
                           type="button"
                           className="text-[10px] text-destructive hover:text-destructive/80"
                           onClick={() => onRemoveMission(sprint.id, mId)}
+                          disabled={missionLoading === mId}
                         >
                           Remove
                         </button>
@@ -368,20 +389,20 @@ function SprintCard({
               <div className="mt-2">
                 <p className="text-[10px] text-muted-foreground mb-1">Add missions:</p>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {habitatFeatures
-                    .filter(f => !sprint.committedMissionIds.includes(f.id))
+                  {availableFeatures
                     .map(f => (
                       <button
                         key={f.id}
                         type="button"
                         className="w-full flex items-center justify-between rounded px-2 py-1 text-left hover:bg-muted transition-colors"
                         onClick={() => onAddMission(sprint.id, f.id)}
+                        disabled={missionLoading === f.id}
                       >
                         <span className="text-xs truncate">{f.title}</span>
                         <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       </button>
                     ))}
-                  {habitatFeatures.filter(f => !sprint.committedMissionIds.includes(f.id)).length === 0 && (
+                  {availableFeatures.length === 0 && (
                     <p className="text-[10px] text-muted-foreground italic">All missions already assigned</p>
                   )}
                 </div>

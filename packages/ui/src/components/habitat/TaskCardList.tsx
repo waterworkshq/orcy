@@ -12,7 +12,7 @@ interface TaskCardListProps {
   onSelectionChange: (ids: string[]) => void;
 }
 
-function TaskCardItem({ task, isSelected, onToggle }: {
+const TaskCardItem = React.memo(function TaskCardItem({ task, isSelected, onToggle }: {
   task: Task;
   isSelected: boolean;
   onToggle: () => void;
@@ -33,8 +33,16 @@ function TaskCardItem({ task, isSelected, onToggle }: {
           onChange={onToggle}
           className="mt-0.5 h-4 w-4 rounded border-[var(--outline)] text-[var(--primary)] focus:ring-[var(--primary)] flex-shrink-0"
           onClick={(e) => e.stopPropagation()}
+          aria-label={`Select ${task.title}`}
         />
-        <div className="flex-1 min-w-0" onClick={() => openModal(task.id)}>
+        <div
+          className="flex-1 min-w-0"
+          onClick={() => openModal(task.id)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(task.id); } }}
+          aria-label={`Open ${task.title}`}
+        >
           <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-sm font-medium truncate">{task.title}</span>
             <span className="text-xs text-[var(--on-surface-variant)] flex-shrink-0">
@@ -70,7 +78,7 @@ function TaskCardItem({ task, isSelected, onToggle }: {
       </div>
     </div>
   );
-}
+});
 
 export function TaskCardList({ tasks, selectedIds, onSelectionChange }: TaskCardListProps) {
   function handleToggle(taskId: string) {

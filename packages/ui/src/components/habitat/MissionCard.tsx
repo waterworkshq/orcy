@@ -126,7 +126,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
         {feature.sprintId && (
           <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300">
             <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
-            sprint
+            {truncateId(feature.sprintId, 'SPR')}
           </span>
         )}
       </div>

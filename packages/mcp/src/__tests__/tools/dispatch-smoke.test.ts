@@ -126,9 +126,11 @@ describe('dispatch action routing - unknown action produces error', () => {
   ];
 
   for (const { name, handler } of dispatchHandlers) {
-    it(`${name} throws for unknown action`, () => {
+    it(`${name} returns isError for unknown action`, async () => {
       const client = {} as any;
-      expect(() => handler(client, { action: 'nonexistent' })).toThrow('Unknown action: nonexistent');
+      const result = await handler(client, { action: 'nonexistent' });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Unknown action: nonexistent');
     });
   }
 });
@@ -140,9 +142,11 @@ describe('dispatch action routing - null/undefined action', () => {
   ];
 
   for (const { name, handler } of dispatchHandlers) {
-    it(`${name} throws for missing action`, () => {
+    it(`${name} returns isError for missing action`, async () => {
       const client = {} as any;
-      expect(() => handler(client, {})).toThrow('Unknown action: undefined');
+      const result = await handler(client, {});
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Unknown action: undefined');
     });
   }
 });

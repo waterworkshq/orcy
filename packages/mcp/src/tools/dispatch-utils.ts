@@ -44,9 +44,13 @@ export function createDispatchHandler(
   actions: Record<string, Handler>
 ): ToolHandler {
   return (client, args) => {
-    const handler = actions[args.action as string];
+    const action = args.action as string;
+    const handler = actions[action];
     if (!handler) {
-      throw new Error(`Unknown action: ${args.action}`);
+      return Promise.resolve({
+        content: [{ type: 'text' as const, text: `Unknown action: ${action}. Valid actions: ${Object.keys(actions).join(', ')}` }],
+        isError: true,
+      });
     }
     return Promise.resolve(handler(client, args)).then(formatResult);
   };

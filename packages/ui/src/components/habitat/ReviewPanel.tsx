@@ -4,6 +4,7 @@ import { Button } from '../ui/Button.js';
 import { Tooltip } from '../ui/Tooltip.js';
 import { notify } from '../../lib/toast.js';
 import { api } from '../../api/index.js';
+import { queryKeys } from '../../lib/queryKeys.js';
 import type { Artifact, TaskReviewer, Agent } from '../../types/index.js';
 import { CheckCircle, XCircle, Link2, ArrowRight, AlertTriangle, User, Bot, ShieldCheck } from 'lucide-react';
 import { MarkdownContent } from '../ui/MarkdownContent.js';
@@ -78,7 +79,7 @@ export function ReviewPanel({
   const [legacyReviewerId, setLegacyReviewerId] = useState('');
 
   const { data: approvalStatus } = useQuery({
-    queryKey: ['approval-status', taskId],
+    queryKey: queryKeys.tasks.approvalStatus(taskId),
     queryFn: () => api.qualityGates.getApprovalStatus(taskId),
     enabled: !!taskId,
   });
@@ -225,7 +226,7 @@ export function ReviewPanel({
               type="text"
               value={legacyReviewerId}
               onChange={(e) => setLegacyReviewerId(e.target.value)}
-              placeholder="Enter reviewer ID"
+              placeholder="Your user ID"
               className="w-full rounded border border-amber-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100"
             />
           </div>
@@ -260,7 +261,11 @@ export function ReviewPanel({
             <Button
               variant="success"
               size="sm"
-              onClick={() => onApprove(currentUserId ?? legacyReviewerId.trim())}
+              onClick={() => {
+                const id = currentUserId ?? legacyReviewerId.trim();
+                if (!id) return;
+                onApprove(id);
+              }}
               loading={isSubmitting}
               disabled={isSubmitting}
             >
@@ -286,7 +291,7 @@ export function ReviewPanel({
               size="sm"
               onClick={handleApprove}
               loading={isSubmitting && !showReject}
-              disabled={isSubmitting || !!qualityBlocked}
+              disabled={isSubmitting || !!qualityBlocked || (!hasReviewers && !legacyReviewerId.trim())}
             >
               <CheckCircle className="h-4 w-4" />
               Approve
@@ -298,7 +303,7 @@ export function ReviewPanel({
                 variant="destructive"
                 size="sm"
                 onClick={() => setShowReject(true)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || (!hasReviewers && !legacyReviewerId.trim())}
               >
                 <XCircle className="h-4 w-4" />
                 Reject

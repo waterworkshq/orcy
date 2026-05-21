@@ -372,9 +372,10 @@ export function getBurndown(habitatId: string, days: number, options?: { sprintI
 
   let startDate: Date;
   let effectiveDays: number;
+  let sprintRow: { startDate: string; endDate: string } | undefined;
 
   if (options?.sprintId) {
-    const sprintRow = db.select({ startDate: sprints.startDate, endDate: sprints.endDate }).from(sprints).where(eq(sprints.id, options.sprintId)).get();
+    sprintRow = db.select({ startDate: sprints.startDate, endDate: sprints.endDate }).from(sprints).where(eq(sprints.id, options.sprintId)).get();
     if (sprintRow) {
       startDate = new Date(sprintRow.startDate);
       const sprintEnd = new Date(sprintRow.endDate);
@@ -388,7 +389,7 @@ export function getBurndown(habitatId: string, days: number, options?: { sprintI
     effectiveDays = days;
   }
 
-  const endDate = now;
+  const endDate = options?.sprintId && sprintRow ? new Date(sprintRow.endDate) : now;
 
   const baseConditions = [eq(missions.habitatId, habitatId)];
   if (sprintFilter) baseConditions.push(sprintFilter);
@@ -465,7 +466,6 @@ export function getBurndown(habitatId: string, days: number, options?: { sprintI
     });
   }
 
-  const completedInPeriod = cumulativeCompleted - (totalTasks - remainingTasks - (cumulativeCompleted - completedTasks));
   const averageDailyVelocity = effectiveDays > 0 ? completedTasks / effectiveDays : 0;
 
   let estimatedCompletionDate: string | null = null;

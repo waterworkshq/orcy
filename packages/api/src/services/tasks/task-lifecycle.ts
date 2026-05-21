@@ -274,7 +274,10 @@ export function completeTask(
   if (!task) return { task: null };
 
   const habitatId = getHabitatId(task);
-  const metadata = { reviewNote, isSelfApproval: true };
+  const metadata = {
+    reviewNote,
+    isSelfApproval: !reviewAssignment.hasAssignedReviewers(taskId),
+  };
 
   eventRepo.createEvent({
     taskId,
@@ -343,6 +346,10 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
     if (!reviewAssignment.hasAllRequiredApprovals(taskId)) {
       return taskRepo.getTaskById(taskId);
     }
+
+    // Race condition guard: re-read to ensure task hasn't been transitioned by a concurrent approval
+    const fresh = taskRepo.getTaskById(taskId);
+    if (!fresh || fresh.status !== 'submitted') return fresh ?? null;
   }
 
   const task = taskRepo.approveTask(taskId);

@@ -10,6 +10,14 @@ import {
   removeTaskReviewer,
 } from './review.js';
 
+function requireArgs(action: string, args: Record<string, unknown>, keys: string[]): void {
+  for (const key of keys) {
+    if (!args[key]) {
+      throw new Error(`${key} is required for ${action}`);
+    }
+  }
+}
+
 export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
   name: 'orcy_review',
   description: 'Review rule operations: list, create, update, delete rules; list, add, remove task reviewers',
@@ -34,13 +42,34 @@ export const REVIEW_DISPATCH_TOOL: Tool = createDispatchTool({
 });
 
 export const REVIEW_ACTIONS: Record<string, Handler> = {
-  'list_rules': listReviewRules,
-  'create_rule': createReviewRule,
-  'update_rule': updateReviewRule,
-  'delete_rule': deleteReviewRule,
-  'list_reviewers': listTaskReviewers,
-  'add_reviewer': addTaskReviewer,
-  'remove_reviewer': removeTaskReviewer,
+  'list_rules': (client, args) => {
+    requireArgs('list_rules', args, ['boardId']);
+    return listReviewRules(client, args);
+  },
+  'create_rule': (client, args) => {
+    requireArgs('create_rule', args, ['boardId', 'name']);
+    return createReviewRule(client, args);
+  },
+  'update_rule': (client, args) => {
+    requireArgs('update_rule', args, ['ruleId']);
+    return updateReviewRule(client, args);
+  },
+  'delete_rule': (client, args) => {
+    requireArgs('delete_rule', args, ['ruleId']);
+    return deleteReviewRule(client, args);
+  },
+  'list_reviewers': (client, args) => {
+    requireArgs('list_reviewers', args, ['taskId']);
+    return listTaskReviewers(client, args);
+  },
+  'add_reviewer': (client, args) => {
+    requireArgs('add_reviewer', args, ['taskId', 'reviewerId']);
+    return addTaskReviewer(client, args);
+  },
+  'remove_reviewer': (client, args) => {
+    requireArgs('remove_reviewer', args, ['taskId', 'reviewerId']);
+    return removeTaskReviewer(client, args);
+  },
 };
 
 export const REVIEW_DISPATCH_HANDLER = createDispatchHandler(REVIEW_ACTIONS);

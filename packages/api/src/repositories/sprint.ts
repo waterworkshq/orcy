@@ -52,7 +52,9 @@ export function create(habitatId: string, data: {
     updatedAt: now,
   }).run();
 
-  return getById(id)!;
+  const result = getById(id);
+  if (!result) throw new Error(`Failed to create sprint: insert succeeded but read returned null`);
+  return result;
 }
 
 export function update(id: string, data: {
@@ -70,7 +72,7 @@ export function update(id: string, data: {
   const existing = getById(id);
   if (!existing) return null;
 
-  const values: Record<string, unknown> = { updatedAt: now };
+  const values: Partial<typeof sprints.$inferInsert> = { updatedAt: now };
   if (data.name !== undefined) values.name = data.name;
   if (data.goal !== undefined) values.goal = data.goal;
   if (data.startDate !== undefined) values.startDate = data.startDate;
@@ -79,7 +81,7 @@ export function update(id: string, data: {
   if (data.capacityMinutes !== undefined) values.capacityMinutes = data.capacityMinutes;
   if (data.notes !== undefined) values.notes = data.notes;
 
-  db.update(sprints).set(values as any).where(eq(sprints.id, id)).run();
+  db.update(sprints).set(values).where(eq(sprints.id, id)).run();
   return getById(id);
 }
 

@@ -140,17 +140,18 @@ describe('createDispatchHandler', () => {
     expect(JSON.parse(result.content[0].text)).toEqual(resultData);
   });
 
-  it('throws descriptive error for unknown actions', () => {
+  it('returns isError result for unknown actions', async () => {
     const client = createMockClient();
     const actions: Record<string, Handler> = {
       claim: vi.fn(),
     };
 
     const handler = createDispatchHandler(actions);
+    const result = await handler(client, { action: 'nonexistent' });
 
-    expect(() =>
-      handler(client, { action: 'nonexistent' })
-    ).toThrow('Unknown action: nonexistent');
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Unknown action: nonexistent');
+    expect(result.content[0].text).toContain('claim');
   });
 
   it('routes to the right handler when multiple actions exist', async () => {

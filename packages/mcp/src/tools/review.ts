@@ -1,5 +1,15 @@
 import type { KanbanApiClient } from '../api.js';
-import type { ReviewRule, TaskReviewer } from '@orcy/shared';
+import type { ReviewRule, TaskReviewer, ReviewRuleStrategy } from '@orcy/shared';
+
+const VALID_STRATEGIES: readonly string[] = ['domain_expert', 'round_robin', 'least_loaded', 'random', 'fixed'] as const;
+
+function parseStrategy(s: string | undefined): ReviewRuleStrategy | undefined {
+  if (!s) return undefined;
+  if (!VALID_STRATEGIES.includes(s)) {
+    throw new Error(`Invalid assignmentStrategy: ${s}. Must be one of: ${VALID_STRATEGIES.join(', ')}`);
+  }
+  return s as ReviewRuleStrategy;
+}
 
 export async function listReviewRules(
   client: KanbanApiClient,
@@ -31,7 +41,7 @@ export async function createReviewRule(
     matchDomain: args.matchDomain,
     matchLabels: args.matchLabels,
     matchPriority: args.matchPriority,
-    assignmentStrategy: args.assignmentStrategy as any,
+    assignmentStrategy: parseStrategy(args.assignmentStrategy),
     requiredReviews: args.requiredReviews,
     antiSelfReview: args.antiSelfReview,
     fixedReviewerIds: args.fixedReviewerIds,
@@ -61,7 +71,7 @@ export async function updateReviewRule(
     matchDomain: args.matchDomain,
     matchLabels: args.matchLabels,
     matchPriority: args.matchPriority,
-    assignmentStrategy: args.assignmentStrategy as any,
+    assignmentStrategy: parseStrategy(args.assignmentStrategy),
     requiredReviews: args.requiredReviews,
     antiSelfReview: args.antiSelfReview,
     fixedReviewerIds: args.fixedReviewerIds,

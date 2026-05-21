@@ -96,6 +96,7 @@ class SSEBroadcaster {
             taskId: event.data.taskId,
             mentionedUserId: event.data.mentionedId,
             mentionedByName: event.data.mentionedName,
+            commentContent: (event.data as Record<string, unknown>).commentContent as string | undefined,
           }, 'comment.mentioned');
         }
         break;

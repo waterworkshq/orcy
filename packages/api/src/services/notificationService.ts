@@ -197,14 +197,31 @@ export async function processEvent(
       break;
     }
     case 'task.priority_changed': {
+      // Notify the assigned agent
+      if (task.assignedAgentId) {
+        queue.push({
+          userId: task.assignedAgentId,
+          eventType: 'task.priority_changed',
+          buildEmail: () => emailService.priorityChangedTemplate(
+            taskTitle, habitatName,
+            data.oldPriority ?? 'medium', data.newPriority ?? 'medium'
+          ),
+        });
+      }
+      // Also notify admins
       const db3 = getDb();
       const adminRows3 = db3.select({ id: users.id }).from(users).where(eq(users.role, 'admin')).all();
       for (const row of adminRows3) {
-        queue.push({
-          userId: row.id,
-          eventType: 'task.priority_changed',
-          buildEmail: () => emailService.priorityChangedTemplate(taskTitle, habitatName, data.oldPriority ?? 'medium', data.newPriority ?? 'medium'),
-        });
+        if (row.id !== task.assignedAgentId) { // avoid duplicate
+          queue.push({
+            userId: row.id,
+            eventType: 'task.priority_changed',
+            buildEmail: () => emailService.priorityChangedTemplate(
+              taskTitle, habitatName,
+              data.oldPriority ?? 'medium', data.newPriority ?? 'medium'
+            ),
+          });
+        }
       }
       break;
     }
@@ -220,7 +237,7 @@ export async function processEvent(
     }
   }
 
-  for (const item of queue) {
-    await sendIfEnabled(item.userId, habitatId, item.eventType, item.buildEmail);
-  }
+  await Promise.allSettled(
+    queue.map(item => sendIfEnabled(item.userId, habitatId, item.eventType, item.buildEmail))
+  );
 }

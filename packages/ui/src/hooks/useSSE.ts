@@ -98,12 +98,15 @@ export function useSSE(boardId: string) {
         if (event.type === 'task.review_completed' && taskId) {
           qc.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
           qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
+          qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
         }
         break;
       case 'task.priority_changed':
         if (taskId) {
           qc.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
           qc.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+          qc.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
         }
         qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
         break;
@@ -112,6 +115,8 @@ export function useSSE(boardId: string) {
       case 'sprint.completed':
         qc.invalidateQueries({ queryKey: queryKeys.sprints.list(boardId) });
         qc.invalidateQueries({ queryKey: queryKeys.sprints.active(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.missions.list(boardId) });
+        qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
         if ('sprintId' in event.data) {
           qc.invalidateQueries({ queryKey: queryKeys.sprints.detail((event.data as { sprintId: string }).sprintId) });
         }

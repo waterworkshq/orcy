@@ -49,12 +49,16 @@ describe('createDispatchHandler', () => {
     expect(result.content[0].text).toBe(JSON.stringify('result2', null, 2));
   });
 
-  it('throws for unknown action', () => {
+  it('returns isError for unknown action', async () => {
     const actions = { 'valid-action': vi.fn() };
     const handler = createDispatchHandler(actions);
 
     const client = {} as any;
-    expect(() => handler(client, { action: 'unknown-action' })).toThrow('Unknown action: unknown-action');
+    const result = await handler(client, { action: 'unknown-action' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Unknown action: unknown-action');
+    expect(result.content[0].text).toContain('valid-action');
   });
 });
 

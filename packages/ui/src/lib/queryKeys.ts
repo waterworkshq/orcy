@@ -32,6 +32,7 @@ export const queryKeys = {
     comments: (taskId: string) => [...queryKeys.tasks.all, 'comments', taskId] as const,
     quality: (taskId: string) => [...queryKeys.tasks.all, 'quality', taskId] as const,
     reviewers: (taskId: string) => [...queryKeys.tasks.all, 'reviewers', taskId] as const,
+    approvalStatus: (taskId: string) => [...queryKeys.tasks.all, 'approvalStatus', taskId] as const,
   },
   agents: {
     all: ['agents'] as const,

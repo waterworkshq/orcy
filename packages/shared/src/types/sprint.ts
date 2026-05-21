@@ -47,5 +47,4 @@ export interface SprintUpdateInput {
   endDate?: string;
   capacityMinutes?: number | null;
   notes?: string;
-  status?: SprintStatus;
 }

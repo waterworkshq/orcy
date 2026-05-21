@@ -41,23 +41,23 @@ interface TypeConfig<T> {
 }
 
 const CONDITIONS: Record<string, TypeConfig<PrioritizationRuleCondition>> = {
-  overdue:           { label: 'Overdue',           fields: [{ kind: 'number', key: 'byDays', label: 'By days (0 = any overdue)', min: 0, fallback: 0 }], defaults: { type: 'overdue', byDays: 0 } as PrioritizationRuleCondition, describe: c => `overdue by ${(c as any).byDays ?? 0}d` },
-  sla_approaching:   { label: 'SLA Approaching',   fields: [{ kind: 'number', key: 'withinHours', label: 'Within hours', min: 1, fallback: 1 }], defaults: { type: 'sla_approaching', withinHours: 4 } as PrioritizationRuleCondition, describe: c => `SLA within ${(c as any).withinHours}h` },
-  due_soon:          { label: 'Due Soon',           fields: [{ kind: 'number', key: 'withinDays', label: 'Within days', min: 1, fallback: 1 }], defaults: { type: 'due_soon', withinDays: 3 } as PrioritizationRuleCondition, describe: c => `due within ${(c as any).withinDays}d` },
-  pending_duration:  { label: 'Pending Duration',   fields: [{ kind: 'number', key: 'greaterThanHours', label: 'Greater than (hours)', min: 1, fallback: 1 }], defaults: { type: 'pending_duration', greaterThanHours: 72 } as PrioritizationRuleCondition, describe: c => `pending >${(c as any).greaterThanHours}h` },
-  dependency_count:  { label: 'Dependency Count',   grid: true, fields: [{ kind: 'number', key: 'greaterThan', label: 'Greater than', min: 0, fallback: 0 }, { kind: 'select', key: 'direction', label: 'Direction', options: [{ value: 'blocking', label: 'Blocking' }, { value: 'blocked_by', label: 'Blocked by' }] }], defaults: { type: 'dependency_count', greaterThan: 3, direction: 'blocking' } as PrioritizationRuleCondition, describe: c => `${(c as any).direction} ${(c as any).greaterThan}+ deps` },
-  rejection_count:   { label: 'Rejection Count',    fields: [{ kind: 'number', key: 'greaterThan', label: 'Greater than', min: 0, fallback: 0 }], defaults: { type: 'rejection_count', greaterThan: 3 } as PrioritizationRuleCondition, describe: c => `rejected ${(c as any).greaterThan}+ times` },
-  mission_status:    { label: 'Mission Status',     fields: [{ kind: 'text', key: 'status', label: 'Status', placeholder: 'e.g. at_risk, in_progress' }], defaults: { type: 'mission_status', status: 'at_risk' } as PrioritizationRuleCondition, describe: c => `mission is ${(c as any).status}` },
-  agent_idle:        { label: 'Agent Idle',         fields: [{ kind: 'number', key: 'greaterThanMinutes', label: 'Greater than (minutes)', min: 1, fallback: 1 }], defaults: { type: 'agent_idle', greaterThanMinutes: 30 } as PrioritizationRuleCondition, describe: c => `idle >${(c as any).greaterThanMinutes}min` },
-  label_match:       { label: 'Label Match',        fields: [{ kind: 'text', key: 'labels', label: 'Labels (comma-separated)', placeholder: 'e.g. urgent, security', toInput: (v: any) => Array.isArray(v) ? v.join(', ') : '', toState: (v: string) => v.split(',').map(s => s.trim()).filter(Boolean) }], defaults: { type: 'label_match', labels: [] } as PrioritizationRuleCondition, describe: c => `label [${(c as any).labels.join(', ')}]` },
-  priority_is:       { label: 'Priority Is',        fields: [{ kind: 'select', key: 'priority', label: 'Priority', options: [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }] }], defaults: { type: 'priority_is', priority: 'low' } as PrioritizationRuleCondition, describe: c => `priority is ${(c as any).priority}` },
+  overdue:           { label: 'Overdue',           fields: [{ kind: 'number', key: 'byDays', label: 'By days (0 = any overdue)', min: 0, fallback: 0 }], defaults: { type: 'overdue', byDays: 0 } as PrioritizationRuleCondition, describe: c => `overdue by ${(c as Extract<PrioritizationRuleCondition, { type: 'overdue' }>).byDays ?? 0}d` },
+  sla_approaching:   { label: 'SLA Approaching',   fields: [{ kind: 'number', key: 'withinHours', label: 'Within hours', min: 1, fallback: 1 }], defaults: { type: 'sla_approaching', withinHours: 4 } as PrioritizationRuleCondition, describe: c => `SLA within ${(c as Extract<PrioritizationRuleCondition, { type: 'sla_approaching' }>).withinHours}h` },
+  due_soon:          { label: 'Due Soon',           fields: [{ kind: 'number', key: 'withinDays', label: 'Within days', min: 1, fallback: 1 }], defaults: { type: 'due_soon', withinDays: 3 } as PrioritizationRuleCondition, describe: c => `due within ${(c as Extract<PrioritizationRuleCondition, { type: 'due_soon' }>).withinDays}d` },
+  pending_duration:  { label: 'Pending Duration',   fields: [{ kind: 'number', key: 'greaterThanHours', label: 'Greater than (hours)', min: 1, fallback: 1 }], defaults: { type: 'pending_duration', greaterThanHours: 72 } as PrioritizationRuleCondition, describe: c => `pending >${(c as Extract<PrioritizationRuleCondition, { type: 'pending_duration' }>).greaterThanHours}h` },
+  dependency_count:  { label: 'Dependency Count',   grid: true, fields: [{ kind: 'number', key: 'greaterThan', label: 'Greater than', min: 0, fallback: 0 }, { kind: 'select', key: 'direction', label: 'Direction', options: [{ value: 'blocking', label: 'Blocking' }, { value: 'blocked_by', label: 'Blocked by' }] }], defaults: { type: 'dependency_count', greaterThan: 3, direction: 'blocking' } as PrioritizationRuleCondition, describe: c => { const narrowed = c as Extract<PrioritizationRuleCondition, { type: 'dependency_count' }>; return `${narrowed.direction} ${narrowed.greaterThan}+ deps`; } },
+  rejection_count:   { label: 'Rejection Count',    fields: [{ kind: 'number', key: 'greaterThan', label: 'Greater than', min: 0, fallback: 0 }], defaults: { type: 'rejection_count', greaterThan: 3 } as PrioritizationRuleCondition, describe: c => `rejected ${(c as Extract<PrioritizationRuleCondition, { type: 'rejection_count' }>).greaterThan}+ times` },
+  mission_status:    { label: 'Mission Status',     fields: [{ kind: 'text', key: 'status', label: 'Status', placeholder: 'e.g. at_risk, in_progress' }], defaults: { type: 'mission_status', status: 'at_risk' } as PrioritizationRuleCondition, describe: c => `mission is ${(c as Extract<PrioritizationRuleCondition, { type: 'mission_status' }>).status}` },
+  agent_idle:        { label: 'Agent Idle',         fields: [{ kind: 'number', key: 'greaterThanMinutes', label: 'Greater than (minutes)', min: 1, fallback: 1 }], defaults: { type: 'agent_idle', greaterThanMinutes: 30 } as PrioritizationRuleCondition, describe: c => `idle >${(c as Extract<PrioritizationRuleCondition, { type: 'agent_idle' }>).greaterThanMinutes}min` },
+  label_match:       { label: 'Label Match',        fields: [{ kind: 'text', key: 'labels', label: 'Labels (comma-separated)', placeholder: 'e.g. urgent, security', toInput: (v: any) => Array.isArray(v) ? v.join(', ') : '', toState: (v: string) => v.split(',').map(s => s.trim()).filter(Boolean) }], defaults: { type: 'label_match', labels: [] } as PrioritizationRuleCondition, describe: c => `label [${(c as Extract<PrioritizationRuleCondition, { type: 'label_match' }>).labels.join(', ')}]` },
+  priority_is:       { label: 'Priority Is',        fields: [{ kind: 'select', key: 'priority', label: 'Priority', options: [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }] }], defaults: { type: 'priority_is', priority: 'low' } as PrioritizationRuleCondition, describe: c => `priority is ${(c as Extract<PrioritizationRuleCondition, { type: 'priority_is' }>).priority}` },
 };
 
 const ACTIONS: Record<string, TypeConfig<PrioritizationRuleAction>> = {
-  set_priority:    { label: 'Set Priority',  fields: [{ kind: 'select', key: 'value', label: 'Priority', options: [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }] }], defaults: { type: 'set_priority', value: 'high' } as PrioritizationRuleAction, describe: a => `set priority to ${(a as any).value}` },
-  bump_priority:   { label: 'Bump Priority', fields: [{ kind: 'number', key: 'value', label: 'Bump by', min: -5, fallback: 1 }], defaults: { type: 'bump_priority', value: 1 } as PrioritizationRuleAction, describe: a => `bump priority by ${(a as any).value}` },
-  add_label:       { label: 'Add Label',     fields: [{ kind: 'text', key: 'value', label: 'Label', placeholder: 'e.g. stale' }], defaults: { type: 'add_label', value: '' } as PrioritizationRuleAction, describe: a => `add label "${(a as any).value}"` },
-  set_score_bonus: { label: 'Score Bonus',   fields: [{ kind: 'number', key: 'value', label: 'Score bonus (negative to penalize)', fallback: 0 }], defaults: { type: 'set_score_bonus', value: 10 } as PrioritizationRuleAction, describe: a => { const v = (a as any).value; return `score ${v > 0 ? '+' : ''}${v}`; } },
+  set_priority:    { label: 'Set Priority',  fields: [{ kind: 'select', key: 'value', label: 'Priority', options: [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }] }], defaults: { type: 'set_priority', value: 'high' } as PrioritizationRuleAction, describe: a => `set priority to ${(a as Extract<PrioritizationRuleAction, { type: 'set_priority' }>).value}` },
+  bump_priority:   { label: 'Bump Priority', fields: [{ kind: 'number', key: 'value', label: 'Bump by', min: -5, fallback: 1 }], defaults: { type: 'bump_priority', value: 1 } as PrioritizationRuleAction, describe: a => `bump priority by ${(a as Extract<PrioritizationRuleAction, { type: 'bump_priority' }>).value}` },
+  add_label:       { label: 'Add Label',     fields: [{ kind: 'text', key: 'value', label: 'Label', placeholder: 'e.g. stale' }], defaults: { type: 'add_label', value: '' } as PrioritizationRuleAction, describe: a => `add label "${(a as Extract<PrioritizationRuleAction, { type: 'add_label' }>).value}"` },
+  set_score_bonus: { label: 'Score Bonus',   fields: [{ kind: 'number', key: 'value', label: 'Score bonus (negative to penalize)', fallback: 0 }], defaults: { type: 'set_score_bonus', value: 10 } as PrioritizationRuleAction, describe: a => { const v = (a as Extract<PrioritizationRuleAction, { type: 'set_score_bonus' }>).value; return `score ${v > 0 ? '+' : ''}${v}`; } },
 };
 
 const CONDITION_OPTIONS = Object.entries(CONDITIONS).map(([value, cfg]) => ({ value, label: cfg.label }));
@@ -94,11 +94,11 @@ function describeAction(a: PrioritizationRuleAction): string {
 const INPUT_CLS = 'w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary';
 const LABEL_CLS = 'mb-1 block text-xs text-muted-foreground';
 
-function renderField<T>(obj: T, field: FieldSpec, onChange: (updated: T) => void) {
-  const raw = (obj as any)[field.key];
+function renderField<T extends Record<string, unknown>>(obj: T, field: FieldSpec, onChange: (updated: T) => void) {
+  const raw = obj[field.key];
 
   if (field.kind === 'number') {
-    const value = raw ?? field.fallback ?? 0;
+    const value = (raw as number) ?? field.fallback ?? 0;
     return (
       <div key={field.key}>
         <label className={LABEL_CLS}>{field.label}</label>
@@ -110,7 +110,7 @@ function renderField<T>(obj: T, field: FieldSpec, onChange: (updated: T) => void
   }
 
   if (field.kind === 'text') {
-    const value = field.toInput ? field.toInput(raw) : (raw ?? '');
+    const value = field.toInput ? field.toInput(raw) : ((raw as string) ?? '');
     return (
       <div key={field.key}>
         <label className={LABEL_CLS}>{field.label}</label>
@@ -124,7 +124,7 @@ function renderField<T>(obj: T, field: FieldSpec, onChange: (updated: T) => void
   return (
     <div key={field.key}>
       <label className={LABEL_CLS}>{field.label}</label>
-      <select value={raw} onChange={e => onChange({ ...obj, [field.key]: e.target.value } as T)} className={INPUT_CLS}>
+      <select value={raw as string} onChange={e => onChange({ ...obj, [field.key]: e.target.value } as T)} className={INPUT_CLS}>
         {field.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </div>
@@ -375,6 +375,17 @@ export const PrioritizationTab = forwardRef<PrioritizationTabHandle, Prioritizat
         const parsed = JSON.parse(advancedText);
         if (!Array.isArray(parsed)) {
           setValidationError('Rules must be a JSON array');
+          return;
+        }
+        const isValid = parsed.every(r =>
+          r && typeof r === 'object' &&
+          typeof r.id === 'string' &&
+          typeof r.name === 'string' &&
+          r.condition && typeof r.condition.type === 'string' &&
+          r.action && typeof r.action.type === 'string'
+        );
+        if (!isValid) {
+          setValidationError('Each rule must have id, name, condition.type, and action.type');
           return;
         }
         rulesToSave = parsed;

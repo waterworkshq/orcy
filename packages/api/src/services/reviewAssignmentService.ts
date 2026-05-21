@@ -68,6 +68,8 @@ export function getEligibleReviewers(habitatId: string, excludeUserId?: string):
     }));
 }
 
+// NOTE: Round-robin counters are in-memory only. They reset on server restart.
+// For multi-instance deployments, use 'least_loaded' or 'random' instead.
 const roundRobinCounters = new Map<string, number>();
 
 export function resetRoundRobinCounter(habitatId?: string): void {
@@ -169,11 +171,12 @@ export function isAssignedReviewer(taskId: string, reviewerId: string): boolean 
 export function recordApproval(taskId: string, reviewerId: string): boolean {
   const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId);
   if (!reviewer) return false;
+  if (reviewer.status === 'approved') return true; // already approved, idempotent
   taskReviewerRepo.updateStatus(reviewer.id, 'approved');
   return true;
 }
 
-export function hasAllRequiredApprovals(taskId: string): boolean {
+export function hasAllRequiredApprovals(taskId: string, requiredCount?: number): boolean {
   const reviewers = taskReviewerRepo.getByTaskId(taskId);
   if (reviewers.length === 0) return true;
 
@@ -181,5 +184,6 @@ export function hasAllRequiredApprovals(taskId: string): boolean {
   const pendingCount = reviewers.filter(r => r.status === 'pending').length;
 
   if (pendingCount > 0) return false;
-  return approvedCount >= reviewers.length;
+  const threshold = requiredCount ?? reviewers.length;
+  return approvedCount >= threshold;
 }
