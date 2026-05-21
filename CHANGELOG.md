@@ -2,6 +2,20 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.11.1 — 2026-05-21
+
+### Bug Fixes
+
+#### enforce antiSelfReview, refactor ReviewRulesTab to React Query, optimize SprintDashboard ([`28543aa`](https://github.com/waterworkshq/orcy/commit/28543aa84e133d2b8a9d2d256bb3e679634cfc64))
+
+1. Enforce antiSelfReview: exclude task creator from reviewer pool when flag enabled
+2. ReviewRulesTab: replace manual useState+useEffect with useQuery/useMutation
+3. and centralized queryKeys.reviewRules
+4. SprintDashboard: shallow comparison on store selectors, useMemo for derived
+5. data, fix velocity calculation (Math.floor), extract TERMINAL_STATUSES constant
+
+
+
 ## 0.11.0 — 2026-05-20
 
 ### Bug Fixes
@@ -157,19 +171,3 @@
 5. task-lifecycle: add deprecation warning when agents self-complete
 6. tasks without human review (gated enforcement in v0.11 review rules)
 7. shared/events: update task.priority_changed discriminated union type
-
-
-
-## 0.10.1 — 2026-05-19
-
-### Bug Fixes
-
-#### fix stale pulse FK refs and shared config TOCTOU ([`21d76ed`](https://github.com/waterworkshq/orcy/commit/21d76ed5d155879459e281e290502239304dd903))
-
-1. Add migration 0008_fix_stale_fks to recreate pulses table with correct
-2. FK references (habitats/missions instead of boards/features). Fixes
-3. pulse auto-signals silently failing in test DB and fresh production
-4. installs where migration 0007 was never applied (missing from journal).
-5. Register 0008 in drizzle journal and test migration runner.
-6. Wrap loadDotEnv() in try/catch to handle TOCTOU race when .env file
-7. disappears between existsSync and readFileSync.
