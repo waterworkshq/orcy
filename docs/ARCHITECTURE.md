@@ -665,3 +665,82 @@ Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
 | `scheduled_task.executed` | Scheduled task creates mission | `{ scheduleId, missionId, missionTitle }` |
 | `scheduled_task.failed` | Execution fails | `{ scheduleId, error }` |
 | `scheduled_task.created` | New schedule configured | `{ scheduleId, name }` |
+
+## External Integrations (v0.12)
+
+### Intake Architecture
+
+External issue trackers (GitHub Issues, eventually Jira/Linear) act as **intake surfaces**, not mirrored task boards. Orcy remains the execution system — external issues flow through an authority gradient:
+
+```
+external issue → intake candidate → refined mission → Orcy tasks
+```
+
+This is pull-first and downstream: `external issue → Orcy mission`. No default writeback to external trackers.
+
+### Provider Posture by Default
+
+| Provider | Default authority | Rationale |
+|----------|-------------------|-----------|
+| GitHub Issues | Direct mission import (toggle-controlled) | Usually close to technical execution work |
+| Jira | Intake candidate | Highly variable ticket quality and stakeholder language |
+| Linear | Intake candidate | Product/roadmap context, not always execution-ready |
+
+GitHub can be configured for direct import (`autoImport: true`) during connection setup. Jira and Linear default to intake candidates that a human/orcy reviews before promoting to missions. The `external_intake_candidates` table holds reviewable source evidence — titles, descriptions, priority, labels, assignees, and raw provider payloads — without automatically creating missions.
+
+### Source Evidence vs. Orcy Execution Authority
+
+An external issue link (`external_issue_links`) is durable provenance, not canonical execution state. The Orcy mission owns its own lifecycle: status, priority, labels, task decomposition. External issue edits update linked missions (title, body, labels) but never overwrite Orcy-only state. The guarded close rule protects active work: an upstream issue closure only marks a mission `done` if all its tasks are terminal; otherwise it adds an `external-closed` label and sync warning.
+
+### Sync Service
+
+Located at `packages/api/src/services/integrations/syncService.ts`. Core responsibilities:
+
+- **`syncConnection(id, trigger, adapter)`** — Full sync of all open issues from a provider. Creates a `integration_sync_run` record, iterates external issues, and delegates per-issue logic to `syncExternalIssue`. Updates connection last-sync state on completion.
+- **`syncExternalIssue(connectionId, issue, trigger)`** — Per-issue import logic. Implements link-first idempotency: checks `external_issue_links` by connection/external-id before creating a mission. Creates new missions in the habitat's `Todo` column (or next available non-terminal column as fallback). Applies label provenance and guarded close behavior.
+
+The sync service is provider-neutral — it accepts an `IssueProviderAdapter` interface. GitHub, Jira, and Linear adapters implement this interface. Tests use a fake adapter that returns synthetic issues.
+
+### Adapter Interface
+
+```typescript
+interface IssueProviderAdapter {
+  provider: string;
+  listIssues(params: { owner: string; repo: string; state: string; }) → ExternalIssue[];
+  getIssue(params: { owner: string; repo: string; issueNumber: number; }) → ExternalIssue | null;
+}
+```
+
+The GitHub adapter (`githubAdapter.ts`) implements this with REST API calls, pagination handling, and pull request filtering.
+
+### Webhook Flow
+
+```
+GitHub Issue Event → POST /webhooks/github/issues → webhookService.handleGitHubIssueWebhook()
+  → Verify HMAC signature (constant-time)
+  → Match repository owner/name to enabled connection(s)
+  → Route event to syncExternalIssue (opened/reopened/edited) or guarded close (closed)
+```
+
+Supported events: `opened`, `reopened`, `edited`, `labeled`, `unlabeled`, `closed`. Unlinked issues with auto-import enabled are imported; without auto-import, unlinked events are no-ops. Pull requests in the issue payload are filtered out.
+
+### Component Layout
+
+```
+packages/api/
+  src/services/integrations/
+    types.ts              — Adapter interface + result types
+    syncService.ts        — Core sync logic (provider-neutral)
+    githubAdapter.ts      — GitHub REST adapter + webhook creation
+    githubOAuth.ts        — Device flow start/poll + viewer lookup
+    webhookService.ts     — Webhook handler (HMAC verify → route)
+    columnResolver.ts     — Find Todo/fallback column for imports
+  src/repositories/
+    integrationConnection.ts   — Connection CRUD + toView() mask
+    externalIssueLink.ts       — Issue link CRUD
+    integrationSyncRun.ts      — Sync run tracking
+  src/routes/
+    integrations.ts           — 9 API endpoints (CRUD, sync, OAuth, links)
+    githubIssueWebhooks.ts    — Webhook route (raw body → verify → handle)
+  src/db/schema/integration.ts — Drizzle schema for 4 tables
+```

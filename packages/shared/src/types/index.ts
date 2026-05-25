@@ -28,3 +28,6 @@ export type { ReviewRule, TaskReviewer, ReviewRuleCreateInput, ReviewRuleUpdateI
 
 export type { SprintStatus, CarryOverPolicy } from './sprint.js';
 export type { Sprint, SprintMetrics, SprintCreateInput, SprintUpdateInput } from './sprint.js';
+
+export type { IntegrationProvider, IntegrationAuthMethod, IntegrationSyncStatus, IntegrationSyncRunStatus, IntegrationSyncTrigger, ExternalIssueStatus, ExternalIssueLinkSyncStatus, ExternalIntakeReviewStatus } from './integration.js';
+export type { IntegrationConnection, IntegrationConnectionView, ExternalIssue, ExternalIntakeCandidate, ExternalIssueLink, IntegrationSyncRun } from './integration.js';

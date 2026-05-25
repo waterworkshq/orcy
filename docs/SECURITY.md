@@ -338,6 +338,61 @@ The API uses `@fastify/helmet` for security headers. `Content-Security-Policy` i
 
 ---
 
+## External Integrations Security (v0.12)
+
+### Token Storage
+
+OAuth access tokens and PATs are stored in the local SQLite database (`integration_connections.access_token`). Orcy runs as a local-first tool — SQLite file permissions are the primary security boundary. API responses never expose stored tokens: the `toView()` masking function replaces `access_token`, `refresh_token`, and `webhook_secret` with boolean presence indicators (`hasAccessToken` / `hasRefreshToken` / `hasWebhookSecret`). Tokens are redacted from logs.
+
+Deployers are responsible for database file protection. Future hardening may add OS keychain integration or encrypted-at-rest token storage.
+
+### API Response Masking
+
+All integration connection endpoints return `IntegrationConnectionView`, a DTO that excludes sensitive fields:
+- `accessToken` → `hasAccessToken: boolean`
+- `refreshToken` → `hasRefreshToken: boolean`  
+- `webhookSecret` → `hasWebhookSecret: boolean`
+
+Connection listing, creation responses, and update responses all use this mask. The raw token values are never transmitted after the initial creation request.
+
+### Webhook HMAC Verification
+
+GitHub issue webhooks are received at `POST /webhooks/github/issues`. Verification uses constant-time HMAC-SHA256 comparison:
+
+1. Raw request body is preserved for signature computation
+2. `X-Hub-Signature-256` header is compared against `sha256=<hmac(secret, rawBody)>`
+3. Secret lookup matches against enabled GitHub connections for the repository owner/name in the payload
+4. Invalid signatures are rejected (fail-closed)
+5. Connections without a webhook secret are skipped silently (no-op)
+
+Implementation: `verifyGitHubHmac()` in `packages/api/src/config/integrationSecurity.ts`.
+
+### OAuth and PAT Scope Expectations
+
+**Device flow (primary):** Uses GitHub OAuth device authorization grant. Requested scopes: `repo` (issues read/write + webhook management) and `read:user` (account name display). Only the embedded `client_id` is needed — no `client_secret` is required for device flow. The `client_id` can be overridden via `ORCY_GITHUB_OAUTH_CLIENT_ID` environment variable for self-hosted deployments.
+
+**PAT fallback:** Users provide a Personal Access Token with `repo` scope. The token is entered once and never displayed again. PATs created via GitHub's token settings page (`github.com/settings/tokens`) can be revoked at any time.
+
+### Recoverable Webhook-Permission Failure
+
+Webhook creation is attempted during connection setup via `githubAdapter.createGitHubWebhook()`. If the PAT lacks `admin:repo_hook` permission, GitHub returns 403. Orcy treats this as a recoverable setup warning — the connection remains usable for manual sync. The user can add webhook permissions and re-try webhook configuration later.
+
+### SSRF Posture
+
+v0.12 uses a fixed GitHub API base URL (`https://api.github.com`). No user-supplied provider URLs are accepted for outbound requests. Future support for self-hosted GitHub Enterprise or custom Jira/Linear instances will reuse the existing SSRF validation in `integrationSecurity.ts` (`validateOutboundUrl()`) which blocks private/loopback/link-local IPs and unsafe schemes.
+
+### Threat Model Additions
+
+| Threat | Mitigation | Status |
+|--------|-----------|--------|
+| Token exposure in API responses | `toView()` DTO masking | Implemented |
+| Webhook signature spoofing | Constant-time HMAC-SHA256 verification | Implemented |
+| OAuth client ID extraction | Device flow needs only `client_id` (not secret); embedded value is public | Accepted |
+| SQLite token theft | Local filesystem permissions; documented as deployer responsibility | Documented |
+| Outbound SSRF via provider URLs | Fixed GitHub API base; future URLs validated via existing SSRF checks | Implemented |
+
+---
+
 ## Production Security Checklist
 
 - [x] Signed JWT authentication with HS256

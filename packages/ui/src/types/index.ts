@@ -66,6 +66,20 @@ import type {
   ReviewRuleCreateInput,
   ReviewRuleUpdateInput,
   SprintCreateInput,
+  IntegrationProvider,
+  IntegrationAuthMethod,
+  IntegrationSyncStatus,
+  IntegrationSyncRunStatus,
+  IntegrationSyncTrigger,
+  ExternalIssueStatus,
+  ExternalIssueLinkSyncStatus,
+  ExternalIntakeReviewStatus,
+  IntegrationConnection,
+  IntegrationConnectionView,
+  ExternalIssue,
+  ExternalIntakeCandidate,
+  ExternalIssueLink,
+  IntegrationSyncRun,
 } from '@orcy/shared';
 
 export type {
@@ -136,6 +150,20 @@ export type {
   ReviewRuleCreateInput,
   ReviewRuleUpdateInput,
   SprintCreateInput,
+  IntegrationProvider,
+  IntegrationAuthMethod,
+  IntegrationSyncStatus,
+  IntegrationSyncRunStatus,
+  IntegrationSyncTrigger,
+  ExternalIssueStatus,
+  ExternalIssueLinkSyncStatus,
+  ExternalIntakeReviewStatus,
+  IntegrationConnection,
+  IntegrationConnectionView,
+  ExternalIssue,
+  ExternalIntakeCandidate,
+  ExternalIssueLink,
+  IntegrationSyncRun,
 };
 
 export interface EnrichedHabitatEvent {

@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.11.0 | **Updated:** 2026-05-20
+> **Version:** v0.12.0 | **Updated:** 2026-05-25
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -22,23 +22,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.9.1–v0.9.4 | Patch fixes — post-release audit (20 issues), API docs restoration, R16 React Query unification (17 components), release tooling fixes, scheduled task title templating (`{{date}}`/`{{counter}}` tokens) |
 | v0.10.0 | "Breaking Change" — naming consistency (`board→habitat`, `feature→mission` across 5 packages, 9 DB tables, 200 routes, 12 MCP tools, 12 SSE event types), unified `orcy_*` MCP tool prefix |
 | v0.11.0 | "Guardrails" — review assignment rules (domain routing, anti-self-review, multi-reviewer approval gates), sprint/iteration management (time-boxed sprints, burndown, carry-over policies), visual rule builder (data-driven config tables with sortable cards), mobile table view (card-based responsive fallback), notification preferences (review assigned + priority changed toggles), SSE cache invalidation for all new event types |
+| v0.12.0 | "Fit In" — GitHub Issues sync (OAuth device flow primary, PAT fallback), external issue intake with guarded close protection, webhook-driven updates (HMAC-verified), provider-neutral adapter framework with GitHub adapter, intake candidate system for Jira/Linear, integration settings tab with connection management, external issue badges on missions |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.12.0 — "Fit In"
-
-Orcy integrates with the tools teams already use.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| GitHub Issues Sync | Bidirectional sync between GitHub Issues and Orcy missions |
-| Jira / Linear Integration | Provider-agnostic framework with Jira + Linear adapters |
-
-**Why together:** Both are integrations. GitHub Issues sync is the foundation — the abstraction layer for the Jira/Linear framework is the same one GitHub uses. Sequential dependency, ship together.
 
 ---
 

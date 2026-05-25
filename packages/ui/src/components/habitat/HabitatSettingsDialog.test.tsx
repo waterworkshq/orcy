@@ -141,6 +141,10 @@ vi.mock('./settings/ScheduledTasksTab.js', () => ({
   ScheduledTasksTab: () => <div data-testid="scheduled-tasks-tab">ScheduledTasksTab</div>,
 }));
 
+vi.mock('./settings/IntegrationsTab.js', () => ({
+  IntegrationsTab: () => <div data-testid="integrations-tab">IntegrationsTab</div>,
+}));
+
 const mockHabitat: Habitat = {
   id: 'b1',
   name: 'Test Habitat',
@@ -202,6 +206,7 @@ describe('HabitatSettingsDialog', () => {
     expect(screen.getByText('Auto-Assign')).toBeTruthy();
     expect(screen.getByText('Prioritization')).toBeTruthy();
     expect(screen.getByText('Scheduled Tasks')).toBeTruthy();
+    expect(screen.getByText('Integrations')).toBeTruthy();
   });
 
   it('shows GeneralTab by default', () => {
@@ -272,17 +277,30 @@ describe('HabitatSettingsDialog', () => {
     expect(screen.getByText('Cancel')).toBeTruthy();
   });
 
+  it('renders no save button for integrations tab', () => {
+    renderDialog();
+    fireEvent.click(screen.getByText('Integrations'));
+    expect(screen.queryByText('Save')).toBeNull();
+    expect(screen.getByText('Cancel')).toBeTruthy();
+  });
+
+  it('renders Integrations tab content on click', () => {
+    renderDialog();
+    fireEvent.click(screen.getByText('Integrations'));
+    expect(screen.getByTestId('integrations-tab')).toBeTruthy();
+  });
+
   it('does not render when open=false', () => {
     renderDialog({ open: false });
     expect(screen.queryByTestId('dialog')).toBeNull();
   });
 
-  it('renders 8 tab buttons', () => {
+  it('renders 9 tab buttons', () => {
     renderDialog();
     const tabButtons = screen.getAllByRole('button').filter(
-      btn => ['General', 'Notifications', 'Chat Integrations', 'Retry Policy', 'Anomaly Detection', 'Auto-Assign', 'Prioritization', 'Scheduled Tasks']
+      btn => ['General', 'Notifications', 'Chat Integrations', 'Retry Policy', 'Anomaly Detection', 'Auto-Assign', 'Prioritization', 'Scheduled Tasks', 'Integrations']
         .includes(btn.textContent || '')
     );
-    expect(tabButtons.length).toBe(8);
+    expect(tabButtons.length).toBe(9);
   });
 });

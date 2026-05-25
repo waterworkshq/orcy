@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
-import { useMissionDetails } from '../../lib/useHabitatData.js';
+import { useMissionDetails, useMissionExternalLinks } from '../../lib/useHabitatData.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { Button } from '../ui/Button.js';
 import { Badge } from '../ui/Badge.js';
 import { CreateTaskForm } from './CreateTaskForm.js';
+import { ExternalIssueBadge } from './ExternalIssueBadge.js';
 import { X, Plus, Sparkles, Trash2, ChevronRight, Clock, CheckCircle, AlertCircle, Loader2, Archive, RefreshCw } from 'lucide-react';
 import type { Task, MissionWithProgress } from '../../types/index.js';
 
@@ -24,6 +25,7 @@ const taskStatusVariant: Record<string, string> = {
 export function FeatureDetailPanel() {
   const { selectedMissionId, setSelectedMission, features, columns } = useHabitatStore();
   const { data: detailsData, isLoading } = useMissionDetails(selectedMissionId ?? undefined);
+  const { data: externalLinksData } = useMissionExternalLinks(selectedMissionId ?? undefined);
   const feature = features.find((f) => f.id === selectedMissionId);
 
   const [showCreateTask, setShowCreateTask] = useState(false);
@@ -127,6 +129,8 @@ export function FeatureDetailPanel() {
               </span>
             ))}
           </div>
+
+          <ExternalIssueBadge links={externalLinksData?.externalLinks ?? []} />
 
           {total > 0 && (
             <div>

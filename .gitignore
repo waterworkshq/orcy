@@ -44,6 +44,7 @@ bunfig.toml
 .claude/
 docs/plans/
 docs/archive/
+docs/deferred/
 docs/superpowers/plans/
 .compozy/
 .kilo/

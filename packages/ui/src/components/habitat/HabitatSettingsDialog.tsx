@@ -11,13 +11,14 @@ import { AutoAssignTab, type AutoAssignTabHandle } from './settings/AutoAssignTa
 import { PrioritizationTab, type PrioritizationTabHandle } from './settings/PrioritizationTab.js';
 import { ScheduledTasksTab } from './settings/ScheduledTasksTab.js';
 import { ReviewRulesTab } from './settings/ReviewRulesTab.js';
+import { IntegrationsTab } from './settings/IntegrationsTab.js';
 import { ExportHabitatDialog } from './ExportHabitatDialog.js';
 import { ImportHabitatDialog } from './ImportHabitatDialog.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import type { Habitat } from '../../types/index.js';
 
-type SettingsTab = 'general' | 'notifications' | 'chat' | 'retry' | 'anomaly' | 'auto_assign' | 'prioritization' | 'scheduled_tasks' | 'review_rules';
+type SettingsTab = 'general' | 'notifications' | 'chat' | 'retry' | 'anomaly' | 'auto_assign' | 'prioritization' | 'scheduled_tasks' | 'review_rules' | 'integrations';
 
 const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: 'general', label: 'General' },
@@ -29,6 +30,7 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: 'prioritization', label: 'Prioritization' },
   { key: 'scheduled_tasks', label: 'Scheduled Tasks' },
   { key: 'review_rules', label: 'Review Rules' },
+  { key: 'integrations', label: 'Integrations' },
 ];
 
 const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
@@ -173,6 +175,9 @@ export function HabitatSettingsDialog({ board, open, onClose, onUpdate, onDelete
         </div>
         <div className={activeTab !== 'review_rules' ? 'hidden' : ''}>
           <ReviewRulesTab habitatId={board.id} />
+        </div>
+        <div className={activeTab !== 'integrations' ? 'hidden' : ''}>
+          <IntegrationsTab habitatId={board.id} />
         </div>
       </DialogContent>
       <DialogFooter>

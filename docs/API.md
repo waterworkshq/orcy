@@ -33,6 +33,7 @@ Complete reference for the Orcy REST API.
 - [Saved Filters](#saved-filters)
 - [Organizations](#organizations)
 - [Chat Integrations](#chat-integrations)
+- [Integrations](#integrations)
 - [Notification Preferences](#notification-preferences)
 - [Attachments](#attachments)
 - [Outgoing Webhooks](#outgoing-webhooks)
@@ -3259,6 +3260,238 @@ Handle Discord interactions.
   "data": {
     "content": "Here are your tasks..."
   }
+}
+```
+
+---
+
+## Integrations
+
+Manage external provider connections (GitHub Issues, Jira, Linear) for importing work into habitats. All connection management endpoints require human auth. Token values are never returned in API responses — the `hasAccessToken` / `hasRefreshToken` / `hasWebhookSecret` booleans indicate presence without exposing values.
+
+### GET /habitats/:habitatId/integrations
+
+List all integration connections for a habitat. Connections are returned in **masked view** — token fields are replaced with boolean presence indicators. Disabled connections are still returned (soft disable). Requires agent or human auth.
+
+**Auth:** `agentOrHumanAuth` + `requireHabitatAccess`
+
+**Response:**
+```json
+{
+  "integrations": [
+    {
+      "id": "uuid",
+      "habitatId": "uuid",
+      "provider": "github",
+      "name": "My Repo",
+      "authMethod": "oauth_device",
+      "hasAccessToken": true,
+      "hasRefreshToken": false,
+      "hasWebhookSecret": true,
+      "externalAccountId": "12345",
+      "externalAccountName": "myuser",
+      "externalTenantId": null,
+      "externalTenantName": null,
+      "externalBaseUrl": null,
+      "repositoryOwner": "owner",
+      "repositoryName": "repo",
+      "projectKey": null,
+      "teamId": null,
+      "providerConfig": {},
+      "enabled": true,
+      "pullEnabled": true,
+      "autoImport": false,
+      "webhookExternalId": "123456789",
+      "lastSyncAt": "2026-05-25T10:00:00Z",
+      "lastSyncStatus": "success",
+      "lastSyncError": null,
+      "createdBy": "user-id",
+      "createdAt": "2026-05-25T10:00:00Z",
+      "updatedAt": "2026-05-25T10:00:00Z"
+    }
+  ]
+}
+```
+
+### POST /habitats/:habitatId/integrations/github/oauth/device/start
+
+Start GitHub OAuth device authorization flow. Returns a user code and verification URL for the user to complete in their browser. No client secret is needed — device flow uses only the embedded `client_id`.
+
+**Auth:** `humanAuth` + `requireHabitatAccess`
+
+**Response:**
+```json
+{
+  "deviceCode": "dc_long_device_code_string_40_chars",
+  "userCode": "ABCD-1234",
+  "verificationUri": "https://github.com/login/device",
+  "expiresIn": 900,
+  "interval": 5
+}
+```
+
+The user must open `verificationUri` and enter `userCode` within `expiresIn` seconds. Poll with `POST .../device/poll` at intervals of at least `interval` seconds.
+
+### POST /habitats/:habitatId/integrations/github/oauth/device/poll
+
+Poll for GitHub device flow completion. Returns `{ status: "pending" }` while the user hasn't authorized yet. On success, creates a connection with `authMethod: "oauth_device"` and returns 201.
+
+**Auth:** `humanAuth` + `requireHabitatAccess`
+
+**Request:**
+```json
+{
+  "deviceCode": "dc_long_device_code_string_40_chars"
+}
+```
+
+**Response (pending):**
+```json
+{ "status": "pending" }
+```
+
+**Response (success, 201):**
+```json
+{
+  "integration": { /* masked IntegrationConnectionView */ }
+}
+```
+
+**Errors:** `400` if device code expired, user denied, or unknown error.
+
+### POST /habitats/:habitatId/integrations/github/pat
+
+Create a GitHub connection using a Personal Access Token. This is the manual/fallback authentication path. A random `webhookSecret` is generated automatically during creation.
+
+**Auth:** `humanAuth` + `requireHabitatAccess`
+
+**Request:**
+```json
+{
+  "name": "My GitHub Repo",
+  "token": "ghp_xxxxxxxxxxxxxxxxxxxx",
+  "repositoryOwner": "owner",
+  "repositoryName": "repo",
+  "autoImport": false,
+  "pullEnabled": true
+}
+```
+
+**Response (201):**
+```json
+{
+  "integration": { /* masked IntegrationConnectionView */ }
+}
+```
+
+### PATCH /integrations/:connectionId
+
+Update connection settings — name, enabled status, pull sync toggle, or auto-import toggle. The connection's habitat and provider are read-only after creation.
+
+**Auth:** `humanAuth` — verifies connection access via habitat membership
+
+**Request (all fields optional):**
+```json
+{
+  "name": "Updated Name",
+  "enabled": true,
+  "pullEnabled": true,
+  "autoImport": false
+}
+```
+
+**Response:**
+```json
+{
+  "integration": { /* masked IntegrationConnectionView */ }
+}
+```
+
+**Errors:** `404` if connection not found, `403` if user lacks habitat access.
+
+### DELETE /integrations/:connectionId
+
+Disable (soft-delete) a connection. The connection record and associated external issue links are preserved for provenance. The connection can be re-enabled via `PATCH` with `enabled: true`.
+
+**Auth:** `humanAuth` — verifies connection access via habitat membership
+
+**Response:** `204 No Content`
+
+### POST /integrations/:connectionId/sync
+
+Trigger a manual sync. Pulls external issues from the connected provider and imports them as missions. Returns counts of created, updated, skipped, and failed operations.
+
+**Auth:** `humanAuth` — verifies connection access via habitat membership
+
+**Response:**
+```json
+{
+  "created": 3,
+  "updated": 1,
+  "skipped": 0,
+  "failed": 0
+}
+```
+
+**Errors:** `400` if connection is disabled, pull sync is disabled, or provider adapter is unavailable.
+
+### GET /integrations/:connectionId/sync-runs
+
+List recent sync runs for a connection, newest first.
+
+**Auth:** `humanAuth` — verifies connection access via habitat membership
+
+**Response:**
+```json
+{
+  "syncRuns": [
+    {
+      "id": "uuid",
+      "connectionId": "uuid",
+      "habitatId": "uuid",
+      "trigger": "manual",
+      "status": "success",
+      "startedAt": "2026-05-25T10:00:00Z",
+      "finishedAt": "2026-05-25T10:01:00Z",
+      "createdCount": 3,
+      "updatedCount": 1,
+      "skippedCount": 0,
+      "failedCount": 0,
+      "error": null
+    }
+  ]
+}
+```
+
+### GET /missions/:missionId/external-links
+
+List external issue links for a mission. Shows linked GitHub/Jira/Linear issues with sync status and any warnings.
+
+**Auth:** `agentOrHumanAuth`
+
+**Response:**
+```json
+{
+  "externalLinks": [
+    {
+      "id": "uuid",
+      "connectionId": "uuid",
+      "habitatId": "uuid",
+      "missionId": "uuid",
+      "provider": "github",
+      "externalId": "12345",
+      "externalKey": "owner/repo#42",
+      "externalUrl": "https://github.com/owner/repo/issues/42",
+      "externalStatus": "open",
+      "externalUpdatedAt": "2026-05-25T10:00:00Z",
+      "providerLabels": ["bug", "enhancement"],
+      "lastSyncedAt": "2026-05-25T10:00:00Z",
+      "syncStatus": "synced",
+      "syncWarning": null,
+      "createdAt": "2026-05-25T10:00:00Z",
+      "updatedAt": "2026-05-25T10:00:00Z"
+    }
+  ]
 }
 ```
 

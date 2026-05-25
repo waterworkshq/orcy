@@ -47,6 +47,8 @@ import { prioritizationRoutes } from './routes/prioritization.js';
 import { scheduledTaskRoutes } from './routes/scheduledTasks.js';
 import { reviewRuleRoutes } from './routes/reviewRules.js';
 import { sprintRoutes } from './routes/sprints.js';
+import { integrationRoutes } from './routes/integrations.js';
+import { githubIssueWebhookRoutes } from './routes/githubIssueWebhooks.js';
 import { rebuildCache as rebuildHabitatSecretCache } from './services/boardSecretCache.js';
 import { archiveOldEvents } from './services/auditArchivalService.js';
 import { seedDefaultTemplates as seedQualityTemplates } from './services/qualityGateService.js';
@@ -104,6 +106,8 @@ await fastify.register(fastifyRawBody, {
     '/api/v1/webhooks/gitlab-ci',
     '/api/v1/chat/slack/command',
     '/api/v1/chat/discord/interaction',
+    '/api/webhooks/github/issues',
+    '/api/v1/webhooks/github/issues',
   ],
 });
 
@@ -148,6 +152,8 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(scheduledTaskRoutes);
   await f.register(reviewRuleRoutes);
   await f.register(sprintRoutes);
+  await f.register(integrationRoutes);
+  await f.register(githubIssueWebhookRoutes);
 }
 
 await fastify.register(async (f) => {

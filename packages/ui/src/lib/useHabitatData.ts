@@ -386,3 +386,30 @@ export function useArchivedMissions(habitatId: string | undefined) {
     staleTime: 2 * 60 * 1000,
   });
 }
+
+export function useIntegrations(habitatId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.integrations.list(habitatId ?? ''),
+    queryFn: () => api.integrations.list(habitatId!),
+    enabled: !!habitatId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useIntegrationSyncRuns(connectionId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.integrations.syncRuns(connectionId ?? ''),
+    queryFn: () => api.integrations.listSyncRuns(connectionId!),
+    enabled: !!connectionId,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useMissionExternalLinks(missionId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.integrations.missionLinks(missionId ?? ''),
+    queryFn: () => api.integrations.listMissionLinks(missionId!),
+    enabled: !!missionId,
+    staleTime: 2 * 60 * 1000,
+  });
+}

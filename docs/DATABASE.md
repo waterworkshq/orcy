@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (34 tables)
+### Entity-Relationship Diagram (38 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -902,6 +902,129 @@ Recurring scheduled creation of features and tasks from templates. Supports cron
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
 **Indexes:** `idx_scheduled_tasks_board(board_id)`, `idx_scheduled_tasks_next(next_run_at)`, `idx_scheduled_tasks_enabled(enabled)`
+
+#### `integration_connections`
+
+Integration connections to external providers (GitHub, Jira, Linear). Each connection is scoped to one habitat. Token and secret values are stored locally — API responses use `toView()` to replace them with boolean presence indicators. Disabled connections are preserved (soft delete) to retain external issue link provenance.
+
+**Source:** `packages/api/src/db/schema/integration.ts`
+**Migration:** `0013_integrations.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Connection identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `provider` | TEXT | NOT NULL CHECK (IN 'github','jira','linear') | Provider type |
+| `name` | TEXT | NOT NULL | User-facing connection name |
+| `auth_method` | TEXT | NOT NULL | Auth method: 'oauth_device', 'oauth_code', 'pat', 'api_key', etc. |
+| `access_token` | TEXT | DEFAULT NULL | Stored OAuth access token or PAT (not returned in API) |
+| `refresh_token` | TEXT | DEFAULT NULL | OAuth refresh token (not returned in API) |
+| `token_expires_at` | TEXT | DEFAULT NULL | OAuth token expiry timestamp |
+| `external_account_id` | TEXT | DEFAULT NULL | Provider-side account/user ID |
+| `external_account_name` | TEXT | DEFAULT NULL | Provider-side account/user login/name |
+| `external_tenant_id` | TEXT | DEFAULT NULL | Jira cloud-id, Linear workspace, etc. |
+| `external_tenant_name` | TEXT | DEFAULT NULL | Human-readable tenant name |
+| `external_base_url` | TEXT | DEFAULT NULL | Provider API base URL (null = default) |
+| `repository_owner` | TEXT | DEFAULT NULL | GitHub repository owner |
+| `repository_name` | TEXT | DEFAULT NULL | GitHub repository name |
+| `project_key` | TEXT | DEFAULT NULL | Jira project key |
+| `team_id` | TEXT | DEFAULT NULL | Linear team identifier |
+| `provider_config` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Provider-specific configuration |
+| `enabled` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Whether connection is active |
+| `pull_enabled` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Whether pull sync is enabled |
+| `auto_import` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Auto-import new issues as missions |
+| `webhook_secret` | TEXT | DEFAULT NULL | HMAC secret for webhook verification (not returned in API) |
+| `webhook_external_id` | TEXT | DEFAULT NULL | Provider-side webhook ID for lifecycle management |
+| `last_sync_at` | TEXT | DEFAULT NULL | Last successful sync timestamp |
+| `last_sync_status` | TEXT | NOT NULL DEFAULT 'never' | Last sync result: 'never', 'running', 'success', 'partial', 'failed' |
+| `last_sync_error` | TEXT | DEFAULT NULL | Last sync error message |
+| `created_by` | TEXT | NOT NULL | Creator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_integration_connections_provider(provider)`, `idx_integration_connections_habitat(habitat_id)`, `idx_integration_connections_provider_repo(provider, repository_owner, repository_name)`
+
+**Deletion/retention:** Disabled via `enabled = 0` rather than hard-deleted. External issue links referencing the connection are preserved for mission provenance.
+
+#### `external_issue_links`
+
+Durable mapping between an external issue and an Orcy mission. This is the idempotency key — sync checks for existing links before creating missions. Tracks sync status and per-link warnings.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Link identifier (UUID) |
+| `connection_id` | TEXT | NOT NULL FK → integration_connections(id) ON DELETE CASCADE | Parent connection |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Linked Orcy mission |
+| `provider` | TEXT | NOT NULL | Provider type |
+| `external_id` | TEXT | NOT NULL | Stable provider ID |
+| `external_key` | TEXT | NOT NULL | Human-readable issue key (e.g. 'owner/repo#42') |
+| `external_url` | TEXT | NOT NULL | Browser URL to external issue |
+| `external_status` | TEXT | NOT NULL | Normalized status: 'open' or 'closed' |
+| `external_updated_at` | TEXT | DEFAULT NULL | Provider-side last update timestamp |
+| `provider_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of last-known provider labels |
+| `last_synced_at` | TEXT | DEFAULT NULL | Last sync timestamp for this link |
+| `sync_status` | TEXT | NOT NULL DEFAULT 'synced' | Link health: 'synced', 'warning', 'failed' |
+| `sync_warning` | TEXT | DEFAULT NULL | Sync warning message (e.g. external closed while tasks active) |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Unique indexes:** `idx_external_issue_links_connection_issue(connection_id, external_id)` — guarantees one link per connection/external-issue pair.
+**Additional indexes:** `idx_external_issue_links_mission(mission_id)`
+
+#### `external_intake_candidates`
+
+Reviewable source items that may become missions after human/orcy clarification. Used primarily for Jira/Linear where ticket semantics are too variable for automatic mission creation. GitHub can use direct import as a setup-controlled fast path.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Candidate identifier (UUID) |
+| `connection_id` | TEXT | NOT NULL FK → integration_connections(id) ON DELETE CASCADE | Parent connection |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `provider` | TEXT | NOT NULL | Provider type |
+| `external_id` | TEXT | NOT NULL | Stable provider ID |
+| `external_key` | TEXT | NOT NULL | Human-readable issue key |
+| `external_url` | TEXT | NOT NULL | Browser URL |
+| `source_kind` | TEXT | DEFAULT NULL | Provider-specific type (issue type, etc.) |
+| `source_status` | TEXT | DEFAULT NULL | Original external status |
+| `source_priority` | TEXT | DEFAULT NULL | Original external priority |
+| `source_assignees` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Original assignees |
+| `source_reporter` | TEXT | DEFAULT NULL | Original reporter/creator |
+| `source_labels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Original labels |
+| `source_title` | TEXT | NOT NULL | Original issue title |
+| `source_body` | TEXT | DEFAULT NULL | Original issue body/description |
+| `normalized_summary` | TEXT | DEFAULT NULL | Human/orcy clarified summary |
+| `recommended_mission_title` | TEXT | DEFAULT NULL | Suggested mission title |
+| `recommended_mission_description` | TEXT | DEFAULT NULL | Suggested mission description |
+| `review_status` | TEXT | NOT NULL DEFAULT 'new' | Review state: 'new', 'needs_clarification', 'ready', 'promoted', 'ignored' |
+| `promoted_mission_id` | TEXT | DEFAULT NULL FK → features(id) | Mission created from this candidate |
+| `raw_provider_payload` | TEXT | DEFAULT NULL (JSON) | Original provider payload for debugging/future refinement |
+| `external_updated_at` | TEXT | DEFAULT NULL | Provider-side last update |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_external_intake_candidates_connection(connection_id)`, `idx_external_intake_candidates_review(review_status)`
+
+#### `integration_sync_runs`
+
+Record of each sync attempt. Used for user-facing status, debugging, and future retry behavior.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Sync run identifier (UUID) |
+| `connection_id` | TEXT | NOT NULL FK → integration_connections(id) ON DELETE CASCADE | Parent connection |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `trigger` | TEXT | NOT NULL | What triggered the sync: 'manual', 'webhook', 'scheduled', 'oauth_complete' |
+| `status` | TEXT | NOT NULL DEFAULT 'running' | Run status: 'running', 'success', 'partial', 'failed' |
+| `started_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Run start timestamp |
+| `finished_at` | TEXT | DEFAULT NULL | Run completion timestamp |
+| `created_count` | INTEGER | NOT NULL DEFAULT 0 | Missions created |
+| `updated_count` | INTEGER | NOT NULL DEFAULT 0 | Missions updated |
+| `skipped_count` | INTEGER | NOT NULL DEFAULT 0 | Issues skipped (already synced, etc.) |
+| `failed_count` | INTEGER | NOT NULL DEFAULT 0 | Issues that failed to sync |
+| `error` | TEXT | DEFAULT NULL | Error summary if status is 'failed' |
+
+**Indexes:** `idx_integration_sync_runs_connection(connection_id)`, `idx_integration_sync_runs_started(started_at DESC)`
 
 ---
 

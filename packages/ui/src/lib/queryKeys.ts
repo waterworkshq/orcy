@@ -122,4 +122,10 @@ export const queryKeys = {
     all: ['reviewRules'] as const,
     list: (habitatId: string) => [...queryKeys.reviewRules.all, 'list', habitatId] as const,
   },
+  integrations: {
+    all: ['integrations'] as const,
+    list: (habitatId: string) => [...queryKeys.integrations.all, 'list', habitatId] as const,
+    syncRuns: (connectionId: string) => [...queryKeys.integrations.all, 'syncRuns', connectionId] as const,
+    missionLinks: (missionId: string) => [...queryKeys.integrations.all, 'missionLinks', missionId] as const,
+  },
 };

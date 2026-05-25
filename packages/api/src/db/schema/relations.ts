@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm';
 import { habitats, columns, missions, missionDependencies, missionEvents, missionWatchers, missionComments, missionCommentMentions, missionTemplates, savedFilters, chatIntegrations, auditExportSchedules, scheduledTasks, sprints } from './board.js';
 import { tasks, taskEvents, taskComments, taskSubtasks, taskWatchers, taskCommentMentions, taskAttachments, taskTimeRecords } from './task.js';
 import { reviewRules, taskReviewers } from './review.js';
+import { integrationConnections, externalIntakeCandidates, externalIssueLinks, integrationSyncRuns } from './integration.js';
 import { agents, agentMessages } from './agent.js';
 import { users, notificationPreferences, organizations, teams, teamMembers } from './user.js';
 import { webhookSubscriptions, webhookDeliveries } from './webhook.js';
@@ -17,6 +18,10 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   insights: many(projectInsights),
   sprints: many(sprints),
   reviewRules: many(reviewRules),
+  integrationConnections: many(integrationConnections),
+  externalIntakeCandidates: many(externalIntakeCandidates),
+  externalIssueLinks: many(externalIssueLinks),
+  integrationSyncRuns: many(integrationSyncRuns),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -56,6 +61,7 @@ export const missionsRelations = relations(missions, ({ one, many }) => ({
   dependents: many(missionDependencies, { relationName: 'missionDependents' }),
   pulses: many(pulses),
   comments: many(missionComments),
+  externalIssueLinks: many(externalIssueLinks),
 }));
 
 export const missionDependenciesRelations = relations(missionDependencies, ({ one }) => ({
@@ -442,5 +448,56 @@ export const taskReviewersRelations = relations(taskReviewers, ({ one }) => ({
   task: one(tasks, {
     fields: [taskReviewers.taskId],
     references: [tasks.id],
+  }),
+}));
+
+export const integrationConnectionsRelations = relations(integrationConnections, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [integrationConnections.habitatId],
+    references: [habitats.id],
+  }),
+  externalIssueLinks: many(externalIssueLinks),
+  externalIntakeCandidates: many(externalIntakeCandidates),
+  syncRuns: many(integrationSyncRuns),
+}));
+
+export const externalIntakeCandidatesRelations = relations(externalIntakeCandidates, ({ one }) => ({
+  connection: one(integrationConnections, {
+    fields: [externalIntakeCandidates.connectionId],
+    references: [integrationConnections.id],
+  }),
+  habitat: one(habitats, {
+    fields: [externalIntakeCandidates.habitatId],
+    references: [habitats.id],
+  }),
+  promotedMission: one(missions, {
+    fields: [externalIntakeCandidates.promotedMissionId],
+    references: [missions.id],
+  }),
+}));
+
+export const externalIssueLinksRelations = relations(externalIssueLinks, ({ one }) => ({
+  connection: one(integrationConnections, {
+    fields: [externalIssueLinks.connectionId],
+    references: [integrationConnections.id],
+  }),
+  habitat: one(habitats, {
+    fields: [externalIssueLinks.habitatId],
+    references: [habitats.id],
+  }),
+  mission: one(missions, {
+    fields: [externalIssueLinks.missionId],
+    references: [missions.id],
+  }),
+}));
+
+export const integrationSyncRunsRelations = relations(integrationSyncRuns, ({ one }) => ({
+  connection: one(integrationConnections, {
+    fields: [integrationSyncRuns.connectionId],
+    references: [integrationConnections.id],
+  }),
+  habitat: one(habitats, {
+    fields: [integrationSyncRuns.habitatId],
+    references: [habitats.id],
   }),
 }));

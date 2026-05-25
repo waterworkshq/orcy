@@ -64,6 +64,9 @@ import type {
   ReviewRuleUpdateInput,
   SprintCreateInput,
   TaskReviewer,
+  IntegrationConnectionView,
+  ExternalIssueLink,
+  IntegrationSyncRun,
 } from '../types/index.js';
 
 const BASE = '/api';
@@ -1100,6 +1103,53 @@ export const api = {
       }),
     removeMission: (sprintId: string, missionId: string) =>
       request<{ sprint: Sprint }>(`/sprints/${sprintId}/missions/${missionId}`, { method: 'DELETE' }),
+  },
+
+  integrations: {
+    list: (habitatId: string) =>
+      request<{ integrations: IntegrationConnectionView[] }>(`/habitats/${habitatId}/integrations`),
+    createGitHubPat: (habitatId: string, data: {
+      name: string;
+      token: string;
+      repositoryOwner: string;
+      repositoryName: string;
+      autoImport?: boolean;
+      pullEnabled?: boolean;
+    }) =>
+      request<{ integration: IntegrationConnectionView }>(`/habitats/${habitatId}/integrations/github/pat`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    startGitHubDeviceFlow: (habitatId: string) =>
+      request<{ deviceCode: string; userCode: string; verificationUri: string; expiresIn: number; interval: number }>(
+        `/habitats/${habitatId}/integrations/github/oauth/device/start`,
+        { method: 'POST' }
+      ),
+    pollGitHubDeviceFlow: (habitatId: string, data: { deviceCode: string }) =>
+      request<{ status?: string; integration?: IntegrationConnectionView }>(
+        `/habitats/${habitatId}/integrations/github/oauth/device/poll`,
+        { method: 'POST', body: JSON.stringify(data) }
+      ),
+    update: (connectionId: string, data: {
+      name?: string;
+      enabled?: boolean;
+      pullEnabled?: boolean;
+      autoImport?: boolean;
+    }) =>
+      request<{ integration: IntegrationConnectionView }>(`/integrations/${connectionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    disable: (connectionId: string) =>
+      request<void>(`/integrations/${connectionId}`, { method: 'DELETE' }),
+    sync: (connectionId: string) =>
+      request<{ created: number; updated: number; skipped: number; failed: number }>(`/integrations/${connectionId}/sync`, {
+        method: 'POST',
+      }),
+    listSyncRuns: (connectionId: string) =>
+      request<{ syncRuns: IntegrationSyncRun[] }>(`/integrations/${connectionId}/sync-runs`),
+    listMissionLinks: (missionId: string) =>
+      request<{ externalLinks: ExternalIssueLink[] }>(`/missions/${missionId}/external-links`),
   },
 };
 
