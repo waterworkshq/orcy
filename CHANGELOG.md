@@ -2,6 +2,21 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.12.0 — 2026-05-25
+
+### Features
+
+#### Add v0.12 external integrations ([`0349187`](https://github.com/waterworkshq/orcy/commit/0349187228ef48e339aa8fae7bb474aaf95c37fb))
+
+1. Add integration connection, sync run, and external issue tables
+2. Implement GitHub OAuth device flow and webhook verification
+3. Add sync service with per-issue import and adapter interface
+4. Create integration settings tab and mission detail link badges
+5. Document intake architecture and security threat model
+6. Add external integrations architecture and GitHub sync
+
+
+
 ## 0.11.3 — 2026-05-21
 
 ### Bug Fixes
@@ -38,17 +53,3 @@
 14. Pass commentContent for mentioned notifications (P3-5)
 15. Parallel email dispatch with Promise.allSettled (P3-6)
 16. Add Zod date validation on sprint routes (P2-6)
-
-
-
-## 0.11.1 — 2026-05-21
-
-### Bug Fixes
-
-#### enforce antiSelfReview, refactor ReviewRulesTab to React Query, optimize SprintDashboard ([`28543aa`](https://github.com/waterworkshq/orcy/commit/28543aa84e133d2b8a9d2d256bb3e679634cfc64))
-
-1. Enforce antiSelfReview: exclude task creator from reviewer pool when flag enabled
-2. ReviewRulesTab: replace manual useState+useEffect with useQuery/useMutation
-3. and centralized queryKeys.reviewRules
-4. SprintDashboard: shallow comparison on store selectors, useMemo for derived
-5. data, fix velocity calculation (Math.floor), extract TERMINAL_STATUSES constant
