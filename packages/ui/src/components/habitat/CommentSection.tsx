@@ -15,6 +15,10 @@ interface CommentSectionProps {
   initialComments?: TaskComment[];
 }
 
+function checkEdited(createdAt: string, updatedAt: string): boolean {
+  return createdAt !== updatedAt;
+}
+
 export function CommentSection({ taskId, initialComments = [] }: CommentSectionProps) {
   const { setComments, addComment, removeComment, agents } = useHabitatStore();
   const [taskComments, setTaskComments] = useState<TaskComment[]>(initialComments);
@@ -86,10 +90,6 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
     return formatRelativeTime(dateStr, { fallbackToDate: true });
   }
 
-  function isEdited(createdAt: string, updatedAt: string): boolean {
-    return createdAt !== updatedAt;
-  }
-
   const topLevelComments = taskComments.filter((c) => !c.parentId);
   const getReplies = (parentId: string) => taskComments.filter((c) => c.parentId === parentId);
 
@@ -120,7 +120,7 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
             <CommentItem
               comment={comment}
               authorName={getAuthorName(comment)}
-              isEdited={isEdited(comment.createdAt, comment.updatedAt)}
+              isEdited={checkEdited(comment.createdAt, comment.updatedAt)}
               formatTime={formatTime}
               onEdit={() => {
                 setEditingId(comment.id);
@@ -143,7 +143,7 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
                 <CommentItem
                   comment={reply}
                   authorName={getAuthorName(reply)}
-                  isEdited={isEdited(reply.createdAt, reply.updatedAt)}
+                  isEdited={checkEdited(reply.createdAt, reply.updatedAt)}
                   formatTime={formatTime}
                   onEdit={() => {
                     setEditingId(reply.id);
@@ -239,7 +239,7 @@ function CommentItem({
   onSaveEdit,
   onCancelEdit,
   submitting,
-  isReply,
+  isReply: _isReply,
 }: CommentItemProps) {
   const isEditing = editingId === comment.id;
 

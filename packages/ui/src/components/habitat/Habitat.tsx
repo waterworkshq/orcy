@@ -21,7 +21,7 @@ import { useIsMobile } from '../../hooks/useMediaQuery.js';
 import { useArchivedMissions } from '../../lib/useHabitatData.js';
 import type { MissionWithProgress, Column as ColumnType, PresenceEntry } from '../../types/index.js';
 import { api } from '../../api/index.js';
-import { Plus, Archive, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Archive, ChevronDown } from 'lucide-react';
 
 interface HabitatProps {
   onColumnSettingsClick: (column: ColumnType) => void;
@@ -29,8 +29,8 @@ interface HabitatProps {
   presence: PresenceEntry[];
 }
 
-export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: HabitatProps) {
-  const { board, columns, features, columnPagination, setBoard, setError, isBulkSelectMode } = useHabitatStore();
+export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _presence }: HabitatProps) {
+  const { board, columns, features, columnPagination, setBoard: _setBoard, setError, isBulkSelectMode } = useHabitatStore();
   const [activeFeature, setActiveFeature] = useState<MissionWithProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [searchParams] = useSearchParams();
@@ -71,7 +71,7 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: H
     for (const col of columns) {
       map[col.id] = filteredFeatures
         .filter((f) => f.columnId === col.id)
-        .sort((a, b) => a.displayOrder - b.displayOrder);
+        .toSorted((a, b) => a.displayOrder - b.displayOrder);
     }
     return map;
   }, [columns, filteredFeatures]);
@@ -87,17 +87,17 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: H
     const { active, over } = event;
     if (!over) return;
 
-    const activeFeature = features.find((f) => f.id === active.id);
-    if (!activeFeature) return;
+    const draggedFeature = features.find((f) => f.id === active.id);
+    if (!draggedFeature) return;
 
     const overId = over.id as string;
     const overFeature = features.find((f) => f.id === overId);
     const overColumn = columns.find((c) => c.id === overId);
 
     const targetColumnId = overColumn?.id ?? overFeature?.columnId;
-    if (!targetColumnId || targetColumnId === activeFeature.columnId) return;
+    if (!targetColumnId || targetColumnId === draggedFeature.columnId) return;
 
-    useHabitatStore.getState().moveFeatureToColumn(activeFeature.id, targetColumnId);
+    useHabitatStore.getState().moveFeatureToColumn(draggedFeature.id, targetColumnId);
   }
 
   async function handleDragEnd(event: DragEndEvent) {
@@ -107,8 +107,8 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: H
 
     if (!over) return;
 
-    const activeFeature = features.find((f) => f.id === active.id);
-    if (!activeFeature) return;
+    const draggedFeature = features.find((f) => f.id === active.id);
+    if (!draggedFeature) return;
 
     const overId = over.id as string;
     const overColumn = columns.find((c) => c.id === overId);
@@ -117,10 +117,10 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: H
 
     if (!targetColumnId) return;
 
-    if (targetColumnId !== activeFeature.columnId) {
+    if (targetColumnId !== draggedFeature.columnId) {
       setIsLoading(true);
       try {
-        await api.missions.move(activeFeature.id, { columnId: targetColumnId });
+        await api.missions.move(draggedFeature.id, { columnId: targetColumnId });
       } catch (err) {
         setError((err as Error).message);
         if (board) {
@@ -141,7 +141,7 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence }: H
     );
   }
 
-  const sortedColumns = columns.slice().sort((a, b) => a.order - b.order);
+  const sortedColumns = columns.slice().toSorted((a, b) => a.order - b.order);
   const activeMobileColumn = sortedColumns[mobileColumnIndex];
 
   return (

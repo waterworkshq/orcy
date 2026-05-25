@@ -5,7 +5,7 @@ import { RichTextEditor } from '../ui/RichTextEditor.js';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { notify } from '../../lib/toast.js';
 import { useTemplates, useCreateMission } from '../../lib/useHabitatData.js';
-import type { TaskPriority, MissionTemplate } from '../../types/index.js';
+import type { TaskPriority } from '../../types/index.js';
 
 interface CreateMissionFormProps {
   open: boolean;
@@ -15,9 +15,7 @@ interface CreateMissionFormProps {
 
 export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFormProps) {
   const { columns, addFeature } = useHabitatStore();
-  const { data: templatesData } = useTemplates(habitatId);
-  const templates = templatesData?.templates ?? [];
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  useTemplates(habitatId);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
@@ -30,7 +28,6 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
 
   useEffect(() => {
     if (open) {
-      setSelectedTemplateId('');
       setTitle('');
       setDescription('');
       setAcceptanceCriteria('');
@@ -47,25 +44,6 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
       setColumnId(firstNonTerminal?.id ?? columns[0]?.id ?? '');
     }
   }, [open, columns]);
-
-  function handleTemplateChange(templateId: string) {
-    setSelectedTemplateId(templateId);
-    if (!templateId) {
-      setTitle('');
-      setDescription('');
-      setAcceptanceCriteria('');
-      setPriority('medium');
-      setLabels('');
-      return;
-    }
-    const tmpl = templates.find((t) => t.id === templateId);
-    if (tmpl) {
-      setTitle(tmpl.titlePattern);
-      setDescription(tmpl.descriptionPattern);
-      setPriority(tmpl.priority);
-      setLabels(tmpl.labels.join(', '));
-    }
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

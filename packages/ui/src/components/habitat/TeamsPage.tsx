@@ -6,7 +6,11 @@ import { notify } from '../../lib/toast.js';
 import { useOrganizations, useOrganizationTeams, useTeamMembers } from '../../lib/useHabitatData.js';
 import { queryKeys } from '../../lib/queryKeys.js';
 import { Plus, Users, Trash2, Shield, UserPlus } from 'lucide-react';
-import type { Organization, Team, TeamMember } from '../../types/index.js';
+import type { Organization, Team } from '../../types/index.js';
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
 
 export function TeamsPage() {
   const qc = useQueryClient();
@@ -40,10 +44,6 @@ export function TeamsPage() {
   function handleSelectOrg(org: Organization) {
     setSelectedOrg(org);
     setSelectedTeam(null);
-  }
-
-  function slugify(text: string): string {
-    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   async function handleCreateOrg(e: React.FormEvent) {
@@ -84,7 +84,7 @@ export function TeamsPage() {
     e.preventDefault();
     if (!selectedTeam || !memberUserId.trim()) return;
     try {
-      const member = await api.teams.addMember(selectedTeam.id, {
+      await api.teams.addMember(selectedTeam.id, {
         userId: memberUserId.trim(),
         role: memberRole,
       });
@@ -109,11 +109,11 @@ export function TeamsPage() {
     }
   }
 
-  async function handleDeleteTeam(teamId: string) {
+  async function handleDeleteTeam(targetTeamId: string) {
     try {
-      await api.teams.delete(teamId);
+      await api.teams.delete(targetTeamId);
       await qc.invalidateQueries({ queryKey: queryKeys.organizations.teams(selectedOrg?.id ?? '') });
-      if (selectedTeam?.id === teamId) {
+      if (selectedTeam?.id === targetTeamId) {
         setSelectedTeam(null);
       }
       notify.success('Team deleted');

@@ -5,12 +5,6 @@ export interface SkeletonColumnProps {
   className?: string;
 }
 
-const CARD_HEIGHTS = [
-  'h-auto',
-  'h-auto',
-  'h-auto',
-];
-
 export function SkeletonColumn({ cardCount = 4, className }: SkeletonColumnProps) {
   return (
     <div

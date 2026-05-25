@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { FeatureCard } from './MissionCard.js';
 import type { MissionWithProgress } from '../../types/index.js';
@@ -65,7 +65,7 @@ function makeState(overrides: Record<string, any> = {}) {
 
 let storeState: Record<string, any>;
 
-const useHabitatStoreMock = vi.fn((selector?: any, equalityFn?: any) => {
+const useHabitatStoreMock = vi.fn((selector?: any, _equalityFn?: any) => {
   if (selector) return selector(storeState);
   return storeState;
 });
@@ -197,7 +197,7 @@ describe('FeatureCard', () => {
       ...baseFeature,
       labels: ['bug', 'ui', 'perf'],
     };
-    const { container } = render(<FeatureCard feature={feature} />);
+    const { container: _c1 } = render(<FeatureCard feature={feature} />);
     expect(screen.getByText('bug')).toBeTruthy();
     expect(screen.getByText('ui')).toBeTruthy();
     expect(screen.getByText('perf')).toBeTruthy();
@@ -256,7 +256,7 @@ describe('FeatureCard', () => {
 
   it('renders truncated feature ID', () => {
     const feature = { ...baseFeature, id: 'feat-a72dc8e9-cd9b-489c-abe4-d0e0814c7225' };
-    const { container } = render(<FeatureCard feature={feature} />);
+    const { container: _c2 } = render(<FeatureCard feature={feature} />);
     expect(screen.getByText('FEAT-a72dc8')).toBeTruthy();
   });
 
@@ -325,7 +325,7 @@ describe('FeatureCard', () => {
           { id: 'task-3', missionId: 'f1' },
         ],
       });
-      const { container } = render(<FeatureCard feature={baseFeature} />);
+      const { container: _c3 } = render(<FeatureCard feature={baseFeature} />);
       expect(screen.getByText('Test Feature')).toBeTruthy();
       const taskSelectors = useHabitatStoreMock.mock.calls.filter(
         (call: any[]) => {

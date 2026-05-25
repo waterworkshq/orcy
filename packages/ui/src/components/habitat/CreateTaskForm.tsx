@@ -6,7 +6,7 @@ import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { useTemplates, useCreateTaskInMission } from '../../lib/useHabitatData.js';
-import type { TaskPriority, MissionTemplate } from '../../types/index.js';
+import type { TaskPriority } from '../../types/index.js';
 
 /** Props for the CreateTaskForm dialog. */
 interface CreateTaskFormProps {
@@ -21,7 +21,7 @@ interface CreateTaskFormProps {
  * labels, required domain, due date, and SLA. Resets on open/close.
  */
 export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
-  const { columns, addTask } = useHabitatStore();
+  const { columns: _columns, addTask } = useHabitatStore();
   const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
   const createTaskMutation = useCreateTaskInMission(missionId ?? '');

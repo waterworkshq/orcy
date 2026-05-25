@@ -1,7 +1,6 @@
-import { useState, useCallback, useRef } from 'react';
 import { DependencyGraph } from './DependencyGraph.js';
 import { Button } from '../ui/Button.js';
-import { X, GitBranch, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import { X, GitBranch } from 'lucide-react';
 import { FEATURE_STATUS_DOT } from '../../lib/status-maps.js';
 
 interface DependencyGraphModalProps {

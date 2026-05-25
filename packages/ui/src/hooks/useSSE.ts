@@ -149,7 +149,7 @@ export function useSSE(boardId: string) {
     const es = new EventSource(streamUrl);
     esRef.current = es;
 
-    es.onmessage = (e) => {
+    es.addEventListener('message', (e) => {
       try {
         const event = JSON.parse(e.data) as SSEEvent;
         handleSSEEvent(event);
@@ -158,16 +158,16 @@ export function useSSE(boardId: string) {
       } catch {
         // ignore parse errors
       }
-    };
+    });
 
-    es.onerror = () => {
+    es.addEventListener('error', () => {
       es.close();
       esRef.current = null;
       reconnectTimeoutRef.current = setTimeout(() => {
         retryDelayRef.current = Math.min(retryDelayRef.current * 2, 30000);
         connect();
       }, retryDelayRef.current);
-    };
+    });
   }, [boardId, handleSSEEvent, invalidateCache]);
 
   useEffect(() => {

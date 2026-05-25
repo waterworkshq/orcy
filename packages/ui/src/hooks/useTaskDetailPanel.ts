@@ -1,15 +1,14 @@
 import { useModalStore } from '../store/modalStore.js';
-import { useQueryClient } from '@tanstack/react-query';
 import { useHabitatStore } from '../store/habitatStore.js';
 import { useTaskDetails } from '../lib/useTaskData.js';
 import { useTaskEdit, type UseTaskEditResult } from './useTaskEdit.js';
-import { useTaskSubtasks, type UseTaskSubtasksResult } from './useTaskSubtasks.js';
-import { useTaskDelegate, type UseTaskDelegateResult } from './useTaskDelegate.js';
-import { useTaskDecompose, type UseTaskDecomposeResult } from './useTaskDecompose.js';
-import { useTaskDependencies, type UseTaskDependenciesResult } from './useTaskDependencies.js';
-import { useTaskReview, type UseTaskReviewResult } from './useTaskReview.js';
-import { useTaskActions, type UseTaskActionsResult } from './useTaskActions.js';
-import { useTaskWatch, type UseTaskWatchResult } from './useTaskWatch.js';
+import { useTaskSubtasks } from './useTaskSubtasks.js';
+import { useTaskDelegate } from './useTaskDelegate.js';
+import { useTaskDecompose } from './useTaskDecompose.js';
+import { useTaskDependencies } from './useTaskDependencies.js';
+import { useTaskReview } from './useTaskReview.js';
+import { useTaskActions } from './useTaskActions.js';
+import { useTaskWatch } from './useTaskWatch.js';
 import type { Task, Subtask, SubtaskProposal, Agent, TaskEvent, PullRequest, PipelineEvent, TaskAttachment, TaskComment, CrossHabitatDependency, TaskReviewer } from '../types/index.js';
 
 export interface UseTaskDetailPanelOptions {
@@ -99,7 +98,6 @@ export interface UseTaskDetailPanelResult {
 export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {}): UseTaskDetailPanelResult {
   const { tasks, agents } = useHabitatStore();
   const selectedTaskId = useModalStore((s) => s.selectedTaskId);
-  const queryClient = useQueryClient();
   const { data: detailsData, isLoading: contextLoading } = useTaskDetails(selectedTaskId ?? undefined);
 
   const task = detailsData?.task ?? tasks.find((t) => t.id === selectedTaskId);

@@ -28,7 +28,7 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
   const [features, setFeatures] = useState<MissionWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [offset, setOffset] = useState(0);
-  const [total, setTotal] = useState(0);
+  const [_total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
   const limit = 50;

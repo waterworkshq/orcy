@@ -78,7 +78,7 @@ export function ColumnSettingsDialog({ column, open, onClose, onUpdate, onDelete
 
   useEffect(() => {
     if (open && columns.length > 0) {
-      setOrderedColumns([...columns].sort((a, b) => a.order - b.order));
+      setOrderedColumns([...columns].toSorted((a, b) => a.order - b.order));
     }
   }, [open, columns]);
 
@@ -101,7 +101,7 @@ export function ColumnSettingsDialog({ column, open, onClose, onUpdate, onDelete
   }
 
   function hasOrderChanged(): boolean {
-    const sorted = [...columns].sort((a, b) => a.order - b.order);
+    const sorted = [...columns].toSorted((a, b) => a.order - b.order);
     if (sorted.length !== orderedColumns.length) return true;
     return sorted.some((c, i) => c.id !== orderedColumns[i].id);
   }
@@ -109,7 +109,7 @@ export function ColumnSettingsDialog({ column, open, onClose, onUpdate, onDelete
   async function handleSaveOrder() {
     if (!hasOrderChanged()) return;
     setReordering(true);
-    const sortedOriginal = [...columns].sort((a, b) => a.order - b.order);
+    const sortedOriginal = [...columns].toSorted((a, b) => a.order - b.order);
     const newOrdered = orderedColumns.map((c, i) => ({ ...c, order: i }));
     const applied: { id: string; originalOrder: number }[] = [];
     try {

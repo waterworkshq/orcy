@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { queryKeys } from './queryKeys.js';
-import type { Habitat, MissionWithProgress, Mission, Task, CreateMissionInput, CreateTaskInMissionInput, SavedFilter } from '../types/index.js';
+import type { CreateMissionInput, CreateTaskInMissionInput } from '../types/index.js';
 
 export function useBoards() {
   return useQuery({

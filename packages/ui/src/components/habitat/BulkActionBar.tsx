@@ -11,7 +11,7 @@ interface BulkActionBarProps {
 
 type BulkOperation = 'priority' | 'move' | 'delete';
 
-export function BulkActionBar({ habitatId }: BulkActionBarProps) {
+export function BulkActionBar({ habitatId: _habitatId }: BulkActionBarProps) {
   const { selectedMissionIds, setBulkSelectMode, clearMissionSelection, updateFeature, removeFeature, columns } =
     useHabitatStore();
   const [operation, setOperation] = useState<BulkOperation>('priority');

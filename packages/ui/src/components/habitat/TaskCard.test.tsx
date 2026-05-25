@@ -191,7 +191,7 @@ describe('TaskCard glass design system', () => {
   });
 
   it('uses text-on-surface-variant for unassigned text', () => {
-    const { container } = render(
+    const { container: _c } = render(
       <TaskCard task={makeTask({ id: 'task-unassigned', title: 'Unassigned Task' })} />
     );
     const unassigned = screen.getByText('Unassigned');
@@ -274,7 +274,6 @@ describe('TaskCard per-agent AgentAvatar selector', () => {
       <TaskCard task={makeTask({ id: 'task-no-agent', assignedAgentId: 'agent-999' })} />
     );
 
-    const avatar = container.querySelector('[title]');
     const agentAvatar = Array.from(container.querySelectorAll('[title]')).find(
       (el) => el.getAttribute('title') === 'Claude Agent'
     );

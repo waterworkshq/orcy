@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
-import { Button } from '../../ui/Button.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
 import { useNotificationPrefs } from '../../../lib/useHabitatData.js';

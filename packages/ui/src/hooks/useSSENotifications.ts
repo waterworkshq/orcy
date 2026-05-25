@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useHabitatStore } from '../store/habitatStore.js';
 import { notify } from '../lib/toast.js';
-import type { SSEEvent } from '../types/index.js';
 
 /**
  * Subscribes to SSE events recorded in the store and emits toast notifications.

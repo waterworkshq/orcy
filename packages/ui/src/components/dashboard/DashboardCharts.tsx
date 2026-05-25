@@ -30,18 +30,15 @@ interface DashboardChartsProps {
   habitatId?: string;
 }
 
+function formatCycleTime(minutes: number): string {
+  if (minutes === 0) return '0m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins}m`;
+}
+
 export function DashboardCharts({ stats, period, habitatId }: DashboardChartsProps) {
-  const formatCycleTime = (minutes: number) => {
-    if (minutes === 0) return '0m';
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours}h ${mins}m`;
-  };
-
-  const totalTasks = stats.taskByPriority.critical + stats.taskByPriority.high +
-    stats.taskByPriority.medium + stats.taskByPriority.low;
-
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

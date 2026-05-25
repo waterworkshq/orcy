@@ -15,6 +15,11 @@ import { logger } from '../lib/logger.js';
 const hookCalls: Array<{ hook: string; args: unknown[] }> = [];
 const originalPush = hookCalls.push.bind(hookCalls);
 
+async function cleanup(tmpDir: string) {
+  const { rm } = await import('node:fs/promises');
+  await rm(tmpDir, { recursive: true });
+}
+
 describe('Plugin Manager', () => {
   beforeEach(() => {
     pluginManager.resetPlugins();
@@ -42,11 +47,6 @@ describe('Plugin Manager', () => {
     pluginManager.setPluginDirectory(tmpDir);
     await pluginManager.loadPlugins();
     return tmpDir;
-  }
-
-  async function cleanup(tmpDir: string) {
-    const { rm } = await import('node:fs/promises');
-    await rm(tmpDir, { recursive: true });
   }
 
   describe('getLoadedPlugins', () => {

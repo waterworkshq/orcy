@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './Dialog.js';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './Dialog.js';
 import { Button } from './Button.js';
 
 interface ConfirmDialogProps {

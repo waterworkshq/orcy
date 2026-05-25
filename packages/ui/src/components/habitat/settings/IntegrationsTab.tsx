@@ -6,7 +6,7 @@ import { queryKeys } from '../../../lib/queryKeys.js';
 import { api } from '../../../api/index.js';
 import { notify } from '../../../lib/toast.js';
 import { Button } from '../../ui/Button.js';
-import { Loader2, CheckCircle, ExternalLink } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
 
 interface IntegrationsTabProps {
   habitatId: string;
@@ -26,8 +26,8 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
   const [oauthStep, setOauthStep] = useState<'idle' | 'showing-code' | 'polling'>('idle');
   const [oauthUserCode, setOauthUserCode] = useState('');
   const [oauthVerificationUri, setOauthVerificationUri] = useState('');
-  const [oauthDeviceCode, setOauthDeviceCode] = useState('');
-  const [oauthPollInterval, setOauthPollInterval] = useState(5);
+  const [_oauthDeviceCode, setOauthDeviceCode] = useState('');
+  const [_oauthPollInterval, setOauthPollInterval] = useState(5);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

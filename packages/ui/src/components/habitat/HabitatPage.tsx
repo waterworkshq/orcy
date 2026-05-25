@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { HealthScoreWidget } from './HealthScoreWidget.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
+import { HealthScoreWidget } from './HealthScoreWidget.js';import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { useSSE } from '../../hooks/useSSE.js';
 import { useSSENotifications } from '../../hooks/useSSENotifications.js';
@@ -28,7 +27,6 @@ import { SprintSelector } from './SprintSelector.js';
 import { SprintPlanningPanel } from './SprintPlanningPanel.js';
 import type { Column } from '../../types/index.js';
 import { useRegisterDrawerBridge } from '../layout/DrawerBridgeContext.js';
-import { SkeletonCard } from '../ui/SkeletonCard.js';
 
 const CreateTaskForm = React.lazy(() =>
   import('./CreateTaskForm.js').then((m) => ({ default: m.CreateTaskForm }))
@@ -47,7 +45,7 @@ export function HabitatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const view = searchParams.get('view') ?? 'board';
-  const { board, setBoard, setAgents, isLoading, setLoading, setError, updateColumn, updateBoard, addColumn, removeColumn, columns, columnPagination, setColumnPagination, setColumnLoadingMore, clearColumnPagination, presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } =
+  const { board, setBoard, setAgents, isLoading, setLoading, setError, updateColumn, updateBoard, addColumn, removeColumn, columns, setColumnPagination, clearColumnPagination, presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } =
     useHabitatStore();
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateFeature, setShowCreateFeature] = useState(false);
@@ -135,31 +133,6 @@ export function HabitatPage() {
     prevViewRef.current = view;
   }, [view, clearTaskSelection]);
 
-  const loadColumnTasks = useCallback(async (colId: string, offset: number = 0) => {
-    if (!habitatId) return;
-    try {
-      const result = await api.missions.list(habitatId, {
-        limit: PAGE_SIZE,
-        offset,
-      });
-      const colFeatures = result.features.filter((f) => f.columnId === colId);
-      const hasMore = result.features.length >= PAGE_SIZE;
-      if (offset === 0) {
-        setColumnPagination(colId, {
-          features: colFeatures,
-          total: hasMore ? colFeatures.length + 1 : undefined,
-          offset: 0,
-        });
-      } else {
-        const existing = useHabitatStore.getState().columnPagination[colId];
-        const totalCount = (existing?.features.length ?? 0) + colFeatures.length;
-        useHabitatStore.getState().appendColumnFeatures(colId, colFeatures, hasMore ? totalCount + 1 : undefined);
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }, [habitatId, setColumnPagination, setError]);
-
   const loadBoard = useCallback(async () => {
     if (!habitatId) return;
     setLoading(true);
@@ -199,26 +172,6 @@ export function HabitatPage() {
   useEffect(() => {
     loadBoard();
   }, [loadBoard]);
-
-  const handleLoadMoreColumn = useCallback(async (columnId: string) => {
-    const pagination = columnPagination[columnId];
-    if (!pagination || pagination.isLoadingMore) return;
-    const nextOffset = pagination.offset + PAGE_SIZE;
-    setColumnLoadingMore(columnId, true);
-    try {
-      const result = await api.missions.list(habitatId!, {
-        limit: PAGE_SIZE,
-        offset: nextOffset,
-      });
-      const colFeatures = result.features.filter((f) => f.columnId === columnId);
-      const hasMore = result.features.length >= PAGE_SIZE;
-      useHabitatStore.getState().appendColumnFeatures(columnId, colFeatures, hasMore ? (pagination.features.length + colFeatures.length + 1) : undefined);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setColumnLoadingMore(columnId, false);
-    }
-  }, [habitatId, columnPagination, setColumnLoadingMore, setError]);
 
   if (isLoading) {
     return (

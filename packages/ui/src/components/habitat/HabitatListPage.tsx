@@ -6,8 +6,7 @@ import { Button } from '../ui/Button.js';
 import { OnboardingModal } from '../ui/OnboardingModal.js';
 import { notify } from '../../lib/toast.js';
 import { Plus, LayoutGrid, Users } from 'lucide-react';
-import type { Habitat, Team } from '../../types/index.js';
-import { useBoards, useMyTeams, useInvalidateBoards } from '../../lib/useHabitatData.js';
+import { useBoards, useMyTeams } from '../../lib/useHabitatData.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys.js';
 

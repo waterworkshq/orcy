@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback } from 'react';
 import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
-import { Button } from '../ui/Button.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import type { TaskAttachment } from '../../types/index.js';
 import { Paperclip, Upload, Download, Trash2, FileText, File, FileImage, FileCode } from 'lucide-react';

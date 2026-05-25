@@ -13,9 +13,9 @@ interface ImportHabitatDialogProps {
   onImport: (habitatId: string) => void;
 }
 
-export function ImportHabitatDialog({ habitatId, boardName, open, onClose, onImport }: ImportHabitatDialogProps) {
+export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, onClose, onImport }: ImportHabitatDialogProps) {
   const [mode, setMode] = useState<'replace' | 'merge'>('replace');
-  const [file, setFile] = useState<File | null>(null);
+  const [_file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<HabitatExport | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -29,7 +29,7 @@ export function ImportHabitatDialog({ habitatId, boardName, open, onClose, onImp
     setPreviewError(null);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.addEventListener('load', (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         const parsed = validateImportData(json);
@@ -38,7 +38,7 @@ export function ImportHabitatDialog({ habitatId, boardName, open, onClose, onImp
         setPreviewError((err as Error).message);
         setPreview(null);
       }
-    };
+    });
     reader.readAsText(selectedFile);
   };
 

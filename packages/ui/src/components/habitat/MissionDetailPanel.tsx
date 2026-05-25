@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { useMissionDetails, useMissionExternalLinks } from '../../lib/useHabitatData.js';
@@ -8,8 +8,8 @@ import { Button } from '../ui/Button.js';
 import { Badge } from '../ui/Badge.js';
 import { CreateTaskForm } from './CreateTaskForm.js';
 import { ExternalIssueBadge } from './ExternalIssueBadge.js';
-import { X, Plus, Sparkles, Trash2, ChevronRight, Clock, CheckCircle, AlertCircle, Loader2, Archive, RefreshCw } from 'lucide-react';
-import type { Task, MissionWithProgress } from '../../types/index.js';
+import { X, Plus, Sparkles, Trash2, ChevronRight, Loader2, Archive, RefreshCw } from 'lucide-react';
+import type { MissionWithProgress } from '../../types/index.js';
 
 const taskStatusVariant: Record<string, string> = {
   pending: 'pending',
@@ -23,7 +23,7 @@ const taskStatusVariant: Record<string, string> = {
 };
 
 export function FeatureDetailPanel() {
-  const { selectedMissionId, setSelectedMission, features, columns } = useHabitatStore();
+  const { selectedMissionId, setSelectedMission, features } = useHabitatStore();
   const { data: detailsData, isLoading } = useMissionDetails(selectedMissionId ?? undefined);
   const { data: externalLinksData } = useMissionExternalLinks(selectedMissionId ?? undefined);
   const feature = features.find((f) => f.id === selectedMissionId);
@@ -178,7 +178,7 @@ export function FeatureDetailPanel() {
             )}
 
             <div className="space-y-1">
-              {tasks.sort((a, b) => a.order - b.order).map((task) => (
+              {tasks.toSorted((a, b) => a.order - b.order).map((task) => (
                 <button
                   key={task.id}
                   type="button"

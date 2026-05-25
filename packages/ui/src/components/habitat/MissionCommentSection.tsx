@@ -4,7 +4,7 @@ import { api } from '../../api/index.js';
 import { notify } from '../../lib/toast.js';
 import { formatRelativeTime } from '../../lib/formatting.js';
 import { queryKeys } from '../../lib/queryKeys.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
+import { Card, CardContent } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { ConfirmDialog } from '../ui/ConfirmDialog.js';
 import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
@@ -14,6 +14,12 @@ import type { MissionComment } from '../../types/index.js';
 
 interface MissionCommentSectionProps {
   missionId: string;
+}
+
+function getAuthorLabel(comment: MissionComment): string {
+  return comment.authorType === 'agent'
+    ? comment.authorId.slice(0, 8)
+    : 'Human';
 }
 
 export function MissionCommentSection({ missionId }: MissionCommentSectionProps) {
@@ -82,11 +88,6 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
       setDeleteTargetId(null);
     }
   }
-
-  const getAuthorLabel = (comment: MissionComment) =>
-    comment.authorType === 'agent'
-      ? comment.authorId.slice(0, 8)
-      : 'Human';
 
   if (loading) {
     return (

@@ -3,7 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { DashboardCharts } from '../components/dashboard/DashboardCharts.js';
 import { PredictionSection } from '../components/dashboard/PredictionSection.js';
 import { Button } from '../components/ui/Button.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.js';
+import { Card, CardContent } from '../components/ui/Card.js';
 import { LayoutGrid, ArrowLeft, Loader2 } from 'lucide-react';
 import { useDashboardStats, useBoardPredictions, useBoardBurndown } from '../lib/useHabitatData.js';
 

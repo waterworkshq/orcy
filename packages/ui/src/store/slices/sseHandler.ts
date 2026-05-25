@@ -239,7 +239,7 @@ export const createSseHandlerSlice: StateCreator<FullState, [], [], SseHandlerSl
       // --- Column events ---
       case 'column.created':
         if (event.data.habitatId === state.board?.id && !state.columns.some(c => c.id === event.data.id)) {
-          sseSet({ columns: [...state.columns, event.data].sort((a, b) => a.order - b.order) });
+          sseSet({ columns: [...state.columns, event.data].toSorted((a, b) => a.order - b.order) });
         }
         break;
       case 'column.updated':

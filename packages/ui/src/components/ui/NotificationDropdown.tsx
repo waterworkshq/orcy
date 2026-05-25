@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Check, Trash2, X } from 'lucide-react';
+import { Bell, Trash2, X } from 'lucide-react';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { formatRelativeTime } from '../../lib/formatting.js';
 import type { Notification } from '../../types/index.js';

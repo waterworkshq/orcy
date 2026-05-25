@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
 import { SkeletonCard } from './SkeletonCard.js';
 import { SkeletonColumn } from './SkeletonColumn.js';
@@ -9,6 +9,16 @@ import { resolve } from 'path';
 
 const cssPath = resolve(__dirname, '../../styles/design-system.css');
 const cssContent = readFileSync(cssPath, 'utf-8');
+
+function LoadingWrapper({ isLoading }: { isLoading: boolean }) {
+  if (isLoading) return <SkeletonColumn cardCount={3} />;
+  return <div data-testid="loaded-content">Loaded</div>;
+}
+
+function HeaderWrapper({ isLoading }: { isLoading: boolean }) {
+  if (isLoading) return <SkeletonHeader />;
+  return <div data-testid="real-header">Real Header</div>;
+}
 
 describe('Skeleton Components', () => {
   afterEach(() => {
@@ -81,7 +91,6 @@ describe('Skeleton Components', () => {
 
     it('renders column header skeleton', () => {
       const { container } = render(<SkeletonColumn />);
-      const headerSkeletons = container.querySelectorAll('.skeleton');
       const headerArea = container.querySelector('.flex.items-center.justify-between');
       expect(headerArea).toBeTruthy();
       expect(headerArea!.querySelectorAll('.skeleton').length).toBe(2);
@@ -208,11 +217,6 @@ describe('Skeleton Components', () => {
 
   describe('Skeleton integration — data loading', () => {
     it('renders skeleton column while data loads, then hides', () => {
-      function LoadingWrapper({ isLoading }: { isLoading: boolean }) {
-        if (isLoading) return <SkeletonColumn cardCount={3} />;
-        return <div data-testid="loaded-content">Loaded</div>;
-      }
-
       const { container, rerender } = render(<LoadingWrapper isLoading={true} />);
       expect(container.querySelector('[data-testid="skeleton-column"]')).toBeTruthy();
       expect(container.querySelector('[data-testid="loaded-content"]')).toBeFalsy();
@@ -223,11 +227,6 @@ describe('Skeleton Components', () => {
     });
 
     it('renders skeleton header while data loads', () => {
-      function HeaderWrapper({ isLoading }: { isLoading: boolean }) {
-        if (isLoading) return <SkeletonHeader />;
-        return <div data-testid="real-header">Real Header</div>;
-      }
-
       const { container, rerender } = render(<HeaderWrapper isLoading={true} />);
       expect(container.querySelector('[data-testid="skeleton-header"]')).toBeTruthy();
 

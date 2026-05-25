@@ -19,18 +19,18 @@ interface PredictionSectionProps {
   burndown: BurndownResponse;
 }
 
+function formatEta(dateStr: string | null): string {
+  if (!dateStr) return 'N/A';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function PredictionSection({ predictions, burndown }: PredictionSectionProps) {
   const dailyVelocity = predictions.velocity.days14 > 0
     ? (predictions.velocity.days14 / 14).toFixed(1)
     : predictions.velocity.days30 > 0
     ? (predictions.velocity.days30 / 30).toFixed(1)
     : '0.0';
-
-  const formatEta = (dateStr: string | null) => {
-    if (!dateStr) return 'N/A';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  };
 
   return (
     <div className="space-y-6">

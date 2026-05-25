@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, BarChart3, Users, Activity, Settings, Home } from 'lucide-react';
+import { Plus, BarChart3, Users, Activity, Home } from 'lucide-react';
 
 interface MobileNavProps {
   onAddTask: () => void;
@@ -10,7 +10,7 @@ interface MobileNavProps {
   boardName?: string;
 }
 
-export function MobileNav({ onAddTask, onStats, onAgents, onBoardSettings, boardName }: MobileNavProps) {
+export function MobileNav({ onAddTask, onStats, onAgents: _onAgents, onBoardSettings: _onBoardSettings, boardName: _boardName }: MobileNavProps) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background safe-area-bottom md:hidden">
       <div className="flex items-center justify-around px-2 py-2">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { PipelineContextSidebar } from './PipelineContextSidebar.js';
 import type { Task, MissionWithProgress } from '../../types/index.js';

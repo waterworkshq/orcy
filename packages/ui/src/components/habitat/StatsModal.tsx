@@ -1,5 +1,4 @@
-import React from 'react';
-import type { HabitatTimeMetrics, MissionWithProgress } from '../../types/index.js';
+import type { MissionWithProgress } from '../../types/index.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { StatCard } from '../ui/StatCard.js';
@@ -73,7 +72,7 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
   const inProgressFeatures = features.filter((f) => f.status === 'in_progress').length;
   const blockedFeatures = features.filter((f) =>
     f.dependsOn.length > 0 && f.dependsOn.every((depId: string) => {
-      const dep = features.find((f) => f.id === depId);
+      const dep = features.find((depFeature) => depFeature.id === depId);
       return !dep || dep.status !== 'done';
     })
   ).length;

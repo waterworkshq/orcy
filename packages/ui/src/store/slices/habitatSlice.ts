@@ -51,11 +51,11 @@ export const createHabitatSlice: StateCreator<HabitatSlice & MissionSlice & { se
     })),
 
   setColumns: (columns) =>
-    set({ columns: [...columns].sort((a, b) => a.order - b.order) }),
+    set({ columns: [...columns].toSorted((a, b) => a.order - b.order) }),
 
   addColumn: (column) =>
     set((state) => ({
-      columns: [...state.columns, column].sort((a, b) => a.order - b.order),
+      columns: [...state.columns, column].toSorted((a, b) => a.order - b.order),
     })),
 
   removeColumn: (columnId) =>

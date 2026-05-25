@@ -27,7 +27,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
   const toggleMissionSelection = useHabitatStore((s) => s.toggleMissionSelection);
-  const tasks = useHabitatStore(
+  const _tasks = useHabitatStore(
     (s) => s.tasks.filter((t) => t.missionId === feature.id),
     shallow
   );

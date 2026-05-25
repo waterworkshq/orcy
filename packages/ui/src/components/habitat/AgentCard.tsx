@@ -5,7 +5,6 @@ import { Button } from '../ui/Button.js';
 import { Tooltip } from '../ui/Tooltip.js';
 import { ChevronDown, ChevronRight, TrendingUp } from 'lucide-react';
 import { formatRelativeTime, formatMinutes } from '../../lib/formatting.js';
-import { getStatusBadge } from '../../lib/status-maps.js';
 import { TASK_STATUS_BADGE } from '../../lib/status-maps.js';
 import type { Agent, AgentStats } from '../../types/index.js';
 

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/Dialog.js';
-import { Button } from '../ui/Button.js';
-import type { HabitatExport } from '../../types/index.js';
 import { api } from '../../api/index.js';
+import { Button } from '../ui/Button.js';
 import { notify } from '../../lib/toast.js';
 
 interface ExportHabitatDialogProps {

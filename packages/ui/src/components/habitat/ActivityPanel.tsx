@@ -7,7 +7,7 @@ import { useModalStore } from '../../store/modalStore.js';
 import { useBoardEvents, useBoardAnomalies } from '../../lib/useHabitatData.js';
 import { SEVERITY_BADGE } from '../../lib/status-maps.js';
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, Download } from 'lucide-react';
-import type { EnrichedHabitatEvent, EventAction, Anomaly } from '../../types/index.js';
+import type { EnrichedHabitatEvent, EventAction } from '../../types/index.js';
 import { AuditExportModal } from './AuditExportModal.js';
 
 interface ActivityPanelProps {

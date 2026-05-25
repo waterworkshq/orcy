@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/index.js';
 import { queryKeys } from '../lib/queryKeys.js';
 import { Button } from '../components/ui/Button.js';
@@ -27,8 +27,6 @@ import { CommentInputBar } from '../components/habitat/CommentInputBar.js';
 import { MissionCommentSection } from '../components/habitat/MissionCommentSection.js';
 import { PulseBoard } from '../components/habitat/PulseBoard.js';
 import type {
-  Task,
-  MissionWithProgress,
   MissionEvent,
 } from '../types/index.js';
 
@@ -134,7 +132,6 @@ function ErrorView({
 export function MissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<'tasks' | 'pulse' | 'activity' | 'comments'>('tasks');
-  const queryClient = useQueryClient();
 
   const {
     data,
@@ -145,13 +142,6 @@ export function MissionDetailPage() {
     queryFn: () => api.missions.details(id!),
     enabled: !!id,
     staleTime: 30 * 1000,
-  });
-
-  const pulseDigest = useQuery({
-    queryKey: ['pulse', 'digest', id],
-    queryFn: () => api.pulse.digest(id!),
-    enabled: !!id && activeTab === 'pulse',
-    staleTime: 10 * 1000,
   });
 
   if (isLoading) {

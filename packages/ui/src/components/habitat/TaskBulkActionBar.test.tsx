@@ -13,7 +13,7 @@ const { mockBatch, mockClearTaskSelection, mockSetTaskBulkSelectMode, notifySucc
 }));
 
 vi.mock('../ui/ConfirmDialog.js', () => ({
-  ConfirmDialog: ({ open, onConfirm, onCancel, title, description, confirmLabel, variant }: any) =>
+  ConfirmDialog: ({ open, onConfirm, onCancel, title, description, confirmLabel, variant: _variant }: any) =>
     open ? (
       <div data-testid="confirm-dialog">
         <span>{title}</span>

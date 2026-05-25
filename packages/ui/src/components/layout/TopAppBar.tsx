@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, LogOut, Settings, User } from 'lucide-react';
+import { Bell, LogOut, Settings } from 'lucide-react';
 import { OrcyMark } from '../ui/icons/OrcyMark.js';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useHabitatStore } from '../../store/habitatStore.js';

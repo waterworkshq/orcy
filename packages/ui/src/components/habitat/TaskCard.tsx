@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, memo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useQuery } from '@tanstack/react-query';
@@ -8,9 +8,9 @@ import { Tooltip } from '../ui/Tooltip.js';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
 import { api } from '../../api/index.js';
-import { truncateId, formatDueDate, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, TASK_STATUS_VARIANT } from '../../lib/formatting.js';
+import { truncateId, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, TASK_STATUS_VARIANT } from '../../lib/formatting.js';
 import type { Task } from '../../types/index.js';
-import { GripVertical, Link2, Eye, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { GripVertical, Eye, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
 
 interface TaskCardProps {
   task: Task;
@@ -70,7 +70,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
     (s) => s.presence.filter((p) => p.viewingTaskId === task.id),
     shallow
   );
-  const [animKey, setAnimKey] = useState(0);
+  const [animKey] = useState(0);
   const borderClass = PRIORITY_BORDER_CLASS[task.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   const { data: qualityReport } = useQuery({
@@ -88,7 +88,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
   const qualityStatus = qualityStatusProp ?? qualityReport?.overallStatus ?? null;
   const blockedByDeps = blockedByDepsProp ?? blockedStatus?.isBlocked ?? false;
 
-  function handleCardClick(e: React.MouseEvent) {
+  function handleCardClick(_e: React.MouseEvent) {
     if (!isDragOverlay) {
       openModal(task.id);
     }

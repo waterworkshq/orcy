@@ -154,7 +154,7 @@ describe('FeatureMetrics', () => {
   });
 
   it('renders healthy dependencies with primary color', () => {
-    const { container } = render(
+    const { container: _c1 } = render(
       <FeatureMetrics
         progress={baseProgress}
         tasks={[]}
@@ -231,7 +231,7 @@ describe('FeatureMetrics', () => {
 
   it('hides time tracking when no tasks have time data', () => {
     const tasks = [makeTask({ id: 't1' })];
-    const { container } = render(
+    const { container: _c2 } = render(
       <FeatureMetrics
         progress={baseProgress}
         tasks={tasks}
@@ -245,7 +245,7 @@ describe('FeatureMetrics', () => {
     const tasks = [
       makeTask({ id: 't1', estimatedMinutes: 60, actualMinutes: 120 }),
     ];
-    const { container } = render(
+    const { container: _c3 } = render(
       <FeatureMetrics
         progress={baseProgress}
         tasks={tasks}
@@ -278,7 +278,7 @@ describe('FeatureMetrics', () => {
       percentage: 100,
       byStatus: { done: 5 },
     };
-    const { container } = render(
+    const { container: _c4 } = render(
       <FeatureMetrics
         progress={progress}
         tasks={[]}

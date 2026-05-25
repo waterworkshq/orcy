@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Column as ColumnType } from '../../types/index.js';
 
@@ -41,7 +41,7 @@ export function ColumnSwiper({ columns, activeIndex, onIndexChange, children }: 
     }
   }, [activeIndex, columns.length, onIndexChange]);
 
-  const columnNames = columns.slice().sort((a, b) => a.order - b.order).map(c => c.name);
+  const columnNames = columns.slice().toSorted((a, b) => a.order - b.order).map(c => c.name);
 
   return (
     <div className="flex flex-1 flex-col min-h-0 md:hidden">
@@ -57,7 +57,7 @@ export function ColumnSwiper({ columns, activeIndex, onIndexChange, children }: 
         <div className="flex-1 flex items-center justify-center gap-1 overflow-x-auto no-scrollbar">
           {columnNames.map((name, i) => (
             <button
-              key={columns.slice().sort((a, b) => a.order - b.order)[i]?.id}
+              key={columns.slice().toSorted((a, b) => a.order - b.order)[i]?.id}
               type="button"
               onClick={() => onIndexChange(i)}
               className={`rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors ${

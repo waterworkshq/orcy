@@ -343,7 +343,7 @@ describe('DataTable', () => {
   });
 
   it('renders sort indicator on sortable columns', () => {
-    const { container } = render(<DataTable columns={columns} data={sampleData} />);
+    const { container: _container } = render(<DataTable columns={columns} data={sampleData} />);
 
     const nameTh = screen.getByText('Name').closest('th')!;
     expect(nameTh).toHaveClass('cursor-pointer');

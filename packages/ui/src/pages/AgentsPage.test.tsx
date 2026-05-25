@@ -95,7 +95,7 @@ vi.mock('../components/ui/AgentRegistrationDialog.js', () => ({
 }));
 
 vi.mock('../components/ui/ConfirmDialog.js', () => ({
-  ConfirmDialog: ({ open, onConfirm, onCancel, title, description, confirmLabel, variant }: any) =>
+  ConfirmDialog: ({ open, onConfirm, onCancel, title, description, confirmLabel, variant: _variant }: any) =>
     open ? (
       <div data-testid="confirm-dialog">
         <span>{title}</span>
@@ -139,7 +139,6 @@ vi.mock('../components/ui/Tooltip.js', () => ({
 }));
 
 vi.mock('lucide-react', () => {
-  const span = (testId: string, text: string) => () => <span data-testid={testId}>{text}</span>;
   return {
     AlertTriangle: span('icon-alert', '⚠'),
     ArrowLeft: span('icon-arrow-left', '←'),
@@ -154,6 +153,10 @@ vi.mock('lucide-react', () => {
     Users: span('icon-users', '👥'),
   };
 });
+
+function span(testId: string, text: string) {
+  return () => <span data-testid={testId}>{text}</span>;
+}
 
 function createQueryClient() {
   return new QueryClient({
@@ -190,10 +193,6 @@ function setListWithTasks(
 
 function setStats(agentId: string, stats: AgentStats | undefined) {
   mockStatsResults[agentId] = { data: stats, isLoading: false } as any;
-}
-
-function clearStats() {
-  mockStatsResults = {};
 }
 
 describe('AgentsPage', () => {

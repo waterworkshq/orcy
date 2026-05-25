@@ -96,7 +96,7 @@ function Avatar({
 }
 
 export function TaskActivityFeed({ events }: TaskActivityFeedProps) {
-  const sorted = [...events].sort(
+  const sorted = [...events].toSorted(
     (a, b) => b.timestamp.getTime() - a.timestamp.getTime()
   );
 

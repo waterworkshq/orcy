@@ -12,7 +12,7 @@ export function injectMentionLinks(content: string, mentions: TaskCommentMention
     const scheme = `mention://${mention.mentionedType}/${mention.mentionedId}`;
     const replacement = `[${mention.mentionText}](${scheme})`;
     const regex = new RegExp(`(^|\\s)(${escapeRegExp(mention.mentionText)})(?=\\b)`, 'g');
-    next = next.replace(regex, (_match, prefix, token) => `${prefix}${replacement}`);
+    next = next.replace(regex, (_match, prefix, _token) => `${prefix}${replacement}`);
   }
   return next;
 }

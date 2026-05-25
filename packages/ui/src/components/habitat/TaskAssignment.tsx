@@ -19,12 +19,6 @@ interface TaskAssignmentProps {
   onDelegate: () => void;
 }
 
-function getAgentDisplayName(agentId: string | null | undefined, agents: Agent[]): string {
-  if (!agentId) return 'Unassigned';
-  const agent = agents.find((a) => a.id === agentId);
-  return agent ? agent.name : 'Agent not found';
-}
-
 export function TaskAssignment({
   task,
   agents,

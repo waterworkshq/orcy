@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, ShieldAlert, CheckCircle2, Circle, Link2 } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, Circle, Link2 } from 'lucide-react';
 import type { TaskQualityReport, QualityChecklist } from '../../types/index.js';
 import { QUALITY_STATUS_BADGE } from '../../lib/status-maps.js';
 
@@ -27,7 +27,7 @@ function ChecklistProgress({ checklist }: { checklist: QualityChecklist }) {
 }
 
 export function TaskQualityChecklist({
-  taskId,
+  taskId: _taskId,
   report,
   loading,
   onToggleItem,

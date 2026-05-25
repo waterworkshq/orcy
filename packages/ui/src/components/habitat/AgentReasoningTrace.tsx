@@ -4,7 +4,7 @@ import { useHabitatStore } from '../../store/habitatStore.js';
 import { api } from '../../api/index.js';
 import { queryKeys } from '../../lib/queryKeys.js';
 import { formatRelativeTime } from './MissionHeader.js';
-import { Bot, CheckCircle } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import type { Task, TaskComment } from '../../types/index.js';
 
 interface AgentReasoningTraceProps {
@@ -50,7 +50,7 @@ export function AgentReasoningTrace({ tasks }: AgentReasoningTraceProps) {
         }
       }
     }
-    return comments.sort(
+    return comments.toSorted(
       (a, b) =>
         new Date(b.comment.createdAt).getTime() -
         new Date(a.comment.createdAt).getTime()

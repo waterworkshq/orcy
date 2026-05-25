@@ -51,8 +51,8 @@ export function RichTextEditor({
     ],
     content,
     editable,
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+    onUpdate: ({ editor: ed }) => {
+      onChange(ed.getHTML());
     },
     editorProps: {
       attributes: {

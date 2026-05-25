@@ -164,17 +164,6 @@ export function getAvailableTasksForAgent(
       )
     );
 
-  const _unmetMissionDeps = db
-    .select()
-    .from(missionDependencies)
-    .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
-    .where(
-      and(
-        eq(missionDependencies.missionId, missions.id),
-        notInArray(missions.status, ['done'])
-      )
-    );
-
   const eligibleMissionIds = habitatMissionIds.filter(fid => {
     const deps = db
       .select()

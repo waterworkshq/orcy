@@ -35,10 +35,6 @@ function ProjectedImpactBar({
       t.status === 'submitted' ||
       t.status === 'approved'
   ).length;
-  const pendingCount = tasks.filter(
-    (t) => t.status === 'pending' || t.status === 'claimed'
-  ).length;
-
   const total = tasks.length || 1;
   const blockedPct = dependencies.dependsOn.length > 0 ? 33 : 0;
   const activePct = Math.round((activeCount / total) * 100);
@@ -217,7 +213,7 @@ function HistoryTimeline({ events }: { events: MissionEvent[] }) {
 }
 
 export function RiskAnalysisSidebar({
-  feature,
+  feature: _feature,
   tasks,
   events,
   dependencies,

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './Dialog.js';
+import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './Dialog.js';
 import { Button } from './Button.js';
 import type { SubtaskProposal } from '../../types/index.js';
 import { Trash2, Plus, GripVertical } from 'lucide-react';
@@ -86,7 +86,7 @@ export function DecompositionConfirmDialog({
             No subtasks to create.
           </p>
         )}
-        {items.map((item, index) => (
+        {items.map((item, _index) => (
           <div
             key={item.id}
             className={`flex items-start gap-2 rounded border p-2 ${

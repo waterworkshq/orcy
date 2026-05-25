@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { api } from '../../api/index.js';
 import { queryKeys } from '../../lib/queryKeys.js';
@@ -15,7 +15,6 @@ interface PulseBoardProps {
 }
 
 export function PulseBoard({ missionId }: PulseBoardProps) {
-  const queryClient = useQueryClient();
   const [activeTypes, setActiveTypes] = useState<SignalType[]>([]);
   const [hideAuto, setHideAuto] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);

@@ -10,7 +10,6 @@ import { useBoardTasks, type BoardTasksFilters } from '../../lib/useHabitatData.
 import { useDebounce } from '../../hooks/useDebounce.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
 import { TaskCardList } from './TaskCardList.js';
-import type { TaskPriority, TaskStatus } from '../../types/index.js';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
@@ -83,11 +82,11 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
     if (statusFilter !== 'all') mapping.status = statusFilter;
     if (priorityFilter !== 'all') mapping.priority = priorityFilter;
     if (agentFilter !== 'all') mapping.assignedAgentId = agentFilter;
-    const filters: ColumnFiltersState = Object.entries(mapping).map(([id, value]) => ({
+    const colFilters: ColumnFiltersState = Object.entries(mapping).map(([id, value]) => ({
       id,
       value,
     }));
-    setColumnFilters(filters);
+    setColumnFilters(colFilters);
   }, [statusFilter, priorityFilter, agentFilter]);
 
   function handleRowSelectionChange(updaterOrValue: React.SetStateAction<RowSelectionState>) {

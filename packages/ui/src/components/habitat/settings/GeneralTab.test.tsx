@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { GeneralTab } from './GeneralTab.js';
-import type { Habitat } from '../../../types/index.js';
 
 vi.mock('../../ui/Button.js', () => ({
   Button: ({ children, onClick, ...props }: any) => (

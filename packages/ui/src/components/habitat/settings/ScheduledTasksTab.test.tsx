@@ -40,7 +40,7 @@ vi.mock('../../../lib/toast.js', () => ({
 }));
 
 vi.mock('./ScheduledTasksList.js', () => ({
-  ScheduledTasksList: ({ scheduledTasks, loading, runningId, onToggle, onRun, onDelete, onEdit, onAdd }: any) => (
+  ScheduledTasksList: ({ scheduledTasks, loading, runningId: _runningId, onToggle, onRun, onDelete, onEdit, onAdd }: any) => (
     <div data-testid="scheduled-tasks-list">
       {loading && <span>Loading...</span>}
       {!loading && scheduledTasks?.length === 0 && <span>No scheduled tasks</span>}
@@ -59,7 +59,7 @@ vi.mock('./ScheduledTasksList.js', () => ({
 }));
 
 vi.mock('./ScheduledTaskForm.js', () => ({
-  ScheduledTaskForm: ({ existing, templates, saving, onSave, onCancel }: any) => (
+  ScheduledTaskForm: ({ existing, templates: _templates, saving, onSave, onCancel }: any) => (
     <div data-testid="scheduled-task-form">
       <span>{existing ? 'Edit Form' : 'Create Form'}</span>
       <button onClick={() => onSave({

@@ -293,7 +293,6 @@ describe('FilterBar', () => {
     const input = screen.getByPlaceholderText('View name...');
     fireEvent.change(input, { target: { value: 'Test' } });
 
-    const saveBtn = screen.getByRole('button', { name: '' });
     const allButtons = screen.getAllByRole('button');
     const saveButtons = allButtons.filter((b) => {
       const svg = b.querySelector('svg');

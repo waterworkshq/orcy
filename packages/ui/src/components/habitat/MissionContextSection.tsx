@@ -1,6 +1,6 @@
 import React from 'react';
 import { DetailCard } from '../ui/DetailCard.js';
-import { FileStack, Layers } from 'lucide-react';
+import { FileStack } from 'lucide-react';
 import { FEATURE_STATUS_BADGE, getStatusBadge } from '../../lib/status-maps.js';
 
 interface FeatureContextData {

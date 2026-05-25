@@ -13,6 +13,13 @@ interface CycleTimeChartProps {
   data: Array<{ date: string; avgMinutes: number; medianMinutes: number }>;
 }
 
+function formatMinutes(value: number): string {
+  if (value < 60) return `${value}m`;
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+  return `${hours}h ${mins}m`;
+}
+
 export function CycleTimeChart({ data }: CycleTimeChartProps) {
   if (data.length === 0) {
     return (
@@ -21,13 +28,6 @@ export function CycleTimeChart({ data }: CycleTimeChartProps) {
       </div>
     );
   }
-
-  const formatMinutes = (value: number) => {
-    if (value < 60) return `${value}m`;
-    const hours = Math.floor(value / 60);
-    const mins = value % 60;
-    return `${hours}h ${mins}m`;
-  };
 
   return (
     <ResponsiveContainer width="100%" height={280}>

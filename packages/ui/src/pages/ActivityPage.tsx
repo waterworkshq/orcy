@@ -6,7 +6,7 @@ import { useBoardAnomalies, useBoardEvents } from '../lib/useHabitatData.js';
 import { Button } from '../components/ui/Button.js';
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, ArrowLeft, Activity, Loader2 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/formatting.js';
-import type { EnrichedHabitatEvent, EventAction, Anomaly } from '../types/index.js';
+import type { EnrichedHabitatEvent, EventAction } from '../types/index.js';
 
 type FilterType = 'all' | 'claims' | 'submissions' | 'approvals' | 'rejections';
 

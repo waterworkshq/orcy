@@ -95,7 +95,7 @@ function TaskListItem({ task }: { task: Task }) {
 }
 
 export function PipelineContextSidebar({
-  feature,
+  feature: _feature,
   tasks,
 }: PipelineContextSidebarProps) {
   const openModal = useModalStore((s) => s.openModal);

@@ -34,7 +34,6 @@ export const Column = React.memo(function Column({ column, features, onSettingsC
   const wipWarning = wipLimit !== null && featureCount >= wipLimit * 0.8;
   const visibleFeatures = features.slice(0, visibleCount);
   const hasMore = visibleCount < featureCount;
-  const remaining = featureCount - visibleCount;
 
   return (
       <div

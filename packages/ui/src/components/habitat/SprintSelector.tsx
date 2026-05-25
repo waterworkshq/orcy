@@ -10,12 +10,6 @@ interface SprintSelectorProps {
   onOpenPlanning: () => void;
 }
 
-function getDaysRemaining(endDate: string): number {
-  const end = new Date(endDate);
-  const now = new Date();
-  return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
-
 export function SprintSelector({ habitatId, onOpenPlanning }: SprintSelectorProps) {
   const { data } = useQuery({
     queryKey: queryKeys.sprints.active(habitatId),

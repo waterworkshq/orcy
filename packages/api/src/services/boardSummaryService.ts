@@ -75,7 +75,7 @@ export function generateHabitatSummary(
   options: HabitatSummaryOptions = {}
 ): HabitatSummary | null {
   const since = options.since ?? '7d';
-  const _maxMissions = Math.min(options.maxMissions ?? 20, 50);
+  const maxMissions = Math.min(options.maxMissions ?? 20, 50);
   const includeDigest = options.includeDigest !== false;
 
   const habitatData = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
@@ -103,11 +103,10 @@ export function generateHabitatSummary(
   const missionEventsList = fetchMissionEvents(habitatId, sinceDate);
   const agentNameMap = buildAgentNameMap();
 
-  const missionNarratives = buildMissionNarratives(missionList, allTasks, events, missionEventsList, agentNameMap, _maxMissions);
-  const _periodMetrics = computePeriodMetrics(events, sinceDate);
+  const missionNarratives = buildMissionNarratives(missionList, allTasks, events, missionEventsList, agentNameMap, maxMissions);
 
   const recentActivity = buildActivityPeriods(
-    since, sinceDate, events, missionEventsList, missionNarratives, missionList, allTasks, agentNameMap, _maxMissions
+    since, sinceDate, events, missionEventsList, missionNarratives, missionList, allTasks, agentNameMap, maxMissions
   );
 
   const digest = includeDigest

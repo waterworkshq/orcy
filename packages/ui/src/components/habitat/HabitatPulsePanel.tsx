@@ -13,7 +13,6 @@ interface HabitatPulsePanelProps {
 }
 
 export function HabitatPulsePanel({ habitatId }: HabitatPulsePanelProps) {
-  const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
   const [activeTypes, setActiveTypes] = useState<SignalType[]>([]);
   const [hideAuto, setHideAuto] = useState(false);

@@ -59,8 +59,6 @@ function getGrade(score: number): string {
 }
 
 function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: number; throughputTrend: number; wipUtilization: number } {
-  const _metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
-
   const cycleTimeTrend = 0;
   const throughputTrend = 0;
 
@@ -72,7 +70,6 @@ function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: n
       const wipValues = Object.values(dashboardStats.wipHealth) as string[];
       const exceeded = wipValues.filter((v: string) => v === 'exceeded').length;
       const warning = wipValues.filter((v: string) => v === 'warning').length;
-      const _ok = wipValues.filter((v: string) => v === 'ok').length;
       const total = wipValues.length;
 
       if (total > 0) {

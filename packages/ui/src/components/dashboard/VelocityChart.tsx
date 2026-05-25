@@ -23,7 +23,7 @@ export function VelocityChart({ velocity }: VelocityChartProps) {
 
   const agentEntries = Object.entries(velocity.perAgent);
   const agentData = agentEntries.length > 0
-    ? agentEntries.map(([id, v]) => ({
+    ? agentEntries.map(([_id, v]) => ({
         agent: v.agentName.length > 12 ? v.agentName.slice(0, 12) + '...' : v.agentName,
         '7d': v.days7,
         '14d': v.days14,
