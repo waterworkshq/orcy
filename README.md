@@ -101,7 +101,8 @@ For development setup, registering orcys, MCP configuration, and production depl
 |---------|-------|
 | **v0.11** | Guardrails — review assignment rules, sprint/iteration management, visual rule builder, mobile table view ✔ |
 | **v0.12** | Fit In — GitHub Issues sync, external intake architecture ✔ |
-| **v0.13** | Autonomous — daemon & cron automation |
+| **v0.13** | Fit In More — Jira Cloud + Linear adapters, intake review UI |
+| **v0.14** | Autonomous — daemon & cron automation |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

@@ -24,17 +24,17 @@ vi.mock('@tanstack/react-query', async () => {
 const originalEventSource = globalThis.EventSource;
 
 function createMockEventSource() {
-  let _onmessage: ((e: { data: string }) => void) | null = null;
-  let _onerror: (() => void) | null = null;
+  let messageHandler: ((e: { data: string }) => void) | null = null;
+  let errorHandler: (() => void) | null = null;
   const es: any = {};
   Object.defineProperty(es, 'onmessage', {
-    get: () => _onmessage,
-    set: (fn: any) => { _onmessage = fn; },
+    get: () => messageHandler,
+    set: (fn: any) => { messageHandler = fn; },
     enumerable: true,
   });
   Object.defineProperty(es, 'onerror', {
-    get: () => _onerror,
-    set: (fn: any) => { _onerror = fn; },
+    get: () => errorHandler,
+    set: (fn: any) => { errorHandler = fn; },
     enumerable: true,
   });
   es.close = mockClose;

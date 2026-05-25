@@ -8,7 +8,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/time-report',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const report = timeTrackingService.getTaskTimeReport(request.params.id);
       if (!report) {
         throw notFound('Task not found');
@@ -20,7 +20,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/metrics',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       return timeTrackingService.getHabitatMetrics(request.params.habitatId);
     }
   );
@@ -28,7 +28,7 @@ export async function timeTrackingRoutes(fastify: FastifyInstance): Promise<void
   fastify.put<{ Params: { id: string }; Body: { estimatedMinutes: number } }>(
     '/tasks/:id/estimate',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: { estimatedMinutes: number } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: { estimatedMinutes: number } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');

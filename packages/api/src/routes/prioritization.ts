@@ -59,7 +59,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
   fastify.get(
     '/habitats/:habitatId/rules',
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const settings = prioritizationService.getPrioritizationRules(params.habitatId);
       return { rules: settings };
@@ -96,7 +96,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
   fastify.post(
     '/habitats/:habitatId/rules/evaluate',
     { preHandler: [humanAuth, requireHabitatAccess] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const result = prioritizationService.applyPrioritization(params.habitatId);
       return { evaluation: result };
@@ -106,7 +106,7 @@ export async function prioritizationRoutes(fastify: FastifyInstance): Promise<vo
   fastify.get(
     '/habitats/:habitatId/priority-report',
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const query = request.query as { limit?: string };
       const limit = Math.min(

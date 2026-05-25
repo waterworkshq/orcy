@@ -44,7 +44,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof summaryQuerySchema> }>(
     '/habitats/:habitatId/audit/summary',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string }; Querystring: z.infer<typeof summaryQuerySchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Querystring: z.infer<typeof summaryQuerySchema> }>, _reply: FastifyReply) => {
       const parsed = summaryQuerySchema.safeParse(request.query);
       const { since, until } = parsed.success ? parsed.data : {};
 
@@ -70,7 +70,7 @@ export async function auditExportRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/audit/schedules',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const schedules = auditExportService.listSchedules(request.params.habitatId);
       return { schedules };
     }

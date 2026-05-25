@@ -163,7 +163,7 @@ await fastify.register(async (f) => {
   f.post<{ Params: { id: string } }>(
     '/habitats/:id/archive-events',
     { preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = archiveOldEvents(request.params.id);
       return result;
     }
@@ -181,7 +181,7 @@ await fastify.register(async (f) => {
   f.post<{ Params: { id: string } }>(
     '/habitats/:id/archive-events',
     { preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = archiveOldEvents(request.params.id);
       return result;
     }

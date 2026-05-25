@@ -58,7 +58,7 @@ export async function attachmentRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.get<{ Params: { taskId: string } }>(
     '/tasks/:taskId/attachments',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { taskId: string } }>, _reply: FastifyReply) => {
       const task = getTaskById(request.params.taskId);
       if (!task) {
         throw notFound('Task not found');

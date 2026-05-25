@@ -36,7 +36,7 @@ export async function columnRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { id: string }; Body: UpdateColumnInput }>(
     '/columns/:id',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateColumnInput }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateColumnInput }>, _reply: FastifyReply) => {
       const parsed = updateColumnSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());

@@ -17,7 +17,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats',
     { schema: { querystring: z.object({ name: z.string().optional() }) }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const query = request.query;
       let teamIds: string[] | undefined;
       if (request.user) {
@@ -65,7 +65,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId',
     { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');
@@ -78,7 +78,7 @@ export async function habitatRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().patch(
     '/habitats/:habitatId',
     { schema: { params: habitatIdParamsSchema, body: updateHabitatSchema }, preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const habitat = habitatService.updateHabitat(request.params.habitatId, request.body as Parameters<typeof habitatService.updateHabitat>[1]);
       if (!habitat) {
         throw notFound('Habitat not found');

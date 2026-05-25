@@ -20,7 +20,7 @@ export async function taskDelegationRoutes(fastify: FastifyInstance): Promise<vo
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/delegate',
     { schema: { params: taskParamsSchema, body: delegateTaskSchema }, preHandler: [agentAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const parsed = request.body;
       const fromAgentId = request.agent?.id ?? (request.body as { agentId?: string })?.agentId ?? request.user?.id;
       if (!fromAgentId) {

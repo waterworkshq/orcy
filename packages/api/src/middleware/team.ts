@@ -7,7 +7,7 @@ import { unauthorized, forbidden, badRequest, notFound } from '../errors.js';
 
 export async function teamHabitatAccess(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   if (!request.user) return;
 
@@ -28,7 +28,7 @@ export async function teamHabitatAccess(
 
 export async function teamAdminOrOwner(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   if (!request.user) {
     throw unauthorized('Authentication required');
@@ -49,7 +49,7 @@ export async function teamAdminOrOwner(
 
 export async function teamExists(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const teamId = (request.params as { id: string }).id;
   if (!teamId) return;

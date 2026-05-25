@@ -52,7 +52,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/missions',
     { schema: { params: habitatIdParamsSchema, querystring: missionQuerySchema }, preHandler: [agentOrHumanAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const parsed = request.query;
       const habitat = habitatRepo.getHabitatById(request.params.habitatId);
       if (!habitat) {
@@ -74,7 +74,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/missions/:missionId',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const mission = missionService.getMissionWithProgress(request.params.missionId);
       if (!mission) {
         throw notFound('Mission not found');
@@ -86,7 +86,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/missions/:missionId/details',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const mission = missionService.getMissionWithProgress(request.params.missionId);
       if (!mission) {
         throw notFound('Mission not found');
@@ -150,7 +150,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/missions/:missionId/archive',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const result = missionService.archiveMission(request.params.missionId, actorId);
       if (!result.success) {
@@ -166,7 +166,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/missions/:missionId/unarchive',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const result = missionService.unarchiveMission(request.params.missionId, actorId);
       if (!result.success) {
@@ -198,7 +198,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/missions/:missionId/move',
     { schema: { params: missionIdParamsSchema, body: moveMissionSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const actorType = request.agent ? 'agent' : 'human';
@@ -214,7 +214,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/missions/:missionId/tasks',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const mission = missionRepo.getMissionById(request.params.missionId);
       if (!mission) {
         throw notFound('Mission not found');
@@ -259,7 +259,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/missions/:missionId/progress',
     { schema: { params: missionIdParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const mission = missionRepo.getMissionById(request.params.missionId);
       if (!mission) {
         throw notFound('Mission not found');
@@ -284,7 +284,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/missions/:missionId/decompose',
     { schema: { params: missionIdParamsSchema }, preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const mission = missionRepo.getMissionById(request.params.missionId);
       if (!mission) {
         throw notFound('Mission not found');

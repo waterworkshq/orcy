@@ -12,7 +12,7 @@ export async function dashboardRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/dashboard',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = dashboardQuerySchema.safeParse(request.query);
       if (!parsed.success) {
         throw badRequest('Invalid query params', parsed.error.flatten());

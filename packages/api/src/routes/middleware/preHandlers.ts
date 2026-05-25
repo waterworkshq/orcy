@@ -3,7 +3,7 @@ import * as habitatRepo from '../../repositories/board.js';
 import { notFound } from '../../errors.js';
 
 export function requireHabitat(): preHandlerAsyncHookHandler {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
+  return async (request: FastifyRequest, _reply: FastifyReply) => {
     const habitatId = (request.params as { habitatId: string }).habitatId;
     const habitat = habitatRepo.getHabitatById(habitatId);
     if (!habitat) {

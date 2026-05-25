@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(__dirname, '..', '..', 'drizzle', '0000_schema.sql'), 'utf-8');
+const schemaSql = readFileSync(join(import.meta.dirname, '..', '..', 'drizzle', '0000_schema.sql'), 'utf-8');
 const statements = schemaSql
   .split('--> statement-breakpoint')
   .map(s => s.trim())

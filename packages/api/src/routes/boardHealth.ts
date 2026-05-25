@@ -13,7 +13,7 @@ export async function habitatHealthRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get(
     '/habitats/:habitatId/health',
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const health = habitatHealthService.calculateHealth(params.habitatId);
       return health;
@@ -23,7 +23,7 @@ export async function habitatHealthRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get(
     '/habitats/:habitatId/health/history',
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const params = request.params as { habitatId: string };
       const parsed = historyQuerySchema.safeParse(request.query);
       const days = parsed.success ? parsed.data.days : 30;

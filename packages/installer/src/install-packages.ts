@@ -2,14 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import type { InstallContext } from "./context.js";
 import { createShims, editShellRc } from "./path-shim.js";
 import { record } from "./manifest.js";
 
 const REPO_URL_BASE = "https://github.com/waterworkshq/orcy";
 const ARCHIVE_URL = `${REPO_URL_BASE}/archive/refs/heads/main.tar.gz`;
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface InstallOptions {
 	local?: boolean;
@@ -25,7 +23,7 @@ function rmRf(p: string): void {
 }
 
 function getInstallerDir(): string {
-	return path.resolve(__dirname, "..");
+	return path.resolve(import.meta.dirname, "..");
 }
 
 function ensurePnpm(): void {

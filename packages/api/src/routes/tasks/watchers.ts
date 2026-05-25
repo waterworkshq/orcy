@@ -40,7 +40,7 @@ export async function taskWatcherRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/watchers',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');

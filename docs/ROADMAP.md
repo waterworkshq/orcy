@@ -30,7 +30,21 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ---
 
-### v0.13.0 — "Autonomous"
+### v0.13.0 — "Fit In More"
+
+Extend the integration framework with Jira Cloud and Linear adapters. Provider-neutral intake architecture ships end-to-end.
+
+| Feature | Problem it solves |
+|---------|-------------------|
+| Jira Cloud Adapter | JQL-based issue search, OAuth 3LO, intake candidate review workflow |
+| Linear Adapter | GraphQL issue queries, OAuth PKCE, cursor pagination, team/cycle context |
+| Intake Review UI | Human/orcy reviews and promotes Jira/Linear candidates to missions |
+
+**Why together:** Both use the same adapter interface and intake candidate flow built in v0.12. The GitHub adapter proved the pattern — these are additive implementations on a stable foundation. Jira uses REST + JQL, Linear uses GraphQL — covering both ensures the adapter interface is truly provider-neutral.
+
+---
+
+### v0.14.0 — "Autonomous"
 
 Daemon & Cron Automation. Agents run themselves — no more manual launch.
 
@@ -43,7 +57,7 @@ Daemon & Cron Automation. Agents run themselves — no more manual launch.
 
 ---
 
-### v0.14.0 — "The Habitat Remembers"
+### v0.15.0 — "The Habitat Remembers"
 
 Dynamic Habitat Skills. Each habitat auto-generates a living skill document from high-strength pulse signals — findings, patterns, decisions that multiple agents confirmed.
 

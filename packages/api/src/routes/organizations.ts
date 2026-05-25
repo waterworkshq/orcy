@@ -49,7 +49,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { id: string } }>(
     '/organizations/:id',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
         throw notFound('Organization not found');
@@ -101,7 +101,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { id: string } }>(
     '/organizations/:id/teams',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const org = orgRepo.getOrganizationById(request.params.id);
       if (!org) {
         throw notFound('Organization not found');
@@ -113,7 +113,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { id: string } }>(
     '/teams/:id',
     { preHandler: [humanAuth, teamExists] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const team = teamRepo.getTeamById(request.params.id);
       if (!team) {
         throw notFound('Team not found');
@@ -158,7 +158,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { id: string } }>(
     '/teams/:id/members',
     { preHandler: [humanAuth, teamExists] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       return { members: memberRepo.listMembers(request.params.id) };
     }
   );
@@ -175,7 +175,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
   fastify.patch<{ Params: { id: string; userId: string }; Body: z.infer<typeof updateMemberRoleSchema> }>(
     '/teams/:id/members/:userId',
     { preHandler: [humanAuth, teamExists, teamAdminOrOwner] },
-    async (request: FastifyRequest<{ Params: { id: string; userId: string }; Body: z.infer<typeof updateMemberRoleSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string; userId: string }; Body: z.infer<typeof updateMemberRoleSchema> }>, _reply: FastifyReply) => {
       const parsed = updateMemberRoleSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -192,7 +192,7 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
   fastify.get(
     '/users/me/teams',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       if (!request.user) {
         throw unauthorized('Authentication required');
       }

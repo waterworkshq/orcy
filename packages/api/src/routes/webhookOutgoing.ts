@@ -50,7 +50,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: { habitatId?: string } }>(
     '/webhooks',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Querystring: { habitatId?: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Querystring: { habitatId?: string } }>, _reply: FastifyReply) => {
       const habitatId = request.query.habitatId || undefined;
       const subscriptions = getWebhookSubscriptions(habitatId);
       return subscriptions.map(sub => ({
@@ -64,7 +64,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: CreateWebhookBody }>(
     '/webhooks',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Body: CreateWebhookBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Body: CreateWebhookBody }>, _reply: FastifyReply) => {
       const { habitatId, name, url, format = 'standard', events = [], headers = {} } = request.body;
 
       if (!name || !url) {
@@ -114,7 +114,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.put<{ Params: { id: string }; Body: UpdateWebhookBody }>(
     '/webhooks/:id',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateWebhookBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateWebhookBody }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const updates = request.body;
 
@@ -163,7 +163,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.delete<{ Params: { id: string } }>(
     '/webhooks/:id',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
 
       const existing = getWebhookSubscriptionById(id);
@@ -184,7 +184,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { id: string } }>(
     '/webhooks/:id/test',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
 
       const subscription = getWebhookSubscriptionById(id);
@@ -206,7 +206,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { id: string } }>(
     '/webhooks/:id/rotate-secret',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
 
       const existing = getWebhookSubscriptionById(id);
@@ -227,7 +227,7 @@ export async function webhookRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string }; Querystring: { limit?: number } }>(
     '/webhooks/:id/deliveries',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: number } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Querystring: { limit?: number } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const limit = request.query.limit || 25;
 

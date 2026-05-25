@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
 
@@ -20,10 +19,8 @@ import { record } from './manifest.js';
  * See skills/README.md for full documentation.
  */
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 export function getInstallerDir(): string {
-  return path.resolve(__dirname, '..');
+  return path.resolve(import.meta.dirname, '..');
 }
 
 export function determineSkillsToInstall(components: string[]): string[] {

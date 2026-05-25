@@ -11,7 +11,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { taskId: string } }>(
     '/tasks/:taskId/subtasks',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { taskId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { taskId: string } }>, _reply: FastifyReply) => {
       return subtaskService.getSubtasks(request.params.taskId);
     }
   );
@@ -44,7 +44,7 @@ export async function subtaskRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { taskId: string; subtaskId: string }; Body: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null } }>(
     '/tasks/:taskId/subtasks/:subtaskId',
     { preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const subtask = subtaskService.updateSubtask(request.params.subtaskId, request.body);
 
       if (!subtask) {

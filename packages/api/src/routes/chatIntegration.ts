@@ -34,7 +34,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/chat-integrations',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const { habitatId } = request.params;
       const habitat = getHabitatById(habitatId);
       if (!habitat) {
@@ -51,7 +51,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
   fastify.post<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>(
     '/habitats/:habitatId/chat-integrations',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string }; Body: CreateIntegrationBody }>, _reply: FastifyReply) => {
       const { habitatId } = request.params;
       const { provider, webhookUrl, channelId, botToken, events } = request.body;
 
@@ -97,7 +97,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
   fastify.put<{ Params: { id: string }; Body: UpdateIntegrationBody }>(
     '/chat-integrations/:id',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateIntegrationBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateIntegrationBody }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const updates = request.body;
 
@@ -137,7 +137,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
   fastify.delete<{ Params: { id: string } }>(
     '/chat-integrations/:id',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const existing = getIntegrationById(id);
       if (!existing) {
@@ -154,7 +154,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
   fastify.post<{ Params: { id: string } }>(
     '/chat-integrations/:id/test',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const integration = getIntegrationById(id);
       if (!integration) {

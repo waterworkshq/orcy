@@ -60,7 +60,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
   fastify.get<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>(
     '/missions/:missionId/comments',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string }; Querystring: z.infer<typeof commentsQuerySchema> }>, _reply: FastifyReply) => {
       const parsed = commentsQuerySchema.safeParse(request.query);
       if (!parsed.success) {
         throw badRequest('Invalid query', parsed.error.flatten());
@@ -78,7 +78,7 @@ export async function missionCommentRoutes(fastify: FastifyInstance): Promise<vo
   fastify.patch<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>(
     '/missions/:missionId/comments/:commentId',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string; commentId: string }; Body: z.infer<typeof updateCommentSchema> }>, _reply: FastifyReply) => {
       if (!request.agent && !request.user) {
         throw unauthorized('Authentication required');
       }

@@ -15,7 +15,7 @@ export function getHabitatIdFromParams(request: FastifyRequest): string | undefi
 
 export async function authenticateRealtime(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const apiKey = request.headers['x-agent-api-key'] as string | undefined;
   if (apiKey) {
@@ -42,7 +42,7 @@ export async function authenticateRealtime(
 
 export async function authorizeHabitatAccess(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const habitatId = getHabitatIdFromParams(request);
   if (!habitatId) return;

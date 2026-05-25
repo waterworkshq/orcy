@@ -7,7 +7,18 @@
     "pedantic": "off"
   },
   "rules": {
-    "no-unused-vars": "warn"
+    "no-unused-vars": "warn",
+    "no-async-endpoint-handlers": "off",
+    "no-underscore-dangle": ["warn", {
+      "allow": [
+        "_vals", "_conditions", "_type", "_condition", "_table",
+        "_prs", "_tasks", "_prefsData", "_idCounter", "_filters",
+        "_pipelineEvents", "_integrations", "_overdueData", "_dbShouldThrow",
+        "_drizzleDb", "_sqlite", "_config", "_driver", "_jwtSecret",
+        "_resetActiveWorktrees", "_isOrderBy", "_habitatId", "_userId",
+        "__pluginTestCalls"
+      ]
+    }]
   },
   "overrides": [
     {

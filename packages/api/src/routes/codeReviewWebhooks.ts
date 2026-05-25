@@ -66,7 +66,7 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/pull-requests',
     { preHandler: [humanAuth] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const prs = prRepo.getByTaskId(id);
       return { pullRequests: prs };

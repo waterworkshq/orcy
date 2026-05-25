@@ -65,7 +65,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{ Params: { agentId: string } }>(
     '/agents/:agentId/messages',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { agentId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { agentId: string } }>, _reply: FastifyReply) => {
       const { agentId } = request.params;
 
       if (!request.agent || !requireSelfAgent(request, agentId)) {
@@ -90,7 +90,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
   fastify.put<{ Params: { id: string } }>(
     '/agents/messages/:id/read',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       if (!request.agent) {
         throw unauthorized('Authentication required');
       }
@@ -115,7 +115,7 @@ export async function agentMessageRoutes(fastify: FastifyInstance): Promise<void
   fastify.put<{ Params: { agentId: string } }>(
     '/agents/:agentId/messages/read-all',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { agentId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { agentId: string } }>, _reply: FastifyReply) => {
       if (!request.agent || !requireSelfAgent(request, request.params.agentId)) {
         throw forbidden('Agent can only mark its own messages as read');
       }

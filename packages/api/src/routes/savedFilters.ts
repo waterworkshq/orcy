@@ -18,7 +18,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/saved-filters',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const userId = request.user?.id ?? request.agent?.id ?? 'anonymous';
       const filters = savedFilterRepo.getSavedFilters(request.params.habitatId, userId);
       return { savedFilters: filters };
@@ -49,7 +49,7 @@ export async function savedFilterRoutes(fastify: FastifyInstance): Promise<void>
   fastify.put<{ Params: { id: string }; Body: { name: string; filterConfig: Record<string, unknown> } }>(
     '/saved-filters/:id',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const parsed = updateSavedFilterSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());

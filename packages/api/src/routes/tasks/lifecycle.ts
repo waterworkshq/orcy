@@ -36,7 +36,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/claim',
     { schema: { params: taskParamsSchema, body: claimTaskSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -78,7 +78,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/start',
     { schema: { params: taskParamsSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -102,7 +102,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/approve',
     { schema: { params: taskParamsSchema, body: approveTaskSchema }, preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -127,7 +127,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/reject',
     { schema: { params: taskParamsSchema, body: rejectTaskSchema }, preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -153,7 +153,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/release',
     { schema: { params: taskParamsSchema, body: releaseTaskSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -179,7 +179,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/fail',
     { schema: { params: taskParamsSchema, body: failTaskSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -210,7 +210,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/submit',
     { schema: { params: taskParamsSchema, body: submitTaskSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -254,7 +254,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/complete',
     { schema: { params: taskParamsSchema, body: completeTaskSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -322,7 +322,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/retry',
     { schema: { params: taskParamsSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -343,7 +343,7 @@ export async function taskLifecycleRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/unblock',
     { schema: { params: taskParamsSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       if (!request.agent) {
         throw unauthorized('Authentication required');
       }

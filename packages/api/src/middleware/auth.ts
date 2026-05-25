@@ -21,7 +21,7 @@ declare module 'fastify' {
  */
 export async function agentAuth(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const apiKey = request.headers['x-agent-api-key'] as string | undefined;
 
@@ -43,7 +43,7 @@ export async function agentAuth(
  */
 export async function humanAuth(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const { user, error } = extractAndVerifyJwt(request, { allowBearer: true });
   if (error) {
@@ -58,7 +58,7 @@ export async function humanAuth(
  */
 export async function registrationAuth(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const secret = process.env.ORCY_REGISTRATION_TOKEN;
   if (!secret) return;
@@ -71,7 +71,7 @@ export async function registrationAuth(
 
 export async function agentOrHumanAuth(
   request: FastifyRequest,
-  reply: FastifyReply
+  _reply: FastifyReply
 ): Promise<void> {
   const apiKey = request.headers['x-agent-api-key'] as string | undefined;
   if (apiKey) {

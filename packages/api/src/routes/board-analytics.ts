@@ -18,7 +18,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/stats',
     { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');
@@ -32,7 +32,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/summary',
     { schema: { params: habitatIdParamsSchema, querystring: z.object({ since: z.enum(['24h', '7d', '30d', 'all']).optional(), maxTasks: z.coerce.number().int().min(1).max(50).optional(), includeDigest: z.enum(['true', 'false']).optional() }) }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const query = request.query;
       const since = query.since ?? '7d';
       const maxMissions = query.maxTasks ?? 20;
@@ -56,7 +56,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/events',
     { schema: { params: habitatIdParamsSchema, querystring: habitatEventsQuerySchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');
@@ -77,7 +77,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/capacity',
     { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');
@@ -91,7 +91,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/predictions',
     { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');
@@ -104,7 +104,7 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/burndown',
     { schema: { params: habitatIdParamsSchema, querystring: z.object({ days: z.coerce.number().int().min(7).max(90).optional() }) }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');

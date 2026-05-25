@@ -8,7 +8,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.post<{ Params: { id: string }; Body: { dependsOnTaskId: string } }>(
     '/tasks/:id/dependencies',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: { dependsOnTaskId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: { dependsOnTaskId: string } }>, _reply: FastifyReply) => {
       const { dependsOnTaskId } = request.body;
       if (!dependsOnTaskId) {
         throw badRequest('dependsOnTaskId is required');
@@ -36,7 +36,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.delete<{ Params: { id: string; depId: string } }>(
     '/tasks/:id/dependencies/:depId',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string; depId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string; depId: string } }>, _reply: FastifyReply) => {
       const removed = dependencyService.removeTaskDependency(request.params.id, request.params.depId);
       if (!removed) {
         throw notFound('Dependency not found');
@@ -48,7 +48,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/dependencies',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -60,7 +60,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/blocked-status',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -81,7 +81,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.post<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>(
     '/missions/:missionId/dependencies',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string }; Body: { dependsOnMissionId: string } }>, _reply: FastifyReply) => {
       const { dependsOnMissionId } = request.body;
       if (!dependsOnMissionId) {
         throw badRequest('dependsOnMissionId is required');
@@ -98,7 +98,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.delete<{ Params: { missionId: string; depId: string } }>(
     '/missions/:missionId/dependencies/:depId',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string; depId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string; depId: string } }>, _reply: FastifyReply) => {
       const removed = dependencyService.removeMissionDependency(request.params.missionId, request.params.depId);
       if (!removed) {
         throw notFound('Dependency not found');
@@ -110,7 +110,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.get<{ Params: { missionId: string } }>(
     '/missions/:missionId/dependencies',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
       return dependencyService.getMissionDependencies(request.params.missionId);
     }
   );
@@ -118,7 +118,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.get<{ Params: { missionId: string } }>(
     '/missions/:missionId/blocked-status',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
       return dependencyService.validateMissionCompletion(request.params.missionId);
     }
   );
@@ -126,7 +126,7 @@ export async function dependencyRoutes(fastify: FastifyInstance): Promise<void> 
   fastify.get<{ Params: { missionId: string } }>(
     '/missions/:missionId/dependency-graph',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { missionId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { missionId: string } }>, _reply: FastifyReply) => {
       return dependencyService.getDependencyGraph(request.params.missionId);
     }
   );

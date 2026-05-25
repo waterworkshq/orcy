@@ -39,7 +39,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /presence/join - Register presence on a board. No auth. Returns { success: true } */
   fastify.post<{ Body: JoinBody }>(
     '/presence/join',
-    async (request: FastifyRequest<{ Body: JoinBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Body: JoinBody }>, _reply: FastifyReply) => {
       const { sessionId, type, habitatId, userId, userName, agentId, agentName } = request.body;
       if (!sessionId || !type || !habitatId) {
         throw badRequest('sessionId, type, and habitatId are required');
@@ -52,7 +52,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /presence/heartbeat - Send presence heartbeat. No auth. Returns { success: true } */
   fastify.post<{ Body: HeartbeatBody }>(
     '/presence/heartbeat',
-    async (request: FastifyRequest<{ Body: HeartbeatBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Body: HeartbeatBody }>, _reply: FastifyReply) => {
       const { sessionId, habitatId, viewingTaskId } = request.body;
       if (!sessionId || !habitatId) {
         throw badRequest('sessionId and habitatId are required');
@@ -65,7 +65,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** POST /presence/leave - Leave a board session. No auth. Returns { success: true } */
   fastify.post<{ Body: LeaveBody }>(
     '/presence/leave',
-    async (request: FastifyRequest<{ Body: LeaveBody }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Body: LeaveBody }>, _reply: FastifyReply) => {
       const { sessionId, habitatId } = request.body;
       if (!sessionId || !habitatId) {
         throw badRequest('sessionId and habitatId are required');
@@ -78,7 +78,7 @@ export async function presenceRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /presence/viewers/:habitatId - Get active viewers on a board. No auth. Returns { viewers } */
   fastify.get<{ Params: { habitatId: string } }>(
     '/presence/viewers/:habitatId',
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const { habitatId } = request.params;
       const viewers = getHabitatPresence(habitatId);
       return { viewers };

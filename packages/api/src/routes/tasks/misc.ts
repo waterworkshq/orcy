@@ -17,7 +17,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/tasks/:id/events',
     { schema: { params: taskParamsSchema, querystring: eventsQuerySchema }, preHandler: [agentOrHumanAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const parsed = request.query;
       const result = eventRepo.getEventsByTaskId(
         request.params.id,
@@ -31,7 +31,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/tasks/:id/decompose',
     { schema: { params: taskParamsSchema }, preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -62,7 +62,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/tasks/:id/worktree',
     { schema: { params: taskParamsSchema }, preHandler: agentAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -79,7 +79,7 @@ export async function taskMiscRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/tasks/:id/details',
     { schema: { params: taskParamsSchema }, preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const userId = request.user?.id;
       const result = await taskService.getTaskDetails(request.params.id, userId);
       if (!result) {

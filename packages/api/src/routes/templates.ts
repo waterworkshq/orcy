@@ -43,7 +43,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/templates',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const templates = templateRepo.getTemplatesByHabitatId(request.params.habitatId);
       return { templates };
     }
@@ -81,7 +81,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { id: string }; Body: z.infer<typeof updateTemplateSchema> }>(
     '/templates/:id',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof updateTemplateSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: z.infer<typeof updateTemplateSchema> }>, _reply: FastifyReply) => {
       const parsed = updateTemplateSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -132,7 +132,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { id: string } }>(
     '/templates/:id/usage',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const template = templateRepo.getTemplateById(request.params.id);
       if (!template) {
         throw notFound('Template not found');

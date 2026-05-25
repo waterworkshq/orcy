@@ -1,7 +1,6 @@
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema/index.js';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { existsSync, readFileSync, mkdirSync } from 'fs';
 import { ORCY_PATHS } from '@orcy/shared';
 import { createHash } from 'crypto';
@@ -14,8 +13,6 @@ import { logger } from '../lib/logger.js';
 
 type DrizzleDb = BetterSQLite3Database<typeof schema>;
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 function findWorkspaceRoot(start: string): string {
   let dir = start;
   while (true) {
@@ -27,7 +24,7 @@ function findWorkspaceRoot(start: string): string {
 }
 
 export function getWorkspaceRoot(): string {
-  return findWorkspaceRoot(__dirname);
+  return findWorkspaceRoot(import.meta.dirname);
 }
 
 export function getDefaultDbPath(): string {

@@ -3,10 +3,7 @@ import { habitats, taskEvents, tasks, missions } from '../db/schema/index.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { logger } from '../lib/logger.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function findWorkspaceRoot(start: string): string {
   let dir = start;
@@ -18,7 +15,7 @@ function findWorkspaceRoot(start: string): string {
   }
 }
 
-const workspaceRoot = findWorkspaceRoot(__dirname);
+const workspaceRoot = findWorkspaceRoot(import.meta.dirname);
 const ARCHIVES_DIR = process.env.ARCHIVES_DIR || join(workspaceRoot, 'archives');
 
 export interface ArchiveResult {

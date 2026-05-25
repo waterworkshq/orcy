@@ -63,7 +63,7 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/pipeline-events',
     { preHandler: [humanAuth] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const { id } = request.params;
       const events = pipelineRepo.getByTaskId(id);
       return { pipelineEvents: events };

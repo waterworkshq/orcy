@@ -11,7 +11,7 @@ export async function taskBatchRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats/:habitatId/tasks/batch',
     { schema: { params: habitatIdParamSchema, body: batchTaskSchema }, preHandler: [agentOrHumanAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { habitatId } = request.params;
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';

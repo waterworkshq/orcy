@@ -24,7 +24,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/tasks/:id',
     { schema: { params: taskParamsSchema }, preHandler: [agentOrHumanAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const task = taskService.getTask(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -37,7 +37,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().patch(
     '/tasks/:id',
     { schema: { params: taskParamsSchema, body: updateTaskSchema }, preHandler: [agentAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? 'anonymous';
       const result = taskService.updateTask(request.params.id, parsed, actorId);
@@ -59,7 +59,7 @@ export async function taskCrudRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().delete(
     '/tasks/:id',
     { schema: { params: taskParamsSchema }, preHandler: [agentOrHumanAuth] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = taskService.deleteTask(request.params.id);
       if (!result.success) {
         if (result.reason === 'archived') {

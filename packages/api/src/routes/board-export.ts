@@ -16,7 +16,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/export',
     { schema: { params: habitatIdParamsSchema, querystring: exportQuerySchema }, preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.exportHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');
@@ -97,7 +97,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
   fastify.withTypeProvider<ZodTypeProvider>().get(
     '/habitats/:habitatId/anomalies',
     { schema: { params: habitatIdParamsSchema }, preHandler: [agentOrHumanAuth, requireHabitatAccess] },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = habitatService.getHabitat(request.params.habitatId);
       if (!result) {
         throw notFound('Habitat not found');

@@ -25,7 +25,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
   fastify.get(
     '/users/me/notification-preferences',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const userId = request.user!.id;
       const prefs = prefRepo.getPreferences(userId, null);
       const user = userRepo.getUserById(userId);
@@ -36,7 +36,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
   fastify.put(
     '/users/me/notification-preferences',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -51,7 +51,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
   fastify.put(
     '/users/me/email',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = updateEmailSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -66,7 +66,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
   fastify.get<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/notification-preferences',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const userId = request.user!.id;
       const prefs = prefRepo.getPreferences(userId, request.params.habitatId);
       return { preferences: prefs };
@@ -76,7 +76,7 @@ export async function notificationPrefRoutes(fastify: FastifyInstance): Promise<
   fastify.put<{ Params: { habitatId: string } }>(
     '/habitats/:habitatId/notification-preferences',
     { preHandler: humanAuth },
-    async (request: FastifyRequest<{ Params: { habitatId: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { habitatId: string } }>, _reply: FastifyReply) => {
       const parsed = preferencesSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());

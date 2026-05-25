@@ -12,7 +12,7 @@ export type HumanRole = 'admin' | 'editor' | 'viewer';
  * Replies with 401 if no user is present, or 403 if the role is insufficient.
  */
 export function requireRole(...allowedRoles: HumanRole[]) {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
+  return async (request: FastifyRequest, _reply: FastifyReply) => {
     if (!request.user) {
       throw unauthorized('Authentication required');
     }

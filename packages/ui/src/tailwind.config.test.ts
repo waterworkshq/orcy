@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { resolve } from 'path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const configPath = resolve(__dirname, '../tailwind.config.js');
+const configPath = resolve(import.meta.dirname, '../tailwind.config.js');
 
 function loadConfig() {
   const raw = readFileSync(configPath, 'utf-8');

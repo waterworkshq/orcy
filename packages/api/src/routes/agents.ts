@@ -21,7 +21,7 @@ import { getSuggestionsForAgent } from '../services/taskSuggestion.js';
  */
 export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /agents - List all registered agents. Auth: agentOrHumanAuth. Returns { agents } */
-  fastify.get('/agents', { preHandler: agentOrHumanAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/agents', { preHandler: agentOrHumanAuth }, async (request: FastifyRequest, _reply: FastifyReply) => {
     const query = request.query as { status?: string; domain?: string; include?: string };
     if (query.include === 'currentTask') {
       const agents = agentService.listAgentsWithTasks(query.status, query.domain);
@@ -50,7 +50,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>(
     '/agents/:id',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const result = agentService.getAgentWithTask(request.params.id);
       if (!result) {
         throw notFound('Agent not found');
@@ -63,7 +63,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { id: string }; Body: UpdateAgentInput }>(
     '/agents/:id',
     { preHandler: [humanAuth, adminOnly] },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateAgentInput }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: UpdateAgentInput }>, _reply: FastifyReply) => {
       const parsed = updateAgentSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -91,7 +91,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { id: string }; Body: HeartbeatInput }>(
     '/agents/:id/heartbeat',
     { preHandler: agentAuth },
-    async (request: FastifyRequest<{ Params: { id: string }; Body: HeartbeatInput }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string }; Body: HeartbeatInput }>, _reply: FastifyReply) => {
       const parsed = heartbeatSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Validation failed', parsed.error.flatten());
@@ -110,7 +110,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>(
     '/agents/:id/stats',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const stats = getAgentStats(request.params.id);
       if (!stats) {
         throw notFound('Agent not found');
@@ -128,7 +128,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>(
     '/agents/:id/suggestions',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const query = request.query as { habitatId?: string; limit?: string };
       if (!query.habitatId) {
         throw badRequest('habitatId query parameter is required');

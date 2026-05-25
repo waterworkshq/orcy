@@ -27,7 +27,7 @@ export async function habitatTasksRoutes(fastify: FastifyInstance): Promise<void
       schema: { params: habitatIdParamsSchema, querystring: habitatTasksQuerySchema },
       preHandler: [agentOrHumanAuth, requireHabitatAccess],
     },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { habitatId } = request.params;
       const query = request.query;
 

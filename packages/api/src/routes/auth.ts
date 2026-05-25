@@ -33,7 +33,7 @@ const updateProfileSchema = z.object({
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Body: z.infer<typeof loginSchema> }>(
     '/auth/login',
-    async (request: FastifyRequest<{ Body: z.infer<typeof loginSchema> }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Body: z.infer<typeof loginSchema> }>, _reply: FastifyReply) => {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Invalid request');
@@ -73,7 +73,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/auth/stream-token',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const user = request.user!;
       const token = jwt.sign(
         { sub: user.id, username: user.username, role: user.role },
@@ -90,7 +90,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     return { needsSetup: (result?.count ?? 0) === 0 };
   });
 
-  fastify.post('/auth/register', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/auth/register', async (request: FastifyRequest, _reply: FastifyReply) => {
     const parsed = registerSchema.safeParse(request.body);
     if (!parsed.success) {
       throw badRequest('Invalid request');
@@ -165,7 +165,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
     '/auth/change-password',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = changePasswordSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Invalid request');
@@ -195,7 +195,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch(
     '/auth/me',
     { preHandler: humanAuth },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, _reply: FastifyReply) => {
       const parsed = updateProfileSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest('Invalid request');

@@ -149,7 +149,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/missions/:missionId/pulse',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { missionId } = (request.params as { missionId: string });
       const query = request.query as { signalType?: string; signalTypes?: string; isAuto?: string; since?: string; limit?: string; offset?: string };
 
@@ -180,7 +180,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/missions/:missionId/pulse/digest',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { missionId } = (request.params as { missionId: string });
 
       const mission = missionRepo.getMissionById(missionId);
@@ -200,7 +200,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/pulse/inbox',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const query = request.query as { signalType?: string; limit?: string; offset?: string };
 
       const caller = getCallerInfo(request);
@@ -248,7 +248,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/pulse/:id/replies',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { id } = (request.params as { id: string });
 
       const pulse = pulseRepo.getPulseById(id);
@@ -360,7 +360,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/habitats/:habitatId/pulse',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { habitatId } = (request.params as { habitatId: string });
       const query = request.query as { signalType?: string; signalTypes?: string; scope?: string; limit?: string; offset?: string };
       const signalTypes = query.signalTypes
@@ -383,7 +383,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/habitats/:habitatId/pulse/digest',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { habitatId } = (request.params as { habitatId: string });
 
       const habitat = habitatRepo.getHabitatById(habitatId);

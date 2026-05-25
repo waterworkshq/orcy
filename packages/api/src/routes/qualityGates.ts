@@ -9,7 +9,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/quality-checklist',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -21,7 +21,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.put<{ Params: { id: string; checklistId: string; itemId: string }; Body: { isCompleted?: boolean; evidenceUrl?: string; notes?: string } }>(
     '/tasks/:id/quality-checklist/:checklistId/items/:itemId',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const result = qualityGateService.updateChecklistItem(
         request.params.id,
         request.params.checklistId,
@@ -38,7 +38,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.post<{ Params: { id: string } }>(
     '/tasks/:id/quality-checklist/validate',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -50,7 +50,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.get<{ Params: { id: string } }>(
     '/tasks/:id/approval-status',
     { preHandler: agentOrHumanAuth },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
       const task = taskRepo.getTaskById(request.params.id);
       if (!task) {
         throw notFound('Task not found');
@@ -66,7 +66,7 @@ export async function qualityGateRoutes(fastify: FastifyInstance): Promise<void>
   fastify.post<{ Body: { name: string; description?: string; category: string; isRequired?: boolean; items: { title: string; description?: string; required?: boolean }[] } }>(
     '/quality/templates',
     { preHandler: humanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { name, description, category, isRequired, items } = request.body;
       if (!name || !category || !items || items.length === 0) {
         throw badRequest('name, category, and items are required');

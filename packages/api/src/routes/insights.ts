@@ -73,7 +73,7 @@ export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/habitats/:habitatId/insights',
     { preHandler: agentOrHumanAuth },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { habitatId } = (request.params as { habitatId: string });
       const query = request.query as { signalType?: string; isActive?: string; limit?: string; offset?: string };
 
