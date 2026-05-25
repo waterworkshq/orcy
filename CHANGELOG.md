@@ -2,6 +2,51 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.12.1 — 2026-05-25
+
+### Chores
+
+#### replace __dirname with import.meta.dirname, rename unused reply params, add no-underscore-dangle allow list ([`03a3c01`](https://github.com/waterworkshq/orcy/commit/03a3c016fabcc637ea74c20585103bff1b2416f3))
+
+1. Replace __dirname/fileURLToPath with import.meta.dirname in 6 files
+2. Rename unused reply → _reply in 133 Fastify route/middleware handlers
+3. Rename _onmessage/_onerror → messageHandler/errorHandler in SSE test
+4. Add 20-entry allow list for test mock helpers and module-private singletons
+
+6. 567 warnings → 366 warnings (201 cleared, 0 errors introduced)
+
+
+#### remove unused imports and parameters, migrate to ES2023 array methods ([`9667019`](https://github.com/waterworkshq/orcy/commit/96670191e35c507583c0d1946777d90d1d86484e))
+
+1. Replace `.sort()` with `.toSorted()` and `.reverse()` with `.toReversed()`
+2. Fix variable shadowing in `.reduce()` callbacks (rename `sum` to `acc`)
+3. Remove unused imports across multiple files
+4. Prefix unused parameters with underscore
+5. Update `tsconfig.json` lib from ES2022 to ES2023
+6. Move inline test helper functions to top-level scope in test files
+7. Remove unused variables and dead code
+
+
+#### clear all remaining lint warnings — 0 warnings, 0 errors ([`ccdd061`](https://github.com/waterworkshq/orcy/commit/ccdd061edb91c828c1a5cae5a954f5539a30b879))
+
+1. Function scoping:
+2. Extract 16 inner functions to module level (boardSummaryService, CommentSection,
+3. MissionMetrics, MissionCommentSection, TeamsPage, PredictionSection, DashboardCharts,
+4. CycleTimeChart, Skeleton.test, featureStatusDerivation.test, AgentsPage.test,
+5. scheduler.test, plugins.test)
+
+7. Event listeners:
+8. Replace onmessage/onerror/onload with addEventListener in useSSE.ts, ImportHabitatDialog.tsx
+
+10. Dead code removal:
+11. Remove unused imports across ~80 files (drizzle-orm, react, lucide, types, services)
+12. Remove unused variable declarations and dead calculations
+13. Remove unused function declarations and dead code paths
+
+15. 237 warnings → 0 warnings, 0 errors (was 567 warnings + 3 errors at start)
+
+
+
 ## 0.12.0 — 2026-05-25
 
 ### Features
@@ -28,28 +73,3 @@
 3. P2-13: Sprint date overlap validation via getOverlappingForHabitat
 4. P3-11: EVENT_TYPE_LABELS mapping for human-readable watching emails
 5. P3-13: updateUserEmail coerces empty string to null
-
-
-
-## 0.11.2 — 2026-05-21
-
-### Bug Fixes
-
-#### address remaining review issues — 35 fixes across 7 batches ([`248f21d`](https://github.com/waterworkshq/orcy/commit/248f21d059a8ee44f838a0197a6b8be837b51c5f))
-
-1. Backend services:
-2. Remove status from SprintUpdateInput (P2-5)
-3. Add endDate > startDate validation in createSprint (P0-8)
-4. Fix carryOverPolicy as any cast (P0-12)
-5. Add CAS-style status guard in completeSprint (P2-3)
-6. Sort findNextPlanningSprint by startDate (P2-10)
-7. Fix burndown endDate to use sprint end date (P2-7)
-8. Remove dead code in predictionService (P2-9)
-9. Add race condition guard in approveTask (P1-4)
-10. Use requiredCount in hasAllRequiredApprovals (P1-7)
-11. Add idempotency to recordApproval (P1-11)
-12. Fix isSelfApproval to be dynamic (P1-15)
-13. Notify task assignee on priority change (P3-3)
-14. Pass commentContent for mentioned notifications (P3-5)
-15. Parallel email dispatch with Promise.allSettled (P3-6)
-16. Add Zod date validation on sprint routes (P2-6)
