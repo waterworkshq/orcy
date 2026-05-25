@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { ORCY_PATHS } from '@orcy/shared';
 import type { InstallContext } from './context.js';

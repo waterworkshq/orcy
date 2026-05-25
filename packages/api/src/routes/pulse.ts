@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import * as pulseRepo from '../repositories/pulse.js';
 import * as reactionRepo from '../repositories/pulseReaction.js';
 import * as agentRepo from '../repositories/agent.js';

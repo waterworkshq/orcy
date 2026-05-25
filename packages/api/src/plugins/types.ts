@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyPluginCallback } from 'fastify';
+import type { FastifyPluginCallback } from 'fastify';
 import type { Task, Habitat, Agent } from '../models/index.js';
 
 export interface PluginHookContext {

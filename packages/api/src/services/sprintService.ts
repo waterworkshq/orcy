@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { sprints, missions } from '../db/schema/index.js';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { logger } from '../lib/logger.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as sprintRepo from '../repositories/sprint.js';
@@ -218,7 +218,7 @@ function findNextPlanningSprint(habitatId: string, excludeSprintId: string): Spr
   const allSprints = sprintRepo.getByHabitatId(habitatId);
   return allSprints
     .filter(s => s.status === 'planning' && s.id !== excludeSprintId)
-    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
+    .toSorted((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
 }
 
 export function cancelSprint(sprintId: string): Sprint {

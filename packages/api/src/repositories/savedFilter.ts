@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { savedFilters } from '../db/schema/index.js';
-import { eq, or, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 export interface SavedFilter {

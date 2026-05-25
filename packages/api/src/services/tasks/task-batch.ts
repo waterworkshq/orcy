@@ -1,7 +1,6 @@
 import * as taskRepo from '../../repositories/task.js';
 import * as agentRepo from '../../repositories/agent.js';
 import type { Task, TaskStatus, TaskPriority } from '../../models/index.js';
-import { validateAgentCapabilities } from './helpers.js';
 import { updateTask, deleteTask } from './task-crud.js';
 
 function validateBatchAssignTarget(task: Task, agentId: string): string | null {
@@ -40,7 +39,7 @@ export function batchOperateTasks(
   habitatId: string,
   input: import('../../models/schemas.js').BatchTaskInput,
   actorId: string,
-  actorType: 'human' | 'agent' = 'human'
+  _actorType: 'human' | 'agent' = 'human'
 ): import('../../models/index.js').BatchTaskResponse {
   const { taskIds, operation, payload } = input;
   const results: import('../../models/index.js').BatchTaskResult[] = [];

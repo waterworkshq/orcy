@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { habitats, columns, missions } from '../db/schema/index.js';
+import { habitats, columns } from '../db/schema/index.js';
 import { eq, and, like, or, isNull, inArray, sql, desc } from 'drizzle-orm';
 import type { Habitat, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings, PrioritizationSettings } from '../models/index.js';
 import { v4 as uuid } from 'uuid';

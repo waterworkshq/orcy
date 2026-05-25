@@ -183,7 +183,7 @@ function handleExternalClose(
 ): ExternalIssueSyncResult {
   const tasks = taskRepo.getTasksByMissionId(missionId);
 
-  const allTerminal = tasks.length === 0 || tasks.every(t => TERMINAL_TASK_STATUSES.includes(t.status));
+  const allTerminal = tasks.every(t => TERMINAL_TASK_STATUSES.includes(t.status));
 
   if (allTerminal) {
     missionRepo.updateMission(missionId, { status: 'done' });

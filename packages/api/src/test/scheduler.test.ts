@@ -4,6 +4,10 @@ import { checkOverdueTasks } from '../services/scheduler.js';
 let _overdueData: { id: string; habitatId: string }[] = [];
 let _dbShouldThrow = false;
 
+function table(name: string) {
+  return { _table: name };
+}
+
 function createMockDb() {
   const doSelect = () => {
     const chain = {
@@ -40,7 +44,6 @@ vi.mock('../sse/broadcaster.js', () => ({
 }));
 
 vi.mock('../db/schema/index.js', () => {
-  const table = (name: string) => ({ _table: name });
   return {
     habitats: table('habitats'),
     missions: { id: 'id', habitatId: 'habitatId', dueAt: 'dueAt', slaDeadlineAt: 'slaDeadlineAt' },

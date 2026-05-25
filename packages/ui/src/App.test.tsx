@@ -15,7 +15,7 @@ function ParamsEcho() {
 vi.mock('./api/index.js', () => ({
   api: {
     features: {
-      details: (...args: any[]) => Promise.resolve({}),
+      details: (..._args: any[]) => Promise.resolve({}),
     },
   },
 }));

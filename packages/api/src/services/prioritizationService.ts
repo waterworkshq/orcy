@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
-import { tasks, missions, agents, taskDependencies } from '../db/schema/index.js';
-import { eq, and, sql, isNotNull, inArray, count, notInArray } from 'drizzle-orm';
+import { tasks, agents, taskDependencies } from '../db/schema/index.js';
+import { eq, inArray, count } from 'drizzle-orm';
 import * as habitatRepo from '../repositories/board.js';
 import * as taskRepo from '../repositories/task.js';
 import * as missionRepo from '../repositories/feature.js';
@@ -294,7 +294,7 @@ export function evaluateRules(habitatId: string): RuleEvaluationResult[] {
 
   const sortedRules = [...settings.rules]
     .filter(r => r.enabled)
-    .sort((a, b) => a.priority - b.priority);
+    .toSorted((a, b) => a.priority - b.priority);
 
   const matchedTaskIds = new Set<string>();
   const results: RuleEvaluationResult[] = [];

@@ -17,7 +17,7 @@ export function computeCycleTimeStats(cycleTimes: number[]): {
   medianMinutes: number;
   count: number;
 } {
-  const sorted = [...cycleTimes].sort((a, b) => a - b);
+  const sorted = [...cycleTimes].toSorted((a, b) => a - b);
   const avg = sorted.length > 0 ? sorted.reduce((a, b) => a + b, 0) / sorted.length : 0;
   const median =
     sorted.length > 0

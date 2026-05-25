@@ -2,7 +2,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
 import type { Task } from '@orcy/shared';
 import { enrichTaskWithAgentName } from './enrichment.js';
-import { ARTIFACT_SCHEMA_FRAGMENT, TASK_UPDATE_STATUSES } from './constants.js';
+import { ARTIFACT_SCHEMA_FRAGMENT } from './constants.js';
 
 export const BOARD_CLAIM_TASK_TOOL: Tool = {
   name: 'board_claim_task',

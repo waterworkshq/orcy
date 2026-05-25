@@ -3,7 +3,7 @@ import { releaseStaleTasks } from './agentService.js';
 import { startRetryProcessor as startTaskRetryProcessor } from './retryService.js';
 import { startPresenceCleanup } from '../sse/presence.js';
 import { scanAllHabitats } from './anomalyService.js';
-import { archiveAllHabitats, archiveOldEvents } from './auditArchivalService.js';
+import { archiveAllHabitats } from './auditArchivalService.js';
 import { applyAllHabitats } from './prioritizationService.js';
 import { startScheduledTaskProcessor as startScheduledTaskPoller } from './scheduledTaskService.js';
 import { autoCompleteSprints } from './sprintService.js';
@@ -50,7 +50,7 @@ export function checkOverdueTasks(
     for (const id of currentIds) {
       notifiedIds.add(id);
     }
-    for (const id of [...notifiedIds]) {
+    for (const id of notifiedIds) {
       if (!currentIds.has(id)) {
         notifiedIds.delete(id);
       }

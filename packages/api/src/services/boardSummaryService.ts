@@ -3,10 +3,6 @@ import * as taskRepo from '../repositories/task.js';
 import * as missionRepo from '../repositories/feature.js';
 import * as eventRepo from '../repositories/event.js';
 import * as agentRepo from '../repositories/agent.js';
-import { getDb } from '../db/index.js';
-import { tasks, missions, columns, agents, taskEvents, missionEvents } from '../db/schema/index.js';
-import { eq, and, sql, desc, asc, count, inArray, isNotNull } from 'drizzle-orm';
-import type { MissionStatus, TaskStatus } from '../models/index.js';
 
 export interface HabitatSummaryOptions {
   since?: '24h' | '7d' | '30d' | 'all';
@@ -79,7 +75,7 @@ export function generateHabitatSummary(
   options: HabitatSummaryOptions = {}
 ): HabitatSummary | null {
   const since = options.since ?? '7d';
-  const maxMissions = Math.min(options.maxMissions ?? 20, 50);
+  const _maxMissions = Math.min(options.maxMissions ?? 20, 50);
   const includeDigest = options.includeDigest !== false;
 
   const habitatData = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
@@ -107,11 +103,11 @@ export function generateHabitatSummary(
   const missionEventsList = fetchMissionEvents(habitatId, sinceDate);
   const agentNameMap = buildAgentNameMap();
 
-  const missionNarratives = buildMissionNarratives(missionList, allTasks, events, missionEventsList, agentNameMap, maxMissions);
-  const periodMetrics = computePeriodMetrics(events, sinceDate);
+  const missionNarratives = buildMissionNarratives(missionList, allTasks, events, missionEventsList, agentNameMap, _maxMissions);
+  const _periodMetrics = computePeriodMetrics(events, sinceDate);
 
   const recentActivity = buildActivityPeriods(
-    since, sinceDate, events, missionEventsList, missionNarratives, missionList, allTasks, agentNameMap, maxMissions
+    since, sinceDate, events, missionEventsList, missionNarratives, missionList, allTasks, agentNameMap, _maxMissions
   );
 
   const digest = includeDigest
@@ -257,9 +253,9 @@ function buildMissionNarratives(
   missionList: any[],
   allTasks: any[],
   events: RawHabitatEvent[],
-  missionEvents: RawMissionEvent[],
+  missionEventList: RawMissionEvent[],
   agentNameMap: Map<string, string>,
-  maxMissions: number
+  _maxMissions: number
 ): MissionNarrative[] {
   const missionTaskMap = new Map<string, any[]>();
   for (const task of allTasks) {
@@ -275,7 +271,7 @@ function buildMissionNarratives(
 
   const missionTimeline = new Map<string, { action: string; actor: string; timestamp: string; detail?: string }[]>();
 
-  for (const event of missionEvents) {
+  for (const event of missionEventList) {
     if (!NARRATIVE_MISSION_ACTIONS.has(event.action)) continue;
     const timeline = missionTimeline.get(event.missionId) ?? [];
     timeline.push({
@@ -302,13 +298,13 @@ function buildMissionNarratives(
 
   const missionLastActivity = new Map<string, string>();
   for (const [missionId, timeline] of missionTimeline) {
-    const sorted = timeline.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const sorted = timeline.toSorted((a, b) => a.timestamp.localeCompare(b.timestamp));
     missionLastActivity.set(missionId, sorted[sorted.length - 1].timestamp);
   }
 
   const sortedMissionIds = [...missionLastActivity.entries()]
-    .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, maxMissions)
+    .toSorted((a, b) => b[1].localeCompare(a[1]))
+    .slice(0, _maxMissions)
     .map(([id]) => id);
 
   const missionMap = new Map(missionList.map(f => [f.id, f]));
@@ -383,8 +379,8 @@ function buildActivityPeriods(
   allNarratives: MissionNarrative[],
   missionList: any[],
   allTasks: any[],
-  agentNameMap: Map<string, string>,
-  maxMissions: number
+  _agentNameMap: Map<string, string>,
+  _maxMissions: number
 ): ActivityPeriod[] {
   const now = new Date();
   const buckets = computeBuckets(since, now);
@@ -434,10 +430,15 @@ interface TimeBucket {
   to: string;
 }
 
-function computeBuckets(since: string, now: Date): TimeBucket[] {
-  const toIso = (d: Date) => d.toISOString();
-  const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+function toIso(d: Date): string {
+  return d.toISOString();
+}
 
+function dayStart(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function computeBuckets(since: string, now: Date): TimeBucket[] {
   switch (since) {
     case '24h': {
       const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -487,7 +488,7 @@ function computeSinceDate(since: string): string {
 
 function generateDigest(
   habitatName: string,
-  columns: { name: string; missionCount: number; isTerminal: boolean }[],
+  digestColumns: { name: string; missionCount: number; isTerminal: boolean }[],
   snapshot: HabitatSummary['snapshot'],
   activity: ActivityPeriod[],
   totalMissions: number
@@ -497,24 +498,24 @@ function generateDigest(
   lines.push('');
 
   lines.push('## Current State');
-  const colSummary = columns.map(c => `${c.name}: ${c.missionCount}`).join(' | ');
+  const colSummary = digestColumns.map(c => `${c.name}: ${c.missionCount}`).join(' | ');
   lines.push(`**Columns:** ${colSummary}`);
   lines.push(`**Total missions:** ${totalMissions}`);
   lines.push('');
 
   const statusParts = Object.entries(snapshot.missionsByStatus)
-    .filter(([, count]) => count > 0)
-    .map(([status, count]) => `${status}: ${count}`);
+    .filter(([, cnt]) => cnt > 0)
+    .map(([status, cnt]) => `${status}: ${cnt}`);
   if (statusParts.length > 0) lines.push(`**Missions by status:** ${statusParts.join(', ')}`);
 
   const taskParts = Object.entries(snapshot.tasksByStatus)
-    .filter(([, count]) => count > 0)
-    .map(([status, count]) => `${status}: ${count}`);
+    .filter(([, cnt]) => cnt > 0)
+    .map(([status, cnt]) => `${status}: ${cnt}`);
   if (taskParts.length > 0) lines.push(`**Tasks by status:** ${taskParts.join(', ')}`);
 
   const prioParts = Object.entries(snapshot.byPriority)
-    .filter(([, count]) => count > 0)
-    .map(([prio, count]) => `${prio}: ${count}`);
+    .filter(([, cnt]) => cnt > 0)
+    .map(([prio, cnt]) => `${prio}: ${cnt}`);
   if (prioParts.length > 0) lines.push(`**By priority:** ${prioParts.join(', ')}`);
   lines.push('');
 

@@ -12,7 +12,7 @@ import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as pluginManager from '../plugins/pluginManager.js';
 import { rebuildCache as rebuildHabitatSecretCache } from './boardSecretCache.js';
 import * as missionService from './featureService.js';
-import type { Habitat, Column, Mission, Task, MissionTemplate, AutoAssignSettings, TaskPriority } from '../models/index.js';
+import type { Habitat, Column, MissionTemplate, AutoAssignSettings, TaskPriority } from '../models/index.js';
 
 export interface CreateHabitatInput {
   name: string;
@@ -196,7 +196,7 @@ export function exportHabitat(habitatId: string): HabitatExportData | null {
   const result = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
   if (!result) return null;
 
-  const { habitat: habitat, columns: habitatColumns } = result;
+  const { habitat, columns: habitatColumns } = result;
   const webhooks = getWebhookSubscriptions(habitatId).filter(w => w.habitatId === habitatId);
   const templates = templateRepo.getTemplatesByHabitatId(habitatId).filter(t => t.habitatId !== null);
   const { missions: missionList } = missionRepo.getMissionsByHabitatId(habitatId);
@@ -326,7 +326,7 @@ export function importHabitat(
   const columnNameToId = new Map<string, string>();
   const columns: Column[] = [];
 
-  for (const colData of habitatData.columns.sort((a, b) => a.order - b.order)) {
+  for (const colData of habitatData.columns.toSorted((a, b) => a.order - b.order)) {
     const col = columnRepo.createColumn({
       habitatId,
       name: colData.name,
@@ -340,7 +340,7 @@ export function importHabitat(
     columnNameToId.set(colData.name, col.id);
   }
 
-  for (const colData of habitatData.columns.sort((a, b) => a.order - b.order)) {
+  for (const colData of habitatData.columns.toSorted((a, b) => a.order - b.order)) {
     if (colData.nextColumnName) {
       const nextColId = columnNameToId.get(colData.nextColumnName);
       if (nextColId) {

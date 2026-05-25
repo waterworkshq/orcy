@@ -1,5 +1,5 @@
 import type { FastifyError, FastifyInstance } from 'fastify';
-import { AppError, isAppError, ErrorCodes } from '../errors.js';
+import { isAppError, ErrorCodes } from '../errors.js';
 
 /**
  * Registers Fastify error and 404 handlers that convert exceptions and validation

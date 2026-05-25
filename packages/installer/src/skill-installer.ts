@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
 

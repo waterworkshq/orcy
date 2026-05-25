@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'crypto';
 import * as pipelineRepo from '../repositories/pipelineEvent.js';
 import * as taskRepo from '../repositories/task.js';
 import { getHabitatIdForTask } from '../repositories/task.js';
@@ -42,14 +41,6 @@ function findTaskAcrossHabitats(repo: string, branch: string): string | null {
     }
   }
   return null;
-}
-
-function getSettingsForTask(taskId: string): CiCdSettings | null {
-  const task = taskRepo.getTaskById(taskId);
-  if (!task) return null;
-  const habitatId = getHabitatIdForTask(taskId);
-  if (!habitatId) return null;
-  return getCiCdSettingsForHabitat(habitatId);
 }
 
 interface GitHubWorkflowRunEvent {
@@ -163,8 +154,6 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): { st
   }
 
   if (mappedStatus === 'success' || mappedStatus === 'failure') {
-    const settings = getSettingsForTask(taskId);
-    const pattern = settings?.taskPattern || '[?&;]taskId=([0-9a-f-]{36})';
     const artifactDesc = mappedStatus === 'success'
       ? `${run.name} passed`
       : `${run.name} failed`;

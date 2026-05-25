@@ -33,7 +33,6 @@ import type {
   PredictionResponse,
   BurndownResponse,
   Sprint,
-  SprintMetrics,
   Organization,
   Team,
   TeamMember,

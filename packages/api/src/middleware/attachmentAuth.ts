@@ -1,7 +1,4 @@
-import type { Task } from '../models/index.js';
-import type { HumanRole } from './auth.js';
 import type { Principal, AuthorizationResult } from './taskAuth.js';
-import { isHumanReviewer } from './taskAuth.js';
 import { getTaskById } from '../repositories/task.js';
 import type { Attachment } from '../repositories/attachment.js';
 

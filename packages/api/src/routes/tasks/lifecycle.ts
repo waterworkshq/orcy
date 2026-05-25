@@ -4,9 +4,6 @@ import { z } from 'zod';
 import * as taskService from '../../services/tasks/index.js';
 import * as taskRepo from '../../repositories/task.js';
 import * as retryService from '../../services/retryService.js';
-import * as eventRepo from '../../repositories/event.js';
-import { sseBroadcaster } from '../../sse/broadcaster.js';
-import * as agentService from '../../services/agentService.js';
 import {
   claimTaskSchema,
   approveTaskSchema,
@@ -16,18 +13,9 @@ import {
   submitTaskSchema,
   completeTaskSchema,
 } from '../../models/schemas.js';
-import type {
-  ClaimTaskInput,
-  ApproveTaskInput,
-  RejectTaskInput,
-  ReleaseTaskInput,
-  FailTaskInput,
-  SubmitTaskInput,
-  CompleteTaskInput,
-} from '../../models/schemas.js';
 import { agentAuth, humanAuth } from '../../middleware/auth.js';
 import { authorizeTaskAction, getPrincipalFromRequest } from '../../middleware/taskAuth.js';
-import type { Task, Artifact } from '../../models/index.js';
+import type { Artifact } from '../../models/index.js';
 import { notFound, unauthorized, forbidden, conflict, badRequest, internalError, unprocessableEntity } from '../../errors.js';
 
 const taskParamsSchema = z.object({ id: z.string() });

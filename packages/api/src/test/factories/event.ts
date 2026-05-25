@@ -1,4 +1,4 @@
-import type { TaskEvent, EventAction, ActorType, TaskStatus } from '../../models/index.js';
+import type { TaskEvent, EventAction, ActorType } from '../../models/index.js';
 
 function generateId(): string {
   return crypto.randomUUID();

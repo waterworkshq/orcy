@@ -5,7 +5,6 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import {
   ALL_TOOLS,
   orcyInstructions,
-  PULSE_SKILL_TOOL,
   orcyPulseInstructions,
   HABITAT_DISPATCH_HANDLER,
   MISSION_DISPATCH_HANDLER,
@@ -51,16 +50,6 @@ type ToolResult = {
 };
 
 type ToolHandler = (client: KanbanApiClient, args: any) => Promise<ToolResult>;
-
-const formatResult = (result: unknown): ToolResult => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
-});
-
-const createHandler = <T extends (client: KanbanApiClient, args: any) => any>(
-  fn: T
-): ToolHandler => {
-  return (client, args) => Promise.resolve(fn(client, args)).then(formatResult);
-};
 
 // ---------------------------------------------------------------------------
 // Individual non-passthrough handlers

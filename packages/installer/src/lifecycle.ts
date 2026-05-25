@@ -6,14 +6,12 @@ import type { InstallContext } from './context.js';
 import { ALL_WRITERS, removeMcpConfig, writeMcpConfig } from './writers/index.js';
 import { injectIntoFile, removeFromFile } from './markdown-injector.js';
 import { readManifest } from './manifest.js';
-import { getContext } from './context.js';
 import { removeShims, SENTINEL_START, SENTINEL_END } from './path-shim.js';
 import { generateMcpServerBlock, readCredentials } from './credentials.js';
 import { stopService, installService, uninstallService } from './service-installer.js';
 
 const OLD_SENTINEL_START = '# >>> agent-kanban PATH >>>';
 const OLD_SENTINEL_END = '# <<< agent-kanban PATH <<<';
-const OLD_MCP_KEY = 'kanban';
 const OLD_SERVICE_UNIT = 'kanban-api';
 const OLD_SERVICE_PLIST = 'ai.kanban.api';
 
@@ -192,7 +190,7 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
   console.log('==> Uninstalling orcy...');
 
   // Reverse order
-  const reversed = [...manifest.files].reverse();
+  const reversed = [...manifest.files].toReversed();
   for (const entry of reversed) {
     try {
       switch (entry.action) {
@@ -247,7 +245,7 @@ export async function uninstallAll(ctx: InstallContext): Promise<void> {
   console.log('    Uninstall complete. ~/.orcy/orcy.db and ~/.orcy/.env preserved.');
 }
 
-export function listInstall(ctx: InstallContext): void {
+export function listInstall(_ctx: InstallContext): void {
   const manifest = readManifest();
   if (!manifest) {
     console.log('No install manifest found. Run `orcy-install` first.');

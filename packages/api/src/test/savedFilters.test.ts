@@ -33,7 +33,7 @@ function createMockDb() {
         if (_condition?._type === 'savedFilters_list') {
           return Object.values(_filters).filter(
             f => f.habitatId === _condition._habitatId && (f.userId === _condition._userId || f.isBuiltin)
-          ).sort((a, b) => {
+          ).toSorted((a, b) => {
             if (a.isBuiltin !== b.isBuiltin) return a.isBuiltin ? -1 : 1;
             return a.createdAt.localeCompare(b.createdAt);
           });

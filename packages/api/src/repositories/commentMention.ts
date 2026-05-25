@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
 import { taskCommentMentions } from '../db/schema/index.js';
-import { eq, inArray, asc } from 'drizzle-orm';
+import { inArray, asc } from 'drizzle-orm';
 import type { TaskCommentMention } from '../models/index.js';
 
 export function createMentions(input: Array<Omit<TaskCommentMention, 'id' | 'createdAt' | 'mentionedName'>>): TaskCommentMention[] {

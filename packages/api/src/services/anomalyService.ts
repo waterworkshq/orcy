@@ -1,16 +1,13 @@
 import { getDb } from '../db/index.js';
-import { tasks, missions, agents, users, taskEvents } from '../db/schema/index.js';
-import { eq, and, sql, isNotNull, notInArray, inArray, desc, ne } from 'drizzle-orm';
+import { tasks, missions, agents, users } from '../db/schema/index.js';
+import { eq, and, sql, isNotNull, inArray, desc, ne } from 'drizzle-orm';
 import { cycleTimeMinutes } from '../db/dialect-helpers.js';
 import * as habitatRepo from '../repositories/board.js';
-import * as taskRepo from '../repositories/task.js';
-import * as missionRepo from '../repositories/feature.js';
-import * as agentRepo from '../repositories/agent.js';
 import { sseBroadcaster } from '../sse/broadcaster.js';
 import * as emailService from './emailService.js';
 import * as chatService from './chatService.js';
 import { logger } from '../lib/logger.js';
-import type { Anomaly, AnomalySettings, Habitat } from '../models/index.js';
+import type { AnomalySettings } from '../models/index.js';
 
 const DEFAULT_SETTINGS: AnomalySettings = {
   enabled: true,

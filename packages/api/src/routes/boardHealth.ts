@@ -3,7 +3,7 @@ import * as habitatHealthService from '../services/boardHealthService.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import { z } from 'zod';
-import { badRequest } from '../errors.js';
+
 
 const historyQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional().default(30),

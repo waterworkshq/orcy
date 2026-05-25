@@ -7,7 +7,6 @@ import type {
   TaskComment,
   MissionComment,
   Subtask,
-  MissionTemplate,
   Mission,
   MissionWithProgress,
   ReviewRule,
@@ -24,12 +23,10 @@ import type {
   CompleteTaskResponse,
   ReleaseTaskResponse,
   HeartbeatResponse,
-  AgentStatusResponse,
   TaskContext,
   ListSubtasksResponse,
   SendMessageResponse,
   ListMessagesResponse,
-  Webhook,
   ListWebhooksResponse,
   CreateWebhookResponse,
   ListTemplatesResponse,
@@ -49,7 +46,7 @@ import type {
   ListPulsesResponse,
 } from './types.js';
 import { logger } from './logger.js';
-import { getOrcyConfig, normalizeTaskId, createApiClient, ApiClientError } from '@orcy/shared';
+import { getOrcyConfig, normalizeTaskId, createApiClient } from '@orcy/shared';
 
 export { ApiClientError as KanbanApiError } from '@orcy/shared';
 

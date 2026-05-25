@@ -202,14 +202,14 @@ describe('selectAgentRoundRobin', () => {
   it('cycles through agents in order', () => {
     const { agent: a1 } = createTestAgent('a1');
     const { agent: a2 } = createTestAgent('a2');
-    const agents = [
+    const agentList = [
       { id: a1.id, name: 'a1', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
       { id: a2.id, name: 'a2', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const first = selectAgentRoundRobin(agents, habitatId);
-    const second = selectAgentRoundRobin(agents, habitatId);
-    const third = selectAgentRoundRobin(agents, habitatId);
+    const first = selectAgentRoundRobin(agentList, habitatId);
+    const second = selectAgentRoundRobin(agentList, habitatId);
+    const third = selectAgentRoundRobin(agentList, habitatId);
 
     expect(first!.id).toBe(a1.id);
     expect(second!.id).toBe(a2.id);
@@ -229,12 +229,12 @@ describe('selectAgentLeastLoaded', () => {
     const t1 = createTestTask('t1');
     taskRepo.claimTask(t1.id, a1.id);
 
-    const agents = [
+    const agentList = [
       { id: a1.id, name: 'a1', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 1 },
       { id: a2.id, name: 'a2', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentLeastLoaded(agents);
+    const selected = selectAgentLeastLoaded(agentList);
     expect(selected!.id).toBe(a2.id);
   });
 
@@ -242,12 +242,12 @@ describe('selectAgentLeastLoaded', () => {
     const { agent: a1 } = createTestAgent('a1');
     const { agent: a2 } = createTestAgent('a2');
 
-    const agents = [
+    const agentList = [
       { id: a1.id, name: 'a1', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date(Date.now() - 10000).toISOString(), activeTaskCount: 0 },
       { id: a2.id, name: 'a2', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentLeastLoaded(agents);
+    const selected = selectAgentLeastLoaded(agentList);
     expect(selected!.id).toBe(a1.id);
   });
 });
@@ -264,12 +264,12 @@ describe('selectAgentBestMatch', () => {
 
     const task = createTestTask('t', { requiredDomain: 'backend' });
 
-    const agents = [
+    const agentList = [
       { id: noMatch.id, name: 'nomatch', domain: 'frontend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
       { id: matchAgent.id, name: 'match', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentBestMatch(agents, task, habitatId);
+    const selected = selectAgentBestMatch(agentList, task, habitatId);
     expect(selected!.id).toBe(matchAgent.id);
   });
 
@@ -279,12 +279,12 @@ describe('selectAgentBestMatch', () => {
 
     const task = createTestTask('t', { requiredCapabilities: ['typescript', 'react'] });
 
-    const agents = [
+    const agentList = [
       { id: noCapAgent.id, name: 'nocap', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
       { id: capAgent.id, name: 'cap', domain: 'backend', capabilities: ['typescript', 'react', 'node', 'jest'], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentBestMatch(agents, task, habitatId);
+    const selected = selectAgentBestMatch(agentList, task, habitatId);
     expect(selected!.id).toBe(capAgent.id);
   });
 
@@ -294,12 +294,12 @@ describe('selectAgentBestMatch', () => {
 
     const task = createTestTask('t');
 
-    const agents = [
+    const agentList = [
       { id: busy.id, name: 'busy', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 3 },
       { id: free.id, name: 'free', domain: 'backend', capabilities: [], status: 'idle', lastHeartbeat: new Date().toISOString(), activeTaskCount: 0 },
     ];
 
-    const selected = selectAgentBestMatch(agents, task, habitatId);
+    const selected = selectAgentBestMatch(agentList, task, habitatId);
     expect(selected!.id).toBe(free.id);
   });
 });

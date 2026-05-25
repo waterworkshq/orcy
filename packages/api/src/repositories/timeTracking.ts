@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { taskTimeRecords, tasks, missions, agents } from '../db/schema/index.js';
-import { eq, and, sql, count, avg, sum, isNotNull, notInArray, inArray } from 'drizzle-orm';
+import { eq, and, sql, count, isNotNull, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { TaskTimeRecord, HabitatMetrics } from '../models/index.js';
 
@@ -86,14 +86,14 @@ export function getHabitatMetrics(habitatId: string): HabitatMetrics {
     ))
     .all();
 
-  const totalCycleTime = completedTasks.reduce((sum, t) => sum + (t.cycleTimeMinutes ?? 0), 0);
-  const totalLeadTime = completedTasks.reduce((sum, t) => sum + (t.leadTimeMinutes ?? 0), 0);
-  const totalActual = completedTasks.reduce((sum, t) => sum + (t.actualMinutes ?? 0), 0);
-  const totalPlanned = completedTasks.reduce((sum, t) => sum + (t.estimatedMinutes ?? 0), 0);
+  const totalCycleTime = completedTasks.reduce((acc, t) => acc + (t.cycleTimeMinutes ?? 0), 0);
+  const totalLeadTime = completedTasks.reduce((acc, t) => acc + (t.leadTimeMinutes ?? 0), 0);
+  const totalActual = completedTasks.reduce((acc, t) => acc + (t.actualMinutes ?? 0), 0);
+  const totalPlanned = completedTasks.reduce((acc, t) => acc + (t.estimatedMinutes ?? 0), 0);
 
   const tasksWithAccuracy = completedTasks.filter(t => t.estimationAccuracy !== null);
   const avgAccuracy = tasksWithAccuracy.length > 0
-    ? tasksWithAccuracy.reduce((sum, t) => sum + (t.estimationAccuracy ?? 0), 0) / tasksWithAccuracy.length
+    ? tasksWithAccuracy.reduce((acc, t) => acc + (t.estimationAccuracy ?? 0), 0) / tasksWithAccuracy.length
     : 0;
 
   const overdueTasks = db.select({ count: count() }).from(tasks)

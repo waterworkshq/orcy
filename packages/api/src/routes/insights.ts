@@ -1,17 +1,10 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import * as insightRepo from '../repositories/insight.js';
 import * as pulseRepo from '../repositories/pulse.js';
 import * as missionRepo from '../repositories/feature.js';
 import { agentOrHumanAuth } from '../middleware/auth.js';
 import { badRequest, notFound, unauthorized, forbidden } from '../errors.js';
 import { getCallerInfo } from './pulse-shared.js';
-
-function validateIso8601(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const parsed = Date.parse(value);
-  if (isNaN(parsed)) throw badRequest('Invalid since parameter: must be ISO 8601');
-  return new Date(parsed).toISOString();
-}
 
 export async function insightsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(

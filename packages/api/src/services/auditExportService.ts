@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { taskEvents, missionEvents, tasks, missions, agents, columns } from '../db/schema/index.js';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { eq, and, or, sql, count, desc, inArray } from 'drizzle-orm';
+import { eq, and, sql, desc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { FastifyReply } from 'fastify';
 
@@ -376,11 +376,11 @@ export function getAuditSummary(habitatId: string, since?: string, until?: strin
   }
 
   const byDay = Array.from(byDayMap.entries())
-    .map(([date, count]) => ({ date, count }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .map(([date, eventCount]) => ({ date, count: eventCount }))
+    .toSorted((a, b) => a.date.localeCompare(b.date));
 
   const topMissions = Array.from(missionMap.values())
-    .sort((a, b) => b.count - a.count)
+    .toSorted((a, b) => b.count - a.count)
     .slice(0, 10);
 
   return {

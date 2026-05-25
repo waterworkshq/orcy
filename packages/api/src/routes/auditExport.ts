@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import * as auditExportService from '../services/auditExportService.js';
 import { humanAuth } from '../middleware/auth.js';
-import { notFound, badRequest } from '../errors.js';
+import { badRequest } from '../errors.js';
 import { z } from 'zod';
 
 const exportQuerySchema = z.object({

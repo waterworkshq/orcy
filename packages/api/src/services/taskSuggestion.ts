@@ -3,11 +3,10 @@ import * as taskRepo from '../repositories/task.js';
 import * as missionRepo from '../repositories/feature.js';
 import * as agentRepo from '../repositories/agent.js';
 import { getDb } from '../db/index.js';
-import { tasks, missions } from '../db/schema/index.js';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { tasks } from '../db/schema/index.js';
+import { eq, and, sql } from 'drizzle-orm';
 import type { Task, Agent } from '../models/index.js';
 
-const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
 
 export interface SuggestionFactors {
@@ -70,7 +69,7 @@ export function getSuggestionsForAgent(
 
   const suggestions: TaskSuggestion[] = availableTasks
     .map(task => scoreWithFactors(task, agent, claimed, inProgress, missionMap))
-    .sort((a, b) => b.score - a.score)
+    .toSorted((a, b) => b.score - a.score)
     .slice(0, limit);
 
   return {

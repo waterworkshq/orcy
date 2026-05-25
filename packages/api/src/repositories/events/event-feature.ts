@@ -1,6 +1,6 @@
 import { getDb } from '../../db/index.js';
 import { missionEvents, missions } from '../../db/schema/index.js';
-import { eq, and, count, asc, desc, inArray } from 'drizzle-orm';
+import { eq, count, desc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { MissionEvent, ActorType, MissionEventAction, MissionStatus } from '../../models/index.js';
 

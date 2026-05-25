@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { tasks, taskDependencies, missions, missionDependencies } from '../db/schema/index.js';
-import { eq, and, or, not, lt, gt, isNull, isNotNull, sql, count, notInArray, notExists, inArray, max, asc, desc, like } from 'drizzle-orm';
+import { eq, and, or, lt, isNull, isNotNull, sql, count, notInArray, notExists, inArray, max, asc, desc } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Task, TaskStatus, TaskPriority, Artifact, RetryPolicy } from '../models/index.js';
@@ -164,7 +164,7 @@ export function getAvailableTasksForAgent(
       )
     );
 
-  const unmetMissionDeps = db
+  const _unmetMissionDeps = db
     .select()
     .from(missionDependencies)
     .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
@@ -406,7 +406,7 @@ export function submitTask(
   return getTaskById(taskId);
 }
 
-export function releaseTask(taskId: string, reason: string): Task | null {
+export function releaseTask(taskId: string, _reason: string): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -429,7 +429,7 @@ export function releaseTask(taskId: string, reason: string): Task | null {
   return getTaskById(taskId);
 }
 
-export function failTask(taskId: string, reason: string): Task | null {
+export function failTask(taskId: string, _reason: string): Task | null {
   const db = getDb();
   const now = new Date().toISOString();
 

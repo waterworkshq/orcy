@@ -7,7 +7,6 @@ import * as eventRepo from '../../repositories/event.js';
 import * as decompositionService from '../../services/decompositionService.js';
 import * as gitWorktreeService from '../../services/gitWorktreeService.js';
 import { eventsQuerySchema } from '../../models/schemas.js';
-import type { EventsQueryInput } from '../../models/schemas.js';
 import { agentAuth, humanAuth, agentOrHumanAuth } from '../../middleware/auth.js';
 import { notFound, badRequest, serviceUnavailable, internalError } from '../../errors.js';
 

@@ -10,7 +10,6 @@ import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import { getHabitatById } from '../repositories/board.js';
 import { z } from 'zod';
-import { v4 as uuid } from 'uuid';
 import crypto from 'crypto';
 
 const createPatSchema = z.object({

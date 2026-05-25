@@ -210,9 +210,9 @@ export function getWorktreeInfo(taskId: string): { path: string; branch: string;
   try {
     if (!existsSync(worktreePath)) return null;
     gitExec(['rev-parse', '--git-dir'], worktreePath);
-    const entry = { path: worktreePath, branch: branchName, repoRoot: settings.repoPath };
-    activeWorktrees.set(taskId, entry);
-    return entry;
+    const resolvedEntry = { path: worktreePath, branch: branchName, repoRoot: settings.repoPath };
+    activeWorktrees.set(taskId, resolvedEntry);
+    return resolvedEntry;
   } catch {
     return null;
   }

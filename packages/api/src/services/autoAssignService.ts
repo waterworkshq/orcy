@@ -47,7 +47,7 @@ export function getAgentActiveTaskCount(agentId: string): number {
   return row?.count ?? 0;
 }
 
-export function getEligibleAgents(habitatId: string, task: Task, settings: AutoAssignSettings): EligibleAgent[] {
+export function getEligibleAgents(_habitatId: string, task: Task, settings: AutoAssignSettings): EligibleAgent[] {
   const agents = agentRepo.listAgents();
   const staleThreshold = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
@@ -99,7 +99,7 @@ export function selectAgentLeastLoaded(agents: EligibleAgent[]): EligibleAgent |
   });
 }
 
-export function selectAgentBestMatch(agents: EligibleAgent[], task: Task, habitatId: string): EligibleAgent | null {
+export function selectAgentBestMatch(agents: EligibleAgent[], task: Task, _habitatId: string): EligibleAgent | null {
   if (agents.length === 0) return null;
 
   const db = getDb();

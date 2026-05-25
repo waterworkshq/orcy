@@ -41,8 +41,6 @@ export function deriveMissionStatus(missionId: string): MissionStatus {
 
   const statuses = tasks.map(t => t.status);
 
-  const activeStatuses = ['pending', 'claimed', 'in_progress', 'rejected'];
-
   if (statuses.every(s => s === 'done' || s === 'approved') && statuses.some(s => s === 'done')) {
     return 'done';
   }

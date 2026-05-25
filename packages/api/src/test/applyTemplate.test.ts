@@ -172,7 +172,7 @@ describe('applyTemplate', () => {
 
     const dbTasks = taskRepo.getTasksByMissionId(result!.mission.id);
     expect(dbTasks).toHaveLength(3);
-    expect(dbTasks.map(t => t.title).sort()).toEqual(['Implementation', 'Setup', 'Testing'].sort());
+    expect(dbTasks.map(t => t.title).toSorted()).toEqual(['Implementation', 'Setup', 'Testing'].toSorted());
   });
 
   it('mission is persisted in the database', () => {

@@ -55,7 +55,7 @@ function createTestTask(options?: { requiredDomain?: string | null; priority?: s
   });
 }
 
-function setupTeamWithUsers(habitatId: string, userNames: string[]) {
+function setupTeamWithUsers(boardId: string, userNames: string[]) {
   const db = getDb();
   const ts = Date.now();
   const orgId = `org-${ts}`;
@@ -63,7 +63,7 @@ function setupTeamWithUsers(habitatId: string, userNames: string[]) {
 
   const teamId = `team-${ts}`;
   db.insert(teams).values({ id: teamId, organizationId: orgId, name: `Team-${ts}`, slug: `team-${ts}` }).run();
-  db.update(habitats).set({ teamId }).where(eq(habitats.id, habitatId)).run();
+  db.update(habitats).set({ teamId }).where(eq(habitats.id, boardId)).run();
 
   const userIds: string[] = [];
   for (const name of userNames) {

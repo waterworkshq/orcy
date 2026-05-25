@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { users, teamMembers, habitats } from '../db/schema/index.js';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
 import * as taskRepo from '../repositories/task.js';

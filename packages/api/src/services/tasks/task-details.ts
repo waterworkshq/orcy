@@ -8,9 +8,8 @@ import * as pipelineEventRepo from '../../repositories/pipelineEvent.js';
 import * as eventRepo from '../../repositories/event.js';
 import * as commentRepo from '../../repositories/comment.js';
 import * as attachmentRepo from '../../repositories/attachment.js';
-import * as missionEventRepo from '../../repositories/events/event-feature.js';
 import * as watcherService from '../watcherService.js';
-import type { Task, Mission } from '../../models/index.js';
+import type { Task } from '../../models/index.js';
 
 export interface TaskWithMissionContext {
   task: Task;

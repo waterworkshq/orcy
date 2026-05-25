@@ -9,7 +9,7 @@ import { logger } from '../lib/logger.js';
 import { getDb } from '../db/index.js';
 import { auditExportSchedules } from '../db/schema/index.js';
 import { eq, and, lte } from 'drizzle-orm';
-import type { ScheduledTask, TaskPriority, TaskTemplateEntry } from '../models/index.js';
+import type { ScheduledTask, TaskTemplateEntry } from '../models/index.js';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { sanitizeFilename } from './fileStorage.js';

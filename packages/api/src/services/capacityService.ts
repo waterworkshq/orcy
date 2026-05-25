@@ -126,7 +126,7 @@ function generateSuggestions(agents: AgentCapacity[], maxTasks: number): string[
       const excess = over.activeTasks - maxTasks;
       const bestCandidate = underloaded
         .filter(u => u.domain === over.domain || u.availableCapacity >= excess)
-        .sort((a, b) => b.availableCapacity - a.availableCapacity)[0];
+        .toSorted((a, b) => b.availableCapacity - a.availableCapacity)[0];
 
       if (bestCandidate) {
         const transferCount = Math.min(excess, bestCandidate.availableCapacity);

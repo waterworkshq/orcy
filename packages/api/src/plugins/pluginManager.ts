@@ -21,7 +21,7 @@ export function setPluginDirectory(dir: string): void {
   pluginDirectory = resolve(dir);
 }
 
-function validatePlugin(plugin: unknown, source: string): plugin is KanbanPlugin {
+function validatePlugin(plugin: unknown, _source: string): plugin is KanbanPlugin {
   if (!plugin || typeof plugin !== 'object') return false;
   const p = plugin as Record<string, unknown>;
   if (typeof p.name !== 'string' || !p.name) return false;
@@ -134,7 +134,7 @@ export async function initializePlugins(fastify: FastifyInstance): Promise<void>
 
 export function getLoadedPlugins(): PluginManifest[] {
   const result: PluginManifest[] = [];
-  for (const [name, plugin] of loadedPlugins) {
+  for (const [_name, plugin] of loadedPlugins) {
     result.push({ name: plugin.name, version: plugin.version, enabled: true });
   }
   for (const [name, error] of pluginErrors) {

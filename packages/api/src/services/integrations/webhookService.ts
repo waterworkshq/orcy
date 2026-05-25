@@ -1,5 +1,4 @@
 import * as connectionRepo from '../../repositories/integrationConnection.js';
-import * as linkRepo from '../../repositories/externalIssueLink.js';
 import { syncExternalIssue } from './syncService.js';
 import { verifyGitHubHmac } from '../../config/integrationSecurity.js';
 import { logger } from '../../lib/logger.js';

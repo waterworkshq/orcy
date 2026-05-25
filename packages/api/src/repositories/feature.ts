@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { missions, missionDependencies, columns } from '../db/schema/index.js';
-import { eq, and, or, not, inArray, sql, count, max, asc, desc, isNotNull, notInArray } from 'drizzle-orm';
+import { eq, and, sql, count, max, asc, notInArray } from 'drizzle-orm';
 import { priorityOrderExpr } from '../db/sql-helpers.js';
 import type { Mission, MissionStatus, TaskPriority } from '../models/index.js';
 import { v4 as uuid } from 'uuid';

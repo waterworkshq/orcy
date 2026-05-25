@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { pulses, pulseCursors } from '../db/schema/index.js';
-import { eq, and, or, lt, gt, count, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, gt, count, desc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 export type SignalType =

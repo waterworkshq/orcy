@@ -1,9 +1,8 @@
 import { getDb } from '../../db/index.js';
 import { taskEvents, tasks, missions, agents, columns, habitats, webhookDeliveries } from '../../db/schema/index.js';
-import { eq, and, isNotNull, sql, count, desc, asc, inArray } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/sqlite-core';
+import { eq, and, isNotNull, sql, desc, asc, inArray } from 'drizzle-orm';
 import { cycleTimeMinutes } from '../../db/dialect-helpers.js';
-import { habitatFilter, resolveDateWindow, computeCurrentStreak } from './stats-helpers.js';
+import { habitatFilter, resolveDateWindow } from './stats-helpers.js';
 import type { DashboardStats } from '../../models/index.js';
 
 function queryThroughput(

@@ -405,8 +405,8 @@ describe('Quality Gates', () => {
 });
 
 describe('Submit Task Quality Gate Validation', () => {
-  let missionId: string;
-  let agentId: string;
+  let localMissionId: string;
+  let localAgentId: string;
 
   beforeEach(async () => {
     await initTestDb();
@@ -418,7 +418,7 @@ describe('Submit Task Quality Gate Validation', () => {
       title: 'Quality Submit Test',
       createdBy: 'test-user',
     });
-    missionId = mission.id;
+    localMissionId = mission.id;
 
     const { agent } = agentRepo.createAgent({
       name: `submit-test-agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -426,7 +426,7 @@ describe('Submit Task Quality Gate Validation', () => {
       domain: 'fullstack',
       capabilities: ['typescript'],
     });
-    agentId = agent.id;
+    localAgentId = agent.id;
   });
 
   afterEach(() => {
@@ -435,12 +435,12 @@ describe('Submit Task Quality Gate Validation', () => {
 
   function prepareTaskForSubmit() {
     const task = taskRepo.createTask({
-      missionId,
+      missionId: localMissionId,
       title: 'Submit test task',
       createdBy: 'test-user',
     });
-    claimTask(task.id, agentId);
-    startTask(task.id, agentId);
+    claimTask(task.id, localAgentId);
+    startTask(task.id, localAgentId);
     return task;
   }
 
@@ -448,7 +448,7 @@ describe('Submit Task Quality Gate Validation', () => {
     qualityRepo.seedDefaultTemplates();
     const task = prepareTaskForSubmit();
 
-    const result = submitTask(task.id, agentId, 'Done', []);
+    const result = submitTask(task.id, localAgentId, 'Done', []);
 
     expect(result.task).toBeNull();
     expect(result.error).toBe('QUALITY_GATES_NOT_MET');
@@ -469,7 +469,7 @@ describe('Submit Task Quality Gate Validation', () => {
       qualityRepo.updateChecklistStatus(checklist.id);
     }
 
-    const result = submitTask(task.id, agentId, 'Done', []);
+    const result = submitTask(task.id, localAgentId, 'Done', []);
 
     expect(result.task).not.toBeNull();
     expect(result.task!.status).toBe('submitted');
@@ -479,7 +479,7 @@ describe('Submit Task Quality Gate Validation', () => {
   it('submitTask proceeds when no checklists exist for the task', () => {
     const task = prepareTaskForSubmit();
 
-    const result = submitTask(task.id, agentId, 'Done with no checklists', []);
+    const result = submitTask(task.id, localAgentId, 'Done with no checklists', []);
 
     expect(result.task).not.toBeNull();
     expect(result.task!.status).toBe('submitted');
@@ -490,7 +490,7 @@ describe('Submit Task Quality Gate Validation', () => {
     qualityRepo.seedDefaultTemplates();
     const task = prepareTaskForSubmit();
 
-    const firstResult = submitTask(task.id, agentId, 'Attempt 1', []);
+    const firstResult = submitTask(task.id, localAgentId, 'Attempt 1', []);
     expect(firstResult.task).toBeNull();
     expect(firstResult.error).toBe('QUALITY_GATES_NOT_MET');
 
@@ -503,7 +503,7 @@ describe('Submit Task Quality Gate Validation', () => {
       qualityRepo.updateChecklistStatus(checklist.id);
     }
 
-    const secondResult = submitTask(task.id, agentId, 'Attempt 2', []);
+    const secondResult = submitTask(task.id, localAgentId, 'Attempt 2', []);
     expect(secondResult.task).not.toBeNull();
     expect(secondResult.task!.status).toBe('submitted');
     expect(secondResult.error).toBeUndefined();

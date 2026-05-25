@@ -3,7 +3,7 @@ import { getIntegrationsByHabitat, getIntegrationById, createIntegration, update
 import { getHabitatById } from '../repositories/board.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
-import { verifySlackRequest, verifySlackRequestWithTimestamp, parseSlackCommand } from '../services/slackService.js';
+import { verifySlackRequestWithTimestamp, parseSlackCommand } from '../services/slackService.js';
 import { verifyDiscordRequest } from '../services/discordService.js';
 import { executeCommand, sendTestMessage } from '../services/chatService.js';
 import { isRemotePosture, validateOutboundUrl } from '../config/integrationSecurity.js';

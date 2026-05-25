@@ -2,9 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import * as taskService from '../../services/tasks/index.js';
-import * as agentService from '../../services/agentService.js';
 import { delegateTaskSchema } from '../../models/schemas.js';
-import type { DelegateTaskInput } from '../../models/schemas.js';
 import { agentAuth } from '../../middleware/auth.js';
 import { badRequest, notFound, forbidden, conflict } from '../../errors.js';
 

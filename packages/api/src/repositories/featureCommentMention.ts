@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
 import { missionCommentMentions } from '../db/schema/index.js';
-import { eq, inArray, asc } from 'drizzle-orm';
+import { inArray, asc } from 'drizzle-orm';
 import type { MissionCommentMention } from '@orcy/shared/types';
 
 export function createMentions(input: Array<Omit<MissionCommentMention, 'id' | 'createdAt' | 'mentionedName'>>): MissionCommentMention[] {

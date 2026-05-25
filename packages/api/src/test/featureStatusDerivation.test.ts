@@ -63,6 +63,53 @@ vi.mock('../services/featureService.js', () => ({
 import { validateTransition, VALID_TRANSITIONS } from '../services/tasks/index.js';
 import type { TaskStatus } from '../models/index.js';
 
+function deriveMissionStatus(taskStatuses: string[]): string {
+  if (taskStatuses.length === 0) return 'not_started';
+
+  if (taskStatuses.every(s => s === 'done' || s === 'approved') && taskStatuses.some(s => s === 'done')) {
+    return 'done';
+  }
+
+  if (taskStatuses.every(s => s === 'submitted' || s === 'approved' || s === 'done')) {
+    return 'review';
+  }
+
+  if (taskStatuses.some(s => s === 'failed') && !taskStatuses.some(s => ['claimed', 'in_progress', 'submitted'].includes(s))) {
+    return 'failed';
+  }
+
+  const nonPendingStatuses = ['claimed', 'in_progress', 'submitted', 'approved', 'done', 'failed', 'rejected'];
+  if (taskStatuses.some(s => nonPendingStatuses.includes(s))) {
+    return 'in_progress';
+  }
+
+  return 'not_started';
+}
+
+function resolveTargetColumn(
+  columnNames: string[],
+  isTerminal: boolean[],
+  status: string,
+): number | null {
+  if (status === 'failed') return null;
+
+  const nonTerminalIndices = columnNames.map((_, i) => i).filter(i => !isTerminal[i]);
+  const terminalIdx = columnNames.findIndex((_, i) => isTerminal[i]);
+
+  switch (status) {
+    case 'not_started': return 0;
+    case 'in_progress':
+      if (nonTerminalIndices.length < 2) return null;
+      return 1;
+    case 'review':
+      if (nonTerminalIndices.length < 3) return null;
+      return nonTerminalIndices[nonTerminalIndices.length - 1];
+    case 'done':
+      return terminalIdx >= 0 ? terminalIdx : columnNames.length - 1;
+    default: return null;
+  }
+}
+
 describe('Mission Status Derivation', () => {
   describe('deriveMissionStatus - all pending tasks', () => {
     it('returns not_started when all tasks are pending', () => {
@@ -117,29 +164,6 @@ describe('Task State Machine - Mission-Aware', () => {
 });
 
 describe('Status Derivation Algorithm - Pure Logic', () => {
-  function deriveMissionStatus(taskStatuses: string[]): string {
-    if (taskStatuses.length === 0) return 'not_started';
-
-    if (taskStatuses.every(s => s === 'done' || s === 'approved') && taskStatuses.some(s => s === 'done')) {
-      return 'done';
-    }
-
-    if (taskStatuses.every(s => s === 'submitted' || s === 'approved' || s === 'done')) {
-      return 'review';
-    }
-
-    if (taskStatuses.some(s => s === 'failed') && !taskStatuses.some(s => ['claimed', 'in_progress', 'submitted'].includes(s))) {
-      return 'failed';
-    }
-
-    const nonPendingStatuses = ['claimed', 'in_progress', 'submitted', 'approved', 'done', 'failed', 'rejected'];
-    if (taskStatuses.some(s => nonPendingStatuses.includes(s))) {
-      return 'in_progress';
-    }
-
-    return 'not_started';
-  }
-
   describe('not_started', () => {
     it('all pending', () => expect(deriveMissionStatus(['pending', 'pending'])).toBe('not_started'));
     it('empty tasks', () => expect(deriveMissionStatus([])).toBe('not_started'));
@@ -187,30 +211,6 @@ describe('Status Derivation Algorithm - Pure Logic', () => {
 });
 
 describe('Column Auto-Advancement - Pure Logic', () => {
-  function resolveTargetColumn(
-    columnNames: string[],
-    isTerminal: boolean[],
-    status: string,
-  ): number | null {
-    if (status === 'failed') return null;
-
-    const nonTerminalIndices = columnNames.map((_, i) => i).filter(i => !isTerminal[i]);
-    const terminalIdx = columnNames.findIndex((_, i) => isTerminal[i]);
-
-    switch (status) {
-      case 'not_started': return 0;
-      case 'in_progress':
-        if (nonTerminalIndices.length < 2) return null;
-        return 1;
-      case 'review':
-        if (nonTerminalIndices.length < 3) return null;
-        return nonTerminalIndices[nonTerminalIndices.length - 1];
-      case 'done':
-        return terminalIdx >= 0 ? terminalIdx : columnNames.length - 1;
-      default: return null;
-    }
-  }
-
   const standardColumns = ['Todo', 'In Progress', 'Review', 'Done'];
   const standardTerminal = [false, false, false, true];
 

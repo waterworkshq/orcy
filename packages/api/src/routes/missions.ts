@@ -15,7 +15,7 @@ import {
   moveMissionSchema,
   createTaskInMissionSchema,
 } from '../models/schemas.js';
-import { agentOrHumanAuth, agentAuth, humanAuth } from '../middleware/auth.js';
+import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
 import { requireHabitat } from './middleware/preHandlers.js';
 import { badRequest, notFound, forbidden, conflict, internalError, AppError } from '../errors.js';
 

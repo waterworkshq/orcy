@@ -3,19 +3,10 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import * as taskService from '../../services/tasks/index.js';
 import {
-  createTaskSchema,
   updateTaskSchema,
   cloneTaskSchema,
-  batchTaskSchema,
-} from '../../models/schemas.js';
-import type {
-  CreateTaskInput,
-  UpdateTaskInput,
-  CloneTaskInput,
-  BatchTaskInput,
 } from '../../models/schemas.js';
 import { agentAuth, humanAuth, agentOrHumanAuth } from '../../middleware/auth.js';
-import { editorAndAbove } from '../../middleware/rbac.js';
 import { notFound, forbidden, conflict, badRequest } from '../../errors.js';
 
 const taskParamsSchema = z.object({ id: z.string() });

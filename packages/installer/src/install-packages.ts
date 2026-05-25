@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { execSync } from "node:child_process";
 import type { InstallContext } from "./context.js";
 import { createShims, editShellRc } from "./path-shim.js";

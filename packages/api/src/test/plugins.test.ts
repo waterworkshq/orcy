@@ -605,7 +605,7 @@ describe('Plugin Manager', () => {
       await pluginManager.emitTaskCreated(fakeTask, null);
 
       expect(hookCalls).toHaveLength(2);
-      expect(hookCalls.map(h => h.hook).sort()).toEqual(['multi-1', 'multi-2']);
+      expect(hookCalls.map(h => h.hook).toSorted()).toEqual(['multi-1', 'multi-2']);
 
       await rm(tmpDir, { recursive: true });
     });

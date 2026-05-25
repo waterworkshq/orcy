@@ -5,7 +5,6 @@ import { v4 as uuid } from 'uuid';
 import * as capacityService from './capacityService.js';
 import * as anomalyService from './anomalyService.js';
 import * as predictionService from './predictionService.js';
-import * as timeTrackingService from './timeTrackingService.js';
 import * as timeTrackingRepo from '../repositories/timeTracking.js';
 import * as eventDashboard from '../repositories/events/event-dashboard.js';
 
@@ -60,7 +59,7 @@ function getGrade(score: number): string {
 }
 
 function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: number; throughputTrend: number; wipUtilization: number } {
-  const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
+  const _metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
 
   const cycleTimeTrend = 0;
   const throughputTrend = 0;
@@ -73,7 +72,7 @@ function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: n
       const wipValues = Object.values(dashboardStats.wipHealth) as string[];
       const exceeded = wipValues.filter((v: string) => v === 'exceeded').length;
       const warning = wipValues.filter((v: string) => v === 'warning').length;
-      const ok = wipValues.filter((v: string) => v === 'ok').length;
+      const _ok = wipValues.filter((v: string) => v === 'ok').length;
       const total = wipValues.length;
 
       if (total > 0) {

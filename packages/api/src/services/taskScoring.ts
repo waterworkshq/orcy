@@ -79,7 +79,7 @@ export function sortTasksBySmartScore(
   agentDomain?: string,
   agentCapabilities?: string[]
 ): Task[] {
-  return [...tasks].sort((a, b) => {
+  return [...tasks].toSorted((a, b) => {
     const scoreA = scoreTask(a, agentDomain, agentCapabilities);
     const scoreB = scoreTask(b, agentDomain, agentCapabilities);
     return scoreB - scoreA;

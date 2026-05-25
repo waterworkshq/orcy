@@ -57,8 +57,8 @@ export function registerAgentCommands(program: any) {
     .action(withErrorHandling(async () => {
       const config = getOrcyConfig();
       const agentId = config.agentId;
-      const agent = await api.get<any>(`/api/agents/${agentId}`);
+      const agentData = await api.get<any>(`/api/agents/${agentId}`);
       const stats = await api.get<any>(`/api/agents/${agentId}/stats`);
-      console.log(JSON.stringify({ agentId, ...agent, stats: stats.stats ?? stats }, null, 2));
+      console.log(JSON.stringify({ agentId, ...agentData, stats: stats.stats ?? stats }, null, 2));
     }));
 }

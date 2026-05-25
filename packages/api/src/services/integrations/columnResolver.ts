@@ -1,7 +1,6 @@
 import { getDb } from '../../db/index.js';
 import { columns } from '../../db/schema/index.js';
 import { eq, and, asc } from 'drizzle-orm';
-import type { Column } from '../../models/index.js';
 
 export function resolveImportColumn(habitatId: string): { columnId: string; warning?: string } | null {
   const db = getDb();

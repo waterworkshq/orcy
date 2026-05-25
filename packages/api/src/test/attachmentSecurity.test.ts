@@ -73,7 +73,7 @@ function captureRoutes(): CapturedRoute[] {
 }
 
 function findRoute(routes: CapturedRoute[], method: string, pathPattern: string): RouteHandler {
-  const r = routes.find(r => r.method === method && r.path.includes(pathPattern));
+  const r = routes.find(route => route.method === method && route.path.includes(pathPattern));
   if (!r) throw new Error(`Route ${method} ${pathPattern} not found`);
   return r.handler;
 }

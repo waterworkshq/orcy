@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { ORCY_PATHS } from '@orcy/shared';
-import { execSync } from 'node:child_process';
 import type { InstallContext } from './context.js';
 import { record } from './manifest.js';
 

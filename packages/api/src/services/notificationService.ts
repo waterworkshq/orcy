@@ -4,7 +4,6 @@ import * as taskRepo from '../repositories/task.js';
 import * as missionRepo from '../repositories/feature.js';
 import * as habitatRepo from '../repositories/board.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as userRepo from '../repositories/user.js';
 import * as watcherRepo from '../repositories/watcher.js';
 import * as emailService from './emailService.js';
 import { getDb } from '../db/index.js';
