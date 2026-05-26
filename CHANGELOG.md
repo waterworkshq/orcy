@@ -2,6 +2,31 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.13.0 — 2026-05-26
+
+### Features
+
+#### add Jira & Linear adapters, OAuth, and intake review UI ([`a1fe61f`](https://github.com/waterworkshq/orcy/commit/a1fe61f81259b604c614962aab9452a78dce04ba))
+
+1. Adds Jira Cloud and Linear issue adapters, extending the external intake
+2. system from v0.12 with full provider-specific implementations:
+
+4. Jira Cloud adapter: JQL search, ADF text extraction, API token/basic auth
+5. and OAuth 3LO flows with environment-level client secret configuration
+6. Linear adapter: GraphQL queries, cursor pagination, OAuth PKCE public-client
+7. flow (no client secret required)
+8. Shared OAuth infrastructure: callback server (port 17530), PKCE state store,
+9. code verifier management
+10. Intake candidate review UI: promote/ignore/clarify actions with dedicated
+11. habitat filter view
+12. CLI `orcy integrations connect` and `orcy integrations guide` subcommands
+13. Provider connection panels for Jira and Linear in Habitat Settings UI
+14. New API routes and repositories for intake candidates and OAuth orchestration
+15. Updated documentation (README, CONFIGURATION, SECURITY, ROADMAP to v0.13)
+16. Test coverage for all new modules and route handlers
+
+
+
 ## 0.12.1 — 2026-05-25
 
 ### Chores
@@ -59,17 +84,3 @@
 4. Create integration settings tab and mission detail link badges
 5. Document intake architecture and security threat model
 6. Add external integrations architecture and GitHub sync
-
-
-
-## 0.11.3 — 2026-05-21
-
-### Bug Fixes
-
-#### unique reviewer constraint, sprint overlap validation, human-readable email events, empty email null coercion ([`db1268e`](https://github.com/waterworkshq/orcy/commit/db1268e469962f48beb51012bb0be8ed3d105ab5))
-
-1. P0-5: Add unique index on (task_id, reviewer_id) via migration 0012
-2. P0-13: Add composite index (task_id, status) on task_reviewers
-3. P2-13: Sprint date overlap validation via getOverlappingForHabitat
-4. P3-11: EVENT_TYPE_LABELS mapping for human-readable watching emails
-5. P3-13: updateUserEmail coerces empty string to null
