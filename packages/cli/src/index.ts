@@ -11,6 +11,7 @@ import { registerSuggestCommands } from './commands/suggest.js';
 import { registerSubscriptionCommands } from './commands/subscription.js';
 import { registerWorktreeCommands } from './commands/worktree.js';
 import { registerServeCommands } from './commands/serve.js';
+import { registerIntegrationCommands } from './commands/integration.js';
 
 const program = new Command();
 
@@ -30,6 +31,7 @@ registerSuggestCommands(program);
 registerSubscriptionCommands(program);
 registerWorktreeCommands(program);
 registerServeCommands(program);
+registerIntegrationCommands(program);
 
 program.parse(process.argv);
 

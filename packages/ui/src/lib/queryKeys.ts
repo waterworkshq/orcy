@@ -127,5 +127,7 @@ export const queryKeys = {
     list: (habitatId: string) => [...queryKeys.integrations.all, 'list', habitatId] as const,
     syncRuns: (connectionId: string) => [...queryKeys.integrations.all, 'syncRuns', connectionId] as const,
     missionLinks: (missionId: string) => [...queryKeys.integrations.all, 'missionLinks', missionId] as const,
+    intakeCandidates: (habitatId: string, filters?: Record<string, string>) =>
+      [...queryKeys.integrations.all, 'intakeCandidates', habitatId, filters ?? {}] as const,
   },
 };

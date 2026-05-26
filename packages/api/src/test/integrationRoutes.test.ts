@@ -129,6 +129,43 @@ vi.mock('crypto', () => ({
   },
 }));
 
+vi.mock('../repositories/externalIntakeCandidate.js', () => ({
+  getById: vi.fn(),
+  listByHabitat: vi.fn(() => []),
+  update: vi.fn(),
+}));
+
+vi.mock('../repositories/feature.js', () => ({
+  createMission: vi.fn(() => ({ id: 'mis-new', habitatId: 'hab-1', columnId: 'col-1', title: 'Test' })),
+}));
+
+vi.mock('../services/integrations/jiraOAuth.js', () => ({
+  getJiraCredentials: vi.fn(() => ({ clientId: 'jira-client-id', clientSecret: 'jira-secret' })),
+  getJiraAuthorizationUrl: vi.fn(() => 'https://auth.atlassian.com/authorize?state=st'),
+  exchangeJiraCode: vi.fn(() => Promise.resolve({ access_token: 'jira-at', refresh_token: 'jira-rt', expires_in: 3600, scope: 'read:jira-work' })),
+  discoverJiraCloudIds: vi.fn(() => Promise.resolve([{ id: 'cloud-1', name: 'MySite', url: 'https://mysite.atlassian.net' }])),
+  refreshJiraToken: vi.fn(),
+}));
+
+vi.mock('../services/integrations/linearOAuth.js', () => ({
+  getLinearClientId: vi.fn(() => 'linear-client-id'),
+  generatePKCEPair: vi.fn(() => ({ codeVerifier: 'cv-123', codeChallenge: 'cc-456' })),
+  getLinearAuthorizationUrl: vi.fn(() => 'https://linear.app/oauth/authorize?state=st'),
+  exchangeLinearCode: vi.fn(() => Promise.resolve({ access_token: 'lin-at', refresh_token: 'lin-rt', expires_in: 3600 })),
+  getLinearTeams: vi.fn(() => Promise.resolve([{ id: 'team-1', name: 'My Team', key: 'MT' }])),
+}));
+
+vi.mock('../services/integrations/oauthState.js', () => ({
+  generateState: vi.fn(() => 'mock-state-123'),
+  storeCodeVerifier: vi.fn(),
+  consumeState: vi.fn(() => ({ codeVerifier: 'cv-123' })),
+  clearAllStates: vi.fn(),
+}));
+
+vi.mock('../services/integrations/columnResolver.js', () => ({
+  resolveImportColumn: vi.fn(() => ({ columnId: 'col-import' })),
+}));
+
 function makeMockReply() {
   const reply: any = {};
   reply.status = vi.fn(() => reply);
@@ -155,9 +192,9 @@ describe('integrationRoutes', () => {
     expect(integrationRoutes).toBeInstanceOf(Function);
   });
 
-  it('registers 9 endpoints', () => {
+  it('registers 20 endpoints', () => {
     const routes = captureIntegrationRoutes();
-    expect(routes).toHaveLength(9);
+    expect(routes).toHaveLength(20);
   });
 
   it('registers GET /habitats/:habitatId/integrations', () => {
@@ -431,5 +468,235 @@ describe('POST /habitats/:habitatId/integrations/github/oauth/device/poll', () =
       externalAccountName: 'testuser',
     }));
     expect(reply.code).toHaveBeenCalledWith(201);
+  });
+});
+
+describe('POST /habitats/:habitatId/integrations/jira/oauth/start', () => {
+  it('returns auth URL and state', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/integrations/jira/oauth/start')!;
+
+    const reply = makeMockReply();
+    const result = await route.handler(makeMockRequest({ params: { habitatId: 'hab-1' }, body: { redirectPort: 9876 } }), reply);
+
+    expect(result.authUrl).toBeTruthy();
+    expect(result.state).toBe('mock-state-123');
+    expect(result.redirectPort).toBe(9876);
+  });
+});
+
+describe('POST /habitats/:habitatId/integrations/jira/api-key', () => {
+  it('creates jira connection with valid input', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/integrations/jira/api-key')!;
+    const connRepo = await import('../repositories/integrationConnection.js');
+
+    const created = { id: 'conn-j1', habitatId: 'hab-1', provider: 'jira', authMethod: 'api_key' };
+    (connRepo.create as any).mockReturnValue(created);
+
+    const reply = makeMockReply();
+    await route.handler(
+      makeMockRequest({
+        params: { habitatId: 'hab-1' },
+        body: { name: 'Jira', email: 'dev@example.com', token: 'tok', siteUrl: 'https://site.atlassian.net', projectKey: 'PROJ' },
+      }),
+      reply,
+    );
+
+    expect(connRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'jira',
+      authMethod: 'api_key',
+      externalAccountName: 'dev@example.com',
+      externalTenantId: null,
+      externalTenantName: 'site.atlassian.net',
+      externalBaseUrl: 'https://site.atlassian.net',
+    }));
+    expect(reply.code).toHaveBeenCalledWith(201);
+  });
+});
+
+describe('POST /habitats/:habitatId/integrations/linear/oauth/start', () => {
+  it('returns auth URL and stores PKCE verifier', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/integrations/linear/oauth/start')!;
+    const { storeCodeVerifier } = await import('../services/integrations/oauthState.js');
+
+    const reply = makeMockReply();
+    const result = await route.handler(makeMockRequest({ params: { habitatId: 'hab-1' }, body: { redirectPort: 5555 } }), reply);
+
+    expect(result.authUrl).toBeTruthy();
+    expect(storeCodeVerifier).toHaveBeenCalledWith('mock-state-123', 'cv-123');
+  });
+});
+
+describe('POST /habitats/:habitatId/integrations/linear/oauth/complete', () => {
+  it('creates a PKCE connection with refresh token when Linear returns one', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/integrations/linear/oauth/complete')!;
+    const connRepo = await import('../repositories/integrationConnection.js');
+
+    const created = { id: 'conn-l-oauth', habitatId: 'hab-1', provider: 'linear', authMethod: 'oauth_pkce' };
+    (connRepo.create as any).mockReturnValue(created);
+
+    const reply = makeMockReply();
+    await route.handler(
+      makeMockRequest({
+        params: { habitatId: 'hab-1' },
+        body: { code: 'lin-code', state: 'mock-state-123', redirectPort: 5555 },
+      }),
+      reply,
+    );
+
+    expect(connRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'linear',
+      authMethod: 'oauth_pkce',
+      accessToken: 'lin-at',
+      refreshToken: 'lin-rt',
+      teamId: 'team-1',
+    }));
+    expect(reply.code).toHaveBeenCalledWith(201);
+  });
+});
+
+describe('POST /habitats/:habitatId/integrations/linear/api-key', () => {
+  it('creates linear connection with valid input', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/habitats/:habitatId/integrations/linear/api-key')!;
+    const connRepo = await import('../repositories/integrationConnection.js');
+
+    const created = { id: 'conn-l1', habitatId: 'hab-1', provider: 'linear', authMethod: 'api_key' };
+    (connRepo.create as any).mockReturnValue(created);
+
+    const reply = makeMockReply();
+    await route.handler(
+      makeMockRequest({
+        params: { habitatId: 'hab-1' },
+        body: { name: 'Linear', token: 'lin_tok', teamId: 'team-1' },
+      }),
+      reply,
+    );
+
+    expect(connRepo.create).toHaveBeenCalledWith(expect.objectContaining({ provider: 'linear', authMethod: 'api_key' }));
+    expect(reply.code).toHaveBeenCalledWith(201);
+  });
+});
+
+describe('GET /habitats/:habitatId/intake-candidates', () => {
+  it('returns candidates for habitat', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'GET' && r.path === '/habitats/:habitatId/intake-candidates')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+
+    const mockCandidates = [{ id: 'cand-1', habitatId: 'hab-1', reviewStatus: 'new' }];
+    (candRepo.listByHabitat as any).mockReturnValue(mockCandidates);
+
+    const reply = makeMockReply();
+    const result = await route.handler(makeMockRequest({ params: { habitatId: 'hab-1' }, query: {} }), reply);
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.total).toBe(1);
+  });
+});
+
+describe('GET /intake-candidates/:candidateId', () => {
+  it('returns candidate by id', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'GET' && r.path === '/intake-candidates/:candidateId')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+
+    (candRepo.getById as any).mockReturnValue({ id: 'cand-1', habitatId: 'hab-1' });
+
+    const reply = makeMockReply();
+    const result = await route.handler(makeMockRequest({ params: { candidateId: 'cand-1' } }), reply);
+
+    expect(result.candidate).toBeDefined();
+  });
+
+  it('returns 404 for missing candidate', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'GET' && r.path === '/intake-candidates/:candidateId')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+
+    (candRepo.getById as any).mockReturnValue(null);
+
+    const reply = makeMockReply();
+    await expect(() =>
+      route.handler(makeMockRequest({ params: { candidateId: 'missing' } }), reply)
+    ).rejects.toBeDefined();
+  });
+});
+
+describe('POST /intake-candidates/:candidateId/promote', () => {
+  it('promotes a candidate and returns 201', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/intake-candidates/:candidateId/promote')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+    const missionRepo = await import('../repositories/feature.js');
+    const linkRepo = await import('../repositories/externalIssueLink.js');
+
+    const candidate = {
+      id: 'cand-1', habitatId: 'hab-1', connectionId: 'conn-1', provider: 'jira',
+      externalId: 'EXT-1', externalKey: 'PROJ-1', externalUrl: 'https://jira/1',
+      sourceTitle: 'Bug', sourceBody: 'Desc', sourceStatus: 'open',
+      sourceLabels: ['bug'], reviewStatus: 'new',
+    };
+    (candRepo.getById as any).mockReturnValue(candidate);
+    (candRepo.update as any).mockReturnValue({ ...candidate, reviewStatus: 'promoted', promotedMissionId: 'mis-new' });
+    (linkRepo.create as any).mockReturnValue({ id: 'link-1' });
+
+    const reply = makeMockReply();
+    await route.handler(makeMockRequest({ params: { candidateId: 'cand-1' } }), reply);
+
+    expect(missionRepo.createMission).toHaveBeenCalled();
+    expect(linkRepo.create).toHaveBeenCalled();
+    expect(candRepo.update).toHaveBeenCalledWith('cand-1', expect.objectContaining({ reviewStatus: 'promoted' }));
+    expect(reply.code).toHaveBeenCalledWith(201);
+  });
+
+  it('rejects double promote', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/intake-candidates/:candidateId/promote')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+
+    (candRepo.getById as any).mockReturnValue({ id: 'cand-1', habitatId: 'hab-1', reviewStatus: 'promoted' });
+
+    const reply = makeMockReply();
+    await expect(() =>
+      route.handler(makeMockRequest({ params: { candidateId: 'cand-1' } }), reply)
+    ).rejects.toBeDefined();
+  });
+});
+
+describe('POST /intake-candidates/:candidateId/ignore', () => {
+  it('ignores a candidate', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/intake-candidates/:candidateId/ignore')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+
+    (candRepo.getById as any).mockReturnValue({ id: 'cand-1', habitatId: 'hab-1' });
+    (candRepo.update as any).mockReturnValue({ id: 'cand-1', reviewStatus: 'ignored' });
+
+    const reply = makeMockReply();
+    const result = await route.handler(makeMockRequest({ params: { candidateId: 'cand-1' } }), reply);
+
+    expect(candRepo.update).toHaveBeenCalledWith('cand-1', { reviewStatus: 'ignored' });
+    expect(result.candidate.reviewStatus).toBe('ignored');
+  });
+});
+
+describe('POST /intake-candidates/:candidateId/needs-clarification', () => {
+  it('marks candidate as needs_clarification', async () => {
+    const routes = captureIntegrationRoutes();
+    const route = routes.find(r => r.method === 'POST' && r.path === '/intake-candidates/:candidateId/needs-clarification')!;
+    const candRepo = await import('../repositories/externalIntakeCandidate.js');
+
+    (candRepo.getById as any).mockReturnValue({ id: 'cand-1', habitatId: 'hab-1' });
+    (candRepo.update as any).mockReturnValue({ id: 'cand-1', reviewStatus: 'needs_clarification' });
+
+    const reply = makeMockReply();
+    const result = await route.handler(makeMockRequest({ params: { candidateId: 'cand-1' } }), reply);
+
+    expect(candRepo.update).toHaveBeenCalledWith('cand-1', { reviewStatus: 'needs_clarification' });
+    expect(result.candidate.reviewStatus).toBe('needs_clarification');
   });
 });

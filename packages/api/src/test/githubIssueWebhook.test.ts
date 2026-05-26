@@ -88,6 +88,7 @@ describe('handleGitHubIssueWebhook', () => {
       repositoryOwner: 'acme',
       repositoryName: 'repo',
       webhookSecret: 'secret123',
+      autoImport: true,
       createdBy: 'user1',
     });
 
@@ -111,6 +112,7 @@ describe('handleGitHubIssueWebhook', () => {
       repositoryOwner: 'acme',
       repositoryName: 'repo',
       webhookSecret: 'secret123',
+      autoImport: true,
       createdBy: 'user1',
     });
 
@@ -139,6 +141,7 @@ describe('handleGitHubIssueWebhook', () => {
       repositoryOwner: 'acme',
       repositoryName: 'repo',
       webhookSecret: 'secret123',
+      autoImport: true,
       createdBy: 'user1',
     });
 

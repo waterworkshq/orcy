@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { GitHubIntegrationPanel } from './GitHubIntegrationPanel.js';
+import { ProviderIntegrationPanel } from './ProviderIntegrationPanel.js';
 import { useIntegrations } from '../../../lib/useHabitatData.js';
 import { queryKeys } from '../../../lib/queryKeys.js';
 import { api } from '../../../api/index.js';
@@ -31,10 +32,18 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
   const [oauthError, setOauthError] = useState<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [showJiraForm, setShowJiraForm] = useState(false);
+  const [jiraForm, setJiraForm] = useState({ name: '', email: '', token: '', siteUrl: '', projectKey: '', autoImport: false, pullEnabled: true });
+  const [showLinearForm, setShowLinearForm] = useState(false);
+  const [linearForm, setLinearForm] = useState({ name: '', token: '', teamId: '', autoImport: false, pullEnabled: true });
+  const [providerCreating, setProviderCreating] = useState(false);
+
   const qc = useQueryClient();
 
   const connections = data?.integrations ?? [];
   const githubConnections = connections.filter((c) => c.provider === 'github');
+  const jiraConnections = connections.filter((c) => c.provider === 'jira');
+  const linearConnections = connections.filter((c) => c.provider === 'linear');
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: queryKeys.integrations.list(habitatId) });
@@ -332,10 +341,193 @@ export function IntegrationsTab({ habitatId }: IntegrationsTabProps) {
       </div>
 
       <div>
-        <h3 className="text-sm font-medium mb-2">Other Providers</h3>
-        <div className="py-4 text-center text-sm text-muted-foreground border rounded-lg">
-          Jira and Linear integration is framework-ready for future support.
-        </div>
+        <h3 className="text-sm font-medium mb-2">Jira Cloud</h3>
+        {jiraConnections.length > 0 ? (
+          <div className="space-y-3">
+            {jiraConnections.map((conn) => (
+              <ProviderIntegrationPanel
+                key={conn.id}
+                connection={conn}
+                syncing={syncingId === conn.id}
+                onSync={handleSync}
+                onToggleEnabled={handleToggleEnabled}
+                onDisconnect={handleDisconnect}
+                providerLabel="Jira"
+                providerColor="bg-blue-100 text-blue-800"
+                detailLine={conn.projectKey ? `Project: ${conn.projectKey}` : undefined}
+                externalLink={conn.externalBaseUrl ?? undefined}
+                externalLinkLabel={conn.externalTenantName ?? undefined}
+              />
+            ))}
+          </div>
+        ) : !showJiraForm ? (
+          <div className="space-y-3">
+            <div className="py-4 text-center text-sm text-muted-foreground">
+              No Jira connections. Sync Jira issues as intake candidates.
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowJiraForm(true)}>
+                Connect Jira via API Token
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {showJiraForm && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setProviderCreating(true);
+              try {
+                await api.integrations.createJiraApiKey(habitatId, jiraForm);
+                notify.success('Jira connection created');
+                setShowJiraForm(false);
+                setJiraForm({ name: '', email: '', token: '', siteUrl: '', projectKey: '', autoImport: false, pullEnabled: true });
+                invalidate();
+              } catch (err) {
+                notify.error((err as Error).message);
+              } finally {
+                setProviderCreating(false);
+              }
+            }}
+            className="border rounded-lg p-4 space-y-3"
+          >
+            <h4 className="text-sm font-medium">Connect Jira Cloud</h4>
+            <div className="rounded-lg border bg-accent/40 p-3 text-xs text-muted-foreground space-y-2">
+              <p>
+                Jira Cloud uses your Atlassian email plus an API token. Create one at{' '}
+                <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">
+                  Atlassian API tokens <ExternalLink className="h-3 w-3" />
+                </a>
+                , then paste it here. Orcy stores it locally and never displays it again.
+              </p>
+              <p>Use your Jira site URL, like <code>https://your-site.atlassian.net</code>, and the project key shown in Jira issue IDs, like <code>ENG</code> from <code>ENG-123</code>.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Connection Name</label>
+                <input type="text" value={jiraForm.name} onChange={(e) => setJiraForm({ ...jiraForm, name: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="My Jira Project" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Atlassian Email</label>
+                <input type="email" value={jiraForm.email} onChange={(e) => setJiraForm({ ...jiraForm, email: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="you@example.com" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">API Token</label>
+                <input type="password" value={jiraForm.token} onChange={(e) => setJiraForm({ ...jiraForm, token: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="ATATT3xF..." required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Site URL</label>
+                <input type="text" value={jiraForm.siteUrl} onChange={(e) => setJiraForm({ ...jiraForm, siteUrl: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="https://mysite.atlassian.net" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Project Key</label>
+                <input type="text" value={jiraForm.projectKey} onChange={(e) => setJiraForm({ ...jiraForm, projectKey: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="PROJ" required />
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={jiraForm.pullEnabled} onChange={(e) => setJiraForm({ ...jiraForm, pullEnabled: e.target.checked })} className="rounded" />
+                Pull Enabled
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={jiraForm.autoImport} onChange={(e) => setJiraForm({ ...jiraForm, autoImport: e.target.checked })} className="rounded" />
+                Auto Import
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="submit" size="sm" loading={providerCreating}>Connect</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowJiraForm(false)}>Cancel</Button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-sm font-medium mb-2">Linear</h3>
+        {linearConnections.length > 0 ? (
+          <div className="space-y-3">
+            {linearConnections.map((conn) => (
+              <ProviderIntegrationPanel
+                key={conn.id}
+                connection={conn}
+                syncing={syncingId === conn.id}
+                onSync={handleSync}
+                onToggleEnabled={handleToggleEnabled}
+                onDisconnect={handleDisconnect}
+                providerLabel="Linear"
+                providerColor="bg-violet-100 text-violet-800"
+                detailLine={conn.teamId ? `Team: ${conn.name}` : undefined}
+              />
+            ))}
+          </div>
+        ) : !showLinearForm ? (
+          <div className="space-y-3">
+            <div className="py-4 text-center text-sm text-muted-foreground">
+              No Linear connections. Sync Linear issues as intake candidates.
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setShowLinearForm(true)}>
+                Connect Linear via API Key
+              </Button>
+              <p className="text-xs text-muted-foreground text-center max-w-xl">
+                Recommended OAuth path: run <code>orcy integrations connect &lt;habitat-id&gt; linear</code>. If you use your own Linear OAuth app, register <code>http://127.0.0.1:17530/callback</code> as the callback URL. API key setup below is the manual fallback.
+              </p>
+            </div>
+          </div>
+        ) : null}
+        {showLinearForm && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setProviderCreating(true);
+              try {
+                await api.integrations.createLinearApiKey(habitatId, linearForm);
+                notify.success('Linear connection created');
+                setShowLinearForm(false);
+                setLinearForm({ name: '', token: '', teamId: '', autoImport: false, pullEnabled: true });
+                invalidate();
+              } catch (err) {
+                notify.error((err as Error).message);
+              } finally {
+                setProviderCreating(false);
+              }
+            }}
+            className="border rounded-lg p-4 space-y-3"
+          >
+            <h4 className="text-sm font-medium">Connect Linear</h4>
+            <p className="text-xs text-muted-foreground">
+              Provide a Linear personal API key. For OAuth, use: orcy integrations connect &lt;habitat-id&gt; linear
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Connection Name</label>
+                <input type="text" value={linearForm.name} onChange={(e) => setLinearForm({ ...linearForm, name: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="My Linear Team" required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">API Key</label>
+                <input type="password" value={linearForm.token} onChange={(e) => setLinearForm({ ...linearForm, token: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="lin_api_..." required />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Team ID</label>
+                <input type="text" value={linearForm.teamId} onChange={(e) => setLinearForm({ ...linearForm, teamId: e.target.value })} className="mt-1 w-full rounded-md border bg-transparent px-3 py-1.5 text-sm" placeholder="team-uuid" required />
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={linearForm.pullEnabled} onChange={(e) => setLinearForm({ ...linearForm, pullEnabled: e.target.checked })} className="rounded" />
+                Pull Enabled
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={linearForm.autoImport} onChange={(e) => setLinearForm({ ...linearForm, autoImport: e.target.checked })} className="rounded" />
+                Auto Import
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="submit" size="sm" loading={providerCreating}>Connect</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowLinearForm(false)}>Cancel</Button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

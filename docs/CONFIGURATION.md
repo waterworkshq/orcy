@@ -61,6 +61,23 @@ Remote posture requires `JWT_SECRET` (strong, not a known weak value) and `ORCY_
 | `DISCORD_PUBLIC_KEY` | — | Discord public key for verifying interaction requests |
 | `ORCY_DEFAULT_BOARD_ID` | — | Default board UUID for Slack/Discord slash commands |
 
+### External Tracker Integrations
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCY_LINEAR_OAUTH_CLIENT_ID` | Orcy public Linear app client ID | Optional override for Linear OAuth PKCE. No Linear client secret is required for the public PKCE flow. |
+| `ORCY_JIRA_OAUTH_CLIENT_ID` | — | Atlassian OAuth app client ID for advanced Jira OAuth self-hosting. Not needed for recommended Jira API-token setup. |
+| `ORCY_JIRA_OAUTH_CLIENT_SECRET` | — | Atlassian OAuth app client secret for advanced Jira OAuth self-hosting. Never commit this value. |
+
+Recommended setup paths:
+
+| Provider | Recommended setup | User-provided values |
+|----------|-------------------|----------------------|
+| Jira Cloud | UI API-token form | Atlassian email, Atlassian API token, Jira site URL, project key |
+| Linear | CLI OAuth PKCE | No secret; run `orcy integrations connect <habitat-id> linear` |
+
+For Jira API tokens, users can create a token at <https://id.atlassian.com/manage-profile/security/api-tokens>. For Linear OAuth apps, register `http://127.0.0.1:17530/callback` as the callback URL if using a custom app.
+
 ### LLM Integration
 
 | Variable | Default | Description |

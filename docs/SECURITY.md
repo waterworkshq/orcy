@@ -371,6 +371,12 @@ Implementation: `verifyGitHubHmac()` in `packages/api/src/config/integrationSecu
 
 **Device flow (primary):** Uses GitHub OAuth device authorization grant. Requested scopes: `repo` (issues read/write + webhook management) and `read:user` (account name display). Only the embedded `client_id` is needed — no `client_secret` is required for device flow. The `client_id` can be overridden via `ORCY_GITHUB_OAUTH_CLIENT_ID` environment variable for self-hosted deployments.
 
+**Linear OAuth:** Uses authorization code with PKCE as a public-client flow. Orcy ships a public Linear `client_id` default and sends `code_challenge` / `code_verifier` for token exchange and refresh. No Linear `client_secret` is embedded, required, or accepted for this PKCE path. Self-hosted deployments may override the public client ID via `ORCY_LINEAR_OAUTH_CLIENT_ID`.
+
+**Jira OAuth:** Atlassian 3LO requires a confidential client secret. Self-hosted Orcy deployments must provide their own `ORCY_JIRA_OAUTH_CLIENT_ID` and `ORCY_JIRA_OAUTH_CLIENT_SECRET` via environment variables. Real Jira secrets must never be committed to the MIT repository or packaged CLI/frontend artifacts.
+
+**Jira API token:** This is the recommended Jira path for local/self-hosted Orcy. Users provide their Atlassian account email, an Atlassian API token, Jira site URL, and project key. Orcy uses Basic authentication against the site-local Jira REST API (`https://<site>.atlassian.net/rest/api/3`) and stores the token locally with API-response masking.
+
 **PAT fallback:** Users provide a Personal Access Token with `repo` scope. The token is entered once and never displayed again. PATs created via GitHub's token settings page (`github.com/settings/tokens`) can be revoked at any time.
 
 ### Recoverable Webhook-Permission Failure
@@ -387,7 +393,7 @@ v0.12 uses a fixed GitHub API base URL (`https://api.github.com`). No user-suppl
 |--------|-----------|--------|
 | Token exposure in API responses | `toView()` DTO masking | Implemented |
 | Webhook signature spoofing | Constant-time HMAC-SHA256 verification | Implemented |
-| OAuth client ID extraction | Device flow needs only `client_id` (not secret); embedded value is public | Accepted |
+| OAuth client ID extraction | GitHub device flow and Linear PKCE need only public `client_id` values; Jira secrets are env-only | Accepted |
 | SQLite token theft | Local filesystem permissions; documented as deployer responsibility | Documented |
 | Outbound SSRF via provider URLs | Fixed GitHub API base; future URLs validated via existing SSRF checks | Implemented |
 

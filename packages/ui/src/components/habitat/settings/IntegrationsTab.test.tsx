@@ -31,6 +31,8 @@ vi.mock('../../../api/index.js', () => ({
       sync: (...args: unknown[]) => mockSync(...args),
       listSyncRuns: () => Promise.resolve({ syncRuns: [] }),
       listMissionLinks: () => Promise.resolve({ externalLinks: [] }),
+      createJiraApiKey: () => Promise.resolve({ integration: {} }),
+      createLinearApiKey: () => Promise.resolve({ integration: {} }),
     },
   },
 }));
@@ -65,6 +67,15 @@ vi.mock('./GitHubIntegrationPanel.js', () => ({
       <span>{connection.repositoryOwner}/{connection.repositoryName}</span>
       <button onClick={() => onSync(connection.id)}>SyncBtn</button>
       <button onClick={() => onDisconnect(connection.id)}>DisconnectBtn</button>
+    </div>
+  ),
+}));
+
+vi.mock('./ProviderIntegrationPanel.js', () => ({
+  ProviderIntegrationPanel: ({ connection, providerLabel }: any) => (
+    <div data-testid={`provider-panel-${connection.id}`}>
+      <span>{providerLabel}</span>
+      <span>{connection.name}</span>
     </div>
   ),
 }));
@@ -143,9 +154,10 @@ describe('IntegrationsTab', () => {
     expect(screen.getByText(/acme\/repo/)).toBeInTheDocument();
   });
 
-  it('shows other providers placeholder', async () => {
+  it('shows Jira and Linear sections', async () => {
     renderWithQC(<IntegrationsTab habitatId="hab-1" />);
-    expect((await screen.findAllByText(/Jira and Linear/)).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('heading', { name: /Jira Cloud/ }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole('heading', { name: /^Linear$/ }).length).toBeGreaterThanOrEqual(1);
   });
 
   it('creates PAT connection on form submit', async () => {

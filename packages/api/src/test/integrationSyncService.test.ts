@@ -6,6 +6,7 @@ import * as connectionRepo from '../repositories/integrationConnection.js';
 import * as linkRepo from '../repositories/externalIssueLink.js';
 import * as missionRepo from '../repositories/feature.js';
 import * as taskRepo from '../repositories/task.js';
+import * as candidateRepo from '../repositories/externalIntakeCandidate.js';
 import { syncConnection, syncExternalIssue } from '../services/integrations/syncService.js';
 import type { IssueProviderAdapter } from '../services/integrations/types.js';
 import type { ExternalIssue } from '@orcy/shared';
@@ -38,6 +39,21 @@ function makeIssue(overrides: Partial<ExternalIssue> = {}): ExternalIssue {
   };
 }
 
+function makeJiraIssue(overrides: Partial<ExternalIssue> = {}): ExternalIssue {
+  return {
+    provider: 'jira',
+    externalId: 'JIRA-101',
+    externalKey: 'PROJ-101',
+    title: 'Jira Bug',
+    body: 'Something broke',
+    status: 'open',
+    labels: ['bug'],
+    url: 'https://mysite.atlassian.net/browse/PROJ-101',
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 beforeEach(async () => {
   await initTestDb();
   const db = getDb();
@@ -59,6 +75,7 @@ beforeEach(async () => {
     accessToken: 'ghp_test',
     repositoryOwner: 'acme',
     repositoryName: 'repo',
+    autoImport: true,
     createdBy: 'user1',
   });
   connectionId = conn.id;
@@ -195,5 +212,148 @@ describe('syncService', () => {
     const connection = connectionRepo.getById(connectionId)!;
     const result = syncExternalIssue(connection, makeIssue({ status: 'closed' }));
     expect(result.action).toBe('skipped');
+  });
+});
+
+describe('syncService — intake candidate path', () => {
+  let jiraConnectionId: string;
+
+  beforeEach(async () => {
+    await initTestDb();
+    const db = getDb();
+    db.delete(tasks).run();
+    db.delete(columnsTable).run();
+    db.delete(habitats).run();
+
+    const habitat = habitatRepo.createHabitat({ name: 'Test Habitat' });
+    habitatId = habitat.id;
+    columnId = columnRepo.createColumn({ habitatId, name: 'Todo', order: 0, requiresClaim: false }).id;
+
+    const conn = connectionRepo.create({
+      habitatId,
+      provider: 'jira',
+      name: 'Test Jira',
+      authMethod: 'api_key',
+      accessToken: 'jira-test',
+      externalTenantId: 'cloud-1',
+      externalTenantName: 'MySite',
+      externalBaseUrl: 'https://mysite.atlassian.net',
+      projectKey: 'PROJ',
+      pullEnabled: true,
+      autoImport: false,
+      createdBy: 'user1',
+    });
+    jiraConnectionId = conn.id;
+  });
+
+  afterEach(() => {
+    closeDb();
+  });
+
+  it('creates intake candidate for non-GitHub provider', () => {
+    const connection = connectionRepo.getById(jiraConnectionId)!;
+    const result = syncExternalIssue(connection, makeJiraIssue());
+
+    expect(result.action).toBe('created');
+    expect(result.missionId).toBe('');
+
+    const candidates = candidateRepo.listByHabitat(habitatId);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].sourceTitle).toBe('Jira Bug');
+    expect(candidates[0].provider).toBe('jira');
+    expect(candidates[0].reviewStatus).toBe('new');
+  });
+
+  it('updates existing candidate on second sync', () => {
+    const connection = connectionRepo.getById(jiraConnectionId)!;
+    syncExternalIssue(connection, makeJiraIssue());
+    const result = syncExternalIssue(connection, makeJiraIssue({ title: 'Updated Jira Bug' }));
+
+    expect(result.action).toBe('updated');
+
+    const candidates = candidateRepo.listByHabitat(habitatId);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].sourceTitle).toBe('Updated Jira Bug');
+  });
+
+  it('skips closed issue that has no existing candidate', () => {
+    const connection = connectionRepo.getById(jiraConnectionId)!;
+    const result = syncExternalIssue(connection, makeJiraIssue({ status: 'closed' }));
+
+    expect(result.action).toBe('skipped');
+
+    const candidates = candidateRepo.listByHabitat(habitatId);
+    expect(candidates).toHaveLength(0);
+  });
+
+  it('auto-ignores existing candidate when source issue closes', () => {
+    const connection = connectionRepo.getById(jiraConnectionId)!;
+    syncExternalIssue(connection, makeJiraIssue());
+
+    let candidates = candidateRepo.listByHabitat(habitatId);
+    expect(candidates[0].reviewStatus).toBe('new');
+
+    syncExternalIssue(connection, makeJiraIssue({ status: 'closed' }));
+
+    candidates = candidateRepo.listByHabitat(habitatId);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].reviewStatus).toBe('ignored');
+  });
+
+  it('does not auto-ignore candidate that is already promoted', () => {
+    const connection = connectionRepo.getById(jiraConnectionId)!;
+    syncExternalIssue(connection, makeJiraIssue());
+
+    const candidates = candidateRepo.listByHabitat(habitatId);
+    const mission = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: 'Promoted',
+      description: '',
+      priority: 'medium',
+      labels: [],
+      createdBy: 'test',
+    });
+    candidateRepo.update(candidates[0].id, { reviewStatus: 'promoted', promotedMissionId: mission.id });
+
+    syncExternalIssue(connection, makeJiraIssue({ status: 'closed' }));
+
+    const updated = candidateRepo.getById(candidates[0].id)!;
+    expect(updated.reviewStatus).toBe('promoted');
+  });
+
+  it('GitHub connection without autoImport creates intake candidate', () => {
+    const conn = connectionRepo.create({
+      habitatId,
+      provider: 'github',
+      name: 'GitHub No Auto',
+      authMethod: 'pat',
+      accessToken: 'ghp_test2',
+      repositoryOwner: 'acme',
+      repositoryName: 'repo2',
+      autoImport: false,
+      pullEnabled: true,
+      createdBy: 'user1',
+    });
+
+    const connection = connectionRepo.getById(conn.id)!;
+    const result = syncExternalIssue(connection, {
+      provider: 'github',
+      externalId: 'gh-999',
+      externalKey: 'acme/repo2#999',
+      title: 'GH Issue',
+      body: 'body',
+      status: 'open',
+      labels: [],
+      url: 'https://github.com/acme/repo2/issues/999',
+      updatedAt: new Date().toISOString(),
+    });
+
+    expect(result.action).toBe('created');
+    expect(result.missionId).toBe('');
+
+    const candidates = candidateRepo.listByHabitat(habitatId);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].provider).toBe('github');
   });
 });

@@ -1,0 +1,101 @@
+export function getJiraCredentials(): { clientId: string; clientSecret: string } {
+  const clientId = process.env.ORCY_JIRA_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.ORCY_JIRA_OAUTH_CLIENT_SECRET;
+  if (!clientId) throw new Error('ORCY_JIRA_OAUTH_CLIENT_ID is not configured');
+  if (!clientSecret) throw new Error('ORCY_JIRA_OAUTH_CLIENT_SECRET is not configured');
+  return { clientId, clientSecret };
+}
+
+export function getJiraAuthorizationUrl(
+  clientId: string,
+  redirectUri: string,
+  state: string,
+): string {
+  const params = new URLSearchParams({
+    audience: 'api.atlassian.com',
+    client_id: clientId,
+    scope: 'read:jira-work offline_access',
+    redirect_uri: redirectUri,
+    state,
+    response_type: 'code',
+    prompt: 'consent',
+  });
+  return `https://auth.atlassian.com/authorize?${params.toString()}`;
+}
+
+export interface JiraTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  scope: string;
+  token_type: string;
+}
+
+export async function exchangeJiraCode(
+  code: string,
+  clientId: string,
+  clientSecret: string,
+  redirectUri: string,
+): Promise<JiraTokenResponse> {
+  const res = await fetch('https://auth.atlassian.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(body.error_description || body.error || `Jira token exchange failed (HTTP ${res.status})`);
+  }
+
+  return res.json() as Promise<JiraTokenResponse>;
+}
+
+export interface JiraCloudResource {
+  id: string;
+  name: string;
+  url: string;
+  scopes: string[];
+}
+
+export async function discoverJiraCloudIds(accessToken: string): Promise<JiraCloudResource[]> {
+  const res = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Jira cloud discovery failed (HTTP ${res.status})`);
+  }
+
+  return res.json() as Promise<JiraCloudResource[]>;
+}
+
+export async function refreshJiraToken(
+  refreshToken: string,
+  clientId: string,
+  clientSecret: string,
+): Promise<JiraTokenResponse> {
+  const res = await fetch('https://auth.atlassian.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as Record<string, string>;
+    throw new Error(body.error_description || body.error || `Jira token refresh failed (HTTP ${res.status})`);
+  }
+
+  return res.json() as Promise<JiraTokenResponse>;
+}

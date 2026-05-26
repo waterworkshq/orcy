@@ -1,6 +1,7 @@
 import * as connectionRepo from '../../repositories/integrationConnection.js';
 import * as linkRepo from '../../repositories/externalIssueLink.js';
 import * as syncRunRepo from '../../repositories/integrationSyncRun.js';
+import * as candidateRepo from '../../repositories/externalIntakeCandidate.js';
 import * as missionRepo from '../../repositories/feature.js';
 import * as taskRepo from '../../repositories/task.js';
 import { resolveImportColumn } from './columnResolver.js';
@@ -99,6 +100,14 @@ export function syncExternalIssue(
     return updateLinkedMission(connection, issue, existingLink.missionId, existingLink.id);
   }
 
+  if (connection.provider !== 'github') {
+    return syncAsIntakeCandidate(connection, issue);
+  }
+
+  if (!connection.autoImport) {
+    return syncAsIntakeCandidate(connection, issue);
+  }
+
   if (issue.status === 'closed') {
     return { action: 'skipped', missionId: '', linkId: '' };
   }
@@ -134,6 +143,56 @@ export function syncExternalIssue(
   });
 
   return { action: 'created', missionId: mission.id, linkId: link.id };
+}
+
+function syncAsIntakeCandidate(
+  connection: IntegrationConnection,
+  issue: ExternalIssue,
+): ExternalIssueSyncResult {
+  const existingCandidate = candidateRepo.findByConnectionAndExternalId(connection.id, issue.externalId);
+
+  if (existingCandidate) {
+    const updates: Parameters<typeof candidateRepo.update>[1] = {
+      sourceTitle: issue.title,
+      sourceBody: issue.body,
+      sourceStatus: issue.status,
+      sourcePriority: issue.priority,
+      sourceLabels: issue.labels,
+      sourceAssignees: issue.assignees ?? [],
+      externalUpdatedAt: issue.updatedAt,
+      rawProviderPayload: issue.rawProviderPayload ?? null,
+    };
+    if (issue.status === 'closed' && existingCandidate.reviewStatus === 'new') {
+      updates.reviewStatus = 'ignored';
+    }
+    candidateRepo.update(existingCandidate.id, updates);
+    return { action: 'updated', missionId: '', linkId: '' };
+  }
+
+  if (issue.status === 'closed') {
+    return { action: 'skipped', missionId: '', linkId: '' };
+  }
+
+  candidateRepo.create({
+    connectionId: connection.id,
+    habitatId: connection.habitatId,
+    provider: issue.provider,
+    externalId: issue.externalId,
+    externalKey: issue.externalKey,
+    externalUrl: issue.url,
+    sourceKind: issue.sourceKind,
+    sourceStatus: issue.status,
+    sourcePriority: issue.priority,
+    sourceAssignees: issue.assignees ?? [],
+    sourceReporter: issue.reporter ?? null,
+    sourceLabels: issue.labels,
+    sourceTitle: issue.title,
+    sourceBody: issue.body,
+    rawProviderPayload: issue.rawProviderPayload ?? null,
+    externalUpdatedAt: issue.updatedAt,
+  });
+
+  return { action: 'created', missionId: '', linkId: '' };
 }
 
 function updateLinkedMission(

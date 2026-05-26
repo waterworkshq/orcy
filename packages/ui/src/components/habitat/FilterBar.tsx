@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal, LayoutGrid, AlignJustify } from 'lucide-react';
+import { X, Bookmark, ChevronDown, Trash2, Save, SlidersHorizontal, LayoutGrid, AlignJustify, Inbox } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useIsMobile } from '../../hooks/useMediaQuery.js';
@@ -227,6 +227,19 @@ export const FilterBar = React.memo(function FilterBar({ focusSearchRef }: { foc
         >
           <AlignJustify className="h-3.5 w-3.5" />
           Table
+        </button>
+        <button
+          type="button"
+          onClick={() => updateFilter('view', 'intake')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors border-l border-outline-variant ${
+            searchParams.get('view') === 'intake'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+          data-testid="view-toggle-intake"
+        >
+          <Inbox className="h-3.5 w-3.5" />
+          Intake
         </button>
       </div>
 

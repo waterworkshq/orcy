@@ -95,14 +95,41 @@ For development setup, registering orcys, MCP configuration, and production depl
 
 ---
 
+## External Integrations
+
+Orcy can pull external tracker issues into habitat intake, where humans/orcys review and promote them into missions.
+
+**Linear:** use OAuth PKCE from the CLI:
+
+```bash
+orcy integrations connect <habitat-id> linear
+```
+
+If you register your own Linear OAuth app, add `http://127.0.0.1:17530/callback` as the callback URL. No Linear client secret is required for Orcy's PKCE flow.
+
+**Jira Cloud:** use the UI setup at **Habitat Settings -> Integrations -> Jira Cloud**. You need your Atlassian email, an Atlassian API token, Jira site URL, and project key. Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+
+For command-line setup help:
+
+```bash
+orcy integrations guide
+orcy integrations guide jira
+orcy integrations guide linear
+```
+
+Jira OAuth is available only for advanced self-hosted deployments that provide `ORCY_JIRA_OAUTH_CLIENT_ID` and `ORCY_JIRA_OAUTH_CLIENT_SECRET` on the API server. Do not commit Jira OAuth secrets.
+
+---
+
 ## What's Next
 
 | Release | Theme |
 |---------|-------|
-| **v0.11** | Guardrails — review assignment rules, sprint/iteration management, visual rule builder, mobile table view ✔ |
-| **v0.12** | Fit In — GitHub Issues sync, external intake architecture ✔ |
-| **v0.13** | Fit In More — Jira Cloud + Linear adapters, intake review UI |
 | **v0.14** | Autonomous — daemon & cron automation |
+| **v0.15** | The Habitat Remembers — dynamic habitat skills from high-strength pulse signals |
+| **v0.16** | Provenance — code ↔ task linking, time tracking & effort logging |
+| **v0.17** | Evidence — Audit Trail V2, advanced analytics |
+| **v0.18** | Rules That Act — workflow automation engine, Notification System V2 |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

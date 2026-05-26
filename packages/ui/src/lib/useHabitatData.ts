@@ -413,3 +413,16 @@ export function useMissionExternalLinks(missionId: string | undefined) {
     staleTime: 2 * 60 * 1000,
   });
 }
+
+export function useIntakeCandidates(habitatId: string | undefined, filters?: { reviewStatus?: string; provider?: string }) {
+  const filterRecord: Record<string, string> = {};
+  if (filters?.reviewStatus) filterRecord.reviewStatus = filters.reviewStatus;
+  if (filters?.provider) filterRecord.provider = filters.provider;
+
+  return useQuery({
+    queryKey: queryKeys.integrations.intakeCandidates(habitatId ?? '', filterRecord),
+    queryFn: () => api.integrations.listIntakeCandidates(habitatId!, filters),
+    enabled: !!habitatId,
+    staleTime: 30 * 1000,
+  });
+}

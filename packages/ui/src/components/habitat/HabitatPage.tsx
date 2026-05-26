@@ -25,6 +25,7 @@ import { HabitatPulsePanel } from './HabitatPulsePanel.js';
 import { InsightsPanel } from './InsightsPanel.js';
 import { SprintSelector } from './SprintSelector.js';
 import { SprintPlanningPanel } from './SprintPlanningPanel.js';
+import { IntakeReviewPanel } from './IntakeReviewPanel.js';
 import type { Column } from '../../types/index.js';
 import { useRegisterDrawerBridge } from '../layout/DrawerBridgeContext.js';
 
@@ -367,7 +368,9 @@ export function HabitatPage() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {view === 'table' && habitatId ? (
+          {view === 'intake' && habitatId ? (
+            <IntakeReviewPanel habitatId={habitatId} />
+          ) : view === 'table' && habitatId ? (
             <TaskTableView habitatId={habitatId} />
           ) : (
             <Habitat onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
