@@ -156,6 +156,7 @@ export function getAgentStats(agentId: string): AgentStats | null {
 
 export function getAllAgentStats(): AllAgentStats {
   const db = getDb();
+  const completedExpr = sql<number>`SUM(CASE WHEN ${tasks.status} IN ('approved','done') THEN 1 ELSE 0 END)`;
 
   const agentRows = db
     .select({
@@ -164,14 +165,14 @@ export function getAllAgentStats(): AllAgentStats {
       domain: agents.domain,
       status: agents.status,
       totalAssigned: sql<number>`COUNT(${tasks.id})`,
-      completed: sql<number>`SUM(CASE WHEN ${tasks.status} IN ('approved','done') THEN 1 ELSE 0 END)`,
+      completed: completedExpr,
       failed: sql<number>`SUM(CASE WHEN ${tasks.status} = 'failed' THEN 1 ELSE 0 END)`,
       inProgress: sql<number>`SUM(CASE WHEN ${tasks.status} IN ('claimed', 'in_progress', 'submitted') THEN 1 ELSE 0 END)`,
     })
     .from(agents)
     .leftJoin(tasks, eq(tasks.assignedAgentId, agents.id))
     .groupBy(agents.id)
-    .orderBy(desc(sql`completed`))
+    .orderBy(desc(completedExpr))
     .all();
 
   const agentIds = agentRows.map((r) => r.agentId);

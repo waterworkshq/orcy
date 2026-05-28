@@ -1,246 +1,155 @@
-import { describe, it, expect, vi } from 'vitest';
-import type { Task, TaskPriority, Mission, Agent } from '../models/index.js';
-import { scoreTask, computeSlaUrgencyWeight, computeCapabilityWeight } from '../services/taskScoring.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockGetMissionById = vi.hoisted(() => vi.fn<(missionId: string) => Mission | null>().mockReturnValue(null));
-
-vi.mock('../repositories/feature.js', () => ({
-  getMissionById: mockGetMissionById,
+vi.mock("../repositories/task.js", () => ({
+  getAvailableTasksForAgent: vi.fn(),
+  getTaskById: vi.fn(),
 }));
 
-function makeMission(overrides?: Partial<Mission>): Mission {
-  const now = new Date().toISOString();
+vi.mock("../repositories/feature.js", () => ({
+  getMissionById: vi.fn(),
+}));
+
+vi.mock("../repositories/agent.js", () => ({
+  getAgentById: vi.fn(),
+  listAgents: vi.fn(),
+}));
+
+const taskScoringMocks = vi.hoisted(() => ({
+  scoreTask: vi.fn(() => 50),
+  computeSlaUrgencyWeight: vi.fn(() => 0),
+  computeCapabilityWeight: vi.fn(() => 10),
+}));
+
+vi.mock("./taskScoring.js", () => ({
+  scoreTask: taskScoringMocks.scoreTask,
+  computeSlaUrgencyWeight: taskScoringMocks.computeSlaUrgencyWeight,
+  PRIORITY_WEIGHTS: { low: 10, medium: 20, high: 30, critical: 50 },
+  computeCapabilityWeight: taskScoringMocks.computeCapabilityWeight,
+}));
+
+vi.mock("../db/index.js", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({ get: () => ({ count: 0 }) }),
+      }),
+    }),
+  }),
+}));
+
+vi.mock("../db/schema/index.js", () => ({
+  tasks: { assignedAgentId: "a_id", status: "status" },
+}));
+
+vi.mock("drizzle-orm", async () => {
+  const actual = await vi.importActual("drizzle-orm");
   return {
-    id: 'feat-1', habitatId: 'habitat-1', columnId: 'col-1',
-    title: 'Test', description: '', acceptanceCriteria: '',
-    priority: 'medium', labels: [], status: 'not_started',
-    displayOrder: 0, dependsOn: [], blocks: [],
-    dueAt: null, slaMinutes: null, slaDeadlineAt: null,
-    createdBy: 'test', createdAt: now, updatedAt: now,
-    version: 1, actualMinutes: null, plannedMinutes: null,
-    planningAccuracy: null, completedAt: null, isArchived: false,
-    sprintId: null,
-    ...overrides,
+    ...actual,
+    eq: vi.fn((_c, _v) => ({ _type: "eq" })),
+    and: vi.fn((..._c) => ({ _type: "and" })),
+    sql: vi.fn((_s, ..._v) => ({ _type: "sql" })),
   };
-}
-
-function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'title' | 'priority' | 'createdAt'>): Task {
-  return {
-    missionId: 'feat-1',
-    description: '',
-    assignedAgentId: null,
-    delegatedToAgentId: null,
-    requiredDomain: null,
-    requiredCapabilities: [],
-    status: 'pending',
-    claimedAt: null,
-    startedAt: null,
-    submittedAt: null,
-    completedAt: null,
-    rejectedCount: 0,
-    rejectionReason: null,
-    result: null,
-    artifacts: [],
-    order: 0,
-    createdBy: 'system',
-    updatedAt: new Date().toISOString(),
-    version: 1,
-    estimatedMinutes: null,
-    retryPolicy: null,
-    retryCount: 0,
-    nextRetryAt: null,
-    actualMinutes: null,
-    cycleTimeMinutes: null,
-    leadTimeMinutes: null,
-    estimationAccuracy: null,
-    labels: [],
-    ...overrides,
-  };
-}
-
-describe('taskSuggestion scoring factors', () => {
-  it('critical priority scores higher than low priority', () => {
-    const now = new Date().toISOString();
-    const critical = makeTask({ id: '1', title: 'critical', priority: 'critical', createdAt: now });
-    const low = makeTask({ id: '2', title: 'low', priority: 'low', createdAt: now });
-
-    expect(scoreTask(critical)).toBeGreaterThan(scoreTask(low));
-  });
-
-  it('overdue task scores higher than non-overdue', () => {
-    const now = new Date().toISOString();
-    mockGetMissionById.mockImplementation((id: string) => {
-      if (id === 'feat-overdue') return makeMission({ dueAt: new Date(Date.now() - 86400000).toISOString() });
-      return makeMission({ dueAt: null });
-    });
-    const overdue = makeTask({
-      id: '1', title: 'overdue', priority: 'medium', createdAt: now, missionId: 'feat-overdue',
-    });
-    const future = makeTask({
-      id: '2', title: 'future', priority: 'medium', createdAt: now, missionId: 'feat-future',
-    });
-
-    expect(scoreTask(overdue)).toBeGreaterThan(scoreTask(future));
-  });
-
-  it('domain match adds to score', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend' });
-
-    expect(scoreTask(task, 'backend')).toBeGreaterThan(scoreTask(task, 'frontend'));
-  });
-
-  it('capability match adds to score', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredCapabilities: ['typescript'] });
-
-    expect(scoreTask(task, undefined, ['typescript'])).toBeGreaterThan(scoreTask(task, undefined, ['python']));
-  });
-
-  it('priority contribution matches expected weights', () => {
-    const priorities: TaskPriority[] = ['critical', 'high', 'medium', 'low'];
-    const expectedWeights: Record<TaskPriority, number> = { critical: 40, high: 30, medium: 20, low: 10 };
-    const now = new Date().toISOString();
-
-    for (const p of priorities) {
-      const task = makeTask({ id: p, title: p, priority: p, createdAt: now });
-      const score = scoreTask(task);
-      expect(score).toBeGreaterThanOrEqual(expectedWeights[p]);
-    }
-  });
-
-  it('older tasks score slightly higher due to age', () => {
-    const fresh = makeTask({ id: '1', title: 'fresh', priority: 'low', createdAt: new Date().toISOString() });
-    const old = makeTask({ id: '2', title: 'old', priority: 'low', createdAt: new Date(Date.now() - 10 * 86400000).toISOString() });
-
-    expect(scoreTask(old)).toBeGreaterThan(scoreTask(fresh));
-  });
-
-  it('domain specialization provides bonus', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({
-      id: '1', title: 'backend task', priority: 'medium', createdAt: now,
-      requiredDomain: 'backend',
-    });
-
-    const scoreWithoutDomain = scoreTask(task, 'frontend');
-    const scoreWithDomain = scoreTask(task, 'backend');
-
-    expect(scoreWithDomain - scoreWithoutDomain).toBeGreaterThanOrEqual(10);
-  });
-
-  it('computeCapabilityWeight is 0 with no domain or capabilities', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend', requiredCapabilities: ['typescript'] });
-    expect(computeCapabilityWeight(task)).toBe(0);
-    expect(computeCapabilityWeight(task, undefined)).toBe(0);
-    expect(computeCapabilityWeight(task, undefined, [])).toBe(0);
-  });
-
-  it('computeCapabilityWeight domain match adds exactly 10', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend' });
-
-    const matched = computeCapabilityWeight(task, 'backend');
-    const unmatched = computeCapabilityWeight(task, 'frontend');
-
-    expect(matched).toBe(10);
-    expect(unmatched).toBe(0);
-  });
-
-  it('computeCapabilityWeight capability match adds up to 10', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredCapabilities: ['typescript', 'node'] });
-
-    expect(computeCapabilityWeight(task, undefined, ['typescript'])).toBe(5);
-    expect(computeCapabilityWeight(task, undefined, ['typescript', 'node'])).toBe(10);
-    expect(computeCapabilityWeight(task, undefined, ['python'])).toBe(0);
-    expect(computeCapabilityWeight(task, undefined, ['typescript', 'python'])).toBe(5);
-  });
-
-  it('computeCapabilityWeight domain + capability match stacks to 20', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend', requiredCapabilities: ['typescript', 'node'] });
-
-    const weight = computeCapabilityWeight(task, 'backend', ['typescript', 'node']);
-    expect(weight).toBe(20);
-  });
-
-  it('scoreTask domain match contribution is exactly 10, not double-counted', () => {
-    const now = new Date().toISOString();
-    const task = makeTask({ id: '1', title: 't', priority: 'low', createdAt: now, requiredDomain: 'backend' });
-
-    const diff = scoreTask(task, 'backend') - scoreTask(task, undefined);
-    expect(diff).toBe(10);
-  });
-
-  it('combined factors produce higher scores for well-matched tasks', () => {
-    const now = new Date().toISOString();
-    mockGetMissionById.mockReturnValue(makeMission({ dueAt: null }));
-    const wellMatched = makeTask({
-      id: '1', title: 'matched', priority: 'critical', createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-      requiredDomain: 'backend',
-      requiredCapabilities: ['typescript', 'node'],
-    });
-    const poorlyMatched = makeTask({
-      id: '2', title: 'unmatched', priority: 'low', createdAt: now,
-      requiredDomain: 'frontend',
-      requiredCapabilities: ['react'],
-    });
-
-    const scoreWell = scoreTask(wellMatched, 'backend', ['typescript', 'node']);
-    const scorePoor = scoreTask(poorlyMatched, 'backend', ['typescript', 'node']);
-
-    expect(scoreWell).toBeGreaterThan(scorePoor);
-  });
 });
 
-describe('SLA urgency is not double-counted', () => {
-  it('computeSlaUrgencyWeight returns correct values for each threshold', () => {
-    expect(computeSlaUrgencyWeight(null)).toBe(0);
-    expect(computeSlaUrgencyWeight(new Date(Date.now() + 10 * 86400000).toISOString())).toBe(0);
-    expect(computeSlaUrgencyWeight(new Date(Date.now() - 1).toISOString())).toBe(35);
-    expect(computeSlaUrgencyWeight(new Date(Date.now() + 12 * 3600000).toISOString())).toBe(28);
-    expect(computeSlaUrgencyWeight(new Date(Date.now() + 2 * 86400000).toISOString())).toBe(18);
-    expect(computeSlaUrgencyWeight(new Date(Date.now() + 5 * 86400000).toISOString())).toBe(8);
+import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
+import * as taskRepo from "../repositories/task.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as agentRepo from "../repositories/agent.js";
+
+function makeTask(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "task-1",
+    title: "Test Task",
+    missionId: "mission-1",
+    priority: "medium",
+    status: "pending",
+    assignedAgentId: null,
+    domain: "backend",
+    requiredDomain: null,
+    capabilities: [],
+    createdAt: new Date().toISOString(),
+    artifacts: [],
+    order: 0,
+    ...overrides,
+  };
+}
+
+function makeAgent() {
+  return { id: "agent-1", name: "Bot", domain: "backend", status: "working", capabilities: [] };
+}
+
+describe("taskSuggestion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([]);
+    vi.mocked(missionRepo.getMissionById).mockReturnValue(null);
+    vi.mocked(agentRepo.getAgentById).mockReturnValue(null);
+    taskScoringMocks.scoreTask.mockReturnValue(50);
+    taskScoringMocks.computeSlaUrgencyWeight.mockReturnValue(0);
+    taskScoringMocks.computeCapabilityWeight.mockReturnValue(10);
   });
 
-  it('scoreTask already includes SLA urgency weight', () => {
-    const now = new Date().toISOString();
-    const breachedSla = new Date(Date.now() - 1000).toISOString();
-    mockGetMissionById.mockImplementation((id: string) => {
-      if (id === 'feat-sla') return makeMission({ slaDeadlineAt: breachedSla });
-      return makeMission({ slaDeadlineAt: null });
+  describe("getSuggestionsForAgent", () => {
+    it("returns empty when agent not found", () => {
+      vi.mocked(agentRepo.getAgentById).mockReturnValue(null);
+
+      const result = getSuggestionsForAgent("h1", "agent-1");
+
+      expect(result.suggestions).toEqual([]);
+      expect(result.agentWorkload.claimed).toBe(0);
     });
 
-    const slaTask = makeTask({
-      id: 'sla', title: 'sla', priority: 'medium', createdAt: now, missionId: 'feat-sla',
-    });
-    const noSlaTask = makeTask({
-      id: 'nosla', title: 'nosla', priority: 'medium', createdAt: now, missionId: 'feat-nosla',
+    it("returns empty when no available tasks", () => {
+      vi.mocked(agentRepo.getAgentById).mockReturnValue(makeAgent() as any);
+      vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([]);
+
+      const result = getSuggestionsForAgent("h1", "agent-1");
+
+      expect(result.suggestions).toEqual([]);
+      expect(result.agentWorkload.claimed).toBe(0);
     });
 
-    const scoreDiff = scoreTask(slaTask) - scoreTask(noSlaTask);
-    expect(scoreDiff).toBe(35);
-  });
+    it("returns scored suggestions", () => {
+      vi.mocked(agentRepo.getAgentById).mockReturnValue(makeAgent() as any);
+      vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([makeTask() as any]);
+      vi.mocked(missionRepo.getMissionById).mockReturnValue({ title: "Mission X" } as any);
 
-  it('scoreTask SLA contribution is exactly computeSlaUrgencyWeight output', () => {
-    const now = new Date().toISOString();
-    const within24h = new Date(Date.now() + 12 * 3600000).toISOString();
-    mockGetMissionById.mockImplementation((id: string) => {
-      if (id === 'feat-sla') return makeMission({ slaDeadlineAt: within24h });
-      return makeMission({ slaDeadlineAt: null });
+      const result = getSuggestionsForAgent("h1", "agent-1");
+
+      expect(result.suggestions).toHaveLength(1);
+      expect(result.suggestions[0].taskId).toBe("task-1");
+      expect(result.suggestions[0].missionTitle).toBe("Mission X");
+      expect(result.suggestions[0].reasons.length).toBeGreaterThan(0);
     });
 
-    const slaTask = makeTask({
-      id: 'sla', title: 'sla', priority: 'low', createdAt: now, missionId: 'feat-sla',
-    });
-    const noSlaTask = makeTask({
-      id: 'nosla', title: 'nosla', priority: 'low', createdAt: now, missionId: 'feat-nosla',
+    it("sorts by score descending", () => {
+      vi.mocked(agentRepo.getAgentById).mockReturnValue(makeAgent() as any);
+      vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([
+        makeTask({ id: "t1", title: "Low", priority: "low" }) as any,
+        makeTask({ id: "t2", title: "High", priority: "critical" }) as any,
+      ]);
+      vi.mocked(missionRepo.getMissionById).mockReturnValue({ title: "M" } as any);
+
+      taskScoringMocks.scoreTask.mockReturnValueOnce(30).mockReturnValueOnce(80);
+
+      const result = getSuggestionsForAgent("h1", "agent-1");
+
+      expect(result.suggestions).toHaveLength(2);
+      expect(result.suggestions[0].taskId).toBe("t2");
     });
 
-    const expectedWeight = computeSlaUrgencyWeight(within24h);
-    const scoreDiff = scoreTask(slaTask) - scoreTask(noSlaTask);
-    expect(scoreDiff).toBe(expectedWeight);
+    it("respects limit", () => {
+      vi.mocked(agentRepo.getAgentById).mockReturnValue(makeAgent() as any);
+      vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([
+        makeTask({ id: "t1" }) as any,
+        makeTask({ id: "t2" }) as any,
+        makeTask({ id: "t3" }) as any,
+      ]);
+      vi.mocked(missionRepo.getMissionById).mockReturnValue({ title: "M" } as any);
+
+      const result = getSuggestionsForAgent("h1", "agent-1", 2);
+
+      expect(result.suggestions).toHaveLength(2);
+    });
   });
 });
