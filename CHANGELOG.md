@@ -2,6 +2,14 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.13.1 — 2026-05-28
+
+### Tests
+
+#### add unit tests for services, webhooks, repositories, and event modules ([`3286176`](https://github.com/waterworkshq/orcy/commit/3286176cfe2b7264c1e05cc62daeba688bb0b05b))
+
+
+
 ## 0.13.0 — 2026-05-26
 
 ### Features
@@ -69,18 +77,3 @@
 13. Remove unused function declarations and dead code paths
 
 15. 237 warnings → 0 warnings, 0 errors (was 567 warnings + 3 errors at start)
-
-
-
-## 0.12.0 — 2026-05-25
-
-### Features
-
-#### Add v0.12 external integrations ([`0349187`](https://github.com/waterworkshq/orcy/commit/0349187228ef48e339aa8fae7bb474aaf95c37fb))
-
-1. Add integration connection, sync run, and external issue tables
-2. Implement GitHub OAuth device flow and webhook verification
-3. Add sync service with per-issue import and adapter interface
-4. Create integration settings tab and mission detail link badges
-5. Document intake architecture and security threat model
-6. Add external integrations architecture and GitHub sync
