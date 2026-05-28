@@ -54,3 +54,25 @@ export interface StoredCredentials {
   agents: RegisteredAgent[];
   registeredAt: string;
 }
+
+export interface WorkdirResult {
+  path: string;
+  branch: string;
+  worktreePath: string;
+}
+
+export interface McpConfig {
+  mcpServers: Record<
+    string,
+    {
+      command: string;
+      args: string[];
+      env: Record<string, string>;
+    }
+  >;
+}
+
+export interface WorkdirGcOptions {
+  retentionMs: number;
+  now?: number;
+}
