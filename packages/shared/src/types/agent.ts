@@ -1,6 +1,6 @@
-export type AgentType = 'claude-code' | 'codex' | 'opencode';
-export type AgentDomain = 'frontend' | 'backend' | 'devops' | 'testing' | string;
-export type AgentStatus = 'idle' | 'working' | 'offline';
+export type AgentType = "claude-code" | "codex" | "opencode" | "cursor" | "gemini";
+export type AgentDomain = "frontend" | "backend" | "devops" | "testing" | string;
+export type AgentStatus = "idle" | "working" | "offline";
 
 export interface Agent {
   id: string;

@@ -1,16 +1,51 @@
-import { relations } from 'drizzle-orm';
-import { habitats, columns, missions, missionDependencies, missionEvents, missionWatchers, missionComments, missionCommentMentions, missionTemplates, savedFilters, chatIntegrations, auditExportSchedules, scheduledTasks, sprints } from './board.js';
-import { tasks, taskEvents, taskComments, taskSubtasks, taskWatchers, taskCommentMentions, taskAttachments, taskTimeRecords } from './task.js';
-import { reviewRules, taskReviewers } from './review.js';
-import { integrationConnections, externalIntakeCandidates, externalIssueLinks, integrationSyncRuns } from './integration.js';
-import { agents, agentMessages } from './agent.js';
-import { users, notificationPreferences, organizations, teams, teamMembers } from './user.js';
-import { webhookSubscriptions, webhookDeliveries } from './webhook.js';
-import { pulses } from './pulse.js';
-import { projectInsights } from './insight.js';
-import { pulseReactions } from './reaction.js';
-import { pullRequests, pipelineEvents } from './cicd.js';
-import { qualityChecklistTemplates, qualityChecklistItems, taskQualityChecklists, taskQualityChecklistItems } from './quality.js';
+import { relations } from "drizzle-orm";
+import {
+  habitats,
+  columns,
+  missions,
+  missionDependencies,
+  missionEvents,
+  missionWatchers,
+  missionComments,
+  missionCommentMentions,
+  missionTemplates,
+  savedFilters,
+  chatIntegrations,
+  auditExportSchedules,
+  scheduledTasks,
+  sprints,
+} from "./board.js";
+import {
+  tasks,
+  taskEvents,
+  taskComments,
+  taskSubtasks,
+  taskWatchers,
+  taskCommentMentions,
+  taskAttachments,
+  taskTimeRecords,
+} from "./task.js";
+import { reviewRules, taskReviewers } from "./review.js";
+import {
+  integrationConnections,
+  externalIntakeCandidates,
+  externalIssueLinks,
+  integrationSyncRuns,
+} from "./integration.js";
+import { daemonInstances, daemonAgents, daemonSessions } from "./daemon.js";
+import { agents, agentMessages } from "./agent.js";
+import { users, notificationPreferences, organizations, teams, teamMembers } from "./user.js";
+import { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
+import { pulses } from "./pulse.js";
+import { projectInsights } from "./insight.js";
+import { pulseReactions } from "./reaction.js";
+import { pullRequests, pipelineEvents } from "./cicd.js";
+import {
+  qualityChecklistTemplates,
+  qualityChecklistItems,
+  taskQualityChecklists,
+  taskQualityChecklistItems,
+} from "./quality.js";
 
 export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   columns: many(columns),
@@ -36,7 +71,7 @@ export const columnsRelations = relations(columns, ({ one, many }) => ({
   nextColumn: one(columns, {
     fields: [columns.nextColumnId],
     references: [columns.id],
-    relationName: 'nextColumn',
+    relationName: "nextColumn",
   }),
   missions: many(missions),
 }));
@@ -57,8 +92,8 @@ export const missionsRelations = relations(missions, ({ one, many }) => ({
   tasks: many(tasks),
   events: many(missionEvents),
   watchers: many(missionWatchers),
-  dependencies: many(missionDependencies, { relationName: 'missionDeps' }),
-  dependents: many(missionDependencies, { relationName: 'missionDependents' }),
+  dependencies: many(missionDependencies, { relationName: "missionDeps" }),
+  dependents: many(missionDependencies, { relationName: "missionDependents" }),
   pulses: many(pulses),
   comments: many(missionComments),
   externalIssueLinks: many(externalIssueLinks),
@@ -68,12 +103,12 @@ export const missionDependenciesRelations = relations(missionDependencies, ({ on
   mission: one(missions, {
     fields: [missionDependencies.missionId],
     references: [missions.id],
-    relationName: 'missionDeps',
+    relationName: "missionDeps",
   }),
   dependsOn: one(missions, {
     fields: [missionDependencies.dependsOnId],
     references: [missions.id],
-    relationName: 'missionDependents',
+    relationName: "missionDependents",
   }),
 }));
 
@@ -103,9 +138,9 @@ export const missionCommentsRelations = relations(missionComments, ({ one, many 
   parent: one(missionComments, {
     fields: [missionComments.parentId],
     references: [missionComments.id],
-    relationName: 'missionCommentReplies',
+    relationName: "missionCommentReplies",
   }),
-  replies: many(missionComments, { relationName: 'missionCommentReplies' }),
+  replies: many(missionComments, { relationName: "missionCommentReplies" }),
   mentions: many(missionCommentMentions),
 }));
 
@@ -117,11 +152,11 @@ export const missionCommentMentionsRelations = relations(missionCommentMentions,
 }));
 
 export const agentsRelations = relations(agents, ({ many }) => ({
-  assignedTasks: many(tasks, { relationName: 'assignedAgent' }),
-  delegatedTasks: many(tasks, { relationName: 'delegatedAgent' }),
+  assignedTasks: many(tasks, { relationName: "assignedAgent" }),
+  delegatedTasks: many(tasks, { relationName: "delegatedAgent" }),
   subtasks: many(taskSubtasks),
-  sentMessages: many(agentMessages, { relationName: 'fromAgent' }),
-  receivedMessages: many(agentMessages, { relationName: 'toAgent' }),
+  sentMessages: many(agentMessages, { relationName: "fromAgent" }),
+  receivedMessages: many(agentMessages, { relationName: "toAgent" }),
 }));
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
@@ -132,12 +167,12 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   assignedAgent: one(agents, {
     fields: [tasks.assignedAgentId],
     references: [agents.id],
-    relationName: 'assignedAgent',
+    relationName: "assignedAgent",
   }),
   delegatedAgent: one(agents, {
     fields: [tasks.delegatedToAgentId],
     references: [agents.id],
-    relationName: 'delegatedAgent',
+    relationName: "delegatedAgent",
   }),
   events: many(taskEvents),
   comments: many(taskComments),
@@ -147,8 +182,8 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   pipelineEvents: many(pipelineEvents),
   timeRecords: many(taskTimeRecords),
   qualityChecklists: many(taskQualityChecklists),
-  pulses: many(pulses, { relationName: 'taskPulses' }),
-  linkedPulses: many(pulses, { relationName: 'linkedTaskPulses' }),
+  pulses: many(pulses, { relationName: "taskPulses" }),
+  linkedPulses: many(pulses, { relationName: "linkedTaskPulses" }),
 }));
 
 export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
@@ -175,9 +210,9 @@ export const taskCommentsRelations = relations(taskComments, ({ one, many }) => 
   parent: one(taskComments, {
     fields: [taskComments.parentId],
     references: [taskComments.id],
-    relationName: 'commentReplies',
+    relationName: "commentReplies",
   }),
-  replies: many(taskComments, { relationName: 'commentReplies' }),
+  replies: many(taskComments, { relationName: "commentReplies" }),
   mentions: many(taskCommentMentions),
 }));
 
@@ -268,12 +303,12 @@ export const agentMessagesRelations = relations(agentMessages, ({ one }) => ({
   fromAgent: one(agents, {
     fields: [agentMessages.fromAgentId],
     references: [agents.id],
-    relationName: 'fromAgent',
+    relationName: "fromAgent",
   }),
   toAgent: one(agents, {
     fields: [agentMessages.toAgentId],
     references: [agents.id],
-    relationName: 'toAgent',
+    relationName: "toAgent",
   }),
   task: one(tasks, {
     fields: [agentMessages.taskId],
@@ -293,19 +328,19 @@ export const pulsesRelations = relations(pulses, ({ one, many }) => ({
   task: one(tasks, {
     fields: [pulses.taskId],
     references: [tasks.id],
-    relationName: 'taskPulses',
+    relationName: "taskPulses",
   }),
   linkedTask: one(tasks, {
     fields: [pulses.linkedTaskId],
     references: [tasks.id],
-    relationName: 'linkedTaskPulses',
+    relationName: "linkedTaskPulses",
   }),
   replyTo: one(pulses, {
     fields: [pulses.replyToId],
     references: [pulses.id],
-    relationName: 'pulseThread',
+    relationName: "pulseThread",
   }),
-  replies: many(pulses, { relationName: 'pulseThread' }),
+  replies: many(pulses, { relationName: "pulseThread" }),
   reactions: many(pulseReactions),
 }));
 
@@ -358,10 +393,13 @@ export const taskTimeRecordsRelations = relations(taskTimeRecords, ({ one }) => 
   }),
 }));
 
-export const qualityChecklistTemplatesRelations = relations(qualityChecklistTemplates, ({ many }) => ({
-  items: many(qualityChecklistItems),
-  taskChecklists: many(taskQualityChecklists),
-}));
+export const qualityChecklistTemplatesRelations = relations(
+  qualityChecklistTemplates,
+  ({ many }) => ({
+    items: many(qualityChecklistItems),
+    taskChecklists: many(taskQualityChecklists),
+  }),
+);
 
 export const qualityChecklistItemsRelations = relations(qualityChecklistItems, ({ one }) => ({
   template: one(qualityChecklistTemplates, {
@@ -382,16 +420,19 @@ export const taskQualityChecklistsRelations = relations(taskQualityChecklists, (
   items: many(taskQualityChecklistItems),
 }));
 
-export const taskQualityChecklistItemsRelations = relations(taskQualityChecklistItems, ({ one }) => ({
-  checklist: one(taskQualityChecklists, {
-    fields: [taskQualityChecklistItems.checklistId],
-    references: [taskQualityChecklists.id],
+export const taskQualityChecklistItemsRelations = relations(
+  taskQualityChecklistItems,
+  ({ one }) => ({
+    checklist: one(taskQualityChecklists, {
+      fields: [taskQualityChecklistItems.checklistId],
+      references: [taskQualityChecklists.id],
+    }),
+    item: one(qualityChecklistItems, {
+      fields: [taskQualityChecklistItems.itemId],
+      references: [qualityChecklistItems.id],
+    }),
   }),
-  item: one(qualityChecklistItems, {
-    fields: [taskQualityChecklistItems.itemId],
-    references: [qualityChecklistItems.id],
-  }),
-}));
+);
 
 export const projectInsightsRelations = relations(projectInsights, ({ one }) => ({
   habitat: one(habitats, {
@@ -451,15 +492,18 @@ export const taskReviewersRelations = relations(taskReviewers, ({ one }) => ({
   }),
 }));
 
-export const integrationConnectionsRelations = relations(integrationConnections, ({ one, many }) => ({
-  habitat: one(habitats, {
-    fields: [integrationConnections.habitatId],
-    references: [habitats.id],
+export const integrationConnectionsRelations = relations(
+  integrationConnections,
+  ({ one, many }) => ({
+    habitat: one(habitats, {
+      fields: [integrationConnections.habitatId],
+      references: [habitats.id],
+    }),
+    externalIssueLinks: many(externalIssueLinks),
+    externalIntakeCandidates: many(externalIntakeCandidates),
+    syncRuns: many(integrationSyncRuns),
   }),
-  externalIssueLinks: many(externalIssueLinks),
-  externalIntakeCandidates: many(externalIntakeCandidates),
-  syncRuns: many(integrationSyncRuns),
-}));
+);
 
 export const externalIntakeCandidatesRelations = relations(externalIntakeCandidates, ({ one }) => ({
   connection: one(integrationConnections, {
@@ -498,6 +542,41 @@ export const integrationSyncRunsRelations = relations(integrationSyncRuns, ({ on
   }),
   habitat: one(habitats, {
     fields: [integrationSyncRuns.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const daemonInstancesRelations = relations(daemonInstances, ({ many }) => ({
+  daemonAgents: many(daemonAgents),
+  daemonSessions: many(daemonSessions),
+}));
+
+export const daemonAgentsRelations = relations(daemonAgents, ({ one }) => ({
+  daemon: one(daemonInstances, {
+    fields: [daemonAgents.daemonId],
+    references: [daemonInstances.id],
+  }),
+  agent: one(agents, {
+    fields: [daemonAgents.agentId],
+    references: [agents.id],
+  }),
+}));
+
+export const daemonSessionsRelations = relations(daemonSessions, ({ one }) => ({
+  daemon: one(daemonInstances, {
+    fields: [daemonSessions.daemonId],
+    references: [daemonInstances.id],
+  }),
+  agent: one(agents, {
+    fields: [daemonSessions.agentId],
+    references: [agents.id],
+  }),
+  task: one(tasks, {
+    fields: [daemonSessions.taskId],
+    references: [tasks.id],
+  }),
+  habitat: one(habitats, {
+    fields: [daemonSessions.habitatId],
     references: [habitats.id],
   }),
 }));

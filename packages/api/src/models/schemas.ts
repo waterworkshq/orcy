@@ -1,29 +1,29 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 const artifactSchema = z.object({
-  type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
+  type: z.enum(["file", "pr", "commit", "log", "screenshot"]),
   url: z.string(),
   description: z.string(),
   createdAt: z.string().optional(),
 });
 
 const importArtifactSchema = z.object({
-  type: z.enum(['file', 'pr', 'commit', 'log', 'screenshot']),
+  type: z.enum(["file", "pr", "commit", "log", "screenshot"]),
   url: z.string(),
   description: z.string(),
 });
 
 export const exportQuerySchema = z.object({
-  include: z.string().optional().default('columns,missions,comments,templates,webhooks'),
-  format: z.enum(['full', 'missions-only']).optional().default('full'),
+  include: z.string().optional().default("columns,missions,comments,templates,webhooks"),
+  format: z.enum(["full", "missions-only"]).optional().default("full"),
   status: z.string().optional(),
 });
 
 export const createMissionSchema = z.object({
   title: z.string().min(1).max(500),
-  description: z.string().max(10000).default(''),
-  acceptanceCriteria: z.string().max(10000).default(''),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
+  description: z.string().max(10000).default(""),
+  acceptanceCriteria: z.string().max(10000).default(""),
+  priority: z.enum(["low", "medium", "high", "critical"]).default("medium"),
   labels: z.array(z.string()).default([]),
   dependsOn: z.array(z.string().uuid()).default([]),
   blocks: z.array(z.string().uuid()).default([]),
@@ -36,7 +36,7 @@ export const updateMissionSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   description: z.string().max(10000).optional(),
   acceptanceCriteria: z.string().max(10000).optional(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   labels: z.array(z.string()).optional(),
   dependsOn: z.array(z.string().uuid()).optional(),
   blocks: z.array(z.string().uuid()).optional(),
@@ -46,10 +46,14 @@ export const updateMissionSchema = z.object({
 });
 
 export const missionQuerySchema = z.object({
-  status: z.enum(['not_started', 'in_progress', 'review', 'done', 'failed']).optional(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  status: z.enum(["not_started", "in_progress", "review", "done", "failed"]).optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   search: z.string().optional(),
-  isArchived: z.string().optional().default('false').transform(v => v === 'true'),
+  isArchived: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -60,8 +64,8 @@ export const moveMissionSchema = z.object({
 
 export const createTaskInMissionSchema = z.object({
   title: z.string().min(1).max(500),
-  description: z.string().max(10000).default(''),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
+  description: z.string().max(10000).default(""),
+  priority: z.enum(["low", "medium", "high", "critical"]).default("medium"),
   requiredDomain: z.string().optional(),
   requiredCapabilities: z.array(z.string()).default([]),
   estimatedMinutes: z.number().int().positive().optional(),
@@ -74,65 +78,95 @@ export const importHabitatSchema = z.object({
   exportedAt: z.string().datetime(),
   habitat: z.object({
     name: z.string(),
-    description: z.string().optional().default(''),
-    columns: z.array(z.object({
-      name: z.string(),
-      order: z.number(),
-      wipLimit: z.number().nullable().optional(),
-      autoAdvance: z.boolean().optional().default(false),
-      requiresClaim: z.boolean().optional().default(false),
-      nextColumnName: z.string().nullable().optional(),
-      isTerminal: z.boolean().optional().default(false),
-    })),
-    missions: z.array(z.object({
-      title: z.string(),
-      description: z.string().optional().default(''),
-      acceptanceCriteria: z.string().optional().default(''),
-      priority: z.enum(['low', 'medium', 'high', 'critical']).optional().default('medium'),
-      labels: z.array(z.string()).optional().default([]),
-      columnName: z.string(),
-      status: z.string().optional().default('not_started'),
-      dependsOn: z.array(z.string()).optional().default([]),
-      blocks: z.array(z.string()).optional().default([]),
-      dueAt: z.string().nullable().optional(),
-      tasks: z.array(z.object({
-        title: z.string(),
-        description: z.string().optional().default(''),
-        priority: z.enum(['low', 'medium', 'high', 'critical']).optional().default('medium'),
-        status: z.string().optional().default('pending'),
-        requiredDomain: z.string().nullable().optional(),
-        requiredCapabilities: z.array(z.string()).optional().default([]),
-        result: z.string().nullable().optional(),
-        artifacts: z.array(importArtifactSchema).optional().default([]),
-        createdBy: z.string().optional().default('human'),
-        createdAt: z.string().optional(),
-      })).optional().default([]),
-    })).optional().default([]),
-    comments: z.array(z.object({
-      taskTitle: z.string(),
-      parentTaskTitle: z.string().nullable().optional(),
-      content: z.string(),
-      authorType: z.enum(['human', 'agent']),
-      authorId: z.string(),
-    })).optional().default([]),
-    templates: z.array(z.object({
-      name: z.string(),
-      titlePattern: z.string(),
-      descriptionPattern: z.string().optional().default(''),
-      priority: z.enum(['low', 'medium', 'high', 'critical']).optional().default('medium'),
-      labels: z.array(z.string()).optional().default([]),
-      requiredDomain: z.string().nullable().optional(),
-      requiredCapabilities: z.array(z.string()).optional().default([]),
-      isDefault: z.boolean().optional().default(false),
-    })).optional().default([]),
-    webhooks: z.array(z.object({
-      name: z.string(),
-      url: z.string(),
-      events: z.array(z.string()).optional().default([]),
-      headers: z.record(z.string()).optional().default({}),
-      format: z.enum(['standard', 'slack', 'discord']).optional().default('standard'),
-      enabled: z.boolean().optional().default(true),
-    })).optional().default([]),
+    description: z.string().optional().default(""),
+    columns: z.array(
+      z.object({
+        name: z.string(),
+        order: z.number(),
+        wipLimit: z.number().nullable().optional(),
+        autoAdvance: z.boolean().optional().default(false),
+        requiresClaim: z.boolean().optional().default(false),
+        nextColumnName: z.string().nullable().optional(),
+        isTerminal: z.boolean().optional().default(false),
+      }),
+    ),
+    missions: z
+      .array(
+        z.object({
+          title: z.string(),
+          description: z.string().optional().default(""),
+          acceptanceCriteria: z.string().optional().default(""),
+          priority: z.enum(["low", "medium", "high", "critical"]).optional().default("medium"),
+          labels: z.array(z.string()).optional().default([]),
+          columnName: z.string(),
+          status: z.string().optional().default("not_started"),
+          dependsOn: z.array(z.string()).optional().default([]),
+          blocks: z.array(z.string()).optional().default([]),
+          dueAt: z.string().nullable().optional(),
+          tasks: z
+            .array(
+              z.object({
+                title: z.string(),
+                description: z.string().optional().default(""),
+                priority: z
+                  .enum(["low", "medium", "high", "critical"])
+                  .optional()
+                  .default("medium"),
+                status: z.string().optional().default("pending"),
+                requiredDomain: z.string().nullable().optional(),
+                requiredCapabilities: z.array(z.string()).optional().default([]),
+                result: z.string().nullable().optional(),
+                artifacts: z.array(importArtifactSchema).optional().default([]),
+                createdBy: z.string().optional().default("human"),
+                createdAt: z.string().optional(),
+              }),
+            )
+            .optional()
+            .default([]),
+        }),
+      )
+      .optional()
+      .default([]),
+    comments: z
+      .array(
+        z.object({
+          taskTitle: z.string(),
+          parentTaskTitle: z.string().nullable().optional(),
+          content: z.string(),
+          authorType: z.enum(["human", "agent"]),
+          authorId: z.string(),
+        }),
+      )
+      .optional()
+      .default([]),
+    templates: z
+      .array(
+        z.object({
+          name: z.string(),
+          titlePattern: z.string(),
+          descriptionPattern: z.string().optional().default(""),
+          priority: z.enum(["low", "medium", "high", "critical"]).optional().default("medium"),
+          labels: z.array(z.string()).optional().default([]),
+          requiredDomain: z.string().nullable().optional(),
+          requiredCapabilities: z.array(z.string()).optional().default([]),
+          isDefault: z.boolean().optional().default(false),
+        }),
+      )
+      .optional()
+      .default([]),
+    webhooks: z
+      .array(
+        z.object({
+          name: z.string(),
+          url: z.string(),
+          events: z.array(z.string()).optional().default([]),
+          headers: z.record(z.string()).optional().default({}),
+          format: z.enum(["standard", "slack", "discord"]).optional().default("standard"),
+          enabled: z.boolean().optional().default(true),
+        }),
+      )
+      .optional()
+      .default([]),
   }),
 });
 
@@ -155,24 +189,28 @@ export const retryPolicySchema = z.object({
 export const anomalySettingsSchema = z.object({
   enabled: z.boolean().optional().default(true),
   scanIntervalMinutes: z.number().int().min(1).max(60).optional().default(5),
-  thresholds: z.object({
-    staleInProgressMinutes: z.number().int().min(10).optional().default(240),
-    rejectionRatePercent: z.number().min(1).max(100).optional().default(40),
-    rejectionWindowTasks: z.number().int().min(3).max(100).optional().default(10),
-    cycleTimeIncreasePercent: z.number().min(10).max(500).optional().default(50),
-    backlogToAgentRatio: z.number().min(1).max(20).optional().default(2),
-    agentOfflineMinutes: z.number().int().min(1).max(120).optional().default(15),
-  }).optional(),
-  notifications: z.object({
-    email: z.boolean().optional().default(true),
-    sse: z.boolean().optional().default(true),
-    chat: z.boolean().optional().default(true),
-  }).optional(),
+  thresholds: z
+    .object({
+      staleInProgressMinutes: z.number().int().min(10).optional().default(240),
+      rejectionRatePercent: z.number().min(1).max(100).optional().default(40),
+      rejectionWindowTasks: z.number().int().min(3).max(100).optional().default(10),
+      cycleTimeIncreasePercent: z.number().min(10).max(500).optional().default(50),
+      backlogToAgentRatio: z.number().min(1).max(20).optional().default(2),
+      agentOfflineMinutes: z.number().int().min(1).max(120).optional().default(15),
+    })
+    .optional(),
+  notifications: z
+    .object({
+      email: z.boolean().optional().default(true),
+      sse: z.boolean().optional().default(true),
+      chat: z.boolean().optional().default(true),
+    })
+    .optional(),
 });
 
 export const autoAssignSettingsSchema = z.object({
   enabled: z.boolean().optional().default(false),
-  strategy: z.enum(['round_robin', 'least_loaded', 'best_match']).optional().default('best_match'),
+  strategy: z.enum(["round_robin", "least_loaded", "best_match"]).optional().default("best_match"),
   maxTasksPerAgent: z.number().int().min(1).max(50).optional().default(5),
   requireDomainMatch: z.boolean().optional().default(false),
   requireCapabilityMatch: z.boolean().optional().default(false),
@@ -211,7 +249,7 @@ export const updateColumnSchema = z.object({
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   requiredDomain: z.string().nullable().optional(),
   requiredCapabilities: z.array(z.string()).optional(),
   estimatedMinutes: z.number().int().min(1).nullable().optional(),
@@ -220,10 +258,21 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   requiredDomain: z.string().nullable().optional(),
   requiredCapabilities: z.array(z.string()).optional(),
-  status: z.enum(['pending', 'claimed', 'in_progress', 'submitted', 'approved', 'rejected', 'done', 'failed']).optional(),
+  status: z
+    .enum([
+      "pending",
+      "claimed",
+      "in_progress",
+      "submitted",
+      "approved",
+      "rejected",
+      "done",
+      "failed",
+    ])
+    .optional(),
   result: z.string().nullable().optional(),
   artifacts: z.array(artifactSchema).optional(),
   rejectedCount: z.number().int().min(0).optional(),
@@ -277,7 +326,7 @@ export const cloneTaskSchema = z.object({
 
 export const createAgentSchema = z.object({
   name: z.string().min(1).max(50),
-  type: z.enum(['claude-code', 'codex', 'opencode']),
+  type: z.enum(["claude-code", "codex", "opencode", "cursor", "gemini"]),
   domain: z.string().min(1).max(50),
   capabilities: z.array(z.string()).optional(),
   metadata: z.record(z.unknown()).optional(),
@@ -285,7 +334,7 @@ export const createAgentSchema = z.object({
 
 export const updateAgentSchema = z.object({
   name: z.string().min(1).max(50).optional(),
-  type: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  type: z.enum(["claude-code", "codex", "opencode", "cursor", "gemini"]).optional(),
   domain: z.string().min(1).max(50).optional(),
   capabilities: z.array(z.string()).optional(),
   metadata: z.record(z.unknown()).optional(),
@@ -298,14 +347,29 @@ export const heartbeatSchema = z.object({
 });
 
 export const taskQuerySchema = z.object({
-  status: z.enum(['pending', 'claimed', 'in_progress', 'submitted', 'approved', 'rejected', 'done', 'failed']).optional(),
-  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  status: z
+    .enum([
+      "pending",
+      "claimed",
+      "in_progress",
+      "submitted",
+      "approved",
+      "rejected",
+      "done",
+      "failed",
+    ])
+    .optional(),
+  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
   search: z.string().optional(),
   assignedAgentId: z.string().uuid().nullable().optional(),
-  isArchived: z.string().optional().default('false').transform(v => v === 'true'),
+  isArchived: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   offset: z.coerce.number().int().min(0).optional(),
-  sortBy: z.enum(['default', 'smart']).optional(),
+  sortBy: z.enum(["default", "smart"]).optional(),
   agentDomain: z.string().optional(),
   agentCapabilities: z.string().optional(),
 });
@@ -315,13 +379,30 @@ export const eventsQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).optional().default(0),
 });
 
-const eventActionValues = ['created', 'claimed', 'started', 'submitted', 'approved', 'rejected', 'completed', 'failed', 'moved', 'released', 'dependency_resolved', 'delegated', 'cloned', 'retry_scheduled', 'retry_executed', 'escalated'] as const;
+const eventActionValues = [
+  "created",
+  "claimed",
+  "started",
+  "submitted",
+  "approved",
+  "rejected",
+  "completed",
+  "failed",
+  "moved",
+  "released",
+  "dependency_resolved",
+  "delegated",
+  "cloned",
+  "retry_scheduled",
+  "retry_executed",
+  "escalated",
+] as const;
 
 export const habitatEventsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
   offset: z.coerce.number().int().min(0).optional().default(0),
   action: z.enum(eventActionValues).optional(),
-  actorType: z.enum(['human', 'agent', 'system']).optional(),
+  actorType: z.enum(["human", "agent", "system"]).optional(),
   actorId: z.string().uuid().optional(),
   since: z.string().datetime({ offset: true }).optional(),
 });
@@ -349,27 +430,27 @@ export type EventsQueryInput = z.infer<typeof eventsQuerySchema>;
 
 export const dashboardQuerySchema = z.object({
   habitatId: z.string().uuid().optional(),
-  period: z.enum(['7d', '30d', '90d']).optional().default('30d'),
+  period: z.enum(["7d", "30d", "90d"]).optional().default("30d"),
 });
 
 export type DashboardQueryInput = z.infer<typeof dashboardQuerySchema>;
 
 const batchTaskIdList = z.array(z.string().uuid()).min(1).max(100);
 
-export const batchTaskSchema = z.discriminatedUnion('operation', [
+export const batchTaskSchema = z.discriminatedUnion("operation", [
   z.object({
     taskIds: batchTaskIdList,
-    operation: z.literal('priority'),
-    payload: z.object({ priority: z.enum(['low', 'medium', 'high', 'critical']) }),
+    operation: z.literal("priority"),
+    payload: z.object({ priority: z.enum(["low", "medium", "high", "critical"]) }),
   }),
   z.object({
     taskIds: batchTaskIdList,
-    operation: z.literal('assign'),
+    operation: z.literal("assign"),
     payload: z.object({ assignedAgentId: z.string().uuid() }),
   }),
   z.object({
     taskIds: batchTaskIdList,
-    operation: z.literal('delete'),
+    operation: z.literal("delete"),
     payload: z.object({}),
   }),
 ]);
