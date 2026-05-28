@@ -481,6 +481,14 @@ export const daemonHeartbeatSchema = z.object({
       }),
     )
     .optional(),
+  sessionProgresses: z
+    .array(
+      z.object({
+        sessionId: z.string().uuid(),
+        lastProgress: z.string().max(10000).optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const daemonClaimNextSchema = z.object({

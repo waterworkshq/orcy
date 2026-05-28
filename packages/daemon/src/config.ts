@@ -7,6 +7,7 @@ const DEFAULTS = {
   maxConcurrent: 4,
   pollIntervalSeconds: 30,
   heartbeatIntervalSeconds: 30,
+  sessionTimeoutSeconds: 600,
 } as const;
 
 export function loadConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
@@ -29,6 +30,11 @@ export function loadConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
     (process.env.ORCY_HEARTBEAT_INTERVAL
       ? parseInt(process.env.ORCY_HEARTBEAT_INTERVAL, 10)
       : DEFAULTS.heartbeatIntervalSeconds);
+  const sessionTimeoutSeconds =
+    overrides?.sessionTimeoutSeconds ??
+    (process.env.ORCY_SESSION_TIMEOUT
+      ? parseInt(process.env.ORCY_SESSION_TIMEOUT, 10)
+      : DEFAULTS.sessionTimeoutSeconds);
   const dataDir =
     overrides?.dataDir ?? process.env.ORCY_DAEMON_DIR ?? join(homedir(), ".orcy", "daemon");
   const habitatIds =
@@ -52,6 +58,7 @@ export function loadConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
     maxConcurrent,
     pollIntervalSeconds,
     heartbeatIntervalSeconds,
+    sessionTimeoutSeconds,
     dataDir,
     habitatIds,
   };

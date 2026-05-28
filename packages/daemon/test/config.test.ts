@@ -9,6 +9,7 @@ describe("config", () => {
     delete process.env.ORCY_MAX_CONCURRENT;
     delete process.env.ORCY_POLL_INTERVAL;
     delete process.env.ORCY_HEARTBEAT_INTERVAL;
+    delete process.env.ORCY_SESSION_TIMEOUT;
     delete process.env.ORCY_DAEMON_DIR;
     delete process.env.ORCY_HABITAT_IDS;
   });
@@ -20,6 +21,7 @@ describe("config", () => {
     expect(config.maxConcurrent).toBe(4);
     expect(config.pollIntervalSeconds).toBe(30);
     expect(config.heartbeatIntervalSeconds).toBe(30);
+    expect(config.sessionTimeoutSeconds).toBe(600);
     expect(config.habitatIds).toEqual(["hab-1"]);
     expect(config.registrationToken).toBeNull();
   });

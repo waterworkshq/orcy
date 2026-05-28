@@ -256,6 +256,42 @@ orcy serve status             # Check running
 orcy serve stop               # Stop background process
 ```
 
+### Daemon Control
+
+```bash
+orcy daemon detect                     # Detect supported AI CLIs on this machine
+orcy daemon register --habitat-ids <ids>  # Register daemon with API, save credentials
+orcy daemon start                      # Start daemon (foreground, blocks)
+orcy daemon start --detach             # Start daemon in background
+orcy daemon stop                       # Stop running daemon
+orcy daemon status                     # Show daemon ID, agents, registration info
+```
+
+#### Autonomous Mode Setup
+
+The daemon lets AI CLIs work tasks autonomously without manual session management:
+
+1. **Ensure CLIs are installed** — `orcy daemon detect` shows which CLIs are found
+2. **Configure habitat worktree settings** — each habitat needs `gitWorktreeSettings` (repo path, branch prefix) so the daemon knows where to create workspaces
+3. **Register the daemon** — `orcy daemon register --habitat-ids <id1,id2>` creates daemon identity, managed agents, and saves credentials locally
+4. **Start the daemon** — `orcy daemon start` begins the poll loop: claim tasks, spawn CLIs, monitor sessions, report progress
+5. **Monitor** — `orcy daemon status` shows running state; check `~/.orcy/logs/daemon.log` for output
+
+**Daemon credentials** are stored in `~/.orcy/daemon/credentials.json` (mode 600). Agent API keys are shown once at registration — store them if needed.
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCY_API_URL` | `http://localhost:3000` | API server URL |
+| `ORCY_REGISTRATION_TOKEN` | — | Registration auth token |
+| `ORCY_DAEMON_NAME` | hostname | Daemon display name |
+| `ORCY_DAEMON_DIR` | `~/.orcy/daemon` | Data directory for credentials |
+| `ORCY_HABITAT_IDS` | — | Comma-separated habitat IDs (required for start) |
+| `ORCY_MAX_CONCURRENT` | `4` | Max concurrent sessions |
+| `ORCY_POLL_INTERVAL` | `30` | Seconds between claim attempts |
+| `ORCY_SESSION_TIMEOUT` | `600` | Seconds of inactivity before session kill |
+
 ### Board Operations
 
 ```bash

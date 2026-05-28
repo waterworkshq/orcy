@@ -10,6 +10,14 @@
     "node": ">=20"
   },
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "bin": {
     "orcy-daemon": "./dist/index.js"
   },

@@ -14,6 +14,7 @@ function makeConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
     maxConcurrent: 4,
     pollIntervalSeconds: 30,
     heartbeatIntervalSeconds: 30,
+    sessionTimeoutSeconds: 600,
     dataDir: "/tmp/orcy-daemon",
     habitatIds: ["hab-1"],
     ...overrides,

@@ -1,24 +1,22 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
-import { registerHabitatCommands } from './commands/habitat.js';
-import { registerMissionCommands } from './commands/mission.js';
-import { registerTaskCommands } from './commands/task.js';
-import { registerAgentCommands } from './commands/agent.js';
-import { registerMessageCommands } from './commands/message.js';
-import { registerPulseCommands } from './commands/pulse.js';
-import { registerAdminCommands } from './commands/admin.js';
-import { registerSuggestCommands } from './commands/suggest.js';
-import { registerSubscriptionCommands } from './commands/subscription.js';
-import { registerWorktreeCommands } from './commands/worktree.js';
-import { registerServeCommands } from './commands/serve.js';
-import { registerIntegrationCommands } from './commands/integration.js';
+import { Command } from "commander";
+import { registerHabitatCommands } from "./commands/habitat.js";
+import { registerMissionCommands } from "./commands/mission.js";
+import { registerTaskCommands } from "./commands/task.js";
+import { registerAgentCommands } from "./commands/agent.js";
+import { registerMessageCommands } from "./commands/message.js";
+import { registerPulseCommands } from "./commands/pulse.js";
+import { registerAdminCommands } from "./commands/admin.js";
+import { registerSuggestCommands } from "./commands/suggest.js";
+import { registerSubscriptionCommands } from "./commands/subscription.js";
+import { registerWorktreeCommands } from "./commands/worktree.js";
+import { registerServeCommands } from "./commands/serve.js";
+import { registerIntegrationCommands } from "./commands/integration.js";
+import { registerDaemonCommands } from "./commands/daemon.js";
 
 const program = new Command();
 
-program
-  .name('orcy')
-  .description('Orcy — orchestrate your AI fleet')
-  .version('1.0.0');
+program.name("orcy").description("Orcy — orchestrate your AI fleet").version("1.0.0");
 
 registerHabitatCommands(program);
 registerMissionCommands(program);
@@ -32,6 +30,7 @@ registerSubscriptionCommands(program);
 registerWorktreeCommands(program);
 registerServeCommands(program);
 registerIntegrationCommands(program);
+registerDaemonCommands(program);
 
 program.parse(process.argv);
 

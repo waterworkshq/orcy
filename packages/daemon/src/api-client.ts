@@ -55,6 +55,7 @@ export class DaemonApiClient {
 
   async heartbeat(
     agentStatuses?: Array<{ agentId: string; status: string }>,
+    sessionProgresses?: Array<{ sessionId: string; lastProgress?: string }>,
   ): Promise<{ nextCheckInSeconds: number }> {
     this.requireToken();
     const res = await fetch(`${this.baseUrl}/api/v1/daemon/heartbeat`, {
@@ -63,7 +64,7 @@ export class DaemonApiClient {
         "Content-Type": "application/json",
         "X-Daemon-Token": this.daemonToken!,
       },
-      body: JSON.stringify({ agentStatuses }),
+      body: JSON.stringify({ agentStatuses, sessionProgresses }),
     });
 
     if (!res.ok) {
@@ -109,6 +110,35 @@ export class DaemonApiClient {
       const body = await res.text();
       throw new Error(`Session update failed (${res.status}): ${body}`);
     }
+  }
+
+  async getActiveSessions(): Promise<
+    Array<{
+      id: string;
+      agentId: string;
+      taskId: string;
+      habitatId: string;
+      status: string;
+      workdir: string;
+      pid: number | null;
+    }>
+  > {
+    this.requireToken();
+    const res = await fetch(`${this.baseUrl}/api/v1/daemon/sessions`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Daemon-Token": this.daemonToken!,
+      },
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Get sessions failed (${res.status}): ${body}`);
+    }
+
+    const data = (await res.json()) as { sessions: any[] };
+    return data.sessions;
   }
 
   private requireToken(): void {

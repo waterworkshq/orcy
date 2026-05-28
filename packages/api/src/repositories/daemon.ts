@@ -307,6 +307,20 @@ export function getSessionsByDaemonId(daemonId: string): DaemonSessionRow[] {
     .all();
 }
 
+export function getActiveSessionsByDaemonId(daemonId: string): DaemonSessionRow[] {
+  const db = getDb();
+  return db
+    .select(daemonSessionFields)
+    .from(daemonSessions)
+    .where(
+      and(
+        eq(daemonSessions.daemonId, daemonId),
+        sql`${daemonSessions.status} IN ('starting', 'running')`,
+      ),
+    )
+    .all();
+}
+
 export function getActiveSessionByTaskId(taskId: string): DaemonSessionRow | null {
   const db = getDb();
   const rows = db
@@ -332,6 +346,18 @@ export function updateSessionStatus(
   const updates: Partial<typeof daemonSessions.$inferInsert> = { status, updatedAt: now };
   if (lastProgress !== undefined) updates.lastProgress = lastProgress;
   if (["completed", "failed", "released", "lost"].includes(status)) updates.endedAt = now;
+  db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
+  return getSessionById(id);
+}
+
+export function updateSessionProgress(
+  id: string,
+  fields: Record<string, unknown>,
+): DaemonSessionRow | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const updates: Partial<typeof daemonSessions.$inferInsert> = { updatedAt: now };
+  if (fields.lastProgress) updates.lastProgress = fields.lastProgress as string;
   db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
   return getSessionById(id);
 }

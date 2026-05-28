@@ -93,6 +93,18 @@ Open **<http://127.0.0.1:4000/app>**. A default first orcy is created on first r
 
 For development setup, registering orcys, MCP configuration, and production deployment, see **[docs/INSTALL.md](docs/INSTALL.md)**.
 
+### Autonomous Mode
+
+Run a local daemon that lets AI CLIs work through your task backlog unattended:
+
+```bash
+orcy daemon detect                              # Check which CLIs are installed
+orcy daemon register --habitat-ids <id1,id2>    # Register daemon + managed agents
+orcy daemon start --detach                      # Start background poll loop
+```
+
+The daemon claims pending tasks, spawns CLI sessions, monitors progress, and recovers from crashes. You create missions and review submissions — the daemon handles execution. See **[docs/HUMAN-GUIDE.md](docs/HUMAN-GUIDE.md)** for the full supervision guide.
+
 ---
 
 ## External Integrations
@@ -156,6 +168,7 @@ orcy/
 │   ├── api/                       # Fastify + TypeScript API server
 │   ├── ui/                        # React 19 + Vite + TailwindCSS web UI
 │   ├── cli/                       # Commander-based CLI
+│   ├── daemon/                    # Autonomous daemon runtime
 │   ├── mcp/                       # MCP stdio server for orcys
 │   └── installer/                 # Interactive installation wizard
 ├── plugins/

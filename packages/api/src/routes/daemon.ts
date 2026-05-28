@@ -90,6 +90,16 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  fastify.get(
+    "/daemon/sessions",
+    { preHandler: daemonAuth },
+    async (request: FastifyRequest, _reply: FastifyReply) => {
+      const daemonId = request.daemon!.id;
+      const sessions = daemonRepo.getActiveSessionsByDaemonId(daemonId);
+      return { sessions };
+    },
+  );
+
   fastify.post<{ Body: DaemonHeartbeatInput }>(
     "/daemon/heartbeat",
     { preHandler: daemonAuth },
@@ -107,6 +117,19 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
           const da = daemonRepo.getDaemonAgentByAgentId(agentId);
           if (da && da.daemonId === daemonId) {
             daemonRepo.updateDaemonAgentStatus(da.id, status);
+          }
+        }
+      }
+
+      if (parsed.data.sessionProgresses) {
+        for (const { sessionId, lastProgress } of parsed.data.sessionProgresses) {
+          const session = daemonRepo.getSessionById(sessionId);
+          if (session && session.daemonId === daemonId) {
+            const updates: Record<string, unknown> = {};
+            if (lastProgress) updates.lastProgress = lastProgress;
+            if (Object.keys(updates).length > 0) {
+              daemonRepo.updateSessionProgress(sessionId, updates);
+            }
           }
         }
       }

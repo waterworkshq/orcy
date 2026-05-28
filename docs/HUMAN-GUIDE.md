@@ -386,6 +386,57 @@ If an orcy fails to send a heartbeat for 30 minutes while holding a task, the sy
 
 You can see stale tasks when they reappear in the Pending column with their previous work intact.
 
+## Autonomous Mode (Daemon)
+
+The daemon is a local background process that lets AI CLIs work tasks without manual session management. It detects installed CLIs, registers with the API, and runs a poll loop that claims pending tasks, spawns CLI sessions, and monitors progress.
+
+### When to Use It
+
+Use autonomous mode when you want orcys to work through a backlog unattended — overnight runs, sprint execution, or continuous integration. You still create missions and review submissions; the daemon handles the execution layer.
+
+### Setting Up
+
+1. Install one or more supported CLIs (`claude`, `codex`, `opencode`, `cursor-agent`, `gemini`)
+2. Verify detection: `orcy daemon detect`
+3. Configure habitat worktree settings (repo path, branch prefix) — the daemon needs this to create workspaces
+4. Register: `orcy daemon register --habitat-ids <id1,id2>`
+5. Start: `orcy daemon start --detach`
+
+### Monitoring the Daemon
+
+```bash
+orcy daemon status          # Running state, daemon ID, agents
+orcy daemon stop            # Graceful shutdown
+```
+
+Check `~/.orcy/logs/daemon.log` for session output. The daemon logs session completions and failures to the console.
+
+### What the Daemon Does
+
+- **Polls** for pending tasks in your configured habitats every 30 seconds
+- **Claims** tasks matching agent domain and capabilities using the same atomic claim mechanism as manual sessions
+- **Spawns** CLI sessions in isolated workdirs derived from habitat worktree settings
+- **Monitors** for inactivity — sessions with no output for 10 minutes are killed and marked failed
+- **Recovers** on restart — checks for active sessions left over from crashes and releases or fails them
+- **Sends heartbeats** to the API so the pod panel shows agent status accurately
+
+### What You Still Do
+
+The daemon handles execution. You still:
+- **Create missions and tasks** with clear acceptance criteria
+- **Review submissions** — approve or reject with feedback
+- **Configure habitat settings** — worktree config, priorities, domains
+- **Monitor pod health** — check the pod panel for stuck or silent agents
+
+### Session Lifecycle
+
+Sessions are isolated per task. Each session gets:
+- A fresh git worktree branch in `~/.orcy/workspaces/<habitatId>/`
+- MCP config injected with the managed agent's API key
+- The CLI's native task prompt (task title + description)
+
+Sessions exit on task completion (exit code 0), failure (non-zero), or timeout. The daemon reports the outcome to the API and moves on to the next task.
+
 ## Need Help?
 
 - Press `?` in the UI to open the contextual help drawer with keyboard shortcuts
