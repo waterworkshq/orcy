@@ -455,6 +455,50 @@ export const batchTaskSchema = z.discriminatedUnion("operation", [
   }),
 ]);
 
+export const daemonRegisterSchema = z.object({
+  name: z.string().min(1).max(100),
+  hostname: z.string().min(1).max(255),
+  maxConcurrent: z.number().int().min(1).max(64).default(4),
+  daemonVersion: z.string().min(1).max(50),
+  detectedClis: z
+    .array(
+      z.object({
+        type: z.enum(["claude-code", "codex", "opencode", "cursor", "gemini"]),
+        version: z.string().optional(),
+        path: z.string().min(1),
+      }),
+    )
+    .min(1),
+  habitatIds: z.array(z.string().uuid()).min(1),
+});
+
+export const daemonHeartbeatSchema = z.object({
+  agentStatuses: z
+    .array(
+      z.object({
+        agentId: z.string().uuid(),
+        status: z.enum(["idle", "working", "offline"]),
+      }),
+    )
+    .optional(),
+});
+
+export const daemonClaimNextSchema = z.object({
+  agentId: z.string().uuid(),
+  habitatId: z.string().uuid(),
+});
+
+export const daemonSessionUpdateSchema = z.object({
+  status: z.enum(["starting", "running", "completed", "failed", "released", "lost"]).optional(),
+  lastProgress: z.string().max(10000).optional(),
+  pid: z.number().int().optional(),
+  cliSessionId: z.string().max(255).optional(),
+});
+
+export type DaemonRegisterInput = z.infer<typeof daemonRegisterSchema>;
+export type DaemonHeartbeatInput = z.infer<typeof daemonHeartbeatSchema>;
+export type DaemonClaimNextInput = z.infer<typeof daemonClaimNextSchema>;
+export type DaemonSessionUpdateInput = z.infer<typeof daemonSessionUpdateSchema>;
 export type BatchTaskInput = z.infer<typeof batchTaskSchema>;
 export type CreateMissionInput = z.infer<typeof createMissionSchema>;
 export type UpdateMissionInput = z.infer<typeof updateMissionSchema>;
