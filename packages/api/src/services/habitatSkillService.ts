@@ -33,6 +33,29 @@ export function normalize(subject: string): string {
     .slice(0, 100);
 }
 
+function updateCrossMissionCount(habitatId: string, clusterKey: string): void {
+  const allSignals = repo.getAllSignalsByHabitat(habitatId);
+  const matching = allSignals.filter((s) => s.clusterKey === clusterKey);
+  if (matching.length < 2) return;
+
+  const missions = new Set<string>();
+  for (const sig of matching) {
+    for (const id of parseJsonArray(sig.sourceTaskIds)) {
+      const task = taskRepo.getTaskById(id);
+      if (task?.missionId) missions.add(task.missionId);
+    }
+  }
+
+  const crossCount = missions.size;
+  if (crossCount >= 2) {
+    for (const sig of matching) {
+      if (sig.crossMissionCount !== crossCount) {
+        repo.updateSignal(sig.id, { crossMissionCount: crossCount });
+      }
+    }
+  }
+}
+
 function parseJsonArray(val: string | null | undefined): string[] {
   if (!val) return [];
   try {
@@ -88,6 +111,7 @@ function ingestSignal(signal: {
       updates.sourceCommentIds = JSON.stringify(sourceIds);
 
     repo.updateSignal(existing.id, updates);
+    updateCrossMissionCount(signal.habitatId, normalized);
   } else {
     const input: CreateSignalInput = {
       habitatId: signal.habitatId,
@@ -107,6 +131,7 @@ function ingestSignal(signal: {
     } else if (signal.sourceType === "comment") input.sourceCommentId = signal.sourceId;
 
     repo.createSignal(input);
+    updateCrossMissionCount(signal.habitatId, normalized);
   }
 }
 
@@ -164,6 +189,28 @@ export function ingestFromTaskEvent(opts: {
     });
   } catch (err) {
     logger.error({ err }, "Habitat skill signal ingestion failed (task event)");
+  }
+}
+
+export function ingestFromTaskSuccess(opts: {
+  habitatId: string;
+  taskTitle: string;
+  taskId: string;
+  associatedAgentId?: string;
+}): void {
+  try {
+    const normalized = normalize(opts.taskTitle);
+    if (!normalized) return;
+
+    const existing = repo.findSignalByClusterKey(opts.habitatId, normalized);
+    if (existing) {
+      repo.updateSignal(existing.id, {
+        successfulTasks: existing.successfulTasks + 1,
+        lastSeenAt: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    logger.error({ err }, "Habitat skill signal ingestion failed (task success)");
   }
 }
 
@@ -384,17 +431,26 @@ pulseService.onPulseCreated((pulse) => {
 });
 
 taskLifecycle.onTaskEvent((opts) => {
-  if (opts.event !== "rejected" && opts.event !== "failed") return;
   const task = taskRepo.getTaskById(opts.taskId);
   if (!task) return;
-  ingestFromTaskEvent({
-    habitatId: opts.habitatId,
-    eventType: opts.event,
-    taskTitle: task.title,
-    reason: opts.metadata?.reason as string | undefined,
-    taskId: opts.taskId,
-    associatedAgentId: task.assignedAgentId ?? undefined,
-  });
+
+  if (opts.event === "rejected" || opts.event === "failed") {
+    ingestFromTaskEvent({
+      habitatId: opts.habitatId,
+      eventType: opts.event,
+      taskTitle: task.title,
+      reason: opts.metadata?.reason as string | undefined,
+      taskId: opts.taskId,
+      associatedAgentId: task.assignedAgentId ?? undefined,
+    });
+  } else if (opts.event === "completed" || opts.event === "approved") {
+    ingestFromTaskSuccess({
+      habitatId: opts.habitatId,
+      taskTitle: task.title,
+      taskId: opts.taskId,
+      associatedAgentId: task.assignedAgentId ?? undefined,
+    });
+  }
 });
 
 commentService.onCommentCreated((comment, habitatId) => {

@@ -95,11 +95,19 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
   };
 
   return (
-    <div className="glass-panel rounded-lg border border-[var(--outline-variant)] overflow-hidden col-span-1 md:col-span-2">
-      <button
-        type="button"
+    <div className="glass-panel rounded-lg border border-[var(--outline-variant)] overflow-hidden">
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 bg-[var(--surface-container)]/60 hover:bg-[var(--surface-container)] transition-colors"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setCollapsed(!collapsed);
+          }
+        }}
+        aria-expanded={!collapsed}
+        className="w-full flex items-center gap-2 px-3 py-2.5 bg-[var(--surface-container)]/60 hover:bg-[var(--surface-container)] transition-colors cursor-pointer select-none"
       >
         {collapsed ? (
           <ChevronRight className="h-4 w-4 text-[var(--on-surface-variant)]" />
@@ -132,7 +140,7 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
             Refresh
           </button>
         )}
-      </button>
+      </div>
 
       {!collapsed && (
         <>

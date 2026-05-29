@@ -358,6 +358,16 @@ export function completeTask(
     });
   }
 
+  if (habitatId) {
+    notifyTaskEvent({
+      habitatId,
+      taskId,
+      event: "completed",
+      actorType: "agent",
+      actorId: agentId,
+    });
+  }
+
   return { task };
 }
 
@@ -422,6 +432,16 @@ export function approveTask(
   pluginManager.emitTaskApproved(task).catch(() => {});
 
   unblockDependents(taskId);
+
+  if (habitatId) {
+    notifyTaskEvent({
+      habitatId,
+      taskId,
+      event: "approved",
+      actorType: reviewerType,
+      actorId: reviewerId,
+    });
+  }
 
   withMissionRecalc(taskId, current.missionId, () => {
     missionService.recalculateMissionStatus(current.missionId);

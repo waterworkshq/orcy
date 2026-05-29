@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { habitats } from "./board.js";
 
@@ -8,6 +8,7 @@ export const habitatSkills = sqliteTable(
     id: text("id").primaryKey(),
     habitatId: text("habitat_id")
       .notNull()
+      .unique()
       .references(() => habitats.id, { onDelete: "cascade" }),
     content: text("content").notNull().default(""),
     signalCount: integer("signal_count").notNull().default(0),
@@ -66,6 +67,7 @@ export const habitatSkillSignals = sqliteTable(
     index("idx_hskill_signals_strength").on(table.strength),
     index("idx_hskill_signals_promoted").on(table.promotedToSkill),
     index("idx_hskill_signals_habitat_cluster").on(table.habitatId, table.clusterKey),
+    uniqueIndex("idx_hskill_signals_habitat_cluster_unique").on(table.habitatId, table.clusterKey),
     index("idx_hskill_signals_habitat_cat_promoted").on(
       table.habitatId,
       table.skillCategory,

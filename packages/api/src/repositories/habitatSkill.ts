@@ -149,7 +149,13 @@ export function getSkillByHabitatId(habitatId: string): HabitatSkill | null {
 }
 
 export function getOrCreateSkill(habitatId: string): HabitatSkill {
-  return getSkillByHabitatId(habitatId) ?? createSkill(habitatId);
+  const existing = getSkillByHabitatId(habitatId);
+  if (existing) return existing;
+  try {
+    return createSkill(habitatId);
+  } catch {
+    return getSkillByHabitatId(habitatId) ?? createSkill(habitatId);
+  }
 }
 
 export function updateSkillContent(

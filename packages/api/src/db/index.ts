@@ -122,6 +122,7 @@ export async function initTestDb() {
     "0013_integrations",
     "0014_daemon",
     "0015_habitat_skills",
+    "0016_habitat_skill_unique",
   ];
   for (const migrationName of migrations) {
     const migrationFile = join(migrationFolder, `${migrationName}.sql`);

@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import * as skillRepo from "../repositories/habitatSkill.js";
+import * as habitatRepo from "../repositories/board.js";
 import * as skillService from "../services/habitatSkillService.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
-import { notFound, badRequest } from "../errors.js";
+import { notFound, badRequest, forbidden } from "../errors.js";
 import type { SkillCategory } from "../repositories/habitatSkill.js";
 
 export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void> {
@@ -12,10 +13,10 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
 
-      let skill = skillRepo.getSkillByHabitatId(habitatId);
-      if (!skill) {
-        skill = skillRepo.getOrCreateSkill(habitatId);
-      }
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
+
+      const skill = skillRepo.getSkillByHabitatId(habitatId);
 
       return { skill };
     },
@@ -26,6 +27,9 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: agentOrHumanAuth },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
+
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
 
       skillService.regenerateSkill(habitatId);
 
@@ -44,6 +48,9 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
     async (request, reply) => {
       const { habitatId } = request.params as { habitatId: string };
       const body = request.body as { insight?: string; skillCategory?: string };
+
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
 
       if (!body.insight || typeof body.insight !== "string") {
         throw badRequest("Missing required field: insight");
@@ -96,6 +103,9 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
         offset?: string;
       };
 
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
+
       const validCategories: SkillCategory[] = [
         "convention",
         "pattern",
@@ -123,12 +133,16 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
     "/habitats/:habitatId/skill/signals/:signalId",
     { preHandler: humanAuth },
     async (request, reply) => {
-      const { signalId } = request.params as { signalId: string };
+      const { habitatId, signalId } = request.params as { habitatId: string; signalId: string };
 
-      const deleted = skillRepo.deleteSignal(signalId);
-      if (!deleted) {
-        throw notFound("Signal not found");
-      }
+      const habitat = habitatRepo.getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
+
+      const signal = skillRepo.getSignalById(signalId);
+      if (!signal) throw notFound("Signal not found");
+      if (signal.habitatId !== habitatId) throw forbidden("Signal does not belong to this habitat");
+
+      skillRepo.deleteSignal(signalId);
 
       reply.code(200).send({ success: true });
     },
