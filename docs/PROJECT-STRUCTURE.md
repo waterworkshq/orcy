@@ -20,10 +20,10 @@ orcy/
 ├── packages/
 │   ├── api/                       # Fastify + TypeScript API server
 │   │   ├── src/
-│   │   │   ├── db/schema.ts       # Drizzle ORM schema
-│   │   │   ├── db/drizzle/        # Drizzle schema
-│   │   │   ├── routes/            # REST endpoints (30+ route files)
-│   │   │   ├── services/          # Business logic (40+ service files)
+│   │   │   ├── db/schema.ts       # Drizzle ORM schema (55+ tables including habitat_skills, habitat_skill_signals)
+│   │   │   ├── db/drizzle/        # Drizzle schema migrations
+│   │   │   ├── routes/            # REST endpoints (30+ route files including habitatSkill)
+│   │   │   ├── services/          # Business logic (40+ service files including habitatSkillService)
 │   │   │   ├── repositories/      # Drizzle-backed data access
 │   │   │   ├── models/            # TypeScript types + Zod schemas
 │   │   │   ├── middleware/        # Authentication and RBAC
@@ -42,11 +42,11 @@ orcy/
 │   │   ├── e2e/                   # Playwright end-to-end tests
 │   │   └── package.json
 │   ├── cli/                       # Commander-based CLI
-│   │   └── src/commands/          # habitat, mission, task, agent commands
+│   │   └── src/commands/          # habitat, mission, task, agent, skill, pulse commands
 │   ├── mcp/                       # MCP stdio server for orcys
 │   │   └── src/
 │   │       ├── index.ts           # Entry point, handler registry
-│   │       ├── tools/             # 11 consolidated dispatch tools + instructions
+│   │       ├── tools/             # 12 consolidated dispatch tools + instructions (including habitat-skill-dispatch)
 │   │       └── api.ts             # OrcyApiClient for orcy operations
 │   └── installer/                 # Interactive installation wizard
 │       └── src/writers/           # 7 MCP config format adapters

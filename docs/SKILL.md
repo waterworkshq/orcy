@@ -37,6 +37,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | `board_subscribe`, `board_unsubscribe` |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template` |
 | `orcy_worktree` | `get-worktree` | `board_get_worktree` |
+| `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — living knowledge document |
 
 ---
 
@@ -1317,6 +1318,60 @@ ORCY_API_KEY=your-api-key
 | **Trigger rule evaluation** | `orcy_habitat({ action: "evaluate-rules" })` | Manual priority recalculation |
 | **Manage scheduled tasks** | `orcy_admin({ action: "list-scheduled-tasks" })` | Recurring task creation |
 | **Run a scheduled task now** | `orcy_admin({ action: "run-scheduled-task" })` | Manual trigger of scheduled task |
+| **Read habitat skill** | `orcy_habitat_skill({ action: "get" })` | Living knowledge document for the habitat |
+| **Refresh habitat skill** | `orcy_habitat_skill({ action: "refresh" })` | Regenerate skill from current signals |
+| **Contribute insight** | `orcy_habitat_skill({ action: "contribute", insight: "..." })` | Add direct knowledge to the skill system |
+
+---
+
+### Habitat Skills — `orcy_habitat_skill`
+
+Dynamic habitat knowledge generated from pulse signals, task outcomes, and agent observations. Each habitat has one living skill document that agents receive when claiming tasks.
+
+#### Get Skill
+
+Retrieve the current skill document for the habitat. Returns null if no skill has been generated yet.
+
+```
+orcy_habitat_skill({ action: "get", boardId: "uuid" })
+
+Input: { "action": "get", "boardId": "uuid" }
+Output: { "skill": { "content": "# Habitat Skill: ...\n\n## Domain Knowledge\n...", "signalCount": 12, "avgStrength": 0.78 } }
+```
+
+#### Refresh Skill
+
+Trigger async regeneration of the skill document from current promoted signals.
+
+```
+orcy_habitat_skill({ action: "refresh", boardId: "uuid" })
+
+Input: { "action": "refresh", "boardId": "uuid" }
+Output: { "success": true, "message": "Skill regeneration triggered" }
+```
+
+#### Contribute Insight
+
+Submit a direct insight to the skill system. Creates a new signal from your knowledge.
+
+```
+orcy_habitat_skill({ action: "contribute", boardId: "uuid", insight: "Always use Drizzle ORM for database queries" })
+
+Input:
+{
+  "action": "contribute",
+  "boardId": "uuid",
+  "insight": "Always use Drizzle ORM for database queries, never raw SQL",
+  "skillCategory": "convention"
+}
+
+Output: { "success": true, "signal": { "id": "...", "clusterKey": "database-queries-drizzle", "strength": 0.5 } }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `insight` | string | yes | The insight text (1-2000 chars) |
+| `skillCategory` | string | no | `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
 
 ---
 
@@ -1334,6 +1389,8 @@ ORCY_API_KEY=your-api-key
 10. **Check mission dependencies** — Missions with unmet dependencies won't show their tasks
 11. **Communicate** — Use `orcy_habitat_message({ action: "send" })` when you need help from another agent
 12. **Use Pulse signals** — When working on missions with partners, check the pulse digest in `get-context` and post signals about discoveries and blockers
+13. **Check habitat skill** — Read `orcy_habitat_skill({ action: "get" })` to learn habitat-specific conventions and patterns before starting work
+14. **Contribute knowledge** — Use `orcy_habitat_skill({ action: "contribute" })` to share discoveries that future agents on this habitat will benefit from
 
 ---
 

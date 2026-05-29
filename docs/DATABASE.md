@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (52 tables)
+### Entity-Relationship Diagram (55 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -906,6 +906,63 @@ Recurring scheduled creation of features and tasks from templates. Supports cron
 #### `daemon_instances`
 
 Tracks autonomous daemon runtimes, including both standalone CLI daemons and API in-process daemon engines.
+
+#### `habitat_skills`
+
+Living skill document for each habitat. Auto-generated from high-strength signals — one row per habitat. Content is a markdown document synthesizing promoted signals.
+
+**Source:** `packages/api/src/db/schema/habitat-skill.ts`
+**Migration:** `0015_habitat_skill.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Skill document identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL UNIQUE FK → habitats(id) ON DELETE CASCADE | Parent habitat (one skill per habitat) |
+| `content` | TEXT | NOT NULL DEFAULT '' | Generated markdown skill document |
+| `signal_count` | INTEGER | NOT NULL DEFAULT 0 | Number of signals used in last generation |
+| `avg_strength` | REAL | NOT NULL DEFAULT 0 | Average signal strength of promoted signals |
+| `last_generated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last document generation timestamp |
+| `generation_count` | INTEGER | NOT NULL DEFAULT 1 | Number of times the document has been regenerated |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Index:** `idx_habitat_skills_habitat(habitat_id)`
+
+#### `habitat_skill_signals`
+
+Individual knowledge signals clustered by topic. Signals are ingested from pulse signals, task outcomes, and comments. Each signal is scored for strength and classified into a skill category.
+
+**Source:** `packages/api/src/db/schema/habitat-skill.ts`
+**Migration:** `0015_habitat_skill.sql`, `0016_habitat_skill_unique.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Signal identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `cluster_key` | TEXT | NOT NULL | Normalized topic key for clustering (e.g., "auth-jwt-signing") |
+| `skill_category` | TEXT | NOT NULL | Category: `domain_knowledge`, `convention`, `pattern`, or `anti_pattern` |
+| `source_signal_type` | TEXT | NOT NULL | Origin: `pulse`, `task_event`, `task_comment` |
+| `source_type` | TEXT | NOT NULL DEFAULT 'pulse' | Signal type from pulse (finding, blocker, etc.) |
+| `subject` | TEXT | NOT NULL | Brief subject line |
+| `summary` | TEXT | DEFAULT NULL | Optional longer summary |
+| `strength` | REAL | NOT NULL DEFAULT 0.1 | Composite score 0-1 (frequency + corroboration + cross-mission + outcome) |
+| `frequency` | INTEGER | NOT NULL DEFAULT 1 | Number of times this cluster has been seen |
+| `corroborating_agents` | INTEGER | NOT NULL DEFAULT 1 | Number of distinct agents confirming this signal |
+| `cross_mission_count` | INTEGER | NOT NULL DEFAULT 0 | Number of distinct missions this signal spans |
+| `successful_tasks` | INTEGER | NOT NULL DEFAULT 0 | Associated successful task completions |
+| `failed_tasks` | INTEGER | NOT NULL DEFAULT 0 | Associated task failures |
+| `last_seen_at` | TEXT | NOT NULL | Most recent observation |
+| `first_seen_at` | TEXT | NOT NULL | First observation |
+| `source_pulse_ids` | TEXT | DEFAULT NULL (JSON) | JSON array of source pulse UUIDs |
+| `source_task_ids` | TEXT | DEFAULT NULL (JSON) | JSON array of source task UUIDs |
+| `source_comment_ids` | TEXT | DEFAULT NULL (JSON) | JSON array of source comment UUIDs |
+| `corroborating_agent_ids` | TEXT | DEFAULT NULL (JSON) | JSON array of agent UUIDs |
+| `promoted_to_skill` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether this signal has been promoted into the skill document |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Unique index:** `idx_hskill_signals_habitat_cluster_unique(habitat_id, cluster_key)` — one signal per habitat per cluster
+**Indexes:** `idx_hskill_signals_habitat(habitat_id)`, `idx_hskill_signals_cluster(cluster_key)`, `idx_hskill_signals_category(skill_category)`, `idx_hskill_signals_strength(strength)`, `idx_hskill_signals_promoted(promoted_to_skill)`, `idx_hskill_signals_habitat_cluster(habitat_id, cluster_key)`, `idx_hskill_signals_habitat_cat_promoted(habitat_id, skill_category, promoted_to_skill)`
 
 | Column | Type | Description |
 |--------|------|-------------|

@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/waterworkshq/orcy" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/MCP--native-14%20tools-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP--native-15%20tools-blue" alt="MCP" />
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="platform" />
 </p>
 
@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 14 MCP tools across 7 agent clients.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 15 MCP tools across 7 agent clients.
 
 ---
 
@@ -29,7 +29,8 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Breach Gates** — quality gates, checklists, and dependency validation before work reaches human review.
 - **Hierarchical model** — Habitats → Missions → Tasks → Subtasks. Mission status auto-derived from child task progress.
 - **Signal board (PULSE)** — agents and humans share findings, blockers, and directives through typed pulse signals. BLOCKER signals auto-create clearance tasks.
-- **14 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, and more. Full task lifecycle coverage.
+- **Dynamic Habitat Skills** — each habitat auto-generates a living skill document from high-strength signals, task outcomes, and agent observations. Agents receive habitat knowledge when claiming tasks.
+- **14 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, `orcy_habitat_skill`, and more. Full task lifecycle coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
 

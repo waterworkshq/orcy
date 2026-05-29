@@ -11,11 +11,12 @@ This document covers the system architecture, design decisions, key flows, and i
 │  AI Agent (Claude Code / Codex / OpenCode / Cursor / Gemini) │
 │  MCP stdio transport                                     │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  MCP Server (14 dispatch tools)                      │   │
+│  │  MCP Server (15 dispatch tools)                      │   │
 │  │  Features: list │ create │ get_context │ delete  │   │
 │  │  Tasks: claim │ submit │ update │ heartbeat     │   │
 │  │  Rules: get │ update │ evaluate                │   │
 │  │  Scheduled: list │ create │ run                 │   │
+│  │  Skill: get │ refresh │ contribute             │   │
 │  └────────────────────┬─────────────────────────────┘   │
 │                       │ HTTP (X-Agent-API-Key)           │
 └───────────────────────┼──────────────────────────────────┘
@@ -39,13 +40,13 @@ This document covers the system architecture, design decisions, key flows, and i
 
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
-| Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes daemon machine routes (`/daemon/*`) and human/UI daemon controls (`/daemons/*`) |
-| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime |
-| Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, daemon, comment, template, webhook, event-mission) |
+| Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes daemon machine routes (`/daemon/*`), human/UI daemon controls (`/daemons/*`), and habitat skill routes (`/habitats/:id/skill/*`) |
+| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, `habitatSkillService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime |
+| Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, daemon, comment, template, webhook, event-mission, habitatSkill) |
 | Models | `src/models/` | TypeScript types, Zod schemas. Includes `Mission`, `MissionWithProgress`, `MissionStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
 | SSE | `src/sse/` | Event broadcaster (pub/sub) — broadcasts both task and mission events |
-| DB | `src/db/` | Database initialization, Drizzle ORM schema (25+ tables including missions) |
+| DB | `src/db/` | Database initialization, Drizzle ORM schema (55+ tables including habitat_skills, habitat_skill_signals) |
 | Plugins | `src/plugins/` | Plugin system for extensibility |
 
 ### UI (`packages/ui`)
@@ -54,7 +55,7 @@ This document covers the system architecture, design decisions, key flows, and i
 |-------|-----------|---------------|
 | Pages | `src/pages/` | HabitatListPage, HabitatPage, MissionDetailPage |
 | Components | `src/components/ui/` | Button, Badge, Card, Dialog, ErrorBoundary |
-| Habitat | `src/components/habitat/` | Habitat, Column, TaskCard, TaskDetailPanel, DaemonSection, DaemonCard, DaemonSetupDialog |
+| Habitat | `src/components/habitat/` | Habitat, Column, TaskCard, TaskDetailPanel, DaemonSection, DaemonCard, DaemonSetupDialog, SkillPanel |
 | Store | `src/store/` | Zustand state management + SSE handler |
 | API | `src/api/` | Typed REST client |
 | Lib | `src/lib/` | React Query hooks (`useHabitatData`, `useTaskData`) + cache key factory (`queryKeys`) |
@@ -77,129 +78,82 @@ This document covers the system architecture, design decisions, key flows, and i
 
 ---
 
-## Key Flows
+## Habitat Skill Architecture
 
-### Mission Discovery & Task Claiming Flow
+Each habitat auto-generates a living skill document from high-strength pulse signals, task outcomes, and agent observations. The system clusters signals by topic, scores them for strength, and promotes high-confidence signals into the skill document.
 
-```
-Agent                MCP Server              API
-  │                     │                     │
-  │  orcy_habitat({action:"summary"})  │                     │
-  │────────────────────>│  GET /summary       │
-  │                     │────────────────────>│
-  │                     │  { missions, ... }  │
-  │                     │<────────────────────│
-  │  { digest, ... }    │                     │
-  │<────────────────────│                     │
-  │                     │                     │
-  │  orcy_habitat_mission({action:"list"})  │          │
-  │────────────────────>│  GET /missions      │
-  │                     │────────────────────>│
-  │                     │  { missions: [...] } │
-  │                     │<────────────────────│
-  │  { missions }       │                     │
-  │<────────────────────│                     │
-  │                     │                     │
-  │  orcy_habitat_mission({action:"get-context"})│     │
-  │────────────────────>│  GET /missions/:id/details
-  │                     │────────────────────>│
-  │                     │  { mission, tasks } │
-  │                     │<────────────────────│
-  │  { mission+tasks }  │                     │
-  │<────────────────────│                     │
-  │                     │                     │
-  │  orcy_habitat_task({action:"claim"})│              │
-  │────────────────────>│  POST /tasks/:id/claim
-  │                     │────────────────────>│
-  │                     │                     │  Check state machine
-  │                     │                     │  Atomic claim (version)
-  │                     │                     │  Create event          
-  │                     │                     │  Recalculate mission status
-  │                     │                     │  Broadcast SSE         
-  │                     │  { task }           │                        
-  │                     │<────────────────────│                        
-  │  { success, task }  │                     │                        
-  │<────────────────────│                     │                        
-```
+### Signal Ingestion
 
-### Task Submission & Mission Status Recalculation Flow
+Signals are ingested from three sources:
 
-```
-Agent              API                Mission Service        SSE Broadcast         Human
-  │                 │                      │                       │                   │
-  │  submit         │                      │                       │                   │
-  │────────────────>│                      │                       │                   │
-  │                 │  Update task status   │                       │                   │
-  │                 │  Create task event    │                       │                   │
-  │                 │                      │                       │                   │
-  │                 │  recalculateMissionStatus(missionId)          │                   │
-  │                 │─────────────────────>│                       │                   │
-  │                 │                      │  deriveMissionStatus() │                   │
-  │                 │                      │  autoAdvanceColumn()   │                   │
-  │                 │                      │  createMissionEvent()  │                   │
-  │                 │  { mission }         │                       │                   │
-  │                 │<─────────────────────│                       │                   │
-  │                 │                      │                       │                   │
-  │                 │  Broadcast task event ──────────────────────>│                   │
-  │                 │  Broadcast mission event ──────────────────>│  UI updates        │
-  │  { success }    │                      │                       │  shows mission     │
-  │<────────────────│                      │                       │  progress change   │
-  │                 │                      │                       │                   │
-  │                 │                      │                       │     approve/reject │
-  │                 │<─────────────────────│<──────────────────────│<──────────────────│
-  │                 │  Update task status   │                       │                   │
-  │                 │  Recalculate mission  │                       │                   │
-  │                 │  Broadcast ─────────────────────────────────>│                   │
-```
+1. **Pulse signals** — findings, blockers, warnings, directives posted by agents and humans
+2. **Task events** — completed, approved, rejected, failed task outcomes
+3. **Task comments** — review feedback, discussion threads
 
-### Autonomous Daemon Flow
+Each signal is normalized into a `cluster_key` (e.g., "auth-jwt-signing") and merged with existing signals on `(habitat_id, cluster_key)`.
+
+### Signal Scoring
+
+Strength is a composite 0-1 score from four dimensions:
+
+| Dimension | Weight | Input |
+|-----------|--------|-------|
+| Frequency | 30% | How often this cluster has been seen |
+| Corroboration | 30% | Number of distinct agents confirming |
+| Cross-mission | 20% | Number of distinct missions this signal spans |
+| Outcome | 20% | Ratio of successful to failed associated tasks |
+
+### Skill Categories
+
+Signals are classified into one of four categories:
+
+| Category | Criteria | Description |
+|----------|----------|-------------|
+| `domain_knowledge` | frequency ≥ 3 and corroboration ≥ 2 | Confirmed technical knowledge |
+| `convention` | frequency ≥ 3 and corroboration ≥ 2 | Established team practices |
+| `pattern` | frequency ≥ 3 and cross-mission ≥ 2 | Cross-cutting patterns |
+| `anti_pattern` | failed tasks > successful tasks | Things that consistently fail |
+
+### Promotion & Demotion
+
+- Signals with strength ≥ 0.6 are promoted (`promotedToSkill = 1`) and included in the generated document
+- Signals with strength < 0.2 are demoted and excluded
+- The skill document is regenerated on refresh or after significant signal changes
+
+### Hook Registry Pattern
+
+Domain functions expose lifecycle hooks (`onHabitatCreated`, `onTaskCompleted`, etc.) that the skill service registers consumers for. Domain code remains unchanged — consumers write to their own tables only, preventing circular signal creation.
+
+### MCP Integration
+
+The `orcy_habitat_skill` dispatch tool exposes three actions:
+
+| Action | Description |
+|--------|-------------|
+| `get` | Retrieve the current skill document for the habitat |
+| `refresh` | Trigger async regeneration of the skill document |
+| `contribute` | Submit a direct insight to the skill system |
+
+Skill context is automatically injected into `getMissionContext()` responses, so agents receive habitat knowledge when claiming tasks.
+
+### Component Layout
 
 ```
-Human UI / CLI        API Daemon Routes       Daemon Engine / CLI Daemon       Agent CLI
-     │                       │                           │                         │
-     │  detect/register      │                           │                         │
-     │──────────────────────>│  create daemon + agents  │                         │
-     │                       │──────────────────────────>│                         │
-     │  start                │                           │                         │
-     │──────────────────────>│                           │  poll suggestions       │
-     │                       │                           │  atomic claim           │
-     │                       │                           │  create daemon_session  │
-     │                       │                           │  prepare worktree       │
-     │                       │                           │────────────────────────>│
-     │                       │                           │  spawn with MCP env     │
-     │                       │  heartbeat/session update │<────────────────────────│
-     │<──────────────────────│  status visible in UI     │                         │
+packages/api/
+  src/db/schema/habitat-skill.ts              — Drizzle schema (2 tables)
+  src/repositories/habitatSkill.ts             — CRUD + signal queries
+  src/services/habitatSkillService.ts          — Ingestion, scoring, category classification, document generation
+  src/routes/habitatSkill.ts                   — 5 API endpoints
+packages/mcp/
+  src/tools/habitat-skill.ts                   — 3 MCP handler functions
+  src/tools/habitat-skill-dispatch.ts          — Dispatch tool + handler map
+packages/cli/
+  src/commands/skill.ts                        — 4 CLI commands (get, refresh, contribute, signals)
+packages/ui/
+  src/components/habitat/SkillPanel.tsx         — Collapsible panel with Document/Signals tabs
 ```
-
-There are two daemon operating modes:
-
-- **Standalone CLI daemon:** `orcy daemon start` runs outside the API process, stores credentials in `~/.orcy/daemon/credentials.json`, and uses `DaemonApiClient` plus `X-Daemon-Token` to call `/daemon/*` routes.
-- **In-process UI daemon:** the API imports `@orcy/daemon` session/spawn components, uses direct repository calls through `daemonEngine.ts`, and is controlled by human-authenticated `/daemons/*` routes. It keeps generated agent keys in API process memory rather than writing local credential files.
-
-### SSE Event Flow
-
-```
-API Service                    SSE Broadcaster              UI Client
-    │                              │                          │
-    │  publish(habitatId, event)     │                          │
-    │─────────────────────────────>│                          │
-    │                              │  iterate subscribers     │
-    │                              │  for habitatId           │
-    │                              │                          │
-    │                              │  data: JSON(event)       │
-    │                              │─────────────────────────>│
-    │                              │                          │  handleSSEEvent()
-    │                              │                          │  update Zustand store
-    │                              │                          │  React re-renders
-```
-
-### SSE Global Channel
-
-Agent-related events (status changes, heartbeats) are published to the `'global'` channel in the SSE broadcaster, not to specific habitat channels. This means habitat-level SSE subscribers will NOT receive agent events. Only habitat-scoped events (task CRUD, moves, etc.) are published to the specific habitat ID.
 
 ---
-
-## Design Decisions
 
 ### ADR-1: SQLite with better-sqlite3
 
@@ -385,7 +339,7 @@ Similarly, `GET /missions/:id/details` returns mission + tasks + events + progre
 
 ### MCP Tool Architecture (Consolidated Dispatch Pattern)
 
-The MCP server exposes **11 dispatch tool modules** containing 16+ actions (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each tool accepts an `action` parameter to route to specific operations:
+The MCP server exposes **12 dispatch tool modules** containing 17+ actions (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each tool accepts an `action` parameter to route to specific operations:
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
@@ -399,6 +353,7 @@ The MCP server exposes **11 dispatch tool modules** containing 16+ actions (plus
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time notifications |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | Admin operations + scheduled tasks |
 | `orcy_worktree` | `get-worktree` | Git worktree info |
+| `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — get skill document, trigger regeneration, submit direct insights |
 | `orcy_instructions` | (tool) | Returns orcy skill guide |
 
 ### Pulse Signal Architecture

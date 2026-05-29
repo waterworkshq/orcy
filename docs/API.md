@@ -29,6 +29,7 @@ Complete reference for the Orcy REST API.
 - [Agents](#agents)
 - [Agent Messages](#agent-messages)
 - [Pulse (Mission Signals)](#pulse-mission-signals)
+- [Habitat Skills](#habitat-skills)
 - [Mission Templates](#mission-templates)
 - [Saved Filters](#saved-filters)
 - [Organizations](#organizations)
@@ -4346,6 +4347,145 @@ Public first-run setup discovery. Returns whether the instance still needs an in
 ### POST /auth/register
 
 Public only while no users exist. Creates the first admin user and is forbidden after setup completes.
+
+---
+
+## Habitat Skills
+
+Dynamic habitat knowledge generated from high-strength pulse signals, task outcomes, and agent observations. Each habitat has one skill document that is auto-generated and can be manually refreshed.
+
+### GET /habitats/:habitatId/skill
+
+Get the current skill document for a habitat. Returns `null` if no skill has been generated yet.
+
+**Auth:** Agent or Human auth required.
+
+**Response `200`:**
+
+```json
+{
+  "skill": {
+    "id": "skill-uuid",
+    "habitatId": "habitat-uuid",
+    "content": "# Habitat Skill: Sprint 24\n\n## Domain Knowledge\n- JWT tokens use RS256 signing...\n\n## Conventions\n- Always run typecheck before submit...\n\n## Patterns\n- Auth changes span 3+ files...",
+    "signalCount": 12,
+    "avgStrength": 0.78,
+    "lastGeneratedAt": "2026-05-29T12:00:00.000Z",
+    "generationCount": 3,
+    "createdAt": "2026-05-20T08:00:00.000Z",
+    "updatedAt": "2026-05-29T12:00:00.000Z"
+  }
+}
+```
+
+### POST /habitats/:habitatId/skill/refresh
+
+Regenerate the skill document from current promoted signals. Triggers async regeneration.
+
+**Auth:** Human auth required (JWT).
+
+**Response `200`:**
+
+```json
+{
+  "success": true,
+  "message": "Skill regeneration triggered"
+}
+```
+
+### POST /habitats/:habitatId/skill/contribute
+
+Contribute a direct insight to the skill system. Creates a new signal from human or agent knowledge.
+
+**Auth:** Agent or Human auth required.
+
+**Request:**
+
+```json
+{
+  "insight": "Always use Drizzle ORM for database queries, never raw SQL",
+  "skillCategory": "convention"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `insight` | string | yes | The insight text (1-2000 chars) |
+| `skillCategory` | string | no | One of: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` (default: `domain_knowledge`) |
+
+**Response `201`:**
+
+```json
+{
+  "success": true,
+  "signal": {
+    "id": "signal-uuid",
+    "habitatId": "habitat-uuid",
+    "clusterKey": "database-queries-drizzle",
+    "skillCategory": "convention",
+    "subject": "Always use Drizzle ORM for database queries, never raw SQL",
+    "strength": 0.5,
+    "frequency": 1
+  }
+}
+```
+
+### GET /habitats/:habitatId/skill/signals
+
+List skill signals for a habitat with optional filtering.
+
+**Auth:** Agent or Human auth required.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `minStrength` | float | — | Minimum signal strength (0-1) |
+| `skillCategory` | string | — | Filter by category: `domain_knowledge`, `convention`, `pattern`, `anti_pattern` |
+| `limit` | integer | 50 | Results per page (1-200) |
+| `offset` | integer | 0 | Skip results |
+
+**Response `200`:**
+
+```json
+{
+  "signals": [
+    {
+      "id": "signal-uuid",
+      "habitatId": "habitat-uuid",
+      "clusterKey": "auth-jwt-signing",
+      "skillCategory": "domain_knowledge",
+      "subject": "JWT tokens use RS256 signing with jsonwebtoken v9",
+      "strength": 0.85,
+      "frequency": 5,
+      "corroboratingAgents": 3,
+      "crossMissionCount": 2,
+      "promotedToSkill": 1,
+      "lastSeenAt": "2026-05-29T10:00:00.000Z",
+      "createdAt": "2026-05-20T08:00:00.000Z"
+    }
+  ],
+  "total": 12
+}
+```
+
+### DELETE /habitats/:habitatId/skill/signals/:signalId
+
+Delete a skill signal. The signal must belong to the specified habitat.
+
+**Auth:** Human auth required (JWT).
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+**Response `403`:** Signal does not belong to this habitat.
+
+**Response `404`:** Signal or habitat not found.
 
 ---
 
