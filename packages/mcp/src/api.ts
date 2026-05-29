@@ -1440,26 +1440,34 @@ export class KanbanApiClient {
     );
   }
 
-  async getHabitatSkill(boardId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/skill`);
+  async getHabitatSkill(boardId: string): Promise<{
+    skill: {
+      id: string;
+      content: string;
+      signalCount: number;
+      avgStrength: number;
+      generationCount: number;
+      lastGeneratedAt: string;
+    } | null;
+  }> {
+    return this.request("GET", `/api/habitats/${boardId}/skill`);
   }
 
-  async refreshHabitatSkill(boardId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>(
-      "POST",
-      `/api/habitats/${boardId}/skill/refresh`,
-      {},
-    );
+  async refreshHabitatSkill(boardId: string): Promise<{
+    success: boolean;
+    message: string;
+    signalCount: number;
+  }> {
+    return this.request("POST", `/api/habitats/${boardId}/skill/refresh`, {});
   }
 
   async contributeHabitatSkill(
     boardId: string,
     body: { insight: string; skillCategory?: string },
-  ): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>(
-      "POST",
-      `/api/habitats/${boardId}/skill/contribute`,
-      body,
-    );
+  ): Promise<{
+    success: boolean;
+    signal: { id: string; strength: number; clusterKey: string } | null;
+  }> {
+    return this.request("POST", `/api/habitats/${boardId}/skill/contribute`, body);
   }
 }

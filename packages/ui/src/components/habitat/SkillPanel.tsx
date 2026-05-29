@@ -52,13 +52,21 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
   const [tab, setTab] = useState<"document" | "signals">("document");
   const queryClient = useQueryClient();
 
-  const { data: skillData, isLoading: skillLoading } = useQuery({
+  const {
+    data: skillData,
+    isLoading: skillLoading,
+    error: skillError,
+  } = useQuery({
     queryKey: queryKeys.skill.detail(habitatId),
     queryFn: () => api.skill.get(habitatId),
     staleTime: 60 * 1000,
   });
 
-  const { data: signalsData, isLoading: signalsLoading } = useQuery({
+  const {
+    data: signalsData,
+    isLoading: signalsLoading,
+    error: signalsError,
+  } = useQuery({
     queryKey: queryKeys.skill.signals(habitatId),
     queryFn: () => api.skill.signals(habitatId, { limit: 50 }),
     staleTime: 30 * 1000,
@@ -180,6 +188,20 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-5 w-5 animate-spin text-[var(--on-surface-variant)]" />
                 </div>
+              ) : skillError ? (
+                <div className="flex flex-col items-center justify-center py-12 text-[var(--error)] gap-2">
+                  <AlertTriangle className="h-6 w-6 opacity-60" />
+                  <span className="text-xs">Failed to load skill document</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      queryClient.invalidateQueries({ queryKey: queryKeys.skill.detail(habitatId) })
+                    }
+                    className="text-[10px] text-[var(--primary)] hover:underline"
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : !skill?.content ? (
                 <div className="flex flex-col items-center justify-center py-12 text-[var(--on-surface-variant)] gap-2">
                   <BookOpen className="h-6 w-6 opacity-30" />
@@ -217,6 +239,20 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-5 w-5 animate-spin text-[var(--on-surface-variant)]" />
               </div>
+            ) : signalsError ? (
+              <div className="flex flex-col items-center justify-center py-12 text-[var(--error)] gap-2">
+                <AlertTriangle className="h-6 w-6 opacity-60" />
+                <span className="text-xs">Failed to load signals</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    queryClient.invalidateQueries({ queryKey: queryKeys.skill.signals(habitatId) })
+                  }
+                  className="text-[10px] text-[var(--primary)] hover:underline"
+                >
+                  Retry
+                </button>
+              </div>
             ) : signals.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-[var(--on-surface-variant)] gap-2">
                 <MessageSquare className="h-6 w-6 opacity-30" />
@@ -251,6 +287,7 @@ function SignalRow({
   strengthBar: (s: number) => React.ReactNode;
 }) {
   const queryClient = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const cat = CATEGORY_CONFIG[signal.skillCategory] ?? CATEGORY_CONFIG.agent_insight;
 
   const deleteMutation = useMutation({
@@ -288,15 +325,34 @@ function SignalRow({
         )}
         <div className="ml-auto flex items-center gap-2">
           {strengthBar(signal.strength)}
-          <button
-            type="button"
-            onClick={() => deleteMutation.mutate()}
-            disabled={deleteMutation.isPending}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--on-surface-variant)] hover:text-[var(--error)] hover:bg-[var(--surface-container-high)] transition-all disabled:opacity-50"
-            title="Delete signal"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="p-1 rounded text-[var(--error)] hover:bg-[var(--surface-container-high)] transition-all disabled:opacity-50 text-[9px] font-semibold"
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="p-1 rounded text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)] transition-all text-[9px]"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--on-surface-variant)] hover:text-[var(--error)] hover:bg-[var(--surface-container-high)] transition-all"
+              title="Delete signal"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
         </div>
       </div>
 

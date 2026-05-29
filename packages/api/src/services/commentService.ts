@@ -9,8 +9,12 @@ import { logger } from "../lib/logger.js";
 type CommentCreatedHook = (comment: any, habitatId: string) => void;
 const commentCreatedHooks: CommentCreatedHook[] = [];
 
-export function onCommentCreated(hook: CommentCreatedHook): void {
+export function onCommentCreated(hook: CommentCreatedHook): () => void {
   commentCreatedHooks.push(hook);
+  return () => {
+    const idx = commentCreatedHooks.indexOf(hook);
+    if (idx >= 0) commentCreatedHooks.splice(idx, 1);
+  };
 }
 
 /**

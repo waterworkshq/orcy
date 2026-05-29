@@ -5,8 +5,12 @@ import { logger } from "../lib/logger.js";
 type PulseCreatedHook = (pulse: pulseRepo.Pulse) => void;
 const pulseCreatedHooks: PulseCreatedHook[] = [];
 
-export function onPulseCreated(hook: PulseCreatedHook): void {
+export function onPulseCreated(hook: PulseCreatedHook): () => void {
   pulseCreatedHooks.push(hook);
+  return () => {
+    const idx = pulseCreatedHooks.indexOf(hook);
+    if (idx >= 0) pulseCreatedHooks.splice(idx, 1);
+  };
 }
 
 export function createPulseAndNotify(input: pulseRepo.CreatePulseInput): pulseRepo.Pulse {

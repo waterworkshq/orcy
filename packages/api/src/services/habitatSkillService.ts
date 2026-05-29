@@ -315,7 +315,7 @@ export function contributeSignal(
       clusterKey: normalized,
       skillCategory: category,
       sourceSignalType: "manual_contribution",
-      sourceType: "pulse",
+      sourceType: "manual",
       subject,
       summary: opts.insight,
       strength: 0.3,
@@ -402,7 +402,7 @@ export function regenerateSkill(habitatId: string): void {
   repo.updateSkillContent(habitatId, content, signals.length, avgStrength);
 }
 
-export function regenerateAllSkills(): { regenerated: number; errors: number } {
+export async function regenerateAllSkills(): Promise<{ regenerated: number; errors: number }> {
   const habitatIds = repo.getAllSignalHabitatIds();
   let regenerated = 0;
   let errors = 0;
@@ -410,6 +410,7 @@ export function regenerateAllSkills(): { regenerated: number; errors: number } {
     try {
       regenerateSkill(id);
       regenerated++;
+      await new Promise<void>((resolve) => setImmediate(resolve));
     } catch (err) {
       logger.error({ err, habitatId: id }, "Failed to regenerate skill");
       errors++;

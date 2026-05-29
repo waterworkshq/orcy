@@ -177,14 +177,15 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
   intervals.push(
     setInterval(
       () => {
-        try {
-          const results = regenerateAllSkills();
-          if (results.regenerated > 0) {
-            fastify.log.info({ count: results.regenerated }, "Habitat skills regenerated");
-          }
-        } catch (err) {
-          fastify.log.error({ err }, "Error regenerating habitat skills");
-        }
+        regenerateAllSkills()
+          .then((results) => {
+            if (results.regenerated > 0) {
+              fastify.log.info({ count: results.regenerated }, "Habitat skills regenerated");
+            }
+          })
+          .catch((err) => {
+            fastify.log.error({ err }, "Error regenerating habitat skills");
+          });
       },
       24 * 60 * 60_000,
     ),

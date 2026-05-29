@@ -27,8 +27,12 @@ export interface TaskEventOpts {
 type TaskEventHook = (opts: TaskEventOpts) => void;
 const taskEventHooks: TaskEventHook[] = [];
 
-export function onTaskEvent(hook: TaskEventHook): void {
+export function onTaskEvent(hook: TaskEventHook): () => void {
   taskEventHooks.push(hook);
+  return () => {
+    const idx = taskEventHooks.indexOf(hook);
+    if (idx >= 0) taskEventHooks.splice(idx, 1);
+  };
 }
 
 function notifyTaskEvent(opts: TaskEventOpts): void {

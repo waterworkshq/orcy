@@ -1,10 +1,30 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import * as skillRepo from "../repositories/habitatSkill.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as skillService from "../services/habitatSkillService.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
 import type { SkillCategory } from "../repositories/habitatSkill.js";
+
+const contributeBodySchema = z.object({
+  insight: z
+    .string()
+    .min(1, "Insight is required")
+    .max(2000, "Insight must be under 2000 characters"),
+  skillCategory: z
+    .enum(["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"])
+    .optional(),
+});
+
+const signalsQuerySchema = z.object({
+  minStrength: z.coerce.number().min(0).max(1).optional(),
+  skillCategory: z
+    .enum(["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"])
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
 
 export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
@@ -47,32 +67,18 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: agentOrHumanAuth },
     async (request, reply) => {
       const { habitatId } = request.params as { habitatId: string };
-      const body = request.body as { insight?: string; skillCategory?: string };
 
       const habitat = habitatRepo.getHabitatById(habitatId);
       if (!habitat) throw notFound("Habitat not found");
 
-      if (!body.insight || typeof body.insight !== "string") {
-        throw badRequest("Missing required field: insight");
+      const parsed = contributeBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
       }
-      if (body.insight.length > 2000) {
-        throw badRequest("Insight must be under 2000 characters");
-      }
-
-      const validCategories: SkillCategory[] = [
-        "convention",
-        "pattern",
-        "pitfall",
-        "domain_knowledge",
-        "agent_insight",
-      ];
-      const skillCategory =
-        body.skillCategory && validCategories.includes(body.skillCategory as SkillCategory)
-          ? (body.skillCategory as SkillCategory)
-          : undefined;
+      const { insight, skillCategory } = parsed.data;
 
       const signal = skillService.contributeSignal(habitatId, {
-        insight: body.insight,
+        insight,
         skillCategory,
       });
 
@@ -96,33 +102,21 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
     { preHandler: humanAuth },
     async (request, _reply) => {
       const { habitatId } = request.params as { habitatId: string };
-      const query = request.query as {
-        minStrength?: string;
-        skillCategory?: string;
-        limit?: string;
-        offset?: string;
-      };
 
       const habitat = habitatRepo.getHabitatById(habitatId);
       if (!habitat) throw notFound("Habitat not found");
 
-      const validCategories: SkillCategory[] = [
-        "convention",
-        "pattern",
-        "pitfall",
-        "domain_knowledge",
-        "agent_insight",
-      ];
-      const skillCategory =
-        query.skillCategory && validCategories.includes(query.skillCategory as SkillCategory)
-          ? (query.skillCategory as SkillCategory)
-          : undefined;
+      const parsed = signalsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+      const { minStrength, skillCategory, limit, offset } = parsed.data;
 
       const result = skillRepo.getSignalsByHabitat(habitatId, {
-        minStrength: query.minStrength ? parseFloat(query.minStrength) : undefined,
+        minStrength,
         skillCategory,
-        limit: query.limit ? parseInt(query.limit, 10) : undefined,
-        offset: query.offset ? parseInt(query.offset, 10) : undefined,
+        limit,
+        offset,
       });
 
       return { items: result.signals, total: result.total };

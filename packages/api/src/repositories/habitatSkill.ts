@@ -48,6 +48,14 @@ export interface HabitatSkillSignal {
   updatedAt: string;
 }
 
+export const VALID_SKILL_CATEGORIES = new Set<SkillCategory>([
+  "convention",
+  "pattern",
+  "pitfall",
+  "domain_knowledge",
+  "agent_insight",
+]);
+
 export interface CreateSignalInput {
   habitatId: string;
   clusterKey: string;
@@ -133,7 +141,9 @@ export function createSkill(habitatId: string): HabitatSkill {
     })
     .run();
 
-  return getSkillById(id)!;
+  const skill = getSkillById(id);
+  if (!skill) throw new Error(`Failed to read skill ${id} after insert`);
+  return skill;
 }
 
 export function getSkillById(id: string): HabitatSkill | null {
@@ -181,6 +191,9 @@ export function updateSkillContent(
 }
 
 export function createSignal(input: CreateSignalInput): HabitatSkillSignal {
+  if (!VALID_SKILL_CATEGORIES.has(input.skillCategory)) {
+    throw new Error(`Invalid skillCategory: ${input.skillCategory}`);
+  }
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
@@ -218,7 +231,9 @@ export function createSignal(input: CreateSignalInput): HabitatSkillSignal {
     })
     .run();
 
-  return getSignalById(id)!;
+  const signal = getSignalById(id);
+  if (!signal) throw new Error(`Failed to read signal ${id} after insert`);
+  return signal;
 }
 
 export function getSignalById(id: string): HabitatSkillSignal | null {
@@ -247,7 +262,7 @@ export function findSignalByClusterKey(
 
 export function updateSignal(
   id: string,
-  updates: Partial<Omit<HabitatSkillSignal, "id" | "createdAt">>,
+  updates: Partial<Omit<HabitatSkillSignal, "id" | "createdAt" | "habitatId">>,
 ): void {
   const db = getDb();
   const now = new Date().toISOString();
