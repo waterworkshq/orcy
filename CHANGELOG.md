@@ -2,6 +2,62 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.14.0 — 2026-05-29
+
+### Features
+
+#### add cursor/gemini agent types and daemon persistence layer (v0.14 Phase 1-2) ([`b9db4a8`](https://github.com/waterworkshq/orcy/commit/b9db4a84e3fb9b8a7314082e905a58a91f0ed36d))
+
+1. Phase 1 — Shared Agent Type Expansion:
+2. Add cursor and gemini to AgentType in shared, API schema, zod validation,
+3. MCP constants/tools/api, and UI API client (7 files)
+
+5. Phase 2 — Daemon Persistence and Auth:
+6. Add daemon_instances, daemon_agents, daemon_sessions DB schema with
+7. Drizzle relations and migration 0014_daemon.sql
+8. Add daemon token helpers (generate, hash, verify)
+9. Add daemon auth middleware (X-Daemon-Token header validation)
+10. Add daemon repository with full CRUD for instances, agents, sessions
+11. Add 31 tests covering token helpers, repository operations, and auth
+
+
+#### add daemon registration, heartbeat, and session endpoints ([`294ade7`](https://github.com/waterworkshq/orcy/commit/294ade7a4e7efcdb7e39510bb09ebd3a0eaced45))
+
+1. Introduce daemon management routes including CLI detection registration,
+2. heartbeat updates, task claiming, and session lifecycle. Add Zod validation
+3. schemas and corresponding unit tests.
+
+
+#### implement daemon core modules with API client, CLI detection, and persistence ([`84b8024`](https://github.com/waterworkshq/orcy/commit/84b8024dcbc12d71a9df65d64a8588090cb706c4))
+
+
+#### add workdir management and MCP config preparation (v0.14 Phase 5) ([`b425d11`](https://github.com/waterworkshq/orcy/commit/b425d11de0b5c31600ee11162b59c45defa0cea1))
+
+
+#### feat(daemon): add autonomous daemon for unattended AI CLI execution
+- Session lifecycle: adapters, manager, spawner for CLI processes
+- Poll loop: claim tasks, spawn sessions, monitor progress
+- Recovery: handle orphaned sessions on restart
+- API: GET /daemon/sessions, session progress in heartbeat
+- CLI: daemon detect/register/start/stop/status commands
+- Scheduler: daemon nudging and habitat digest generation
+- Docs: HUMAN-GUIDE, INSTALL, README for autonomous mode ([`c6953d0`](https://github.com/waterworkshq/orcy/commit/c6953d0c60eea98f4937eb719a4da09d7d39b625))
+
+
+#### add in-process daemon engine, UI controls, and worktree settings ([`230b1bb`](https://github.com/waterworkshq/orcy/commit/230b1bbb1e341afc43e5c6cf93189ddbf18c7a14))
+
+1. Add daemonEngine and inProcessSessionUpdater for API-side daemon runtime
+2. Add /daemons/* human-admin routes for setup, start/stop, status, CLI detection
+3. Add DaemonSection, DaemonCard, DaemonSetupDialog, WorktreeTab UI components
+4. Replace direct DaemonApiClient dependency with ISessionUpdater interface
+5. Enforce maxConcurrency and per-agent session dedup in claim-next endpoint
+6. Persist pid, workdir, cliSessionId in daemon session updates
+7. Update documentation for autonomous mode, first-run setup, and UI daemon management
+8. Fix docs: board→habitat, bun:sqlite→better-sqlite3, tool count, default credentials
+9. Add aria-label/aria-labelledby to ToggleSwitch for accessibility
+
+
+
 ## 0.13.1 — 2026-05-28
 
 ### Tests
@@ -32,48 +88,3 @@
 14. New API routes and repositories for intake candidates and OAuth orchestration
 15. Updated documentation (README, CONFIGURATION, SECURITY, ROADMAP to v0.13)
 16. Test coverage for all new modules and route handlers
-
-
-
-## 0.12.1 — 2026-05-25
-
-### Chores
-
-#### replace __dirname with import.meta.dirname, rename unused reply params, add no-underscore-dangle allow list ([`03a3c01`](https://github.com/waterworkshq/orcy/commit/03a3c016fabcc637ea74c20585103bff1b2416f3))
-
-1. Replace __dirname/fileURLToPath with import.meta.dirname in 6 files
-2. Rename unused reply → _reply in 133 Fastify route/middleware handlers
-3. Rename _onmessage/_onerror → messageHandler/errorHandler in SSE test
-4. Add 20-entry allow list for test mock helpers and module-private singletons
-
-6. 567 warnings → 366 warnings (201 cleared, 0 errors introduced)
-
-
-#### remove unused imports and parameters, migrate to ES2023 array methods ([`9667019`](https://github.com/waterworkshq/orcy/commit/96670191e35c507583c0d1946777d90d1d86484e))
-
-1. Replace `.sort()` with `.toSorted()` and `.reverse()` with `.toReversed()`
-2. Fix variable shadowing in `.reduce()` callbacks (rename `sum` to `acc`)
-3. Remove unused imports across multiple files
-4. Prefix unused parameters with underscore
-5. Update `tsconfig.json` lib from ES2022 to ES2023
-6. Move inline test helper functions to top-level scope in test files
-7. Remove unused variables and dead code
-
-
-#### clear all remaining lint warnings — 0 warnings, 0 errors ([`ccdd061`](https://github.com/waterworkshq/orcy/commit/ccdd061edb91c828c1a5cae5a954f5539a30b879))
-
-1. Function scoping:
-2. Extract 16 inner functions to module level (boardSummaryService, CommentSection,
-3. MissionMetrics, MissionCommentSection, TeamsPage, PredictionSection, DashboardCharts,
-4. CycleTimeChart, Skeleton.test, featureStatusDerivation.test, AgentsPage.test,
-5. scheduler.test, plugins.test)
-
-7. Event listeners:
-8. Replace onmessage/onerror/onload with addEventListener in useSSE.ts, ImportHabitatDialog.tsx
-
-10. Dead code removal:
-11. Remove unused imports across ~80 files (drizzle-orm, react, lucide, types, services)
-12. Remove unused variable declarations and dead calculations
-13. Remove unused function declarations and dead code paths
-
-15. 237 warnings → 0 warnings, 0 errors (was 567 warnings + 3 errors at start)
