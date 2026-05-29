@@ -25,12 +25,23 @@ export function classifyPulseToCategory(signalType: string): SkillCategory {
 }
 
 export function normalize(subject: string): string {
-  return subject
+  const cleaned = subject
     .toLowerCase()
     .replace(/[^\w\s]/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
+    .trim();
+  if (!cleaned) return "";
+  const prefix = cleaned.slice(0, 80);
+  const hash = hashCode(cleaned).toString(36);
+  return `${prefix}#${hash}`;
+}
+
+function hashCode(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  }
+  return h >>> 0;
 }
 
 function updateCrossMissionCount(habitatId: string, clusterKey: string): void {
@@ -279,11 +290,17 @@ export function scoreAllSignals(habitatId: string): void {
 
     const promotedToSkill = strength >= 0.6 ? 1 : strength < 0.2 ? 0 : signal.promotedToSkill;
 
-    repo.updateSignal(signal.id, {
-      strength,
-      skillCategory: newCategory,
-      promotedToSkill,
-    });
+    if (
+      strength !== signal.strength ||
+      newCategory !== signal.skillCategory ||
+      promotedToSkill !== signal.promotedToSkill
+    ) {
+      repo.updateSignal(signal.id, {
+        strength,
+        skillCategory: newCategory,
+        promotedToSkill,
+      });
+    }
   }
 }
 
@@ -419,48 +436,50 @@ export async function regenerateAllSkills(): Promise<{ regenerated: number; erro
   return { regenerated, errors };
 }
 
-pulseService.onPulseCreated((pulse) => {
-  ingestFromPulse({
-    habitatId: pulse.habitatId,
-    signalType: pulse.signalType,
-    subject: pulse.subject,
-    body: pulse.body,
-    pulseId: pulse.id,
-    fromType: pulse.fromType,
-    fromId: pulse.fromId,
-  });
-});
-
-taskLifecycle.onTaskEvent((opts) => {
-  const task = taskRepo.getTaskById(opts.taskId);
-  if (!task) return;
-
-  if (opts.event === "rejected" || opts.event === "failed") {
-    ingestFromTaskEvent({
-      habitatId: opts.habitatId,
-      eventType: opts.event,
-      taskTitle: task.title,
-      reason: opts.metadata?.reason as string | undefined,
-      taskId: opts.taskId,
-      associatedAgentId: task.assignedAgentId ?? undefined,
+export function initSkillHooks(): void {
+  pulseService.onPulseCreated((pulse) => {
+    ingestFromPulse({
+      habitatId: pulse.habitatId,
+      signalType: pulse.signalType,
+      subject: pulse.subject,
+      body: pulse.body,
+      pulseId: pulse.id,
+      fromType: pulse.fromType,
+      fromId: pulse.fromId,
     });
-  } else if (opts.event === "completed" || opts.event === "approved") {
-    ingestFromTaskSuccess({
-      habitatId: opts.habitatId,
-      taskTitle: task.title,
-      taskId: opts.taskId,
-      associatedAgentId: task.assignedAgentId ?? undefined,
-    });
-  }
-});
-
-commentService.onCommentCreated((comment, habitatId) => {
-  ingestFromComment({
-    habitatId,
-    taskId: comment.taskId,
-    content: comment.content,
-    authorType: comment.authorType,
-    authorId: comment.authorId,
-    commentId: comment.id,
   });
-});
+
+  taskLifecycle.onTaskEvent((opts) => {
+    const task = taskRepo.getTaskById(opts.taskId);
+    if (!task) return;
+
+    if (opts.event === "rejected" || opts.event === "failed") {
+      ingestFromTaskEvent({
+        habitatId: opts.habitatId,
+        eventType: opts.event,
+        taskTitle: task.title,
+        reason: opts.metadata?.reason as string | undefined,
+        taskId: opts.taskId,
+        associatedAgentId: task.assignedAgentId ?? undefined,
+      });
+    } else if (opts.event === "completed" || opts.event === "approved") {
+      ingestFromTaskSuccess({
+        habitatId: opts.habitatId,
+        taskTitle: task.title,
+        taskId: opts.taskId,
+        associatedAgentId: task.assignedAgentId ?? undefined,
+      });
+    }
+  });
+
+  commentService.onCommentCreated((comment, habitatId) => {
+    ingestFromComment({
+      habitatId,
+      taskId: comment.taskId,
+      content: comment.content,
+      authorType: comment.authorType,
+      authorId: comment.authorId,
+      commentId: comment.id,
+    });
+  });
+}

@@ -1,6 +1,8 @@
 import { api } from "../client.js";
 
 export function registerSkillCommands(program: any) {
+  // Note: CLI uses "habitatId" for user-facing clarity.
+  // MCP/API layers use "boardId" for the same field — they map to the same UUID.
   const skill = program.command("skill").description("Habitat dynamic skill operations");
 
   skill
@@ -36,10 +38,8 @@ export function registerSkillCommands(program: any) {
     .description("Manually contribute an insight to a habitat skill")
     .argument("<habitatId>", "Habitat UUID")
     .requiredOption("--insight <text>", "The insight text to contribute")
-    .option(
-      "--category <category>",
-      "Category: convention, pattern, pitfall, domain_knowledge, agent_insight",
-    )
+    .option("--category <category>", "Category for the insight")
+    .choices("category", ["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"])
     .action(async (habitatId: string, options: any) => {
       const body: Record<string, any> = { insight: options.insight };
       if (options.category) body.skillCategory = options.category;

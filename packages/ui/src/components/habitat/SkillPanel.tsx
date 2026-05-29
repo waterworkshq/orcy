@@ -47,9 +47,27 @@ interface SkillPanelProps {
   habitatId: string;
 }
 
+function StrengthBar({ strength }: { strength: number }) {
+  const pct = Math.round(strength * 100);
+  const color =
+    strength >= 0.6 ? "var(--tertiary)" : strength >= 0.3 ? "hsl(40,90%,55%)" : "var(--error)";
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="h-1 w-12 rounded-full bg-[var(--surface-container-highest)] overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${pct}%`, backgroundColor: color }}
+        />
+      </div>
+      <span className="text-[9px] text-[var(--on-surface-variant)] tabular-nums">{pct}%</span>
+    </div>
+  );
+}
+
 export function SkillPanel({ habitatId }: SkillPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [tab, setTab] = useState<"document" | "signals">("document");
+  const [signalLimit, setSignalLimit] = useState(50);
   const queryClient = useQueryClient();
 
   const {
@@ -68,7 +86,7 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
     error: signalsError,
   } = useQuery({
     queryKey: queryKeys.skill.signals(habitatId),
-    queryFn: () => api.skill.signals(habitatId, { limit: 50 }),
+    queryFn: () => api.skill.signals(habitatId, { limit: signalLimit }),
     staleTime: 30 * 1000,
   });
 
@@ -85,23 +103,6 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
   const promotedCount = signals.filter((s) => s.promotedToSkill).length;
   const signalTotal = signalsData?.total ?? 0;
 
-  const strengthBar = (strength: number) => {
-    const pct = Math.round(strength * 100);
-    const color =
-      strength >= 0.6 ? "var(--tertiary)" : strength >= 0.3 ? "hsl(40,90%,55%)" : "var(--error)";
-    return (
-      <div className="flex items-center gap-1.5">
-        <div className="h-1 w-12 rounded-full bg-[var(--surface-container-highest)] overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${pct}%`, backgroundColor: color }}
-          />
-        </div>
-        <span className="text-[9px] text-[var(--on-surface-variant)] tabular-nums">{pct}%</span>
-      </div>
-    );
-  };
-
   return (
     <div className="glass-panel rounded-lg border border-[var(--outline-variant)] overflow-hidden">
       <div
@@ -115,6 +116,7 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
           }
         }}
         aria-expanded={!collapsed}
+        aria-controls="skill-panel-content"
         className="w-full flex items-center gap-2 px-3 py-2.5 bg-[var(--surface-container)]/60 hover:bg-[var(--surface-container)] transition-colors cursor-pointer select-none"
       >
         {collapsed ? (
@@ -152,9 +154,18 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
 
       {!collapsed && (
         <>
-          <div className="flex border-b border-[var(--outline-variant)]">
+          <div
+            role="tablist"
+            className="flex border-b border-[var(--outline-variant)]"
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight") setTab(tab === "document" ? "signals" : "document");
+              if (e.key === "ArrowLeft") setTab(tab === "signals" ? "document" : "signals");
+            }}
+          >
             <button
               type="button"
+              role="tab"
+              aria-selected={tab === "document"}
               onClick={() => setTab("document")}
               className={`flex-1 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
                 tab === "document"
@@ -166,6 +177,8 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={tab === "signals"}
               onClick={() => setTab("signals")}
               className={`flex-1 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
                 tab === "signals"
@@ -182,7 +195,7 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
             </button>
           </div>
 
-          <div className="max-h-96 overflow-y-auto p-3">
+          <div role="tabpanel" id="skill-panel-content" className="max-h-80 overflow-y-auto p-3">
             {tab === "document" ? (
               skillLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -261,13 +274,17 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
             ) : (
               <div className="space-y-2">
                 {signals.map((signal) => (
-                  <SignalRow
-                    key={signal.id}
-                    signal={signal}
-                    habitatId={habitatId}
-                    strengthBar={strengthBar}
-                  />
+                  <SignalRow key={signal.id} signal={signal} habitatId={habitatId} />
                 ))}
+                {signals.length < signalTotal && (
+                  <button
+                    type="button"
+                    onClick={() => setSignalLimit((prev) => prev + 50)}
+                    className="w-full py-2 text-[10px] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] hover:bg-[var(--surface-container-high)] rounded transition-colors"
+                  >
+                    Load more ({signalTotal - signals.length} remaining)
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -277,15 +294,7 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
   );
 }
 
-function SignalRow({
-  signal,
-  habitatId,
-  strengthBar,
-}: {
-  signal: SkillSignal;
-  habitatId: string;
-  strengthBar: (s: number) => React.ReactNode;
-}) {
+function SignalRow({ signal, habitatId }: { signal: SkillSignal; habitatId: string }) {
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const cat = CATEGORY_CONFIG[signal.skillCategory] ?? CATEGORY_CONFIG.agent_insight;
@@ -324,7 +333,7 @@ function SignalRow({
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {strengthBar(signal.strength)}
+          <StrengthBar strength={signal.strength} />
           {confirmDelete ? (
             <div className="flex items-center gap-1">
               <button
@@ -347,7 +356,7 @@ function SignalRow({
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--on-surface-variant)] hover:text-[var(--error)] hover:bg-[var(--surface-container-high)] transition-all"
+              className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 p-1 rounded text-[var(--on-surface-variant)] hover:text-[var(--error)] hover:bg-[var(--surface-container-high)] transition-all"
               title="Delete signal"
             >
               <Trash2 className="h-3 w-3" />

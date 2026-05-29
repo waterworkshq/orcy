@@ -55,6 +55,7 @@ import { rebuildCache as rebuildHabitatSecretCache } from "./services/boardSecre
 import { archiveOldEvents } from "./services/auditArchivalService.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
 import { startAllSchedulers } from "./services/scheduler.js";
+import { initSkillHooks } from "./services/habitatSkillService.js";
 import { initDb } from "./db/index.js";
 
 import { registerErrorHandler } from "./errors/plugin.js";
@@ -245,6 +246,12 @@ try {
 }
 
 const schedulers = startAllSchedulers(fastify);
+
+try {
+  initSkillHooks();
+} catch (err) {
+  fastify.log.error({ err }, "Failed to initialize skill hooks");
+}
 
 const healthSnapshotInterval = setInterval(async () => {
   try {

@@ -1470,4 +1470,36 @@ export class KanbanApiClient {
   }> {
     return this.request("POST", `/api/habitats/${boardId}/skill/contribute`, body);
   }
+
+  async listSkillSignals(
+    boardId: string,
+    params?: { minStrength?: number; skillCategory?: string; limit?: number; offset?: number },
+  ): Promise<{
+    items: {
+      id: string;
+      clusterKey: string;
+      skillCategory: string;
+      sourceType: string;
+      subject: string;
+      summary: string | null;
+      strength: number;
+      frequency: number;
+      corroboratingAgents: number;
+      crossMissionCount: number;
+      successfulTasks: number;
+      failedTasks: number;
+      promotedToSkill: number;
+    }[];
+    total: number;
+  }> {
+    const qs = params
+      ? "?" +
+        new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)] as [string, string]),
+        ).toString()
+      : "";
+    return this.request("GET", `/api/habitats/${boardId}/skill/signals${qs}`);
+  }
 }

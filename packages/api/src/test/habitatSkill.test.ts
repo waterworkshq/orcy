@@ -96,16 +96,32 @@ describe("habitatSkillService", () => {
 
   describe("normalize", () => {
     it("lowercases and strips punctuation", () => {
-      expect(normalize("Drizzle ORM uses bun:sqlite!")).toBe("drizzle orm uses bunsqlite");
+      const result = normalize("Drizzle ORM uses bun:sqlite!");
+      expect(result.startsWith("drizzle orm uses bunsqlite")).toBe(true);
+      expect(result).toMatch(/^drizzle orm uses bunsqlite#[a-z0-9]+$/);
     });
 
     it("collapses whitespace", () => {
-      expect(normalize("  hello   world  ")).toBe("hello world");
+      const result = normalize("  hello   world  ");
+      expect(result.startsWith("hello world")).toBe(true);
+      expect(result).toMatch(/^hello world#[a-z0-9]+$/);
     });
 
-    it("trims to 100 chars", () => {
+    it("truncates prefix to 80 chars and appends hash", () => {
       const long = "a".repeat(200);
-      expect(normalize(long).length).toBe(100);
+      const result = normalize(long);
+      expect(result.length).toBeLessThan(100);
+      expect(result).toMatch(/^a{80}#[a-z0-9]+$/);
+    });
+
+    it("produces same hash for identical inputs", () => {
+      expect(normalize("Hello World")).toBe(normalize("Hello World"));
+    });
+
+    it("produces different hashes for different inputs with same prefix", () => {
+      const a = normalize("a".repeat(200) + "x");
+      const b = normalize("a".repeat(200) + "y");
+      expect(a).not.toBe(b);
     });
   });
 

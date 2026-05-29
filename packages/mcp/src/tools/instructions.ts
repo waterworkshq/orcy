@@ -65,6 +65,7 @@ so you only need to drill into individual tasks when you are about to claim or w
 3. Call orcy_habitat({action: "summary"}) to understand the habitat state
 4. Call orcy_mission({action: "list"}) to browse available missions
 5. Call orcy_mission({action: "get-context", missionId}) to read the mission brief
+5.5. Call orcy_habitat_skill({action: "get"}) to read accumulated habitat knowledge (conventions, patterns, pitfalls) before starting work
 6. If the mission has multiple agents/tasks, check pulse signals in the get-context response. For the full Pulse protocol, call orcy_pulse_instructions().
 7. Call orcy_suggest({action: "suggest-next-task"}) or orcy_task({action: "list-in-mission"}) to find work
 8. Pick the highest-priority eligible task, call orcy_task({action: "claim"})

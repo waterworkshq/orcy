@@ -148,14 +148,14 @@ export function createSkill(habitatId: string): HabitatSkill {
 
 export function getSkillById(id: string): HabitatSkill | null {
   const db = getDb();
-  const rows = db.select().from(habitatSkills).where(eq(habitatSkills.id, id)).all();
-  return rows.length > 0 ? rowToSkill(rows[0]) : null;
+  const row = db.select().from(habitatSkills).where(eq(habitatSkills.id, id)).get();
+  return row ? rowToSkill(row) : null;
 }
 
 export function getSkillByHabitatId(habitatId: string): HabitatSkill | null {
   const db = getDb();
-  const rows = db.select().from(habitatSkills).where(eq(habitatSkills.habitatId, habitatId)).all();
-  return rows.length > 0 ? rowToSkill(rows[0]) : null;
+  const row = db.select().from(habitatSkills).where(eq(habitatSkills.habitatId, habitatId)).get();
+  return row ? rowToSkill(row) : null;
 }
 
 export function getOrCreateSkill(habitatId: string): HabitatSkill {
@@ -238,8 +238,8 @@ export function createSignal(input: CreateSignalInput): HabitatSkillSignal {
 
 export function getSignalById(id: string): HabitatSkillSignal | null {
   const db = getDb();
-  const rows = db.select().from(habitatSkillSignals).where(eq(habitatSkillSignals.id, id)).all();
-  return rows.length > 0 ? rowToSignal(rows[0]) : null;
+  const row = db.select().from(habitatSkillSignals).where(eq(habitatSkillSignals.id, id)).get();
+  return row ? rowToSignal(row) : null;
 }
 
 export function findSignalByClusterKey(
@@ -247,7 +247,7 @@ export function findSignalByClusterKey(
   clusterKey: string,
 ): HabitatSkillSignal | null {
   const db = getDb();
-  const rows = db
+  const row = db
     .select()
     .from(habitatSkillSignals)
     .where(
@@ -256,8 +256,8 @@ export function findSignalByClusterKey(
         eq(habitatSkillSignals.clusterKey, clusterKey),
       ),
     )
-    .all();
-  return rows.length > 0 ? rowToSignal(rows[0]) : null;
+    .get();
+  return row ? rowToSignal(row) : null;
 }
 
 export function updateSignal(
@@ -364,8 +364,6 @@ export function getAllSignalsByHabitat(habitatId: string): HabitatSkillSignal[] 
 
 export function deleteSignal(id: string): boolean {
   const db = getDb();
-  const signal = getSignalById(id);
-  if (!signal) return false;
-  db.delete(habitatSkillSignals).where(eq(habitatSkillSignals.id, id)).run();
-  return true;
+  const result = db.delete(habitatSkillSignals).where(eq(habitatSkillSignals.id, id)).run();
+  return result.changes > 0;
 }

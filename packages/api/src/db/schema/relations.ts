@@ -584,10 +584,13 @@ export const daemonSessionsRelations = relations(daemonSessions, ({ one }) => ({
   }),
 }));
 
-export const habitatSkillsRelations = relations(habitatSkills, ({ one }) => ({
+export const habitatSkillsRelations = relations(habitatSkills, ({ one, many }) => ({
   habitat: one(habitats, {
     fields: [habitatSkills.habitatId],
     references: [habitats.id],
+  }),
+  signals: many(habitatSkillSignals, {
+    relationName: "skillSignals",
   }),
 }));
 
@@ -595,5 +598,10 @@ export const habitatSkillSignalsRelations = relations(habitatSkillSignals, ({ on
   habitat: one(habitats, {
     fields: [habitatSkillSignals.habitatId],
     references: [habitats.id],
+  }),
+  skill: one(habitatSkills, {
+    fields: [habitatSkillSignals.habitatId],
+    references: [habitatSkills.habitatId],
+    relationName: "skillSignals",
   }),
 }));
