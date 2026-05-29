@@ -119,7 +119,7 @@ export async function habitatSkillRoutes(fastify: FastifyInstance): Promise<void
         offset,
       });
 
-      return { items: result.signals, total: result.total };
+      return { signals: result.signals, total: result.total };
     },
   );
 

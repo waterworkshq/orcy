@@ -163,7 +163,8 @@ export function getOrCreateSkill(habitatId: string): HabitatSkill {
   if (existing) return existing;
   try {
     return createSkill(habitatId);
-  } catch {
+  } catch (err) {
+    if (String(err).includes("FOREIGN KEY") || String(err).includes("foreign key")) throw err;
     return getSkillByHabitatId(habitatId) ?? createSkill(habitatId);
   }
 }

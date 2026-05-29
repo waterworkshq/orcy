@@ -85,7 +85,7 @@ export function SkillPanel({ habitatId }: SkillPanelProps) {
     isLoading: signalsLoading,
     error: signalsError,
   } = useQuery({
-    queryKey: queryKeys.skill.signals(habitatId),
+    queryKey: queryKeys.skill.signals(habitatId, { limit: signalLimit }),
     queryFn: () => api.skill.signals(habitatId, { limit: signalLimit }),
     staleTime: 30 * 1000,
   });

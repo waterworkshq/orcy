@@ -44,24 +44,29 @@ function hashCode(str: string): number {
   return h >>> 0;
 }
 
-function updateCrossMissionCount(habitatId: string, clusterKey: string): void {
-  const allSignals = repo.getAllSignalsByHabitat(habitatId);
-  const matching = allSignals.filter((s) => s.clusterKey === clusterKey);
-  if (matching.length < 2) return;
+function recalculateCrossMissionCounts(habitatId: string, allSignals: HabitatSkillSignal[]): void {
+  const byCluster = new Map<string, HabitatSkillSignal[]>();
+  for (const s of allSignals) {
+    const arr = byCluster.get(s.clusterKey) ?? [];
+    arr.push(s);
+    byCluster.set(s.clusterKey, arr);
+  }
 
-  const missions = new Set<string>();
-  for (const sig of matching) {
-    for (const id of parseJsonArray(sig.sourceTaskIds)) {
+  for (const [, matching] of byCluster) {
+    if (matching.length < 2) continue;
+    const missions = new Set<string>();
+    const taskIds = [...new Set(matching.flatMap((s) => parseJsonArray(s.sourceTaskIds)))];
+    for (const id of taskIds) {
       const task = taskRepo.getTaskById(id);
       if (task?.missionId) missions.add(task.missionId);
     }
-  }
 
-  const crossCount = missions.size;
-  if (crossCount >= 2) {
-    for (const sig of matching) {
-      if (sig.crossMissionCount !== crossCount) {
-        repo.updateSignal(sig.id, { crossMissionCount: crossCount });
+    const crossCount = missions.size;
+    if (crossCount >= 2) {
+      for (const sig of matching) {
+        if (sig.crossMissionCount !== crossCount) {
+          repo.updateSignal(sig.id, { crossMissionCount: crossCount });
+        }
       }
     }
   }
@@ -117,12 +122,12 @@ function ingestSignal(signal: {
     if (sourceIdField === "sourcePulseIds") updates.sourcePulseIds = JSON.stringify(sourceIds);
     else if (sourceIdField === "sourceTaskIds") {
       updates.sourceTaskIds = JSON.stringify(sourceIds);
+      // failedTasks = count of distinct task events corroborating this signal pattern
       updates.failedTasks = existing.failedTasks + 1;
     } else if (sourceIdField === "sourceCommentIds")
       updates.sourceCommentIds = JSON.stringify(sourceIds);
 
     repo.updateSignal(existing.id, updates);
-    updateCrossMissionCount(signal.habitatId, normalized);
   } else {
     const input: CreateSignalInput = {
       habitatId: signal.habitatId,
@@ -142,7 +147,6 @@ function ingestSignal(signal: {
     } else if (signal.sourceType === "comment") input.sourceCommentId = signal.sourceId;
 
     repo.createSignal(input);
-    updateCrossMissionCount(signal.habitatId, normalized);
   }
 }
 
@@ -213,7 +217,16 @@ export function ingestFromTaskSuccess(opts: {
     const normalized = normalize(opts.taskTitle);
     if (!normalized) return;
 
-    const existing = repo.findSignalByClusterKey(opts.habitatId, normalized);
+    let existing = repo.findSignalByClusterKey(opts.habitatId, normalized);
+    if (!existing) {
+      const rejectionKey = normalize(`Rejection: ${opts.taskTitle}`);
+      existing = rejectionKey ? repo.findSignalByClusterKey(opts.habitatId, rejectionKey) : null;
+    }
+    if (!existing) {
+      const failureKey = normalize(`Failure: ${opts.taskTitle}`);
+      existing = failureKey ? repo.findSignalByClusterKey(opts.habitatId, failureKey) : null;
+    }
+
     if (existing) {
       repo.updateSignal(existing.id, {
         successfulTasks: existing.successfulTasks + 1,
@@ -302,6 +315,8 @@ export function scoreAllSignals(habitatId: string): void {
       });
     }
   }
+
+  recalculateCrossMissionCounts(habitatId, signals);
 }
 
 export function contributeSignal(
@@ -343,6 +358,10 @@ export function contributeSignal(
   }
 }
 
+export function escapeMarkdown(text: string): string {
+  return text.replace(/([*_[\]`~#|>\\])/g, "\\$1");
+}
+
 export function generateSkillDocument(habitatId: string): string {
   const signals = repo.getPromotedSignals(habitatId);
   const habitat = habitatRepo.getHabitatById(habitatId);
@@ -364,45 +383,20 @@ export function generateSkillDocument(habitatId: string): string {
   md += ` | Signals: ${signals.length}`;
   md += ` | Confidence: ${avgStrength > 0.7 ? "high" : avgStrength > 0.4 ? "medium" : "low"}\n\n`;
 
-  if (sections.architecture.length) {
-    md += `## Architecture & Conventions\n`;
-    for (const s of sections.architecture) {
-      md += `- ${s.summary ?? s.subject} (x${s.frequency})\n`;
+  const renderSection = (title: string, items: HabitatSkillSignal[]) => {
+    if (!items.length) return;
+    md += `## ${title}\n`;
+    for (const s of items) {
+      md += `- ${escapeMarkdown(s.summary ?? s.subject)} (x${s.frequency})\n`;
     }
     md += "\n";
-  }
+  };
 
-  if (sections.patterns.length) {
-    md += `## Patterns\n`;
-    for (const s of sections.patterns) {
-      md += `- ${s.summary ?? s.subject} (x${s.frequency})\n`;
-    }
-    md += "\n";
-  }
-
-  if (sections.pitfalls.length) {
-    md += `## Pitfalls\n`;
-    for (const s of sections.pitfalls) {
-      md += `- ${s.summary ?? s.subject} (x${s.frequency})\n`;
-    }
-    md += "\n";
-  }
-
-  if (sections.domain.length) {
-    md += `## Domain Knowledge\n`;
-    for (const s of sections.domain) {
-      md += `- ${s.summary ?? s.subject} (x${s.frequency})\n`;
-    }
-    md += "\n";
-  }
-
-  if (sections.insights.length) {
-    md += `## Agent Insights\n`;
-    for (const s of sections.insights) {
-      md += `- ${s.summary ?? s.subject} (x${s.frequency})\n`;
-    }
-    md += "\n";
-  }
+  renderSection("Architecture & Conventions", sections.architecture);
+  renderSection("Patterns", sections.patterns);
+  renderSection("Pitfalls", sections.pitfalls);
+  renderSection("Domain Knowledge", sections.domain);
+  renderSection("Agent Insights", sections.insights);
 
   return md;
 }

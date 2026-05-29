@@ -154,6 +154,7 @@ export const queryKeys = {
   skill: {
     all: ["skill"] as const,
     detail: (habitatId: string) => [...queryKeys.skill.all, habitatId] as const,
-    signals: (habitatId: string) => [...queryKeys.skill.all, "signals", habitatId] as const,
+    signals: (habitatId: string, params?: Record<string, unknown>) =>
+      [...queryKeys.skill.all, "signals", habitatId, params] as const,
   },
 };

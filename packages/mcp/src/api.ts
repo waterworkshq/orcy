@@ -234,11 +234,11 @@ export class KanbanApiClient {
     let skill: { content: string; signalCount: number; avgStrength: number } | undefined;
     try {
       const skillResult = await this.getHabitatSkill(details.mission.habitatId);
-      if (skillResult && typeof skillResult === "object" && "content" in skillResult) {
+      if (skillResult?.skill) {
         skill = {
-          content: (skillResult as any).content,
-          signalCount: (skillResult as any).signalCount ?? 0,
-          avgStrength: (skillResult as any).avgStrength ?? 0,
+          content: skillResult.skill.content,
+          signalCount: skillResult.skill.signalCount,
+          avgStrength: skillResult.skill.avgStrength,
         };
       }
     } catch {}
@@ -1475,7 +1475,7 @@ export class KanbanApiClient {
     boardId: string,
     params?: { minStrength?: number; skillCategory?: string; limit?: number; offset?: number },
   ): Promise<{
-    items: {
+    signals: {
       id: string;
       clusterKey: string;
       skillCategory: string;
