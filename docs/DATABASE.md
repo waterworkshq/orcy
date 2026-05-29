@@ -2,12 +2,12 @@
 
 Schema reference for the Orcy database.
 
-The API uses **Drizzle ORM** with **bun:sqlite** (Bun's native SQLite binding) for production. A separate `sql.js` driver is used for test environments only. Data is persisted to a file at the path configured via `DB_PATH` (default: `orcy.db` in the workspace root).
+The API uses **Drizzle ORM** with **better-sqlite3** for production. A separate `sql.js` driver is used for test environments only. Data is persisted to a file at the path configured via `DB_PATH` (default: `orcy.db` in the workspace root).
 
 **Key characteristics:**
 
 - Zero external database dependency in development
-- File-based persistence via bun:sqlite WAL mode
+- File-based persistence via SQLite WAL mode
 - In-memory during runtime (fast reads via sqlite_vec potentially)
 - Single writer (SQLite limitation)
 - PostgreSQL supported via `setDriver('postgres')` in dialect helpers
@@ -25,7 +25,7 @@ export default defineConfig({
 
 **Database initialization (`packages/api/src/db/index.ts`):**
 
-- `initDb(dbPath?)` — initializes with `bun:sqlite`, sets WAL mode + foreign keys ON
+- `initDb(dbPath?)` — initializes with `better-sqlite3`, sets WAL mode + foreign keys ON
 - `initTestDb()` — initializes with `sql.js` (for tests)
 - `getDb()` — returns the singleton DrizzleDB instance
 - `DB_PATH` env var controls database file location
@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (38 tables)
+### Entity-Relationship Diagram (52 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -52,7 +52,7 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
                                  │ (teamId)
                                  ▼
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│ boards           │────<│ columns         │     │ agents          │
+│ habitats         │────<│ columns         │     │ agents          │
 │                  │     │                  │     │                  │
 │ id (PK)          │     │ id (PK)          │     │ id (PK)          │
 │ name             │     │ boardId (FK)     │     │ name (unique)    │
@@ -68,7 +68,7 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 │ createdAt        │          │ (columnId)        │ createdAt        │
 │ updatedAt        │          ▼                  └──────────────────┘
 └──────────────────┘   ┌──────────────────┐            │
-                        │ features         │            │
+│ missions         │            │
                         │                  │────────────┘
                         │ id (PK)          │  (no direct FK)
                         │ boardId (FK)     │
@@ -902,6 +902,56 @@ Recurring scheduled creation of features and tasks from templates. Supports cron
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
 **Indexes:** `idx_scheduled_tasks_board(board_id)`, `idx_scheduled_tasks_next(next_run_at)`, `idx_scheduled_tasks_enabled(enabled)`
+
+#### `daemon_instances`
+
+Tracks autonomous daemon runtimes, including both standalone CLI daemons and API in-process daemon engines.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | text PK | Daemon instance ID |
+| `name` | text | Human-readable daemon name |
+| `hostname` | text | Host where the daemon was registered |
+| `token_hash` | text | SHA-256 hash of daemon token; plain token is shown once |
+| `max_concurrent` | integer | Maximum concurrent spawned sessions |
+| `daemon_version` | text | Daemon/runtime version (`in-process` for UI engine) |
+| `last_heartbeat_at` | text nullable | Last daemon heartbeat timestamp |
+| `status` | text | `online`, `offline`, or `draining` |
+| `metadata` | json | Runtime metadata such as registered habitat IDs |
+| `created_at`, `updated_at` | text | Timestamps |
+
+#### `daemon_agents`
+
+Maps daemon-owned agent records to detected AI CLI binaries.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | text PK | Mapping ID |
+| `daemon_id` | text FK | Parent daemon instance |
+| `agent_id` | text FK | Orcy agent identity created for this CLI |
+| `cli_type` | text | `claude-code`, `codex`, `opencode`, `cursor`, or `gemini` |
+| `cli_version` | text nullable | Detected CLI version |
+| `cli_path` | text | Resolved binary path |
+| `status` | text | `idle`, `working`, or `offline` |
+| `last_seen_at`, `created_at`, `updated_at` | text | Timestamps |
+
+#### `daemon_sessions`
+
+Tracks spawned CLI sessions for claimed tasks.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | text PK | Session ID returned as `daemonSessionId` from claim-next |
+| `daemon_id` | text FK | Owning daemon |
+| `agent_id` | text FK | Daemon-owned agent executing the task |
+| `task_id` | text FK | Claimed task |
+| `habitat_id` | text FK | Habitat scope |
+| `pid` | integer nullable | Local process ID when running on this host |
+| `cli_session_id` | text nullable | Native CLI resume/session token if supported |
+| `workdir` | text | Prepared worktree path, initially `pending` until spawn |
+| `status` | text | `starting`, `running`, `completed`, `failed`, `released`, or `lost` |
+| `last_progress` | text nullable | Redacted progress/output summary |
+| `started_at`, `ended_at`, `updated_at` | text | Timestamps |
 
 #### `integration_connections`
 

@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.13.0 | **Updated:** 2026-05-26
+> **Version:** v0.14.0 | **Updated:** 2026-05-29
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -24,23 +24,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.11.0 | "Guardrails" — review assignment rules (domain routing, anti-self-review, multi-reviewer approval gates), sprint/iteration management (time-boxed sprints, burndown, carry-over policies), visual rule builder (data-driven config tables with sortable cards), mobile table view (card-based responsive fallback), notification preferences (review assigned + priority changed toggles), SSE cache invalidation for all new event types |
 | v0.12.0 | "Fit In" — GitHub Issues sync (OAuth device flow primary, PAT fallback), external issue intake with guarded close protection, webhook-driven updates (HMAC-verified), provider-neutral adapter framework with GitHub adapter, intake candidate system for Jira/Linear, integration settings tab with connection management, external issue badges on missions |
 | v0.13.0 | "Fit In More" — Jira Cloud adapter (JQL search, ADF text extraction, API-token/Basic-Auth + OAuth 3LO), Linear adapter (GraphQL queries, cursor pagination, OAuth PKCE public-client), Intake Review UI (promote/ignore/clarify intake candidates), CLI OAuth connect + integration guide commands, shared OAuth callback infrastructure (fixed port 17530, server-side PKCE verifier store), 20 API route handlers |
+| v0.14.0 | "Autonomous" — daemon & cron automation: standalone CLI daemon, in-process UI-controlled daemon engine, daemon-owned agents for Claude/Codex/OpenCode/Cursor/Gemini, worktree-backed session spawning, scheduler pulse nudges/digests, daemon status/setup UI |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.14.0 — "Autonomous"
-
-Daemon & Cron Automation. Agents run themselves — no more manual launch.
-
-| Component | What |
-|-----------|------|
-| Daemon | Local background process spawns and manages agent sessions |
-| Cron Scheduler | Server-side scheduler nudges agents to work on a schedule |
-
-**Why separate:** Largest single feature since the original build. Pulse proves the signal model the daemon depends on — let it bake first.
 
 ---
 

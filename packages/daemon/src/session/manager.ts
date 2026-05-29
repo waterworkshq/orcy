@@ -1,15 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
-import type { ActiveSession, SessionStatus, ClaimResult, CliType } from "../types.js";
+import type {
+  ActiveSession,
+  SessionStatus,
+  ClaimResult,
+  CliType,
+  ISessionUpdater,
+} from "../types.js";
 import { spawnCli, terminateProcess, type SpawnedProcess } from "./spawner.js";
 import { getAdapter } from "./adapters.js";
 import { validateWorktreeConfig, createWorkdir } from "../workdir.js";
 import { WorkdirError } from "../workdir.js";
-import { DaemonApiClient } from "../api-client.js";
 import { redact } from "../redact.js";
 
 interface ManagerDeps {
-  apiClient: DaemonApiClient;
+  sessionUpdater: ISessionUpdater;
   apiUrl: string;
   dataDir: string;
   sessionTimeoutSeconds: number;
@@ -19,7 +24,7 @@ interface ManagerDeps {
 export class SessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private children: Map<string, ChildProcess> = new Map();
-  private apiClient: DaemonApiClient;
+  private sessionUpdater: ISessionUpdater;
   private apiUrl: string;
   private dataDir: string;
   private sessionTimeoutSeconds: number;
@@ -27,7 +32,7 @@ export class SessionManager {
   private timeoutTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(deps: ManagerDeps) {
-    this.apiClient = deps.apiClient;
+    this.sessionUpdater = deps.sessionUpdater;
     this.apiUrl = deps.apiUrl;
     this.dataDir = deps.dataDir;
     this.sessionTimeoutSeconds = deps.sessionTimeoutSeconds;
@@ -74,6 +79,12 @@ export class SessionManager {
   ): Promise<ActiveSession> {
     const validationError = validateWorktreeConfig(claim);
     if (validationError) {
+      if (daemonSessionId) {
+        await this.sessionUpdater.updateSession(daemonSessionId, {
+          status: "failed",
+          lastProgress: redact(`Cannot start session: ${validationError}`),
+        });
+      }
       throw new WorkdirError(`Cannot start session: ${validationError}`);
     }
 
@@ -81,6 +92,14 @@ export class SessionManager {
     try {
       workdirResult = createWorkdir(claim, this.dataDir);
     } catch (err) {
+      if (daemonSessionId) {
+        await this.sessionUpdater.updateSession(daemonSessionId, {
+          status: "failed",
+          lastProgress: redact(
+            `Workdir creation failed: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        });
+      }
       throw new WorkdirError(
         `Workdir creation failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -91,6 +110,7 @@ export class SessionManager {
 
     const session: ActiveSession = {
       id: sessionId,
+      daemonSessionId,
       taskId: claim.task.id,
       taskTitle: claim.task.title,
       agentId,
@@ -122,6 +142,7 @@ export class SessionManager {
           onStdout: (data) => this.handleOutput(sessionId, data),
           onStderr: (data) => this.handleOutput(sessionId, data),
           onExit: (code, signal) => this.handleExit(sessionId, code, signal),
+          onError: (error) => this.handleProcessError(sessionId, error),
         },
       );
 
@@ -130,7 +151,7 @@ export class SessionManager {
       this.children.set(sessionId, spawned.child);
 
       if (daemonSessionId) {
-        await this.apiClient.updateSession(daemonSessionId, {
+        await this.sessionUpdater.updateSession(daemonSessionId, {
           status: "running",
           pid: spawned.pid,
           workdir: workdirResult.path,
@@ -138,8 +159,13 @@ export class SessionManager {
       }
     } catch (err) {
       session.status = "failed";
+      const child = this.children.get(sessionId);
+      if (child) {
+        terminateProcess(child);
+        this.children.delete(sessionId);
+      }
       if (daemonSessionId) {
-        await this.apiClient.updateSession(daemonSessionId, {
+        await this.sessionUpdater.updateSession(daemonSessionId, {
           status: "failed",
           lastProgress: redact(err instanceof Error ? err.message : String(err)),
         });
@@ -166,7 +192,9 @@ export class SessionManager {
     this.children.delete(sessionId);
 
     try {
-      await this.apiClient.updateSession(sessionId, { status: "released" });
+      await this.sessionUpdater.updateSession(session.daemonSessionId ?? sessionId, {
+        status: "released",
+      });
     } catch {}
   }
 
@@ -198,7 +226,7 @@ export class SessionManager {
     this.children.delete(sessionId);
 
     try {
-      await this.apiClient.updateSession(sessionId, {
+      await this.sessionUpdater.updateSession(session.daemonSessionId ?? sessionId, {
         status: "failed",
         lastProgress: reason,
       });
@@ -220,8 +248,8 @@ export class SessionManager {
       session.status = "failed";
       this.children.delete(sessionId);
 
-      this.apiClient
-        .updateSession(sessionId, {
+      this.sessionUpdater
+        .updateSession(session.daemonSessionId ?? sessionId, {
           status: "failed",
           lastProgress: `Session timed out after ${this.sessionTimeoutSeconds}s of inactivity`,
         })
@@ -255,6 +283,7 @@ export class SessionManager {
     if (!session) return;
 
     this.children.delete(sessionId);
+    if (session.status !== "starting" && session.status !== "running") return;
 
     let newStatus: SessionStatus;
     if (code === 0) {
@@ -268,12 +297,16 @@ export class SessionManager {
     session.status = newStatus;
 
     try {
-      await this.apiClient.updateSession(sessionId, {
+      await this.sessionUpdater.updateSession(session.daemonSessionId ?? sessionId, {
         status: newStatus,
         lastProgress: session.lastProgress,
       });
     } catch {}
 
     this.onSessionComplete?.(session);
+  }
+
+  private async handleProcessError(sessionId: string, error: Error): Promise<void> {
+    await this.failSession(sessionId, error.message);
   }
 }

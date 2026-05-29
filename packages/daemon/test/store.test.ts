@@ -22,6 +22,7 @@ describe("Store", () => {
     daemonId: "d1",
     daemonToken: "daemon-secret-token",
     apiUrl: "http://localhost:3000",
+    habitatIds: ["hab-1"],
     agents: [{ id: "a1", name: "daemon-ws-claude", type: "claude-code", apiKey: "agent-key-123" }],
     registeredAt: "2026-05-28T00:00:00Z",
   };

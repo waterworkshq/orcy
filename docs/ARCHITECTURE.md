@@ -8,10 +8,10 @@ This document covers the system architecture, design decisions, key flows, and i
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  AI Agent (Claude Code / Codex / OpenCode)               │
+│  AI Agent (Claude Code / Codex / OpenCode / Cursor / Gemini) │
 │  MCP stdio transport                                     │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  MCP Server (16 dispatch tools)                      │   │
+│  │  MCP Server (14 dispatch tools)                      │   │
 │  │  Features: list │ create │ get_context │ delete  │   │
 │  │  Tasks: claim │ submit │ update │ heartbeat     │   │
 │  │  Rules: get │ update │ evaluate                │   │
@@ -26,7 +26,8 @@ This document covers the system architecture, design decisions, key flows, and i
 │  Habitat → Missions → Tasks → Subtasks                     │
 │  Missions flow through columns, tasks have state machine   │
 │  Background intervals: stale detection, health snapshots, │
-│    prioritization evaluation (5min), scheduled tasks (1m) │
+│    prioritization evaluation (5min), scheduled tasks (1m), │
+│    daemon nudges/digests, in-process daemon engine       │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -38,9 +39,9 @@ This document covers the system architecture, design decisions, key flows, and i
 
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
-| Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes `missions.ts` for 13 mission endpoints |
-| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts` for mission status derivation engine, `prioritizationService.ts` for rule evaluation, `scheduledTaskService.ts` for recurring task execution |
-| Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, comment, template, webhook, event-mission) |
+| Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes daemon machine routes (`/daemon/*`) and human/UI daemon controls (`/daemons/*`) |
+| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime |
+| Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, daemon, comment, template, webhook, event-mission) |
 | Models | `src/models/` | TypeScript types, Zod schemas. Includes `Mission`, `MissionWithProgress`, `MissionStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
 | SSE | `src/sse/` | Event broadcaster (pub/sub) — broadcasts both task and mission events |
@@ -53,7 +54,7 @@ This document covers the system architecture, design decisions, key flows, and i
 |-------|-----------|---------------|
 | Pages | `src/pages/` | HabitatListPage, HabitatPage, MissionDetailPage |
 | Components | `src/components/ui/` | Button, Badge, Card, Dialog, ErrorBoundary |
-| Habitat | `src/components/habitat/` | Habitat, Column, TaskCard, TaskDetailPanel |
+| Habitat | `src/components/habitat/` | Habitat, Column, TaskCard, TaskDetailPanel, DaemonSection, DaemonCard, DaemonSetupDialog |
 | Store | `src/store/` | Zustand state management + SSE handler |
 | API | `src/api/` | Typed REST client |
 | Lib | `src/lib/` | React Query hooks (`useHabitatData`, `useTaskData`) + cache key factory (`queryKeys`) |
@@ -151,6 +152,30 @@ Agent              API                Mission Service        SSE Broadcast      
   │                 │  Broadcast ─────────────────────────────────>│                   │
 ```
 
+### Autonomous Daemon Flow
+
+```
+Human UI / CLI        API Daemon Routes       Daemon Engine / CLI Daemon       Agent CLI
+     │                       │                           │                         │
+     │  detect/register      │                           │                         │
+     │──────────────────────>│  create daemon + agents  │                         │
+     │                       │──────────────────────────>│                         │
+     │  start                │                           │                         │
+     │──────────────────────>│                           │  poll suggestions       │
+     │                       │                           │  atomic claim           │
+     │                       │                           │  create daemon_session  │
+     │                       │                           │  prepare worktree       │
+     │                       │                           │────────────────────────>│
+     │                       │                           │  spawn with MCP env     │
+     │                       │  heartbeat/session update │<────────────────────────│
+     │<──────────────────────│  status visible in UI     │                         │
+```
+
+There are two daemon operating modes:
+
+- **Standalone CLI daemon:** `orcy daemon start` runs outside the API process, stores credentials in `~/.orcy/daemon/credentials.json`, and uses `DaemonApiClient` plus `X-Daemon-Token` to call `/daemon/*` routes.
+- **In-process UI daemon:** the API imports `@orcy/daemon` session/spawn components, uses direct repository calls through `daemonEngine.ts`, and is controlled by human-authenticated `/daemons/*` routes. It keeps generated agent keys in API process memory rather than writing local credential files.
+
 ### SSE Event Flow
 
 ```
@@ -176,13 +201,13 @@ Agent-related events (status changes, heartbeats) are published to the `'global'
 
 ## Design Decisions
 
-### ADR-1: SQLite with bun:sqlite
+### ADR-1: SQLite with better-sqlite3
 
-**Decision:** Use `bun:sqlite` (Bun's native SQLite binding) for production storage; `sql.js` (WASM) only for test environments.
+**Decision:** Use `better-sqlite3` for production storage; `sql.js` (WASM) only for test environments.
 
 **Rationale:**
 
-- Bun's native binding provides superior performance to sql.js
+- Native SQLite bindings provide better production behavior than sql.js
 - Zero external database dependency — file-based with WAL mode
 - Easy to reset (delete `orcy.db`)
 - Drizzle ORM provides cross-database support (SQLite/PostgreSQL via dialect)
@@ -251,16 +276,16 @@ Agent-related events (status changes, heartbeats) are published to the `'global'
 - Event table grows unboundedly
 - No "delete event" capability (intentional)
 
-### ADR-7: Drizzle ORM with bun:sqlite
+### ADR-7: Drizzle ORM with better-sqlite3
 
-**Decision:** Migrate from raw parameterized SQL to Drizzle ORM with bun:sqlite as the primary database driver.
+**Decision:** Migrate from raw parameterized SQL to Drizzle ORM with better-sqlite3 as the primary database driver.
 
 **Rationale:**
 
 - Type-safe schema definition with automatic TypeScript type inference
 - Cross-database support via dialect helpers (SQLite/PostgreSQL)
 - Drizzle Kit for schema management
-- Bun's native SQLite binding (`bun:sqlite`) provides superior performance to sql.js
+- Native SQLite bindings provide superior production behavior to sql.js
 - Still allows raw SQL for complex queries when needed
 
 **Trade-offs:**

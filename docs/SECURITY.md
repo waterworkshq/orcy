@@ -43,6 +43,7 @@ Posture is classified by `classifyPosture()` in `packages/api/src/config/securit
 | Webhook signature bypass | Fail-closed when secrets configured but no match; raw body verification | Implemented |
 | Outbound SSRF | URL validation blocks private/loopback/link-local IPs and unsafe schemes | Implemented |
 | Git worktree injection | `execFileSync` with argv arrays, branch prefix validation, path containment | Implemented |
+| Daemon token theft | Daemon tokens are hashed in DB; standalone credentials file uses restrictive permissions; UI in-process daemon avoids credential files | Implemented |
 
 ---
 
@@ -113,12 +114,13 @@ POST /api/auth/login { username, password }
 **Default admin user (development only):**
 
 - Username: `admin`, Password: `admin123`
-- Seeded automatically if `users` table is empty
+- Seeded automatically only outside production if `users` table is empty
 
 **For production:**
 
 - Set a strong `JWT_SECRET` (minimum 32 characters, not a known weak value)
 - The server will refuse to start in remote posture without a strong secret
+- Create the first admin through the setup form; `POST /api/auth/register` is accepted only while no users exist
 
 ### 3. Agent or Human Auth (`agentOrHumanAuth`)
 
@@ -145,6 +147,17 @@ SSE and WebSocket channels use dedicated realtime auth middleware:
 - **remote posture:** Requires valid `ORCY_REGISTRATION_TOKEN` in `X-Registration-Token` header
 - **Explicit override:** `ORCY_DEV_ALLOW_OPEN_REGISTRATION=true` allows open registration in any posture
 
+### 6. Daemon Authentication
+
+Standalone daemon routes use a separate daemon token model:
+
+1. Registration creates a daemon token with a `daemon-` prefix.
+2. The API stores only `hashDaemonToken(token)` in `daemon_instances.token_hash`.
+3. Standalone daemons send the plain token as `X-Daemon-Token` to `/daemon/*` routes.
+4. The token authorizes only the owning daemon's sessions and daemon-owned agents.
+
+Human/UI daemon controls (`/daemons/*`) use normal human JWT auth and run the daemon engine inside the API process. The UI path does not write local credential files; generated managed-agent API keys are retained only in API process memory for immediate start.
+
 ---
 
 ## Authorization Model
@@ -156,6 +169,8 @@ All non-public routes require authentication. Public allowlist:
 | Route | Reason |
 |-------|--------|
 | `GET /health` | Health check |
+| `GET /api/auth/setup-status` | First-run setup discovery |
+| `POST /api/auth/register` | First admin bootstrap; forbidden after a user exists |
 | `POST /api/auth/login` | Login endpoint |
 | Inbound webhook routes (`/api/webhooks/*`, `/api/cicd/*`, `/api/code-review/*`) | Verified by provider signatures |
 
@@ -172,6 +187,8 @@ All non-public routes require authentication. Public allowlist:
 | **Task details, events, time report** | `agentAuth` or `agentOrHumanAuth` | Varies by endpoint |
 | **Task comments** | `agentAuth` | Agents must be comment author for edit/delete |
 | **Agent CRUD** | `agentOrHumanAuth` (read), `humanAuth + adminOnly` (write) | — |
+| **Daemon machine routes** (`/daemon/*`) | `registrationAuth` or `daemonAuth` | Standalone daemon registration, heartbeat, claim-next, session updates |
+| **Daemon UI routes** (`/daemons/*`) | `humanAuth` | Same-machine in-process daemon setup, start/stop, status, CLI detection |
 | **Agent messages** | `agentAuth` | Sender and mailbox identity derived from `request.agent.id` only |
 | **Attachments** | `agentOrHumanAuth` | Object-level authorization enforced |
 | **Webhook management** | `humanAuth + adminOnly` | — |
@@ -328,6 +345,7 @@ The API uses `@fastify/helmet` for security headers. `Content-Security-Policy` i
 | Limitation | Severity | Recommendation |
 |-----------|----------|---------------|
 | No HTTPS enforcement | High | Configure TLS via reverse proxy |
+| UI in-process daemon credentials are memory-only | Medium | Use standalone CLI daemon for persisted autonomous operation across API restarts |
 | No API key rotation mechanism | Medium | Implement key rotation endpoint |
 | No audit log retention policy | Low | Add TTL or archival for old events |
 | Secrets stored plaintext in SQLite | Medium | Encrypt at filesystem level for production |

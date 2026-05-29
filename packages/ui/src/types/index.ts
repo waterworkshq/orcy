@@ -80,7 +80,7 @@ import type {
   ExternalIntakeCandidate,
   ExternalIssueLink,
   IntegrationSyncRun,
-} from '@orcy/shared';
+} from "@orcy/shared";
 
 export type {
   AgentType,
@@ -261,14 +261,14 @@ export interface QualityChecklist {
   templateName: string;
   category: string;
   required: boolean;
-  status: 'pending' | 'in_progress' | 'passed';
+  status: "pending" | "in_progress" | "passed";
   progress: { total: number; completed: number };
   items: QualityChecklistItem[];
 }
 
 export interface TaskQualityReport {
   taskId: string;
-  overallStatus: 'passed' | 'blocked';
+  overallStatus: "passed" | "blocked";
   canApprove: boolean;
   checklists: QualityChecklist[];
   missingRequirements: { category: string; missingItems: string[] }[];
@@ -323,7 +323,7 @@ export interface NotificationPreferences {
 export interface ChatIntegration {
   id: string;
   habitatId: string;
-  provider: 'slack' | 'discord';
+  provider: "slack" | "discord";
   webhookUrl: string;
   channelId: string | null;
   botToken: string | null;
@@ -374,7 +374,7 @@ export interface TaskEstimate {
   assignedAgentId: string | null;
   dueAt: string | null;
   estimatedCompletionAt: string | null;
-  confidence: 'high' | 'medium' | 'low';
+  confidence: "high" | "medium" | "low";
   positionInQueue: number;
   daysUntilDue: number | null;
   daysUntilEstimated: number | null;
@@ -383,8 +383,8 @@ export interface TaskEstimate {
 export interface AtRiskTask {
   taskId: string;
   taskTitle: string;
-  reason: 'overdue_prediction' | 'no_activity' | 'blocked_by_dependency' | 'past_due';
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  reason: "overdue_prediction" | "no_activity" | "blocked_by_dependency" | "past_due";
+  severity: "low" | "medium" | "high" | "critical";
   details: string;
   assignedAgentId: string | null;
   dueAt: string | null;
@@ -431,7 +431,7 @@ export interface Team {
   createdAt: string;
 }
 
-export type TeamMemberRole = 'owner' | 'admin' | 'member';
+export type TeamMemberRole = "owner" | "admin" | "member";
 
 export interface TeamMember {
   id: string;
@@ -479,19 +479,27 @@ export interface Notification {
   read: boolean;
 }
 
-export type SignalType = 'finding' | 'blocker' | 'offer' | 'warning'
-  | 'question' | 'answer' | 'directive' | 'context' | 'handoff';
+export type SignalType =
+  | "finding"
+  | "blocker"
+  | "offer"
+  | "warning"
+  | "question"
+  | "answer"
+  | "directive"
+  | "context"
+  | "handoff";
 
-export type PulseScope = 'mission' | 'habitat';
+export type PulseScope = "mission" | "habitat";
 
 export interface Pulse {
   id: string;
   missionId: string | null;
   habitatId: string;
   scope: PulseScope;
-  fromType: 'human' | 'agent' | 'system';
+  fromType: "human" | "agent" | "system";
   fromId: string;
-  toType: 'human' | 'agent' | null;
+  toType: "human" | "agent" | null;
   toId: string | null;
   signalType: SignalType;
   subject: string;
@@ -559,7 +567,12 @@ export interface SavedFilter {
   createdAt: string;
 }
 
-export type ReviewRuleStrategy = 'domain_expert' | 'round_robin' | 'least_loaded' | 'random' | 'fixed';
+export type ReviewRuleStrategy =
+  | "domain_expert"
+  | "round_robin"
+  | "least_loaded"
+  | "random"
+  | "fixed";
 
 export interface ReviewRule {
   id: string;
@@ -576,4 +589,52 @@ export interface ReviewRule {
   fixedReviewerIds: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DaemonInfo {
+  id: string;
+  name: string;
+  hostname: string;
+  status: "online" | "offline";
+  agentCount: number;
+  activeSessionCount: number;
+  lastHeartbeat: string | null;
+  createdAt: string;
+  maxConcurrent: number;
+}
+
+export interface DaemonDetail {
+  daemon: {
+    id: string;
+    name: string;
+    hostname: string;
+    status: "online" | "offline";
+    maxConcurrent: number;
+    lastHeartbeat: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  agents: Array<{
+    id: string;
+    cliType: string;
+    cliVersion: string | null;
+    cliPath: string | null;
+    status: string;
+  }>;
+  activeSessions: Array<{
+    id: string;
+    taskId: string;
+    agentId: string;
+    habitatId: string;
+    status: string;
+    startedAt: string | null;
+    workdir: string | null;
+    lastProgress: string | null;
+  }>;
+}
+
+export interface DetectedCli {
+  type: string;
+  version: string | null;
+  path: string;
 }

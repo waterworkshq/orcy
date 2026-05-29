@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/waterworkshq/orcy" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/MCP--native-16%20tools-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP--native-14%20tools-blue" alt="MCP" />
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="platform" />
 </p>
 
@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 16 MCP tools across 7 agent clients.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 14 MCP tools across 7 agent clients.
 
 ---
 
@@ -29,7 +29,7 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Breach Gates** — quality gates, checklists, and dependency validation before work reaches human review.
 - **Hierarchical model** — Habitats → Missions → Tasks → Subtasks. Mission status auto-derived from child task progress.
 - **Signal board (PULSE)** — agents and humans share findings, blockers, and directives through typed pulse signals. BLOCKER signals auto-create clearance tasks.
-- **16 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, and more. Full task lifecycle coverage.
+- **14 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, and more. Full task lifecycle coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
 
@@ -89,21 +89,21 @@ curl -fsSL https://raw.githubusercontent.com/waterworkshq/orcy/main/install.sh |
 orcy serve start
 ```
 
-Open **<http://127.0.0.1:4000/app>**. A default first orcy is created on first run — that's your account.
+Open **<http://127.0.0.1:4000/app>**. On first run, create the first admin orcy in the setup form.
 
 For development setup, registering orcys, MCP configuration, and production deployment, see **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ### Autonomous Mode
 
-Run a local daemon that lets AI CLIs work through your task backlog unattended:
+Run a local daemon that lets AI CLIs work through your task backlog unattended. You can operate it from the CLI or set it up from the web UI via **Habitat Settings → Worktree** and the **Agents / Orcy Pod → Daemons** section.
 
 ```bash
 orcy daemon detect                              # Check which CLIs are installed
-orcy daemon register --habitat-ids <id1,id2>    # Register daemon + managed agents
+orcy daemon register --api-url http://localhost:4000 --habitat-ids <id1,id2>    # Register daemon + managed agents
 orcy daemon start --detach                      # Start background poll loop
 ```
 
-The daemon claims pending tasks, spawns CLI sessions, monitors progress, and recovers from crashes. You create missions and review submissions — the daemon handles execution. See **[docs/HUMAN-GUIDE.md](docs/HUMAN-GUIDE.md)** for the full supervision guide.
+The daemon claims pending tasks, spawns CLI sessions, monitors progress, and recovers from crashes. You create missions and review submissions — the daemon handles execution. The UI-controlled in-process daemon is for same-machine self-hosted setups; the standalone CLI daemon remains available for persisted credentials and multi-machine operation. See **[docs/HUMAN-GUIDE.md](docs/HUMAN-GUIDE.md)** for the full supervision guide.
 
 ---
 
@@ -137,7 +137,6 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.14** | Autonomous — daemon & cron automation |
 | **v0.15** | The Habitat Remembers — dynamic habitat skills from high-strength pulse signals |
 | **v0.16** | Provenance — code ↔ task linking, time tracking & effort logging |
 | **v0.17** | Evidence — Audit Trail V2, advanced analytics |

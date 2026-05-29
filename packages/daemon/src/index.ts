@@ -33,6 +33,7 @@ export type {
   SpawnOptions,
   SessionStatus,
   ActiveSession,
+  ISessionUpdater,
 } from "./types.js";
 export type { SpawnedProcess, SpawnCallbacks } from "./session/spawner.js";
 export type { PollLoopDeps } from "./poll-loop.js";

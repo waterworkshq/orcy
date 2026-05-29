@@ -1,14 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
 
-const { spawnMock, updateSessionMock, createWorkdirMock, validateWorktreeConfigMock } = vi.hoisted(
-  () => ({
-    spawnMock: vi.fn(),
-    updateSessionMock: vi.fn(),
-    createWorkdirMock: vi.fn(),
-    validateWorktreeConfigMock: vi.fn(),
-  }),
-);
+const {
+  spawnMock,
+  updateSessionMock,
+  createWorkdirMock,
+  validateWorktreeConfigMock,
+  terminateProcessMock,
+} = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+  updateSessionMock: vi.fn(),
+  createWorkdirMock: vi.fn(),
+  validateWorktreeConfigMock: vi.fn(),
+  terminateProcessMock: vi.fn(() => true),
+}));
 
 vi.mock("node:child_process", () => ({
   spawn: spawnMock,
@@ -16,7 +21,7 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("../../src/session/spawner.js", () => ({
   spawnCli: spawnMock,
-  terminateProcess: vi.fn(() => true),
+  terminateProcess: terminateProcessMock,
 }));
 
 vi.mock("../../src/workdir.js", () => ({
@@ -69,12 +74,13 @@ describe("SessionManager", () => {
       updateSession: updateSessionMock.mockResolvedValue(undefined),
     };
     manager = new SessionManager({
-      apiClient,
+      sessionUpdater: apiClient,
       apiUrl: "http://localhost:3000",
       dataDir: "/tmp/orcy",
       sessionTimeoutSeconds: 600,
     });
     spawnMock.mockReset();
+    terminateProcessMock.mockReset().mockReturnValue(true);
     updateSessionMock.mockReset().mockResolvedValue(undefined);
     validateWorktreeConfigMock.mockReset();
     createWorkdirMock.mockReset();
@@ -93,6 +99,29 @@ describe("SessionManager", () => {
       await expect(
         manager.startSession(makeClaim(), "agent-1", "key", "claude-code", "/bin/claude"),
       ).rejects.toThrow("missing settings");
+    });
+
+    it("marks the daemon session failed when worktree config is invalid after claim", async () => {
+      validateWorktreeConfigMock.mockReturnValue("missing settings");
+
+      await expect(
+        manager.startSession(
+          makeClaim(),
+          "agent-1",
+          "key",
+          "claude-code",
+          "/bin/claude",
+          "daemon-session-1",
+        ),
+      ).rejects.toThrow("missing settings");
+
+      expect(updateSessionMock).toHaveBeenCalledWith(
+        "daemon-session-1",
+        expect.objectContaining({
+          status: "failed",
+          lastProgress: "Cannot start session: missing settings",
+        }),
+      );
     });
 
     it("creates workdir and spawns process", async () => {
@@ -160,6 +189,32 @@ describe("SessionManager", () => {
       );
     });
 
+    it("terminates the child process if the running status update fails", async () => {
+      validateWorktreeConfigMock.mockReturnValue(null);
+      createWorkdirMock.mockReturnValue({
+        path: "/tmp/workdir",
+        branch: "task/task-001",
+        worktreePath: "/tmp/workdir",
+      });
+      const mockChild = makeMockChild(999);
+      spawnMock.mockReturnValue({ pid: 999, child: mockChild });
+      updateSessionMock.mockRejectedValueOnce(new Error("api down"));
+
+      await expect(
+        manager.startSession(
+          makeClaim(),
+          "agent-1",
+          "key",
+          "claude-code",
+          "/bin/claude",
+          "daemon-session-1",
+        ),
+      ).rejects.toThrow("api down");
+
+      expect(terminateProcessMock).toHaveBeenCalledWith(mockChild);
+      expect(manager.activeCount).toBe(0);
+    });
+
     it("handles exit code 0 as completed", async () => {
       validateWorktreeConfigMock.mockReturnValue(null);
       createWorkdirMock.mockReturnValue({
@@ -189,6 +244,108 @@ describe("SessionManager", () => {
 
       expect(session.status).toBe("completed");
       expect(manager.activeCount).toBe(0);
+    });
+
+    it("updates the daemon session id when a process exits", async () => {
+      validateWorktreeConfigMock.mockReturnValue(null);
+      createWorkdirMock.mockReturnValue({
+        path: "/tmp/workdir",
+        branch: "task/task-001",
+        worktreePath: "/tmp/workdir",
+      });
+
+      let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
+      spawnMock.mockImplementation((...args: unknown[]) => {
+        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        capturedOnExit = callbacks.onExit;
+        return { pid: 111, child: makeMockChild(111) };
+      });
+
+      await manager.startSession(
+        makeClaim(),
+        "agent-1",
+        "key",
+        "claude-code",
+        "/bin/claude",
+        "daemon-session-1",
+      );
+      updateSessionMock.mockClear();
+
+      capturedOnExit(0, null);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(updateSessionMock).toHaveBeenCalledWith(
+        "daemon-session-1",
+        expect.objectContaining({ status: "completed" }),
+      );
+    });
+
+    it("does not let a late process exit overwrite a released session", async () => {
+      validateWorktreeConfigMock.mockReturnValue(null);
+      createWorkdirMock.mockReturnValue({
+        path: "/tmp/workdir",
+        branch: "task/task-001",
+        worktreePath: "/tmp/workdir",
+      });
+
+      let capturedOnExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {};
+      spawnMock.mockImplementation((...args: unknown[]) => {
+        const callbacks = (args as any[])[8] as { onExit: typeof capturedOnExit };
+        capturedOnExit = callbacks.onExit;
+        return { pid: 111, child: makeMockChild(111) };
+      });
+
+      const session = await manager.startSession(
+        makeClaim(),
+        "agent-1",
+        "key",
+        "claude-code",
+        "/bin/claude",
+        "daemon-session-1",
+      );
+      await manager.releaseSession(session.id);
+      updateSessionMock.mockClear();
+
+      capturedOnExit(null, "SIGTERM");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(session.status).toBe("released");
+      expect(updateSessionMock).not.toHaveBeenCalled();
+    });
+
+    it("marks sessions failed when the child process emits an error", async () => {
+      validateWorktreeConfigMock.mockReturnValue(null);
+      createWorkdirMock.mockReturnValue({
+        path: "/tmp/workdir",
+        branch: "task/task-001",
+        worktreePath: "/tmp/workdir",
+      });
+
+      let capturedOnError: (error: Error) => void = () => {};
+      spawnMock.mockImplementation((...args: unknown[]) => {
+        const callbacks = (args as any[])[8] as { onError: typeof capturedOnError };
+        capturedOnError = callbacks.onError;
+        return { pid: 111, child: makeMockChild(111) };
+      });
+
+      const session = await manager.startSession(
+        makeClaim(),
+        "agent-1",
+        "key",
+        "claude-code",
+        "/bin/claude",
+        "daemon-session-1",
+      );
+      updateSessionMock.mockClear();
+
+      capturedOnError(new Error("spawn ENOENT"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(session.status).toBe("failed");
+      expect(updateSessionMock).toHaveBeenCalledWith(
+        "daemon-session-1",
+        expect.objectContaining({ status: "failed", lastProgress: "spawn ENOENT" }),
+      );
     });
 
     it("handles non-zero exit code as failed", async () => {
@@ -273,7 +430,7 @@ describe("SessionManager", () => {
     it("kills sessions with no activity beyond timeout", async () => {
       vi.useFakeTimers();
       const timeoutManager = new SessionManager({
-        apiClient,
+        sessionUpdater: apiClient,
         apiUrl: "http://localhost:3000",
         dataDir: "/tmp/orcy",
         sessionTimeoutSeconds: 10,
@@ -318,7 +475,7 @@ describe("SessionManager", () => {
     it("does not kill sessions with recent activity", async () => {
       vi.useFakeTimers();
       const timeoutManager = new SessionManager({
-        apiClient,
+        sessionUpdater: apiClient,
         apiUrl: "http://localhost:3000",
         dataDir: "/tmp/orcy",
         sessionTimeoutSeconds: 10,
@@ -369,7 +526,7 @@ describe("SessionManager", () => {
     it("stops timeout check on shutdownAll", async () => {
       vi.useFakeTimers();
       const timeoutManager = new SessionManager({
-        apiClient,
+        sessionUpdater: apiClient,
         apiUrl: "http://localhost:3000",
         dataDir: "/tmp/orcy",
         sessionTimeoutSeconds: 10,

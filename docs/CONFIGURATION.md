@@ -115,10 +115,10 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 | Stale task threshold | 30 minutes | Hardcoded in `src/index.ts` (`releaseStaleTasks(30)`) |
 | Stale check interval | 60 seconds | Hardcoded in `src/index.ts` (`setInterval(..., 60_000)`) |
 | Database file | `orcy.db` | Workspace root, via `DB_PATH` env var |
-| Database driver | `bun:sqlite` | Use `setDriver('postgres')` for PostgreSQL |
+| Database driver | `better-sqlite3` | Use `setDriver('postgres')` for PostgreSQL |
 | bcrypt rounds | 10 | Hardcoded in `src/routes/auth.ts` |
 | JWT algorithm | HS256 | Hardcoded in `src/middleware/auth.ts` |
-| Default admin user | `admin / admin123` | Seeded on startup if users table is empty |
+| First admin user | Setup form in production | Development may seed `admin / admin123` outside production |
 
 ---
 

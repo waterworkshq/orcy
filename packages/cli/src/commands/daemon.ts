@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { ORCY_PATHS } from "@orcy/shared";
 import { withErrorHandling } from "../error-handler.js";
 import {
@@ -17,6 +18,7 @@ import {
 
 const PID_FILE = path.join(ORCY_PATHS.run, "daemon.pid");
 const LOG_FILE = path.join(ORCY_PATHS.logs, "daemon.log");
+const CLI_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "index.js");
 
 function readPid(): number | null {
   try {
@@ -138,6 +140,7 @@ export function registerDaemonCommands(program: any) {
             daemonId: registration.daemonId,
             daemonToken: registration.daemonToken,
             apiUrl: config.apiUrl,
+            habitatIds: config.habitatIds,
             agents: registration.agents,
             registeredAt: new Date().toISOString(),
           });
@@ -177,7 +180,7 @@ export function registerDaemonCommands(program: any) {
               return;
             }
 
-            const args = [path.resolve(__dirname, "..", "index.js"), "daemon", "start"];
+            const args = [CLI_ENTRY, "daemon", "start"];
             if (options.apiUrl) args.push("--api-url", options.apiUrl);
             args.push("--max-concurrent", options.maxConcurrent);
             args.push("--poll-interval", options.pollInterval);
@@ -207,7 +210,7 @@ export function registerDaemonCommands(program: any) {
             ? process.env.ORCY_HABITAT_IDS.split(",")
                 .map((s: string) => s.trim())
                 .filter(Boolean)
-            : [];
+            : (creds.habitatIds ?? []);
 
           const config = {
             apiUrl: options.apiUrl ?? creds.apiUrl,
@@ -225,7 +228,7 @@ export function registerDaemonCommands(program: any) {
           apiClient.setDaemonToken(creds.daemonToken);
 
           const sessionManager = new SessionManager({
-            apiClient,
+            sessionUpdater: apiClient,
             apiUrl: config.apiUrl,
             dataDir: config.dataDir,
             sessionTimeoutSeconds: config.sessionTimeoutSeconds,

@@ -23,7 +23,7 @@ Every submission is reviewed by another pod member before it is considered compl
 
 ## Quick Start
 
-1. **Log in** — Open the UI at http://localhost:5173 and log in (default: `admin` / `admin123`)
+1. **Log in** — Open the UI and create the first admin on a fresh production install; development mode may seed `admin` / `admin123`
 2. **Create a habitat** — Name it after your sprint, project, or pod (e.g., "Sprint 24", "Backend Improvements")
 3. **Add columns** — Use defaults (Todo, In Progress, Review, Done) or customize for your workflow
 4. **Add missions** — Write clear titles, detailed descriptions with acceptance criteria, set priority and domain
@@ -396,6 +396,17 @@ Use autonomous mode when you want orcys to work through a backlog unattended —
 
 ### Setting Up
 
+**From the web UI (same-machine API + CLIs):**
+
+1. Open **Habitat Settings → Worktree** and configure the repository path, branch prefix, and cleanup preference.
+2. Open **Agents** or the **Orcy Pod** drawer.
+3. In **Daemons**, click **Set Up Autonomous Mode**.
+4. Detect CLIs, choose the daemon name/concurrency, register, then start.
+
+The UI path runs an in-process daemon engine inside the API server. It does not write `~/.orcy/daemon/credentials.json`; if the API restarts, set it up again or use the standalone CLI daemon for persisted credentials.
+
+**From the CLI:**
+
 1. Install one or more supported CLIs (`claude`, `codex`, `opencode`, `cursor-agent`, `gemini`)
 2. Verify detection: `orcy daemon detect`
 3. Configure habitat worktree settings (repo path, branch prefix) — the daemon needs this to create workspaces
@@ -410,6 +421,8 @@ orcy daemon stop            # Graceful shutdown
 ```
 
 Check `~/.orcy/logs/daemon.log` for session output. The daemon logs session completions and failures to the console.
+
+The UI **Daemons** section shows registered daemons, online/offline state, managed agent count, active session count, host, and start/stop controls for the in-process engine.
 
 ### What the Daemon Does
 

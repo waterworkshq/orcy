@@ -9,7 +9,7 @@ This guide covers deploying Orcy to production environments.
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐
 │  Nginx/Caddy│────▶│  Kanban API  │────▶│  Drizzle ORM │
-│  (TLS/Proxy)│     │  (Fastify)   │     │  bun:sqlite  │
+│  (TLS/Proxy)│     │  (Fastify)   │     │ better-sqlite3│
 └──────┬──────┘     └──────┬───────┘     │  orcy.db)  │
        │                   │             └──────────────┘
        │
@@ -159,7 +159,7 @@ orcy.example.com {
 
 ## Database
 
-The app uses **Drizzle ORM with bun:sqlite** (Bun's native SQLite binding) when running on Bun. On Node.js, `sql.js` (SQLite via WASM) is used as the driver. Data is stored in `orcy.db` in the working directory. No external database server needed.
+The app uses **Drizzle ORM with better-sqlite3** for production. Tests use `sql.js` (SQLite via WASM). Data is stored in `orcy.db` in the working directory. No external database server needed.
 
 ---
 

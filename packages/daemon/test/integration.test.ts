@@ -116,7 +116,7 @@ describe("integration: session lifecycle", () => {
   it("spawns fake CLI, captures output, and marks session completed on exit 0", async () => {
     const apiClient = makeApiClient();
     const manager = new SessionManager({
-      apiClient: apiClient as any,
+      sessionUpdater: apiClient as any,
       apiUrl: "http://localhost:3000",
       dataDir: workDir,
       sessionTimeoutSeconds: 600,
@@ -154,7 +154,7 @@ describe("integration: session lifecycle", () => {
   it("marks session failed when fake CLI exits non-zero", async () => {
     const apiClient = makeApiClient();
     const manager = new SessionManager({
-      apiClient: apiClient as any,
+      sessionUpdater: apiClient as any,
       apiUrl: "http://localhost:3000",
       dataDir: workDir,
       sessionTimeoutSeconds: 600,
@@ -189,7 +189,7 @@ describe("integration: session lifecycle", () => {
     apiClient.claimNext = vi.fn().mockResolvedValueOnce(claim).mockResolvedValue(null);
 
     const manager = new SessionManager({
-      apiClient: apiClient as any,
+      sessionUpdater: apiClient as any,
       apiUrl: "http://localhost:3000",
       dataDir: workDir,
       sessionTimeoutSeconds: 600,
@@ -252,7 +252,7 @@ describe("integration: session lifecycle", () => {
 
     const onSessionComplete = vi.fn();
     const manager = new SessionManager({
-      apiClient: apiClient as any,
+      sessionUpdater: apiClient as any,
       apiUrl: "http://localhost:3000",
       dataDir: workDir,
       sessionTimeoutSeconds: 600,

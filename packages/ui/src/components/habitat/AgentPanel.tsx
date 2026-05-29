@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { Button } from '../ui/Button.js';
-import { AgentRegistrationDialog } from '../ui/AgentRegistrationDialog.js';
-import { ConfirmDialog } from '../ui/ConfirmDialog.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
-import { useAgentsListWithTasks, useAgentStats } from '../../lib/useHabitatData.js';
-import { queryKeys } from '../../lib/queryKeys.js';
-import { X, Plus } from 'lucide-react';
-import { Drawer } from '../ui/Drawer.js';
-import { AgentCard } from './AgentCard.js';
-import type { Agent } from '../../types/index.js';
+import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "../ui/Button.js";
+import { AgentRegistrationDialog } from "../ui/AgentRegistrationDialog.js";
+import { ConfirmDialog } from "../ui/ConfirmDialog.js";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
+import { useAgentsListWithTasks, useAgentStats } from "../../lib/useHabitatData.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { X, Plus } from "lucide-react";
+import { Drawer } from "../ui/Drawer.js";
+import { AgentCard } from "./AgentCard.js";
+import { DaemonSection } from "./DaemonSection.js";
+import { DaemonSetupDialog } from "./DaemonSetupDialog.js";
+import type { Agent } from "../../types/index.js";
 
 function AgentCardWithStats({
   agent,
@@ -49,6 +51,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const qc = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [showDaemonSetup, setShowDaemonSetup] = useState(false);
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
 
@@ -71,7 +74,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
       removeAgent(pendingAgentId);
       await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
       await qc.invalidateQueries({ queryKey: queryKeys.agents.list() });
-      notify.success('Agent deregistered');
+      notify.success("Agent deregistered");
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -90,13 +93,24 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               <Plus className="mr-1 h-3 w-3" /> Add
             </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close agents panel">
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {agents.length === 0 ? (
+          <div className="mb-5">
+            <DaemonSection onSetup={board ? () => setShowDaemonSetup(true) : undefined} />
+          </div>
+          {agentsQuery.isLoading ? (
+            <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+              Loading agents...
+            </div>
+          ) : agentsQuery.error ? (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+              Failed to load agents: {(agentsQuery.error as Error).message}
+            </div>
+          ) : agents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <p className="text-sm text-muted-foreground">No agents registered.</p>
               <Button
@@ -132,10 +146,20 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
         }}
       />
+      {board && (
+        <DaemonSetupDialog
+          open={showDaemonSetup}
+          onClose={() => setShowDaemonSetup(false)}
+          habitatIds={[board.id]}
+        />
+      )}
       <ConfirmDialog
         open={confirmOpen}
         onConfirm={confirmRemove}
-        onCancel={() => { setConfirmOpen(false); setPendingAgentId(null); }}
+        onCancel={() => {
+          setConfirmOpen(false);
+          setPendingAgentId(null);
+        }}
         title="Deregister Agent"
         description="This agent will be disconnected and cannot reclaim tasks. Continue?"
         confirmLabel="Deregister"

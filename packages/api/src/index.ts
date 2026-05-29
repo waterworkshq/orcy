@@ -49,7 +49,7 @@ import { reviewRuleRoutes } from "./routes/reviewRules.js";
 import { sprintRoutes } from "./routes/sprints.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { githubIssueWebhookRoutes } from "./routes/githubIssueWebhooks.js";
-import { daemonRoutes } from "./routes/daemon.js";
+import { daemonRoutes, daemonAdminRoutes } from "./routes/daemon.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./services/boardSecretCache.js";
 import { archiveOldEvents } from "./services/auditArchivalService.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
@@ -156,6 +156,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(integrationRoutes);
   await f.register(githubIssueWebhookRoutes);
   await f.register(daemonRoutes);
+  await f.register(daemonAdminRoutes);
 }
 
 await fastify.register(
@@ -268,6 +269,8 @@ process.on("SIGINT", shutdown);
 fastify.addHook("onClose", async () => {
   schedulers.stop();
   clearInterval(healthSnapshotInterval);
+  const { shutdownAll } = await import("./services/daemonEngine.js");
+  shutdownAll();
 });
 
 try {

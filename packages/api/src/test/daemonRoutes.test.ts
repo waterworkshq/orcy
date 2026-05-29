@@ -22,6 +22,8 @@ const {
     createDaemonSession: vi.fn(),
     getSessionById: vi.fn(),
     updateSessionStatus: vi.fn(),
+    updateSessionProgress: vi.fn(),
+    getActiveSessionsByDaemonId: vi.fn(),
   };
   const mockSuggestionService = { getSuggestionsForAgent: vi.fn() };
   return {
@@ -108,6 +110,8 @@ describe("daemonRoutes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDaemonRepo.createDaemonSession.mockReturnValue({ id: SESS });
+    mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
   });
 
   describe("POST /daemon/register", () => {
@@ -251,6 +255,7 @@ describe("daemonRoutes", () => {
       expect(mockDaemonRepo.createDaemonSession).toHaveBeenCalledWith(
         expect.objectContaining({ daemonId: D1, agentId: AG1, taskId: T1, workdir: "pending" }),
       );
+      expect(result.daemonSessionId).toBe(SESS);
       expect(result.task.id).toBe(T1);
       expect(result.worktreeSettings.repoPath).toBe("/repo");
     });
@@ -357,6 +362,45 @@ describe("daemonRoutes", () => {
 
       expect(reply.code).toHaveBeenCalledWith(204);
     });
+
+    it("returns 204 when daemon is at max concurrency", async () => {
+      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([
+        { id: "s1", agentId: AG2 },
+        { id: "s2", agentId: "agent-3" },
+      ]);
+
+      const reply = mockReply();
+      await routes.get("POST /daemon/tasks/claim-next")!.handler(
+        {
+          daemon: { id: D1, name: "ws", hostname: "h", status: "online", maxConcurrent: 2 },
+          body: { agentId: AG1, habitatId: HAB },
+        } as any,
+        reply,
+      );
+
+      expect(reply.code).toHaveBeenCalledWith(204);
+      expect(mockSuggestionService.getSuggestionsForAgent).not.toHaveBeenCalled();
+    });
+
+    it("returns 204 when the daemon agent already has an active session", async () => {
+      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([{ id: "s1", agentId: AG1 }]);
+
+      const reply = mockReply();
+      await routes.get("POST /daemon/tasks/claim-next")!.handler(
+        {
+          daemon: { id: D1, name: "ws", hostname: "h", status: "online", maxConcurrent: 4 },
+          body: { agentId: AG1, habitatId: HAB },
+        } as any,
+        reply,
+      );
+
+      expect(reply.code).toHaveBeenCalledWith(204);
+      expect(mockSuggestionService.getSuggestionsForAgent).not.toHaveBeenCalled();
+    });
   });
 
   describe("PATCH /daemon/sessions/:id", () => {
@@ -380,6 +424,39 @@ describe("daemonRoutes", () => {
         "halfway done",
       );
       expect(result.session.status).toBe("running");
+    });
+
+    it("persists progress fields alongside status updates", async () => {
+      mockDaemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: D1 });
+      mockDaemonRepo.updateSessionStatus.mockReturnValue({ id: SESS, status: "running" });
+      mockDaemonRepo.updateSessionProgress.mockReturnValue({
+        id: SESS,
+        status: "running",
+        pid: 123,
+        workdir: "/tmp/workdir",
+        cliSessionId: "cli-1",
+      });
+
+      const result = await routes.get("PATCH /daemon/sessions/:id")!.handler(
+        {
+          daemon: { id: D1, name: "ws", hostname: "h", status: "online", maxConcurrent: 4 },
+          params: { id: SESS },
+          body: {
+            status: "running",
+            pid: 123,
+            workdir: "/tmp/workdir",
+            cliSessionId: "cli-1",
+          },
+        } as any,
+        mockReply(),
+      );
+
+      expect(mockDaemonRepo.updateSessionStatus).toHaveBeenCalledWith(SESS, "running", undefined);
+      expect(mockDaemonRepo.updateSessionProgress).toHaveBeenCalledWith(
+        SESS,
+        expect.objectContaining({ pid: 123, workdir: "/tmp/workdir", cliSessionId: "cli-1" }),
+      );
+      expect(result.session.workdir).toBe("/tmp/workdir");
     });
 
     it("returns 404 for missing session", async () => {

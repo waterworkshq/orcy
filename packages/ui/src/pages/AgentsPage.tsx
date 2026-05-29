@@ -1,17 +1,18 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/index.js';
-import { AgentRegistrationDialog } from '../components/ui/AgentRegistrationDialog.js';
-import { Button } from '../components/ui/Button.js';
-import { Card, CardContent } from '../components/ui/Card.js';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog.js';
-import { notify } from '../lib/toast.js';
-import { useAgentsListWithTasks, useAgentStats } from '../lib/useHabitatData.js';
-import { queryKeys } from '../lib/queryKeys.js';
-import { AgentCard } from '../components/habitat/AgentCard.js';
-import { ArrowLeft, Bot, Loader2, Plus, Users } from 'lucide-react';
-import type { Agent } from '../types/index.js';
+import React, { useState } from "react";
+import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/index.js";
+import { AgentRegistrationDialog } from "../components/ui/AgentRegistrationDialog.js";
+import { Button } from "../components/ui/Button.js";
+import { Card, CardContent } from "../components/ui/Card.js";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog.js";
+import { notify } from "../lib/toast.js";
+import { useAgentsListWithTasks, useAgentStats } from "../lib/useHabitatData.js";
+import { queryKeys } from "../lib/queryKeys.js";
+import { AgentCard } from "../components/habitat/AgentCard.js";
+import { DaemonSection } from "../components/habitat/DaemonSection.js";
+import { ArrowLeft, Bot, Loader2, Plus, Users } from "lucide-react";
+import type { Agent } from "../types/index.js";
 
 function AgentCardWithStats({
   agent,
@@ -46,7 +47,7 @@ export function AgentsPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
 
-  const agentsQuery = useAgentsListWithTasks('_global');
+  const agentsQuery = useAgentsListWithTasks("_global");
   const agents = agentsQuery.data ?? [];
   const loading = agentsQuery.isLoading;
   const error = agentsQuery.error;
@@ -64,7 +65,7 @@ export function AgentsPage() {
     if (!pendingAgentId) return;
     try {
       await api.agents.delete(pendingAgentId);
-      notify.success('Agent deregistered');
+      notify.success("Agent deregistered");
       await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
     } catch (err) {
       notify.error((err as Error).message);
@@ -104,6 +105,10 @@ export function AgentsPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <DaemonSection />
+        </div>
+
         {loading && (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -122,9 +127,7 @@ export function AgentsPage() {
         {!loading && !error && agents.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Users className="h-16 w-16 text-on-surface-variant/40 mb-4" />
-            <h2 className="text-lg font-semibold text-on-surface mb-2">
-              No agents registered
-            </h2>
+            <h2 className="text-lg font-semibold text-on-surface mb-2">No agents registered</h2>
             <p className="text-sm text-on-surface-variant mb-6">
               Register an AI agent to start working on tasks.
             </p>

@@ -76,13 +76,14 @@ orcy serve start --detach  # Background daemon with PID file
 
 The API serves the Web UI at **<http://127.0.0.1:4000/app>**.
 
-On first run (fresh database), a default admin user is created automatically:
+On first run (fresh production database), create the first admin account in the setup form:
 
 | Login | Value |
 |-------|-------|
 | URL | `http://127.0.0.1:4000/app` |
-| Username | `admin` |
-| Password | `admin123` |
+| Setup | Create the first admin user in the UI |
+
+Development mode may seed `admin` / `admin123`; production installs do not rely on default credentials.
 
 ### What Gets Installed
 
@@ -234,7 +235,7 @@ Three skills are available:
 
 - **orcy-overview** — Habitat → Mission → Task → Subtask hierarchy, authentication
 - **orcy-cli-usage** — Shell command reference for the `orcy` CLI
-- **orcy-mcp-usage** — MCP dispatch tool reference (all 10 tools + actions)
+- **orcy-mcp-usage** — MCP dispatch tool reference (all 14 tools + actions)
 
 ### Agent Instruction Files
 
@@ -256,11 +257,19 @@ orcy serve status             # Check running
 orcy serve stop               # Stop background process
 ```
 
+The web UI can also manage same-machine autonomous mode:
+
+1. Open **Habitat Settings → Worktree** and set the repository path, branch prefix, and cleanup preference.
+2. Open **Agents** or the **Orcy Pod** drawer and use the **Daemons** section.
+3. Click **Set Up Autonomous Mode** to detect local CLIs, register daemon-owned agents, and start the in-process daemon engine.
+
+Use the CLI daemon when you need persisted local credentials, detached background operation outside the API process, or a daemon running on a different machine from the API server.
+
 ### Daemon Control
 
 ```bash
 orcy daemon detect                     # Detect supported AI CLIs on this machine
-orcy daemon register --habitat-ids <ids>  # Register daemon with API, save credentials
+orcy daemon register --api-url http://localhost:4000 --habitat-ids <ids>  # Register daemon with API, save credentials
 orcy daemon start                      # Start daemon (foreground, blocks)
 orcy daemon start --detach             # Start daemon in background
 orcy daemon stop                       # Stop running daemon
@@ -271,23 +280,23 @@ orcy daemon status                     # Show daemon ID, agents, registration in
 
 The daemon lets AI CLIs work tasks autonomously without manual session management:
 
-1. **Ensure CLIs are installed** — `orcy daemon detect` shows which CLIs are found
+1. **Ensure CLIs are installed** — `orcy daemon detect` or the UI setup wizard shows which CLIs are found
 2. **Configure habitat worktree settings** — each habitat needs `gitWorktreeSettings` (repo path, branch prefix) so the daemon knows where to create workspaces
-3. **Register the daemon** — `orcy daemon register --habitat-ids <id1,id2>` creates daemon identity, managed agents, and saves credentials locally
-4. **Start the daemon** — `orcy daemon start` begins the poll loop: claim tasks, spawn CLIs, monitor sessions, report progress
-5. **Monitor** — `orcy daemon status` shows running state; check `~/.orcy/logs/daemon.log` for output
+3. **Register the daemon** — `orcy daemon register --api-url http://localhost:4000 --habitat-ids <id1,id2>` or the UI setup wizard creates daemon identity and managed agents
+4. **Start the daemon** — `orcy daemon start` or the UI **Start** button begins the poll loop: claim tasks, spawn CLIs, monitor sessions, report progress
+5. **Monitor** — `orcy daemon status` shows CLI daemon state; the UI **Daemons** section shows online/offline state and active sessions
 
-**Daemon credentials** are stored in `~/.orcy/daemon/credentials.json` (mode 600). Agent API keys are shown once at registration — store them if needed.
+**Daemon credentials** for the standalone CLI daemon are stored in `~/.orcy/daemon/credentials.json` (mode 600). Agent API keys are shown once at registration — store them if needed. The UI in-process daemon keeps generated agent keys in API process memory so it can start immediately without writing credential files; if the API restarts, register a new UI daemon or use the standalone CLI daemon for persisted credentials.
 
 **Environment variables:**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCY_API_URL` | `http://localhost:3000` | API server URL |
+| `ORCY_API_URL` | `http://localhost:3000` | API server URL; use `http://localhost:4000` for installer production serve |
 | `ORCY_REGISTRATION_TOKEN` | — | Registration auth token |
 | `ORCY_DAEMON_NAME` | hostname | Daemon display name |
 | `ORCY_DAEMON_DIR` | `~/.orcy/daemon` | Data directory for credentials |
-| `ORCY_HABITAT_IDS` | — | Comma-separated habitat IDs (required for start) |
+| `ORCY_HABITAT_IDS` | Stored registration habitats | Optional comma-separated override for habitats to poll |
 | `ORCY_MAX_CONCURRENT` | `4` | Max concurrent sessions |
 | `ORCY_POLL_INTERVAL` | `30` | Seconds between claim attempts |
 | `ORCY_SESSION_TIMEOUT` | `600` | Seconds of inactivity before session kill |

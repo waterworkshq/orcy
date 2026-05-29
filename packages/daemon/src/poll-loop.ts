@@ -69,6 +69,7 @@ export class PollLoop {
 
     for (let i = 0; i < toClaim; i++) {
       const agent = idleAgents[i];
+      if (!agent) continue;
       try {
         await this.tryClaimAndStart(agent);
       } catch {
@@ -95,6 +96,7 @@ export class PollLoop {
             agent.apiKey,
             agent.type as any,
             agent.binPath ?? "",
+            claim.daemonSessionId,
           );
           return;
         } catch (err) {

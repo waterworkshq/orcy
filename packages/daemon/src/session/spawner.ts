@@ -11,6 +11,7 @@ export interface SpawnCallbacks {
   onStdout: (data: string) => void;
   onStderr: (data: string) => void;
   onExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+  onError: (error: Error) => void;
 }
 
 export function spawnCli(
@@ -49,6 +50,10 @@ export function spawnCli(
 
   child.on("exit", (code, signal) => {
     callbacks.onExit(code, signal as NodeJS.Signals | null);
+  });
+
+  child.on("error", (error) => {
+    callbacks.onError(error);
   });
 
   if (!child.pid) {

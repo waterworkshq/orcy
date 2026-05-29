@@ -32,6 +32,7 @@ export interface RegisteredAgent {
 }
 
 export interface ClaimResult {
+  daemonSessionId?: string;
   task: {
     id: string;
     title: string;
@@ -53,6 +54,7 @@ export interface StoredCredentials {
   daemonId: string;
   daemonToken: string;
   apiUrl: string;
+  habitatIds?: string[];
   agents: RegisteredAgent[];
   registeredAt: string;
 }
@@ -113,6 +115,7 @@ export type SessionStatus = "starting" | "running" | "completed" | "failed" | "r
 
 export interface ActiveSession {
   id: string;
+  daemonSessionId?: string;
   taskId: string;
   taskTitle: string;
   agentId: string;
@@ -126,4 +129,8 @@ export interface ActiveSession {
   startedAt: number;
   lastProgressAt: number;
   lastProgress: string | null;
+}
+
+export interface ISessionUpdater {
+  updateSession(sessionId: string, updates: Record<string, unknown>): Promise<void>;
 }

@@ -48,7 +48,7 @@ Complete reference for the Orcy REST API.
 
 ## Authentication
 
-All non-public API endpoints require authentication. Public routes: `GET /health`, `POST /api/auth/login`, and inbound webhook routes (verified by provider signatures).
+All non-public API endpoints require authentication. Public routes: `GET /health`, `GET /api/auth/setup-status`, `POST /api/auth/register` while no users exist, `POST /api/auth/login`, and inbound webhook routes (verified by provider signatures).
 
 ### Agent Authentication
 
@@ -81,7 +81,7 @@ GET /api/auth/stream-token  (requires human JWT auth)
 → Returns { token: "short-lived-jwt" }  (expires in 30 seconds)
 ```
 
-Then connect: `EventSource('/sse/habitats/:habitatId?token=<stream-token>')`
+Then connect: `EventSource('/sse/habitats/:habitatId/stream?token=<stream-token>')`
 
 ### Dual Auth (Agent or Human)
 
@@ -160,7 +160,11 @@ Health check endpoint (no `/api` prefix).
 
 ---
 
-## Habitats\n\n### GET /habitats\n\nList all habitats.
+## Habitats
+
+### GET /habitats
+
+List all habitats.
 
 **Auth:** Agent or Human auth required.
 
@@ -178,7 +182,9 @@ Health check endpoint (no `/api` prefix).
 }
 ```
 
-### POST /habitats\n\nCreate a new habitat. Default columns (Todo, In Progress, Review, Done) are created automatically unless `defaultColumns: false`.
+### POST /habitats
+
+Create a new habitat. Default columns (Todo, In Progress, Review, Done) are created automatically unless `defaultColumns: false`.
 
 **Request:**
 
@@ -214,7 +220,9 @@ Health check endpoint (no `/api` prefix).
 }
 ```
 
-### GET /habitats/:id\n\nGet a habitat with its columns and missions.
+### GET /habitats/:id
+
+Get a habitat with its columns and missions.
 
 **Auth:** Agent or Human auth required. Habitat access check enforced (404 if missing, 403 if unauthorized human).
 
@@ -226,7 +234,9 @@ Health check endpoint (no `/api` prefix).
 }
 ```
 
-### PATCH /habitats/:id\n\nUpdate a habitat.
+### PATCH /habitats/:id
+
+Update a habitat.
 
 **Request:**
 
@@ -245,11 +255,15 @@ Health check endpoint (no `/api` prefix).
 }
 ```
 
-### DELETE /habitats/:id\n\nDelete a habitat and all its tasks.
+### DELETE /habitats/:id
+
+Delete a habitat and all its tasks.
 
 **Response `204`:** No content.
 
-### GET /habitats/:id/stats\n\nGet habitat statistics.
+### GET /habitats/:id/stats
+
+Get habitat statistics.
 
 **Response `200`:**
 
@@ -272,7 +286,9 @@ Health check endpoint (no `/api` prefix).
 }
 ```
 
-### GET /habitats/:id/events\n\nGet habitat-wide activity feed (all events across all tasks on the habitat).
+### GET /habitats/:id/events
+
+Get habitat-wide activity feed (all events across all tasks on the habitat).
 
 **Query Parameters:**
 
@@ -312,7 +328,9 @@ Health check endpoint (no `/api` prefix).
 
 ## Habitat Health
 
-Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacity, stability. Scores are computed on-demand from existing metrics and optionally persisted as snapshots for trend tracking.\n\n### GET /habitats/:id/health\n\nGet the current habitat health score with dimension breakdown, grade, and recommendations.
+Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacity, stability. Scores are computed on-demand from existing metrics and optionally persisted as snapshots for trend tracking.\n\n### GET /habitats/:id/health
+
+Get the current habitat health score with dimension breakdown, grade, and recommendations.
 
 **Auth:** Agent API key OR JWT + habitat access
 
@@ -336,7 +354,9 @@ Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacit
 }
 ```
 
-### GET /habitats/:id/health/history\n\nGet health snapshots over time for trend tracking.
+### GET /habitats/:id/health/history
+
+Get health snapshots over time for trend tracking.
 
 **Query Parameters:**
 
@@ -358,7 +378,9 @@ Composite 0-100 health score from 5 dimensions: flow, quality, delivery, capacit
 
 ## Habitat Tasks
 
-Get all tasks across all missions on a habitat with sorting and filtering.\n\n### GET /habitats/:id/tasks\n\nList tasks on a habitat with server-side sorting and filtering.
+Get all tasks across all missions on a habitat with sorting and filtering.\n\n### GET /habitats/:id/tasks
+
+List tasks on a habitat with server-side sorting and filtering.
 
 **Auth:** Agent API key OR JWT
 
@@ -398,7 +420,9 @@ Get all tasks across all missions on a habitat with sorting and filtering.\n\n##
 
 ## Columns
 
-### POST /habitats/:habitatId/columns\n\nAdd a column to a habitat.
+### POST /habitats/:habitatId/columns
+
+Add a column to a habitat.
 
 **Request:**
 
@@ -475,7 +499,9 @@ Missions are the habitat-level cards. They represent goals that flow through col
 | `done` | All tasks done/approved (at least one done) |
 | `failed` | Any task failed and none actively being worked on |
 
-### POST /habitats/:habitatId/missions\n\nCreate a new mission on a habitat. The mission is placed in the first column (Backlog) by default.
+### POST /habitats/:habitatId/missions
+
+Create a new mission on a habitat. The mission is placed in the first column (Backlog) by default.
 
 **Request:**
 
@@ -2042,6 +2068,69 @@ Get performance statistics for an agent.
 | `throughputToday` | integer | Tasks completed today |
 | `throughputThisWeek` | integer | Tasks completed this week |
 | `totalArtifacts` | integer | Total artifacts across all submissions |
+
+---
+
+## Daemons
+
+Daemon routes support autonomous AI CLI execution. There are two route groups:
+
+- **Human/UI routes** under `/daemons` use human JWT auth and manage the API in-process daemon engine.
+- **Machine daemon routes** under `/daemon/*` use registration auth or `X-Daemon-Token` and are used by the standalone CLI daemon.
+
+### Human/UI Daemon Routes
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/daemons` | List daemon instances with derived online/offline status, managed agent count, and active session count |
+| `GET` | `/daemons/:id` | Get daemon detail with managed agents and active sessions |
+| `POST` | `/daemons/register` | Detect/register an in-process daemon and daemon-owned agents |
+| `POST` | `/daemons/:id/start` | Start the API in-process daemon engine |
+| `POST` | `/daemons/:id/stop` | Stop the API in-process daemon engine |
+| `GET` | `/daemons/detect-clis` | Detect supported AI CLIs on the API host |
+
+**Register request:**
+
+```json
+{
+  "name": "local-daemon",
+  "habitatIds": ["habitat-uuid"],
+  "maxConcurrent": 4,
+  "cliPreferences": ["claude-code", "opencode"]
+}
+```
+
+**List response:**
+
+```json
+{
+  "daemons": [
+    {
+      "id": "daemon-uuid",
+      "name": "local-daemon",
+      "hostname": "workstation",
+      "status": "online",
+      "agentCount": 2,
+      "activeSessionCount": 1,
+      "lastHeartbeat": "2026-05-29T00:00:00.000Z",
+      "createdAt": "2026-05-29T00:00:00.000Z",
+      "maxConcurrent": 4
+    }
+  ]
+}
+```
+
+### Standalone Daemon Routes
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `POST` | `/daemon/register` | Registration token | Register daemon instance and daemon-owned agents |
+| `GET` | `/daemon/sessions` | `X-Daemon-Token` | List active sessions for this daemon |
+| `POST` | `/daemon/heartbeat` | `X-Daemon-Token` | Update daemon, agent, and session progress state |
+| `POST` | `/daemon/tasks/claim-next` | `X-Daemon-Token` | Claim next suggested task for an owned agent |
+| `PATCH` | `/daemon/sessions/:id` | `X-Daemon-Token` | Update daemon session status/progress |
+
+`claim-next` returns a `daemonSessionId` alongside task/worktree data. The daemon passes that ID to the session manager so process exit, timeout, and shutdown updates are written back to `daemon_sessions`.
 
 ---
 
@@ -4224,7 +4313,7 @@ Authenticate as a human user.
 ```json
 {
   "username": "admin",
-  "password": "admin123"
+  "password": "your-password"
 }
 ```
 
@@ -4249,6 +4338,14 @@ JWT tokens are HS256 signed, valid for 24 hours. Include the token in the `Autho
 - Password: `admin123`
 
 > See [SECURITY.md](./SECURITY.md) for production security considerations including password hashing and token configuration.
+
+### GET /auth/setup-status
+
+Public first-run setup discovery. Returns whether the instance still needs an initial admin user.
+
+### POST /auth/register
+
+Public only while no users exist. Creates the first admin user and is forbidden after setup completes.
 
 ---
 

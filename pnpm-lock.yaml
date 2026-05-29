@@ -47,6 +47,9 @@ importers:
       '@fastify/static':
         specifier: ^8.0.0
         version: 8.3.0
+      '@orcy/daemon':
+        specifier: workspace:*
+        version: link:../daemon
       '@orcy/shared':
         specifier: workspace:*
         version: link:../shared

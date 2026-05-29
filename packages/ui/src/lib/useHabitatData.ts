@@ -1,7 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/index.js';
-import { queryKeys } from './queryKeys.js';
-import type { CreateMissionInput, CreateTaskInMissionInput } from '../types/index.js';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/index.js";
+import { queryKeys } from "./queryKeys.js";
+import type { CreateMissionInput, CreateTaskInMissionInput } from "../types/index.js";
 
 export function useBoards() {
   return useQuery({
@@ -21,7 +21,7 @@ export function useMyTeams() {
 
 export function useBoard(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.detail(boardId ?? ''),
+    queryKey: queryKeys.habitats.detail(boardId ?? ""),
     queryFn: () => api.habitats.get(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -39,16 +39,19 @@ export function useBoardAgents(boardId: string | undefined) {
 
 export function useHabitatStats(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.stats(habitatId ?? ''),
+    queryKey: queryKeys.habitats.stats(habitatId ?? ""),
     queryFn: () => api.habitats.stats(habitatId!),
     enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useBoardEvents(boardId: string | undefined, params?: { limit?: number; offset?: number; action?: string }) {
+export function useBoardEvents(
+  boardId: string | undefined,
+  params?: { limit?: number; offset?: number; action?: string },
+) {
   return useQuery({
-    queryKey: [...queryKeys.habitats.events(boardId ?? ''), params] as const,
+    queryKey: [...queryKeys.habitats.events(boardId ?? ""), params] as const,
     queryFn: () => api.habitats.events(boardId!, params),
     enabled: !!boardId,
     staleTime: 30 * 1000,
@@ -57,7 +60,7 @@ export function useBoardEvents(boardId: string | undefined, params?: { limit?: n
 
 export function useMissions(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.missions.list(habitatId ?? ''),
+    queryKey: queryKeys.missions.list(habitatId ?? ""),
     queryFn: () => api.missions.list(habitatId!),
     enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
@@ -66,7 +69,7 @@ export function useMissions(habitatId: string | undefined) {
 
 export function useMission(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.missions.detail(missionId ?? ''),
+    queryKey: queryKeys.missions.detail(missionId ?? ""),
     queryFn: () => api.missions.get(missionId!),
     enabled: !!missionId,
     staleTime: 2 * 60 * 1000,
@@ -75,7 +78,7 @@ export function useMission(missionId: string | undefined) {
 
 export function useMissionDetails(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.missions.details(missionId ?? ''),
+    queryKey: queryKeys.missions.details(missionId ?? ""),
     queryFn: () => api.missions.details(missionId!),
     enabled: !!missionId,
     staleTime: 30 * 1000,
@@ -84,7 +87,7 @@ export function useMissionDetails(missionId: string | undefined) {
 
 export function useMissionTasks(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.missions.tasks(missionId ?? ''),
+    queryKey: queryKeys.missions.tasks(missionId ?? ""),
     queryFn: () => api.missions.tasks(missionId!),
     enabled: !!missionId,
     staleTime: 30 * 1000,
@@ -93,7 +96,7 @@ export function useMissionTasks(missionId: string | undefined) {
 
 export function useMissionProgress(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.missions.progress(missionId ?? ''),
+    queryKey: queryKeys.missions.progress(missionId ?? ""),
     queryFn: () => api.missions.progress(missionId!),
     enabled: !!missionId,
     staleTime: 30 * 1000,
@@ -133,7 +136,7 @@ export function useAgents() {
 
 export function useAgent(agentId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.agents.detail(agentId ?? ''),
+    queryKey: queryKeys.agents.detail(agentId ?? ""),
     queryFn: () => api.agents.get(agentId!),
     enabled: !!agentId,
     staleTime: 5 * 60 * 1000,
@@ -150,7 +153,7 @@ export function useDashboardStats() {
 
 export function useBoardPredictions(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.predictions(boardId ?? ''),
+    queryKey: queryKeys.habitats.predictions(boardId ?? ""),
     queryFn: () => api.habitats.predictions(boardId!),
     enabled: !!boardId,
     staleTime: 2 * 60 * 1000,
@@ -159,7 +162,7 @@ export function useBoardPredictions(boardId: string | undefined) {
 
 export function useBoardBurndown(boardId: string | undefined, days?: number) {
   return useQuery({
-    queryKey: [...queryKeys.habitats.burndown(boardId ?? ''), days] as const,
+    queryKey: [...queryKeys.habitats.burndown(boardId ?? ""), days] as const,
     queryFn: () => api.habitats.burndown(boardId!, days),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -168,7 +171,7 @@ export function useBoardBurndown(boardId: string | undefined, days?: number) {
 
 export function useBoardAnomalies(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.anomalies(boardId ?? ''),
+    queryKey: queryKeys.habitats.anomalies(boardId ?? ""),
     queryFn: () => api.habitats.anomalies(boardId!),
     enabled: !!boardId,
     staleTime: 60 * 1000,
@@ -177,7 +180,7 @@ export function useBoardAnomalies(boardId: string | undefined) {
 
 export function useBoardCapacity(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.capacity(boardId ?? ''),
+    queryKey: queryKeys.habitats.capacity(boardId ?? ""),
     queryFn: () => api.habitats.capacity(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -193,12 +196,12 @@ export interface BoardTasksFilters {
   limit?: number;
   offset?: number;
   sortBy?: string;
-  sortDir?: 'asc' | 'desc';
+  sortDir?: "asc" | "desc";
 }
 
 export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksFilters) {
   return useQuery({
-    queryKey: queryKeys.habitats.tasks(boardId ?? '', filters),
+    queryKey: queryKeys.habitats.tasks(boardId ?? "", filters),
     queryFn: () => api.habitats.tasks(boardId!, filters),
     enabled: !!boardId,
     staleTime: 30 * 1000,
@@ -207,7 +210,7 @@ export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksF
 
 export function useHabitatTimeMetrics(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.metrics(habitatId ?? ''),
+    queryKey: queryKeys.habitats.metrics(habitatId ?? ""),
     queryFn: () => api.timeTracking.getBoardMetrics(habitatId!),
     enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
@@ -216,7 +219,7 @@ export function useHabitatTimeMetrics(habitatId: string | undefined) {
 
 export function useAgentStats(agentId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.agents.stats(agentId ?? ''),
+    queryKey: queryKeys.agents.stats(agentId ?? ""),
     queryFn: () => api.agents.stats(agentId!),
     enabled: !!agentId,
     staleTime: 2 * 60 * 1000,
@@ -242,7 +245,7 @@ export function useOrganizations() {
 
 export function useOrganizationTeams(orgId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.organizations.teams(orgId ?? ''),
+    queryKey: queryKeys.organizations.teams(orgId ?? ""),
     queryFn: () => api.organizations.listTeams(orgId!),
     enabled: !!orgId,
     staleTime: 5 * 60 * 1000,
@@ -251,7 +254,7 @@ export function useOrganizationTeams(orgId: string | undefined) {
 
 export function useTeamMembers(teamId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.organizations.members(teamId ?? ''),
+    queryKey: queryKeys.organizations.members(teamId ?? ""),
     queryFn: () => api.teams.listMembers(teamId!),
     enabled: !!teamId,
     staleTime: 5 * 60 * 1000,
@@ -268,7 +271,7 @@ export function useUserProfile() {
 
 export function useSavedFilters(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.savedFilters.list(boardId ?? ''),
+    queryKey: queryKeys.savedFilters.list(boardId ?? ""),
     queryFn: () => api.savedFilters.list(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -277,16 +280,19 @@ export function useSavedFilters(boardId: string | undefined) {
 
 export function useBoardHealth(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.health.current(boardId ?? ''),
+    queryKey: queryKeys.health.current(boardId ?? ""),
     queryFn: () => api.health.get(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useAuditSummary(boardId: string | undefined, params?: { since?: string; until?: string }) {
+export function useAuditSummary(
+  boardId: string | undefined,
+  params?: { since?: string; until?: string },
+) {
   return useQuery({
-    queryKey: [...queryKeys.audit.summary(boardId ?? ''), params] as const,
+    queryKey: [...queryKeys.audit.summary(boardId ?? ""), params] as const,
     queryFn: () => api.audit.summary(boardId!, params),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -295,7 +301,7 @@ export function useAuditSummary(boardId: string | undefined, params?: { since?: 
 
 export function useMissionComments(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.missionComments.list(missionId ?? ''),
+    queryKey: queryKeys.missionComments.list(missionId ?? ""),
     queryFn: () => api.missionComments.list(missionId!),
     enabled: !!missionId,
     staleTime: 30 * 1000,
@@ -338,7 +344,7 @@ export function useInvalidateMission(missionId: string) {
 
 export function useTemplates(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.templates.list(boardId ?? ''),
+    queryKey: queryKeys.templates.list(boardId ?? ""),
     queryFn: () => api.templates.list(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -347,7 +353,7 @@ export function useTemplates(boardId: string | undefined) {
 
 export function useChatIntegrations(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.chatIntegrations.list(boardId ?? ''),
+    queryKey: queryKeys.chatIntegrations.list(boardId ?? ""),
     queryFn: () => api.chatIntegrations.list(boardId!),
     enabled: !!boardId,
     staleTime: 5 * 60 * 1000,
@@ -356,7 +362,7 @@ export function useChatIntegrations(boardId: string | undefined) {
 
 export function useNotificationPrefs(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.notificationPrefs.board(boardId ?? ''),
+    queryKey: queryKeys.notificationPrefs.board(boardId ?? ""),
     queryFn: async () => {
       const [global, board] = await Promise.all([
         api.notifications.getGlobalPrefs(),
@@ -371,7 +377,7 @@ export function useNotificationPrefs(boardId: string | undefined) {
 
 export function useScheduledTasks(boardId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.scheduledTasks.list(boardId ?? ''),
+    queryKey: queryKeys.scheduledTasks.list(boardId ?? ""),
     queryFn: () => api.scheduledTasks.list(boardId!),
     enabled: !!boardId,
     staleTime: 30 * 1000,
@@ -380,7 +386,7 @@ export function useScheduledTasks(boardId: string | undefined) {
 
 export function useArchivedMissions(habitatId: string | undefined) {
   return useQuery({
-    queryKey: [...queryKeys.missions.all, 'archived', habitatId ?? ''] as const,
+    queryKey: [...queryKeys.missions.all, "archived", habitatId ?? ""] as const,
     queryFn: () => api.missions.list(habitatId!, { isArchived: true }),
     enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
@@ -389,7 +395,7 @@ export function useArchivedMissions(habitatId: string | undefined) {
 
 export function useIntegrations(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.integrations.list(habitatId ?? ''),
+    queryKey: queryKeys.integrations.list(habitatId ?? ""),
     queryFn: () => api.integrations.list(habitatId!),
     enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
@@ -398,7 +404,7 @@ export function useIntegrations(habitatId: string | undefined) {
 
 export function useIntegrationSyncRuns(connectionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.integrations.syncRuns(connectionId ?? ''),
+    queryKey: queryKeys.integrations.syncRuns(connectionId ?? ""),
     queryFn: () => api.integrations.listSyncRuns(connectionId!),
     enabled: !!connectionId,
     staleTime: 30 * 1000,
@@ -407,22 +413,42 @@ export function useIntegrationSyncRuns(connectionId: string | undefined) {
 
 export function useMissionExternalLinks(missionId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.integrations.missionLinks(missionId ?? ''),
+    queryKey: queryKeys.integrations.missionLinks(missionId ?? ""),
     queryFn: () => api.integrations.listMissionLinks(missionId!),
     enabled: !!missionId,
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useIntakeCandidates(habitatId: string | undefined, filters?: { reviewStatus?: string; provider?: string }) {
+export function useIntakeCandidates(
+  habitatId: string | undefined,
+  filters?: { reviewStatus?: string; provider?: string },
+) {
   const filterRecord: Record<string, string> = {};
   if (filters?.reviewStatus) filterRecord.reviewStatus = filters.reviewStatus;
   if (filters?.provider) filterRecord.provider = filters.provider;
 
   return useQuery({
-    queryKey: queryKeys.integrations.intakeCandidates(habitatId ?? '', filterRecord),
+    queryKey: queryKeys.integrations.intakeCandidates(habitatId ?? "", filterRecord),
     queryFn: () => api.integrations.listIntakeCandidates(habitatId!, filters),
     enabled: !!habitatId,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useDaemons() {
+  return useQuery({
+    queryKey: queryKeys.daemons.list(),
+    queryFn: () => api.daemons.list(),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useDaemon(id: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.daemons.detail(id ?? ""),
+    queryFn: () => api.daemons.get(id!),
+    enabled: !!id,
     staleTime: 30 * 1000,
   });
 }

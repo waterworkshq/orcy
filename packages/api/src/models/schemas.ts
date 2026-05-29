@@ -500,6 +500,7 @@ export const daemonSessionUpdateSchema = z.object({
   status: z.enum(["starting", "running", "completed", "failed", "released", "lost"]).optional(),
   lastProgress: z.string().max(10000).optional(),
   pid: z.number().int().optional(),
+  workdir: z.string().max(2000).optional(),
   cliSessionId: z.string().max(255).optional(),
 });
 

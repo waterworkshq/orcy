@@ -358,6 +358,10 @@ export function updateSessionProgress(
   const now = new Date().toISOString();
   const updates: Partial<typeof daemonSessions.$inferInsert> = { updatedAt: now };
   if (fields.lastProgress) updates.lastProgress = fields.lastProgress as string;
+  if (fields.pid !== undefined) updates.pid = fields.pid as number | null;
+  if (fields.workdir !== undefined) updates.workdir = fields.workdir as string;
+  if (fields.cliSessionId !== undefined)
+    updates.cliSessionId = fields.cliSessionId as string | null;
   db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
   return getSessionById(id);
 }

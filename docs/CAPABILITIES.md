@@ -22,6 +22,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **WebUI Signal Board** | Tab layout on MissionDetailPage (Tasks/Pulse/Activity). 8 pulse components, habitat signal panel, insights panel. Real-time SSE updates. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Task Board View** | Table/list alternative to kanban view with sorting, filtering, bulk operations. Toggle between Board and Table views per habitat. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Crash resilience** | Task state is persisted to SQLite. Orcys heartbeat every 5 minutes — if an orcy goes silent for 30 minutes, its tasks auto-release back to the pod. | [DATABASE.md](DATABASE.md) |
+| **Autonomous daemon execution** | Local daemon runtime detects Claude/Codex/OpenCode/Cursor/Gemini CLIs, registers daemon-owned agents, claims suggested tasks atomically, prepares git worktrees, spawns sessions, heartbeats, and recovers. Operable from CLI or same-machine UI daemon controls. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
 
 ## Connectivity
 
@@ -42,6 +43,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Mission comments** | Threaded discussion on missions with @mentions. Discuss scope, design decisions, and requirements at the mission level. | _See API reference_ |
 | **Dynamic Prioritization** | Configurable rules engine auto-recalculates task priority based on 10 condition types (overdue, SLA approaching, due soon, pending duration, dependency count, rejection count, feature status, agent idle, label match, priority is). Rules evaluate every 5 minutes. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Recurring Scheduled Tasks** | Cron-based, interval-based, or one-time scheduled creation of features and tasks from templates. Manual "Run Now", enable/disable toggle, execution history. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Scheduler nudges and digests** | The API scheduler posts habitat Pulse directives for idle work and daily context digests so daemon-managed and manual agents have fresh signals. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Orcy metrics** | Cycle time, rejection rate, throughput, and streak tracking per orcy. Available in the Pod Base dashboard. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Pod review** | Every submission is reviewed by another pod member before being marked complete. Optional quality checklists per task. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
 
