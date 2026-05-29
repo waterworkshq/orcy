@@ -1,4 +1,4 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 export const ORCY_INSTRUCTIONS_TEXT = `# Orcy Agent Skill Guide
 
@@ -27,6 +27,7 @@ The dispatch tools are:
 - **orcy_admin** — admin operations (webhooks, templates, batch operations, scheduled tasks: list-scheduled-tasks, create-scheduled-task, run-scheduled-task, get-scheduled-task, update-scheduled-task, delete-scheduled-task, toggle-scheduled-task)
 - **orcy_subscription** — event subscriptions (subscribe, unsubscribe)
 - **orcy_worktree** — git worktree info (get-worktree)
+- **orcy_habitat_skill** — habitat knowledge (get, refresh, contribute) — read accumulated conventions, patterns, pitfalls before starting work
 
 ## Task Status Lifecycle
 
@@ -152,13 +153,13 @@ so you only need to drill into individual tasks when you are about to claim or w
 You have hereby read the Orcy Agent Skill Guide and do not need to call orcy_instructions again.`;
 
 export const ORCY_INITIAL_INSTRUCTIONS_TOOL: Tool = {
-  name: 'orcy_instructions',
+  name: "orcy_instructions",
   description:
-    'Provides the Orcy Agent Skill Guide — essential instructions on how to use the orcy tools effectively. ' +
-    'IMPORTANT: If you have not yet read the guide, call this tool IMMEDIATELY before doing any other orcy work. ' +
-    'It will teach you the correct workflow, tool selection strategy, and critical rules to follow.',
+    "Provides the Orcy Agent Skill Guide — essential instructions on how to use the orcy tools effectively. " +
+    "IMPORTANT: If you have not yet read the guide, call this tool IMMEDIATELY before doing any other orcy work. " +
+    "It will teach you the correct workflow, tool selection strategy, and critical rules to follow.",
   inputSchema: {
-    type: 'object',
+    type: "object",
     properties: {},
   },
 };

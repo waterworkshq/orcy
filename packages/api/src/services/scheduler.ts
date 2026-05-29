@@ -9,6 +9,7 @@ import { startScheduledTaskProcessor as startScheduledTaskPoller } from "./sched
 import { autoCompleteSprints } from "./sprintService.js";
 import { nudgeAllDaemons } from "./daemonNudgeService.js";
 import { generateAllDigests } from "./habitatDigestService.js";
+import { regenerateAllSkills } from "./habitatSkillService.js";
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
@@ -167,6 +168,22 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
           }
         } catch (err) {
           fastify.log.error({ err }, "Error generating habitat digests");
+        }
+      },
+      24 * 60 * 60_000,
+    ),
+  );
+
+  intervals.push(
+    setInterval(
+      () => {
+        try {
+          const results = regenerateAllSkills();
+          if (results.regenerated > 0) {
+            fastify.log.info({ count: results.regenerated }, "Habitat skills regenerated");
+          }
+        } catch (err) {
+          fastify.log.error({ err }, "Error regenerating habitat skills");
         }
       },
       24 * 60 * 60_000,

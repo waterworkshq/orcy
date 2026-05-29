@@ -15,7 +15,7 @@ import type {
   Subtask,
   ActorType,
   MissionEventAction,
-} from '@orcy/shared';
+} from "@orcy/shared";
 
 export type {
   Task,
@@ -56,6 +56,7 @@ export interface MissionContext {
   blocking: Mission[];
   pulse?: PulseDigest;
   projectInsights?: ProjectInsight[];
+  skill?: { content: string; signalCount: number; avgStrength: number };
 }
 
 export interface TaskContext {
@@ -87,7 +88,12 @@ export interface ClaimTaskResponse {
 
 export interface ClaimTaskFailureResponse {
   success: false;
-  reason: 'already_claimed' | 'not_found' | 'domain_mismatch' | 'dependencies_unmet' | 'capability_mismatch';
+  reason:
+    | "already_claimed"
+    | "not_found"
+    | "domain_mismatch"
+    | "dependencies_unmet"
+    | "capability_mismatch";
   message: string;
   missingCapabilities?: string[];
 }
@@ -109,7 +115,7 @@ export interface CompleteTaskResponse {
     status: TaskStatus;
     completedAt: string | null;
     result: string | null;
-    artifacts: Task['artifacts'];
+    artifacts: Task["artifacts"];
   };
   message: string;
 }
@@ -125,13 +131,13 @@ export interface ReleaseTaskResponse {
 
 export interface HeartbeatResponse {
   success: true;
-  agentStatus: 'idle' | 'working' | 'offline';
+  agentStatus: "idle" | "working" | "offline";
   nextCheckIn: number;
   taskStatus: TaskStatus | null;
 }
 
 export interface AgentStatusResponse {
-  status: 'idle' | 'working' | 'offline';
+  status: "idle" | "working" | "offline";
   nextCheckIn: number;
   taskStatus: string | null;
 }
@@ -142,19 +148,26 @@ export interface HabitatContext {
 }
 
 export type SignalType =
-  | 'finding' | 'blocker' | 'offer' | 'warning'
-  | 'question' | 'answer' | 'directive' | 'context' | 'handoff';
+  | "finding"
+  | "blocker"
+  | "offer"
+  | "warning"
+  | "question"
+  | "answer"
+  | "directive"
+  | "context"
+  | "handoff";
 
-export type PulseScope = 'mission' | 'habitat';
+export type PulseScope = "mission" | "habitat";
 
 export interface Pulse {
   id: string;
   missionId: string | null;
   boardId: string;
   scope: PulseScope;
-  fromType: 'human' | 'agent' | 'system';
+  fromType: "human" | "agent" | "system";
   fromId: string;
-  toType: 'human' | 'agent' | null;
+  toType: "human" | "agent" | null;
   toId: string | null;
   signalType: SignalType;
   subject: string;
@@ -216,8 +229,8 @@ export interface AgentMessage {
   taskId: string | null;
   subject: string;
   body: string;
-  messageType: 'info' | 'request' | 'response' | 'alert';
-  priority: 'low' | 'normal' | 'high' | 'urgent';
+  messageType: "info" | "request" | "response" | "alert";
+  priority: "low" | "normal" | "high" | "urgent";
   readAt: string | null;
   createdAt: string;
 }
@@ -238,7 +251,7 @@ export interface Webhook {
   name: string;
   url: string;
   events: string[];
-  format: 'standard' | 'slack' | 'discord';
+  format: "standard" | "slack" | "discord";
   createdAt: string;
   updatedAt: string;
 }
@@ -329,7 +342,12 @@ export interface MissionDetailsResponse {
   mission: MissionWithProgress;
   tasks: Task[];
   events: MissionEvent[];
-  progress: { completed: number; total: number; percentage: number; byStatus: Record<string, number> };
+  progress: {
+    completed: number;
+    total: number;
+    percentage: number;
+    byStatus: Record<string, number>;
+  };
   dependencies: { dependsOn: string[]; blocks: string[] };
 }
 

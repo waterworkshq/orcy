@@ -1,29 +1,51 @@
-import * as taskRepo from '../../repositories/task.js';
-import * as agentRepo from '../../repositories/agent.js';
-import * as eventRepo from '../../repositories/event.js';
-import { sseBroadcaster } from '../../sse/broadcaster.js';
-import * as watcherService from '../watcherService.js';
-import * as retryService from '../retryService.js';
-import * as pluginManager from '../../plugins/pluginManager.js';
-import * as missionService from '../featureService.js';
-import * as timeTrackingService from '../timeTrackingService.js';
-import * as qualityGateService from '../qualityGateService.js';
-import * as dependencyService from '../dependencyService.js';
-import type { Task, Artifact } from '../../models/index.js';
-import {
-  validateTransition,
-  mergeArtifacts,
-  validateAgentCapabilities,
-} from './helpers.js';
-import { logger } from '../../lib/logger.js';
-import * as pulseService from '../pulseService.js';
-import * as reviewAssignment from '../reviewAssignmentService.js';
+import * as taskRepo from "../../repositories/task.js";
+import * as agentRepo from "../../repositories/agent.js";
+import * as eventRepo from "../../repositories/event.js";
+import { sseBroadcaster } from "../../sse/broadcaster.js";
+import * as watcherService from "../watcherService.js";
+import * as retryService from "../retryService.js";
+import * as pluginManager from "../../plugins/pluginManager.js";
+import * as missionService from "../featureService.js";
+import * as timeTrackingService from "../timeTrackingService.js";
+import * as qualityGateService from "../qualityGateService.js";
+import * as dependencyService from "../dependencyService.js";
+import type { Task, Artifact } from "../../models/index.js";
+import { validateTransition, mergeArtifacts, validateAgentCapabilities } from "./helpers.js";
+import { logger } from "../../lib/logger.js";
+import * as pulseService from "../pulseService.js";
+import * as reviewAssignment from "../reviewAssignmentService.js";
+
+export interface TaskEventOpts {
+  taskId: string;
+  habitatId: string;
+  event: string;
+  actorType: string;
+  actorId: string;
+  metadata?: Record<string, unknown>;
+}
+
+type TaskEventHook = (opts: TaskEventOpts) => void;
+const taskEventHooks: TaskEventHook[] = [];
+
+export function onTaskEvent(hook: TaskEventHook): void {
+  taskEventHooks.push(hook);
+}
+
+function notifyTaskEvent(opts: TaskEventOpts): void {
+  for (const hook of taskEventHooks) {
+    try {
+      hook(opts);
+    } catch (err) {
+      logger.error({ err }, "Task event hook failed");
+    }
+  }
+}
 
 function getHabitatId(task: Task): string {
   const habitatId = taskRepo.getHabitatIdForTask(task.id);
   if (!habitatId) {
-    logger.warn({ taskId: task.id }, 'Task has no associated habitat');
-    return '';
+    logger.warn({ taskId: task.id }, "Task has no associated habitat");
+    return "";
   }
   return habitatId;
 }
@@ -31,36 +53,38 @@ function getHabitatId(task: Task): string {
 export function withMissionRecalc<T>(
   taskId: string,
   missionId: string,
-  fn: () => T
+  fn: () => T,
 ): T | undefined {
   try {
     return fn();
   } catch (err) {
-    logger.error(
-      { err, taskId, missionId },
-      'Mission recalculation failed'
-    );
+    logger.error({ err, taskId, missionId }, "Mission recalculation failed");
   }
 }
 
-export function claimTask(taskId: string, agentId: string): { success: true; task: Task } | { success: false; reason: string; message?: string; missingCapabilities?: string[] } {
+export function claimTask(
+  taskId: string,
+  agentId: string,
+):
+  | { success: true; task: Task }
+  | { success: false; reason: string; message?: string; missingCapabilities?: string[] } {
   const current = taskRepo.getTaskById(taskId);
-  if (!current) return { success: false, reason: 'not_found' };
+  if (!current) return { success: false, reason: "not_found" };
 
   if (current.requiredCapabilities && current.requiredCapabilities.length > 0) {
     const agent = agentRepo.getAgentById(agentId);
-    if (!agent) return { success: false, reason: 'not_found' };
+    if (!agent) return { success: false, reason: "not_found" };
 
     const missing = validateAgentCapabilities(
       agent.capabilities || [],
-      current.requiredCapabilities as string[]
+      current.requiredCapabilities as string[],
     );
 
     if (missing.length > 0) {
       return {
         success: false,
-        reason: 'capability_mismatch',
-        message: `Agent lacks required capabilities: ${missing.join(', ')}`,
+        reason: "capability_mismatch",
+        message: `Agent lacks required capabilities: ${missing.join(", ")}`,
         missingCapabilities: missing,
       };
     }
@@ -73,18 +97,18 @@ export function claimTask(taskId: string, agentId: string): { success: true; tas
 
     eventRepo.createEvent({
       taskId,
-      actorType: 'agent',
+      actorType: "agent",
       actorId: agentId,
-      action: 'claimed',
-      toStatus: 'claimed',
+      action: "claimed",
+      toStatus: "claimed",
     });
 
     sseBroadcaster.publish(habitatId, {
-      type: 'task.claimed',
+      type: "task.claimed",
       data: { taskId, agentId },
     });
-    sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
-    if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.claimed');
+    sseBroadcaster.publish(habitatId, { type: "task.updated", data: result.task });
+    if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.claimed");
 
     const agent = agentRepo.getAgentById(agentId);
     if (agent) {
@@ -97,7 +121,7 @@ export function claimTask(taskId: string, agentId: string): { success: true; tas
 
     pulseService.emitAutoSignal({
       missionId: result.task.missionId,
-      signalType: 'context',
+      signalType: "context",
       subject: `${agent?.name ?? agentId} claimed '${result.task.title}'`,
       taskId: result.task.id,
     });
@@ -112,7 +136,7 @@ export function startTask(taskId: string, agentId: string): Task | null {
 
   if (current.assignedAgentId !== agentId) return null;
 
-  if (!validateTransition(current.status, 'in_progress')) return null;
+  if (!validateTransition(current.status, "in_progress")) return null;
 
   const task = taskRepo.startTask(taskId, agentId);
   if (!task) return null;
@@ -120,20 +144,20 @@ export function startTask(taskId: string, agentId: string): Task | null {
   try {
     qualityGateService.ensureTaskChecklists(taskId);
   } catch (err) {
-    logger.warn({ err, taskId }, 'Failed to ensure task quality checklists');
+    logger.warn({ err, taskId }, "Failed to ensure task quality checklists");
   }
 
   const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
-    actorType: 'agent',
+    actorType: "agent",
     actorId: agentId,
-    action: 'started',
-    toStatus: 'in_progress',
+    action: "started",
+    toStatus: "in_progress",
   });
 
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
 
   withMissionRecalc(taskId, current.missionId, () => {
     missionService.recalculateMissionStatus(current.missionId);
@@ -145,20 +169,24 @@ export function submitTask(
   taskId: string,
   agentId: string,
   result: string,
-  artifacts: Artifact[]
-): { task: Task | null; error?: string; missingQualityItems?: { category: string; missingItems: string[] }[] } {
+  artifacts: Artifact[],
+): {
+  task: Task | null;
+  error?: string;
+  missingQualityItems?: { category: string; missingItems: string[] }[];
+} {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return { task: null };
 
   if (current.assignedAgentId !== agentId) return { task: null };
 
-  if (!validateTransition(current.status, 'submitted')) return { task: null };
+  if (!validateTransition(current.status, "submitted")) return { task: null };
 
   const qualityValidation = qualityGateService.validateQualityGates(taskId);
   if (!qualityValidation.passed) {
     return {
       task: null,
-      error: 'QUALITY_GATES_NOT_MET',
+      error: "QUALITY_GATES_NOT_MET",
       missingQualityItems: qualityValidation.failures,
     };
   }
@@ -169,26 +197,26 @@ export function submitTask(
   const habitatId = getHabitatId(task);
 
   try {
-    timeTrackingService.recordWork(taskId, agentId, 0, 'submitted');
+    timeTrackingService.recordWork(taskId, agentId, 0, "submitted");
   } catch (err) {
-    logger.warn({ err, taskId }, 'Failed to record work time');
+    logger.warn({ err, taskId }, "Failed to record work time");
   }
 
   eventRepo.createEvent({
     taskId,
-    actorType: 'agent',
+    actorType: "agent",
     actorId: agentId,
-    action: 'submitted',
-    toStatus: 'submitted',
+    action: "submitted",
+    toStatus: "submitted",
     metadata: { result },
   });
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.submitted',
+    type: "task.submitted",
     data: { taskId, agentId },
   });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.submitted');
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.submitted");
   pluginManager.emitTaskSubmitted(task).catch(() => {});
 
   withMissionRecalc(taskId, current.missionId, () => {
@@ -197,7 +225,7 @@ export function submitTask(
 
   pulseService.emitAutoSignal({
     missionId: current.missionId,
-    signalType: 'offer',
+    signalType: "offer",
     subject: `Results for '${task.title}' available for review`,
     taskId: task.id,
   });
@@ -207,13 +235,18 @@ export function submitTask(
     if (!reviewResult.skipped) {
       for (const reviewer of reviewResult.assigned) {
         sseBroadcaster.publish(habitatId, {
-          type: 'task.review_assigned',
-          data: { taskId, reviewerId: reviewer.reviewerId, reviewerType: 'human', actorId: agentId },
+          type: "task.review_assigned",
+          data: {
+            taskId,
+            reviewerId: reviewer.reviewerId,
+            reviewerType: "human",
+            actorId: agentId,
+          },
         });
       }
     }
   } catch (err) {
-    logger.warn({ err, taskId }, 'Failed to assign reviewers — task still submitted');
+    logger.warn({ err, taskId }, "Failed to assign reviewers — task still submitted");
   }
 
   return { task };
@@ -224,18 +257,23 @@ export function completeTask(
   agentId: string,
   reviewNote?: string,
   artifacts?: Artifact[],
-  skipQualityGates?: boolean
-): { task: Task | null; error?: string; blockedBy?: { taskId: string; title: string; status: string }[]; missingQualityItems?: { category: string; missingItems: string[] }[] } {
+  skipQualityGates?: boolean,
+): {
+  task: Task | null;
+  error?: string;
+  blockedBy?: { taskId: string; title: string; status: string }[];
+  missingQualityItems?: { category: string; missingItems: string[] }[];
+} {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return { task: null };
 
   if (current.assignedAgentId !== agentId) return { task: null };
 
-  if (current.status !== 'submitted' && current.status !== 'approved') return { task: null };
+  if (current.status !== "submitted" && current.status !== "approved") return { task: null };
 
-  if (current.status === 'submitted') {
+  if (current.status === "submitted") {
     if (reviewAssignment.hasAssignedReviewers(taskId)) {
-      return { task: null, error: 'REVIEW_REQUIRED' };
+      return { task: null, error: "REVIEW_REQUIRED" };
     }
   }
 
@@ -243,7 +281,7 @@ export function completeTask(
   if (!depValidation.canComplete) {
     return {
       task: null,
-      error: 'TASK_BLOCKED_BY_DEPENDENCIES',
+      error: "TASK_BLOCKED_BY_DEPENDENCIES",
       blockedBy: depValidation.blockedBy,
     };
   }
@@ -253,7 +291,7 @@ export function completeTask(
     if (!qualityValidation.passed) {
       return {
         task: null,
-        error: 'QUALITY_GATES_NOT_MET',
+        error: "QUALITY_GATES_NOT_MET",
         missingQualityItems: qualityValidation.failures,
       };
     }
@@ -264,8 +302,8 @@ export function completeTask(
   mergeArtifacts(taskId, current, artifacts);
 
   if (reviewNote) {
-    const existingResult = current.result || '';
-    const separator = existingResult ? '\n\n---\n\nReview: ' : 'Review: ';
+    const existingResult = current.result || "";
+    const separator = existingResult ? "\n\n---\n\nReview: " : "Review: ";
     taskRepo.updateTask(taskId, { result: existingResult + separator + reviewNote });
   }
 
@@ -280,20 +318,20 @@ export function completeTask(
 
   eventRepo.createEvent({
     taskId,
-    actorType: 'agent',
+    actorType: "agent",
     actorId: agentId,
-    action: 'completed',
-    toStatus: 'done',
+    action: "completed",
+    toStatus: "done",
     metadata,
   });
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.completed',
+    type: "task.completed",
     data: { taskId },
   });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
 
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.completed');
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.completed");
   pluginManager.emitTaskApproved(task).catch(() => {});
 
   unblockDependents(taskId);
@@ -305,16 +343,16 @@ export function completeTask(
   const resolvingAgent = agentRepo.getAgentById(agentId);
   pulseService.emitAutoSignal({
     missionId: current.missionId,
-    signalType: 'context',
+    signalType: "context",
     subject: `${resolvingAgent?.name ?? agentId} completed '${current.title}'`,
     taskId: current.id,
   });
 
-  if (current.labels?.includes('blocker-clearance')) {
-    const clearedSubject = current.title.replace(/^Clear Blocker:\s*/, '');
+  if (current.labels?.includes("blocker-clearance")) {
+    const clearedSubject = current.title.replace(/^Clear Blocker:\s*/, "");
     pulseService.emitAutoSignal({
       missionId: current.missionId,
-      signalType: 'context',
+      signalType: "context",
       subject: `Blocker cleared: ${clearedSubject}`,
       taskId: current.id,
     });
@@ -323,11 +361,15 @@ export function completeTask(
   return { task };
 }
 
-export function approveTask(taskId: string, reviewerId: string): Task | null {
+export function approveTask(
+  taskId: string,
+  reviewerId: string,
+  reviewerType: "human" | "agent" = "human",
+): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
 
-  if (!validateTransition(current.status, 'approved')) return null;
+  if (!validateTransition(current.status, "approved")) return null;
 
   if (reviewAssignment.hasAssignedReviewers(taskId)) {
     if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId)) {
@@ -338,8 +380,8 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
 
     const habitatId = getHabitatId(current);
     sseBroadcaster.publish(habitatId, {
-      type: 'task.review_completed',
-      data: { taskId, reviewerId, status: 'approved' },
+      type: "task.review_completed",
+      data: { taskId, reviewerId, status: "approved" },
     });
 
     if (!reviewAssignment.hasAllRequiredApprovals(taskId)) {
@@ -348,7 +390,7 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
 
     // Race condition guard: re-read to ensure task hasn't been transitioned by a concurrent approval
     const fresh = taskRepo.getTaskById(taskId);
-    if (!fresh || fresh.status !== 'submitted') return fresh ?? null;
+    if (!fresh || fresh.status !== "submitted") return fresh ?? null;
   }
 
   const task = taskRepo.approveTask(taskId);
@@ -357,25 +399,25 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
   try {
     timeTrackingService.calculateAndSetCompletionMetrics(taskId);
   } catch (err) {
-    logger.warn({ err, taskId }, 'Failed to calculate completion metrics');
+    logger.warn({ err, taskId }, "Failed to calculate completion metrics");
   }
 
   const habitatId = getHabitatId(task);
 
   eventRepo.createEvent({
     taskId,
-    actorType: 'human',
+    actorType: reviewerType,
     actorId: reviewerId,
-    action: 'approved',
-    toStatus: 'approved',
+    action: "approved",
+    toStatus: "approved",
   });
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.approved',
+    type: "task.approved",
     data: { taskId, reviewerId },
   });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.approved');
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.approved");
 
   pluginManager.emitTaskApproved(task).catch(() => {});
 
@@ -387,11 +429,16 @@ export function approveTask(taskId: string, reviewerId: string): Task | null {
   return task;
 }
 
-export function rejectTask(taskId: string, reviewerId: string, reason: string): Task | null {
+export function rejectTask(
+  taskId: string,
+  reviewerId: string,
+  reason: string,
+  reviewerType: "human" | "agent" = "human",
+): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
 
-  if (!validateTransition(current.status, 'rejected')) return null;
+  if (!validateTransition(current.status, "rejected")) return null;
 
   if (reviewAssignment.hasAssignedReviewers(taskId)) {
     if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId)) {
@@ -406,19 +453,19 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
 
   eventRepo.createEvent({
     taskId,
-    actorType: 'human',
+    actorType: reviewerType,
     actorId: reviewerId,
-    action: 'rejected',
-    toStatus: 'rejected',
+    action: "rejected",
+    toStatus: "rejected",
     metadata: { reason },
   });
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.rejected',
+    type: "task.rejected",
     data: { taskId, reason, reviewerId },
   });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.rejected');
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.rejected");
 
   if (retryService.shouldRetry(task)) {
     retryService.scheduleRetry(task);
@@ -427,6 +474,17 @@ export function rejectTask(taskId: string, reviewerId: string, reason: string): 
   }
 
   pluginManager.emitTaskRejected(task, reason).catch(() => {});
+
+  if (habitatId) {
+    notifyTaskEvent({
+      taskId,
+      habitatId,
+      event: "rejected",
+      actorType: reviewerType,
+      actorId: reviewerId,
+      metadata: { reason },
+    });
+  }
 
   withMissionRecalc(taskId, current.missionId, () => {
     missionService.recalculateMissionStatus(current.missionId);
@@ -438,7 +496,7 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
 
-  if (current.status !== 'claimed' && current.status !== 'in_progress') return null;
+  if (current.status !== "claimed" && current.status !== "in_progress") return null;
 
   if (current.assignedAgentId && current.assignedAgentId !== actorId) return null;
 
@@ -449,20 +507,20 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
 
   eventRepo.createEvent({
     taskId,
-    actorType: current.assignedAgentId ? 'agent' : 'human',
+    actorType: current.assignedAgentId ? "agent" : "human",
     actorId,
-    action: 'released',
+    action: "released",
     fromStatus: current.status,
-    toStatus: 'pending',
+    toStatus: "pending",
     metadata: { reason },
   });
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.released',
+    type: "task.released",
     data: { taskId, reason },
   });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.released');
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.released");
 
   withMissionRecalc(taskId, current.missionId, () => {
     missionService.recalculateMissionStatus(current.missionId);
@@ -470,7 +528,7 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
 
   pulseService.emitAutoSignal({
     missionId: current.missionId,
-    signalType: 'context',
+    signalType: "context",
     subject: `Task '${task.title}' released, available for claim`,
     taskId: task.id,
   });
@@ -478,13 +536,18 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   return task;
 }
 
-export function failTask(taskId: string, actorId: string, actorType: 'agent' | 'system', reason: string): Task | null {
+export function failTask(
+  taskId: string,
+  actorId: string,
+  actorType: "agent" | "system",
+  reason: string,
+): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
 
-  if (!validateTransition(current.status, 'failed')) return null;
+  if (!validateTransition(current.status, "failed")) return null;
 
-  if (actorType === 'agent' && current.assignedAgentId !== actorId) return null;
+  if (actorType === "agent" && current.assignedAgentId !== actorId) return null;
 
   const task = taskRepo.failTask(taskId, reason);
   if (!task) return null;
@@ -495,17 +558,17 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
     taskId,
     actorType,
     actorId,
-    action: 'failed',
-    toStatus: 'failed',
+    action: "failed",
+    toStatus: "failed",
     metadata: { reason },
   });
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.failed',
+    type: "task.failed",
     data: { taskId, reason },
   });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.failed');
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
+  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.failed");
 
   if (retryService.shouldRetry(task)) {
     retryService.scheduleRetry(task);
@@ -519,10 +582,21 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
 
   pulseService.emitAutoSignal({
     missionId: current.missionId,
-    signalType: 'warning',
+    signalType: "warning",
     subject: `Task '${task.title}' failed: ${reason}`,
     taskId: task.id,
   });
+
+  if (habitatId) {
+    notifyTaskEvent({
+      taskId,
+      habitatId,
+      event: "failed",
+      actorType,
+      actorId,
+      metadata: { reason },
+    });
+  }
 
   return task;
 }
@@ -530,16 +604,16 @@ export function failTask(taskId: string, actorId: string, actorType: 'agent' | '
 function unblockDependents(completedTaskId: string): void {
   const dependents = taskRepo.getTasksByDependency(completedTaskId);
   for (const dependent of dependents) {
-    if (taskRepo.areAllDependenciesMet(dependent.id) && dependent.status === 'pending') {
+    if (taskRepo.areAllDependenciesMet(dependent.id) && dependent.status === "pending") {
       const habitatId = getHabitatId(dependent);
       eventRepo.createEvent({
         taskId: dependent.id,
-        actorType: 'system',
-        actorId: 'system',
-        action: 'dependency_resolved',
+        actorType: "system",
+        actorId: "system",
+        action: "dependency_resolved",
         metadata: { unblockedBy: completedTaskId },
       });
-      sseBroadcaster.publish(habitatId, { type: 'task.updated', data: dependent });
+      sseBroadcaster.publish(habitatId, { type: "task.updated", data: dependent });
     }
   }
 }

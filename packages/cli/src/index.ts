@@ -13,6 +13,7 @@ import { registerWorktreeCommands } from "./commands/worktree.js";
 import { registerServeCommands } from "./commands/serve.js";
 import { registerIntegrationCommands } from "./commands/integration.js";
 import { registerDaemonCommands } from "./commands/daemon.js";
+import { registerSkillCommands } from "./commands/skill.js";
 
 const program = new Command();
 
@@ -31,6 +32,7 @@ registerWorktreeCommands(program);
 registerServeCommands(program);
 registerIntegrationCommands(program);
 registerDaemonCommands(program);
+registerSkillCommands(program);
 
 program.parse(process.argv);
 

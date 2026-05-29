@@ -1,42 +1,56 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { HealthScoreWidget } from './HealthScoreWidget.js';import { useHabitatStore } from '../../store/habitatStore.js';
-import { useModalStore } from '../../store/modalStore.js';
-import { useSSE } from '../../hooks/useSSE.js';
-import { useSSENotifications } from '../../hooks/useSSENotifications.js';
-import { usePresence } from '../../hooks/usePresence.js';
-import { useIsMobile } from '../../hooks/useMediaQuery.js';
-import { api } from '../../api/index.js';
-import { Habitat } from './Habitat.js';
-import { AgentPanel } from './AgentPanel.js';
-import { FilterBar } from './FilterBar.js';
-import { StatsModal } from './StatsModal.js';
-import { ColumnSettingsDialog } from './ColumnSettingsDialog.js';
-import { HabitatSettingsDialog } from './HabitatSettingsDialog.js';
-import { CreateColumnDialog } from './CreateColumnDialog.js';
-import { Button } from '../ui/Button.js';
-import { HelpDrawer } from '../ui/HelpDrawer.js';
-import { HelpContent } from '../ui/HelpContent.js';
-import { BulkActionBar } from './BulkActionBar.js';
-import { TaskTableView } from './TaskTableView.js';
-import { MobileNav } from './MobileNav.js';
-import { Plus, Users, BarChart3, Settings, HelpCircle, Activity, Eye, CheckSquare, Square, Menu, GitBranch } from 'lucide-react';
-import { HabitatPulsePanel } from './HabitatPulsePanel.js';
-import { InsightsPanel } from './InsightsPanel.js';
-import { SprintSelector } from './SprintSelector.js';
-import { SprintPlanningPanel } from './SprintPlanningPanel.js';
-import { IntakeReviewPanel } from './IntakeReviewPanel.js';
-import type { Column } from '../../types/index.js';
-import { useRegisterDrawerBridge } from '../layout/DrawerBridgeContext.js';
+import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from "react";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
+import { HealthScoreWidget } from "./HealthScoreWidget.js";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { useModalStore } from "../../store/modalStore.js";
+import { useSSE } from "../../hooks/useSSE.js";
+import { useSSENotifications } from "../../hooks/useSSENotifications.js";
+import { usePresence } from "../../hooks/usePresence.js";
+import { useIsMobile } from "../../hooks/useMediaQuery.js";
+import { api } from "../../api/index.js";
+import { Habitat } from "./Habitat.js";
+import { AgentPanel } from "./AgentPanel.js";
+import { FilterBar } from "./FilterBar.js";
+import { StatsModal } from "./StatsModal.js";
+import { ColumnSettingsDialog } from "./ColumnSettingsDialog.js";
+import { HabitatSettingsDialog } from "./HabitatSettingsDialog.js";
+import { CreateColumnDialog } from "./CreateColumnDialog.js";
+import { Button } from "../ui/Button.js";
+import { HelpDrawer } from "../ui/HelpDrawer.js";
+import { HelpContent } from "../ui/HelpContent.js";
+import { BulkActionBar } from "./BulkActionBar.js";
+import { TaskTableView } from "./TaskTableView.js";
+import { MobileNav } from "./MobileNav.js";
+import {
+  Plus,
+  Users,
+  BarChart3,
+  Settings,
+  HelpCircle,
+  Activity,
+  Eye,
+  CheckSquare,
+  Square,
+  Menu,
+  GitBranch,
+} from "lucide-react";
+import { HabitatPulsePanel } from "./HabitatPulsePanel.js";
+import { InsightsPanel } from "./InsightsPanel.js";
+import { SkillPanel } from "./SkillPanel.js";
+import { SprintSelector } from "./SprintSelector.js";
+import { SprintPlanningPanel } from "./SprintPlanningPanel.js";
+import { IntakeReviewPanel } from "./IntakeReviewPanel.js";
+import type { Column } from "../../types/index.js";
+import { useRegisterDrawerBridge } from "../layout/DrawerBridgeContext.js";
 
 const CreateTaskForm = React.lazy(() =>
-  import('./CreateTaskForm.js').then((m) => ({ default: m.CreateTaskForm }))
+  import("./CreateTaskForm.js").then((m) => ({ default: m.CreateTaskForm })),
 );
 const CreateMissionForm = React.lazy(() =>
-  import('./CreateMissionForm.js').then((m) => ({ default: m.CreateMissionForm }))
+  import("./CreateMissionForm.js").then((m) => ({ default: m.CreateMissionForm })),
 );
 const DependencyGraphModal = React.lazy(() =>
-  import('./DependencyGraphModal.js').then((m) => ({ default: m.DependencyGraphModal }))
+  import("./DependencyGraphModal.js").then((m) => ({ default: m.DependencyGraphModal })),
 );
 
 const PAGE_SIZE = 50;
@@ -45,9 +59,26 @@ export function HabitatPage() {
   const { habitatId } = useParams<{ habitatId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const view = searchParams.get('view') ?? 'board';
-  const { board, setBoard, setAgents, isLoading, setLoading, setError, updateColumn, updateBoard, addColumn, removeColumn, columns, setColumnPagination, clearColumnPagination, presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } =
-    useHabitatStore();
+  const view = searchParams.get("view") ?? "board";
+  const {
+    board,
+    setBoard,
+    setAgents,
+    isLoading,
+    setLoading,
+    setError,
+    updateColumn,
+    updateBoard,
+    addColumn,
+    removeColumn,
+    columns,
+    setColumnPagination,
+    clearColumnPagination,
+    presence,
+    isBulkSelectMode,
+    setBulkSelectMode,
+    clearTaskSelection,
+  } = useHabitatStore();
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateFeature, setShowCreateFeature] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
@@ -63,68 +94,110 @@ export function HabitatPage() {
   const isMobile = useIsMobile();
   const registerDrawerBridge = useRegisterDrawerBridge();
 
-  useSSE(habitatId ?? '');
+  useSSE(habitatId ?? "");
   useSSENotifications();
   usePresence(habitatId);
 
-  const drawerCallbacks = useMemo(() => ({
-    onDeployAgent: () => setShowAgentPanel(true),
-    onOpenStats: () => setShowStats(true),
-    onOpenAgents: () => setShowAgentPanel(true),
-    onOpenDependencies: () => setShowDepGraph(true),
-  }), []);
+  const drawerCallbacks = useMemo(
+    () => ({
+      onDeployAgent: () => setShowAgentPanel(true),
+      onOpenStats: () => setShowStats(true),
+      onOpenAgents: () => setShowAgentPanel(true),
+      onOpenDependencies: () => setShowDepGraph(true),
+    }),
+    [],
+  );
 
   useEffect(() => registerDrawerBridge(drawerCallbacks), [drawerCallbacks, registerDrawerBridge]);
 
   useEffect(() => {
     function isInputFocused() {
       const el = document.activeElement;
-      return el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.tagName === 'SELECT';
+      return el?.tagName === "INPUT" || el?.tagName === "TEXTAREA" || el?.tagName === "SELECT";
     }
 
     function closeTopmostDialog() {
-      if (showCreateTask) { setShowCreateTask(false); return; }
-      if (showCreateFeature) { setShowCreateFeature(false); return; }
-      if (showAgentPanel) { setShowAgentPanel(false); return; }
-      if (showStats) { setShowStats(false); return; }
-      if (showBoardSettings) { setShowBoardSettings(false); return; }
-      if (showCreateColumn) { setShowCreateColumn(false); return; }
-      if (helpOpen) { setHelpOpen(false); return; }
-      if (showDepGraph) { setShowDepGraph(false); return; }
-      if (settingsColumn) { setSettingsColumn(null); return; }
-      if (useModalStore.getState().isOpen) { return; }
+      if (showCreateTask) {
+        setShowCreateTask(false);
+        return;
+      }
+      if (showCreateFeature) {
+        setShowCreateFeature(false);
+        return;
+      }
+      if (showAgentPanel) {
+        setShowAgentPanel(false);
+        return;
+      }
+      if (showStats) {
+        setShowStats(false);
+        return;
+      }
+      if (showBoardSettings) {
+        setShowBoardSettings(false);
+        return;
+      }
+      if (showCreateColumn) {
+        setShowCreateColumn(false);
+        return;
+      }
+      if (helpOpen) {
+        setHelpOpen(false);
+        return;
+      }
+      if (showDepGraph) {
+        setShowDepGraph(false);
+        return;
+      }
+      if (settingsColumn) {
+        setSettingsColumn(null);
+        return;
+      }
+      if (useModalStore.getState().isOpen) {
+        return;
+      }
     }
 
     function handleKeyDown(e: KeyboardEvent) {
       if (isInputFocused()) return;
       switch (e.key) {
-        case 'n':
-        case 'N':
+        case "n":
+        case "N":
           e.preventDefault();
           setShowCreateTask(true);
           break;
-        case '?':
+        case "?":
           e.preventDefault();
-          setHelpOpen(prev => !prev);
+          setHelpOpen((prev) => !prev);
           break;
-        case '/':
+        case "/":
           e.preventDefault();
           searchRef.current?.focus();
           break;
-        case 'Escape':
+        case "Escape":
           closeTopmostDialog();
           break;
-        case 'd':
-        case 'D':
+        case "d":
+        case "D":
           e.preventDefault();
           setShowDepGraph(true);
           break;
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCreateTask, showCreateFeature, showAgentPanel, showStats, showBoardSettings, showCreateColumn, helpOpen, settingsColumn, showDepGraph]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    showCreateTask,
+    showCreateFeature,
+    showAgentPanel,
+    showStats,
+    showBoardSettings,
+    showCreateColumn,
+    helpOpen,
+    settingsColumn,
+    showDepGraph,
+  ]);
 
   const prevViewRef = useRef(view);
   useEffect(() => {
@@ -145,11 +218,7 @@ export function HabitatPage() {
         api.agents.list(),
         api.missions.list(habitatId, { limit: PAGE_SIZE, offset: 0 }),
       ]);
-      setBoard(
-        boardData.board,
-        boardData.columns ?? [],
-        boardData.features ?? []
-      );
+      setBoard(boardData.board, boardData.columns ?? [], boardData.features ?? []);
       setAgents(agentsData);
 
       const firstPageFeatures = firstPage.features;
@@ -168,7 +237,15 @@ export function HabitatPage() {
       setError((err as Error).message);
       setLoading(false);
     }
-  }, [habitatId, setBoard, setAgents, setLoading, setError, clearColumnPagination, setColumnPagination]);
+  }, [
+    habitatId,
+    setBoard,
+    setAgents,
+    setLoading,
+    setError,
+    clearColumnPagination,
+    setColumnPagination,
+  ]);
 
   useEffect(() => {
     loadBoard();
@@ -196,13 +273,23 @@ export function HabitatPage() {
         <div className="mb-2 md:mb-4 glass-panel p-3 md:p-4 rounded-lg space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 md:gap-3 min-w-0">
-              <Link to="/" className="text-xs text-on-surface-variant hover:text-on-surface whitespace-nowrap">
+              <Link
+                to="/"
+                className="text-xs text-on-surface-variant hover:text-on-surface whitespace-nowrap"
+              >
                 Habitats
               </Link>
               <span className="text-on-surface-variant text-xs">/</span>
-              <span className="text-xs font-medium text-on-surface truncate">{board?.name ?? 'Habitat'}</span>
+              <span className="text-xs font-medium text-on-surface truncate">
+                {board?.name ?? "Habitat"}
+              </span>
               {habitatId && <HealthScoreWidget habitatId={habitatId} />}
-              {habitatId && <SprintSelector habitatId={habitatId} onOpenPlanning={() => setShowSprintPlanning(true)} />}
+              {habitatId && (
+                <SprintSelector
+                  habitatId={habitatId}
+                  onOpenPlanning={() => setShowSprintPlanning(true)}
+                />
+              )}
               {board && (
                 <button
                   type="button"
@@ -234,9 +321,9 @@ export function HabitatPage() {
                         <div
                           key={p.sessionId}
                           className="flex h-5 w-5 items-center justify-center rounded-full border border-surface bg-[var(--agent-blue)] text-[9px] font-bold text-[var(--on-surface)]"
-                          title={p.userName ?? p.agentName ?? 'Unknown'}
+                          title={p.userName ?? p.agentName ?? "Unknown"}
                         >
-                          {(p.userName ?? p.agentName ?? '?').slice(0, 2).toUpperCase()}
+                          {(p.userName ?? p.agentName ?? "?").slice(0, 2).toUpperCase()}
                         </div>
                       ))}
                       {presence.length > 3 && (
@@ -264,7 +351,7 @@ export function HabitatPage() {
                   <Users className="h-4 w-4" />
                   Agents
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => navigate('/activity')}>
+                <Button variant="outline" size="sm" onClick={() => navigate("/activity")}>
                   <Activity className="h-4 w-4" />
                   Activity
                 </Button>
@@ -313,7 +400,10 @@ export function HabitatPage() {
               <span className="text-sm text-on-surface-variant">Help</span>
               <button
                 type="button"
-                onClick={() => { setHelpOpen(true); setMobileMenuOpen(false); }}
+                onClick={() => {
+                  setHelpOpen(true);
+                  setMobileMenuOpen(false);
+                }}
                 className="flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 text-sm text-on-surface"
               >
                 <HelpCircle className="h-4 w-4" />
@@ -324,7 +414,10 @@ export function HabitatPage() {
               <span className="text-sm text-on-surface-variant">Dependencies</span>
               <button
                 type="button"
-                onClick={() => { setShowDepGraph(true); setMobileMenuOpen(false); }}
+                onClick={() => {
+                  setShowDepGraph(true);
+                  setMobileMenuOpen(false);
+                }}
                 className="flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 text-sm text-on-surface"
               >
                 <GitBranch className="h-4 w-4" />
@@ -343,7 +436,11 @@ export function HabitatPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => { useModalStore.getState().closeModal(); setBulkSelectMode(true); setMobileMenuOpen(false); }}
+                onClick={() => {
+                  useModalStore.getState().closeModal();
+                  setBulkSelectMode(true);
+                  setMobileMenuOpen(false);
+                }}
                 className="flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 text-sm text-on-surface"
               >
                 <Square className="h-4 w-4" />
@@ -362,18 +459,25 @@ export function HabitatPage() {
 
         <FilterBar focusSearchRef={searchRef} />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          <HabitatPulsePanel habitatId={habitatId} />
-          <InsightsPanel habitatId={habitatId} />
+        <div className="space-y-3 mb-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <HabitatPulsePanel habitatId={habitatId} />
+            <InsightsPanel habitatId={habitatId} />
+          </div>
+          <SkillPanel habitatId={habitatId} />
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {view === 'intake' && habitatId ? (
+          {view === "intake" && habitatId ? (
             <IntakeReviewPanel habitatId={habitatId} />
-          ) : view === 'table' && habitatId ? (
+          ) : view === "table" && habitatId ? (
             <TaskTableView habitatId={habitatId} />
           ) : (
-            <Habitat onColumnSettingsClick={(col) => setSettingsColumn(col)} onAddColumnClick={() => setShowCreateColumn(true)} presence={presence} />
+            <Habitat
+              onColumnSettingsClick={(col) => setSettingsColumn(col)}
+              onAddColumnClick={() => setShowCreateColumn(true)}
+              presence={presence}
+            />
           )}
         </div>
 
@@ -395,7 +499,9 @@ export function HabitatPage() {
       )}
 
       {showAgentPanel && <AgentPanel onClose={() => setShowAgentPanel(false)} />}
-      {showSprintPlanning && habitatId && <SprintPlanningPanel habitatId={habitatId} onClose={() => setShowSprintPlanning(false)} />}
+      {showSprintPlanning && habitatId && (
+        <SprintPlanningPanel habitatId={habitatId} onClose={() => setShowSprintPlanning(false)} />
+      )}
       {showCreateTask && (
         <Suspense fallback={null}>
           <CreateTaskForm
@@ -456,7 +562,7 @@ export function HabitatPage() {
           }}
           onDelete={() => {
             setShowBoardSettings(false);
-            navigate('/');
+            navigate("/");
           }}
         />
       )}

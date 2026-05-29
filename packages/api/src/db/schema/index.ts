@@ -47,6 +47,7 @@ export {
   integrationSyncRuns,
 } from "./integration.js";
 export { daemonInstances, daemonAgents, daemonSessions } from "./daemon.js";
+export { habitatSkills, habitatSkillSignals } from "./habitat-skill.js";
 export {
   habitatsRelations,
   columnsRelations,
@@ -97,4 +98,6 @@ export {
   daemonInstancesRelations,
   daemonAgentsRelations,
   daemonSessionsRelations,
+  habitatSkillsRelations,
+  habitatSkillSignalsRelations,
 } from "./relations.js";

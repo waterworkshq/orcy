@@ -1,18 +1,25 @@
-import * as habitatRepo from '../repositories/board.js';
-import * as columnRepo from '../repositories/column.js';
-import * as taskRepo from '../repositories/task.js';
-import * as missionRepo from '../repositories/feature.js';
-import * as commentRepo from '../repositories/comment.js';
-import * as templateRepo from '../repositories/template.js';
-import * as eventRepo from '../repositories/event.js';
-import * as savedFilterRepo from '../repositories/savedFilter.js';
-import { getWebhookSubscriptions, createWebhookSubscription } from './webhookDispatcher.js';
-import { badRequest } from '../errors.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import * as pluginManager from '../plugins/pluginManager.js';
-import { rebuildCache as rebuildHabitatSecretCache } from './boardSecretCache.js';
-import * as missionService from './featureService.js';
-import type { Habitat, Column, MissionTemplate, AutoAssignSettings, TaskPriority } from '../models/index.js';
+import * as habitatRepo from "../repositories/board.js";
+import * as columnRepo from "../repositories/column.js";
+import * as taskRepo from "../repositories/task.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as commentRepo from "../repositories/comment.js";
+import * as templateRepo from "../repositories/template.js";
+import * as eventRepo from "../repositories/event.js";
+import * as savedFilterRepo from "../repositories/savedFilter.js";
+import { getWebhookSubscriptions, createWebhookSubscription } from "./webhookDispatcher.js";
+import { badRequest } from "../errors.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import * as pluginManager from "../plugins/pluginManager.js";
+import { rebuildCache as rebuildHabitatSecretCache } from "./boardSecretCache.js";
+import * as missionService from "./featureService.js";
+import * as skillRepo from "../repositories/habitatSkill.js";
+import type {
+  Habitat,
+  Column,
+  MissionTemplate,
+  AutoAssignSettings,
+  TaskPriority,
+} from "../models/index.js";
 
 export interface CreateHabitatInput {
   name: string;
@@ -34,14 +41,17 @@ export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; co
   }
 
   savedFilterRepo.seedBuiltinFilters(habitat.id);
+  skillRepo.getOrCreateSkill(habitat.id);
 
-  sseBroadcaster.publish(habitat.id, { type: 'habitat.created', data: habitat });
+  sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: habitat });
   pluginManager.emitHabitatCreated(habitat).catch(() => {});
   rebuildHabitatSecretCache();
   return { habitat, columns };
 }
 
-export function getHabitat(habitatId: string): { habitat: Habitat; columns: Column[]; missions: missionService.MissionWithProgress[] } | null {
+export function getHabitat(
+  habitatId: string,
+): { habitat: Habitat; columns: Column[]; missions: missionService.MissionWithProgress[] } | null {
   const result = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
   if (!result) return null;
 
@@ -54,11 +64,20 @@ export function listHabitats(name?: string, teamIds?: string[]): Habitat[] {
   return habitatRepo.listHabitats(name, teamIds);
 }
 
-export function updateHabitat(habitatId: string, input: { name?: string; description?: string; retrySettings?: import('../models/index.js').RetryPolicy | null; anomalySettings?: import('../models/index.js').AnomalySettings | null; autoAssignSettings?: AutoAssignSettings | null }): Habitat | null {
+export function updateHabitat(
+  habitatId: string,
+  input: {
+    name?: string;
+    description?: string;
+    retrySettings?: import("../models/index.js").RetryPolicy | null;
+    anomalySettings?: import("../models/index.js").AnomalySettings | null;
+    autoAssignSettings?: AutoAssignSettings | null;
+  },
+): Habitat | null {
   const habitat = habitatRepo.updateHabitat(habitatId, input);
   if (habitat) {
     rebuildHabitatSecretCache();
-    sseBroadcaster.publish(habitatId, { type: 'habitat.updated', data: habitat });
+    sseBroadcaster.publish(habitatId, { type: "habitat.updated", data: habitat });
   }
   return habitat;
 }
@@ -66,7 +85,7 @@ export function updateHabitat(habitatId: string, input: { name?: string; descrip
 export function deleteHabitat(habitatId: string): void {
   habitatRepo.deleteHabitat(habitatId);
   rebuildHabitatSecretCache();
-  sseBroadcaster.publish(habitatId, { type: 'habitat.deleted', data: { habitatId } });
+  sseBroadcaster.publish(habitatId, { type: "habitat.deleted", data: { habitatId } });
 }
 
 export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
@@ -76,10 +95,10 @@ export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
   stats.wipHealth = columns.map((col) => {
     const current = missionRepo.getMissionsByHabitatId(habitatId, { columnId: col.id }).total;
     const limit = col.wipLimit;
-    let health: 'ok' | 'warning' | 'exceeded' = 'ok';
+    let health: "ok" | "warning" | "exceeded" = "ok";
     if (limit !== null) {
-      if (current >= limit) health = 'exceeded';
-      else if (current >= limit * 0.8) health = 'warning';
+      if (current >= limit) health = "exceeded";
+      else if (current >= limit * 0.8) health = "warning";
     }
     return {
       columnId: col.id,
@@ -94,7 +113,7 @@ export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
 }
 
 function createDefaultColumns(habitatId: string): Column[] {
-  const columns = ['Todo', 'In Progress', 'Review', 'Done'];
+  const columns = ["Todo", "In Progress", "Review", "Done"];
   const result: Column[] = [];
 
   for (let i = 0; i < columns.length; i++) {
@@ -116,7 +135,9 @@ function createDefaultColumns(habitatId: string): Column[] {
     columnRepo.updateColumn(result[i].id, { nextColumnId: result[i + 1].id });
   }
 
-  return result.map((c, i) => i < result.length - 1 ? { ...c, nextColumnId: result[i + 1].id } : c);
+  return result.map((c, i) =>
+    i < result.length - 1 ? { ...c, nextColumnId: result[i + 1].id } : c,
+  );
 }
 
 export interface HabitatExportData {
@@ -161,7 +182,7 @@ export interface HabitatExportData {
       taskTitle: string;
       parentTaskTitle: string | null;
       content: string;
-      authorType: 'human' | 'agent';
+      authorType: "human" | "agent";
       authorId: string;
     }>;
     templates: Array<{
@@ -188,7 +209,13 @@ export interface HabitatExportData {
 export interface ImportResult {
   habitat: Habitat;
   columns: Column[];
-  imported: { missions: number; tasks: number; comments: number; templates: number; webhooks: number };
+  imported: {
+    missions: number;
+    tasks: number;
+    comments: number;
+    templates: number;
+    webhooks: number;
+  };
   warnings: string[];
 }
 
@@ -197,18 +224,20 @@ export function exportHabitat(habitatId: string): HabitatExportData | null {
   if (!result) return null;
 
   const { habitat, columns: habitatColumns } = result;
-  const webhooks = getWebhookSubscriptions(habitatId).filter(w => w.habitatId === habitatId);
-  const templates = templateRepo.getTemplatesByHabitatId(habitatId).filter(t => t.habitatId !== null);
+  const webhooks = getWebhookSubscriptions(habitatId).filter((w) => w.habitatId === habitatId);
+  const templates = templateRepo
+    .getTemplatesByHabitatId(habitatId)
+    .filter((t) => t.habitatId !== null);
   const { missions: missionList } = missionRepo.getMissionsByHabitatId(habitatId);
 
-  const columnMap = new Map(habitatColumns.map(c => [c.id, c]));
-  const missionMap = new Map(missionList.map(f => [f.id, f]));
+  const columnMap = new Map(habitatColumns.map((c) => [c.id, c]));
+  const missionMap = new Map(missionList.map((f) => [f.id, f]));
 
-  const comments: HabitatExportData['habitat']['comments'] = [];
+  const comments: HabitatExportData["habitat"]["comments"] = [];
 
-  const exportedMissions: HabitatExportData['habitat']['missions'] = missionList.map(mission => {
+  const exportedMissions: HabitatExportData["habitat"]["missions"] = missionList.map((mission) => {
     const missionTasks = taskRepo.getTasksByMissionId(mission.id);
-    const columnName = columnMap.get(mission.columnId)?.name ?? '';
+    const columnName = columnMap.get(mission.columnId)?.name ?? "";
 
     for (const task of missionTasks) {
       const { comments: taskComments } = commentRepo.getCommentsByTaskId(task.id, 1000, 0);
@@ -231,10 +260,12 @@ export function exportHabitat(habitatId: string): HabitatExportData | null {
       labels: mission.labels,
       columnName,
       status: mission.status,
-      dependsOn: mission.dependsOn.map(depId => missionMap.get(depId)?.title ?? '').filter(Boolean),
-      blocks: mission.blocks.map(blockId => missionMap.get(blockId)?.title ?? '').filter(Boolean),
+      dependsOn: mission.dependsOn
+        .map((depId) => missionMap.get(depId)?.title ?? "")
+        .filter(Boolean),
+      blocks: mission.blocks.map((blockId) => missionMap.get(blockId)?.title ?? "").filter(Boolean),
       dueAt: mission.dueAt,
-      tasks: missionTasks.map(task => ({
+      tasks: missionTasks.map((task) => ({
         title: task.title,
         description: task.description,
         priority: task.priority,
@@ -254,18 +285,18 @@ export function exportHabitat(habitatId: string): HabitatExportData | null {
     habitat: {
       name: habitat.name,
       description: habitat.description,
-      columns: habitatColumns.map(col => ({
+      columns: habitatColumns.map((col) => ({
         name: col.name,
         order: col.order,
         wipLimit: col.wipLimit,
         autoAdvance: col.autoAdvance,
         requiresClaim: col.requiresClaim,
-        nextColumnName: col.nextColumnId ? columnMap.get(col.nextColumnId)?.name ?? null : null,
+        nextColumnName: col.nextColumnId ? (columnMap.get(col.nextColumnId)?.name ?? null) : null,
         isTerminal: col.isTerminal,
       })),
       missions: exportedMissions,
       comments,
-      templates: templates.map(t => ({
+      templates: templates.map((t) => ({
         name: t.name,
         titlePattern: t.titlePattern,
         descriptionPattern: t.descriptionPattern,
@@ -275,7 +306,7 @@ export function exportHabitat(habitatId: string): HabitatExportData | null {
         requiredCapabilities: t.requiredCapabilities,
         isDefault: t.isDefault,
       })),
-      webhooks: webhooks.map(w => ({
+      webhooks: webhooks.map((w) => ({
         name: w.name,
         url: w.url,
         events: w.events,
@@ -288,7 +319,7 @@ export function exportHabitat(habitatId: string): HabitatExportData | null {
 }
 
 interface ImportHabitatData extends HabitatExportData {
-  habitat: HabitatExportData['habitat'] & {
+  habitat: HabitatExportData["habitat"] & {
     tasks?: Array<{
       title: string;
       description: string;
@@ -303,7 +334,7 @@ interface ImportHabitatData extends HabitatExportData {
 
 export function importHabitat(
   data: ImportHabitatData,
-  existingHabitatId?: string
+  existingHabitatId?: string,
 ): ImportResult | null {
   const warnings: string[] = [];
 
@@ -322,6 +353,7 @@ export function importHabitat(
     description: habitatData.description,
   });
   const habitatId = habitat.id;
+  skillRepo.getOrCreateSkill(habitatId);
 
   const columnNameToId = new Map<string, string>();
   const columns: Column[] = [];
@@ -344,7 +376,7 @@ export function importHabitat(
     if (colData.nextColumnName) {
       const nextColId = columnNameToId.get(colData.nextColumnName);
       if (nextColId) {
-        const col = columns.find(c => c.name === colData.name);
+        const col = columns.find((c) => c.name === colData.name);
         if (col) {
           columnRepo.updateColumn(col.id, { nextColumnId: nextColId });
         }
@@ -361,7 +393,9 @@ export function importHabitat(
   for (const missionData of missionsData) {
     const columnId = columnNameToId.get(missionData.columnName);
     if (!columnId) {
-      warnings.push(`Mission "${missionData.title}": column "${missionData.columnName}" not found, skipping`);
+      warnings.push(
+        `Mission "${missionData.title}": column "${missionData.columnName}" not found, skipping`,
+      );
       continue;
     }
 
@@ -373,7 +407,7 @@ export function importHabitat(
       acceptanceCriteria: missionData.acceptanceCriteria,
       priority: missionData.priority,
       labels: missionData.labels,
-      createdBy: 'import',
+      createdBy: "import",
     });
 
     missionTitleToId.set(missionData.title, mission.id);
@@ -387,7 +421,7 @@ export function importHabitat(
           priority: taskData.priority,
           requiredDomain: taskData.requiredDomain,
           requiredCapabilities: taskData.requiredCapabilities,
-          createdBy: taskData.createdBy ?? 'import',
+          createdBy: taskData.createdBy ?? "import",
         });
         taskCount++;
       }
@@ -395,7 +429,7 @@ export function importHabitat(
   }
 
   if (missionsData.length === 0 && tasksData.length > 0) {
-    const firstColumnId = columnNameToId.get(habitatData.columns[0]?.name ?? '');
+    const firstColumnId = columnNameToId.get(habitatData.columns[0]?.name ?? "");
     if (firstColumnId) {
       for (const taskData of tasksData) {
         const mission = missionRepo.createMission({
@@ -405,7 +439,7 @@ export function importHabitat(
           description: taskData.description,
           priority: taskData.priority,
           labels: taskData.labels,
-          createdBy: taskData.createdBy ?? 'import',
+          createdBy: taskData.createdBy ?? "import",
         });
         taskRepo.createTask({
           missionId: mission.id,
@@ -414,7 +448,7 @@ export function importHabitat(
           priority: taskData.priority,
           requiredDomain: taskData.requiredDomain,
           requiredCapabilities: taskData.requiredCapabilities,
-          createdBy: taskData.createdBy ?? 'import',
+          createdBy: taskData.createdBy ?? "import",
         });
         taskCount++;
       }
@@ -463,12 +497,12 @@ export function importHabitat(
       name: tmplData.name,
       titlePattern: tmplData.titlePattern,
       descriptionPattern: tmplData.descriptionPattern,
-      priority: tmplData.priority as MissionTemplate['priority'],
+      priority: tmplData.priority as MissionTemplate["priority"],
       labels: tmplData.labels,
       requiredDomain: tmplData.requiredDomain,
       requiredCapabilities: tmplData.requiredCapabilities,
       isDefault: tmplData.isDefault,
-      createdBy: 'import',
+      createdBy: "import",
     });
     templateCount++;
   }
@@ -479,14 +513,14 @@ export function importHabitat(
       habitatId,
       webhookData.name,
       webhookData.url,
-      webhookData.format as 'standard' | 'slack' | 'discord',
+      webhookData.format as "standard" | "slack" | "discord",
       webhookData.events,
-      webhookData.headers
+      webhookData.headers,
     );
     webhookCount++;
   }
 
-  sseBroadcaster.publish(habitat.id, { type: 'habitat.created', data: habitat });
+  sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: habitat });
 
   return {
     habitat,

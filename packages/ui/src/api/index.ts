@@ -67,6 +67,8 @@ import type {
   ExternalIssueLink,
   ExternalIntakeCandidate,
   IntegrationSyncRun,
+  HabitatSkill,
+  SkillSignal,
 } from "../types/index.js";
 
 const BASE = "/api";
@@ -1401,6 +1403,29 @@ export const api = {
     stop: (id: string) => request<{ status: string }>(`/daemons/${id}/stop`, { method: "POST" }),
     detectClis: () =>
       request<{ clis: import("../types/index.js").DetectedCli[] }>("/daemons/detect-clis"),
+  },
+  skill: {
+    get: (habitatId: string) =>
+      request<{ skill: HabitatSkill | null }>(`/habitats/${habitatId}/skill`),
+    refresh: (habitatId: string) =>
+      request<{ skill: HabitatSkill }>(`/habitats/${habitatId}/skill/refresh`, { method: "POST" }),
+    contribute: (habitatId: string, body: { insight: string; skillCategory?: string }) =>
+      request<{ signal: SkillSignal }>(`/habitats/${habitatId}/skill/contribute`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    signals: (habitatId: string, params?: Record<string, string | number>) => {
+      const qs = params
+        ? "?" + new URLSearchParams(params as Record<string, string>).toString()
+        : "";
+      return request<{ signals: SkillSignal[]; total: number }>(
+        `/habitats/${habitatId}/skill/signals${qs}`,
+      );
+    },
+    deleteSignal: (habitatId: string, signalId: string) =>
+      request<{ success: boolean }>(`/habitats/${habitatId}/skill/signals/${signalId}`, {
+        method: "DELETE",
+      }),
   },
 };
 

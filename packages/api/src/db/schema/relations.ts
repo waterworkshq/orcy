@@ -33,6 +33,7 @@ import {
   integrationSyncRuns,
 } from "./integration.js";
 import { daemonInstances, daemonAgents, daemonSessions } from "./daemon.js";
+import { habitatSkills, habitatSkillSignals } from "./habitat-skill.js";
 import { agents, agentMessages } from "./agent.js";
 import { users, notificationPreferences, organizations, teams, teamMembers } from "./user.js";
 import { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
@@ -57,6 +58,8 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   externalIntakeCandidates: many(externalIntakeCandidates),
   externalIssueLinks: many(externalIssueLinks),
   integrationSyncRuns: many(integrationSyncRuns),
+  habitatSkills: many(habitatSkills),
+  habitatSkillSignals: many(habitatSkillSignals),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -577,6 +580,20 @@ export const daemonSessionsRelations = relations(daemonSessions, ({ one }) => ({
   }),
   habitat: one(habitats, {
     fields: [daemonSessions.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const habitatSkillsRelations = relations(habitatSkills, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [habitatSkills.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const habitatSkillSignalsRelations = relations(habitatSkillSignals, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [habitatSkillSignals.habitatId],
     references: [habitats.id],
   }),
 }));

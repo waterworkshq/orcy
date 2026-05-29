@@ -50,6 +50,7 @@ import { sprintRoutes } from "./routes/sprints.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { githubIssueWebhookRoutes } from "./routes/githubIssueWebhooks.js";
 import { daemonRoutes, daemonAdminRoutes } from "./routes/daemon.js";
+import { habitatSkillRoutes } from "./routes/habitatSkill.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./services/boardSecretCache.js";
 import { archiveOldEvents } from "./services/auditArchivalService.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
@@ -157,6 +158,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(githubIssueWebhookRoutes);
   await f.register(daemonRoutes);
   await f.register(daemonAdminRoutes);
+  await f.register(habitatSkillRoutes);
 }
 
 await fastify.register(

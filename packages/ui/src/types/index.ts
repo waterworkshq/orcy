@@ -638,3 +638,39 @@ export interface DetectedCli {
   version: string | null;
   path: string;
 }
+
+export type SkillCategory =
+  | "convention"
+  | "pattern"
+  | "pitfall"
+  | "domain_knowledge"
+  | "agent_insight";
+
+export interface HabitatSkill {
+  id: string;
+  habitatId: string;
+  content: string;
+  signalCount: number;
+  avgStrength: number;
+  lastGeneratedAt: string | null;
+  generationCount: number;
+}
+
+export interface SkillSignal {
+  id: string;
+  habitatId: string;
+  clusterKey: string;
+  skillCategory: SkillCategory;
+  sourceSignalType: string;
+  sourceType: string;
+  subject: string;
+  summary: string;
+  strength: number;
+  frequency: number;
+  corroboratingAgents: number;
+  crossMissionCount: number;
+  successfulTasks: number;
+  failedTasks: number;
+  promotedToSkill: boolean;
+  createdAt: string;
+}

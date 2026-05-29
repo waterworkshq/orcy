@@ -231,6 +231,18 @@ export class KanbanApiClient {
       }
     } catch {}
 
+    let skill: { content: string; signalCount: number; avgStrength: number } | undefined;
+    try {
+      const skillResult = await this.getHabitatSkill(details.mission.habitatId);
+      if (skillResult && typeof skillResult === "object" && "content" in skillResult) {
+        skill = {
+          content: (skillResult as any).content,
+          signalCount: (skillResult as any).signalCount ?? 0,
+          avgStrength: (skillResult as any).avgStrength ?? 0,
+        };
+      }
+    } catch {}
+
     return {
       mission: details.mission,
       tasks: details.tasks.map((t) => ({
@@ -245,6 +257,7 @@ export class KanbanApiClient {
       blocking,
       pulse: pulseDigest,
       projectInsights,
+      skill,
     };
   }
 
@@ -1006,9 +1019,7 @@ export class KanbanApiClient {
     return this.request<HabitatSummary>("GET", `/api/habitats/${boardId}/summary${query}`);
   }
 
-  async getWorktree(
-    taskId: string,
-  ): Promise<{
+  async getWorktree(taskId: string): Promise<{
     worktree: { path: string; branch: string; repoRoot: string } | null;
     enabled: boolean;
   }> {
@@ -1426,6 +1437,29 @@ export class KanbanApiClient {
     return this.request<{ sprint: Sprint }>(
       "DELETE",
       `/api/sprints/${sprintId}/missions/${missionId}`,
+    );
+  }
+
+  async getHabitatSkill(boardId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/skill`);
+  }
+
+  async refreshHabitatSkill(boardId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      "POST",
+      `/api/habitats/${boardId}/skill/refresh`,
+      {},
+    );
+  }
+
+  async contributeHabitatSkill(
+    boardId: string,
+    body: { insight: string; skillCategory?: string },
+  ): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      "POST",
+      `/api/habitats/${boardId}/skill/contribute`,
+      body,
     );
   }
 }

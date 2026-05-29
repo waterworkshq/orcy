@@ -151,4 +151,9 @@ export const queryKeys = {
     list: () => [...queryKeys.daemons.all, "list"] as const,
     detail: (id: string) => [...queryKeys.daemons.all, "detail", id] as const,
   },
+  skill: {
+    all: ["skill"] as const,
+    detail: (habitatId: string) => [...queryKeys.skill.all, habitatId] as const,
+    signals: (habitatId: string) => [...queryKeys.skill.all, "signals", habitatId] as const,
+  },
 };

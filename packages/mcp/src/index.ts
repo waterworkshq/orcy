@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   ALL_TOOLS,
   orcyInstructions,
@@ -18,11 +18,12 @@ import {
   SUBSCRIPTION_DISPATCH_HANDLER,
   REVIEW_DISPATCH_HANDLER,
   SPRINT_DISPATCH_HANDLER,
-} from './tools/index.js';
-import { KanbanApiClient } from './api.js';
-import { setNotificationSender, cleanupAll as cleanupSubscriptions } from './subscriptions.js';
-import { getOrcyConfig } from '@orcy/shared';
-import { logger } from './logger.js';
+  HABITAT_SKILL_DISPATCH_HANDLER,
+} from "./tools/index.js";
+import { KanbanApiClient } from "./api.js";
+import { setNotificationSender, cleanupAll as cleanupSubscriptions } from "./subscriptions.js";
+import { getOrcyConfig } from "@orcy/shared";
+import { logger } from "./logger.js";
 
 const ORCY_API_URL = getOrcyConfig().apiUrl;
 
@@ -30,14 +31,14 @@ const client = new KanbanApiClient(ORCY_API_URL);
 
 const server = new Server(
   {
-    name: 'orcy-mcp-server',
-    version: '1.0.0',
+    name: "orcy-mcp-server",
+    version: "1.0.0",
   },
   {
     capabilities: {
       tools: {},
     },
-  }
+  },
 );
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,7 @@ const server = new Server(
 // ---------------------------------------------------------------------------
 
 type ToolResult = {
-  content: Array<{ type: 'text'; text: string }>;
+  content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
 };
 
@@ -57,12 +58,12 @@ type ToolHandler = (client: KanbanApiClient, args: any) => Promise<ToolResult>;
 
 const handleOrcyInstructions: ToolHandler = () =>
   Promise.resolve({
-    content: [{ type: 'text' as const, text: orcyInstructions() }],
+    content: [{ type: "text" as const, text: orcyInstructions() }],
   });
 
 const handleOrcyPulseInstructions: ToolHandler = () =>
   Promise.resolve({
-    content: [{ type: 'text' as const, text: orcyPulseInstructions() }],
+    content: [{ type: "text" as const, text: orcyPulseInstructions() }],
   });
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_habitat_subscription: SUBSCRIPTION_DISPATCH_HANDLER,
   orcy_review: REVIEW_DISPATCH_HANDLER,
   orcy_sprint: SPRINT_DISPATCH_HANDLER,
+  orcy_habitat_skill: HABITAT_SKILL_DISPATCH_HANDLER,
 };
 
 // ---------------------------------------------------------------------------
@@ -100,7 +102,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const handler = TOOL_HANDLERS[name];
   if (!handler) {
     return {
-      content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
+      content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
       isError: true,
     };
   }
@@ -114,14 +116,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return {
       content: [
         {
-          type: 'text' as const,
+          type: "text" as const,
           text: JSON.stringify(
             {
-              error: error.message ?? 'Unknown error',
+              error: error.message ?? "Unknown error",
               status: error.status ?? 500,
             },
             null,
-            2
+            2,
           ),
         },
       ],
@@ -145,17 +147,17 @@ async function main() {
 }
 
 main().catch((err) => {
-  logger.error('MCP server error', { err });
+  logger.error("MCP server error", { err });
   cleanupSubscriptions();
   process.exit(1);
 });
 
-process.on('SIGTERM', () => {
+process.on("SIGTERM", () => {
   cleanupSubscriptions();
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on("SIGINT", () => {
   cleanupSubscriptions();
   process.exit(0);
 });

@@ -1,9 +1,17 @@
-import * as commentRepo from '../repositories/comment.js';
-import * as commentMentionRepo from '../repositories/commentMention.js';
-import { resolveMentions } from './commentHelper.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import { getTaskById, getHabitatIdForTask } from '../repositories/task.js';
-import { notFound, forbidden, badRequest } from '../errors.js';
+import * as commentRepo from "../repositories/comment.js";
+import * as commentMentionRepo from "../repositories/commentMention.js";
+import { resolveMentions } from "./commentHelper.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { getTaskById, getHabitatIdForTask } from "../repositories/task.js";
+import { notFound, forbidden, badRequest } from "../errors.js";
+import { logger } from "../lib/logger.js";
+
+type CommentCreatedHook = (comment: any, habitatId: string) => void;
+const commentCreatedHooks: CommentCreatedHook[] = [];
+
+export function onCommentCreated(hook: CommentCreatedHook): void {
+  commentCreatedHooks.push(hook);
+}
 
 /**
  * Add a comment to a task.
@@ -16,23 +24,23 @@ import { notFound, forbidden, badRequest } from '../errors.js';
  */
 export function addComment(
   taskId: string,
-  authorType: 'human' | 'agent',
+  authorType: "human" | "agent",
   authorId: string,
   content: string,
-  parentId?: string | null
+  parentId?: string | null,
 ) {
   const task = getTaskById(taskId);
   if (!task) {
-    throw notFound('Task not found');
+    throw notFound("Task not found");
   }
 
   if (parentId) {
     const parent = commentRepo.getCommentById(parentId);
     if (!parent) {
-      throw notFound('Parent comment not found');
+      throw notFound("Parent comment not found");
     }
     if (parent.taskId !== taskId) {
-      throw badRequest('Parent comment belongs to a different task');
+      throw badRequest("Parent comment belongs to a different task");
     }
   }
 
@@ -51,11 +59,13 @@ export function addComment(
       mentionedType: mention.mentionedType,
       mentionedId: mention.mentionedId,
       mentionText: mention.mentionText,
-    }))
+    })),
   );
   const mentions = createdMentions.map((created) => ({
     ...created,
-    mentionedName: resolvedMentions.find((m) => m.mentionedId === created.mentionedId && m.mentionedType === created.mentionedType)?.mentionedName,
+    mentionedName: resolvedMentions.find(
+      (m) => m.mentionedId === created.mentionedId && m.mentionedType === created.mentionedType,
+    )?.mentionedName,
   }));
 
   const enrichedComment = { ...comment, mentions };
@@ -63,13 +73,13 @@ export function addComment(
   const habitatId = getHabitatIdForTask(taskId);
   if (habitatId) {
     sseBroadcaster.publish(habitatId, {
-      type: 'task.commented',
+      type: "task.commented",
       data: { taskId, comment: enrichedComment },
     });
 
     for (const mention of mentions) {
       sseBroadcaster.publish(habitatId, {
-        type: 'task.mentioned',
+        type: "task.mentioned",
         data: {
           taskId,
           commentId: comment.id,
@@ -79,6 +89,14 @@ export function addComment(
           habitatId,
         },
       });
+    }
+
+    for (const hook of commentCreatedHooks) {
+      try {
+        hook(enrichedComment, habitatId);
+      } catch (err) {
+        logger.error({ err }, "Comment created hook failed");
+      }
     }
   }
 
@@ -106,17 +124,17 @@ export function getComments(taskId: string, limit?: number, offset?: number) {
  */
 export function editComment(
   commentId: string,
-  authorType: 'human' | 'agent',
+  authorType: "human" | "agent",
   authorId: string,
-  content: string
+  content: string,
 ) {
   const comment = commentRepo.getCommentById(commentId);
   if (!comment) {
-    throw notFound('Comment not found');
+    throw notFound("Comment not found");
   }
 
   if (comment.authorType !== authorType || comment.authorId !== authorId) {
-    throw forbidden('Not authorized to edit this comment');
+    throw forbidden("Not authorized to edit this comment");
   }
 
   return commentRepo.updateComment(commentId, content);
@@ -129,18 +147,14 @@ export function editComment(
  * @param authorId - ID of the requester
  * @returns The delete result
  */
-export function removeComment(
-  commentId: string,
-  authorType: 'human' | 'agent',
-  authorId: string
-) {
+export function removeComment(commentId: string, authorType: "human" | "agent", authorId: string) {
   const comment = commentRepo.getCommentById(commentId);
   if (!comment) {
-    throw notFound('Comment not found');
+    throw notFound("Comment not found");
   }
 
   if (comment.authorType !== authorType || comment.authorId !== authorId) {
-    throw forbidden('Not authorized to delete this comment');
+    throw forbidden("Not authorized to delete this comment");
   }
 
   const task = getTaskById(comment.taskId);
@@ -150,7 +164,7 @@ export function removeComment(
     const habitatId = getHabitatIdForTask(comment.taskId);
     if (habitatId) {
       sseBroadcaster.publish(habitatId, {
-        type: 'task.comment_deleted',
+        type: "task.comment_deleted",
         data: { taskId: comment.taskId, commentId },
       });
     }
