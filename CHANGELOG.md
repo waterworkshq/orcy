@@ -2,6 +2,22 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.15.1 — 2026-05-29
+
+### Bug Fixes
+
+#### add input validation, error handling, and security improvements ([`f220f5c`](https://github.com/waterworkshq/orcy/commit/f220f5c92986eafd31d48e4b8187b7750a5a387d))
+
+1. Introduce Zod schemas for contribution and signals request validation
+2. Return unsubscribe functions from event hooks (comment, pulse, task)
+3. Convert regenerateAllSkills to async with setImmediate yield
+4. Add error states and retry buttons to skill panel UI
+5. Incorporate rehype-sanitize for safe HTML rendering
+6. Enforce valid skill categories in MCP tool and repository
+7. Update API client return types for habitat skill endpoints
+
+
+
 ## 0.15.0 — 2026-05-29
 
 ### Bug Fixes
@@ -98,11 +114,3 @@
 7. Update documentation for autonomous mode, first-run setup, and UI daemon management
 8. Fix docs: board→habitat, bun:sqlite→better-sqlite3, tool count, default credentials
 9. Add aria-label/aria-labelledby to ToggleSwitch for accessibility
-
-
-
-## 0.13.1 — 2026-05-28
-
-### Tests
-
-#### add unit tests for services, webhooks, repositories, and event modules ([`3286176`](https://github.com/waterworkshq/orcy/commit/3286176cfe2b7264c1e05cc62daeba688bb0b05b))
