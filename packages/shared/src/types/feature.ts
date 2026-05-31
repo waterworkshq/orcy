@@ -1,5 +1,5 @@
-import type { TaskPriority } from './task.js';
-import type { ActorType } from './events.js';
+import type { TaskPriority } from "./task.js";
+import type { ActorType } from "./events.js";
 
 export { TaskPriority };
 export { ActorType };
@@ -14,11 +14,22 @@ export interface TaskTemplateEntry {
   order?: number;
 }
 
-export type MissionStatus = 'not_started' | 'in_progress' | 'review' | 'done' | 'failed';
+export type MissionStatus = "not_started" | "in_progress" | "review" | "done" | "failed";
 
 export type MissionEventAction =
-  | 'created' | 'updated' | 'moved' | 'status_changed'
-  | 'completed' | 'deleted' | 'dependency_resolved';
+  | "created"
+  | "updated"
+  | "moved"
+  | "status_changed"
+  | "completed"
+  | "deleted"
+  | "dependency_resolved"
+  | "code_evidence_linked"
+  | "code_evidence_corrected"
+  | "code_evidence_gap_reported"
+  | "code_evidence_gap_resolved"
+  | "code_evidence_marked_not_applicable"
+  | "code_evidence_cleared_not_applicable";
 
 export interface Mission {
   id: string;
@@ -104,7 +115,7 @@ export interface MissionComment {
   id: string;
   missionId: string;
   parentId: string | null;
-  authorType: 'human' | 'agent';
+  authorType: "human" | "agent";
   authorId: string;
   content: string;
   createdAt: string;
@@ -115,14 +126,14 @@ export interface MissionComment {
 export interface MissionCommentMention {
   id: string;
   commentId: string;
-  mentionedType: 'human' | 'agent';
+  mentionedType: "human" | "agent";
   mentionedId: string;
   mentionText: string;
   createdAt: string;
   mentionedName?: string;
 }
 
-export type ScheduleType = 'once' | 'interval' | 'cron';
+export type ScheduleType = "once" | "interval" | "cron";
 
 export interface ScheduledTask {
   id: string;

@@ -43,6 +43,9 @@ import * as codeReviewRepo from "../repositories/codeReviewRepository.js";
 import * as codeEvidenceLinkRepo from "../repositories/codeEvidenceLinkRepository.js";
 import * as codeEvidenceCompletenessRepo from "../repositories/codeEvidenceCompletenessRepository.js";
 import * as codeEvidenceGapRepo from "../repositories/codeEvidenceGapRepository.js";
+import * as prRepo from "../repositories/pullRequest.js";
+import * as taskRepo from "../repositories/task.js";
+import * as pipelineEventRepo from "../repositories/pipelineEvent.js";
 
 type ParsedUrl = {
   evidenceType: CodeEvidenceType;
@@ -929,8 +932,9 @@ export function ensureEvidenceLinkForPullRequest(
     branchName: string | null;
   },
   source: CodeEvidenceLinkSource,
+  habitatId: string,
 ) {
-  const repository = codeEvidenceRepository.getByHabitatId("");
+  const repository = codeEvidenceRepository.getByHabitatId(habitatId);
   const isRepoVerified = repository?.verificationState === "verified";
   const verificationState =
     source === "webhook" && isRepoVerified
@@ -966,8 +970,9 @@ export function ensureEvidenceLinkForPipelineEvent(
     commitSha: string | null;
   },
   source: CodeEvidenceLinkSource,
+  habitatId: string,
 ) {
-  const repository = codeEvidenceRepository.getByHabitatId("");
+  const repository = codeEvidenceRepository.getByHabitatId(habitatId);
   const isRepoVerified = repository?.verificationState === "verified";
   const verificationState =
     source === "webhook" && isRepoVerified
@@ -1069,9 +1074,72 @@ export function backfillExistingCodeEvidence(): {
   pipelineCount: number;
   warnings: string[];
 } {
-  return {
-    prCount: 0,
-    pipelineCount: 0,
-    warnings: ["Backfill not yet fully implemented — will be completed in Phase 5"],
-  };
+  const warnings: string[] = [];
+  let prCount = 0;
+  let pipelineCount = 0;
+
+  try {
+    const prRows = prRepo.getAll();
+    for (const pr of prRows) {
+      try {
+        const habitatId = taskRepo.getHabitatIdForTask(pr.taskId);
+        if (!habitatId) {
+          warnings.push(`PR ${pr.id}: could not resolve habitat for task ${pr.taskId}`);
+          continue;
+        }
+        ensureEvidenceLinkForPullRequest(
+          {
+            id: pr.id,
+            taskId: pr.taskId,
+            provider: pr.provider,
+            repo: pr.repo,
+            prNumber: pr.prNumber,
+            prTitle: pr.prTitle,
+            prUrl: pr.prUrl,
+            branchName: pr.branchName,
+          },
+          "migration",
+          habitatId,
+        );
+        prCount++;
+      } catch (err) {
+        warnings.push(`PR ${pr.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  } catch (err) {
+    warnings.push(`PR backfill failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  try {
+    const pipelineRows = pipelineEventRepo.getAll();
+    for (const event of pipelineRows) {
+      try {
+        const habitatId = taskRepo.getHabitatIdForTask(event.taskId);
+        if (!habitatId) {
+          warnings.push(`Pipeline ${event.id}: could not resolve habitat for task ${event.taskId}`);
+          continue;
+        }
+        ensureEvidenceLinkForPipelineEvent(
+          {
+            id: event.id,
+            taskId: event.taskId,
+            provider: event.provider,
+            repo: event.repo,
+            runId: event.runId,
+            branch: event.branch ?? "",
+            commitSha: event.commitSha,
+          },
+          "migration",
+          habitatId,
+        );
+        pipelineCount++;
+      } catch (err) {
+        warnings.push(`Pipeline ${event.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  } catch (err) {
+    warnings.push(`Pipeline backfill failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return { prCount, pipelineCount, warnings };
 }

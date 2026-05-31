@@ -1,11 +1,12 @@
-import * as prRepo from '../repositories/pullRequest.js';
-import * as taskRepo from '../repositories/task.js';
-import { getHabitatIdForTask } from '../repositories/task.js';
-import * as habitatRepo from '../repositories/board.js';
-import * as eventRepo from '../repositories/event.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import type { CodeReviewSettings } from '../models/index.js';
-import { verifyGitHubHmac } from '../config/integrationSecurity.js';
+import * as prRepo from "../repositories/pullRequest.js";
+import * as taskRepo from "../repositories/task.js";
+import { getHabitatIdForTask } from "../repositories/task.js";
+import * as habitatRepo from "../repositories/board.js";
+import * as eventRepo from "../repositories/event.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import type { CodeReviewSettings } from "../models/index.js";
+import { verifyGitHubHmac } from "../config/integrationSecurity.js";
+import * as codeEvidenceService from "./codeEvidenceService.js";
 
 export function verifyGitHubSignature(payload: string, signature: string, secret: string): boolean {
   return verifyGitHubHmac(payload, signature, secret);
@@ -40,23 +41,23 @@ interface GitHubReviewEvent {
   };
 }
 
-function mapPRState(pr: { state: string; merged: boolean }): 'open' | 'merged' | 'closed' {
-  if (pr.merged) return 'merged';
-  if (pr.state === 'closed') return 'closed';
-  return 'open';
+function mapPRState(pr: { state: string; merged: boolean }): "open" | "merged" | "closed" {
+  if (pr.merged) return "merged";
+  if (pr.state === "closed") return "closed";
+  return "open";
 }
 
-function mapReviewState(reviewState: string): 'pending' | 'approved' | 'changes_requested' {
-  if (reviewState === 'approved') return 'approved';
-  if (reviewState === 'changes_requested') return 'changes_requested';
-  return 'pending';
+function mapReviewState(reviewState: string): "pending" | "approved" | "changes_requested" {
+  if (reviewState === "approved") return "approved";
+  if (reviewState === "changes_requested") return "changes_requested";
+  return "pending";
 }
 
 function getSettingsForHabitat(habitatId: string): CodeReviewSettings | null {
   const habitat = habitatRepo.getHabitatById(habitatId);
   if (!habitat) return null;
   const raw = (habitat as unknown as Record<string, unknown>).code_review_settings;
-  if (!raw || typeof raw !== 'string') return null;
+  if (!raw || typeof raw !== "string") return null;
   try {
     return JSON.parse(raw) as CodeReviewSettings;
   } catch {
@@ -64,8 +65,13 @@ function getSettingsForHabitat(habitatId: string): CodeReviewSettings | null {
   }
 }
 
-function findTaskForPR(repo: string, branchName: string, prTitle: string, settings: CodeReviewSettings): string | null {
-  const pattern = settings.taskPattern || '[?&;]taskId=([0-9a-f-]{36})';
+function findTaskForPR(
+  repo: string,
+  branchName: string,
+  prTitle: string,
+  settings: CodeReviewSettings,
+): string | null {
+  const pattern = settings.taskPattern || "[?&;]taskId=([0-9a-f-]{36})";
   const taskIdFromBranch = prRepo.findTaskIdByPattern(branchName, pattern);
   if (taskIdFromBranch) {
     const task = taskRepo.getTaskById(taskIdFromBranch);
@@ -101,62 +107,79 @@ export function handlePullRequestEvent(body: GitHubPREvent): { status: string; t
   const prUrl = pr.html_url;
 
   const taskId = findTaskAcrossHabitats(repo, branchName, prTitle);
-  if (!taskId) return { status: 'no_matching_task' };
+  if (!taskId) return { status: "no_matching_task" };
 
   const task = taskRepo.getTaskById(taskId);
-  if (!task) return { status: 'task_not_found' };
+  if (!task) return { status: "task_not_found" };
 
-  const existing = prRepo.findByProviderAndNumber('github', repo, prNumber);
+  const existing = prRepo.findByProviderAndNumber("github", repo, prNumber);
 
-  if (body.action === 'opened' || body.action === 'synchronize' || body.action === 'reopened') {
+  if (body.action === "opened" || body.action === "synchronize" || body.action === "reopened") {
+    let prRecord: {
+      id: string;
+      taskId: string;
+      provider: string;
+      repo: string;
+      prNumber: number;
+      prTitle: string | null;
+      prUrl: string;
+      branchName: string | null;
+    } | null = null;
     if (existing) {
-      prRepo.updatePullRequest(existing.id, { prTitle, state: 'open' });
+      prRepo.updatePullRequest(existing.id, { prTitle, state: "open" });
+      prRecord = existing;
     } else {
-      prRepo.createPullRequest({
+      prRecord = prRepo.createPullRequest({
         taskId,
-        provider: 'github',
+        provider: "github",
         repo,
         prNumber,
         prTitle,
         prUrl,
         branchName,
-        state: 'open',
+        state: "open",
       });
     }
 
     const habitatId = getHabitatIdForTask(taskId);
-    if (habitatId) {
+    if (habitatId && prRecord) {
+      try {
+        codeEvidenceService.ensureEvidenceLinkForPullRequest(prRecord, "webhook", habitatId);
+      } catch {
+        /* non-blocking enrichment */
+      }
+
       sseBroadcaster.publish(habitatId, {
-        type: 'task.updated',
+        type: "task.updated",
         data: task,
       });
     }
 
-    return { status: 'linked', taskId };
+    return { status: "linked", taskId };
   }
 
-  if (body.action === 'closed') {
+  if (body.action === "closed") {
     if (existing) {
       prRepo.updatePullRequest(existing.id, { state: prState, prTitle });
 
-      if (prState === 'merged') {
+      if (prState === "merged") {
         const settingsHabitatId = getHabitatIdForTask(taskId);
         const settings = settingsHabitatId ? getSettingsForHabitat(settingsHabitatId) : null;
-        if (settings?.autoApproveOnMerge && task.status === 'submitted') {
+        if (settings?.autoApproveOnMerge && task.status === "submitted") {
           const approved = taskRepo.approveTask(taskId);
           if (approved) {
             eventRepo.createEvent({
               taskId,
-              actorType: 'system',
-              actorId: 'github-webhook',
-              action: 'approved',
-              metadata: { provider: 'github', repo, prNumber, autoApproved: true },
+              actorType: "system",
+              actorId: "github-webhook",
+              action: "approved",
+              metadata: { provider: "github", repo, prNumber, autoApproved: true },
             });
             const habitatId2 = getHabitatIdForTask(taskId);
             if (habitatId2) {
               sseBroadcaster.publish(habitatId2, {
-                type: 'task.approved',
-                data: { taskId, reviewerId: 'github-webhook' },
+                type: "task.approved",
+                data: { taskId, reviewerId: "github-webhook" },
               });
             }
           }
@@ -165,25 +188,34 @@ export function handlePullRequestEvent(body: GitHubPREvent): { status: string; t
 
       const habitatId3 = getHabitatIdForTask(taskId);
       if (habitatId3) {
+        try {
+          codeEvidenceService.ensureEvidenceLinkForPullRequest(existing, "webhook", habitatId3);
+        } catch {
+          /* non-blocking enrichment */
+        }
+
         sseBroadcaster.publish(habitatId3, {
-          type: 'task.updated',
+          type: "task.updated",
           data: task,
         });
       }
     }
-    return { status: 'closed', taskId };
+    return { status: "closed", taskId };
   }
 
-  return { status: 'ignored' };
+  return { status: "ignored" };
 }
 
-export function handlePullRequestReviewEvent(body: GitHubReviewEvent): { status: string; taskId?: string } {
+export function handlePullRequestReviewEvent(body: GitHubReviewEvent): {
+  status: string;
+  taskId?: string;
+} {
   const pr = body.pull_request;
   const repo = pr.base.repo.full_name;
   const prNumber = pr.number;
 
-  const existing = prRepo.findByProviderAndNumber('github', repo, prNumber);
-  if (!existing) return { status: 'pr_not_linked' };
+  const existing = prRepo.findByProviderAndNumber("github", repo, prNumber);
+  if (!existing) return { status: "pr_not_linked" };
 
   const reviewStatus = mapReviewState(body.review.state);
   prRepo.updatePullRequest(existing.id, { reviewStatus });
@@ -193,11 +225,11 @@ export function handlePullRequestReviewEvent(body: GitHubReviewEvent): { status:
     const habitatId = getHabitatIdForTask(existing.taskId);
     if (habitatId) {
       sseBroadcaster.publish(habitatId, {
-        type: 'task.updated',
+        type: "task.updated",
         data: task,
       });
     }
   }
 
-  return { status: 'review_updated', taskId: existing.taskId };
+  return { status: "review_updated", taskId: existing.taskId };
 }
