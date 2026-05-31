@@ -23,6 +23,10 @@ import {
   habitatGetTaskQualityChecklist,
   habitatUpdateQualityChecklistItem,
   habitatValidateQualityGates,
+  habitatLogEffort,
+  habitatListEffort,
+  habitatGetEffortReport,
+  habitatCorrectEffortEntry,
 } from "./lifecycle-gaps.js";
 import {
   habitatListTaskSubtasks,
@@ -44,7 +48,7 @@ import { PRIORITY_LEVELS, ARTIFACT_TYPES } from "./constants.js";
 export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_task",
   description:
-    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap)",
+    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap)",
   actions: [
     "list-in-mission",
     "create-in-mission",
@@ -77,6 +81,10 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     "clear-not-applicable",
     "report-gap",
     "resolve-gap",
+    "log-effort",
+    "list-effort",
+    "get-effort-report",
+    "correct-effort-entry",
   ],
   sharedParams: {
     taskId: { type: "string", description: "Task UUID (used with most task actions)" },
@@ -247,6 +255,34 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "boolean",
       description: "Allow evidence from external repositories (action=link-code)",
     },
+    minutes: {
+      type: "number",
+      description: "Minutes of effort to log (action=log-effort)",
+    },
+    note: {
+      type: "string",
+      description: "Optional note (action=log-effort, action=correct-effort-entry)",
+    },
+    startedAt: {
+      type: "string",
+      description: "ISO timestamp when effort started (action=log-effort)",
+    },
+    endedAt: {
+      type: "string",
+      description: "ISO timestamp when effort ended (action=log-effort)",
+    },
+    entryId: {
+      type: "string",
+      description: "Effort entry UUID (action=correct-effort-entry)",
+    },
+    minutesDelta: {
+      type: "number",
+      description: "Minutes to add/subtract from entry (action=correct-effort-entry)",
+    },
+    includeCorrections: {
+      type: "boolean",
+      description: "Include correction records in listing (action=list-effort)",
+    },
   },
 });
 
@@ -282,6 +318,10 @@ export const TASK_ACTIONS: Record<string, Handler> = {
   "clear-not-applicable": habitatClearTaskEvidenceNotApplicable,
   "report-gap": habitatReportTaskEvidenceGap,
   "resolve-gap": habitatResolveTaskEvidenceGap,
+  "log-effort": habitatLogEffort,
+  "list-effort": habitatListEffort,
+  "get-effort-report": habitatGetEffortReport,
+  "correct-effort-entry": habitatCorrectEffortEntry,
 };
 
 export const TASK_DISPATCH_HANDLER = createDispatchHandler(TASK_ACTIONS);

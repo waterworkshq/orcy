@@ -1054,6 +1054,54 @@ export class KanbanApiClient {
     return this.request("GET", `/api/tasks/${taskId}/time-report`);
   }
 
+  async logEffort(
+    taskId: string,
+    minutes: number,
+    note?: string,
+    startedAt?: string,
+    endedAt?: string,
+  ): Promise<any> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/effort-entries`, {
+      minutes,
+      ...(note !== undefined && { note }),
+      ...(startedAt !== undefined && { startedAt }),
+      ...(endedAt !== undefined && { endedAt }),
+    });
+  }
+
+  async listEffortEntries(taskId: string, includeCorrections?: boolean): Promise<any> {
+    taskId = normalizeTaskId(taskId);
+    return this.request(
+      "GET",
+      `/api/tasks/${taskId}/effort-entries${includeCorrections !== undefined ? `?includeCorrections=${includeCorrections}` : ""}`,
+    );
+  }
+
+  async getEffortReport(taskId: string): Promise<any> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("GET", `/api/tasks/${taskId}/effort-report`);
+  }
+
+  async correctEffortEntry(
+    taskId: string,
+    entryId: string,
+    minutesDelta: number,
+    correctionReason: string,
+    note?: string,
+  ): Promise<any> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/effort-entries/${entryId}/correct`, {
+      minutesDelta,
+      correctionReason,
+      ...(note !== undefined && { note }),
+    });
+  }
+
+  async getMissionEffortReport(missionId: string): Promise<any> {
+    return this.request("GET", `/api/missions/${missionId}/effort-report`);
+  }
+
   async getHabitatMetrics(boardId: string): Promise<{
     averageCycleTime: number;
     averageLeadTime: number;

@@ -23,6 +23,7 @@ import { TaskDescription } from "./TaskDescription.js";
 import { TaskResultCard } from "./TaskResultCard.js";
 import { TaskArtifacts } from "./TaskArtifacts.js";
 import { TaskTimeConstraints } from "./TaskTimeConstraints.js";
+import { TaskEffortSection } from "./TaskEffortSection.js";
 import { FeatureContextSection } from "./MissionContextSection.js";
 import { SiblingTasksSection } from "./SiblingTasksSection.js";
 import { api } from "../../api/index.js";
@@ -171,6 +172,8 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             estimatedMinutes={p.task.estimatedMinutes}
             actualMinutes={p.task.actualMinutes}
           />
+
+          <TaskEffortSection taskId={p.task.id} />
 
           <TaskSubtasks
             subtasks={p.subtasks}

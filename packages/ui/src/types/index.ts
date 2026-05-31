@@ -98,18 +98,12 @@ import type {
   CodeEvidenceLinkInput,
   CodeEvidenceLinkItem,
   CodeEvidenceGapItem,
-  CodeEvidenceCompletenessInfo,
-  CodeEvidenceSummary,
-  CodeEvidenceResponse,
-  CodeEvidenceHistory,
-  MissionCodeEvidenceResponse,
-  CodeEvidenceBulkResult,
-  RepositoryIdentity,
-  RepositoryIdentityInput,
-  CodeEvidenceCorrectionInput,
-  CodeEvidenceNotApplicableInput,
-  CodeEvidenceGapInput,
-  CodeEvidenceGapResolveInput,
+  EffortSource,
+  EffortActorType,
+  EffortEntry,
+  EffortEntryWithActor,
+  EffortReport,
+  MissionEffortReport,
 } from "@orcy/shared";
 
 export type {
@@ -224,6 +218,12 @@ export type {
   CodeEvidenceNotApplicableInput,
   CodeEvidenceGapInput,
   CodeEvidenceGapResolveInput,
+  EffortSource,
+  EffortActorType,
+  EffortEntry,
+  EffortEntryWithActor,
+  EffortReport,
+  MissionEffortReport,
 };
 
 export interface EnrichedHabitatEvent {

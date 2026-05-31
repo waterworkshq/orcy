@@ -96,6 +96,9 @@ vi.mock("./TaskArtifacts.js", () => ({
 vi.mock("./TaskTimeConstraints.js", () => ({
   TaskTimeConstraints: () => null,
 }));
+vi.mock("./TaskEffortSection.js", () => ({
+  TaskEffortSection: () => null,
+}));
 vi.mock("./TaskSubtasks.js", () => ({
   TaskSubtasks: ({ subtasks }: any) =>
     subtasks.length > 0 ? <div data-testid="task-subtasks" /> : null,
