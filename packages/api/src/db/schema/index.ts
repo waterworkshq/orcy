@@ -25,6 +25,7 @@ export {
   taskCommentMentions,
   taskAttachments,
   taskTimeRecords,
+  effortEntries,
 } from "./task.js";
 export { agents, agentMessages } from "./agent.js";
 export { users, organizations, teams, teamMembers, notificationPreferences } from "./user.js";
@@ -90,6 +91,7 @@ export {
   teamsRelations,
   teamMembersRelations,
   taskTimeRecordsRelations,
+  effortEntriesRelations,
   qualityChecklistTemplatesRelations,
   qualityChecklistItemsRelations,
   taskQualityChecklistsRelations,

@@ -24,6 +24,7 @@ import {
   taskCommentMentions,
   taskAttachments,
   taskTimeRecords,
+  effortEntries,
 } from "./task.js";
 import { reviewRules, taskReviewers } from "./review.js";
 import {
@@ -427,6 +428,13 @@ export const taskTimeRecordsRelations = relations(taskTimeRecords, ({ one }) => 
   agent: one(agents, {
     fields: [taskTimeRecords.agentId],
     references: [agents.id],
+  }),
+}));
+
+export const effortEntriesRelations = relations(effortEntries, ({ one }) => ({
+  task: one(tasks, {
+    fields: [effortEntries.taskId],
+    references: [tasks.id],
   }),
 }));
 

@@ -91,5 +91,6 @@ export interface ApprovalStatus {
     qualityChecklist: { status: string; completed: number; total: number };
     dependencies: { status: string };
     timeTracking: { status: string };
+    effortLogging: { status: string };
   };
 }

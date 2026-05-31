@@ -30,7 +30,13 @@ export interface DashboardStats {
     approvalRate: number;
   }>;
   taskByPriority: { critical: number; high: number; medium: number; low: number };
-  taskByStatus: { pending: number; claimed: number; in_progress: number; submitted: number; done: number };
+  taskByStatus: {
+    pending: number;
+    claimed: number;
+    in_progress: number;
+    submitted: number;
+    done: number;
+  };
   wipHealth: Array<{
     columnId: string;
     columnName: string;
@@ -38,9 +44,15 @@ export interface DashboardStats {
     habitatName: string;
     current: number;
     limit: number | null;
-    health: 'ok' | 'warning' | 'exceeded';
+    health: "ok" | "warning" | "exceeded";
   }>;
-  webhookStats: { total: number; success: number; failed: number; pending: number; successRate: number };
+  webhookStats: {
+    total: number;
+    success: number;
+    failed: number;
+    pending: number;
+    successRate: number;
+  };
   summary: {
     totalTasksCompleted: number;
     totalTasksInProgress: number;
@@ -66,4 +78,94 @@ export interface HabitatMetrics {
     averageEstimationAccuracy: number;
     totalTimeTracked: number;
   }[];
+}
+
+export type EffortSource = "human_manual" | "agent_reported" | "correction_adjustment";
+
+export type EffortActorType = "human" | "agent";
+
+export interface EffortEntry {
+  id: string;
+  taskId: string;
+  actorType: EffortActorType;
+  actorId: string | null;
+  minutes: number;
+  source: EffortSource;
+  note: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  recordedAt: string;
+  correctsEntryId: string | null;
+  correctionReason: string | null;
+  metadata: string | null;
+}
+
+export interface EffortEntryWithActor extends EffortEntry {
+  actorName: string | null;
+}
+
+export interface LogEffortRequest {
+  minutes: number;
+  note?: string;
+  startedAt?: string;
+  endedAt?: string;
+  source?: EffortSource;
+}
+
+export interface CorrectEffortRequest {
+  minutesDelta: number;
+  correctionReason: string;
+  note?: string;
+}
+
+export interface EffortTotals {
+  loggedEffortMinutes: number;
+  inferredPresenceMinutes: number;
+  correctionAdjustmentMinutes: number;
+  totalAccountedMinutes: number;
+}
+
+export interface EffortReport {
+  target: { type: "task" | "mission"; id: string };
+  estimate: { plannedMinutes: number | null };
+  totals: EffortTotals;
+  elapsed: {
+    cycleTimeMinutes: number | null;
+    leadTimeMinutes: number | null;
+  };
+  accuracy: {
+    estimationAccuracy: number | null;
+    basis: "logged_effort" | "total_accounted" | "inferred_only" | "unavailable";
+  };
+  bySource: Record<string, number>;
+  byActor: Array<{
+    actorType: EffortActorType;
+    actorId: string | null;
+    actorName: string | null;
+    loggedEffortMinutes: number;
+    inferredPresenceMinutes: number;
+    correctionAdjustmentMinutes: number;
+  }>;
+  entries: EffortEntryWithActor[];
+  warnings: string[];
+}
+
+export interface MissionEffortReport {
+  target: { type: "mission"; id: string };
+  estimate: { plannedMinutes: number | null };
+  totals: EffortTotals;
+  tasks: Array<{
+    taskId: string;
+    taskTitle: string | null;
+    totals: EffortTotals;
+  }>;
+  byActor: Array<{
+    actorType: EffortActorType;
+    actorId: string | null;
+    actorName: string | null;
+    loggedEffortMinutes: number;
+    inferredPresenceMinutes: number;
+    correctionAdjustmentMinutes: number;
+  }>;
+  warnings: string[];
 }

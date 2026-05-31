@@ -197,6 +197,17 @@ export type SSEEvent =
         evidenceLinkId: string;
         changeKind: "linked" | "corrected" | "gap_reported" | "not_applicable" | "verified";
       };
+    }
+  | {
+      type: "effort.updated";
+      data: {
+        taskId: string;
+        entryId: string;
+        actorType: string;
+        actorId: string | null;
+        source: string;
+        minutes: number;
+      };
     };
 
 export type PresenceEvent =

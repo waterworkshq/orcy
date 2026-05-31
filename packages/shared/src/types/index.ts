@@ -48,7 +48,21 @@ export type {
   PrioritizationRuleAction,
 } from "./settings.js";
 
-export type { DashboardStats, HabitatMetrics, TaskTimeRecord, TaskTimeReport } from "./stats.js";
+export type {
+  DashboardStats,
+  HabitatMetrics,
+  TaskTimeRecord,
+  TaskTimeReport,
+  EffortSource,
+  EffortActorType,
+  EffortEntry,
+  EffortEntryWithActor,
+  LogEffortRequest,
+  CorrectEffortRequest,
+  EffortTotals,
+  EffortReport,
+  MissionEffortReport,
+} from "./stats.js";
 
 export type {
   QualityChecklistTemplate,

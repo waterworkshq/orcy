@@ -270,3 +270,32 @@ export const taskTimeRecords = sqliteTable(
     index("idx_time_records_agent").on(table.agentId),
   ],
 );
+
+export const effortEntries = sqliteTable(
+  "effort_entries",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id"),
+    minutes: integer("minutes").notNull(),
+    source: text("source").notNull(),
+    note: text("note"),
+    startedAt: text("started_at"),
+    endedAt: text("ended_at"),
+    recordedAt: text("recorded_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    correctsEntryId: text("corrects_entry_id"),
+    correctionReason: text("correction_reason"),
+    metadata: text("metadata"),
+  },
+  (table) => [
+    index("idx_effort_entries_task").on(table.taskId),
+    index("idx_effort_entries_actor").on(table.actorType, table.actorId),
+    index("idx_effort_entries_source").on(table.source),
+    index("idx_effort_entries_corrects").on(table.correctsEntryId),
+  ],
+);
