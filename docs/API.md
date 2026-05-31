@@ -42,6 +42,7 @@ Complete reference for the Orcy REST API.
 - [Webhooks](#webhooks)
 - [CI/CD Webhooks](#cicd-webhooks)
 - [Code Review Webhooks](#code-review-webhooks)
+- [Code Evidence](#code-evidence)
 - [Auth](#auth)
 - [SSE Streaming](#sse-streaming)
 
@@ -4300,6 +4301,714 @@ Get pull requests associated with a task.
   ]
 }
 ```
+
+---
+
+## Code Evidence
+
+Link, query, and manage code evidence (branches, commits, PRs, pipelines, changed files) against tasks and missions. Also manages the per-habitat repository identity used to scope evidence to the correct codebase.
+
+### Task Evidence
+
+#### GET /tasks/:taskId/code-evidence
+
+Get the code evidence overview for a task, including completeness, summary, grouped evidence links, and active gaps.
+
+**Auth:** Agent or Human auth required.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `includeHistory` | boolean | `false` | Include superseded/corrected links and resolved gaps |
+
+**Response `200`:**
+
+```json
+{
+  "target": { "type": "task", "id": "task-uuid", "missionId": "mission-uuid", "habitatId": "habitat-uuid" },
+  "repository": {
+    "id": "repo-uuid",
+    "provider": "github",
+    "providerBaseUrl": "https://github.com",
+    "repoSlug": "org/repo",
+    "displayName": "Main Repo",
+    "verificationState": "verified"
+  },
+  "completeness": {
+    "status": "partial",
+    "updatedAt": "2026-05-30T12:00:00.000Z",
+    "actor": { "type": "agent", "id": "agent-uuid" }
+  },
+  "summary": {
+    "totalLinks": 5,
+    "activeLinks": 4,
+    "historyCount": 1,
+    "correctedCount": 1,
+    "byType": { "branch": 1, "commit": 3, "pull_request": 1 },
+    "byVerificationState": { "verified": 3, "unverified": 1 },
+    "hasExternalRepositoryEvidence": false,
+    "activeGapCount": 0
+  },
+  "groups": [
+    {
+      "evidenceType": "branch",
+      "items": [
+        {
+          "linkId": "link-uuid",
+          "evidenceType": "branch",
+          "evidenceId": "evidence-uuid",
+          "title": "feature/auth",
+          "url": "https://github.com/org/repo/tree/feature/auth",
+          "verificationState": "verified",
+          "linkSources": ["agent_reported"],
+          "confidence": 0.75,
+          "linkedBy": { "type": "agent", "id": "agent-uuid" },
+          "linkedAt": "2026-05-30T10:00:00.000Z",
+          "status": "active",
+          "correctionReason": null,
+          "replacementLinkId": null
+        }
+      ]
+    }
+  ],
+  "activeGaps": [],
+  "warnings": []
+}
+```
+
+**Response `404`:** Task not found.
+
+#### POST /tasks/:taskId/code-evidence
+
+Link code evidence to a task. Accepts branch info, commits, changed files, PR/pipeline URLs, and external URLs. Creates one link per evidence type derived from the input.
+
+**Auth:** Agent or Human auth required.
+
+**Request:**
+
+```json
+{
+  "branch": {
+    "name": "feature/auth",
+    "headSha": "abc123def456",
+    "baseBranch": "main",
+    "url": "https://github.com/org/repo/tree/feature/auth"
+  },
+  "commits": [
+    {
+      "sha": "abc123def456",
+      "message": "Add JWT middleware",
+      "authorName": "claude-dev",
+      "authorEmail": "agent@orcy.dev",
+      "authoredAt": "2026-05-30T10:00:00.000Z",
+      "url": "https://github.com/org/repo/commit/abc123def456",
+      "branch": "feature/auth",
+      "trailers": [{ "key": "Orcy-Task", "value": "task-uuid" }]
+    }
+  ],
+  "changedFiles": [
+    {
+      "path": "src/auth/middleware.ts",
+      "previousPath": null,
+      "changeType": "added",
+      "additions": 45,
+      "deletions": 0,
+      "commitSha": "abc123def456",
+      "pullRequestNumber": 42
+    }
+  ],
+  "pullRequestUrl": "https://github.com/org/repo/pull/42",
+  "pipelineUrl": "https://github.com/org/repo/actions/runs/987654321",
+  "externalUrls": ["https://example.com/design-doc"],
+  "allowExternalRepository": false
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `branch` | object | no | Branch info (`name` required, `headSha`, `baseBranch`, `url` optional) |
+| `commits` | array | no | Commit objects (`sha` required, others optional) |
+| `changedFiles` | array | no | Changed file objects (`path` and `changeType` required) |
+| `pullRequestUrl` | string | no | PR/MR URL |
+| `pipelineUrl` | string | no | CI/CD pipeline run URL |
+| `externalUrls` | string[] | no | Arbitrary external URLs |
+| `allowExternalRepository` | boolean | no | Allow linking evidence from outside the habitat's repository (default: false) |
+
+**Changed file `changeType` values:** `added`, `modified`, `deleted`, `renamed`
+
+**Response `200`:**
+
+```json
+{
+  "links": [
+    {
+      "linkId": "link-uuid-1",
+      "evidenceType": "branch",
+      "evidenceId": "evidence-uuid",
+      "title": "feature/auth",
+      "url": "https://github.com/org/repo/tree/feature/auth",
+      "verificationState": "unverified",
+      "linkSources": ["agent_reported"],
+      "confidence": 0.75,
+      "linkedBy": { "type": "agent", "id": "agent-uuid" },
+      "linkedAt": "2026-05-30T12:00:00.000Z",
+      "status": "active",
+      "correctionReason": null,
+      "replacementLinkId": null
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}
+```
+
+**Response `404`:** Task not found.
+
+#### POST /tasks/:taskId/code-evidence/:linkId/correct
+
+Correct (mark as incorrect, removed, or superseded) an evidence link.
+
+**Auth:** Agent or Human auth required.
+
+**Request:**
+
+```json
+{
+  "status": "incorrect",
+  "reason": "wrong_task",
+  "customReason": "Linked to wrong task by mistake",
+  "replacementLinkId": "link-uuid-replacement"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `status` | enum | yes | `incorrect`, `removed`, `superseded` |
+| `reason` | string | yes | Correction reason code or free text |
+| `customReason` | string | no | Additional context for `other` reasons |
+| `replacementLinkId` | string | no | Link ID that replaces this one (for `superseded`) |
+
+**Known reason codes:** `wrong_task`, `wrong_mission`, `duplicate_evidence`, `external_repo`, `obsolete_link`, `bad_url`, `other`
+
+**Response `200`:**
+
+```json
+{
+  "link": {
+    "linkId": "link-uuid",
+    "status": "incorrect",
+    "correctionReason": "wrong_task",
+    "replacementLinkId": null,
+    "..."
+  }
+}
+```
+
+**Response `404`:** Task or evidence link not found.
+
+#### POST /tasks/:taskId/code-evidence/not-applicable
+
+Mark a task's code evidence as not applicable (e.g., research-only, documentation tasks with no code changes).
+
+**Auth:** Agent or Human auth required.
+
+**Request:**
+
+```json
+{
+  "reasonCode": "documentation_only_no_code",
+  "reasonNote": "This task is purely documentation"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reasonCode` | string | no | Not-applicable reason code |
+| `reasonNote` | string | no | Free-text explanation |
+
+**Known reason codes:** `research_only`, `planning_design`, `documentation_only_no_code`, `triage_support`, `review_only`, `other`
+
+**Response `200`:**
+
+```json
+{
+  "completeness": {
+    "status": "not_applicable",
+    "reasonCode": "documentation_only_no_code",
+    "reasonNote": "This task is purely documentation",
+    "updatedAt": "2026-05-30T12:00:00.000Z",
+    "actor": { "type": "agent", "id": "agent-uuid" }
+  }
+}
+```
+
+**Response `404`:** Task not found.
+
+#### DELETE /tasks/:taskId/code-evidence/not-applicable
+
+Clear the not-applicable status on a task, reverting completeness to `unknown`.
+
+**Auth:** Agent or Human auth required.
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+**Response `404`:** Task not found.
+
+#### POST /tasks/:taskId/code-evidence/gaps
+
+Report a code evidence gap — when expected evidence is missing (e.g., work done outside Orcy, PR not created yet).
+
+**Auth:** Agent or Human auth required.
+
+**Request:**
+
+```json
+{
+  "reasonCode": "work_outside_orcy",
+  "reasonNote": "Changes were committed directly to main via hotfix process"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `reasonCode` | string | yes | Gap reason code |
+| `reasonNote` | string | no | Free-text explanation |
+
+**Known gap reason codes:** `work_outside_orcy`, `pr_commit_not_created_yet`, `provider_webhook_missing`, `local_branch_deleted`, `evidence_unavailable_permissions`, `waiting_for_reviewer_provider`, `other`
+
+**Response `200`:**
+
+```json
+{
+  "gap": {
+    "id": "gap-uuid",
+    "targetType": "task",
+    "targetId": "task-uuid",
+    "reasonCode": "work_outside_orcy",
+    "reasonNote": "Changes were committed directly to main via hotfix process",
+    "status": "active",
+    "reportedBy": { "type": "agent", "id": "agent-uuid" },
+    "reportedAt": "2026-05-30T12:00:00.000Z",
+    "resolvedBy": null,
+    "resolvedAt": null,
+    "resolutionReason": null
+  }
+}
+```
+
+**Response `400`:** Failed to create gap.
+**Response `404`:** Task not found.
+
+#### POST /tasks/:taskId/code-evidence/gaps/:gapId/resolve
+
+Resolve an active evidence gap.
+
+**Auth:** Agent or Human auth required.
+
+**Request:**
+
+```json
+{
+  "resolutionReason": "PR was created and linked as evidence"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `resolutionReason` | string | yes | Why the gap is now resolved |
+
+**Response `200`:**
+
+```json
+{
+  "gap": {
+    "id": "gap-uuid",
+    "status": "resolved",
+    "resolvedBy": { "type": "agent", "id": "agent-uuid" },
+    "resolvedAt": "2026-05-30T13:00:00.000Z",
+    "resolutionReason": "PR was created and linked as evidence",
+    "..."
+  }
+}
+```
+
+**Response `404`:** Task or gap not found.
+
+### Mission Evidence
+
+Mission-level code evidence endpoints. Structurally identical to task evidence endpoints but scoped to missions. Missions also support aggregated evidence rolled up from child tasks.
+
+#### GET /missions/:missionId/code-evidence
+
+Get the code evidence overview for a mission.
+
+**Auth:** Agent or Human auth required.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `includeHistory` | boolean | `false` | Include superseded/corrected links and resolved gaps |
+
+**Response `200`:**
+
+```json
+{
+  "target": { "type": "mission", "id": "mission-uuid", "habitatId": "habitat-uuid" },
+  "repository": {
+    "id": "repo-uuid",
+    "provider": "github",
+    "providerBaseUrl": "https://github.com",
+    "repoSlug": "org/repo",
+    "displayName": "Main Repo",
+    "verificationState": "verified"
+  },
+  "completeness": {
+    "status": "partial",
+    "updatedAt": "2026-05-30T12:00:00.000Z",
+    "actor": { "type": "agent", "id": "agent-uuid" }
+  },
+  "summary": {
+    "totalLinks": 3,
+    "activeLinks": 3,
+    "historyCount": 0,
+    "correctedCount": 0,
+    "byType": { "pull_request": 1, "pipeline_run": 2 },
+    "byVerificationState": { "verified": 3 },
+    "hasExternalRepositoryEvidence": false,
+    "activeGapCount": 0
+  },
+  "directEvidence": [
+    {
+      "evidenceType": "pull_request",
+      "items": [
+        {
+          "linkId": "link-uuid",
+          "evidenceType": "pull_request",
+          "evidenceId": "evidence-uuid",
+          "title": "Add authentication system",
+          "url": "https://github.com/org/repo/pull/42",
+          "verificationState": "verified",
+          "linkSources": ["webhook"],
+          "confidence": 1.0,
+          "linkedBy": { "type": "agent", "id": "agent-uuid" },
+          "linkedAt": "2026-05-30T10:00:00.000Z",
+          "status": "active",
+          "correctionReason": null,
+          "replacementLinkId": null
+        }
+      ]
+    }
+  ],
+  "rolledUpEvidence": [],
+  "tasks": [
+    {
+      "taskId": "task-uuid-1",
+      "title": "Create JWT middleware",
+      "completeness": { "status": "complete" },
+      "summary": { "totalLinks": 2, "activeLinks": 2, "historyCount": 0, "correctedCount": 0, "byType": {}, "byVerificationState": {}, "hasExternalRepositoryEvidence": false, "activeGapCount": 0 }
+    }
+  ],
+  "groups": [],
+  "activeGaps": [],
+  "warnings": []
+}
+```
+
+**Response `404`:** Mission not found.
+
+#### POST /missions/:missionId/code-evidence
+
+Link code evidence to a mission. Same request body as task evidence linking.
+
+**Auth:** Agent or Human auth required.
+
+**Request:** Same body as [POST /tasks/:taskId/code-evidence](#post-taskstaskidcode-evidence).
+
+**Response `200`:** Same shape as [POST /tasks/:taskId/code-evidence](#post-taskstaskidcode-evidence) response.
+
+**Response `404`:** Mission not found.
+
+#### POST /missions/:missionId/code-evidence/:linkId/correct
+
+Correct an evidence link on a mission.
+
+**Auth:** Agent or Human auth required.
+
+**Request:** Same body as [POST /tasks/:taskId/code-evidence/:linkId/correct](#post-taskstaskidcode-evidencelinkidcorrect).
+
+**Response `200`:**
+
+```json
+{
+  "link": { "linkId": "link-uuid", "status": "incorrect", "..." }
+}
+```
+
+**Response `404`:** Mission or evidence link not found.
+
+#### POST /missions/:missionId/code-evidence/not-applicable
+
+Mark a mission's code evidence as not applicable.
+
+**Auth:** Agent or Human auth required.
+
+**Request:** Same body as [POST /tasks/:taskId/code-evidence/not-applicable](#post-taskstaskidcode-evidencenot-applicable).
+
+**Response `200`:**
+
+```json
+{
+  "completeness": {
+    "status": "not_applicable",
+    "reasonCode": "research_only",
+    "reasonNote": "Spike to evaluate auth providers",
+    "updatedAt": "2026-05-30T12:00:00.000Z",
+    "actor": { "type": "agent", "id": "agent-uuid" }
+  }
+}
+```
+
+**Response `404`:** Mission not found.
+
+#### DELETE /missions/:missionId/code-evidence/not-applicable
+
+Clear the not-applicable status on a mission.
+
+**Auth:** Agent or Human auth required.
+
+**Response `200`:**
+
+```json
+{
+  "success": true
+}
+```
+
+**Response `404`:** Mission not found.
+
+#### POST /missions/:missionId/code-evidence/gaps
+
+Report a code evidence gap on a mission.
+
+**Auth:** Agent or Human auth required.
+
+**Request:** Same body as [POST /tasks/:taskId/code-evidence/gaps](#post-taskstaskidcode-evidencegaps).
+
+**Response `200`:**
+
+```json
+{
+  "gap": {
+    "id": "gap-uuid",
+    "targetType": "mission",
+    "targetId": "mission-uuid",
+    "reasonCode": "provider_webhook_missing",
+    "reasonNote": "GitHub webhook not configured for this repository",
+    "status": "active",
+    "reportedBy": { "type": "agent", "id": "agent-uuid" },
+    "reportedAt": "2026-05-30T12:00:00.000Z",
+    "resolvedBy": null,
+    "resolvedAt": null,
+    "resolutionReason": null
+  }
+}
+```
+
+**Response `400`:** Failed to create gap.
+**Response `404`:** Mission not found.
+
+#### POST /missions/:missionId/code-evidence/gaps/:gapId/resolve
+
+Resolve an active evidence gap on a mission.
+
+**Auth:** Agent or Human auth required.
+
+**Request:** Same body as [POST /tasks/:taskId/code-evidence/gaps/:gapId/resolve](#post-taskstaskidcode-evidencegapsgapidresolve).
+
+**Response `200`:**
+
+```json
+{
+  "gap": {
+    "id": "gap-uuid",
+    "status": "resolved",
+    "resolvedBy": { "type": "agent", "id": "agent-uuid" },
+    "resolvedAt": "2026-05-30T13:00:00.000Z",
+    "resolutionReason": "Webhook configured and evidence now flowing",
+    "..."
+  }
+}
+```
+
+**Response `404`:** Mission or gap not found.
+
+### Repository Settings
+
+Manage the repository identity for a habitat. The repository identity determines which code evidence is considered "in-repo" vs "external" when linking evidence.
+
+#### GET /habitats/:habitatId/repository
+
+Get the repository identity for a habitat.
+
+**Auth:** Agent or Human auth required.
+
+**Response `200`:**
+
+```json
+{
+  "repository": {
+    "id": "repo-uuid",
+    "habitatId": "habitat-uuid",
+    "provider": "github",
+    "providerBaseUrl": "https://github.com",
+    "externalId": "12345",
+    "repoSlug": "org/repo",
+    "displayName": "Main Repo",
+    "localPath": "/home/user/projects/repo",
+    "verificationState": "verified",
+    "createdAt": "2026-05-01T00:00:00.000Z",
+    "updatedAt": "2026-05-30T12:00:00.000Z"
+  }
+}
+```
+
+Returns `{ "repository": null }` if no repository identity is configured.
+
+**Response `404`:** Habitat not found.
+
+#### PUT /habitats/:habitatId/repository
+
+Create or update the repository identity for a habitat. If a repository identity already exists, it is updated. If not, a new one is created (requires `provider` and `repoSlug`).
+
+**Auth:** Human auth required (JWT).
+
+**Request:**
+
+```json
+{
+  "provider": "github",
+  "providerBaseUrl": "https://github.com",
+  "externalId": "12345",
+  "repoSlug": "org/repo",
+  "displayName": "Main Repo",
+  "localPath": "/home/user/projects/repo"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | string | yes* | Git provider (`github`, `gitlab`, `local`, `external`). Required when creating. |
+| `providerBaseUrl` | string | no | Base URL for self-hosted instances |
+| `externalId` | string | no | External account/repository ID |
+| `repoSlug` | string | yes* | Repository slug (e.g., `owner/repo`). Required when creating. |
+| `displayName` | string | no | Human-readable name |
+| `localPath` | string | no | Local filesystem path to the repo |
+
+**Response `200`:**
+
+```json
+{
+  "repository": {
+    "id": "repo-uuid",
+    "habitatId": "habitat-uuid",
+    "provider": "github",
+    "providerBaseUrl": "https://github.com",
+    "externalId": "12345",
+    "repoSlug": "org/repo",
+    "displayName": "Main Repo",
+    "localPath": "/home/user/projects/repo",
+    "verificationState": "unverified",
+    "createdAt": "2026-05-01T00:00:00.000Z",
+    "updatedAt": "2026-05-30T12:00:00.000Z"
+  }
+}
+```
+
+**Response `400`:** Missing required `provider` or `repoSlug` for creation.
+**Response `404`:** Habitat not found.
+
+#### POST /habitats/:habitatId/repository/infer-from-worktree
+
+Infer the repository identity from the habitat's git worktree settings. Uses the configured worktree path, repo slug, and provider from the habitat's `gitWorktreeSettings`.
+
+**Auth:** Human auth required (JWT).
+
+**Request:**
+
+```json
+{
+  "worktreePath": "/home/user/projects/repo"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `worktreePath` | string | no | Override worktree path (default: habitat's configured path) |
+
+**Response `200`:**
+
+```json
+{
+  "repository": {
+    "id": "repo-uuid",
+    "habitatId": "habitat-uuid",
+    "provider": "local",
+    "repoSlug": "org/repo",
+    "localPath": "/home/user/projects/repo",
+    "verificationState": "unverified",
+    "..."
+  }
+}
+```
+
+**Response `400`:** No worktree path configured, or no `repoSlug` in worktree settings.
+**Response `404`:** Habitat not found.
+
+#### POST /habitats/:habitatId/repository/infer-from-integration
+
+Infer the repository identity from an enabled GitHub integration connection on the habitat.
+
+**Auth:** Human auth required (JWT).
+
+**Request:**
+
+```json
+{
+  "integrationId": "integration-uuid"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `integrationId` | string | no | Specific integration connection to use (default: first enabled GitHub connection) |
+
+**Response `200`:**
+
+```json
+{
+  "repository": {
+    "id": "repo-uuid",
+    "habitatId": "habitat-uuid",
+    "provider": "github",
+    "providerBaseUrl": "https://github.com",
+    "externalId": "12345",
+    "repoSlug": "org/repo",
+    "verificationState": "unverified",
+    "..."
+  }
+}
+```
+
+**Response `400`:** No GitHub integration with repository configured for this habitat.
+**Response `404`:** Habitat not found.
 
 ---
 

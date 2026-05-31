@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (55 tables)
+### Entity-Relationship Diagram (62 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -313,7 +313,7 @@ Feature-level audit trail for column movements and status changes.
 | `feature_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Related feature |
 | `actor_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Actor type |
 | `actor_id` | TEXT | NOT NULL | UUID of the actor |
-| `action` | TEXT | NOT NULL CHECK (IN 'created','updated','moved','status_changed','completed','deleted','dependency_resolved') | Event action |
+| `action` | TEXT | NOT NULL CHECK (IN 'created','updated','moved','status_changed','completed','deleted','dependency_resolved','code_evidence_linked','code_evidence_corrected','code_evidence_not_applicable','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_backfilled') | Event action |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
 | `to_column_id` | TEXT | DEFAULT NULL | Target column |
 | `from_status` | TEXT | DEFAULT NULL | Previous status |
@@ -401,7 +401,7 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Related task |
 | `actor_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Actor type |
 | `actor_id` | TEXT | NOT NULL | UUID of the actor |
-| `action` | TEXT | NOT NULL CHECK (IN 'created','claimed','started','submitted','approved','rejected','completed','failed','moved','released','dependency_resolved','updated','delegated','cloned','retry_scheduled','retry_executed','escalated') | Event action |
+| `action` | TEXT | NOT NULL CHECK (IN 'created','claimed','started','submitted','approved','rejected','completed','failed','moved','released','dependency_resolved','updated','delegated','cloned','retry_scheduled','retry_executed','escalated','code_evidence_linked','code_evidence_corrected','code_evidence_not_applicable','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_backfilled') | Event action |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
 | `to_column_id` | TEXT | DEFAULT NULL | Target column |
 | `from_status` | TEXT | DEFAULT NULL | Previous status |
@@ -771,6 +771,8 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `branch_name` | TEXT | DEFAULT NULL | Branch name |
 | `state` | TEXT | DEFAULT 'open' | PR state |
 | `review_status` | TEXT | DEFAULT 'pending' | Review status |
+| `branch_id` | TEXT | FK → code_branches(id) | Linked code evidence branch |
+| `repository_id` | TEXT | FK → habitat_code_repositories(id) | Linked code repository |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | DEFAULT (datetime('now')) | Last update timestamp |
 
@@ -786,6 +788,8 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `status` | TEXT | NOT NULL CHECK (IN 'queued','in_progress','success','failure','cancelled') | Run status |
 | `branch` | TEXT | NOT NULL | Branch name |
 | `commit_sha` | TEXT | DEFAULT NULL | Commit SHA |
+| `commit_id` | TEXT | FK → code_commits(id) | Linked code evidence commit |
+| `branch_id` | TEXT | FK → code_branches(id) | Linked code evidence branch |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 
 
@@ -1132,6 +1136,156 @@ Record of each sync attempt. Used for user-facing status, debugging, and future 
 | `error` | TEXT | DEFAULT NULL | Error summary if status is 'failed' |
 
 **Indexes:** `idx_integration_sync_runs_connection(connection_id)`, `idx_integration_sync_runs_started(started_at DESC)`
+
+#### `habitat_code_repositories`
+
+One row per habitat establishing canonical repository identity. Provides the anchor point for all code evidence within a habitat.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Repository record identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL UNIQUE FK → boards(id) ON DELETE CASCADE | Parent habitat (1:1) |
+| `provider` | TEXT | NOT NULL CHECK (IN 'github','gitlab') | Git provider |
+| `repo_slug` | TEXT | NOT NULL | Canonical repository identifier (e.g., `owner/repo`) |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' CHECK (IN 'unverified','verified','failed') | Whether the repository connection has been verified |
+| `verified_at` | TEXT | DEFAULT NULL | Last successful verification timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_code_repos_habitat(habitat_id)`, `idx_code_repos_provider_slug(provider, repo_slug)`
+
+#### `code_branches`
+
+Branch evidence records. Each branch is scoped to a repository and optionally linked to the task that created it.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Branch identifier (UUID) |
+| `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
+| `name` | TEXT | NOT NULL | Branch name |
+| `head_sha` | TEXT | DEFAULT NULL | Current HEAD commit SHA |
+| `base_branch` | TEXT | DEFAULT NULL | Target/base branch name |
+| `created_from_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Task that triggered branch creation |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_code_branches_repo(repository_id)`, `idx_code_branches_name(repository_id, name)`, `idx_code_branches_task(created_from_task_id)`
+
+#### `code_commits`
+
+Commit evidence records. Stores normalized commit metadata extracted from provider URLs or webhooks.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Commit record identifier (UUID) |
+| `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
+| `sha` | TEXT | NOT NULL | Full commit SHA |
+| `message` | TEXT | DEFAULT NULL | Commit message |
+| `author_name` | TEXT | DEFAULT NULL | Commit author name |
+| `author_email` | TEXT | DEFAULT NULL | Commit author email |
+| `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' CHECK (IN 'unverified','verified','failed') | Commit signature verification state |
+| `committed_at` | TEXT | DEFAULT NULL | Commit timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+**Indexes:** `idx_code_commits_repo(repository_id)`, `idx_code_commits_sha(repository_id, sha)`
+
+#### `code_changed_files`
+
+Changed file snapshots per commit. Tracks file-level diff metadata.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | File change identifier (UUID) |
+| `commit_id` | TEXT | NOT NULL FK → code_commits(id) ON DELETE CASCADE | Parent commit |
+| `path` | TEXT | NOT NULL | File path after change |
+| `previous_path` | TEXT | DEFAULT NULL | Original path (for renames) |
+| `change_type` | TEXT | NOT NULL CHECK (IN 'added','modified','deleted','renamed') | Type of change |
+| `additions` | INTEGER | DEFAULT NULL | Lines added |
+| `deletions` | INTEGER | DEFAULT NULL | Lines deleted |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+**Indexes:** `idx_code_changed_files_commit(commit_id)`, `idx_code_changed_files_path(path)`
+
+#### `code_reviews`
+
+Review evidence records. Captures review status and reviewer metadata.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Review record identifier (UUID) |
+| `repository_id` | TEXT | NOT NULL FK → habitat_code_repositories(id) ON DELETE CASCADE | Parent repository |
+| `review_type` | TEXT | NOT NULL CHECK (IN 'pr_review','mr_review') | Review type |
+| `external_id` | TEXT | DEFAULT NULL | Provider-side review identifier |
+| `review_status` | TEXT | NOT NULL CHECK (IN 'pending','approved','changes_requested','dismissed') | Review status |
+| `reviewer_name` | TEXT | DEFAULT NULL | Reviewer display name |
+| `reviewed_at` | TEXT | DEFAULT NULL | Review timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_code_reviews_repo(repository_id)`, `idx_code_reviews_external(repository_id, external_id)`
+
+#### `code_evidence_links`
+
+Core polymorphic link table connecting Orcy entities (missions, tasks, subtasks) to code evidence records (branches, commits, changed files, reviews). Uses append-only corrections — links are never deleted, only superseded.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Link identifier (UUID) |
+| `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
+| `target_id` | TEXT | NOT NULL | Target entity UUID |
+| `evidence_type` | TEXT | NOT NULL CHECK (IN 'branch','commit','changed_file','review','pr','pipeline') | Evidence entity type |
+| `evidence_id` | TEXT | NOT NULL | Evidence entity UUID |
+| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','superseded','incorrect','removed') | Link status (append-only corrections) |
+| `confidence` | REAL | NOT NULL DEFAULT 1.0 | Confidence score 0-1 |
+| `link_source` | TEXT | NOT NULL CHECK (IN 'webhook','branch_pattern','commit_trailer','agent_reported','human_manual','migration','api','artifact_mirror') | How the link was established |
+| `corrected_by` | TEXT | DEFAULT NULL FK → code_evidence_links(id) | Superseding link (for corrections) |
+| `correction_reason` | TEXT | DEFAULT NULL | Why this link was corrected |
+| `corrected_by_actor` | TEXT | DEFAULT NULL | Who corrected the link |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Additional link context |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_code_evidence_links_target(target_type, target_id)`, `idx_code_evidence_links_evidence(evidence_type, evidence_id)`, `idx_code_evidence_links_status(status)`, `idx_code_evidence_links_source(link_source)`
+
+#### `code_evidence_completeness`
+
+Per-target completeness overrides and derived status. Stores `not_applicable` overrides and the computed completeness state for each target.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Completeness record identifier (UUID) |
+| `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
+| `target_id` | TEXT | NOT NULL | Target entity UUID |
+| `status` | TEXT | NOT NULL CHECK (IN 'complete','partial','missing','not_applicable','unknown') | Derived completeness status |
+| `reason_code` | TEXT | DEFAULT NULL | Machine-readable reason for the status |
+| `reason_detail` | TEXT | DEFAULT NULL | Human-readable explanation |
+| `evaluated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last evaluation timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Unique index:** `idx_code_evidence_completeness_target(target_type, target_id)`
+
+#### `code_evidence_gaps`
+
+Gap lifecycle tracking. Records identified evidence gaps (missing branches, commits, reviews) and their resolution state.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Gap identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
+| `target_id` | TEXT | NOT NULL | Target entity UUID |
+| `gap_type` | TEXT | NOT NULL CHECK (IN 'missing_branch','missing_commit','missing_review','missing_pipeline','incomplete_evidence') | Category of the gap |
+| `reason_code` | TEXT | NOT NULL | Machine-readable gap reason |
+| `reason_detail` | TEXT | DEFAULT NULL | Human-readable gap description |
+| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','resolved','dismissed') | Gap lifecycle status |
+| `resolution_reason` | TEXT | DEFAULT NULL | How the gap was resolved |
+| `resolved_by` | TEXT | DEFAULT NULL | Who resolved the gap |
+| `resolved_at` | TEXT | DEFAULT NULL | Resolution timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_code_evidence_gaps_habitat(habitat_id)`, `idx_code_evidence_gaps_target(target_type, target_id)`, `idx_code_evidence_gaps_status(status)`, `idx_code_evidence_gaps_type(gap_type)`
 
 ---
 

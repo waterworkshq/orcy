@@ -138,7 +138,6 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.15** | The Habitat Remembers — dynamic habitat skills from high-strength pulse signals |
 | **v0.16** | Provenance — code ↔ task linking, time tracking & effort logging |
 | **v0.17** | Evidence — Audit Trail V2, advanced analytics |
 | **v0.18** | Rules That Act — workflow automation engine, Notification System V2 |

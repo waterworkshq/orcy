@@ -11,12 +11,13 @@ This document covers the system architecture, design decisions, key flows, and i
 │  AI Agent (Claude Code / Codex / OpenCode / Cursor / Gemini) │
 │  MCP stdio transport                                     │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  MCP Server (15 dispatch tools)                      │   │
+│  │  MCP Server (16 dispatch tools)                      │   │
 │  │  Features: list │ create │ get_context │ delete  │   │
 │  │  Tasks: claim │ submit │ update │ heartbeat     │   │
 │  │  Rules: get │ update │ evaluate                │   │
 │  │  Scheduled: list │ create │ run                 │   │
 │  │  Skill: get │ refresh │ contribute             │   │
+│  │  Code Evidence: link │ list │ gaps │ resolve    │   │
 │  └────────────────────┬─────────────────────────────┘   │
 │                       │ HTTP (X-Agent-API-Key)           │
 └───────────────────────┼──────────────────────────────────┘
@@ -46,7 +47,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | Models | `src/models/` | TypeScript types, Zod schemas. Includes `Mission`, `MissionWithProgress`, `MissionStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
 | SSE | `src/sse/` | Event broadcaster (pub/sub) — broadcasts both task and mission events |
-| DB | `src/db/` | Database initialization, Drizzle ORM schema (55+ tables including habitat_skills, habitat_skill_signals) |
+| DB | `src/db/` | Database initialization, Drizzle ORM schema (62+ tables including habitat_skills, habitat_skill_signals, code evidence tables) |
 | Plugins | `src/plugins/` | Plugin system for extensibility |
 
 ### UI (`packages/ui`)
@@ -67,12 +68,13 @@ This document covers the system architecture, design decisions, key flows, and i
 | File | Responsibility |
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
-| `src/tools/index.ts` | All tool exports + 11 dispatch tool files (16 tools including prioritization and scheduled task actions) |
+| `src/tools/index.ts` | All tool exports + 12 dispatch tool files (17 tools including prioritization, scheduled task, and code evidence actions) |
 | `src/tools/habitat-dispatch.ts` | Habitat dispatch: list, find, summary, metrics, settings |
-| `src/tools/mission-dispatch.ts` | Mission dispatch: list, create, delete, archive, get-context |
-| `src/tools/task-dispatch.ts` | Task dispatch: claim, submit, complete, release, update, comments |
+| `src/tools/mission-dispatch.ts` | Mission dispatch: list, create, delete, archive, get-context, link-code, list-code-evidence, correct-code-evidence-link (11 actions) |
+| `src/tools/task-dispatch.ts` | Task dispatch: claim, submit, complete, release, update, comments, code evidence actions (31 actions) |
 | `src/tools/agent-dispatch.ts` | Agent dispatch: register, heartbeat, stats |
 | `src/tools/suggest-dispatch.ts` | Suggest dispatch: suggest-next-task |
+| `src/tools/code-evidence.ts` | Code evidence handlers: link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, backfill (10 handler functions) |
 | `src/tools/instructions.ts` | Hierarchical agent workflow instructions |
 | `src/api.ts` | REST API client (OrcyApiClient) |
 
@@ -155,7 +157,154 @@ packages/ui/
 
 ---
 
-### ADR-1: SQLite with better-sqlite3
+## Code Evidence Provenance
+
+Promotes existing PR/MR, pipeline, worktree branch, and artifact foundations into an explicit, queryable code evidence layer. Instead of treating pull requests and CI runs as opaque attachments, the code evidence system decomposes them into structured, linkable entities that can be queried for completeness and gap analysis.
+
+### Architecture
+
+The code evidence layer uses a **hybrid model**: concrete evidence tables store normalized data from Git providers (branches, commits, changed files, reviews), while a central `code_evidence_links` table provides polymorphic metadata linking evidence to any Orcy entity (mission, task, or subtask).
+
+```
+┌─────────────────────┐       ┌─────────────────────┐
+│ habitat_code_        │       │ code_evidence_       │
+│ repositories         │       │ completeness         │
+│ (1:1 per habitat)    │       │ (not-applicable      │
+│                      │       │  overrides +         │
+│ provider, repoSlug,  │       │  derived status)     │
+│ verificationState    │       └─────────────────────┘
+└──────────┬──────────┘
+           │ (repositoryId)
+           ▼
+┌─────────────────────┐       ┌─────────────────────┐
+│ code_branches        │──────<│ code_commits         │
+│                      │       │                      │
+│ name, headSha,       │       │ sha, message,        │
+│ baseBranch,          │       │ authorName/Email,    │
+│ createdFromTaskId    │       │ verificationState    │
+└──────────┬──────────┘       └──────────┬──────────┘
+           │                              │
+           │ (branchId)                   │ (commitId)
+           ▼                              ▼
+┌─────────────────────┐       ┌─────────────────────┐
+│ code_changed_files   │       │ code_reviews         │
+│                      │       │                      │
+│ path, previousPath,  │       │ reviewStatus,        │
+│ changeType,          │       │ reviewerName         │
+│ additions, deletions │       └─────────────────────┘
+└─────────────────────┘
+
+           ┌─────────────────────┐
+           │ code_evidence_links │  ← Core link table
+           │                     │    (polymorphic: mission/task/subtask → evidence)
+           │ targetType,         │
+           │ targetId,           │
+           │ evidenceType,       │
+           │ evidenceId,         │
+           │ status, confidence, │
+           │ linkSource          │
+           └─────────────────────┘
+
+           ┌─────────────────────┐
+           │ code_evidence_gaps   │  ← Gap lifecycle
+           │                     │
+           │ reasonCode,         │
+           │ status              │    (active/resolved)
+           │ resolutionReason    │
+           └─────────────────────┘
+```
+
+### Key Tables
+
+| Table | Purpose |
+|-------|---------|
+| `habitat_code_repositories` | One row per habitat — canonical repository identity (provider, repoSlug, verificationState) |
+| `code_branches` | Branch evidence (name, headSha, baseBranch, createdFromTaskId) |
+| `code_commits` | Commit evidence (sha, message, authorName/Email, verificationState) |
+| `code_changed_files` | Changed file snapshots per commit (path, previousPath, changeType, additions, deletions) |
+| `code_reviews` | Review evidence (reviewStatus, reviewerName) |
+| `code_evidence_links` | Core polymorphic link table — connects missions/tasks/subtasks to evidence entities |
+| `code_evidence_completeness` | Not-applicable overrides + derived completeness status per target |
+| `code_evidence_gaps` | Gap lifecycle tracking (reasonCode, status active/resolved, resolutionReason) |
+
+### URL Parsing
+
+Code evidence is extracted from provider URLs without API calls:
+
+| Provider | URL Pattern | Evidence Extracted |
+|----------|------------|-------------------|
+| GitHub | `github.com/owner/repo/pull/123` | PR → branch, commit, changed files, review |
+| GitHub | `github.com/owner/repo/commit/abc123` | Commit → changed files |
+| GitHub | `github.com/owner/repo/actions/runs/456` | CI run → commit, branch |
+| GitLab | `gitlab.com/owner/repo/-/merge_requests/123` | MR → branch, commit, changed files, review |
+| GitLab | `gitlab.com/owner/repo/-/commit/abc123` | Commit → changed files |
+| GitLab | `gitlab.com/owner/repo/-/pipelines/456` | Pipeline → commit, branch |
+
+### Evidence Linking Sources
+
+Every evidence link records its provenance via `linkSource`:
+
+| Source | Description |
+|--------|-------------|
+| `webhook` | Automatically linked via GitHub/GitLab webhook handler |
+| `branch_pattern` | Matched by worktree branch naming convention |
+| `commit_trailer` | Detected from commit message metadata (e.g., `Task-Id:` trailer) |
+| `agent_reported` | Submitted by an AI agent via MCP dispatch action |
+| `human_manual` | Manually linked by a human through the UI or API |
+| `migration` | Created during data migration from attachment-based provenance |
+| `api` | Created via direct API call |
+| `artifact_mirror` | Backfilled from existing `pull_requests` / `pipeline_events` tables |
+
+### Completeness Derivation
+
+Completeness status is derived per target (mission/task/subtask) by evaluating active evidence links against expected evidence types:
+
+| Status | Condition |
+|--------|-----------|
+| `complete` | All expected evidence types have active links |
+| `partial` | Some but not all expected evidence types have active links |
+| `missing` | No active evidence links for any expected type |
+| `not_applicable` | Explicit override via `code_evidence_completeness` table (with reasonCode) |
+| `unknown` | Target has no defined evidence expectations |
+
+### Append-Only Corrections
+
+Evidence links use an append-only correction model rather than mutations:
+
+| Correction | Effect |
+|------------|--------|
+| `superseded` | Link replaced by a newer, more accurate link |
+| `incorrect` | Link was wrong (with reason and actor who corrected it) |
+| `removed` | Link no longer relevant (with reason and actor) |
+
+Original links are never deleted — corrections create new link records with `status` set to the correction type, preserving the full audit trail.
+
+### Non-Blocking Webhook Integration
+
+Evidence linking in webhook handlers (GitHub Issues, GitLab MR, CI/CD pipelines) is wrapped in `try/catch` blocks. A failure to create evidence records does not block the primary webhook operation (mission sync, pipeline status update). Evidence linking failures are logged but never cause webhook handler errors.
+
+### Lazy Backfill
+
+Existing PRs and pipeline events created before the code evidence layer receive evidence links via `backfillExistingCodeEvidence()`. This function:
+
+1. Queries existing `pull_requests` and `pipeline_events` rows
+2. Parses stored URLs to extract provider, repository, branch, and commit metadata
+3. Creates evidence records (branches, commits, changed files, reviews) and links them to the corresponding tasks/missions
+4. Runs idempotently — re-running does not create duplicate evidence
+
+### Component Layout
+
+```
+packages/api/
+  src/db/schema/code-evidence.ts            — Drizzle schema (8 tables)
+  src/repositories/codeEvidence.ts           — CRUD + evidence queries + completeness derivation
+  src/services/codeEvidenceService.ts        — URL parsing, linking, backfill, gap management
+  src/routes/codeEvidence.ts                 — API endpoints for evidence operations
+packages/mcp/
+  src/tools/code-evidence.ts                 — 10 MCP handler functions
+  src/tools/task-dispatch.ts                 — 7 code evidence actions added (31 total)
+  src/tools/mission-dispatch.ts              — 3 code evidence actions added (11 total)
+```
 
 **Decision:** Use `better-sqlite3` for production storage; `sql.js` (WASM) only for test environments.
 
@@ -339,13 +488,13 @@ Similarly, `GET /missions/:id/details` returns mission + tasks + events + progre
 
 ### MCP Tool Architecture (Consolidated Dispatch Pattern)
 
-The MCP server exposes **12 dispatch tool modules** containing 17+ actions (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each tool accepts an `action` parameter to route to specific operations:
+The MCP server exposes **13 dispatch tool modules** containing 24+ actions (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each tool accepts an `action` parameter to route to specific operations:
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
 | `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `update-settings`, `get-health`, `get-health-history`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations + prioritization rules |
-| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context` | Mission CRUD + context |
-| `orcy_habitat_task` | `list-in-mission`, `claim`, `submit`, `complete`, `release`, `get-context`, `get-comments`, ... | Task lifecycle + details |
+| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `link-code`, `list-code-evidence`, `correct-code-evidence-link` | Mission CRUD + context + code evidence linking (11 actions) |
+| `orcy_habitat_task` | `list-in-mission`, `claim`, `submit`, `complete`, `release`, `get-context`, `get-comments`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, ... | Task lifecycle + details + code evidence (31 actions) |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task suggestions |
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
