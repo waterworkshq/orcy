@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { codeEvidenceCompleteness } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import type {
   CodeEvidenceTargetType,
   CodeEvidenceCompletenessStatus,
@@ -62,8 +62,14 @@ export function upsertNotApplicable(input: {
 
 export function clearNotApplicable(targetType: CodeEvidenceTargetType, targetId: string) {
   const db = getDb();
-  db.delete(codeEvidenceCompleteness)
-    .where(eq(codeEvidenceCompleteness.targetType, targetType))
+  const result = db
+    .delete(codeEvidenceCompleteness)
+    .where(
+      and(
+        eq(codeEvidenceCompleteness.targetType, targetType),
+        eq(codeEvidenceCompleteness.targetId, targetId),
+      ),
+    )
     .run();
-  return null;
+  return result.changes > 0;
 }

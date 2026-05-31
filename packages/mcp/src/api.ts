@@ -1162,6 +1162,158 @@ export class KanbanApiClient {
     return this.request("POST", `/api/tasks/${taskId}/quality-checklist/validate`);
   }
 
+  async getTaskCodeEvidence(
+    taskId: string,
+    includeHistory = false,
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    return this.request(
+      "GET",
+      `/api/tasks/${taskId}/code-evidence?includeHistory=${includeHistory}`,
+    );
+  }
+
+  async linkTaskCodeEvidence(
+    taskId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/code-evidence`, input);
+  }
+
+  async correctTaskEvidenceLink(
+    taskId: string,
+    linkId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/code-evidence/${linkId}/correct`, input);
+  }
+
+  async markTaskEvidenceNotApplicable(
+    taskId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/code-evidence/not-applicable`, input);
+  }
+
+  async clearTaskEvidenceNotApplicable(taskId: string): Promise<{ success: boolean }> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("DELETE", `/api/tasks/${taskId}/code-evidence/not-applicable`);
+  }
+
+  async reportTaskEvidenceGap(
+    taskId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/code-evidence/gaps`, input);
+  }
+
+  async resolveTaskEvidenceGap(
+    taskId: string,
+    gapId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("POST", `/api/tasks/${taskId}/code-evidence/gaps/${gapId}/resolve`, input);
+  }
+
+  async getMissionCodeEvidence(
+    missionId: string,
+    includeHistory = false,
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "GET",
+      `/api/missions/${missionId}/code-evidence?includeHistory=${includeHistory}`,
+    );
+  }
+
+  async linkMissionCodeEvidence(
+    missionId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", `/api/missions/${missionId}/code-evidence`, input);
+  }
+
+  async correctMissionEvidenceLink(
+    missionId: string,
+    linkId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      `/api/missions/${missionId}/code-evidence/${linkId}/correct`,
+      input,
+    );
+  }
+
+  async markMissionEvidenceNotApplicable(
+    missionId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", `/api/missions/${missionId}/code-evidence/not-applicable`, input);
+  }
+
+  async clearMissionEvidenceNotApplicable(missionId: string): Promise<{ success: boolean }> {
+    return this.request("DELETE", `/api/missions/${missionId}/code-evidence/not-applicable`);
+  }
+
+  async reportMissionEvidenceGap(
+    missionId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.request("POST", `/api/missions/${missionId}/code-evidence/gaps`, input);
+  }
+
+  async resolveMissionEvidenceGap(
+    missionId: string,
+    gapId: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    return this.request(
+      "POST",
+      `/api/missions/${missionId}/code-evidence/gaps/${gapId}/resolve`,
+      input,
+    );
+  }
+
+  async getHabitatRepository(
+    habitatId: string,
+  ): Promise<{ repository: Record<string, unknown> | null }> {
+    return this.request("GET", `/api/habitats/${habitatId}/repository`);
+  }
+
+  async setHabitatRepository(
+    habitatId: string,
+    input: Record<string, unknown>,
+  ): Promise<{ repository: Record<string, unknown> }> {
+    return this.request("PUT", `/api/habitats/${habitatId}/repository`, input);
+  }
+
+  async inferRepositoryFromWorktree(
+    habitatId: string,
+    input?: Record<string, unknown>,
+  ): Promise<{ repository: Record<string, unknown> }> {
+    return this.request(
+      "POST",
+      `/api/habitats/${habitatId}/repository/infer-from-worktree`,
+      input ?? {},
+    );
+  }
+
+  async inferRepositoryFromIntegration(
+    habitatId: string,
+    input?: Record<string, unknown>,
+  ): Promise<{ repository: Record<string, unknown> }> {
+    return this.request(
+      "POST",
+      `/api/habitats/${habitatId}/repository/infer-from-integration`,
+      input ?? {},
+    );
+  }
+
   async getTaskApprovalStatus(taskId: string): Promise<{
     canBeApproved: boolean;
     reasons: string[];

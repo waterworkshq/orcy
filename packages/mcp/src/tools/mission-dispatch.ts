@@ -1,5 +1,5 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { createDispatchTool, createDispatchHandler, type Handler } from "./dispatch-utils.js";
 import {
   habitatListMissions,
   habitatCreateMission,
@@ -9,49 +9,132 @@ import {
   missionGetContext,
   missionGetComments,
   missionAddComment,
-} from './mission.js';
-import { PRIORITY_LEVELS } from './constants.js';
+} from "./mission.js";
+import {
+  habitatListMissionCodeEvidence,
+  habitatLinkMissionCode,
+  habitatCorrectMissionEvidenceLink,
+} from "./code-evidence.js";
+import { PRIORITY_LEVELS } from "./constants.js";
 
 export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
-  name: 'orcy_habitat_mission',
-  description: 'Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment',
-  actions: ['list', 'create', 'delete', 'archive', 'unarchive', 'get-context', 'get-comments', 'add-comment'],
+  name: "orcy_habitat_mission",
+  description:
+    "Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment, code evidence (link-code, list-code-evidence, correct-code-evidence-link)",
+  actions: [
+    "list",
+    "create",
+    "delete",
+    "archive",
+    "unarchive",
+    "get-context",
+    "get-comments",
+    "add-comment",
+    "link-code",
+    "list-code-evidence",
+    "correct-code-evidence-link",
+  ],
   sharedParams: {
-    boardId: { type: 'string', description: 'Habitat UUID (used with action=list, action=create)' },
-    missionId: { type: 'string', description: 'Mission UUID (used with action=delete, action=archive, action=unarchive, action=get-context, action=get-comments, action=add-comment)' },
-    title: { type: 'string', description: 'Mission title (action=create)' },
-    description: { type: 'string', description: 'Mission description (action=create)' },
-    acceptanceCriteria: { type: 'string', description: 'What defines completion (action=create)' },
+    boardId: { type: "string", description: "Habitat UUID (used with action=list, action=create)" },
+    missionId: {
+      type: "string",
+      description:
+        "Mission UUID (used with action=delete, action=archive, action=unarchive, action=get-context, action=get-comments, action=add-comment, action=link-code, action=list-code-evidence, action=correct-code-evidence-link)",
+    },
+    title: { type: "string", description: "Mission title (action=create)" },
+    description: { type: "string", description: "Mission description (action=create)" },
+    acceptanceCriteria: { type: "string", description: "What defines completion (action=create)" },
     priority: {
-      type: 'string',
+      type: "string",
       enum: [...PRIORITY_LEVELS],
-      description: 'Mission priority (action=create)',
+      description: "Mission priority (action=create)",
     },
-    labels: { type: 'array', items: { type: 'string' }, description: 'Labels to categorize the mission (action=create)' },
-    dependsOn: { type: 'array', items: { type: 'string' }, description: 'Mission IDs this mission depends on (action=create)' },
-    dueAt: { type: 'string', description: 'ISO 8601 deadline (action=create)' },
-    slaMinutes: { type: 'number', description: 'Service-level agreement in minutes (action=create)' },
-    blocks: { type: 'array', items: { type: 'string' }, description: 'Mission IDs that this mission blocks (action=create)' },
-    isArchived: { type: 'boolean', description: 'Set to true to list archived missions instead of active ones (action=list)' },
+    labels: {
+      type: "array",
+      items: { type: "string" },
+      description: "Labels to categorize the mission (action=create)",
+    },
+    dependsOn: {
+      type: "array",
+      items: { type: "string" },
+      description: "Mission IDs this mission depends on (action=create)",
+    },
+    dueAt: { type: "string", description: "ISO 8601 deadline (action=create)" },
+    slaMinutes: {
+      type: "number",
+      description: "Service-level agreement in minutes (action=create)",
+    },
+    blocks: {
+      type: "array",
+      items: { type: "string" },
+      description: "Mission IDs that this mission blocks (action=create)",
+    },
+    isArchived: {
+      type: "boolean",
+      description: "Set to true to list archived missions instead of active ones (action=list)",
+    },
     status: {
-      type: 'string',
-      description: 'Filter by mission status (action=list)',
+      type: "string",
+      description: "Filter by mission status (action=list)",
     },
-    limit: { type: 'number', description: 'Maximum number of missions to return (action=list)' },
-    content: { type: 'string', description: 'Comment text (action=add-comment)' },
-    parentId: { type: 'string', description: 'Optional parent comment UUID to reply to (action=add-comment)' },
+    limit: { type: "number", description: "Maximum number of missions to return (action=list)" },
+    content: { type: "string", description: "Comment text (action=add-comment)" },
+    parentId: {
+      type: "string",
+      description: "Optional parent comment UUID to reply to (action=add-comment)",
+    },
+    includeHistory: {
+      type: "boolean",
+      description: "Include historical links and resolved gaps (action=list-code-evidence)",
+    },
+    linkId: {
+      type: "string",
+      description: "Evidence link UUID (action=correct-code-evidence-link)",
+    },
+    linkStatus: {
+      type: "string",
+      enum: ["incorrect", "removed", "superseded"],
+      description: "Correction status (action=correct-code-evidence-link)",
+    },
+    correctionReason: {
+      type: "string",
+      description: "Reason for correction (action=correct-code-evidence-link)",
+    },
+    customReason: {
+      type: "string",
+      description:
+        'Custom reason if correctionReason is "other" (action=correct-code-evidence-link)',
+    },
+    replacementLinkId: {
+      type: "string",
+      description: "UUID of replacement link (action=correct-code-evidence-link)",
+    },
+    pullRequestUrl: { type: "string", description: "Pull request URL to link (action=link-code)" },
+    pipelineUrl: { type: "string", description: "Pipeline URL to link (action=link-code)" },
+    externalUrls: {
+      type: "array",
+      items: { type: "string" },
+      description: "External URLs to link (action=link-code)",
+    },
+    allowExternalRepository: {
+      type: "boolean",
+      description: "Allow evidence from external repositories (action=link-code)",
+    },
   },
 });
 
 export const MISSION_ACTIONS: Record<string, Handler> = {
-  'list': habitatListMissions,
-  'create': habitatCreateMission,
-  'delete': habitatDeleteMission,
-  'archive': missionArchive,
-  'unarchive': missionUnarchive,
-  'get-context': missionGetContext,
-  'get-comments': missionGetComments,
-  'add-comment': missionAddComment,
+  list: habitatListMissions,
+  create: habitatCreateMission,
+  delete: habitatDeleteMission,
+  archive: missionArchive,
+  unarchive: missionUnarchive,
+  "get-context": missionGetContext,
+  "get-comments": missionGetComments,
+  "add-comment": missionAddComment,
+  "link-code": habitatLinkMissionCode,
+  "list-code-evidence": habitatListMissionCodeEvidence,
+  "correct-code-evidence-link": habitatCorrectMissionEvidenceLink,
 };
 
 export const MISSION_DISPATCH_HANDLER = createDispatchHandler(MISSION_ACTIONS);

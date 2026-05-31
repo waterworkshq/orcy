@@ -28,6 +28,7 @@ export * from "./sprint.js";
 export * from "./sprint-dispatch.js";
 export * from "./habitat-skill.js";
 export * from "./habitat-skill-dispatch.js";
+export * from "./code-evidence.js";
 
 // Re-export dispatch utilities (for tests)
 export * from "./dispatch-utils.js";
