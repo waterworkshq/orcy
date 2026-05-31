@@ -7,6 +7,7 @@ import * as retryService from "../retryService.js";
 import * as pluginManager from "../../plugins/pluginManager.js";
 import * as missionService from "../featureService.js";
 import * as timeTrackingService from "../timeTrackingService.js";
+import * as effortRepo from "../../repositories/effortEntry.js";
 import * as qualityGateService from "../qualityGateService.js";
 import * as dependencyService from "../dependencyService.js";
 import type { Task, Artifact } from "../../models/index.js";
@@ -201,9 +202,9 @@ export function submitTask(
   const habitatId = getHabitatId(task);
 
   try {
-    timeTrackingService.recordWork(taskId, agentId, 0, "submitted");
+    effortRepo.recalculateTaskEffortMetrics(taskId);
   } catch (err) {
-    logger.warn({ err, taskId }, "Failed to record work time");
+    logger.warn({ err, taskId }, "Failed to recalculate effort metrics on submit");
   }
 
   eventRepo.createEvent({

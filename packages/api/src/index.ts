@@ -41,6 +41,7 @@ import { codeReviewWebhookRoutes } from "./routes/codeReviewWebhooks.js";
 import { ciCdWebhookRoutes } from "./routes/ciCdWebhooks.js";
 import { organizationRoutes } from "./routes/organizations.js";
 import { timeTrackingRoutes } from "./routes/timeTracking.js";
+import { effortRoutes } from "./routes/effort.js";
 import { dependencyRoutes } from "./routes/dependencies.js";
 import { qualityGateRoutes } from "./routes/qualityGates.js";
 import { prioritizationRoutes } from "./routes/prioritization.js";
@@ -154,6 +155,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(ciCdWebhookRoutes);
   await f.register(organizationRoutes);
   await f.register(timeTrackingRoutes);
+  await f.register(effortRoutes);
   await f.register(dependencyRoutes);
   await f.register(qualityGateRoutes);
   await f.register(prioritizationRoutes);

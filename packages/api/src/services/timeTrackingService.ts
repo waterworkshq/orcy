@@ -1,12 +1,13 @@
-import * as timeRepo from '../repositories/timeTracking.js';
-import * as taskRepo from '../repositories/task.js';
-import type { TaskTimeReport, TaskTimeRecord, HabitatMetrics } from '../models/index.js';
+import * as timeRepo from "../repositories/timeTracking.js";
+import * as taskRepo from "../repositories/task.js";
+import * as effortRepo from "../repositories/effortEntry.js";
+import type { TaskTimeReport, TaskTimeRecord, HabitatMetrics } from "../models/index.js";
 
 export function recordWork(
   taskId: string,
   agentId: string | undefined,
   minutesSpent: number,
-  statusDuringWork: string
+  statusDuringWork: string,
 ): TaskTimeRecord {
   const record = timeRepo.createTimeRecord({
     taskId,
@@ -61,7 +62,8 @@ export function calculateAndSetCompletionMetrics(taskId: string): void {
     leadTimeMinutes = Math.round((completed - started) / 60000);
   }
 
-  const totalMinutes = timeRepo.getTotalMinutesForTask(taskId);
+  const totals = effortRepo.getEffortTotalsForTask(taskId);
+  const totalMinutes = totals.totalAccountedMinutes;
   let estimationAccuracy: number | null = null;
   if (task.estimatedMinutes && totalMinutes > 0) {
     estimationAccuracy = totalMinutes / task.estimatedMinutes;

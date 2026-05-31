@@ -78,6 +78,9 @@ export interface HabitatMetrics {
     averageEstimationAccuracy: number;
     totalTimeTracked: number;
   }[];
+  totalLoggedEffortMinutes: number;
+  totalInferredPresenceMinutes: number;
+  totalAccountedMinutes: number;
 }
 
 export type EffortSource = "human_manual" | "agent_reported" | "correction_adjustment";
