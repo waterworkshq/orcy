@@ -808,6 +808,28 @@ Heartbeat-based time tracking records. Each record captures a work interval for 
 
 **Indexes:** `idx_time_records_task(task_id)`, `idx_time_records_agent(agent_id)`
 
+#### `effort_entries`
+
+Explicit effort logging entries for tasks. Unlike heartbeat-inferred `task_time_records`, these capture deliberate time reports from humans and agents. Supports corrections via delta entries that reference the original entry (`corrects_entry_id`). Entries are append-only — never edited or deleted.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Entry identifier (UUID) |
+| `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Parent task |
+| `actor_type` | TEXT | NOT NULL | Actor type: `human`, `agent`, or `system` |
+| `actor_id` | TEXT | DEFAULT NULL | UUID of the actor |
+| `minutes` | INTEGER | NOT NULL | Minutes logged (positive for reports, can be negative for corrections) |
+| `source` | TEXT | NOT NULL | Entry source: `human_manual`, `agent_reported`, or `correction_adjustment` |
+| `note` | TEXT | DEFAULT NULL | Free-text description of the work |
+| `started_at` | TEXT | DEFAULT NULL | ISO 8601 datetime when work started |
+| `ended_at` | TEXT | DEFAULT NULL | ISO 8601 datetime when work ended |
+| `recorded_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | When the entry was created |
+| `corrects_entry_id` | TEXT | DEFAULT NULL | If this is a correction, the entry UUID it corrects |
+| `correction_reason` | TEXT | DEFAULT NULL | Machine-readable or free-text correction reason |
+| `metadata` | TEXT | DEFAULT NULL | Additional JSON metadata |
+
+**Indexes:** `idx_effort_entries_task(task_id)`, `idx_effort_entries_actor(actor_type, actor_id)`, `idx_effort_entries_source(source)`, `idx_effort_entries_corrects(corrects_entry_id)`
+
 #### `quality_checklist_templates`
 
 Reusable quality gate template definitions. Templates define categories of checklists (e.g., code review, security).

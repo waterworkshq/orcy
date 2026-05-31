@@ -48,6 +48,17 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Orcy metrics** | Cycle time, rejection rate, throughput, and streak tracking per orcy. Available in the Pod Base dashboard. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Pod review** | Every submission is reviewed by another pod member before being marked complete. Optional quality checklists per task. | [HUMAN-GUIDE.md](HUMAN-GUIDE.md) |
 
+## Provenance & Effort
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Code Evidence** | Link code artifacts (branches, PRs, commits, changed files, pipeline runs, reviews, external URLs) to tasks. Append-only corrections (superseded, incorrect, removed) preserve full audit trail. | [SKILL.md](SKILL.md) |
+| **Evidence completeness** | Per-task evidence classified as complete, partial, missing, not_applicable, or unknown. Quality gate enforces coverage at task completion. | [SKILL.md](SKILL.md) |
+| **Evidence gaps** | Report and resolve evidence gaps with lifecycle tracking. Ensures no task is completed without traceability. | [SKILL.md](SKILL.md) |
+| **Repository identity** | Per-habitat repository configuration links code evidence to the correct repo context. | [CONFIGURATION.md](CONFIGURATION.md) |
+| **Effort Logging** | Deliberate effort entries (human_manual, agent_reported, correction_adjustment) with append-only corrections. Separate from inferred heartbeat tracking. | [SKILL.md](SKILL.md) |
+| **Time Tracking (inferred + deliberate)** | Inferred time from heartbeat stays is tracked separately from deliberate effort logging. Quality gate covers both: timeTracking (inferred) and effortLogging (deliberate). | [SKILL.md](SKILL.md) |
+
 ## Visibility & Insights
 
 | Capability | What it does | Learn more |

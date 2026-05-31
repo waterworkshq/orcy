@@ -22,6 +22,7 @@ Complete reference for the Orcy REST API.
 - [Batch Operations](#batch-operations)
 - [Task Lifecycle](#task-lifecycle)
 - [Time Tracking & Estimation](#time-tracking--estimation)
+- [Effort Logging](#effort-logging)
 - [Quality Gates](#quality-gates)
 - [Task Events](#task-events)
 - [Task Comments](#task-comments)
@@ -1514,6 +1515,305 @@ Get habitat-wide time tracking and estimation metrics, including per-agent break
 | `overdueTasks` | number | Tasks exceeding their estimate |
 | `onTimeCompletionRate` | number | Fraction of tasks completed within estimate |
 | `agentMetrics` | array | Per-agent breakdown |
+
+> **v0.16 update:** The habitat metrics response now also includes effort-based totals: `totalLoggedEffortMinutes`, `totalInferredPresenceMinutes`, and `totalAccountedMinutes`. These aggregate effort data across all tasks in the habitat.
+
+---
+
+## Effort Logging
+
+Effort logging provides explicit time tracking alongside the heartbeat-based time tracking. While heartbeats infer presence from agent status, effort entries capture deliberate time reports from humans and agents. Effort entries support corrections via delta adjustments (never edited or deleted).
+
+### GET /tasks/:id/effort-report
+
+Get the full effort report for a task, including totals broken down by source and actor, estimation accuracy, and all effort entries.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "target": { "type": "task", "id": "task-uuid" },
+  "estimate": { "plannedMinutes": 120 },
+  "totals": {
+    "loggedEffortMinutes": 90,
+    "inferredPresenceMinutes": 45,
+    "correctionAdjustmentMinutes": -5,
+    "totalAccountedMinutes": 130
+  },
+  "elapsed": {
+    "cycleTimeMinutes": 180,
+    "leadTimeMinutes": 90
+  },
+  "accuracy": {
+    "estimationAccuracy": 1.08,
+    "basis": "logged_effort"
+  },
+  "bySource": {
+    "human_manual": 30,
+    "agent_reported": 60,
+    "heartbeat_inferred": 45,
+    "correction_adjustment": -5
+  },
+  "byActor": [
+    {
+      "actorType": "agent",
+      "actorId": "agent-uuid",
+      "actorName": "claude-dev",
+      "loggedEffortMinutes": 60,
+      "inferredPresenceMinutes": 45,
+      "correctionAdjustmentMinutes": 0
+    },
+    {
+      "actorType": "human",
+      "actorId": "user-uuid",
+      "actorName": null,
+      "loggedEffortMinutes": 30,
+      "inferredPresenceMinutes": 0,
+      "correctionAdjustmentMinutes": -5
+    }
+  ],
+  "entries": [
+    {
+      "id": "entry-uuid",
+      "taskId": "task-uuid",
+      "actorType": "agent",
+      "actorId": "agent-uuid",
+      "actorName": "claude-dev",
+      "minutes": 60,
+      "source": "agent_reported",
+      "note": "Implemented auth middleware",
+      "startedAt": "2026-06-01T10:00:00.000Z",
+      "endedAt": "2026-06-01T11:00:00.000Z",
+      "recordedAt": "2026-06-01T11:00:00.000Z",
+      "correctsEntryId": null,
+      "correctionReason": null,
+      "metadata": null
+    }
+  ],
+  "warnings": []
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totals.loggedEffortMinutes` | number | Sum of `human_manual` + `agent_reported` effort entries |
+| `totals.inferredPresenceMinutes` | number | Heartbeat-inferred minutes from `task_time_records` (status: `in_progress`) |
+| `totals.correctionAdjustmentMinutes` | number | Sum of `correction_adjustment` entries (can be negative) |
+| `totals.totalAccountedMinutes` | number | `loggedEffortMinutes` + `correctionAdjustmentMinutes` + `inferredPresenceMinutes` |
+| `accuracy.estimationAccuracy` | number/null | Ratio of effort to estimate (1.0 = on target) |
+| `accuracy.basis` | string | Which data was used: `logged_effort`, `inferred_only`, `total_accounted`, or `unavailable` |
+| `bySource` | object | Minutes aggregated by source type |
+| `byActor` | array | Minutes aggregated by actor with name resolution |
+| `entries` | array | All effort entries (including corrections) with actor names |
+| `warnings` | string[] | Data quality warnings (e.g., overlap between logged and inferred) |
+
+**Response `404`:** Task not found.
+
+### GET /tasks/:id/effort-entries
+
+List all effort entries for a task, with actor name resolution.
+
+**Auth:** Agent or Human
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `includeCorrections` | string | `true` | Set to `false` to exclude correction entries |
+
+**Response `200`:**
+
+```json
+[
+  {
+    "id": "entry-uuid",
+    "taskId": "task-uuid",
+    "actorType": "agent",
+    "actorId": "agent-uuid",
+    "actorName": "claude-dev",
+    "minutes": 60,
+    "source": "agent_reported",
+    "note": "Implemented auth middleware",
+    "startedAt": "2026-06-01T10:00:00.000Z",
+    "endedAt": "2026-06-01T11:00:00.000Z",
+    "recordedAt": "2026-06-01T11:00:00.000Z",
+    "correctsEntryId": null,
+    "correctionReason": null,
+    "metadata": null
+  }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `actorType` | string | `human`, `agent`, or `system` |
+| `actorId` | string/null | UUID of the actor |
+| `actorName` | string/null | Resolved name (agents only, null for humans) |
+| `minutes` | number | Minutes logged (positive for entries, can be negative for corrections) |
+| `source` | string | `human_manual`, `agent_reported`, `correction_adjustment` |
+| `correctsEntryId` | string/null | If this is a correction, the entry it corrects |
+| `correctionReason` | string/null | Why the correction was made |
+
+**Response `404`:** Task not found.
+
+### POST /tasks/:id/effort-entries
+
+Log effort against a task. Creates a new effort entry and recalculates task effort metrics.
+
+**Auth:** Agent or Human
+
+**Request:**
+
+```json
+{
+  "minutes": 60,
+  "note": "Implemented auth middleware",
+  "startedAt": "2026-06-01T10:00:00.000Z",
+  "endedAt": "2026-06-01T11:00:00.000Z",
+  "source": "agent_reported"
+}
+```
+
+| Field | Type | Required | Constraints | Description |
+|-------|------|----------|-------------|-------------|
+| `minutes` | number | yes | Positive integer | Minutes of effort |
+| `note` | string | no | — | Free-text description of the work |
+| `startedAt` | string | no | ISO 8601 datetime | When the work started |
+| `endedAt` | string | no | ISO 8601 datetime | When the work ended |
+| `source` | enum | no | `human_manual` or `agent_reported` | Source override (default: based on auth type) |
+
+**Response `200`:**
+
+```json
+{
+  "id": "entry-uuid",
+  "taskId": "task-uuid",
+  "actorType": "agent",
+  "actorId": "agent-uuid",
+  "minutes": 60,
+  "source": "agent_reported",
+  "note": "Implemented auth middleware",
+  "startedAt": "2026-06-01T10:00:00.000Z",
+  "endedAt": "2026-06-01T11:00:00.000Z",
+  "recordedAt": "2026-06-01T11:00:00.000Z",
+  "correctsEntryId": null,
+  "correctionReason": null,
+  "metadata": null
+}
+```
+
+**Response `400`:** `minutes` is not a positive integer.
+**Response `404`:** Task not found.
+
+### POST /tasks/:id/effort-entries/:entryId/correct
+
+Correct an existing effort entry by creating a delta adjustment entry. The original entry is never modified.
+
+**Auth:** Agent or Human
+
+**Request:**
+
+```json
+{
+  "minutesDelta": -10,
+  "correctionReason": "overestimated_by_10_min",
+  "note": "Actual work was 50 minutes, not 60"
+}
+```
+
+| Field | Type | Required | Constraints | Description |
+|-------|------|----------|-------------|-------------|
+| `minutesDelta` | number | yes | Non-zero integer | Positive or negative adjustment |
+| `correctionReason` | string | yes | 1-500 characters | Machine-readable or free-text reason |
+| `note` | string | no | — | Additional context |
+
+**Response `200`:**
+
+```json
+{
+  "id": "correction-uuid",
+  "taskId": "task-uuid",
+  "actorType": "human",
+  "actorId": "user-uuid",
+  "minutes": -10,
+  "source": "correction_adjustment",
+  "note": "Actual work was 50 minutes, not 60",
+  "startedAt": null,
+  "endedAt": null,
+  "recordedAt": "2026-06-01T12:00:00.000Z",
+  "correctsEntryId": "entry-uuid",
+  "correctionReason": "overestimated_by_10_min",
+  "metadata": null
+}
+```
+
+**Response `400`:** `minutesDelta` is 0, `correctionReason` missing or too long, or entry not found.
+**Response `404`:** Task not found.
+
+### GET /missions/:id/effort-report
+
+Get the aggregated effort report for a mission, rolling up effort totals from all child tasks.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "target": { "type": "mission", "id": "mission-uuid" },
+  "estimate": { "plannedMinutes": 240 },
+  "totals": {
+    "loggedEffortMinutes": 150,
+    "inferredPresenceMinutes": 60,
+    "correctionAdjustmentMinutes": -5,
+    "totalAccountedMinutes": 205
+  },
+  "tasks": [
+    {
+      "taskId": "task-uuid-1",
+      "taskTitle": "Create JWT middleware",
+      "totals": {
+        "loggedEffortMinutes": 90,
+        "inferredPresenceMinutes": 45,
+        "correctionAdjustmentMinutes": -5,
+        "totalAccountedMinutes": 130
+      }
+    },
+    {
+      "taskId": "task-uuid-2",
+      "taskTitle": "Add auth tests",
+      "totals": {
+        "loggedEffortMinutes": 60,
+        "inferredPresenceMinutes": 15,
+        "correctionAdjustmentMinutes": 0,
+        "totalAccountedMinutes": 75
+      }
+    }
+  ],
+  "byActor": [
+    {
+      "actorType": "agent",
+      "actorId": "agent-uuid",
+      "actorName": "claude-dev",
+      "loggedEffortMinutes": 120,
+      "inferredPresenceMinutes": 60,
+      "correctionAdjustmentMinutes": 0
+    }
+  ],
+  "warnings": []
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totals` | object | Aggregated effort across all child tasks |
+| `tasks` | array | Per-task effort breakdown |
+| `byActor` | array | Aggregated actor-level effort across all tasks |
+| `warnings` | string[] | Data quality warnings from individual tasks |
+
+**Response `404`:** Mission not found.
 
 ---
 
@@ -5271,6 +5571,8 @@ data: {"type":"task.updated","data":{"id":"...","status":"in_progress",...}}
 | `column.updated` | `Column` | Column updated |
 | `column.deleted` | `{ columnId, habitatId }` | Column deleted |
 | `column.wip_limit_reached` | `{ columnId, limit }` | WIP limit exceeded |
+| `code_evidence.updated` | `{ targetType, targetId, evidenceLinkId, changeKind }` | Code evidence link created, corrected, or gap reported |
+| `effort.updated` | `{ taskId, entryId, actorType, actorId, source, minutes }` | Effort entry logged or corrected |
 
 ### Reconnection
 

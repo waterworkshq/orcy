@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.14.0 | **Updated:** 2026-05-29
+> **Version:** v0.16.0 | **Updated:** 2026-06-01
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -26,25 +26,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.13.0 | "Fit In More" — Jira Cloud adapter (JQL search, ADF text extraction, API-token/Basic-Auth + OAuth 3LO), Linear adapter (GraphQL queries, cursor pagination, OAuth PKCE public-client), Intake Review UI (promote/ignore/clarify intake candidates), CLI OAuth connect + integration guide commands, shared OAuth callback infrastructure (fixed port 17530, server-side PKCE verifier store), 20 API route handlers |
 | v0.14.0 | "Autonomous" — daemon & cron automation: standalone CLI daemon, in-process UI-controlled daemon engine, daemon-owned agents for Claude/Codex/OpenCode/Cursor/Gemini, worktree-backed session spawning, scheduler pulse nudges/digests, daemon status/setup UI |
 | v0.15.0 | "The Habitat Remembers" — dynamic habitat skills: auto-generated living skill documents from pulse signals, task outcomes, and agent observations. Signal clustering, strength scoring, category classification (domain knowledge, conventions, patterns, anti-patterns). Hook registry for ingestion. MCP/CLI/UI integration. Skill context injected into agent mission context. |
+| v0.16.0 | "Provenance" — code ↔ task linking (8 provenance tables, 7 evidence types, append-only corrections, completeness & gap tracking, repository settings, backfill) and time tracking & effort logging (deliberate effort entries separate from inferred time, correction audit trail, quality gate split, habitat effort metrics) |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.16.0 — "Provenance"
-
-Connect Orcy work to the evidence it produces: code artifacts, branches, pull requests, changed files, and actual effort.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Code ↔ Task Linking | Shows which commits, PRs, files, CI/build results, and external code artifacts belong to each mission/task |
-| Time Tracking & Effort Logging | Separates elapsed time from actual effort so analytics, forecasting, and cost signals have real input data |
-
-**Why together:** Both create the operational evidence layer. Once Orcy knows what changed and how much effort it took, later audit, analytics, automation, and knowledge features can reason from facts instead of approximations.
-
-Planning seeds: `docs/plans/v3/01-code-task-linking.md`, `docs/plans/v3/02-time-tracking-effort-logging.md`
 
 ---
 

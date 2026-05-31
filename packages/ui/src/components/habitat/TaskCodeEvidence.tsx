@@ -607,7 +607,7 @@ export function TaskCodeEvidence({ taskId }: TaskCodeEvidenceProps) {
               Active Gaps ({gaps.length})
             </h4>
             <div className="space-y-1.5">
-              {gaps.map((gap) => (
+              {gaps.map((gap: any) => (
                 <GapItem key={gap.id} gap={gap} />
               ))}
             </div>
@@ -616,7 +616,7 @@ export function TaskCodeEvidence({ taskId }: TaskCodeEvidenceProps) {
 
         {evidence?.warnings && evidence.warnings.length > 0 && (
           <div className="mt-3 space-y-1">
-            {evidence.warnings.map((w, i) => (
+            {evidence.warnings.map((w: any, i: number) => (
               <div key={i} className="text-xs text-yellow-600 dark:text-yellow-400">
                 {w}
               </div>

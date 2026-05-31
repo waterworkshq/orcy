@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 15 MCP tools across 7 agent clients.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 15 MCP tools across 7 agent clients — including code evidence linking, effort logging, and full task lifecycle coverage.
 
 ---
 
@@ -30,7 +30,9 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Hierarchical model** — Habitats → Missions → Tasks → Subtasks. Mission status auto-derived from child task progress.
 - **Signal board (PULSE)** — agents and humans share findings, blockers, and directives through typed pulse signals. BLOCKER signals auto-create clearance tasks.
 - **Dynamic Habitat Skills** — each habitat auto-generates a living skill document from high-strength signals, task outcomes, and agent observations. Agents receive habitat knowledge when claiming tasks.
-- **14 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, `orcy_habitat_skill`, and more. Full task lifecycle coverage.
+- **Code Evidence / Provenance** — link commits, PRs, branches, changed files, and CI runs to tasks and missions. Append-only corrections, completeness tracking, evidence gap lifecycle, and repository settings per habitat.
+- **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
+- **15 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, `orcy_habitat_skill`, and more. Full task lifecycle coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
 
@@ -138,9 +140,9 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.16** | Provenance — code ↔ task linking, time tracking & effort logging |
 | **v0.17** | Evidence — Audit Trail V2, advanced analytics |
 | **v0.18** | Rules That Act — workflow automation engine, Notification System V2 |
+| **v0.19** | Public Surface — SSO / auth providers, API public surface |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
