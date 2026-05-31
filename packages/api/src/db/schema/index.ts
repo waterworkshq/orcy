@@ -34,6 +34,16 @@ export { projectInsights } from "./insight.js";
 export { pulseReactions } from "./reaction.js";
 export { pullRequests, pipelineEvents } from "./cicd.js";
 export {
+  habitatCodeRepositories,
+  codeBranches,
+  codeCommits,
+  codeChangedFiles,
+  codeReviews,
+  codeEvidenceLinks,
+  codeEvidenceCompleteness,
+  codeEvidenceGaps,
+} from "./code-evidence.js";
+export {
   qualityChecklistTemplates,
   qualityChecklistItems,
   taskQualityChecklists,
@@ -100,4 +110,9 @@ export {
   daemonSessionsRelations,
   habitatSkillsRelations,
   habitatSkillSignalsRelations,
+  habitatCodeRepositoriesRelations,
+  codeBranchesRelations,
+  codeCommitsRelations,
+  codeChangedFilesRelations,
+  codeReviewsRelations,
 } from "./relations.js";

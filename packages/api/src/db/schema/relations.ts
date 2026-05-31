@@ -42,6 +42,16 @@ import { projectInsights } from "./insight.js";
 import { pulseReactions } from "./reaction.js";
 import { pullRequests, pipelineEvents } from "./cicd.js";
 import {
+  habitatCodeRepositories,
+  codeBranches,
+  codeCommits,
+  codeChangedFiles,
+  codeReviews,
+  codeEvidenceLinks,
+  codeEvidenceCompleteness,
+  codeEvidenceGaps,
+} from "./code-evidence.js";
+import {
   qualityChecklistTemplates,
   qualityChecklistItems,
   taskQualityChecklists,
@@ -60,6 +70,10 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   integrationSyncRuns: many(integrationSyncRuns),
   habitatSkills: many(habitatSkills),
   habitatSkillSignals: many(habitatSkillSignals),
+  codeRepository: one(habitatCodeRepositories, {
+    fields: [habitats.id],
+    references: [habitatCodeRepositories.habitatId],
+  }),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -352,12 +366,32 @@ export const pullRequestsRelations = relations(pullRequests, ({ one }) => ({
     fields: [pullRequests.taskId],
     references: [tasks.id],
   }),
+  repository: one(habitatCodeRepositories, {
+    fields: [pullRequests.repositoryId],
+    references: [habitatCodeRepositories.id],
+  }),
+  branch: one(codeBranches, {
+    fields: [pullRequests.branchId],
+    references: [codeBranches.id],
+  }),
 }));
 
 export const pipelineEventsRelations = relations(pipelineEvents, ({ one }) => ({
   task: one(tasks, {
     fields: [pipelineEvents.taskId],
     references: [tasks.id],
+  }),
+  repository: one(habitatCodeRepositories, {
+    fields: [pipelineEvents.repositoryId],
+    references: [habitatCodeRepositories.id],
+  }),
+  commit: one(codeCommits, {
+    fields: [pipelineEvents.commitId],
+    references: [codeCommits.id],
+  }),
+  branchEvidence: one(codeBranches, {
+    fields: [pipelineEvents.branchEvidenceId],
+    references: [codeBranches.id],
   }),
 }));
 
@@ -603,5 +637,69 @@ export const habitatSkillSignalsRelations = relations(habitatSkillSignals, ({ on
     fields: [habitatSkillSignals.habitatId],
     references: [habitatSkills.habitatId],
     relationName: "skillSignals",
+  }),
+}));
+
+export const habitatCodeRepositoriesRelations = relations(
+  habitatCodeRepositories,
+  ({ one, many }) => ({
+    habitat: one(habitats, {
+      fields: [habitatCodeRepositories.habitatId],
+      references: [habitats.id],
+    }),
+    branches: many(codeBranches),
+    commits: many(codeCommits),
+    changedFiles: many(codeChangedFiles),
+    reviews: many(codeReviews),
+  }),
+);
+
+export const codeBranchesRelations = relations(codeBranches, ({ one, many }) => ({
+  repository: one(habitatCodeRepositories, {
+    fields: [codeBranches.repositoryId],
+    references: [habitatCodeRepositories.id],
+  }),
+  createdFromTask: one(tasks, {
+    fields: [codeBranches.createdFromTaskId],
+    references: [tasks.id],
+  }),
+  commits: many(codeCommits),
+}));
+
+export const codeCommitsRelations = relations(codeCommits, ({ one, many }) => ({
+  repository: one(habitatCodeRepositories, {
+    fields: [codeCommits.repositoryId],
+    references: [habitatCodeRepositories.id],
+  }),
+  branch: one(codeBranches, {
+    fields: [codeCommits.branchId],
+    references: [codeBranches.id],
+  }),
+  changedFiles: many(codeChangedFiles),
+}));
+
+export const codeChangedFilesRelations = relations(codeChangedFiles, ({ one }) => ({
+  repository: one(habitatCodeRepositories, {
+    fields: [codeChangedFiles.repositoryId],
+    references: [habitatCodeRepositories.id],
+  }),
+  commit: one(codeCommits, {
+    fields: [codeChangedFiles.commitId],
+    references: [codeCommits.id],
+  }),
+  pullRequest: one(pullRequests, {
+    fields: [codeChangedFiles.pullRequestId],
+    references: [pullRequests.id],
+  }),
+}));
+
+export const codeReviewsRelations = relations(codeReviews, ({ one }) => ({
+  pullRequest: one(pullRequests, {
+    fields: [codeReviews.pullRequestId],
+    references: [pullRequests.id],
+  }),
+  repository: one(habitatCodeRepositories, {
+    fields: [codeReviews.repositoryId],
+    references: [habitatCodeRepositories.id],
   }),
 }));
