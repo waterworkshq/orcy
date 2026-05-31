@@ -1,33 +1,32 @@
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { useModalStore } from '../../store/modalStore.js';
-import { Button } from '../ui/Button.js';
-import { Badge } from '../ui/Badge.js';
-import { X, ArrowLeft } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ReviewPanel } from './ReviewPanel.js';
-import { CommentSection } from './CommentSection.js';
-import { AttachmentSection } from './AttachmentSection.js';
-import { useTaskDetailPanel } from '../../hooks/useTaskDetailPanel.js';
-import { TaskEditForm } from './TaskEditForm.js';
-import { TaskViewHeader } from './TaskViewHeader.js';
-import { TaskAssignment } from './TaskAssignment.js';
-import { TaskSubtasks } from './TaskSubtasks.js';
-import { TaskQualityChecklist } from './TaskQualityChecklist.js';
-import { TaskDependencies } from './TaskDependencies.js';
-import { TaskTimeInfo } from './TaskTimeInfo.js';
-import { TaskActivity } from './TaskActivity.js';
-import { TaskRetryPolicy } from './TaskRetryPolicy.js';
-import { TaskPullRequests } from './TaskPullRequests.js';
-import { TaskPipelineEvents } from './TaskPipelineEvents.js';
-import { TaskDangerZone } from './TaskDangerZone.js';
-import { TaskDescription } from './TaskDescription.js';
-import { TaskResultCard } from './TaskResultCard.js';
-import { TaskArtifacts } from './TaskArtifacts.js';
-import { TaskTimeConstraints } from './TaskTimeConstraints.js';
-import { FeatureContextSection } from './MissionContextSection.js';
-import { SiblingTasksSection } from './SiblingTasksSection.js';
-import { api } from '../../api/index.js';
-import { queryKeys } from '../../lib/queryKeys.js';
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { useModalStore } from "../../store/modalStore.js";
+import { Button } from "../ui/Button.js";
+import { Badge } from "../ui/Badge.js";
+import { X, ArrowLeft } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ReviewPanel } from "./ReviewPanel.js";
+import { CommentSection } from "./CommentSection.js";
+import { AttachmentSection } from "./AttachmentSection.js";
+import { useTaskDetailPanel } from "../../hooks/useTaskDetailPanel.js";
+import { TaskEditForm } from "./TaskEditForm.js";
+import { TaskViewHeader } from "./TaskViewHeader.js";
+import { TaskAssignment } from "./TaskAssignment.js";
+import { TaskSubtasks } from "./TaskSubtasks.js";
+import { TaskQualityChecklist } from "./TaskQualityChecklist.js";
+import { TaskDependencies } from "./TaskDependencies.js";
+import { TaskTimeInfo } from "./TaskTimeInfo.js";
+import { TaskActivity } from "./TaskActivity.js";
+import { TaskRetryPolicy } from "./TaskRetryPolicy.js";
+import { TaskCodeEvidence } from "./TaskCodeEvidence.js";
+import { TaskDangerZone } from "./TaskDangerZone.js";
+import { TaskDescription } from "./TaskDescription.js";
+import { TaskResultCard } from "./TaskResultCard.js";
+import { TaskArtifacts } from "./TaskArtifacts.js";
+import { TaskTimeConstraints } from "./TaskTimeConstraints.js";
+import { FeatureContextSection } from "./MissionContextSection.js";
+import { SiblingTasksSection } from "./SiblingTasksSection.js";
+import { api } from "../../api/index.js";
+import { queryKeys } from "../../lib/queryKeys.js";
 
 export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) {
   const { selectedMissionId, tasks } = useHabitatStore();
@@ -36,12 +35,16 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
   const queryClient = useQueryClient();
 
   const { data: qualityReport, isLoading: qualityLoading } = useQuery({
-    queryKey: queryKeys.tasks.quality(p.selectedTaskId ?? ''),
+    queryKey: queryKeys.tasks.quality(p.selectedTaskId ?? ""),
     queryFn: () => api.qualityGates.getReport(p.selectedTaskId!),
     enabled: !!p.selectedTaskId,
   });
 
-  async function handleToggleQualityItem(checklistId: string, itemId: string, isCompleted: boolean) {
+  async function handleToggleQualityItem(
+    checklistId: string,
+    itemId: string,
+    isCompleted: boolean,
+  ) {
     if (!p.selectedTaskId) return;
     await api.qualityGates.updateItem(p.selectedTaskId, checklistId, itemId, { isCompleted });
     queryClient.invalidateQueries({ queryKey: queryKeys.tasks.quality(p.selectedTaskId) });
@@ -124,7 +127,9 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
               <span className="text-xs text-on-surface-variant">Capabilities</span>
               <div className="flex flex-wrap gap-1">
                 {p.task.requiredCapabilities.map((cap) => (
-                  <Badge key={cap} className="text-[10px]">{cap}</Badge>
+                  <Badge key={cap} className="text-[10px]">
+                    {cap}
+                  </Badge>
                 ))}
               </div>
             </div>
@@ -179,7 +184,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
           />
 
           <TaskQualityChecklist
-            taskId={p.selectedTaskId ?? ''}
+            taskId={p.selectedTaskId ?? ""}
             report={qualityReport ?? null}
             loading={qualityLoading}
             onToggleItem={handleToggleQualityItem}
@@ -193,7 +198,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             blockedBy={p.blockedBy}
             blocking={p.blocking}
             boardTasks={tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }))}
-              onSelectTask={(id) => openModal(id)}
+            onSelectTask={(id) => openModal(id)}
             onAddDependency={p.handleAddDependency}
             onRemoveDependency={p.handleRemoveDependency}
             addingDep={p.addingDep}
@@ -214,10 +219,10 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             onDelegate={p.handleDelegate}
           />
 
-          {p.task.status === 'submitted' && (
+          {p.task.status === "submitted" && (
             <ReviewPanel
               taskId={p.task.id}
-              result={p.task.result ?? ''}
+              result={p.task.result ?? ""}
               artifacts={p.task.artifacts}
               autoAdvance={p.column?.autoAdvance}
               nextColumnName={p.nextColumnName}
@@ -234,8 +239,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
 
           <TaskActivity events={p.events} agents={p.agents} />
           <AttachmentSection taskId={p.task.id} attachments={p.attachments} />
-          <TaskPullRequests pullRequests={p.pullRequests} />
-          <TaskPipelineEvents pipelineEvents={p.pipelineEvents} />
+          <TaskCodeEvidence taskId={p.task.id} />
           <CommentSection taskId={p.task.id} initialComments={p.comments} />
 
           <TaskDangerZone

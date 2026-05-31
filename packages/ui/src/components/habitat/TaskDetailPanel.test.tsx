@@ -1,15 +1,24 @@
-import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
-import { TaskDetailPanel } from './TaskDetailPanel.js';
-import type { Task, Agent, TaskEvent, Subtask, TaskComment, PullRequest, PipelineEvent, TaskAttachment } from '../../types/index.js';
+import React from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { TaskDetailPanel } from "./TaskDetailPanel.js";
+import type {
+  Task,
+  Agent,
+  TaskEvent,
+  Subtask,
+  TaskComment,
+  PullRequest,
+  PipelineEvent,
+  TaskAttachment,
+} from "../../types/index.js";
 
 // ── Board store mocks ──
-vi.mock('../../store/habitatStore.js', () => ({
+vi.mock("../../store/habitatStore.js", () => ({
   useHabitatStore: vi.fn((selector?: any) => {
     const state = {
-      selectedMissionId: 'feat-1',
+      selectedMissionId: "feat-1",
       tasks: [] as any[],
       columns: [] as any[],
       agents: [] as Agent[],
@@ -21,7 +30,7 @@ vi.mock('../../store/habitatStore.js', () => ({
 // ── Modal store mocks ──
 const mockOpenModal = vi.fn();
 const mockCloseModal = vi.fn();
-vi.mock('../../store/modalStore.js', () => ({
+vi.mock("../../store/modalStore.js", () => ({
   useModalStore: vi.fn((selector?: any) => {
     const state = { openModal: mockOpenModal, closeModal: mockCloseModal };
     return selector ? selector(state) : state;
@@ -29,103 +38,102 @@ vi.mock('../../store/modalStore.js', () => ({
 }));
 
 // ── React Query mocks ──
-vi.mock('@tanstack/react-query', () => ({
+vi.mock("@tanstack/react-query", () => ({
   useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() })),
   useQuery: vi.fn(() => ({ data: null, isLoading: false })),
 }));
 
 // ── Query keys mock ──
-vi.mock('../../lib/queryKeys.js', () => ({
-  queryKeys: { tasks: { quality: vi.fn(() => ['quality']) } },
+vi.mock("../../lib/queryKeys.js", () => ({
+  queryKeys: { tasks: { quality: vi.fn(() => ["quality"]) } },
 }));
 
 // ── API mock ──
-vi.mock('../../api/index.js', () => ({
+vi.mock("../../api/index.js", () => ({
   api: { qualityGates: { getReport: vi.fn(), updateItem: vi.fn() } },
 }));
 
 // ── Badge mock ──
-vi.mock('../ui/Badge.js', () => ({
+vi.mock("../ui/Badge.js", () => ({
   Badge: ({ children, className }: any) => (
-    <span data-testid="badge" className={className}>{children}</span>
+    <span data-testid="badge" className={className}>
+      {children}
+    </span>
   ),
 }));
 
 // ── Child component mocks ──
-vi.mock('./MissionContextSection.js', () => ({
+vi.mock("./MissionContextSection.js", () => ({
   FeatureContextSection: ({ feature }: any) =>
     feature ? <div data-testid="feature-context">{feature.title}</div> : null,
 }));
-vi.mock('./SiblingTasksSection.js', () => ({
+vi.mock("./SiblingTasksSection.js", () => ({
   SiblingTasksSection: ({ siblingTasks }: any) =>
     siblingTasks.length > 0 ? <div data-testid="sibling-tasks" /> : null,
 }));
-vi.mock('./TaskViewHeader.js', () => ({
+vi.mock("./TaskViewHeader.js", () => ({
   TaskViewHeader: ({ task }: any) => <div data-testid="task-view-header">{task.title}</div>,
 }));
-vi.mock('./TaskEditForm.js', () => ({
+vi.mock("./TaskEditForm.js", () => ({
   TaskEditForm: () => <div data-testid="task-edit-form" />,
 }));
-vi.mock('./TaskDescription.js', () => ({
+vi.mock("./TaskDescription.js", () => ({
   TaskDescription: ({ description }: any) =>
     description ? <div data-testid="task-description">{description}</div> : null,
 }));
-vi.mock('./TaskRetryPolicy.js', () => ({
+vi.mock("./TaskRetryPolicy.js", () => ({
   TaskRetryPolicy: () => null,
 }));
-vi.mock('./TaskTimeInfo.js', () => ({
+vi.mock("./TaskTimeInfo.js", () => ({
   TaskTimeInfo: () => null,
 }));
-vi.mock('./TaskResultCard.js', () => ({
+vi.mock("./TaskResultCard.js", () => ({
   TaskResultCard: () => null,
 }));
-vi.mock('./TaskArtifacts.js', () => ({
+vi.mock("./TaskArtifacts.js", () => ({
   TaskArtifacts: () => null,
 }));
-vi.mock('./TaskTimeConstraints.js', () => ({
+vi.mock("./TaskTimeConstraints.js", () => ({
   TaskTimeConstraints: () => null,
 }));
-vi.mock('./TaskSubtasks.js', () => ({
+vi.mock("./TaskSubtasks.js", () => ({
   TaskSubtasks: ({ subtasks }: any) =>
     subtasks.length > 0 ? <div data-testid="task-subtasks" /> : null,
 }));
-vi.mock('./TaskQualityChecklist.js', () => ({
+vi.mock("./TaskQualityChecklist.js", () => ({
   TaskQualityChecklist: () => null,
 }));
-vi.mock('./TaskDependencies.js', () => ({
+vi.mock("./TaskDependencies.js", () => ({
   TaskDependencies: () => null,
 }));
-vi.mock('./TaskAssignment.js', () => ({
+vi.mock("./TaskAssignment.js", () => ({
   TaskAssignment: () => null,
 }));
-vi.mock('./ReviewPanel.js', () => ({
+vi.mock("./ReviewPanel.js", () => ({
   ReviewPanel: () => null,
 }));
-vi.mock('./TaskActivity.js', () => ({
+vi.mock("./TaskActivity.js", () => ({
   TaskActivity: () => null,
 }));
-vi.mock('./CommentSection.js', () => ({
+vi.mock("./CommentSection.js", () => ({
   CommentSection: () => null,
 }));
-vi.mock('./AttachmentSection.js', () => ({
+vi.mock("./AttachmentSection.js", () => ({
   AttachmentSection: () => null,
 }));
-vi.mock('./TaskPullRequests.js', () => ({
-  TaskPullRequests: () => null,
+vi.mock("./TaskCodeEvidence.js", () => ({
+  TaskCodeEvidence: () => null,
 }));
-vi.mock('./TaskPipelineEvents.js', () => ({
-  TaskPipelineEvents: () => null,
-}));
-vi.mock('./TaskDangerZone.js', () => ({
+vi.mock("./TaskDangerZone.js", () => ({
   TaskDangerZone: () => null,
 }));
-vi.mock('../ui/Button.js', () => ({
+vi.mock("../ui/Button.js", () => ({
   Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
 }));
 
 // ── useTaskDetailPanel mock ──
 const useTaskDetailPanelMock = vi.fn();
-vi.mock('../../hooks/useTaskDetailPanel.js', () => ({
+vi.mock("../../hooks/useTaskDetailPanel.js", () => ({
   useTaskDetailPanel: (...args: any[]) => useTaskDetailPanelMock(...args),
 }));
 
@@ -134,20 +142,20 @@ function makeDefaultPanelReturn(overrides: Record<string, any> = {}) {
   const taskOverrides = overrides.task || {};
   delete overrides.task;
   return {
-    selectedTaskId: 'task-1',
+    selectedTaskId: "task-1",
     contextLoading: false,
     isEditing: false,
     task: {
-      id: 'task-1',
-      missionId: 'feat-1',
-      title: 'Test Task',
-      description: 'Test description',
-      priority: 'medium',
-      status: 'pending',
+      id: "task-1",
+      missionId: "feat-1",
+      title: "Test Task",
+      description: "Test description",
+      priority: "medium",
+      status: "pending",
       requiredCapabilities: [],
       assignedAgentId: null,
       delegatedToAgentId: null,
-      requiredDomain: 'frontend',
+      requiredDomain: "frontend",
       claimedAt: null,
       startedAt: null,
       submittedAt: null,
@@ -157,9 +165,9 @@ function makeDefaultPanelReturn(overrides: Record<string, any> = {}) {
       result: null,
       artifacts: [],
       order: 0,
-      createdBy: 'user-1',
-      createdAt: '2024-01-01T00:00:00Z',
-      updatedAt: '2024-01-01T00:00:00Z',
+      createdBy: "user-1",
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
       version: 1,
       estimatedMinutes: null,
       actualMinutes: null,
@@ -194,17 +202,29 @@ function makeDefaultPanelReturn(overrides: Record<string, any> = {}) {
     decomposing: false,
     decomposeDialogOpen: false,
     decompositionProposals: [],
-    newSubtaskTitle: '',
+    newSubtaskTitle: "",
     addingSubtask: false,
-    delegateAgentId: '',
+    delegateAgentId: "",
     delegating: false,
     showDelegate: false,
     addingDep: false,
-    editForm: { title: '', description: '', priority: 'medium' as const, labels: '', requiredDomain: '' },
-    editDueAt: '',
-    editSlaMinutes: '',
-    editEstimatedMinutes: '',
-    retryForm: { maxRetries: '', backoffBase: '', backoffMultiplier: '', maxBackoff: '', escalateToHuman: true },
+    editForm: {
+      title: "",
+      description: "",
+      priority: "medium" as const,
+      labels: "",
+      requiredDomain: "",
+    },
+    editDueAt: "",
+    editSlaMinutes: "",
+    editEstimatedMinutes: "",
+    retryForm: {
+      maxRetries: "",
+      backoffBase: "",
+      backoffMultiplier: "",
+      maxBackoff: "",
+      escalateToHuman: true,
+    },
     setIsEditing: vi.fn(),
     setDeleteDialogOpen: vi.fn(),
     setEditForm: vi.fn(),
@@ -236,7 +256,7 @@ function makeDefaultPanelReturn(overrides: Record<string, any> = {}) {
   };
 }
 
-describe('TaskDetailPanel', () => {
+describe("TaskDetailPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useTaskDetailPanelMock.mockReturnValue(makeDefaultPanelReturn());
@@ -246,62 +266,70 @@ describe('TaskDetailPanel', () => {
     cleanup();
   });
 
-  it('returns null when no selected task', () => {
+  it("returns null when no selected task", () => {
     useTaskDetailPanelMock.mockReturnValue({
       ...makeDefaultPanelReturn(),
       selectedTaskId: null,
       task: undefined,
     } as any);
     const { container } = render(<TaskDetailPanel />);
-    expect(container.innerHTML).toBe('');
+    expect(container.innerHTML).toBe("");
   });
 
-  it('shows task title in header', () => {
+  it("shows task title in header", () => {
     useTaskDetailPanelMock.mockReturnValue(makeDefaultPanelReturn());
     render(<TaskDetailPanel />);
-    expect(screen.getByTestId('task-view-header')).toBeTruthy();
-    expect(screen.getByText('Test Task')).toBeTruthy();
+    expect(screen.getByTestId("task-view-header")).toBeTruthy();
+    expect(screen.getByText("Test Task")).toBeTruthy();
   });
 
-  it('renders capabilities as badges when array is non-empty', () => {
-    useTaskDetailPanelMock.mockReturnValue(makeDefaultPanelReturn({
-      task: { requiredCapabilities: ['react', 'typescript'] },
-    }));
+  it("renders capabilities as badges when array is non-empty", () => {
+    useTaskDetailPanelMock.mockReturnValue(
+      makeDefaultPanelReturn({
+        task: { requiredCapabilities: ["react", "typescript"] },
+      }),
+    );
     render(<TaskDetailPanel />);
 
-    const badges = screen.getAllByTestId('badge');
+    const badges = screen.getAllByTestId("badge");
     expect(badges).toHaveLength(2);
-    expect(screen.getByText('react')).toBeTruthy();
-    expect(screen.getByText('typescript')).toBeTruthy();
-    expect(screen.getByText('Capabilities')).toBeTruthy();
+    expect(screen.getByText("react")).toBeTruthy();
+    expect(screen.getByText("typescript")).toBeTruthy();
+    expect(screen.getByText("Capabilities")).toBeTruthy();
   });
 
-  it('renders nothing when capabilities array is empty', () => {
-    useTaskDetailPanelMock.mockReturnValue(makeDefaultPanelReturn({
-      task: { requiredCapabilities: [] },
-    }));
+  it("renders nothing when capabilities array is empty", () => {
+    useTaskDetailPanelMock.mockReturnValue(
+      makeDefaultPanelReturn({
+        task: { requiredCapabilities: [] },
+      }),
+    );
     render(<TaskDetailPanel />);
 
-    expect(screen.queryByText('Capabilities')).toBeNull();
-    expect(screen.queryAllByTestId('badge')).toHaveLength(0);
+    expect(screen.queryByText("Capabilities")).toBeNull();
+    expect(screen.queryAllByTestId("badge")).toHaveLength(0);
   });
 
-  it('renders nothing when capabilities field is undefined', () => {
-    useTaskDetailPanelMock.mockReturnValue(makeDefaultPanelReturn({
-      task: { requiredCapabilities: undefined },
-    }));
+  it("renders nothing when capabilities field is undefined", () => {
+    useTaskDetailPanelMock.mockReturnValue(
+      makeDefaultPanelReturn({
+        task: { requiredCapabilities: undefined },
+      }),
+    );
     render(<TaskDetailPanel />);
 
-    expect(screen.queryByText('Capabilities')).toBeNull();
+    expect(screen.queryByText("Capabilities")).toBeNull();
   });
 
-  it('badge elements have glass-badge styling', () => {
-    useTaskDetailPanelMock.mockReturnValue(makeDefaultPanelReturn({
-      task: { requiredCapabilities: ['typescript'] },
-    }));
+  it("badge elements have glass-badge styling", () => {
+    useTaskDetailPanelMock.mockReturnValue(
+      makeDefaultPanelReturn({
+        task: { requiredCapabilities: ["typescript"] },
+      }),
+    );
     render(<TaskDetailPanel />);
 
-    const badge = screen.getByTestId('badge');
-    expect(badge).toHaveClass('text-[10px]');
+    const badge = screen.getByTestId("badge");
+    expect(badge).toHaveClass("text-[10px]");
   });
 });

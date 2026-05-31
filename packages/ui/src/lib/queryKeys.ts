@@ -157,4 +157,11 @@ export const queryKeys = {
     signals: (habitatId: string, params?: Record<string, unknown>) =>
       [...queryKeys.skill.all, "signals", habitatId, params] as const,
   },
+  codeEvidence: {
+    all: ["codeEvidence"] as const,
+    task: (taskId: string) => [...queryKeys.codeEvidence.all, "task", taskId] as const,
+    mission: (missionId: string) => [...queryKeys.codeEvidence.all, "mission", missionId] as const,
+    repository: (habitatId: string) =>
+      [...queryKeys.codeEvidence.all, "repository", habitatId] as const,
+  },
 };

@@ -1,25 +1,26 @@
-import React, { useState } from 'react';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { useModalStore } from '../../store/modalStore.js';
-import { useMissionDetails, useMissionExternalLinks } from '../../lib/useHabitatData.js';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
-import { Button } from '../ui/Button.js';
-import { Badge } from '../ui/Badge.js';
-import { CreateTaskForm } from './CreateTaskForm.js';
-import { ExternalIssueBadge } from './ExternalIssueBadge.js';
-import { X, Plus, Sparkles, Trash2, ChevronRight, Loader2, Archive, RefreshCw } from 'lucide-react';
-import type { MissionWithProgress } from '../../types/index.js';
+import React, { useState } from "react";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { useModalStore } from "../../store/modalStore.js";
+import { useMissionDetails, useMissionExternalLinks } from "../../lib/useHabitatData.js";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
+import { Button } from "../ui/Button.js";
+import { Badge } from "../ui/Badge.js";
+import { CreateTaskForm } from "./CreateTaskForm.js";
+import { ExternalIssueBadge } from "./ExternalIssueBadge.js";
+import { X, Plus, Sparkles, Trash2, ChevronRight, Loader2, Archive, RefreshCw } from "lucide-react";
+import { MissionCodeEvidence } from "./MissionCodeEvidence.js";
+import type { MissionWithProgress } from "../../types/index.js";
 
 const taskStatusVariant: Record<string, string> = {
-  pending: 'pending',
-  claimed: 'claimed',
-  in_progress: 'in_progress',
-  submitted: 'submitted',
-  approved: 'approved',
-  rejected: 'rejected',
-  done: 'done',
-  failed: 'failed',
+  pending: "pending",
+  claimed: "claimed",
+  in_progress: "in_progress",
+  submitted: "submitted",
+  approved: "approved",
+  rejected: "rejected",
+  done: "done",
+  failed: "failed",
 };
 
 export function FeatureDetailPanel() {
@@ -49,7 +50,7 @@ export function FeatureDetailPanel() {
     try {
       await api.missions.delete(feature!.id);
       setSelectedMission(null);
-      notify.success('Mission deleted');
+      notify.success("Mission deleted");
     } catch (err) {
       notify.error((err as Error).message);
     }
@@ -73,7 +74,7 @@ export function FeatureDetailPanel() {
       await api.missions.archive(feature!.id);
       useHabitatStore.getState().removeFeature(feature!.id);
       setSelectedMission(null);
-      notify.success('Mission archived');
+      notify.success("Mission archived");
     } catch (err) {
       notify.error((err as Error).message);
     }
@@ -82,8 +83,10 @@ export function FeatureDetailPanel() {
   async function handleRestore() {
     try {
       await api.missions.unarchive(feature!.id);
-      useHabitatStore.getState().addFeature({ ...feature!, isArchived: false } as MissionWithProgress);
-      notify.success('Mission restored');
+      useHabitatStore
+        .getState()
+        .addFeature({ ...feature!, isArchived: false } as MissionWithProgress);
+      notify.success("Mission restored");
     } catch (err) {
       notify.error((err as Error).message);
     }
@@ -115,16 +118,23 @@ export function FeatureDetailPanel() {
 
           {feature.acceptanceCriteria && (
             <div>
-              <h3 className="text-xs font-medium text-muted-foreground mb-1">Acceptance Criteria</h3>
+              <h3 className="text-xs font-medium text-muted-foreground mb-1">
+                Acceptance Criteria
+              </h3>
               <p className="text-sm whitespace-pre-wrap">{feature.acceptanceCriteria}</p>
             </div>
           )}
 
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={feature.priority as any}>{feature.priority}</Badge>
-            <Badge variant={taskStatusVariant[feature.status] as any}>{feature.status.replace('_', ' ')}</Badge>
+            <Badge variant={taskStatusVariant[feature.status] as any}>
+              {feature.status.replace("_", " ")}
+            </Badge>
             {feature.labels.map((label: string) => (
-              <span key={label} className="rounded bg-accent px-1.5 py-0.5 text-xs text-accent-foreground">
+              <span
+                key={label}
+                className="rounded bg-accent px-1.5 py-0.5 text-xs text-accent-foreground"
+              >
                 {label}
               </span>
             ))}
@@ -136,7 +146,9 @@ export function FeatureDetailPanel() {
             <div>
               <div className="flex items-center justify-between text-sm mb-1">
                 <span className="font-medium">Progress</span>
-                <span className="text-muted-foreground">{completed}/{total} ({percentage}%)</span>
+                <span className="text-muted-foreground">
+                  {completed}/{total} ({percentage}%)
+                </span>
               </div>
               <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
                 <div
@@ -148,7 +160,7 @@ export function FeatureDetailPanel() {
                 <div className="flex flex-wrap gap-2 mt-2">
                   {Object.entries(progress.byStatus).map(([status, count]) => (
                     <span key={status} className="text-xs text-muted-foreground">
-                      {status.replace('_', ' ')}: {count}
+                      {status.replace("_", " ")}: {count}
                     </span>
                   ))}
                 </div>
@@ -160,8 +172,17 @@ export function FeatureDetailPanel() {
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium">Tasks ({total})</h3>
               <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" onClick={handleDecompose} disabled={decomposing || !feature.description}>
-                  {decomposing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDecompose}
+                  disabled={decomposing || !feature.description}
+                >
+                  {decomposing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
                   AI Decompose
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setShowCreateTask(true)}>
@@ -178,22 +199,27 @@ export function FeatureDetailPanel() {
             )}
 
             <div className="space-y-1">
-              {tasks.toSorted((a, b) => a.order - b.order).map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => handleTaskClick(task.id)}
-                  className="w-full flex items-center justify-between rounded-md border px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <Badge variant={taskStatusVariant[task.status] as any} className="text-[10px] px-1.5 py-0 shrink-0">
-                      {task.status.replace('_', ' ')}
-                    </Badge>
-                    <span className="truncate">{task.title}</span>
-                  </div>
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                </button>
-              ))}
+              {tasks
+                .toSorted((a, b) => a.order - b.order)
+                .map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => handleTaskClick(task.id)}
+                    className="w-full flex items-center justify-between rounded-md border px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Badge
+                        variant={taskStatusVariant[task.status] as any}
+                        className="text-[10px] px-1.5 py-0 shrink-0"
+                      >
+                        {task.status.replace("_", " ")}
+                      </Badge>
+                      <span className="truncate">{task.title}</span>
+                    </div>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                ))}
             </div>
           </div>
 
@@ -204,6 +230,8 @@ export function FeatureDetailPanel() {
             </div>
           )}
 
+          <MissionCodeEvidence missionId={feature.id} />
+
           {events.length > 0 && (
             <div>
               <h3 className="text-xs font-medium text-muted-foreground mb-1">Timeline</h3>
@@ -211,8 +239,13 @@ export function FeatureDetailPanel() {
                 {events.slice(0, 10).map((event) => (
                   <div key={event.id} className="text-xs text-muted-foreground">
                     <span className="font-medium">{event.action}</span>
-                    {' · '}
-                    {new Date(event.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                    {" · "}
+                    {new Date(event.timestamp).toLocaleString([], {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
                   </div>
                 ))}
               </div>
@@ -220,25 +253,15 @@ export function FeatureDetailPanel() {
           )}
 
           <div className="pt-2 border-t flex flex-col gap-2">
-            {feature.status === 'done' && !feature.isArchived && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="justify-start"
-                onClick={handleArchive}
-              >
+            {feature.status === "done" && !feature.isArchived && (
+              <Button variant="outline" size="sm" className="justify-start" onClick={handleArchive}>
                 <Archive className="h-3.5 w-3.5 mr-2" />
                 Archive Mission
               </Button>
             )}
-            
+
             {feature.isArchived && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="justify-start"
-                onClick={handleRestore}
-              >
+              <Button variant="outline" size="sm" className="justify-start" onClick={handleRestore}>
                 <RefreshCw className="h-3.5 w-3.5 mr-2" />
                 Restore Mission
               </Button>
@@ -257,10 +280,16 @@ export function FeatureDetailPanel() {
 
           {deleteDialogOpen && (
             <div className="rounded border border-destructive/50 bg-destructive/5 p-3 space-y-2">
-              <p className="text-sm">Delete "{feature.title}"? This will also delete all tasks within.</p>
+              <p className="text-sm">
+                Delete "{feature.title}"? This will also delete all tasks within.
+              </p>
               <div className="flex gap-2">
-                <Button variant="destructive" size="sm" onClick={handleDelete}>Delete</Button>
-                <Button variant="ghost" size="sm" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+                <Button variant="destructive" size="sm" onClick={handleDelete}>
+                  Delete
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setDeleteDialogOpen(false)}>
+                  Cancel
+                </Button>
               </div>
             </div>
           )}

@@ -16,6 +16,7 @@ import { ScheduledTasksTab } from "./settings/ScheduledTasksTab.js";
 import { ReviewRulesTab } from "./settings/ReviewRulesTab.js";
 import { IntegrationsTab } from "./settings/IntegrationsTab.js";
 import { WorktreeTab, type WorktreeTabHandle } from "./settings/WorktreeTab.js";
+import { RepositoryTab, type RepositoryTabHandle } from "./settings/RepositoryTab.js";
 import { ExportHabitatDialog } from "./ExportHabitatDialog.js";
 import { ImportHabitatDialog } from "./ImportHabitatDialog.js";
 import { api } from "../../api/index.js";
@@ -33,7 +34,8 @@ type SettingsTab =
   | "scheduled_tasks"
   | "review_rules"
   | "integrations"
-  | "worktree";
+  | "worktree"
+  | "repository";
 
 const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "general", label: "General" },
@@ -47,6 +49,7 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "review_rules", label: "Review Rules" },
   { key: "integrations", label: "Integrations" },
   { key: "worktree", label: "Worktree" },
+  { key: "repository", label: "Repository" },
 ];
 
 const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
@@ -57,6 +60,7 @@ const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
   auto_assign: "Save Auto-Assign Settings",
   prioritization: "Save Prioritization Rules",
   worktree: "Save Worktree Settings",
+  repository: "Save Repository",
 };
 
 interface HabitatSettingsDialogProps {
@@ -87,6 +91,7 @@ export function HabitatSettingsDialog({
   const autoAssignRef = useRef<AutoAssignTabHandle>(null);
   const prioritizationRef = useRef<PrioritizationTabHandle>(null);
   const worktreeRef = useRef<WorktreeTabHandle>(null);
+  const repositoryRef = useRef<RepositoryTabHandle>(null);
 
   const handleTabSavingChange = useCallback((saving: boolean) => {
     setTabSaving(saving);
@@ -108,6 +113,8 @@ export function HabitatSettingsDialog({
         return prioritizationRef;
       case "worktree":
         return worktreeRef;
+      case "repository":
+        return repositoryRef;
       default:
         return { current: null };
     }
@@ -218,6 +225,13 @@ export function HabitatSettingsDialog({
               habitatId={board.id}
               boardGitWorktreeSettings={board.gitWorktreeSettings}
               onUpdate={onUpdate}
+              onSavingChange={handleTabSavingChange}
+            />
+          </div>
+          <div className={activeTab !== "repository" ? "hidden" : ""}>
+            <RepositoryTab
+              ref={repositoryRef}
+              habitatId={board.id}
               onSavingChange={handleTabSavingChange}
             />
           </div>
