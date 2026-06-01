@@ -2,6 +2,24 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.16.1 — 2026-06-01
+
+### Bug Fixes
+
+#### add habitat ID filtering and flatten MCP tool parameters ([`96f2035`](https://github.com/waterworkshq/orcy/commit/96f2035d789b22c2c6f25ea73924fc0c9099c5cb))
+
+1. The repository query for code evidence completeness was incorrectly filtering only by targetType instead of both targetType and targetId. Added habitatId parameter to code evidence linking for proper repository lookup. Refactored effort routes to use Zod schema validation and added support for correcting effort entries. Flattened MCP tool parameters for better developer experience.
+
+
+
+### Refactors
+
+#### add optimistic locking with retry logic for concurrent updates ([`198ba2e`](https://github.com/waterworkshq/orcy/commit/198ba2e6711fc528cf97c81a5cafcbc08d9808d9))
+
+1. Optimistic concurrency control with retry mechanism for task effort and time metric recalculation to prevent race conditions. Refactored recalculateTaskEffortMetrics and updateTaskTimeMetrics to check task versions and retry on conflicts. Also improved agent metrics calculation by replacing N+1 query pattern with aggregated SQL joins, and added safety checks for regex pattern matching in repository lookups.
+
+
+
 ## 0.16.0 — 2026-05-31
 
 ### Documentation
@@ -115,18 +133,3 @@
 9. Rename list endpoint response key from "items" to "signals"
 10. Include signal limit in UI query key for proper cache isolation
 11. Export escapeMarkdown utility from service module
-
-
-
-## 0.15.2 — 2026-05-29
-
-### Bug Fixes
-
-#### enforce strength constraints and hash-based normalization for dedup ([`5ce109c`](https://github.com/waterworkshq/orcy/commit/5ce109cd6ed95b98c7825be670b9c10502a8d86d))
-
-1. Add CHECK constraints to both skill tables ensuring strength values stay within [0,1].
-2. Change normalize() to use an 80‑character prefix with a deterministic hash suffix for collision‑resistant deduplication.
-3. Refactor single‑row repository queries to use .get() instead of .all().
-4. Extract a reusable StrengthBar component and improve SkillPanel accessibility with ARIA roles and keyboard navigation.
-5. Initialize skill event hooks explicitly on server startup.
-6. Add a listSkillSignals method to the MCP API client.
