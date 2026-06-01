@@ -16,7 +16,9 @@ describe('subscription dispatch subscribe', () => {
     const original = process.env.ORCY_AGENT_ID;
     delete process.env.ORCY_AGENT_ID;
 
-    await expect(SUBSCRIPTION_DISPATCH_HANDLER(client, { action: 'subscribe', boardId: 'board-1' })).rejects.toThrow('ORCY_AGENT_ID not configured');
+    const result = await SUBSCRIPTION_DISPATCH_HANDLER(client, { action: 'subscribe', boardId: 'board-1' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('ORCY_AGENT_ID not configured');
 
     process.env.ORCY_AGENT_ID = original ?? '';
   });
@@ -28,7 +30,9 @@ describe('subscription dispatch unsubscribe', () => {
     const original = process.env.ORCY_AGENT_ID;
     delete process.env.ORCY_AGENT_ID;
 
-    await expect(SUBSCRIPTION_DISPATCH_HANDLER(client, { action: 'unsubscribe', boardId: 'board-1' })).rejects.toThrow('ORCY_AGENT_ID not configured');
+    const result = await SUBSCRIPTION_DISPATCH_HANDLER(client, { action: 'unsubscribe', boardId: 'board-1' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('ORCY_AGENT_ID not configured');
 
     process.env.ORCY_AGENT_ID = original ?? '';
   });

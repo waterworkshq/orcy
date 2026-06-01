@@ -12,6 +12,7 @@ import type {
   ReviewRule,
   ReviewRuleCreateInput,
   ReviewRuleUpdateInput,
+  ScheduledTask,
   TaskReviewer,
   Sprint,
   SprintCreateInput,
@@ -46,7 +47,7 @@ import type {
   ListPulsesResponse,
 } from "./types.js";
 import { logger } from "./logger.js";
-import { getOrcyConfig, normalizeTaskId, createApiClient } from "@orcy/shared";
+import { getOrcyConfig, normalizeTaskId, normalizeMissionId, createApiClient } from "@orcy/shared";
 
 export { ApiClientError as KanbanApiError } from "@orcy/shared";
 
@@ -123,10 +124,12 @@ export class KanbanApiClient {
   }
 
   async getMission(missionId: string): Promise<{ mission: MissionWithProgress }> {
+    missionId = normalizeMissionId(missionId);
     return this.request<{ mission: MissionWithProgress }>("GET", `/api/missions/${missionId}`);
   }
 
   async getMissionDetails(missionId: string): Promise<MissionDetailsResponse> {
+    missionId = normalizeMissionId(missionId);
     return this.request<MissionDetailsResponse>("GET", `/api/missions/${missionId}/details`);
   }
 
@@ -158,18 +161,22 @@ export class KanbanApiClient {
   }
 
   async deleteMission(missionId: string): Promise<void> {
+    missionId = normalizeMissionId(missionId);
     await this.request<void>("DELETE", `/api/missions/${missionId}`);
   }
 
   async archiveMission(missionId: string): Promise<{ mission: Mission }> {
+    missionId = normalizeMissionId(missionId);
     return this.request<{ mission: Mission }>("POST", `/api/missions/${missionId}/archive`);
   }
 
   async unarchiveMission(missionId: string): Promise<{ mission: Mission }> {
+    missionId = normalizeMissionId(missionId);
     return this.request<{ mission: Mission }>("POST", `/api/missions/${missionId}/unarchive`);
   }
 
   async listTasksInMission(missionId: string): Promise<ListTasksInMissionResponse> {
+    missionId = normalizeMissionId(missionId);
     return this.request<ListTasksInMissionResponse>("GET", `/api/missions/${missionId}/tasks`);
   }
 
@@ -185,6 +192,7 @@ export class KanbanApiClient {
       order?: number;
     },
   ): Promise<{ task: Task }> {
+    missionId = normalizeMissionId(missionId);
     return this.request<{ task: Task }>("POST", `/api/missions/${missionId}/tasks`, {
       title: input.title,
       description: input.description,
@@ -197,6 +205,7 @@ export class KanbanApiClient {
   }
 
   async getMissionContext(missionId: string): Promise<MissionContext> {
+    missionId = normalizeMissionId(missionId);
     const details = await this.getMissionDetails(missionId);
 
     const depIds = details.dependencies?.dependsOn ?? [];
@@ -274,6 +283,7 @@ export class KanbanApiClient {
       metadata?: Record<string, unknown>;
     },
   ): Promise<PostPulseResponse> {
+    missionId = normalizeMissionId(missionId);
     return this.request<PostPulseResponse>("POST", `/api/missions/${missionId}/pulse`, input);
   }
 
@@ -287,6 +297,7 @@ export class KanbanApiClient {
       offset?: number;
     },
   ): Promise<ListPulsesResponse> {
+    missionId = normalizeMissionId(missionId);
     const params = new URLSearchParams();
     if (filters?.signalType) params.set("signalType", filters.signalType);
     if (filters?.isAuto !== undefined) params.set("isAuto", String(filters.isAuto));
@@ -301,6 +312,7 @@ export class KanbanApiClient {
   }
 
   async getPulseDigest(missionId: string): Promise<PulseDigest> {
+    missionId = normalizeMissionId(missionId);
     return this.request<PulseDigest>("GET", `/api/missions/${missionId}/pulse/digest`);
   }
 
@@ -424,6 +436,7 @@ export class KanbanApiClient {
   }
 
   async getMissionProgress(missionId: string): Promise<MissionProgressResponse> {
+    missionId = normalizeMissionId(missionId);
     return this.request<MissionProgressResponse>("GET", `/api/missions/${missionId}/progress`);
   }
 
@@ -738,6 +751,7 @@ export class KanbanApiClient {
     missionId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ comments: MissionComment[]; total: number }> {
+    missionId = normalizeMissionId(missionId);
     const params = new URLSearchParams();
     if (options?.limit !== undefined) params.set("limit", String(options.limit));
     if (options?.offset !== undefined) params.set("offset", String(options.offset));
@@ -753,6 +767,7 @@ export class KanbanApiClient {
     content: string,
     parentId?: string,
   ): Promise<{ comment: MissionComment }> {
+    missionId = normalizeMissionId(missionId);
     return this.request<{ comment: MissionComment }>(
       "POST",
       `/api/missions/${missionId}/comments`,
@@ -1070,12 +1085,23 @@ export class KanbanApiClient {
     });
   }
 
-  async listEffortEntries(taskId: string, includeCorrections?: boolean): Promise<any> {
+  async listEffortEntries(
+    taskId: string,
+    options: { includeCorrections?: boolean; limit?: number; offset?: number } = {},
+  ): Promise<any> {
     taskId = normalizeTaskId(taskId);
-    return this.request(
-      "GET",
-      `/api/tasks/${taskId}/effort-entries${includeCorrections !== undefined ? `?includeCorrections=${includeCorrections}` : ""}`,
-    );
+    const params = new URLSearchParams();
+    if (options.includeCorrections !== undefined) {
+      params.set("includeCorrections", String(options.includeCorrections));
+    }
+    if (options.limit !== undefined) {
+      params.set("limit", String(options.limit));
+    }
+    if (options.offset !== undefined) {
+      params.set("offset", String(options.offset));
+    }
+    const query = params.toString();
+    return this.request("GET", `/api/tasks/${taskId}/effort-entries${query ? `?${query}` : ""}`);
   }
 
   async getEffortReport(taskId: string): Promise<any> {
@@ -1099,6 +1125,7 @@ export class KanbanApiClient {
   }
 
   async getMissionEffortReport(missionId: string): Promise<any> {
+    missionId = normalizeMissionId(missionId);
     return this.request("GET", `/api/missions/${missionId}/effort-report`);
   }
 
@@ -1272,6 +1299,7 @@ export class KanbanApiClient {
     missionId: string,
     includeHistory = false,
   ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
     return this.request(
       "GET",
       `/api/missions/${missionId}/code-evidence?includeHistory=${includeHistory}`,
@@ -1282,6 +1310,7 @@ export class KanbanApiClient {
     missionId: string,
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
     return this.request("POST", `/api/missions/${missionId}/code-evidence`, input);
   }
 
@@ -1290,6 +1319,7 @@ export class KanbanApiClient {
     linkId: string,
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
     return this.request(
       "POST",
       `/api/missions/${missionId}/code-evidence/${linkId}/correct`,
@@ -1301,10 +1331,12 @@ export class KanbanApiClient {
     missionId: string,
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
     return this.request("POST", `/api/missions/${missionId}/code-evidence/not-applicable`, input);
   }
 
   async clearMissionEvidenceNotApplicable(missionId: string): Promise<{ success: boolean }> {
+    missionId = normalizeMissionId(missionId);
     return this.request("DELETE", `/api/missions/${missionId}/code-evidence/not-applicable`);
   }
 
@@ -1312,6 +1344,7 @@ export class KanbanApiClient {
     missionId: string,
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
     return this.request("POST", `/api/missions/${missionId}/code-evidence/gaps`, input);
   }
 
@@ -1320,6 +1353,7 @@ export class KanbanApiClient {
     gapId: string,
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
     return this.request(
       "POST",
       `/api/missions/${missionId}/code-evidence/gaps/${gapId}/resolve`,
@@ -1449,8 +1483,8 @@ export class KanbanApiClient {
     );
   }
 
-  async listScheduledTasks(boardId: string): Promise<{ scheduledTasks: any[] }> {
-    return this.request<{ scheduledTasks: any[] }>(
+  async listScheduledTasks(boardId: string): Promise<{ scheduledTasks: ScheduledTask[] }> {
+    return this.request<{ scheduledTasks: ScheduledTask[] }>(
       "GET",
       `/api/habitats/${boardId}/scheduled-tasks`,
     );
@@ -1480,23 +1514,26 @@ export class KanbanApiClient {
         order?: number;
       }>;
     },
-  ): Promise<{ scheduledTask: any }> {
-    return this.request<{ scheduledTask: any }>(
+  ): Promise<{ scheduledTask: ScheduledTask }> {
+    return this.request<{ scheduledTask: ScheduledTask }>(
       "POST",
       `/api/habitats/${boardId}/scheduled-tasks`,
       input,
     );
   }
 
-  async getScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
-    return this.request<{ scheduledTask: any }>("GET", `/api/scheduled-tasks/${scheduledTaskId}`);
+  async getScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: ScheduledTask }> {
+    return this.request<{ scheduledTask: ScheduledTask }>(
+      "GET",
+      `/api/scheduled-tasks/${scheduledTaskId}`,
+    );
   }
 
   async updateScheduledTask(
     scheduledTaskId: string,
     input: Record<string, unknown>,
-  ): Promise<{ scheduledTask: any }> {
-    return this.request<{ scheduledTask: any }>(
+  ): Promise<{ scheduledTask: ScheduledTask }> {
+    return this.request<{ scheduledTask: ScheduledTask }>(
       "PATCH",
       `/api/scheduled-tasks/${scheduledTaskId}`,
       input,
@@ -1516,15 +1553,15 @@ export class KanbanApiClient {
     );
   }
 
-  async enableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
-    return this.request<{ scheduledTask: any }>(
+  async enableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: ScheduledTask }> {
+    return this.request<{ scheduledTask: ScheduledTask }>(
       "POST",
       `/api/scheduled-tasks/${scheduledTaskId}/enable`,
     );
   }
 
-  async disableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: any }> {
-    return this.request<{ scheduledTask: any }>(
+  async disableScheduledTask(scheduledTaskId: string): Promise<{ scheduledTask: ScheduledTask }> {
+    return this.request<{ scheduledTask: ScheduledTask }>(
       "POST",
       `/api/scheduled-tasks/${scheduledTaskId}/disable`,
     );

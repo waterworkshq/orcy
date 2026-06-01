@@ -87,6 +87,88 @@ export function findActiveDuplicate(
   return rows.length > 0 ? rows[0] : null;
 }
 
+export function findOrCreateActive(input: {
+  targetType: CodeEvidenceTargetType;
+  targetId: string;
+  evidenceType: CodeEvidenceType;
+  evidenceId?: string | null;
+  externalUrl?: string | null;
+  normalizedExternalUrl?: string | null;
+  title?: string | null;
+  description?: string | null;
+  linkSource: CodeEvidenceLinkSource;
+  linkSources?: string[];
+  linkedByType: CodeEvidenceActorType;
+  linkedById: string;
+  verificationState?: CodeEvidenceVerificationState;
+  confidence?: number | null;
+  allowExternalRepository?: boolean;
+  metadata?: Record<string, unknown>;
+}): { link: typeof codeEvidenceLinks.$inferSelect; created: boolean } | null {
+  const db = getDb();
+  const normalizedExternalUrl =
+    input.normalizedExternalUrl ?? (input.externalUrl ? input.externalUrl.trim() : null);
+
+  const result = db.transaction((tx) => {
+    const conditions = [
+      eq(codeEvidenceLinks.targetType, input.targetType),
+      eq(codeEvidenceLinks.targetId, input.targetId),
+      eq(codeEvidenceLinks.evidenceType, input.evidenceType),
+      eq(codeEvidenceLinks.status, "active"),
+    ];
+    if (input.evidenceId) {
+      conditions.push(eq(codeEvidenceLinks.evidenceId, input.evidenceId));
+    } else if (normalizedExternalUrl) {
+      conditions.push(eq(codeEvidenceLinks.normalizedExternalUrl, normalizedExternalUrl));
+    }
+
+    const existing = tx
+      .select()
+      .from(codeEvidenceLinks)
+      .where(and(...conditions))
+      .all();
+    if (existing.length > 0) {
+      return { link: existing[0], created: false };
+    }
+
+    const id = uuid();
+    const now = new Date().toISOString();
+    tx.insert(codeEvidenceLinks)
+      .values({
+        id,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        evidenceType: input.evidenceType,
+        evidenceId: input.evidenceId ?? null,
+        externalUrl: input.externalUrl ?? null,
+        normalizedExternalUrl,
+        title: input.title ?? null,
+        description: input.description ?? null,
+        linkSource: input.linkSource,
+        linkSources: input.linkSources ?? [input.linkSource],
+        linkedByType: input.linkedByType,
+        linkedById: input.linkedById,
+        linkedAt: now,
+        verificationState: input.verificationState ?? "unverified",
+        confidence: input.confidence ?? null,
+        status: "active",
+        correctedByType: null,
+        correctedById: null,
+        correctedAt: null,
+        correctionReason: null,
+        replacementLinkId: null,
+        allowExternalRepository: input.allowExternalRepository ? true : false,
+        metadata: input.metadata ?? {},
+      })
+      .run();
+
+    const created = tx.select().from(codeEvidenceLinks).where(eq(codeEvidenceLinks.id, id)).all();
+    return created.length > 0 ? { link: created[0], created: true } : null;
+  });
+
+  return result;
+}
+
 export function create(input: {
   targetType: CodeEvidenceTargetType;
   targetId: string;

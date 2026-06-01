@@ -125,9 +125,9 @@ describe('admin dispatch delete-webhook', () => {
     const client = createMockClient();
     client.deleteWebhook.mockRejectedValue(new Error('Webhook not found'));
 
-    await expect(
-      ADMIN_DISPATCH_HANDLER(client, { action: 'delete-webhook', webhookId: 'wh-999' })
-    ).rejects.toThrow('Webhook not found');
+    const result = await ADMIN_DISPATCH_HANDLER(client, { action: 'delete-webhook', webhookId: 'wh-999' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Webhook not found');
   });
 });
 
@@ -252,9 +252,9 @@ describe('admin dispatch delete-template', () => {
     const client = createMockClient();
     client.deleteTemplate.mockRejectedValue(new Error('Template not found'));
 
-    await expect(
-      ADMIN_DISPATCH_HANDLER(client, { action: 'delete-template', templateId: 'tpl-999' })
-    ).rejects.toThrow('Template not found');
+    const result = await ADMIN_DISPATCH_HANDLER(client, { action: 'delete-template', templateId: 'tpl-999' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Template not found');
   });
 });
 

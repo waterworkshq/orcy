@@ -72,12 +72,17 @@ export function getEffortEntryById(id: string): EffortEntry | null {
   );
 }
 
+const DEFAULT_EFFORT_LIMIT = 100;
+const MAX_EFFORT_LIMIT = 1000;
+
 export function getEffortEntriesByTask(
   taskId: string,
-  options?: { includeCorrections?: boolean },
+  options?: { includeCorrections?: boolean; limit?: number; offset?: number },
 ): EffortEntry[] {
   const db = getDb();
   const includeCorrections = options?.includeCorrections ?? true;
+  const limit = options?.limit ?? DEFAULT_EFFORT_LIMIT;
+  const offset = options?.offset ?? 0;
 
   const conditions = [eq(effortEntries.taskId, taskId)];
   if (!includeCorrections) {
@@ -89,15 +94,39 @@ export function getEffortEntriesByTask(
     .from(effortEntries)
     .where(and(...conditions))
     .orderBy(effortEntries.recordedAt)
+    .limit(limit)
+    .offset(offset)
     .all() as EffortEntry[];
+}
+
+export function countEffortEntriesByTask(
+  taskId: string,
+  options?: { includeCorrections?: boolean },
+): number {
+  const db = getDb();
+  const includeCorrections = options?.includeCorrections ?? true;
+
+  const conditions = [eq(effortEntries.taskId, taskId)];
+  if (!includeCorrections) {
+    conditions.push(ne(effortEntries.source, "correction_adjustment"));
+  }
+
+  const result = db
+    .select({ count: sql<number>`count(*)` })
+    .from(effortEntries)
+    .where(and(...conditions))
+    .get();
+  return result?.count ?? 0;
 }
 
 export function getEffortEntriesWithActorByTask(
   taskId: string,
-  options?: { includeCorrections?: boolean },
+  options?: { includeCorrections?: boolean; limit?: number; offset?: number },
 ): EffortEntryWithActor[] {
   const db = getDb();
   const includeCorrections = options?.includeCorrections ?? true;
+  const limit = options?.limit ?? DEFAULT_EFFORT_LIMIT;
+  const offset = options?.offset ?? 0;
 
   const conditions = [eq(effortEntries.taskId, taskId)];
   if (!includeCorrections) {
@@ -109,6 +138,8 @@ export function getEffortEntriesWithActorByTask(
     .from(effortEntries)
     .where(and(...conditions))
     .orderBy(effortEntries.recordedAt)
+    .limit(limit)
+    .offset(offset)
     .all() as EffortEntry[];
 
   const agentIds = rows.filter((r) => r.actorType === "agent" && r.actorId).map((r) => r.actorId!);

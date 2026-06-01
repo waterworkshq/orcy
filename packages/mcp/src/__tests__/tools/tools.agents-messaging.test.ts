@@ -153,28 +153,28 @@ describe('message dispatch send', () => {
     const client = createMockClient();
     client.listAgents.mockResolvedValue({ agents: [] });
 
-    await expect(
-      MESSAGE_DISPATCH_HANDLER(client, {
+    const result = await MESSAGE_DISPATCH_HANDLER(client, {
         action: 'send',
         toAgentName: 'nonexistent-agent',
         boardId: 'board-1',
         subject: 'Hello',
         body: 'World',
-      })
-    ).rejects.toThrow('Agent with name "nonexistent-agent" not found');
+      });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Agent with name "nonexistent-agent" not found');
   });
 
   it('throws if neither toAgentId nor toAgentName provided', async () => {
     const client = createMockClient();
 
-    await expect(
-      MESSAGE_DISPATCH_HANDLER(client, {
+    const result = await MESSAGE_DISPATCH_HANDLER(client, {
         action: 'send',
         boardId: 'board-1',
         subject: 'Hello',
         body: 'World',
-      })
-    ).rejects.toThrow('Either toAgentId or toAgentName must be provided');
+      });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Either toAgentId or toAgentName must be provided');
   });
 
   it('sends task-scoped message', async () => {
@@ -328,7 +328,9 @@ describe('agent dispatch get-stats', () => {
     const client = createMockClient();
     client.getAgent.mockRejectedValue(new Error('Not authenticated'));
 
-    await expect(AGENT_DISPATCH_HANDLER(client, { action: 'get-stats' })).rejects.toThrow('Not authenticated');
+    const result = await AGENT_DISPATCH_HANDLER(client, { action: 'get-stats' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Not authenticated');
   });
 });
 

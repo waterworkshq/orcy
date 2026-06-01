@@ -179,10 +179,13 @@ function emitEvidenceEvent(
   if (targetType === "task") {
     const task = taskRepo.getTaskById(targetId);
     if (task) {
-      sseBroadcaster.publish(habitatId, { type: "task.updated", data: { id: targetId } } as any);
+      sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
     }
   } else {
-    sseBroadcaster.publish(habitatId, { type: "mission.updated", data: { id: targetId } } as any);
+    const mission = missionRepo.getMissionById(targetId);
+    if (mission) {
+      sseBroadcaster.publish(habitatId, { type: "mission.updated", data: mission });
+    }
   }
 }
 
@@ -213,6 +216,7 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
 
       return codeEvidenceService.getTaskCodeEvidence(request.params.taskId, {
         includeHistory: request.query.includeHistory,
+        habitatId: getHabitatIdForTask(request.params.taskId) ?? undefined,
       });
     },
   );
@@ -432,6 +436,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
 
       return codeEvidenceService.getMissionCodeEvidence(request.params.missionId, {
         includeHistory: request.query.includeHistory,
+        habitatId: mission.habitatId,
       });
     },
   );

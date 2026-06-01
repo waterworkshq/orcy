@@ -11,6 +11,16 @@ import {
   verifyGitLabToken as secureVerifyGitLabToken,
 } from "../config/integrationSecurity.js";
 import * as codeEvidenceService from "./codeEvidenceService.js";
+import { logger } from "../lib/logger.js";
+
+function publishTaskUpdated(habitatId: string, taskId: string): void {
+  const task = taskRepo.getTaskById(taskId);
+  if (!task) {
+    logger.warn({ taskId, habitatId }, "Skipping task.updated SSE: task no longer exists");
+    return;
+  }
+  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
+}
 
 export function verifyGitHubSignature(payload: string, signature: string, secret: string): boolean {
   return verifyGitHubHmac(payload, signature, secret);
@@ -204,10 +214,7 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): {
         /* non-blocking enrichment */
       }
     }
-    sseBroadcaster.publish(habitatId, {
-      type: "task.updated",
-      data: taskRepo.getTaskById(taskId)!,
-    });
+    publishTaskUpdated(habitatId, taskId);
   }
 
   return { status: "processed", taskId };
@@ -268,10 +275,7 @@ export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent): {
         /* non-blocking enrichment */
       }
     }
-    sseBroadcaster.publish(habitatId2, {
-      type: "task.updated",
-      data: taskRepo.getTaskById(taskId)!,
-    });
+    publishTaskUpdated(habitatId2, taskId);
   }
 
   return { status: "processed", taskId };
@@ -350,10 +354,7 @@ export function handleGitLabPipelineEvent(body: GitLabPipelineEvent): {
         /* non-blocking enrichment */
       }
     }
-    sseBroadcaster.publish(habitatId3, {
-      type: "task.updated",
-      data: taskRepo.getTaskById(taskId)!,
-    });
+    publishTaskUpdated(habitatId3, taskId);
   }
 
   return { status: "processed", taskId };
@@ -410,10 +411,7 @@ export function handleGitLabJobEvent(body: GitLabJobEvent): { status: string; ta
         /* non-blocking enrichment */
       }
     }
-    sseBroadcaster.publish(habitatId4, {
-      type: "task.updated",
-      data: taskRepo.getTaskById(taskId)!,
-    });
+    publishTaskUpdated(habitatId4, taskId);
   }
 
   return { status: "processed", taskId };

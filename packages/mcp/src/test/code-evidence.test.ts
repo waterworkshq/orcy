@@ -10,6 +10,10 @@ import {
   habitatListMissionCodeEvidence,
   habitatLinkMissionCode,
   habitatCorrectMissionEvidenceLink,
+  habitatMarkMissionEvidenceNotApplicable,
+  habitatClearMissionEvidenceNotApplicable,
+  habitatReportMissionEvidenceGap,
+  habitatResolveMissionEvidenceGap,
 } from "../tools/code-evidence.js";
 
 function createMockClient() {
@@ -42,6 +46,10 @@ function createMockClient() {
     ),
     linkMissionCodeEvidence: vi.fn(() => Promise.resolve({ links: [], warnings: [], errors: [] })),
     correctMissionEvidenceLink: vi.fn(() => Promise.resolve({ link: {} })),
+    markMissionEvidenceNotApplicable: vi.fn(() => Promise.resolve({ completeness: {} })),
+    clearMissionEvidenceNotApplicable: vi.fn(() => Promise.resolve({ success: true })),
+    reportMissionEvidenceGap: vi.fn(() => Promise.resolve({ gap: {} })),
+    resolveMissionEvidenceGap: vi.fn(() => Promise.resolve({ gap: {} })),
   } as any;
 }
 
@@ -142,7 +150,7 @@ describe("habitatLinkTaskCode", () => {
 
   it("does not include taskId in the input object passed to client", async () => {
     const client = createMockClient();
-    await habitatLinkTaskCode(client, { taskId: "task-1", branch: { name: "main" } });
+    await habitatLinkTaskCode(client, { taskId: "task-1", branchName: "main" });
     const callArgs = client.linkTaskCodeEvidence.mock.calls[0];
     expect(callArgs[0]).toBe("task-1");
     expect(callArgs[1]).not.toHaveProperty("taskId");
@@ -266,6 +274,19 @@ describe("habitatMarkTaskEvidenceNotApplicable", () => {
     const result = await habitatMarkTaskEvidenceNotApplicable(client, { taskId: "task-1" });
     expect(result).toEqual({ completeness: {} });
   });
+
+  it("maps dispatch notApplicableReason aliases to API reason fields", async () => {
+    const client = createMockClient();
+    await habitatMarkTaskEvidenceNotApplicable(client, {
+      taskId: "task-1",
+      notApplicableReasonCode: "documentation-only",
+      notApplicableReasonNote: "No code changed",
+    });
+    expect(client.markTaskEvidenceNotApplicable).toHaveBeenCalledWith("task-1", {
+      reasonCode: "documentation-only",
+      reasonNote: "No code changed",
+    });
+  });
 });
 
 describe("habitatClearTaskEvidenceNotApplicable", () => {
@@ -322,6 +343,19 @@ describe("habitatReportTaskEvidenceGap", () => {
       reasonCode: "no-linked-branch",
     });
     expect(result).toEqual({ gap: {} });
+  });
+
+  it("maps dispatch gapReason aliases to API reason fields", async () => {
+    const client = createMockClient();
+    await habitatReportTaskEvidenceGap(client, {
+      taskId: "task-1",
+      gapReasonCode: "missing-ci",
+      gapReasonNote: "No pipeline linked",
+    });
+    expect(client.reportTaskEvidenceGap).toHaveBeenCalledWith("task-1", {
+      reasonCode: "missing-ci",
+      reasonNote: "No pipeline linked",
+    });
   });
 });
 
@@ -436,7 +470,7 @@ describe("habitatLinkMissionCode", () => {
 
   it("does not include missionId in the input object passed to client", async () => {
     const client = createMockClient();
-    await habitatLinkMissionCode(client, { missionId: "mission-1", branch: { name: "main" } });
+    await habitatLinkMissionCode(client, { missionId: "mission-1", branchName: "main" });
     const callArgs = client.linkMissionCodeEvidence.mock.calls[0];
     expect(callArgs[0]).toBe("mission-1");
     expect(callArgs[1]).not.toHaveProperty("missionId");
@@ -504,5 +538,57 @@ describe("habitatCorrectMissionEvidenceLink", () => {
       reason: "Wrong",
     });
     expect(result).toEqual({ link: {} });
+  });
+});
+
+describe("habitatMarkMissionEvidenceNotApplicable", () => {
+  it("maps dispatch notApplicableReason aliases to API reason fields", async () => {
+    const client = createMockClient();
+    await habitatMarkMissionEvidenceNotApplicable(client, {
+      missionId: "mission-1",
+      notApplicableReasonCode: "research-only",
+      notApplicableReasonNote: "No implementation expected",
+    });
+    expect(client.markMissionEvidenceNotApplicable).toHaveBeenCalledWith("mission-1", {
+      reasonCode: "research-only",
+      reasonNote: "No implementation expected",
+    });
+  });
+});
+
+describe("habitatClearMissionEvidenceNotApplicable", () => {
+  it("passes missionId to client.clearMissionEvidenceNotApplicable", async () => {
+    const client = createMockClient();
+    await habitatClearMissionEvidenceNotApplicable(client, { missionId: "mission-1" });
+    expect(client.clearMissionEvidenceNotApplicable).toHaveBeenCalledWith("mission-1");
+  });
+});
+
+describe("habitatReportMissionEvidenceGap", () => {
+  it("maps dispatch gapReason aliases to API reason fields", async () => {
+    const client = createMockClient();
+    await habitatReportMissionEvidenceGap(client, {
+      missionId: "mission-1",
+      gapReasonCode: "missing-ci",
+      gapReasonNote: "No pipeline linked",
+    });
+    expect(client.reportMissionEvidenceGap).toHaveBeenCalledWith("mission-1", {
+      reasonCode: "missing-ci",
+      reasonNote: "No pipeline linked",
+    });
+  });
+});
+
+describe("habitatResolveMissionEvidenceGap", () => {
+  it("passes missionId, gapId, and resolution input", async () => {
+    const client = createMockClient();
+    await habitatResolveMissionEvidenceGap(client, {
+      missionId: "mission-1",
+      gapId: "gap-1",
+      resolutionReason: "Evidence linked",
+    });
+    expect(client.resolveMissionEvidenceGap).toHaveBeenCalledWith("mission-1", "gap-1", {
+      resolutionReason: "Evidence linked",
+    });
   });
 });

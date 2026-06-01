@@ -581,7 +581,10 @@ describe("GET /tasks/:taskId/code-evidence handler", () => {
     });
     const result = await route!.handler(req, createMockReply());
     expect(mockGetTaskById).toHaveBeenCalledWith("task-1");
-    expect(mockGetTaskCodeEvidence).toHaveBeenCalledWith("task-1", { includeHistory: false });
+    expect(mockGetTaskCodeEvidence).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ includeHistory: false }),
+    );
     expect(result).toEqual(mockEvidenceResult);
   });
 
@@ -595,7 +598,10 @@ describe("GET /tasks/:taskId/code-evidence handler", () => {
       query: { includeHistory: true },
     });
     await route!.handler(req, createMockReply());
-    expect(mockGetTaskCodeEvidence).toHaveBeenCalledWith("task-1", { includeHistory: true });
+    expect(mockGetTaskCodeEvidence).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ includeHistory: true }),
+    );
   });
 
   it("throws not found for missing task", async () => {
@@ -618,9 +624,10 @@ describe("GET /tasks/:taskId/code-evidence handler", () => {
       query: {},
     });
     await route!.handler(req, createMockReply());
-    expect(mockGetTaskCodeEvidence).toHaveBeenCalledWith("task-1", {
-      includeHistory: undefined,
-    });
+    expect(mockGetTaskCodeEvidence).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ includeHistory: undefined }),
+    );
   });
 });
 
@@ -676,7 +683,7 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
     await route!.handler(req, createMockReply());
     expect(mockSsePublish).toHaveBeenCalledWith("habitat-1", {
       type: "task.updated",
-      data: { id: "task-1" },
+      data: expect.objectContaining({ id: "task-1" }),
     });
   });
 
@@ -1087,7 +1094,10 @@ describe("GET /missions/:missionId/code-evidence handler", () => {
     });
     const result = await route!.handler(req, createMockReply());
     expect(mockGetMissionById).toHaveBeenCalledWith("mission-1");
-    expect(mockGetMissionCodeEvidence).toHaveBeenCalledWith("mission-1", { includeHistory: false });
+    expect(mockGetMissionCodeEvidence).toHaveBeenCalledWith(
+      "mission-1",
+      expect.objectContaining({ includeHistory: false }),
+    );
     expect(result).toEqual(mockEvidenceResult);
   });
 
@@ -1101,7 +1111,10 @@ describe("GET /missions/:missionId/code-evidence handler", () => {
       query: { includeHistory: true },
     });
     await route!.handler(req, createMockReply());
-    expect(mockGetMissionCodeEvidence).toHaveBeenCalledWith("mission-1", { includeHistory: true });
+    expect(mockGetMissionCodeEvidence).toHaveBeenCalledWith(
+      "mission-1",
+      expect.objectContaining({ includeHistory: true }),
+    );
   });
 
   it("throws not found for missing mission", async () => {
@@ -1990,7 +2003,7 @@ describe("emitEvidenceEvent integration (task side effects)", () => {
     );
     expect(mockSsePublish).toHaveBeenCalledWith("habitat-1", {
       type: "task.updated",
-      data: { id: "task-1" },
+      data: expect.objectContaining({ id: "task-1" }),
     });
   });
 
@@ -2012,7 +2025,7 @@ describe("emitEvidenceEvent integration (task side effects)", () => {
     );
     expect(mockSsePublish).toHaveBeenCalledWith("habitat-1", {
       type: "mission.updated",
-      data: { id: "mission-1" },
+      data: expect.objectContaining({ id: "mission-1" }),
     });
   });
 });

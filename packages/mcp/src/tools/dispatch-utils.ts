@@ -1,12 +1,15 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { KanbanApiClient } from "../api.js";
 
 type ToolResult = {
-  content: Array<{ type: 'text'; text: string }>;
+  content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
 };
 
-export type Handler = (client: KanbanApiClient, args: any) => any;
+export type Handler<TResult = unknown> = (
+  client: KanbanApiClient,
+  args: any,
+) => TResult | Promise<TResult>;
 
 export type ToolHandler = (client: KanbanApiClient, args: any) => Promise<ToolResult>;
 
@@ -15,6 +18,7 @@ export interface DispatchToolConfig {
   description: string;
   actions: string[];
   sharedParams?: Record<string, unknown>;
+  requiredFor?: Record<string, string[]>;
 }
 
 export function createDispatchTool(config: DispatchToolConfig): Tool {
@@ -22,36 +26,78 @@ export function createDispatchTool(config: DispatchToolConfig): Tool {
     name: config.name,
     description: config.description,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         action: {
-          type: 'string',
+          type: "string",
           enum: config.actions,
-          description: 'The operation to perform',
+          description: "The operation to perform",
         },
         ...config.sharedParams,
       },
-      required: ['action'],
+      required: ["action"],
     },
   };
 }
 
+function validateRequired(
+  action: string,
+  args: Record<string, unknown>,
+  requiredFor: Record<string, string[]>,
+): string | null {
+  const required = requiredFor[action];
+  if (!required) return null;
+  const missing = required.filter(
+    (param) => args[param] === undefined || args[param] === null || args[param] === "",
+  );
+  if (missing.length === 0) return null;
+  return `Action "${action}" is missing required parameters: ${missing.join(", ")}`;
+}
+
 const formatResult = (result: unknown): ToolResult => ({
-  content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+  content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
 });
 
+const formatError = (err: unknown): ToolResult => {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    content: [{ type: "text" as const, text: `Error: ${message}` }],
+    isError: true,
+  };
+};
+
 export function createDispatchHandler(
-  actions: Record<string, Handler>
+  actions: Record<string, Handler<any>>,
+  requiredFor?: Record<string, string[]>,
 ): ToolHandler {
-  return (client, args) => {
+  return async (client, args) => {
     const action = args.action as string;
     const handler = actions[action];
     if (!handler) {
-      return Promise.resolve({
-        content: [{ type: 'text' as const, text: `Unknown action: ${action}. Valid actions: ${Object.keys(actions).join(', ')}` }],
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Unknown action: ${action}. Valid actions: ${Object.keys(actions).join(", ")}`,
+          },
+        ],
         isError: true,
-      });
+      };
     }
-    return Promise.resolve(handler(client, args)).then(formatResult);
+    if (requiredFor) {
+      const validationError = validateRequired(action, args, requiredFor);
+      if (validationError) {
+        return {
+          content: [{ type: "text" as const, text: validationError }],
+          isError: true,
+        };
+      }
+    }
+    try {
+      const result = await handler(client, args);
+      return formatResult(result);
+    } catch (err) {
+      return formatError(err);
+    }
   };
 }

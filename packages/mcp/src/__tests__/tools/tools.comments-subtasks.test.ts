@@ -20,9 +20,9 @@ describe('task dispatch delete-subtask', () => {
     const client = createMockClient();
     client.deleteSubtask.mockRejectedValue(new Error('Subtask not found'));
 
-    await expect(
-      TASK_DISPATCH_HANDLER(client, { action: 'delete-subtask', taskId: 'task-1', subtaskId: 'sub-999' })
-    ).rejects.toThrow('Subtask not found');
+    const result = await TASK_DISPATCH_HANDLER(client, { action: 'delete-subtask', taskId: 'task-1', subtaskId: 'sub-999' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Subtask not found');
   });
 });
 
@@ -174,9 +174,9 @@ describe('task dispatch add-comment', () => {
     const client = createMockClient();
     client.addComment.mockRejectedValue(new Error('Task not found'));
 
-    await expect(
-      TASK_DISPATCH_HANDLER(client, { action: 'add-comment', taskId: 'task-999', content: 'Hello' })
-    ).rejects.toThrow('Task not found');
+    const result = await TASK_DISPATCH_HANDLER(client, { action: 'add-comment', taskId: 'task-999', content: 'Hello' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Task not found');
   });
 });
 
@@ -203,9 +203,9 @@ describe('task dispatch list-subtasks', () => {
     const client = createMockClient();
     client.listSubtasks.mockRejectedValue(new Error('Task not found'));
 
-    await expect(
-      TASK_DISPATCH_HANDLER(client, { action: 'list-subtasks', taskId: 'task-999' })
-    ).rejects.toThrow('Task not found');
+    const result = await TASK_DISPATCH_HANDLER(client, { action: 'list-subtasks', taskId: 'task-999' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Task not found');
   });
 });
 

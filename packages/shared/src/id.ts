@@ -1,3 +1,7 @@
 export function normalizeTaskId(id: string): string {
-  return id.startsWith('feat-') ? id.slice(5) : id;
+  return id.startsWith("feat-") ? id.slice(5) : id;
+}
+
+export function normalizeMissionId(id: string): string {
+  return id.startsWith("feat-") ? id.slice(5) : id;
 }

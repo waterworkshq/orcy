@@ -325,4 +325,22 @@ export const TASK_ACTIONS: Record<string, Handler> = {
   "correct-effort-entry": habitatCorrectEffortEntry,
 };
 
-export const TASK_DISPATCH_HANDLER = createDispatchHandler(TASK_ACTIONS);
+const TASK_REQUIRED_PARAMS: Record<string, string[]> = {
+  "log-effort": ["taskId", "minutes"],
+  "correct-effort-entry": ["taskId", "entryId", "minutesDelta", "correctionReason"],
+  "link-code": ["taskId"],
+  "list-code-evidence": ["taskId"],
+  "correct-code-evidence-link": ["taskId", "linkId", "linkStatus", "correctionReason"],
+  "mark-not-applicable": ["taskId"],
+  "clear-not-applicable": ["taskId"],
+  "report-gap": ["taskId", "gapReasonCode"],
+  "resolve-gap": ["taskId", "gapId", "resolutionReason"],
+  "add-comment": ["taskId", "content"],
+  "add-dependency": ["taskId", "dependsOnTaskId"],
+  "remove-dependency": ["taskId", "dependencyTaskId"],
+  "create-subtask": ["taskId", "title"],
+  "update-quality-checklist-item": ["taskId", "checklistId", "itemId"],
+  submit: ["taskId", "result"],
+};
+
+export const TASK_DISPATCH_HANDLER = createDispatchHandler(TASK_ACTIONS, TASK_REQUIRED_PARAMS);

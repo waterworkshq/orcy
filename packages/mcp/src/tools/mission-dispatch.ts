@@ -14,13 +14,17 @@ import {
   habitatListMissionCodeEvidence,
   habitatLinkMissionCode,
   habitatCorrectMissionEvidenceLink,
+  habitatMarkMissionEvidenceNotApplicable,
+  habitatClearMissionEvidenceNotApplicable,
+  habitatReportMissionEvidenceGap,
+  habitatResolveMissionEvidenceGap,
 } from "./code-evidence.js";
 import { PRIORITY_LEVELS } from "./constants.js";
 
 export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_mission",
   description:
-    "Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment, code evidence (link-code, list-code-evidence, correct-code-evidence-link)",
+    "Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment, code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap)",
   actions: [
     "list",
     "create",
@@ -33,6 +37,10 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
     "link-code",
     "list-code-evidence",
     "correct-code-evidence-link",
+    "mark-not-applicable",
+    "clear-not-applicable",
+    "report-gap",
+    "resolve-gap",
   ],
   sharedParams: {
     boardId: { type: "string", description: "Habitat UUID (used with action=list, action=create)" },
@@ -143,6 +151,26 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     fileAdditions: { type: "number", description: "Lines added (action=link-code)" },
     fileDeletions: { type: "number", description: "Lines deleted (action=link-code)" },
+    reasonCode: {
+      type: "string",
+      description: "Reason code (action=mark-not-applicable, action=report-gap)",
+    },
+    reasonNote: {
+      type: "string",
+      description: "Reason note (action=mark-not-applicable, action=report-gap)",
+    },
+    gapId: {
+      type: "string",
+      description: "Gap UUID (action=resolve-gap)",
+    },
+    gapReasonCode: {
+      type: "string",
+      description: "Gap reason code (action=report-gap)",
+    },
+    resolutionReason: {
+      type: "string",
+      description: "Resolution reason (action=resolve-gap)",
+    },
   },
 });
 
@@ -158,6 +186,30 @@ export const MISSION_ACTIONS: Record<string, Handler> = {
   "link-code": habitatLinkMissionCode,
   "list-code-evidence": habitatListMissionCodeEvidence,
   "correct-code-evidence-link": habitatCorrectMissionEvidenceLink,
+  "mark-not-applicable": habitatMarkMissionEvidenceNotApplicable,
+  "clear-not-applicable": habitatClearMissionEvidenceNotApplicable,
+  "report-gap": habitatReportMissionEvidenceGap,
+  "resolve-gap": habitatResolveMissionEvidenceGap,
 };
 
-export const MISSION_DISPATCH_HANDLER = createDispatchHandler(MISSION_ACTIONS);
+const MISSION_REQUIRED_PARAMS: Record<string, string[]> = {
+  create: ["boardId", "title"],
+  delete: ["missionId"],
+  archive: ["missionId"],
+  unarchive: ["missionId"],
+  "get-context": ["missionId"],
+  "get-comments": ["missionId"],
+  "add-comment": ["missionId", "content"],
+  "link-code": ["missionId"],
+  "list-code-evidence": ["missionId"],
+  "correct-code-evidence-link": ["missionId", "linkId", "linkStatus", "correctionReason"],
+  "mark-not-applicable": ["missionId"],
+  "clear-not-applicable": ["missionId"],
+  "report-gap": ["missionId", "gapReasonCode"],
+  "resolve-gap": ["missionId", "gapId", "resolutionReason"],
+};
+
+export const MISSION_DISPATCH_HANDLER = createDispatchHandler(
+  MISSION_ACTIONS,
+  MISSION_REQUIRED_PARAMS,
+);

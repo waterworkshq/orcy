@@ -17,6 +17,8 @@ const includeCorrectionsQuerySchema = z.object({
     .union([z.boolean(), z.string()])
     .optional()
     .transform((v) => v !== "false" && v !== false),
+  limit: z.coerce.number().int().min(1).max(1000).optional().default(100),
+  offset: z.coerce.number().int().min(0).optional().default(0),
 });
 
 const logEffortBodySchema = z.object({
@@ -85,6 +87,8 @@ export async function effortRoutes(fastify: FastifyInstance): Promise<void> {
       }
       return effortService.listEffortEntries(request.params.id, {
         includeCorrections: request.query.includeCorrections,
+        limit: request.query.limit,
+        offset: request.query.offset,
       });
     },
   );

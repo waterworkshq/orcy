@@ -258,7 +258,9 @@ export async function habitatListEffort(
   client: KanbanApiClient,
   args: { taskId: string; includeCorrections?: boolean },
 ) {
-  return client.listEffortEntries(args.taskId, args.includeCorrections);
+  return client.listEffortEntries(args.taskId, {
+    includeCorrections: args.includeCorrections,
+  });
 }
 
 export async function habitatGetEffortReport(client: KanbanApiClient, args: { taskId: string }) {

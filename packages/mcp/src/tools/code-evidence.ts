@@ -1,5 +1,21 @@
 import type { KanbanApiClient } from "../api.js";
 
+function buildReasonInput(args: {
+  reasonCode?: string;
+  reasonNote?: string;
+  notApplicableReasonCode?: string;
+  notApplicableReasonNote?: string;
+  gapReasonCode?: string;
+  gapReasonNote?: string;
+}) {
+  const input: { reasonCode?: string; reasonNote?: string } = {};
+  const reasonCode = args.reasonCode ?? args.notApplicableReasonCode ?? args.gapReasonCode;
+  const reasonNote = args.reasonNote ?? args.notApplicableReasonNote ?? args.gapReasonNote;
+  if (reasonCode !== undefined) input.reasonCode = reasonCode;
+  if (reasonNote !== undefined) input.reasonNote = reasonNote;
+  return input;
+}
+
 export async function habitatListTaskCodeEvidence(
   client: KanbanApiClient,
   args: { taskId: string; includeHistory?: boolean },
@@ -133,9 +149,16 @@ export async function habitatCorrectTaskEvidenceLink(
 
 export async function habitatMarkTaskEvidenceNotApplicable(
   client: KanbanApiClient,
-  args: { taskId: string; reasonCode?: string; reasonNote?: string },
+  args: {
+    taskId: string;
+    reasonCode?: string;
+    reasonNote?: string;
+    notApplicableReasonCode?: string;
+    notApplicableReasonNote?: string;
+  },
 ) {
-  const { taskId, ...input } = args;
+  const { taskId, ...reasonArgs } = args;
+  const input = buildReasonInput(reasonArgs);
   return client.markTaskEvidenceNotApplicable(taskId, input);
 }
 
@@ -148,9 +171,16 @@ export async function habitatClearTaskEvidenceNotApplicable(
 
 export async function habitatReportTaskEvidenceGap(
   client: KanbanApiClient,
-  args: { taskId: string; reasonCode: string; reasonNote?: string },
+  args: {
+    taskId: string;
+    reasonCode?: string;
+    reasonNote?: string;
+    gapReasonCode?: string;
+    gapReasonNote?: string;
+  },
 ) {
-  const { taskId, ...input } = args;
+  const { taskId, ...reasonArgs } = args;
+  const input = buildReasonInput(reasonArgs);
   return client.reportTaskEvidenceGap(taskId, input);
 }
 
@@ -291,4 +321,49 @@ export async function habitatCorrectMissionEvidenceLink(
 ) {
   const { missionId, linkId, ...input } = args;
   return client.correctMissionEvidenceLink(missionId, linkId, input);
+}
+
+export async function habitatMarkMissionEvidenceNotApplicable(
+  client: KanbanApiClient,
+  args: {
+    missionId: string;
+    reasonCode?: string;
+    reasonNote?: string;
+    notApplicableReasonCode?: string;
+    notApplicableReasonNote?: string;
+  },
+) {
+  const { missionId, ...reasonArgs } = args;
+  const input = buildReasonInput(reasonArgs);
+  return client.markMissionEvidenceNotApplicable(missionId, input);
+}
+
+export async function habitatClearMissionEvidenceNotApplicable(
+  client: KanbanApiClient,
+  args: { missionId: string },
+) {
+  return client.clearMissionEvidenceNotApplicable(args.missionId);
+}
+
+export async function habitatReportMissionEvidenceGap(
+  client: KanbanApiClient,
+  args: {
+    missionId: string;
+    reasonCode?: string;
+    reasonNote?: string;
+    gapReasonCode?: string;
+    gapReasonNote?: string;
+  },
+) {
+  const { missionId, ...reasonArgs } = args;
+  const input = buildReasonInput(reasonArgs);
+  return client.reportMissionEvidenceGap(missionId, input);
+}
+
+export async function habitatResolveMissionEvidenceGap(
+  client: KanbanApiClient,
+  args: { missionId: string; gapId: string; resolutionReason: string },
+) {
+  const { missionId, gapId, ...input } = args;
+  return client.resolveMissionEvidenceGap(missionId, gapId, input);
 }

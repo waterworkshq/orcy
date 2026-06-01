@@ -199,9 +199,9 @@ describe('board_delete_feature', () => {
     const client = createMockClient();
     client.deleteMission.mockRejectedValue(new Error('Mission not found'));
 
-    await expect(
-      MISSION_DISPATCH_HANDLER(client, { action: 'delete', missionId: 'feat-999' })
-    ).rejects.toThrow('Mission not found');
+    const result = await MISSION_DISPATCH_HANDLER(client, { action: 'delete', missionId: 'feat-999' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Mission not found');
   });
 });
 

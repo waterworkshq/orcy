@@ -53,9 +53,16 @@ export function logEffort(
 
 export function listEffortEntries(
   taskId: string,
-  options?: { includeCorrections?: boolean },
+  options?: { includeCorrections?: boolean; limit?: number; offset?: number },
 ): EffortEntryWithActor[] {
   return effortRepo.getEffortEntriesWithActorByTask(taskId, options);
+}
+
+export function countEffortEntries(
+  taskId: string,
+  options?: { includeCorrections?: boolean },
+): number {
+  return effortRepo.countEffortEntriesByTask(taskId, options);
 }
 
 export function correctEffortEntry(
@@ -117,7 +124,7 @@ export function getTaskEffortReport(taskId: string): EffortReport | null {
   const totals = effortRepo.getEffortTotalsForTask(taskId);
   const bySource = effortRepo.getEffortBySourceForTask(taskId);
   const byActor = effortRepo.getEffortByActorForTask(taskId);
-  const entries = effortRepo.getEffortEntriesWithActorByTask(taskId);
+  const entries = effortRepo.getEffortEntriesWithActorByTask(taskId, { limit: 1000 });
 
   let estimationAccuracy: number | null = null;
   let basis: EffortReport["accuracy"]["basis"] = "unavailable";

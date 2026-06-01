@@ -31,6 +31,7 @@ import {
   GITLAB_COMMIT_URL_PATTERN,
   GITLAB_PIPELINE_URL_PATTERN,
   GAP_REASONS,
+  type GapReason,
   ORCY_TASK_TRAILER,
   ORCY_MISSION_TRAILER,
 } from "@orcy/shared";
@@ -46,6 +47,7 @@ import * as codeEvidenceGapRepo from "../repositories/codeEvidenceGapRepository.
 import * as prRepo from "../repositories/pullRequest.js";
 import * as taskRepo from "../repositories/task.js";
 import * as pipelineEventRepo from "../repositories/pipelineEvent.js";
+import { codeEvidenceLinks, codeEvidenceGaps } from "../db/schema/index.js";
 
 type ParsedUrl = {
   evidenceType: CodeEvidenceType;
@@ -178,14 +180,14 @@ function determineVerificationState(
 
 export function getTaskCodeEvidence(
   taskId: string,
-  options?: { includeHistory?: boolean },
+  options?: { includeHistory?: boolean; habitatId?: string },
 ): CodeEvidenceResponse {
   return getTargetCodeEvidence("task", taskId, options);
 }
 
 export function getMissionCodeEvidence(
   missionId: string,
-  options?: { includeHistory?: boolean },
+  options?: { includeHistory?: boolean; habitatId?: string },
 ): CodeEvidenceResponse {
   return getTargetCodeEvidence("mission", missionId, options);
 }
@@ -193,16 +195,17 @@ export function getMissionCodeEvidence(
 function getTargetCodeEvidence(
   targetType: CodeEvidenceTargetType,
   targetId: string,
-  options?: { includeHistory?: boolean },
+  options?: { includeHistory?: boolean; habitatId?: string },
 ): CodeEvidenceResponse {
   const activeLinks = codeEvidenceLinkRepo.getActiveByTarget(targetType, targetId);
   const activeGaps = codeEvidenceGapRepo.getActiveByTarget(targetType, targetId);
   const completenessOverride = codeEvidenceCompletenessRepo.getByTarget(targetType, targetId);
 
-  const target =
-    activeLinks.length > 0
-      ? { type: targetType, id: targetId, habitatId: "" }
-      : { type: targetType, id: targetId, habitatId: "" };
+  const target: CodeEvidenceResponse["target"] = {
+    type: targetType,
+    id: targetId,
+    habitatId: options?.habitatId ?? "",
+  };
 
   const repository = null;
 
@@ -712,20 +715,7 @@ function ensureEvidenceLink(
   allowExternalRepo: boolean,
   normalizedExternalUrl?: string,
 ): typeof codeEvidenceLinks.$inferSelect | null {
-  const existing = codeEvidenceLinkRepo.findActiveDuplicate(
-    targetType,
-    targetId,
-    evidenceType,
-    evidenceId,
-    normalizedExternalUrl ?? externalUrl,
-  );
-
-  if (existing) {
-    codeEvidenceLinkRepo.addCorroboratingSource(existing.id, linkSource);
-    return codeEvidenceLinkRepo.getById(existing.id);
-  }
-
-  return codeEvidenceLinkRepo.create({
+  const result = codeEvidenceLinkRepo.findOrCreateActive({
     targetType,
     targetId,
     evidenceType,
@@ -735,13 +725,22 @@ function ensureEvidenceLink(
       normalizedExternalUrl ?? (externalUrl ? normalizeUrl(externalUrl) : null),
     title,
     linkSource,
-    linkSources: [linkSource],
     linkedByType: actor.type,
     linkedById: actor.id,
     verificationState,
     confidence,
     allowExternalRepository: allowExternalRepo,
   });
+
+  if (!result) return null;
+
+  if (!result.created) {
+    codeEvidenceLinkRepo.addCorroboratingSource(result.link.id, linkSource);
+    const refreshed = codeEvidenceLinkRepo.getById(result.link.id);
+    return refreshed ?? result.link;
+  }
+
+  return result.link;
 }
 
 export function correctEvidenceLink(
@@ -908,7 +907,7 @@ function mapGapToItem(gap: typeof codeEvidenceGaps.$inferSelect): CodeEvidenceGa
     id: gap.id,
     targetType: gap.targetType as CodeEvidenceTargetType,
     targetId: gap.targetId,
-    reasonCode: gap.reasonCode as any,
+    reasonCode: (gap.reasonCode as GapReason) ?? "other",
     reasonNote: gap.reasonNote,
     status: gap.status as CodeEvidenceGapStatus,
     reportedBy: { type: gap.reportedByType as CodeEvidenceActorType, id: gap.reportedById },
@@ -920,8 +919,6 @@ function mapGapToItem(gap: typeof codeEvidenceGaps.$inferSelect): CodeEvidenceGa
     resolutionReason: gap.resolutionReason,
   };
 }
-
-import { codeEvidenceLinks, codeEvidenceGaps } from "../db/schema/index.js";
 
 export function ensureEvidenceLinkForPullRequest(
   pr: {

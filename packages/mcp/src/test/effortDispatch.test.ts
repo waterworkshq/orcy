@@ -68,19 +68,25 @@ describe("habitatListEffort", () => {
   it("passes taskId to client.listEffortEntries", async () => {
     const client = createMockClient();
     await habitatListEffort(client, { taskId: "task-1" });
-    expect(client.listEffortEntries).toHaveBeenCalledWith("task-1", undefined);
+    expect(client.listEffortEntries).toHaveBeenCalledWith("task-1", {
+      includeCorrections: undefined,
+    });
   });
 
   it("passes taskId and includeCorrections=true", async () => {
     const client = createMockClient();
     await habitatListEffort(client, { taskId: "task-1", includeCorrections: true });
-    expect(client.listEffortEntries).toHaveBeenCalledWith("task-1", true);
+    expect(client.listEffortEntries).toHaveBeenCalledWith("task-1", {
+      includeCorrections: true,
+    });
   });
 
   it("passes taskId and includeCorrections=false", async () => {
     const client = createMockClient();
     await habitatListEffort(client, { taskId: "task-1", includeCorrections: false });
-    expect(client.listEffortEntries).toHaveBeenCalledWith("task-1", false);
+    expect(client.listEffortEntries).toHaveBeenCalledWith("task-1", {
+      includeCorrections: false,
+    });
   });
 
   it("returns the result from client.listEffortEntries", async () => {
