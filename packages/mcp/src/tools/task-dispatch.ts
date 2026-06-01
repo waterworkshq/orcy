@@ -206,7 +206,8 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     correctionReason: {
       type: "string",
-      description: "Reason for correction (action=correct-code-evidence-link)",
+      description:
+        "Reason for correction (action=correct-code-evidence-link, action=correct-effort-entry)",
     },
     customReason: {
       type: "string",

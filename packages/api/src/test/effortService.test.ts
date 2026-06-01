@@ -153,7 +153,7 @@ describe("correctEffortEntry", () => {
         minutesDelta: -5,
         correctionReason: "reason",
       }),
-    ).toThrow("Entry not found");
+    ).toThrow("Effort entry not found");
   });
 
   it("throws if minutesDelta is 0", () => {

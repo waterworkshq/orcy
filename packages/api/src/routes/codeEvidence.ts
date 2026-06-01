@@ -229,14 +229,15 @@ export async function taskCodeEvidenceRoutes(fastify: FastifyInstance): Promise<
       if (!task) throw notFound("Task not found");
 
       const actor = getActor(request);
+      const habitatId = getHabitatIdForTask(taskId);
       const result = codeEvidenceService.linkTaskCodeEvidence(
         taskId,
         request.body as CodeEvidenceLinkInput,
         actor,
+        { habitatId: habitatId ?? undefined },
       );
 
       if (result.links.length > 0) {
-        const habitatId = getHabitatIdForTask(taskId);
         if (habitatId) {
           for (const link of result.links) {
             emitEvidenceEvent("task", taskId, habitatId, link.linkId, "linked", actor);
@@ -451,6 +452,7 @@ export async function missionCodeEvidenceRoutes(fastify: FastifyInstance): Promi
         missionId,
         request.body as CodeEvidenceLinkInput,
         actor,
+        { habitatId: mission.habitatId },
       );
 
       if (result.links.length > 0) {

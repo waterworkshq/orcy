@@ -640,10 +640,15 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
     const req = createMockRequest({ params: { taskId: "task-1" }, body });
     const result = await route!.handler(req, createMockReply());
     expect(mockGetTaskById).toHaveBeenCalledWith("task-1");
-    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith("task-1", body, {
-      type: "agent",
-      id: "agent-1",
-    });
+    expect(mockLinkTaskCodeEvidence).toHaveBeenCalledWith(
+      "task-1",
+      body,
+      {
+        type: "agent",
+        id: "agent-1",
+      },
+      { habitatId: "habitat-1" },
+    );
     expect(result).toEqual(mockEvidenceResult);
   });
 
@@ -691,6 +696,7 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
       "task-1",
       {},
       { type: "human", id: "user-1" },
+      { habitatId: "habitat-1" },
     );
   });
 
@@ -710,6 +716,7 @@ describe("POST /tasks/:taskId/code-evidence handler", () => {
       "task-1",
       {},
       { type: "system", id: "system" },
+      { habitatId: "habitat-1" },
     );
   });
 
@@ -1123,10 +1130,15 @@ describe("POST /missions/:missionId/code-evidence handler", () => {
     const req = createMockRequest({ params: { missionId: "mission-1" }, body });
     const result = await route!.handler(req, createMockReply());
     expect(mockGetMissionById).toHaveBeenCalledWith("mission-1");
-    expect(mockLinkMissionCodeEvidence).toHaveBeenCalledWith("mission-1", body, {
-      type: "agent",
-      id: "agent-1",
-    });
+    expect(mockLinkMissionCodeEvidence).toHaveBeenCalledWith(
+      "mission-1",
+      body,
+      {
+        type: "agent",
+        id: "agent-1",
+      },
+      { habitatId: "habitat-1" },
+    );
     expect(result).toEqual(mockEvidenceResult);
   });
 
@@ -2024,6 +2036,7 @@ describe("getActor integration", () => {
       "task-1",
       {},
       { type: "agent", id: "agent-42" },
+      { habitatId: "habitat-1" },
     );
   });
 
@@ -2043,6 +2056,7 @@ describe("getActor integration", () => {
       "task-1",
       {},
       { type: "human", id: "user-99" },
+      { habitatId: "habitat-1" },
     );
   });
 
@@ -2062,6 +2076,7 @@ describe("getActor integration", () => {
       "task-1",
       {},
       { type: "system", id: "system" },
+      { habitatId: "habitat-1" },
     );
   });
 });

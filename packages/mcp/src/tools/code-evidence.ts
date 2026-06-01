@@ -11,6 +11,50 @@ export async function habitatLinkTaskCode(
   client: KanbanApiClient,
   args: {
     taskId: string;
+    branchName?: string;
+    branchHeadSha?: string;
+    branchBaseBranch?: string;
+    branchUrl?: string;
+    commitSha?: string;
+    commitMessage?: string;
+    commitAuthorName?: string;
+    commitAuthorEmail?: string;
+    commitAuthoredAt?: string;
+    commitUrl?: string;
+    commitBranch?: string;
+    filePath?: string;
+    filePreviousPath?: string;
+    fileChangeType?: "added" | "modified" | "deleted" | "renamed";
+    fileAdditions?: number;
+    fileDeletions?: number;
+    pullRequestUrl?: string;
+    pipelineUrl?: string;
+    externalUrls?: string[];
+    allowExternalRepository?: boolean;
+  },
+) {
+  const {
+    taskId,
+    branchName,
+    branchHeadSha,
+    branchBaseBranch,
+    branchUrl,
+    commitSha,
+    commitMessage,
+    commitAuthorName,
+    commitAuthorEmail,
+    commitAuthoredAt,
+    commitUrl,
+    commitBranch,
+    filePath,
+    filePreviousPath,
+    fileChangeType,
+    fileAdditions,
+    fileDeletions,
+    ...rest
+  } = args;
+
+  const input: {
     branch?: { name: string; headSha?: string; baseBranch?: string; url?: string };
     commits?: Array<{
       sha: string;
@@ -20,24 +64,55 @@ export async function habitatLinkTaskCode(
       authoredAt?: string;
       url?: string;
       branch?: string;
-      trailers?: Array<{ key: string; value: string }>;
     }>;
     changedFiles?: Array<{
       path: string;
       previousPath?: string;
-      changeType: string;
+      changeType: "added" | "modified" | "deleted" | "renamed";
       additions?: number;
       deletions?: number;
-      commitSha?: string;
-      pullRequestNumber?: number;
     }>;
     pullRequestUrl?: string;
     pipelineUrl?: string;
     externalUrls?: string[];
     allowExternalRepository?: boolean;
-  },
-) {
-  const { taskId, ...input } = args;
+  } = { ...rest };
+
+  if (branchName) {
+    input.branch = {
+      name: branchName,
+      headSha: branchHeadSha,
+      baseBranch: branchBaseBranch,
+      url: branchUrl,
+    };
+  }
+
+  if (commitSha) {
+    input.commits = [
+      {
+        sha: commitSha,
+        message: commitMessage,
+        authorName: commitAuthorName,
+        authorEmail: commitAuthorEmail,
+        authoredAt: commitAuthoredAt,
+        url: commitUrl,
+        branch: commitBranch,
+      },
+    ];
+  }
+
+  if (filePath && fileChangeType) {
+    input.changedFiles = [
+      {
+        path: filePath,
+        previousPath: filePreviousPath,
+        changeType: fileChangeType,
+        additions: fileAdditions,
+        deletions: fileDeletions,
+      },
+    ];
+  }
+
   return client.linkTaskCodeEvidence(taskId, input);
 }
 
@@ -98,6 +173,50 @@ export async function habitatLinkMissionCode(
   client: KanbanApiClient,
   args: {
     missionId: string;
+    branchName?: string;
+    branchHeadSha?: string;
+    branchBaseBranch?: string;
+    branchUrl?: string;
+    commitSha?: string;
+    commitMessage?: string;
+    commitAuthorName?: string;
+    commitAuthorEmail?: string;
+    commitAuthoredAt?: string;
+    commitUrl?: string;
+    commitBranch?: string;
+    filePath?: string;
+    filePreviousPath?: string;
+    fileChangeType?: "added" | "modified" | "deleted" | "renamed";
+    fileAdditions?: number;
+    fileDeletions?: number;
+    pullRequestUrl?: string;
+    pipelineUrl?: string;
+    externalUrls?: string[];
+    allowExternalRepository?: boolean;
+  },
+) {
+  const {
+    missionId,
+    branchName,
+    branchHeadSha,
+    branchBaseBranch,
+    branchUrl,
+    commitSha,
+    commitMessage,
+    commitAuthorName,
+    commitAuthorEmail,
+    commitAuthoredAt,
+    commitUrl,
+    commitBranch,
+    filePath,
+    filePreviousPath,
+    fileChangeType,
+    fileAdditions,
+    fileDeletions,
+    ...rest
+  } = args;
+
+  const input: {
     branch?: { name: string; headSha?: string; baseBranch?: string; url?: string };
     commits?: Array<{
       sha: string;
@@ -107,24 +226,55 @@ export async function habitatLinkMissionCode(
       authoredAt?: string;
       url?: string;
       branch?: string;
-      trailers?: Array<{ key: string; value: string }>;
     }>;
     changedFiles?: Array<{
       path: string;
       previousPath?: string;
-      changeType: string;
+      changeType: "added" | "modified" | "deleted" | "renamed";
       additions?: number;
       deletions?: number;
-      commitSha?: string;
-      pullRequestNumber?: number;
     }>;
     pullRequestUrl?: string;
     pipelineUrl?: string;
     externalUrls?: string[];
     allowExternalRepository?: boolean;
-  },
-) {
-  const { missionId, ...input } = args;
+  } = { ...rest };
+
+  if (branchName) {
+    input.branch = {
+      name: branchName,
+      headSha: branchHeadSha,
+      baseBranch: branchBaseBranch,
+      url: branchUrl,
+    };
+  }
+
+  if (commitSha) {
+    input.commits = [
+      {
+        sha: commitSha,
+        message: commitMessage,
+        authorName: commitAuthorName,
+        authorEmail: commitAuthorEmail,
+        authoredAt: commitAuthoredAt,
+        url: commitUrl,
+        branch: commitBranch,
+      },
+    ];
+  }
+
+  if (filePath && fileChangeType) {
+    input.changedFiles = [
+      {
+        path: filePath,
+        previousPath: filePreviousPath,
+        changeType: fileChangeType,
+        additions: fileAdditions,
+        deletions: fileDeletions,
+      },
+    ];
+  }
+
   return client.linkMissionCodeEvidence(missionId, input);
 }
 

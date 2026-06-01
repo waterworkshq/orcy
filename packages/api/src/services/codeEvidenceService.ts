@@ -237,16 +237,18 @@ export function linkTaskCodeEvidence(
   taskId: string,
   input: CodeEvidenceLinkInput,
   actor: { type: CodeEvidenceActorType; id: string },
+  options?: { habitatId?: string },
 ): CodeEvidenceBulkResult {
-  return linkTargetCodeEvidence("task", taskId, input, actor);
+  return linkTargetCodeEvidence("task", taskId, input, actor, options?.habitatId);
 }
 
 export function linkMissionCodeEvidence(
   missionId: string,
   input: CodeEvidenceLinkInput,
   actor: { type: CodeEvidenceActorType; id: string },
+  options?: { habitatId?: string },
 ): CodeEvidenceBulkResult {
-  return linkTargetCodeEvidence("mission", missionId, input, actor);
+  return linkTargetCodeEvidence("mission", missionId, input, actor, options?.habitatId);
 }
 
 function linkTargetCodeEvidence(
@@ -254,12 +256,13 @@ function linkTargetCodeEvidence(
   targetId: string,
   input: CodeEvidenceLinkInput,
   actor: { type: CodeEvidenceActorType; id: string },
+  habitatId?: string,
 ): CodeEvidenceBulkResult {
   const links: CodeEvidenceLinkItem[] = [];
   const warnings: Array<{ code: string; message: string; inputRef?: string }> = [];
   const errors: Array<{ code: string; message: string; inputRef?: string }> = [];
 
-  const repository = codeEvidenceRepository.getByHabitatId("");
+  const repository = habitatId ? codeEvidenceRepository.getByHabitatId(habitatId) : null;
   const isRepoVerified = repository?.verificationState === "verified";
 
   if (input.branch) {

@@ -2,6 +2,7 @@ import * as effortRepo from "../repositories/effortEntry.js";
 import * as taskRepo from "../repositories/task.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
+import { badRequest, notFound } from "../errors.js";
 import type {
   EffortEntry,
   EffortEntryWithActor,
@@ -20,7 +21,7 @@ export function logEffort(
   input: LogEffortRequest,
 ): EffortEntry {
   if (!Number.isInteger(input.minutes) || input.minutes <= 0) {
-    throw new Error("minutes must be a positive integer");
+    throw badRequest("minutes must be a positive integer");
   }
 
   const source: EffortSource =
@@ -66,13 +67,16 @@ export function correctEffortEntry(
 ): EffortEntry {
   const existing = effortRepo.getEffortEntryById(entryId);
   if (!existing) {
-    throw new Error("Entry not found");
+    throw notFound("Effort entry not found");
+  }
+  if (existing.taskId !== taskId) {
+    throw badRequest("Effort entry does not belong to this task");
   }
   if (input.minutesDelta === 0) {
-    throw new Error("minutesDelta cannot be 0");
+    throw badRequest("minutesDelta cannot be 0");
   }
   if (!input.correctionReason) {
-    throw new Error("correctionReason is required");
+    throw badRequest("correctionReason is required");
   }
 
   const correction = effortRepo.createEffortEntry({

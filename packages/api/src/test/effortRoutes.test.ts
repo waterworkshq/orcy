@@ -324,7 +324,7 @@ describe("Effort Routes", () => {
         headers: { authorization: `Bearer ${userToken}` },
         payload: { minutesDelta: -5, correctionReason: "Adjustment" },
       });
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(404);
     });
 
     it("returns error if minutesDelta is 0", async () => {

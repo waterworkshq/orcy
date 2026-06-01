@@ -127,6 +127,13 @@
       "when": 1779800000000,
       "tag": "0018_code_evidence_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1779800001000,
+      "tag": "0019_effort_entries",
+      "breakpoints": true
     }
   ]
 }

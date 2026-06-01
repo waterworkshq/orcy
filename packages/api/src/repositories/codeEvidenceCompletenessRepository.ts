@@ -9,13 +9,17 @@ import type {
 
 export function getByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
   const db = getDb();
-  const rows = db
+  const row = db
     .select()
     .from(codeEvidenceCompleteness)
-    .where(eq(codeEvidenceCompleteness.targetType, targetType))
-    .all();
-  const match = rows.find((r) => r.targetId === targetId);
-  return match ?? null;
+    .where(
+      and(
+        eq(codeEvidenceCompleteness.targetType, targetType),
+        eq(codeEvidenceCompleteness.targetId, targetId),
+      ),
+    )
+    .get();
+  return row ?? null;
 }
 
 export function upsertNotApplicable(input: {
@@ -40,7 +44,12 @@ export function upsertNotApplicable(input: {
         markedById: input.markedById,
         updatedAt: now,
       })
-      .where(eq(codeEvidenceCompleteness.targetType, input.targetType))
+      .where(
+        and(
+          eq(codeEvidenceCompleteness.targetType, input.targetType),
+          eq(codeEvidenceCompleteness.targetId, input.targetId),
+        ),
+      )
       .run();
   } else {
     db.insert(codeEvidenceCompleteness)
