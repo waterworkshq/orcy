@@ -276,7 +276,7 @@ export function hasExternalRepoEvidence(
   return (result?.count ?? 0) > 0;
 }
 
-export function countCorrectedByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+function countNonActiveByTarget(targetType: CodeEvidenceTargetType, targetId: string): number {
   const db = getDb();
   const result = db
     .select({ count: sql<number>`count(*)` })
@@ -292,18 +292,10 @@ export function countCorrectedByTarget(targetType: CodeEvidenceTargetType, targe
   return result?.count ?? 0;
 }
 
+export function countCorrectedByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+  return countNonActiveByTarget(targetType, targetId);
+}
+
 export function countHistoryByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
-  const db = getDb();
-  const result = db
-    .select({ count: sql<number>`count(*)` })
-    .from(codeEvidenceLinks)
-    .where(
-      and(
-        eq(codeEvidenceLinks.targetType, targetType),
-        eq(codeEvidenceLinks.targetId, targetId),
-        sql`${codeEvidenceLinks.status} != 'active'`,
-      ),
-    )
-    .get();
-  return result?.count ?? 0;
+  return countNonActiveByTarget(targetType, targetId);
 }

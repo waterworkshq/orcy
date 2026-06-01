@@ -25,7 +25,11 @@ export function createTimeRecord(input: {
     })
     .run();
 
-  return getTimeRecordById(id)!;
+  const created = getTimeRecordById(id);
+  if (!created) {
+    throw new Error(`Failed to retrieve task_time_record after insert: id=${id}`);
+  }
+  return created;
 }
 
 export function getTimeRecordById(id: string): TaskTimeRecord | null {
@@ -133,29 +137,38 @@ export function getHabitatMetrics(habitatId: string): HabitatMetrics {
     return new Date(t.completedAt) <= new Date(mission.dueAt);
   });
 
-  const allAgents = db.select().from(agents).all();
-  const agentMetrics: HabitatMetrics["agentMetrics"] = [];
+  const agentRows = db
+    .select({
+      agentId: tasks.assignedAgentId,
+      agentName: agents.name,
+      tasksCompleted: count(),
+      cycleSum: sql<number>`COALESCE(SUM(${tasks.cycleTimeMinutes}), 0)`,
+      accuracySum: sql<number>`COALESCE(SUM(CASE WHEN ${tasks.estimationAccuracy} IS NOT NULL THEN ${tasks.estimationAccuracy} ELSE 0 END), 0)`,
+      accuracyCount: sql<number>`SUM(CASE WHEN ${tasks.estimationAccuracy} IS NOT NULL THEN 1 ELSE 0 END)`,
+      totalTimeTracked: sql<number>`COALESCE(SUM(${tasks.actualMinutes}), 0)`,
+    })
+    .from(tasks)
+    .innerJoin(agents, eq(tasks.assignedAgentId, agents.id))
+    .where(
+      and(
+        inArray(tasks.missionId, missionIds),
+        isNotNull(tasks.completedAt),
+        isNotNull(tasks.assignedAgentId),
+      ),
+    )
+    .groupBy(tasks.assignedAgentId, agents.name)
+    .all();
 
-  for (const agent of allAgents) {
-    const agentCompleted = completedTasks.filter((t) => t.assignedAgentId === agent.id);
-    if (agentCompleted.length === 0) continue;
-
-    const agentCycleTime = agentCompleted.reduce((s, t) => s + (t.cycleTimeMinutes ?? 0), 0);
-    const agentAccuracy = agentCompleted
-      .filter((t) => t.estimationAccuracy !== null)
-      .reduce((s, t) => s + (t.estimationAccuracy ?? 0), 0);
-    const agentAccuracyCount = agentCompleted.filter((t) => t.estimationAccuracy !== null).length;
-    const agentTotalTime = agentCompleted.reduce((s, t) => s + (t.actualMinutes ?? 0), 0);
-
-    agentMetrics.push({
-      agentId: agent.id,
-      agentName: agent.name,
-      tasksCompleted: agentCompleted.length,
-      averageCycleTime: agentCompleted.length > 0 ? agentCycleTime / agentCompleted.length : 0,
-      averageEstimationAccuracy: agentAccuracyCount > 0 ? agentAccuracy / agentAccuracyCount : 0,
-      totalTimeTracked: agentTotalTime,
-    });
-  }
+  const agentMetrics: HabitatMetrics["agentMetrics"] = agentRows
+    .filter((row) => row.agentId !== null)
+    .map((row) => ({
+      agentId: row.agentId!,
+      agentName: row.agentName,
+      tasksCompleted: row.tasksCompleted,
+      averageCycleTime: row.tasksCompleted > 0 ? row.cycleSum / row.tasksCompleted : 0,
+      averageEstimationAccuracy: row.accuracyCount > 0 ? row.accuracySum / row.accuracyCount : 0,
+      totalTimeTracked: row.totalTimeTracked,
+    }));
 
   const completedTaskIds = completedTasks.map((t) => t.id);
 
@@ -224,37 +237,47 @@ export function getHabitatMetrics(habitatId: string): HabitatMetrics {
   };
 }
 
+const MAX_TIME_METRICS_RETRIES = 3;
+
 export function updateTaskTimeMetrics(taskId: string): void {
   const db = getDb();
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
-  if (!task) return;
 
-  const totalMinutes = getTotalMinutesForTask(taskId);
+  for (let attempt = 0; attempt < MAX_TIME_METRICS_RETRIES; attempt++) {
+    const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+    if (!task) return;
 
-  const updates: Partial<typeof tasks.$inferInsert> = {
-    actualMinutes: totalMinutes,
-    updatedAt: new Date().toISOString(),
-  };
+    const totalMinutes = getTotalMinutesForTask(taskId);
 
-  if (task.estimatedMinutes && totalMinutes > 0) {
-    updates.estimationAccuracy = totalMinutes / task.estimatedMinutes;
-  }
+    const updates: Partial<typeof tasks.$inferInsert> = {
+      actualMinutes: totalMinutes,
+      updatedAt: new Date().toISOString(),
+    };
 
-  if (task.completedAt && task.createdAt) {
-    const created = new Date(task.createdAt).getTime();
-    const completed = new Date(task.completedAt).getTime();
-    updates.cycleTimeMinutes = Math.round((completed - created) / 60000);
-
-    if (task.startedAt) {
-      const started = new Date(task.startedAt).getTime();
-      updates.leadTimeMinutes = Math.round((completed - started) / 60000);
+    if (task.estimatedMinutes && totalMinutes > 0) {
+      updates.estimationAccuracy = totalMinutes / task.estimatedMinutes;
     }
-  }
 
-  db.update(tasks)
-    .set({ ...updates, version: sql`${tasks.version} + 1` })
-    .where(eq(tasks.id, taskId))
-    .run();
+    if (task.completedAt && task.createdAt) {
+      const created = new Date(task.createdAt).getTime();
+      const completed = new Date(task.completedAt).getTime();
+      updates.cycleTimeMinutes = Math.round((completed - created) / 60000);
+
+      if (task.startedAt) {
+        const started = new Date(task.startedAt).getTime();
+        updates.leadTimeMinutes = Math.round((completed - started) / 60000);
+      }
+    }
+
+    const expectedVersion = task.version;
+    const updated = db
+      .update(tasks)
+      .set({ ...updates, version: sql`${tasks.version} + 1` })
+      .where(and(eq(tasks.id, taskId), eq(tasks.version, expectedVersion)))
+      .run();
+
+    const succeeded = updated.changes === undefined || updated.changes > 0;
+    if (succeeded) return;
+  }
 }
 
 export function recalculateMissionMetrics(missionId: string): void {

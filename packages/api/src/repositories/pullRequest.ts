@@ -36,7 +36,11 @@ export function createPullRequest(pr: {
     })
     .run();
 
-  return getById(id)!;
+  const created = getById(id);
+  if (!created) {
+    throw new Error(`Failed to retrieve pull_request after insert: id=${id}`);
+  }
+  return created;
 }
 
 export function getById(id: string): PullRequest | null {
@@ -45,9 +49,15 @@ export function getById(id: string): PullRequest | null {
   return rows.length > 0 ? (rows[0] as PullRequest) : null;
 }
 
-export function getAll(): PullRequest[] {
+export function getAll(options?: { limit?: number }): PullRequest[] {
   const db = getDb();
-  return db.select().from(pullRequests).all() as PullRequest[];
+  const limit = options?.limit ?? 1000;
+  return db
+    .select()
+    .from(pullRequests)
+    .orderBy(sql`${pullRequests.createdAt} DESC`)
+    .limit(limit)
+    .all() as PullRequest[];
 }
 
 export function getByTaskId(taskId: string): PullRequest[] {
@@ -105,12 +115,30 @@ export function deleteByTaskId(taskId: string): void {
   db.delete(pullRequests).where(eq(pullRequests.taskId, taskId)).run();
 }
 
+const MAX_PATTERN_LENGTH = 256;
+
+function isUnsafeRegexPattern(pattern: string): boolean {
+  if (/[+*]\s*[+*]/.test(pattern)) return true;
+  if (/\)\s*[+*]\s*[+*]/.test(pattern)) return true;
+  if (/\([^)]*[+*]\s*\)\s*[+*]/.test(pattern)) return true;
+  if (/\([^)]*\|[^)]*\)\s*[+*]/.test(pattern)) return true;
+  return false;
+}
+
 export function findTaskIdByPattern(text: string, pattern: string): string | null {
+  if (typeof pattern !== "string" || pattern.length === 0 || pattern.length > MAX_PATTERN_LENGTH) {
+    return null;
+  }
+
+  if (isUnsafeRegexPattern(pattern)) {
+    return null;
+  }
+
   try {
     const re = new RegExp(pattern);
-    const match = re.exec(text);
-    if (match && match[1]) return match[1];
-    if (match) return match[0];
+    const execResult = re.exec(text);
+    if (execResult && execResult[1]) return execResult[1];
+    if (execResult) return execResult[0];
   } catch {
     return null;
   }

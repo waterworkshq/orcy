@@ -31,7 +31,11 @@ export function createPipelineEvent(pe: {
     })
     .run();
 
-  return getById(id)!;
+  const created = getById(id);
+  if (!created) {
+    throw new Error(`Failed to retrieve pipeline_event after insert: id=${id}`);
+  }
+  return created;
 }
 
 export function getById(id: string): PipelineEvent | null {
@@ -40,9 +44,15 @@ export function getById(id: string): PipelineEvent | null {
   return rows.length > 0 ? (rows[0] as PipelineEvent) : null;
 }
 
-export function getAll(): PipelineEvent[] {
+export function getAll(options?: { limit?: number }): PipelineEvent[] {
   const db = getDb();
-  return db.select().from(pipelineEvents).all() as PipelineEvent[];
+  const limit = options?.limit ?? 1000;
+  return db
+    .select()
+    .from(pipelineEvents)
+    .orderBy(sql`${pipelineEvents.createdAt} DESC`)
+    .limit(limit)
+    .all() as PipelineEvent[];
 }
 
 export function getByTaskId(taskId: string): PipelineEvent[] {

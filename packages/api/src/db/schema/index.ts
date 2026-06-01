@@ -117,4 +117,7 @@ export {
   codeCommitsRelations,
   codeChangedFilesRelations,
   codeReviewsRelations,
+  codeEvidenceLinksRelations,
+  codeEvidenceCompletenessRelations,
+  codeEvidenceGapsRelations,
 } from "./relations.js";

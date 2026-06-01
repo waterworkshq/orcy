@@ -199,6 +199,7 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   pullRequests: many(pullRequests),
   pipelineEvents: many(pipelineEvents),
   timeRecords: many(taskTimeRecords),
+  effortEntries: many(effortEntries),
   qualityChecklists: many(taskQualityChecklists),
   pulses: many(pulses, { relationName: "taskPulses" }),
   linkedPulses: many(pulses, { relationName: "linkedTaskPulses" }),
@@ -431,11 +432,17 @@ export const taskTimeRecordsRelations = relations(taskTimeRecords, ({ one }) => 
   }),
 }));
 
-export const effortEntriesRelations = relations(effortEntries, ({ one }) => ({
+export const effortEntriesRelations = relations(effortEntries, ({ one, many }) => ({
   task: one(tasks, {
     fields: [effortEntries.taskId],
     references: [tasks.id],
   }),
+  correctedEntry: one(effortEntries, {
+    fields: [effortEntries.correctsEntryId],
+    references: [effortEntries.id],
+    relationName: "effortCorrection",
+  }),
+  corrections: many(effortEntries, { relationName: "effortCorrection" }),
 }));
 
 export const qualityChecklistTemplatesRelations = relations(
@@ -711,3 +718,18 @@ export const codeReviewsRelations = relations(codeReviews, ({ one }) => ({
     references: [habitatCodeRepositories.id],
   }),
 }));
+
+export const codeEvidenceLinksRelations = relations(codeEvidenceLinks, ({ one }) => ({
+  replacementLink: one(codeEvidenceLinks, {
+    fields: [codeEvidenceLinks.replacementLinkId],
+    references: [codeEvidenceLinks.id],
+    relationName: "evidenceReplacement",
+  }),
+}));
+
+export const codeEvidenceCompletenessRelations = relations(
+  codeEvidenceCompleteness,
+  ({ one }) => ({}),
+);
+
+export const codeEvidenceGapsRelations = relations(codeEvidenceGaps, ({ one }) => ({}));

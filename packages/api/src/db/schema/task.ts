@@ -5,6 +5,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import type { Artifact, RetryPolicy } from "../../models/index.js";
@@ -288,7 +289,9 @@ export const effortEntries = sqliteTable(
     recordedAt: text("recorded_at")
       .notNull()
       .default(sql`(datetime('now'))`),
-    correctsEntryId: text("corrects_entry_id"),
+    correctsEntryId: text("corrects_entry_id").references((): AnySQLiteColumn => effortEntries.id, {
+      onDelete: "set null",
+    }),
     correctionReason: text("correction_reason"),
     metadata: text("metadata"),
   },

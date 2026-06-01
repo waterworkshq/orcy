@@ -1082,7 +1082,7 @@ export function backfillExistingCodeEvidence(): {
   let pipelineCount = 0;
 
   try {
-    const prRows = prRepo.getAll();
+    const prRows = prRepo.getAll({ limit: Number.MAX_SAFE_INTEGER });
     for (const pr of prRows) {
       try {
         const habitatId = taskRepo.getHabitatIdForTask(pr.taskId);
@@ -1114,7 +1114,7 @@ export function backfillExistingCodeEvidence(): {
   }
 
   try {
-    const pipelineRows = pipelineEventRepo.getAll();
+    const pipelineRows = pipelineEventRepo.getAll({ limit: Number.MAX_SAFE_INTEGER });
     for (const event of pipelineRows) {
       try {
         const habitatId = taskRepo.getHabitatIdForTask(event.taskId);

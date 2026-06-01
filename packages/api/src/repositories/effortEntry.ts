@@ -58,7 +58,11 @@ export function createEffortEntry(input: {
     })
     .run();
 
-  return getEffortEntryById(id)!;
+  const created = getEffortEntryById(id);
+  if (!created) {
+    throw new Error(`Failed to retrieve effort_entry after insert: id=${id}`);
+  }
+  return created;
 }
 
 export function getEffortEntryById(id: string): EffortEntry | null {
@@ -288,28 +292,39 @@ export function getEffortByActorForTask(taskId: string): Array<{
   }));
 }
 
+const MAX_RECALC_RETRIES = 3;
+
 export function recalculateTaskEffortMetrics(taskId: string): void {
   const db = getDb();
-  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
-  if (!task) return;
 
-  const totals = getEffortTotalsForTask(taskId);
+  for (let attempt = 0; attempt < MAX_RECALC_RETRIES; attempt++) {
+    const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+    if (!task) return;
 
-  const updates: Partial<typeof tasks.$inferInsert> = {
-    actualMinutes: totals.totalAccountedMinutes,
-    updatedAt: new Date().toISOString(),
-  };
+    const totals = getEffortTotalsForTask(taskId);
 
-  if (task.estimatedMinutes && totals.totalAccountedMinutes > 0) {
-    updates.estimationAccuracy = totals.totalAccountedMinutes / task.estimatedMinutes;
+    const updates: Partial<typeof tasks.$inferInsert> = {
+      actualMinutes: totals.totalAccountedMinutes,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (task.estimatedMinutes && totals.totalAccountedMinutes > 0) {
+      updates.estimationAccuracy = totals.totalAccountedMinutes / task.estimatedMinutes;
+    }
+
+    const expectedVersion = task.version;
+    const updated = db
+      .update(tasks)
+      .set({ ...updates, version: sql`${tasks.version} + 1` })
+      .where(and(eq(tasks.id, taskId), eq(tasks.version, expectedVersion)))
+      .run();
+
+    const succeeded = updated.changes === undefined || updated.changes > 0;
+    if (succeeded) {
+      recalculateMissionEffortMetrics(task.missionId);
+      return;
+    }
   }
-
-  db.update(tasks)
-    .set({ ...updates, version: sql`${tasks.version} + 1` })
-    .where(eq(tasks.id, taskId))
-    .run();
-
-  recalculateMissionEffortMetrics(task.missionId);
 }
 
 export function recalculateMissionEffortMetrics(missionId: string): void {
