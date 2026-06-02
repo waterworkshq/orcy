@@ -1,8 +1,15 @@
-import { getDb } from '../db/index.js';
-import { sprints, missions } from '../db/schema/index.js';
-import { eq, and, sql } from 'drizzle-orm';
-import type { Sprint, SprintStatus } from '@orcy/shared';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { sprints, missions } from "../db/schema/index.js";
+import { eq, and, sql } from "drizzle-orm";
+import type { Sprint, SprintStatus } from "@orcy/shared";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+  repositoryTransactionError,
+} from "../errors/repository.js";
 
 export function getByHabitatId(habitatId: string): Sprint[] {
   const db = getDb();
@@ -17,55 +24,69 @@ export function getById(id: string): Sprint | null {
 
 export function getActiveForHabitat(habitatId: string): Sprint | null {
   const db = getDb();
-  return db.select().from(sprints)
-    .where(and(eq(sprints.habitatId, habitatId), eq(sprints.status, 'active')))
+  return db
+    .select()
+    .from(sprints)
+    .where(and(eq(sprints.habitatId, habitatId), eq(sprints.status, "active")))
     .get() as Sprint | null;
 }
 
-export function create(habitatId: string, data: {
-  name: string;
-  goal?: string;
-  startDate: string;
-  endDate: string;
-  capacityMinutes?: number | null;
-  notes?: string;
-  createdBy: string;
-}): Sprint {
+export function create(
+  habitatId: string,
+  data: {
+    name: string;
+    goal?: string;
+    startDate: string;
+    endDate: string;
+    capacityMinutes?: number | null;
+    notes?: string;
+    createdBy: string;
+  },
+): Sprint {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(sprints).values({
-    id,
-    habitatId,
-    name: data.name,
-    goal: data.goal ?? '',
-    startDate: data.startDate,
-    endDate: data.endDate,
-    status: 'planning',
-    committedMissionIds: [],
-    completedMissionIds: [],
-    capacityMinutes: data.capacityMinutes ?? null,
-    notes: data.notes ?? '',
-    createdBy: data.createdBy,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(sprints)
+      .values({
+        id,
+        habitatId,
+        name: data.name,
+        goal: data.goal ?? "",
+        startDate: data.startDate,
+        endDate: data.endDate,
+        status: "planning",
+        committedMissionIds: [],
+        completedMissionIds: [],
+        capacityMinutes: data.capacityMinutes ?? null,
+        notes: data.notes ?? "",
+        createdBy: data.createdBy,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("sprint", err as Error, id);
+  }
 
   const result = getById(id);
-  if (!result) throw new Error(`Failed to create sprint: insert succeeded but read returned null`);
+  if (!result) throw repositoryNotFoundError("sprint", id);
   return result;
 }
 
-export function update(id: string, data: {
-  name?: string;
-  goal?: string;
-  startDate?: string;
-  endDate?: string;
-  status?: SprintStatus;
-  capacityMinutes?: number | null;
-  notes?: string;
-}): Sprint | null {
+export function update(
+  id: string,
+  data: {
+    name?: string;
+    goal?: string;
+    startDate?: string;
+    endDate?: string;
+    status?: SprintStatus;
+    capacityMinutes?: number | null;
+    notes?: string;
+  },
+): Sprint | null {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -81,14 +102,22 @@ export function update(id: string, data: {
   if (data.capacityMinutes !== undefined) values.capacityMinutes = data.capacityMinutes;
   if (data.notes !== undefined) values.notes = data.notes;
 
-  db.update(sprints).set(values).where(eq(sprints.id, id)).run();
+  try {
+    db.update(sprints).set(values).where(eq(sprints.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("sprint", err as Error, id);
+  }
   return getById(id);
 }
 
 export function remove(id: string): boolean {
   const db = getDb();
-  const result = db.delete(sprints).where(eq(sprints.id, id)).run();
-  return result.changes > 0;
+  try {
+    const result = db.delete(sprints).where(eq(sprints.id, id)).run();
+    return result.changes > 0;
+  } catch (err) {
+    throw repositoryDeleteError("sprint", err as Error, id);
+  }
 }
 
 export function addMission(sprintId: string, missionId: string): Sprint | null {
@@ -102,10 +131,17 @@ export function addMission(sprintId: string, missionId: string): Sprint | null {
   }
 
   const now = new Date().toISOString();
-  db.transaction((tx) => {
-    tx.update(sprints).set({ committedMissionIds: committed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
-    tx.update(missions).set({ sprintId }).where(eq(missions.id, missionId)).run();
-  });
+  try {
+    db.transaction((tx) => {
+      tx.update(sprints)
+        .set({ committedMissionIds: committed, updatedAt: now })
+        .where(eq(sprints.id, sprintId))
+        .run();
+      tx.update(missions).set({ sprintId }).where(eq(missions.id, missionId)).run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, sprintId);
+  }
 
   return getById(sprintId);
 }
@@ -115,13 +151,23 @@ export function removeMission(sprintId: string, missionId: string): Sprint | nul
   const sprint = getById(sprintId);
   if (!sprint) return null;
 
-  const committed = sprint.committedMissionIds.filter(id => id !== missionId);
+  const committed = sprint.committedMissionIds.filter((id) => id !== missionId);
   const now = new Date().toISOString();
 
-  db.transaction((tx) => {
-    tx.update(sprints).set({ committedMissionIds: committed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
-    tx.update(missions).set({ sprintId: null }).where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId))).run();
-  });
+  try {
+    db.transaction((tx) => {
+      tx.update(sprints)
+        .set({ committedMissionIds: committed, updatedAt: now })
+        .where(eq(sprints.id, sprintId))
+        .run();
+      tx.update(missions)
+        .set({ sprintId: null })
+        .where(and(eq(missions.id, missionId), eq(missions.sprintId, sprintId)))
+        .run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, sprintId);
+  }
 
   return getById(sprintId);
 }
@@ -129,8 +175,10 @@ export function removeMission(sprintId: string, missionId: string): Sprint | nul
 export function getExpiredActiveSprints(): Sprint[] {
   const db = getDb();
   const nowSql = sql`(datetime('now'))`;
-  return db.select().from(sprints)
-    .where(and(eq(sprints.status, 'active'), sql`${sprints.endDate} < ${nowSql}`))
+  return db
+    .select()
+    .from(sprints)
+    .where(and(eq(sprints.status, "active"), sql`${sprints.endDate} < ${nowSql}`))
     .all() as Sprint[];
 }
 
@@ -142,19 +190,34 @@ export function markMissionsCompleted(sprintId: string, missionIds: string[]): v
   const completed = [...new Set([...sprint.completedMissionIds, ...missionIds])];
   const now = new Date().toISOString();
 
-  db.transaction((tx) => {
-    tx.update(sprints).set({ completedMissionIds: completed, updatedAt: now }).where(eq(sprints.id, sprintId)).run();
-  });
+  try {
+    db.transaction((tx) => {
+      tx.update(sprints)
+        .set({ completedMissionIds: completed, updatedAt: now })
+        .where(eq(sprints.id, sprintId))
+        .run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, sprintId);
+  }
 }
 
-export function getOverlappingForHabitat(habitatId: string, startDate: string, endDate: string): Sprint | null {
+export function getOverlappingForHabitat(
+  habitatId: string,
+  startDate: string,
+  endDate: string,
+): Sprint | null {
   const db = getDb();
-  const row = db.select().from(sprints)
-    .where(and(
-      eq(sprints.habitatId, habitatId),
-      sql`${sprints.startDate} < ${endDate}`,
-      sql`${sprints.endDate} > ${startDate}`,
-    ))
+  const row = db
+    .select()
+    .from(sprints)
+    .where(
+      and(
+        eq(sprints.habitatId, habitatId),
+        sql`${sprints.startDate} < ${endDate}`,
+        sql`${sprints.endDate} > ${startDate}`,
+      ),
+    )
     .get();
   return (row as Sprint) ?? null;
 }

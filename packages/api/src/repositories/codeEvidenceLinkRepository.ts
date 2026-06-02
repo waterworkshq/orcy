@@ -10,6 +10,12 @@ import type {
   CodeEvidenceTargetType,
   CodeEvidenceActorType,
 } from "@orcy/shared";
+import {
+  repositoryCreateError,
+  repositoryUpsertError,
+  repositoryUpdateError,
+  repositoryTransactionError,
+} from "../errors/repository.js";
 
 function validateConfidence(confidence: number | null | undefined): void {
   if (confidence == null) return;
@@ -137,64 +143,72 @@ export function findOrCreateActive(input: {
   const normalizedExternalUrl =
     input.normalizedExternalUrl ?? (input.externalUrl ? input.externalUrl.trim() : null);
 
-  const result = db.transaction((tx) => {
-    const conditions = [
-      eq(codeEvidenceLinks.targetType, input.targetType),
-      eq(codeEvidenceLinks.targetId, input.targetId),
-      eq(codeEvidenceLinks.evidenceType, input.evidenceType),
-      eq(codeEvidenceLinks.status, "active"),
-    ];
-    if (input.evidenceId) {
-      conditions.push(eq(codeEvidenceLinks.evidenceId, input.evidenceId));
-    } else if (normalizedExternalUrl) {
-      conditions.push(eq(codeEvidenceLinks.normalizedExternalUrl, normalizedExternalUrl));
-    }
+  try {
+    const result = db.transaction((tx) => {
+      const conditions = [
+        eq(codeEvidenceLinks.targetType, input.targetType),
+        eq(codeEvidenceLinks.targetId, input.targetId),
+        eq(codeEvidenceLinks.evidenceType, input.evidenceType),
+        eq(codeEvidenceLinks.status, "active"),
+      ];
+      if (input.evidenceId) {
+        conditions.push(eq(codeEvidenceLinks.evidenceId, input.evidenceId));
+      } else if (normalizedExternalUrl) {
+        conditions.push(eq(codeEvidenceLinks.normalizedExternalUrl, normalizedExternalUrl));
+      }
 
-    const existing = tx
-      .select()
-      .from(codeEvidenceLinks)
-      .where(and(...conditions))
-      .all();
-    if (existing.length > 0) {
-      return { link: existing[0], created: false };
-    }
+      const existing = tx
+        .select()
+        .from(codeEvidenceLinks)
+        .where(and(...conditions))
+        .all();
+      if (existing.length > 0) {
+        return { link: existing[0], created: false };
+      }
 
-    const id = uuid();
-    const now = new Date().toISOString();
-    tx.insert(codeEvidenceLinks)
-      .values({
-        id,
-        targetType: input.targetType,
-        targetId: input.targetId,
-        evidenceType: input.evidenceType,
-        evidenceId: input.evidenceId ?? null,
-        externalUrl: input.externalUrl ?? null,
-        normalizedExternalUrl,
-        title: input.title ?? null,
-        description: input.description ?? null,
-        linkSource: input.linkSource,
-        linkSources: input.linkSources ?? [input.linkSource],
-        linkedByType: input.linkedByType,
-        linkedById: input.linkedById,
-        linkedAt: now,
-        verificationState: input.verificationState ?? "unverified",
-        confidence: input.confidence ?? null,
-        status: "active",
-        correctedByType: null,
-        correctedById: null,
-        correctedAt: null,
-        correctionReason: null,
-        replacementLinkId: null,
-        allowExternalRepository: input.allowExternalRepository ? true : false,
-        metadata: input.metadata ?? {},
-      })
-      .run();
+      const id = uuid();
+      const now = new Date().toISOString();
+      tx.insert(codeEvidenceLinks)
+        .values({
+          id,
+          targetType: input.targetType,
+          targetId: input.targetId,
+          evidenceType: input.evidenceType,
+          evidenceId: input.evidenceId ?? null,
+          externalUrl: input.externalUrl ?? null,
+          normalizedExternalUrl,
+          title: input.title ?? null,
+          description: input.description ?? null,
+          linkSource: input.linkSource,
+          linkSources: input.linkSources ?? [input.linkSource],
+          linkedByType: input.linkedByType,
+          linkedById: input.linkedById,
+          linkedAt: now,
+          verificationState: input.verificationState ?? "unverified",
+          confidence: input.confidence ?? null,
+          status: "active",
+          correctedByType: null,
+          correctedById: null,
+          correctedAt: null,
+          correctionReason: null,
+          replacementLinkId: null,
+          allowExternalRepository: input.allowExternalRepository ? true : false,
+          metadata: input.metadata ?? {},
+        })
+        .run();
 
-    const created = tx.select().from(codeEvidenceLinks).where(eq(codeEvidenceLinks.id, id)).all();
-    return created.length > 0 ? { link: created[0], created: true } : null;
-  });
+      const created = tx.select().from(codeEvidenceLinks).where(eq(codeEvidenceLinks.id, id)).all();
+      return created.length > 0 ? { link: created[0], created: true } : null;
+    });
 
-  return result;
+    return result;
+  } catch (err) {
+    throw repositoryTransactionError(
+      "codeEvidenceLink",
+      err as Error,
+      `${input.targetType}:${input.targetId}`,
+    );
+  }
 }
 
 export function create(input: {
@@ -221,34 +235,38 @@ export function create(input: {
   const id = uuid();
   const now = input.linkedAt ?? new Date().toISOString();
 
-  db.insert(codeEvidenceLinks)
-    .values({
-      id,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      evidenceType: input.evidenceType,
-      evidenceId: input.evidenceId ?? null,
-      externalUrl: input.externalUrl ?? null,
-      normalizedExternalUrl: input.normalizedExternalUrl ?? null,
-      title: input.title ?? null,
-      description: input.description ?? null,
-      linkSource: input.linkSource,
-      linkSources: input.linkSources ?? [],
-      linkedByType: input.linkedByType,
-      linkedById: input.linkedById,
-      linkedAt: now,
-      verificationState: input.verificationState ?? "unverified",
-      confidence: input.confidence ?? null,
-      status: "active",
-      correctedByType: null,
-      correctedById: null,
-      correctedAt: null,
-      correctionReason: null,
-      replacementLinkId: null,
-      allowExternalRepository: input.allowExternalRepository ? true : false,
-      metadata: input.metadata ?? {},
-    })
-    .run();
+  try {
+    db.insert(codeEvidenceLinks)
+      .values({
+        id,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        evidenceType: input.evidenceType,
+        evidenceId: input.evidenceId ?? null,
+        externalUrl: input.externalUrl ?? null,
+        normalizedExternalUrl: input.normalizedExternalUrl ?? null,
+        title: input.title ?? null,
+        description: input.description ?? null,
+        linkSource: input.linkSource,
+        linkSources: input.linkSources ?? [],
+        linkedByType: input.linkedByType,
+        linkedById: input.linkedById,
+        linkedAt: now,
+        verificationState: input.verificationState ?? "unverified",
+        confidence: input.confidence ?? null,
+        status: "active",
+        correctedByType: null,
+        correctedById: null,
+        correctedAt: null,
+        correctionReason: null,
+        replacementLinkId: null,
+        allowExternalRepository: input.allowExternalRepository ? true : false,
+        metadata: input.metadata ?? {},
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeEvidenceLink", err as Error, id);
+  }
 
   return getById(id);
 }
@@ -265,12 +283,16 @@ export function addCorroboratingSource(linkId: string, source: CodeEvidenceLinkS
   }
 
   const db = getDb();
-  db.update(codeEvidenceLinks)
-    .set({
-      linkSources: existingSources,
-    })
-    .where(eq(codeEvidenceLinks.id, linkId))
-    .run();
+  try {
+    db.update(codeEvidenceLinks)
+      .set({
+        linkSources: existingSources,
+      })
+      .where(eq(codeEvidenceLinks.id, linkId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("codeEvidenceLink", err as Error, linkId);
+  }
 
   return getById(linkId);
 }
@@ -286,17 +308,21 @@ export function correctLink(
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(codeEvidenceLinks)
-    .set({
-      status,
-      correctedByType,
-      correctedById,
-      correctedAt: now,
-      correctionReason,
-      replacementLinkId: replacementLinkId ?? null,
-    })
-    .where(eq(codeEvidenceLinks.id, id))
-    .run();
+  try {
+    db.update(codeEvidenceLinks)
+      .set({
+        status,
+        correctedByType,
+        correctedById,
+        correctedAt: now,
+        correctionReason,
+        replacementLinkId: replacementLinkId ?? null,
+      })
+      .where(eq(codeEvidenceLinks.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("codeEvidenceLink", err as Error, id);
+  }
 
   return getById(id);
 }

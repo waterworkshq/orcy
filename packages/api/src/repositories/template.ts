@@ -1,10 +1,17 @@
-import { getDb } from '../db/index.js';
-import { missionTemplates, missions, tasks, columns } from '../db/schema/index.js';
-import { eq, or, isNull, sql, desc, asc, max } from 'drizzle-orm';
-import type { MissionTemplate, TaskPriority, TaskTemplateEntry } from '../models/index.js';
-import { v4 as uuid } from 'uuid';
-import * as missionRepo from './feature.js';
-import * as taskRepo from './task.js';
+import { getDb } from "../db/index.js";
+import { missionTemplates, missions, tasks, columns } from "../db/schema/index.js";
+import { eq, or, isNull, sql, desc, asc, max } from "drizzle-orm";
+import type { MissionTemplate, TaskPriority, TaskTemplateEntry } from "../models/index.js";
+import { v4 as uuid } from "uuid";
+import * as missionRepo from "./feature.js";
+import * as taskRepo from "./task.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+  repositoryTransactionError,
+} from "../errors/repository.js";
 
 export interface CreateTemplateInput {
   habitatId: string | null;
@@ -36,24 +43,32 @@ export function createTemplate(input: CreateTemplateInput): MissionTemplate {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(missionTemplates).values({
-    id,
-    habitatId: input.habitatId,
-    name: input.name,
-    titlePattern: input.titlePattern,
-    descriptionPattern: input.descriptionPattern ?? '',
-    priority: input.priority ?? 'medium',
-    labels: input.labels ?? [],
-    requiredDomain: input.requiredDomain ?? null,
-    requiredCapabilities: input.requiredCapabilities ?? [],
-    tasksTemplate: input.tasksTemplate ?? [],
-    isDefault: input.isDefault ?? false,
-    usageCount: 0,
-    createdBy: input.createdBy,
-    createdAt: now,
-  }).run();
+  try {
+    db.insert(missionTemplates)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        name: input.name,
+        titlePattern: input.titlePattern,
+        descriptionPattern: input.descriptionPattern ?? "",
+        priority: input.priority ?? "medium",
+        labels: input.labels ?? [],
+        requiredDomain: input.requiredDomain ?? null,
+        requiredCapabilities: input.requiredCapabilities ?? [],
+        tasksTemplate: input.tasksTemplate ?? [],
+        isDefault: input.isDefault ?? false,
+        usageCount: 0,
+        createdBy: input.createdBy,
+        createdAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("template", err as Error, id);
+  }
 
-  return getTemplateById(id)!;
+  const template = getTemplateById(id);
+  if (!template) throw repositoryNotFoundError("template", id);
+  return template;
 }
 
 export function getTemplatesByHabitatId(habitatId: string): MissionTemplate[] {
@@ -62,7 +77,11 @@ export function getTemplatesByHabitatId(habitatId: string): MissionTemplate[] {
     .select()
     .from(missionTemplates)
     .where(or(eq(missionTemplates.habitatId, habitatId), isNull(missionTemplates.habitatId)))
-    .orderBy(desc(missionTemplates.isDefault), desc(missionTemplates.usageCount), asc(missionTemplates.name))
+    .orderBy(
+      desc(missionTemplates.isDefault),
+      desc(missionTemplates.usageCount),
+      asc(missionTemplates.name),
+    )
     .all() as MissionTemplate[];
 }
 
@@ -72,17 +91,17 @@ export function getGlobalTemplates(): MissionTemplate[] {
     .select()
     .from(missionTemplates)
     .where(isNull(missionTemplates.habitatId))
-    .orderBy(desc(missionTemplates.isDefault), desc(missionTemplates.usageCount), asc(missionTemplates.name))
+    .orderBy(
+      desc(missionTemplates.isDefault),
+      desc(missionTemplates.usageCount),
+      asc(missionTemplates.name),
+    )
     .all() as MissionTemplate[];
 }
 
 export function getTemplateById(id: string): MissionTemplate | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(missionTemplates)
-    .where(eq(missionTemplates.id, id))
-    .get();
+  const row = db.select().from(missionTemplates).where(eq(missionTemplates.id, id)).get();
   return (row as MissionTemplate) ?? null;
 }
 
@@ -99,15 +118,17 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): MissionT
   if (input.priority !== undefined) set.priority = input.priority;
   if (input.labels !== undefined) set.labels = input.labels;
   if (input.requiredDomain !== undefined) set.requiredDomain = input.requiredDomain;
-  if (input.requiredCapabilities !== undefined) set.requiredCapabilities = input.requiredCapabilities;
+  if (input.requiredCapabilities !== undefined)
+    set.requiredCapabilities = input.requiredCapabilities;
   if (input.tasksTemplate !== undefined) set.tasksTemplate = input.tasksTemplate;
 
   if (Object.keys(set).length === 0) return existing;
 
-  db.update(missionTemplates)
-    .set(set)
-    .where(eq(missionTemplates.id, id))
-    .run();
+  try {
+    db.update(missionTemplates).set(set).where(eq(missionTemplates.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("template", err as Error, id);
+  }
   return getTemplateById(id);
 }
 
@@ -118,18 +139,24 @@ export function deleteTemplate(id: string): boolean {
 
   if (existing.isDefault) return false;
 
-  db.delete(missionTemplates)
-    .where(eq(missionTemplates.id, id))
-    .run();
+  try {
+    db.delete(missionTemplates).where(eq(missionTemplates.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("template", err as Error, id);
+  }
   return true;
 }
 
 export function incrementUsageCount(id: string): void {
   const db = getDb();
-  db.update(missionTemplates)
-    .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
-    .where(eq(missionTemplates.id, id))
-    .run();
+  try {
+    db.update(missionTemplates)
+      .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
+      .where(eq(missionTemplates.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("template", err as Error, id);
+  }
 }
 
 export interface ApplyTemplateOverrides {
@@ -154,7 +181,7 @@ export function applyTemplate(
   if (!template) return null;
 
   const db = getDb();
-  const actor = createdBy ?? 'system';
+  const actor = createdBy ?? "system";
   const now = new Date().toISOString();
   const missionId = uuid();
 
@@ -164,7 +191,7 @@ export function applyTemplate(
     .where(eq(columns.habitatId, habitatId))
     .orderBy(columns.order)
     .all()[0]?.id;
-  if (!columnId) throw new Error('Habitat has no columns');
+  if (!columnId) throw new Error("Habitat has no columns");
 
   const maxOrder = db
     .select({ value: max(missions.displayOrder) })
@@ -176,61 +203,69 @@ export function applyTemplate(
   const createdTaskIds: string[] = [];
   const tasksTemplate = template.tasksTemplate ?? [];
 
-  db.transaction((tx) => {
-    tx.insert(missions).values({
-      id: missionId,
-      habitatId,
-      columnId,
-      title: overrides?.title ?? template.titlePattern,
-      description: overrides?.description ?? template.descriptionPattern,
-      acceptanceCriteria: '',
-      priority: overrides?.priority ?? template.priority,
-      labels: overrides?.labels ?? template.labels,
-      status: 'not_started',
-      displayOrder,
-      dependsOn: [],
-      blocks: [],
-      dueAt: null,
-      slaMinutes: null,
-      createdBy: actor,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    }).run();
+  try {
+    db.transaction((tx) => {
+      tx.insert(missions)
+        .values({
+          id: missionId,
+          habitatId,
+          columnId,
+          title: overrides?.title ?? template.titlePattern,
+          description: overrides?.description ?? template.descriptionPattern,
+          acceptanceCriteria: "",
+          priority: overrides?.priority ?? template.priority,
+          labels: overrides?.labels ?? template.labels,
+          status: "not_started",
+          displayOrder,
+          dependsOn: [],
+          blocks: [],
+          dueAt: null,
+          slaMinutes: null,
+          createdBy: actor,
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+        })
+        .run();
 
-    for (let i = 0; i < tasksTemplate.length; i++) {
-      const entry = tasksTemplate[i];
-      const taskId = uuid();
-      const taskOrder = entry.order ?? i;
+      for (let i = 0; i < tasksTemplate.length; i++) {
+        const entry = tasksTemplate[i];
+        const taskId = uuid();
+        const taskOrder = entry.order ?? i;
 
-      tx.insert(tasks).values({
-        id: taskId,
-        missionId: missionId,
-        title: entry.title,
-        description: entry.description ?? '',
-        priority: entry.priority ?? 'medium',
-        requiredDomain: entry.requiredDomain ?? null,
-        requiredCapabilities: entry.requiredCapabilities ?? [],
-        status: 'pending',
-        labels: [],
-        order: taskOrder,
-        createdBy: actor,
-        estimatedMinutes: entry.estimatedMinutes ?? null,
-        createdAt: now,
-        updatedAt: now,
-      }).run();
-      createdTaskIds.push(taskId);
-    }
+        tx.insert(tasks)
+          .values({
+            id: taskId,
+            missionId: missionId,
+            title: entry.title,
+            description: entry.description ?? "",
+            priority: entry.priority ?? "medium",
+            requiredDomain: entry.requiredDomain ?? null,
+            requiredCapabilities: entry.requiredCapabilities ?? [],
+            status: "pending",
+            labels: [],
+            order: taskOrder,
+            createdBy: actor,
+            estimatedMinutes: entry.estimatedMinutes ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        createdTaskIds.push(taskId);
+      }
 
-    tx.update(missionTemplates)
-      .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
-      .where(eq(missionTemplates.id, templateId))
-      .run();
-  });
+      tx.update(missionTemplates)
+        .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
+        .where(eq(missionTemplates.id, templateId))
+        .run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("template", err as Error, templateId);
+  }
 
   const createdMission = missionRepo.getMissionById(missionId)!;
   const createdTasks = createdTaskIds
-    .map(id => taskRepo.getTaskById(id))
+    .map((id) => taskRepo.getTaskById(id))
     .filter((t): t is NonNullable<typeof t> => t !== null);
 
   return {
@@ -250,30 +285,74 @@ export function seedGlobalTemplates(): void {
 
   const now = new Date().toISOString();
   const templates = [
-    { name: 'Bug Fix', titlePattern: 'Fix: ', descriptionPattern: '## Steps to Reproduce\n...\n## Expected Behavior\n...\n## Actual Behavior\n...\n## Environment\n...', priority: 'high' as TaskPriority, labels: ['bug'] },
-    { name: 'Feature', titlePattern: 'Add ', descriptionPattern: '## Summary\n...\n## Acceptance Criteria\n...\n## Technical Notes\n...', priority: 'medium' as TaskPriority, labels: ['feature'] },
-    { name: 'Refactor', titlePattern: 'Refactor ', descriptionPattern: '## Current State\n...\n## Proposed Changes\n...\n## Impact\n...', priority: 'medium' as TaskPriority, labels: ['refactor'] },
-    { name: 'Documentation', titlePattern: 'Document ', descriptionPattern: '## What\n...\n## Where\n...\n## Audience\n...', priority: 'low' as TaskPriority, labels: ['docs'] },
-    { name: 'Test', titlePattern: 'Test ', descriptionPattern: '## What to Test\n...\n## Test Cases\n...\n## Edge Cases\n...', priority: 'medium' as TaskPriority, labels: ['test'] },
-    { name: 'Security Fix', titlePattern: 'Security: ', descriptionPattern: '## Vulnerability\n...\n## CVE\n...\n## Fix Plan\n...\n## Verification\n...', priority: 'critical' as TaskPriority, labels: ['security'] },
+    {
+      name: "Bug Fix",
+      titlePattern: "Fix: ",
+      descriptionPattern:
+        "## Steps to Reproduce\n...\n## Expected Behavior\n...\n## Actual Behavior\n...\n## Environment\n...",
+      priority: "high" as TaskPriority,
+      labels: ["bug"],
+    },
+    {
+      name: "Feature",
+      titlePattern: "Add ",
+      descriptionPattern: "## Summary\n...\n## Acceptance Criteria\n...\n## Technical Notes\n...",
+      priority: "medium" as TaskPriority,
+      labels: ["feature"],
+    },
+    {
+      name: "Refactor",
+      titlePattern: "Refactor ",
+      descriptionPattern: "## Current State\n...\n## Proposed Changes\n...\n## Impact\n...",
+      priority: "medium" as TaskPriority,
+      labels: ["refactor"],
+    },
+    {
+      name: "Documentation",
+      titlePattern: "Document ",
+      descriptionPattern: "## What\n...\n## Where\n...\n## Audience\n...",
+      priority: "low" as TaskPriority,
+      labels: ["docs"],
+    },
+    {
+      name: "Test",
+      titlePattern: "Test ",
+      descriptionPattern: "## What to Test\n...\n## Test Cases\n...\n## Edge Cases\n...",
+      priority: "medium" as TaskPriority,
+      labels: ["test"],
+    },
+    {
+      name: "Security Fix",
+      titlePattern: "Security: ",
+      descriptionPattern:
+        "## Vulnerability\n...\n## CVE\n...\n## Fix Plan\n...\n## Verification\n...",
+      priority: "critical" as TaskPriority,
+      labels: ["security"],
+    },
   ];
 
   for (const tmpl of templates) {
     const id = uuid();
-    db.insert(missionTemplates).values({
-      id,
-      habitatId: null,
-      name: tmpl.name,
-      titlePattern: tmpl.titlePattern,
-      descriptionPattern: tmpl.descriptionPattern,
-      priority: tmpl.priority,
-      labels: tmpl.labels,
-      requiredDomain: null,
-      requiredCapabilities: [],
-      isDefault: true,
-      usageCount: 0,
-      createdBy: 'system',
-      createdAt: now,
-    }).run();
+    try {
+      db.insert(missionTemplates)
+        .values({
+          id,
+          habitatId: null,
+          name: tmpl.name,
+          titlePattern: tmpl.titlePattern,
+          descriptionPattern: tmpl.descriptionPattern,
+          priority: tmpl.priority,
+          labels: tmpl.labels,
+          requiredDomain: null,
+          requiredCapabilities: [],
+          isDefault: true,
+          usageCount: 0,
+          createdBy: "system",
+          createdAt: now,
+        })
+        .run();
+    } catch (err) {
+      throw repositoryCreateError("template", err as Error, id);
+    }
   }
 }

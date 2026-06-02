@@ -9,6 +9,12 @@ import type {
   EffortSource,
   EffortActorType,
 } from "../models/index.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 function lookupAgentNames(db: ReturnType<typeof getDb>, ids: string[]): Map<string, string> {
   const names = new Map<string, string>();
@@ -40,27 +46,31 @@ export function createEffortEntry(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(effortEntries)
-    .values({
-      id,
-      taskId: input.taskId,
-      actorType: input.actorType,
-      actorId: input.actorId ?? null,
-      minutes: input.minutes,
-      source: input.source,
-      note: input.note ?? null,
-      startedAt: input.startedAt ?? null,
-      endedAt: input.endedAt ?? null,
-      recordedAt: now,
-      correctsEntryId: input.correctsEntryId ?? null,
-      correctionReason: input.correctionReason ?? null,
-      metadata: input.metadata ?? null,
-    })
-    .run();
+  try {
+    db.insert(effortEntries)
+      .values({
+        id,
+        taskId: input.taskId,
+        actorType: input.actorType,
+        actorId: input.actorId ?? null,
+        minutes: input.minutes,
+        source: input.source,
+        note: input.note ?? null,
+        startedAt: input.startedAt ?? null,
+        endedAt: input.endedAt ?? null,
+        recordedAt: now,
+        correctsEntryId: input.correctsEntryId ?? null,
+        correctionReason: input.correctionReason ?? null,
+        metadata: input.metadata ?? null,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("effortEntry", err as Error, id);
+  }
 
   const created = getEffortEntryById(id);
   if (!created) {
-    throw new Error(`Failed to retrieve effort_entry after insert: id=${id}`);
+    throw repositoryNotFoundError("effortEntry", id);
   }
   return created;
 }
@@ -366,13 +376,17 @@ export function recalculateMissionEffortMetrics(missionId: string): void {
   const plannedSum = missionTasks.reduce((s, t) => s + (t.estimatedMinutes ?? 0), 0);
   const planningAccuracy = plannedSum > 0 ? actualSum / plannedSum : null;
 
-  db.update(missions)
-    .set({
-      actualMinutes: actualSum,
-      plannedMinutes: plannedSum,
-      planningAccuracy,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(missions.id, missionId))
-    .run();
+  try {
+    db.update(missions)
+      .set({
+        actualMinutes: actualSum,
+        plannedMinutes: plannedSum,
+        planningAccuracy,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(missions.id, missionId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("mission", err as Error, missionId);
+  }
 }

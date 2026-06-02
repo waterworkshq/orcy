@@ -3,6 +3,12 @@ import { habitatCodeRepositories } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
+import {
+  repositoryCreateError,
+  repositoryUpsertError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export function getByHabitatId(habitatId: string) {
   const db = getDb();
@@ -38,21 +44,25 @@ export function create(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(habitatCodeRepositories)
-    .values({
-      id,
-      habitatId: input.habitatId,
-      provider: input.provider,
-      providerBaseUrl: input.providerBaseUrl ?? null,
-      externalId: input.externalId ?? null,
-      repoSlug: input.repoSlug ?? null,
-      displayName: input.displayName ?? null,
-      localPath: input.localPath ?? null,
-      verificationState: input.verificationState ?? "unverified",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(habitatCodeRepositories)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        provider: input.provider,
+        providerBaseUrl: input.providerBaseUrl ?? null,
+        externalId: input.externalId ?? null,
+        repoSlug: input.repoSlug ?? null,
+        displayName: input.displayName ?? null,
+        localPath: input.localPath ?? null,
+        verificationState: input.verificationState ?? "unverified",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeRepository", err as Error, id);
+  }
 
   return getById(id);
 }
@@ -71,23 +81,11 @@ export function upsertByHabitatId(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(habitatCodeRepositories)
-    .values({
-      id,
-      habitatId: input.habitatId,
-      provider: input.provider,
-      providerBaseUrl: input.providerBaseUrl ?? null,
-      externalId: input.externalId ?? null,
-      repoSlug: input.repoSlug ?? null,
-      displayName: input.displayName ?? null,
-      localPath: input.localPath ?? null,
-      verificationState: input.verificationState ?? "unverified",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: habitatCodeRepositories.habitatId,
-      set: {
+  try {
+    db.insert(habitatCodeRepositories)
+      .values({
+        id,
+        habitatId: input.habitatId,
         provider: input.provider,
         providerBaseUrl: input.providerBaseUrl ?? null,
         externalId: input.externalId ?? null,
@@ -95,10 +93,26 @@ export function upsertByHabitatId(input: {
         displayName: input.displayName ?? null,
         localPath: input.localPath ?? null,
         verificationState: input.verificationState ?? "unverified",
+        createdAt: now,
         updatedAt: now,
-      },
-    })
-    .run();
+      })
+      .onConflictDoUpdate({
+        target: habitatCodeRepositories.habitatId,
+        set: {
+          provider: input.provider,
+          providerBaseUrl: input.providerBaseUrl ?? null,
+          externalId: input.externalId ?? null,
+          repoSlug: input.repoSlug ?? null,
+          displayName: input.displayName ?? null,
+          localPath: input.localPath ?? null,
+          verificationState: input.verificationState ?? "unverified",
+          updatedAt: now,
+        },
+      })
+      .run();
+  } catch (err) {
+    throw repositoryUpsertError("codeRepository", err as Error, input.habitatId);
+  }
 
   return getByHabitatId(input.habitatId);
 }
@@ -128,10 +142,14 @@ export function updateByHabitatId(
   if (updates.verificationState !== undefined)
     setValues.verificationState = updates.verificationState;
 
-  db.update(habitatCodeRepositories)
-    .set(setValues)
-    .where(eq(habitatCodeRepositories.habitatId, habitatId))
-    .run();
+  try {
+    db.update(habitatCodeRepositories)
+      .set(setValues)
+      .where(eq(habitatCodeRepositories.habitatId, habitatId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("codeRepository", err as Error, habitatId);
+  }
 
   return getByHabitatId(habitatId);
 }
@@ -140,6 +158,10 @@ export function deleteById(id: string): boolean {
   const db = getDb();
   const existing = getById(id);
   if (!existing) return false;
-  db.delete(habitatCodeRepositories).where(eq(habitatCodeRepositories.id, id)).run();
+  try {
+    db.delete(habitatCodeRepositories).where(eq(habitatCodeRepositories.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("codeRepository", err as Error, id);
+  }
   return true;
 }

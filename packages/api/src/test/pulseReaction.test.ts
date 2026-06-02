@@ -10,7 +10,15 @@ function createMockDb() {
     const chain = {
       values: () => chain,
       run: () => {
-        if (_insertShouldThrow) throw new Error("Duplicate");
+        if (_insertShouldThrow) {
+          const err = new Error("UNIQUE constraint failed: pulseReactions") as Error & {
+            code: string;
+            name: string;
+          };
+          err.name = "SqliteError";
+          err.code = "SQLITE_CONSTRAINT_UNIQUE";
+          throw err;
+        }
         _insertRun();
       },
     };

@@ -3,6 +3,12 @@ import { daemonInstances, daemonAgents, daemonSessions, agents } from "../db/sch
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { hashDaemonToken } from "../lib/daemonToken.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export interface CreateDaemonInput {
   name: string;
@@ -44,23 +50,29 @@ export function createDaemon(input: CreateDaemonInput): DaemonInstancePublic {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(daemonInstances)
-    .values({
-      id,
-      name: input.name,
-      hostname: input.hostname,
-      tokenHash: hashDaemonToken(input.plainToken),
-      maxConcurrent: input.maxConcurrent,
-      daemonVersion: input.daemonVersion,
-      lastHeartbeatAt: now,
-      status: "online",
-      metadata: input.metadata ?? {},
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(daemonInstances)
+      .values({
+        id,
+        name: input.name,
+        hostname: input.hostname,
+        tokenHash: hashDaemonToken(input.plainToken),
+        maxConcurrent: input.maxConcurrent,
+        daemonVersion: input.daemonVersion,
+        lastHeartbeatAt: now,
+        status: "online",
+        metadata: input.metadata ?? {},
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("daemonInstance", err as Error, id);
+  }
 
-  return getDaemonById(id)!;
+  const daemon = getDaemonById(id);
+  if (!daemon) throw repositoryNotFoundError("daemonInstance", id);
+  return daemon;
 }
 
 export function getDaemonById(id: string): DaemonInstancePublic | null {
@@ -86,14 +98,18 @@ export function getDaemonByTokenHash(tokenHash: string): DaemonInstancePublic | 
 export function updateDaemonHeartbeat(id: string): DaemonInstancePublic | null {
   const db = getDb();
   const now = new Date().toISOString();
-  db.update(daemonInstances)
-    .set({
-      lastHeartbeatAt: now,
-      status: "online",
-      updatedAt: now,
-    })
-    .where(eq(daemonInstances.id, id))
-    .run();
+  try {
+    db.update(daemonInstances)
+      .set({
+        lastHeartbeatAt: now,
+        status: "online",
+        updatedAt: now,
+      })
+      .where(eq(daemonInstances.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonInstance", err as Error, id);
+  }
   return getDaemonById(id);
 }
 
@@ -103,10 +119,14 @@ export function setDaemonStatus(
 ): DaemonInstancePublic | null {
   const db = getDb();
   const now = new Date().toISOString();
-  db.update(daemonInstances)
-    .set({ status, updatedAt: now })
-    .where(eq(daemonInstances.id, id))
-    .run();
+  try {
+    db.update(daemonInstances)
+      .set({ status, updatedAt: now })
+      .where(eq(daemonInstances.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonInstance", err as Error, id);
+  }
   return getDaemonById(id);
 }
 
@@ -158,22 +178,28 @@ export function createDaemonAgent(input: CreateDaemonAgentInput): DaemonAgentRow
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(daemonAgents)
-    .values({
-      id,
-      daemonId: input.daemonId,
-      agentId: input.agentId,
-      cliType: input.cliType as any,
-      cliVersion: input.cliVersion,
-      cliPath: input.cliPath,
-      status: "idle",
-      lastSeenAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(daemonAgents)
+      .values({
+        id,
+        daemonId: input.daemonId,
+        agentId: input.agentId,
+        cliType: input.cliType as any,
+        cliVersion: input.cliVersion,
+        cliPath: input.cliPath,
+        status: "idle",
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("daemonAgent", err as Error, id);
+  }
 
-  return getDaemonAgentById(id)!;
+  const agent = getDaemonAgentById(id);
+  if (!agent) throw repositoryNotFoundError("daemonAgent", id);
+  return agent;
 }
 
 export function getDaemonAgentById(id: string): DaemonAgentRow | null {
@@ -207,10 +233,14 @@ export function updateDaemonAgentStatus(
 ): DaemonAgentRow | null {
   const db = getDb();
   const now = new Date().toISOString();
-  db.update(daemonAgents)
-    .set({ status, lastSeenAt: now, updatedAt: now })
-    .where(eq(daemonAgents.id, id))
-    .run();
+  try {
+    db.update(daemonAgents)
+      .set({ status, lastSeenAt: now, updatedAt: now })
+      .where(eq(daemonAgents.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonAgent", err as Error, id);
+  }
   return getDaemonAgentById(id);
 }
 
@@ -270,22 +300,28 @@ export function createDaemonSession(input: CreateDaemonSessionInput): DaemonSess
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(daemonSessions)
-    .values({
-      id,
-      daemonId: input.daemonId,
-      agentId: input.agentId,
-      taskId: input.taskId,
-      habitatId: input.habitatId,
-      pid: input.pid ?? null,
-      workdir: input.workdir,
-      status: "starting",
-      startedAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(daemonSessions)
+      .values({
+        id,
+        daemonId: input.daemonId,
+        agentId: input.agentId,
+        taskId: input.taskId,
+        habitatId: input.habitatId,
+        pid: input.pid ?? null,
+        workdir: input.workdir,
+        status: "starting",
+        startedAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("daemonSession", err as Error, id);
+  }
 
-  return getSessionById(id)!;
+  const session = getSessionById(id);
+  if (!session) throw repositoryNotFoundError("daemonSession", id);
+  return session;
 }
 
 export function getSessionById(id: string): DaemonSessionRow | null {
@@ -346,7 +382,11 @@ export function updateSessionStatus(
   const updates: Partial<typeof daemonSessions.$inferInsert> = { status, updatedAt: now };
   if (lastProgress !== undefined) updates.lastProgress = lastProgress;
   if (["completed", "failed", "released", "lost"].includes(status)) updates.endedAt = now;
-  db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
+  try {
+    db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonSession", err as Error, id);
+  }
   return getSessionById(id);
 }
 
@@ -362,11 +402,19 @@ export function updateSessionProgress(
   if (fields.workdir !== undefined) updates.workdir = fields.workdir as string;
   if (fields.cliSessionId !== undefined)
     updates.cliSessionId = fields.cliSessionId as string | null;
-  db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
+  try {
+    db.update(daemonSessions).set(updates).where(eq(daemonSessions.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("daemonSession", err as Error, id);
+  }
   return getSessionById(id);
 }
 
 export function deleteDaemon(id: string): void {
   const db = getDb();
-  db.delete(daemonInstances).where(eq(daemonInstances.id, id)).run();
+  try {
+    db.delete(daemonInstances).where(eq(daemonInstances.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("daemonInstance", err as Error, id);
+  }
 }

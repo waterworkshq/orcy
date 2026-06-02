@@ -1,12 +1,23 @@
-import { getDb } from '../db/index.js';
-import { reviewRules } from '../db/schema/index.js';
-import { eq, and, asc } from 'drizzle-orm';
-import type { ReviewRule, ReviewRuleCreateInput, ReviewRuleUpdateInput } from '@orcy/shared';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { reviewRules } from "../db/schema/index.js";
+import { eq, and, asc } from "drizzle-orm";
+import type { ReviewRule, ReviewRuleCreateInput, ReviewRuleUpdateInput } from "@orcy/shared";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  assertFound,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export function getByHabitatId(habitatId: string): ReviewRule[] {
   const db = getDb();
-  return db.select().from(reviewRules).where(eq(reviewRules.habitatId, habitatId)).orderBy(asc(reviewRules.priority)).all() as ReviewRule[];
+  return db
+    .select()
+    .from(reviewRules)
+    .where(eq(reviewRules.habitatId, habitatId))
+    .orderBy(asc(reviewRules.priority))
+    .all() as ReviewRule[];
 }
 
 export function getById(id: string): ReviewRule | null {
@@ -16,7 +27,9 @@ export function getById(id: string): ReviewRule | null {
 
 export function getEnabledRulesForHabitat(habitatId: string): ReviewRule[] {
   const db = getDb();
-  return db.select().from(reviewRules)
+  return db
+    .select()
+    .from(reviewRules)
     .where(and(eq(reviewRules.habitatId, habitatId), eq(reviewRules.enabled, 1)))
     .orderBy(asc(reviewRules.priority))
     .all() as ReviewRule[];
@@ -27,26 +40,30 @@ export function create(habitatId: string, input: ReviewRuleCreateInput): ReviewR
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(reviewRules).values({
-    id,
-    habitatId,
-    name: input.name,
-    enabled: input.enabled ?? 1,
-    priority: input.priority ?? 0,
-    matchDomain: input.matchDomain ?? null,
-    matchLabels: input.matchLabels ?? [],
-    matchPriority: input.matchPriority ?? null,
-    assignmentStrategy: input.assignmentStrategy ?? 'domain_expert',
-    requiredReviews: input.requiredReviews ?? 1,
-    antiSelfReview: input.antiSelfReview ?? 1,
-    fixedReviewerIds: input.fixedReviewerIds ?? [],
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(reviewRules)
+      .values({
+        id,
+        habitatId,
+        name: input.name,
+        enabled: input.enabled ?? 1,
+        priority: input.priority ?? 0,
+        matchDomain: input.matchDomain ?? null,
+        matchLabels: input.matchLabels ?? [],
+        matchPriority: input.matchPriority ?? null,
+        assignmentStrategy: input.assignmentStrategy ?? "domain_expert",
+        requiredReviews: input.requiredReviews ?? 1,
+        antiSelfReview: input.antiSelfReview ?? 1,
+        fixedReviewerIds: input.fixedReviewerIds ?? [],
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("reviewRule", err as Error, id);
+  }
 
-  const result = getById(id);
-  if (!result) throw new Error(`Failed to create reviewRule: insert succeeded but read returned null`);
-  return result;
+  return assertFound(getById(id), "reviewRule", id);
 }
 
 export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | null {
@@ -68,12 +85,20 @@ export function update(id: string, input: ReviewRuleUpdateInput): ReviewRule | n
   if (input.antiSelfReview !== undefined) values.antiSelfReview = input.antiSelfReview;
   if (input.fixedReviewerIds !== undefined) values.fixedReviewerIds = input.fixedReviewerIds;
 
-  db.update(reviewRules).set(values).where(eq(reviewRules.id, id)).run();
+  try {
+    db.update(reviewRules).set(values).where(eq(reviewRules.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("reviewRule", err as Error, id);
+  }
   return getById(id);
 }
 
 export function remove(id: string): boolean {
   const db = getDb();
-  const result = db.delete(reviewRules).where(eq(reviewRules.id, id)).run();
-  return result.changes > 0;
+  try {
+    const result = db.delete(reviewRules).where(eq(reviewRules.id, id)).run();
+    return result.changes > 0;
+  } catch (err) {
+    throw repositoryDeleteError("reviewRule", err as Error, id);
+  }
 }

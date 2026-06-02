@@ -1,10 +1,17 @@
-import { getDb } from '../db/index.js';
-import { agents, tasks } from '../db/schema/index.js';
-import { eq, and, not, lt, sql, inArray } from 'drizzle-orm';
+import { getDb } from "../db/index.js";
+import { agents, tasks } from "../db/schema/index.js";
+import { eq, and, not, lt, sql, inArray } from "drizzle-orm";
 
-import type { Agent, AgentType, AgentDomain, AgentStatus } from '../models/index.js';
-import { v4 as uuid } from 'uuid';
-import { createHash, randomBytes } from 'crypto';
+import type { Agent, AgentType, AgentDomain, AgentStatus } from "../models/index.js";
+import { v4 as uuid } from "uuid";
+import { createHash, randomBytes } from "crypto";
+import {
+  repositoryCreateError,
+  assertFound,
+  repositoryUpdateError,
+  repositoryDeleteError,
+  repositoryTransactionError,
+} from "../errors/repository.js";
 
 export interface CreateAgentInput {
   name: string;
@@ -24,7 +31,7 @@ export interface UpdateAgentInput {
   rateLimitPerMinute?: number | null;
 }
 
-type AgentPublic = Omit<Agent, 'apiKeyHash'>;
+type AgentPublic = Omit<Agent, "apiKeyHash">;
 
 const agentPublicFields = {
   id: agents.id,
@@ -44,24 +51,29 @@ export function createAgent(input: CreateAgentInput): { agent: AgentPublic; plai
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
-  const plainApiKey = `${id}-${randomBytes(16).toString('hex')}`;
+  const plainApiKey = `${id}-${randomBytes(16).toString("hex")}`;
   const apiKeyHash = hashApiKey(plainApiKey);
 
-  db.insert(agents).values({
-    id,
-    name: input.name,
-    type: input.type,
-    domain: input.domain,
-    capabilities: input.capabilities ?? [],
-    status: 'idle',
-    apiKey: apiKeyHash,
-    createdAt: now,
-    lastHeartbeat: now,
-    metadata: input.metadata ?? {},
-  }).run();
+  try {
+    db.insert(agents)
+      .values({
+        id,
+        name: input.name,
+        type: input.type,
+        domain: input.domain,
+        capabilities: input.capabilities ?? [],
+        status: "idle",
+        apiKey: apiKeyHash,
+        createdAt: now,
+        lastHeartbeat: now,
+        metadata: input.metadata ?? {},
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("agent", err as Error, id);
+  }
 
-  const agent = getAgentById(id)!;
-  return { agent, plainApiKey };
+  return { agent: assertFound(getAgentById(id), "agent", id), plainApiKey };
 }
 
 export function getAgentById(id: string): AgentPublic | null {
@@ -72,7 +84,11 @@ export function getAgentById(id: string): AgentPublic | null {
 
 export function listAgents(): AgentPublic[] {
   const db = getDb();
-  return db.select(agentPublicFields).from(agents).orderBy(sql`${agents.createdAt} DESC`).all();
+  return db
+    .select(agentPublicFields)
+    .from(agents)
+    .orderBy(sql`${agents.createdAt} DESC`)
+    .all();
 }
 
 export function getAgentByName(name: string): AgentPublic | null {
@@ -102,7 +118,11 @@ export function updateAgent(id: string, input: UpdateAgentInput): AgentPublic | 
 
   if (Object.keys(updates).length === 0) return getAgentById(id);
 
-  db.update(agents).set(updates).where(eq(agents.id, id)).run();
+  try {
+    db.update(agents).set(updates).where(eq(agents.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("agent", err as Error, id);
+  }
   return getAgentById(id);
 }
 
@@ -110,35 +130,52 @@ export function deleteAgent(id: string): void {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.transaction((tx) => {
-    tx.update(tasks).set({
-      assignedAgentId: null,
-      status: 'pending',
-      updatedAt: now,
-    }).where(
-      and(eq(tasks.assignedAgentId, id), inArray(tasks.status, ['claimed', 'in_progress']))
-    ).run();
+  try {
+    db.transaction((tx) => {
+      tx.update(tasks)
+        .set({
+          assignedAgentId: null,
+          status: "pending",
+          updatedAt: now,
+        })
+        .where(
+          and(eq(tasks.assignedAgentId, id), inArray(tasks.status, ["claimed", "in_progress"])),
+        )
+        .run();
 
-    tx.delete(agents).where(eq(agents.id, id)).run();
-  });
+      tx.delete(agents).where(eq(agents.id, id)).run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("agent", err as Error, id);
+  }
 }
 
 export function heartbeat(agentId: string, taskId?: string): AgentPublic | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  if (taskId) {
-    db.update(agents).set({
-      lastHeartbeat: now,
-      currentTaskId: taskId,
-      status: 'working',
-    }).where(eq(agents.id, agentId)).run();
-  } else {
-    db.update(agents).set({
-      lastHeartbeat: now,
-      status: 'idle',
-      currentTaskId: null,
-    }).where(eq(agents.id, agentId)).run();
+  try {
+    if (taskId) {
+      db.update(agents)
+        .set({
+          lastHeartbeat: now,
+          currentTaskId: taskId,
+          status: "working",
+        })
+        .where(eq(agents.id, agentId))
+        .run();
+    } else {
+      db.update(agents)
+        .set({
+          lastHeartbeat: now,
+          status: "idle",
+          currentTaskId: null,
+        })
+        .where(eq(agents.id, agentId))
+        .run();
+    }
+  } catch (err) {
+    throw repositoryUpdateError("agent", err as Error, agentId);
   }
 
   return getAgentById(agentId);
@@ -147,19 +184,28 @@ export function heartbeat(agentId: string, taskId?: string): AgentPublic | null 
 export function getStaleAgents(thresholdMinutes: number = 30): AgentPublic[] {
   const db = getDb();
   const threshold = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
-  return db.select(agentPublicFields).from(agents).where(
-    and(lt(agents.lastHeartbeat, threshold), not(eq(agents.status, 'offline')))
-  ).all();
+  return db
+    .select(agentPublicFields)
+    .from(agents)
+    .where(and(lt(agents.lastHeartbeat, threshold), not(eq(agents.status, "offline"))))
+    .all();
 }
 
 export function setAgentOffline(agentId: string): void {
   const db = getDb();
-  db.update(agents).set({
-    status: 'offline',
-    currentTaskId: null,
-  }).where(eq(agents.id, agentId)).run();
+  try {
+    db.update(agents)
+      .set({
+        status: "offline",
+        currentTaskId: null,
+      })
+      .where(eq(agents.id, agentId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("agent", err as Error, agentId);
+  }
 }
 
 export function hashApiKey(key: string): string {
-  return createHash('sha256').update(key).digest('hex');
+  return createHash("sha256").update(key).digest("hex");
 }

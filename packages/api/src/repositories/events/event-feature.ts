@@ -1,8 +1,14 @@
-import { getDb } from '../../db/index.js';
-import { missionEvents, missions } from '../../db/schema/index.js';
-import { eq, count, desc, inArray } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import type { MissionEvent, ActorType, MissionEventAction, MissionStatus } from '../../models/index.js';
+import { getDb } from "../../db/index.js";
+import { missionEvents, missions } from "../../db/schema/index.js";
+import { eq, count, desc, inArray } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import type {
+  MissionEvent,
+  ActorType,
+  MissionEventAction,
+  MissionStatus,
+} from "../../models/index.js";
+import { repositoryCreateError, repositoryNotFoundError } from "../../errors/repository.js";
 
 export interface CreateMissionEventInput {
   missionId: string;
@@ -21,32 +27,34 @@ export function createMissionEvent(input: CreateMissionEventInput): MissionEvent
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(missionEvents)
-    .values({
-      id,
-      missionId: input.missionId,
-      actorType: input.actorType,
-      actorId: input.actorId,
-      action: input.action,
-      fromColumnId: input.fromColumnId ?? null,
-      toColumnId: input.toColumnId ?? null,
-      fromStatus: input.fromStatus ?? null,
-      toStatus: input.toStatus ?? null,
-      metadata: input.metadata ?? {},
-      timestamp: now,
-    })
-    .run();
+  try {
+    db.insert(missionEvents)
+      .values({
+        id,
+        missionId: input.missionId,
+        actorType: input.actorType,
+        actorId: input.actorId,
+        action: input.action,
+        fromColumnId: input.fromColumnId ?? null,
+        toColumnId: input.toColumnId ?? null,
+        fromStatus: input.fromStatus ?? null,
+        toStatus: input.toStatus ?? null,
+        metadata: input.metadata ?? {},
+        timestamp: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("missionEvent", err as Error, id);
+  }
 
-  return getMissionEventById(id)!;
+  const event = getMissionEventById(id);
+  if (!event) throw repositoryNotFoundError("missionEvent", id);
+  return event;
 }
 
 export function getMissionEventById(id: string): MissionEvent | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(missionEvents)
-    .where(eq(missionEvents.id, id))
-    .get();
+  const row = db.select().from(missionEvents).where(eq(missionEvents.id, id)).get();
   return (row as MissionEvent) ?? null;
 }
 
@@ -86,7 +94,7 @@ export function getMissionEventsByHabitatId(
     .from(missions)
     .where(eq(missions.habitatId, habitatId))
     .all()
-    .map(r => r.id);
+    .map((r) => r.id);
 
   if (missionIds.length === 0) return { events: [], total: 0 };
 

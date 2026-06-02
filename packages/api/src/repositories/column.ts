@@ -1,8 +1,14 @@
-import { getDb } from '../db/index.js';
-import { columns, missions } from '../db/schema/index.js';
-import { eq, and, max, count } from 'drizzle-orm';
-import type { Column } from '../models/index.js';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { columns, missions } from "../db/schema/index.js";
+import { eq, and, max, count } from "drizzle-orm";
+import type { Column } from "../models/index.js";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export interface CreateColumnInput {
   habitatId: string;
@@ -39,28 +45,32 @@ export function createColumn(input: CreateColumnInput): Column {
     order = (result?.maxOrder ?? -1) + 1;
   }
 
-  db.insert(columns).values({
-    id,
-    habitatId: input.habitatId,
-    name: input.name,
-    order,
-    wipLimit: input.wipLimit ?? null,
-    autoAdvance: input.autoAdvance ?? false,
-    requiresClaim: input.requiresClaim !== false,
-    nextColumnId: input.nextColumnId ?? null,
-    isTerminal: input.isTerminal ?? false,
-  }).run();
+  try {
+    db.insert(columns)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        name: input.name,
+        order,
+        wipLimit: input.wipLimit ?? null,
+        autoAdvance: input.autoAdvance ?? false,
+        requiresClaim: input.requiresClaim !== false,
+        nextColumnId: input.nextColumnId ?? null,
+        isTerminal: input.isTerminal ?? false,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("column", err as Error, id);
+  }
 
-  return getColumnById(id)!;
+  const column = getColumnById(id);
+  if (!column) throw repositoryNotFoundError("column", id);
+  return column;
 }
 
 export function getColumnById(id: string): Column | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(columns)
-    .where(eq(columns.id, id))
-    .get();
+  const row = db.select().from(columns).where(eq(columns.id, id)).get();
   return row ?? null;
 }
 
@@ -98,10 +108,11 @@ export function updateColumn(id: string, input: UpdateColumnInput): Column | nul
 
   if (Object.keys(values).length === 0) return getColumnById(id);
 
-  db.update(columns)
-    .set(values)
-    .where(eq(columns.id, id))
-    .run();
+  try {
+    db.update(columns).set(values).where(eq(columns.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("column", err as Error, id);
+  }
   return getColumnById(id);
 }
 
@@ -116,13 +127,17 @@ export function deleteColumn(id: string): boolean {
   }
 
   const allColumns = getColumnsByHabitatId(column.habitatId);
-  const predecessor = allColumns.find(c => c.nextColumnId === id);
+  const predecessor = allColumns.find((c) => c.nextColumnId === id);
 
   if (predecessor) {
     updateColumn(predecessor.id, { nextColumnId: column.nextColumnId });
   }
 
-  db.delete(columns).where(eq(columns.id, id)).run();
+  try {
+    db.delete(columns).where(eq(columns.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("column", err as Error, id);
+  }
   return true;
 }
 

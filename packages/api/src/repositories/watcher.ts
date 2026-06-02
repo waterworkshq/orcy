@@ -1,16 +1,18 @@
-import { getDb } from '../db/index.js';
-import { taskWatchers } from '../db/schema/index.js';
-import { eq, and, asc, desc } from 'drizzle-orm';
-import type { TaskWatcher } from '../models/index.js';
+import { getDb } from "../db/index.js";
+import { taskWatchers } from "../db/schema/index.js";
+import { eq, and, asc, desc } from "drizzle-orm";
+import type { TaskWatcher } from "../models/index.js";
+import { repositoryCreateError, repositoryDeleteError } from "../errors/repository.js";
 
 export function addWatcher(taskId: string, userId: string): TaskWatcher {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.insert(taskWatchers)
-    .values({ taskId, userId, createdAt: now })
-    .onConflictDoNothing()
-    .run();
+  try {
+    db.insert(taskWatchers).values({ taskId, userId, createdAt: now }).onConflictDoNothing().run();
+  } catch (err) {
+    throw repositoryCreateError("watcher", err as Error, `${taskId}:${userId}`);
+  }
 
   return { taskId, userId, createdAt: now };
 }
@@ -25,9 +27,13 @@ export function removeWatcher(taskId: string, userId: string): boolean {
 
   if (!existing) return false;
 
-  db.delete(taskWatchers)
-    .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.userId, userId)))
-    .run();
+  try {
+    db.delete(taskWatchers)
+      .where(and(eq(taskWatchers.taskId, taskId), eq(taskWatchers.userId, userId)))
+      .run();
+  } catch (err) {
+    throw repositoryDeleteError("watcher", err as Error, `${taskId}:${userId}`);
+  }
   return true;
 }
 
@@ -73,7 +79,9 @@ export function getWatchedTasksForUser(userId: string): TaskWatcher[] {
 
 export function removeWatchersForTask(taskId: string): void {
   const db = getDb();
-  db.delete(taskWatchers)
-    .where(eq(taskWatchers.taskId, taskId))
-    .run();
+  try {
+    db.delete(taskWatchers).where(eq(taskWatchers.taskId, taskId)).run();
+  } catch (err) {
+    throw repositoryDeleteError("watcher", err as Error, taskId);
+  }
 }

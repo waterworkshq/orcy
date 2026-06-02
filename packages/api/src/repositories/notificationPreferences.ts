@@ -1,7 +1,8 @@
-import { getDb } from '../db/index.js';
-import { notificationPreferences } from '../db/schema/index.js';
-import { eq, isNull, and } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
+import { getDb } from "../db/index.js";
+import { notificationPreferences } from "../db/schema/index.js";
+import { eq, isNull, and } from "drizzle-orm";
+import { v4 as uuidv4 } from "uuid";
+import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 
 export interface NotificationPreferences {
   id: string;
@@ -37,12 +38,26 @@ export function getPreferences(userId: string, habitatId?: string | null): Notif
   const now = new Date().toISOString();
 
   const rows = habitatId
-    ? db.select().from(notificationPreferences).where(
-        and(eq(notificationPreferences.userId, userId), eq(notificationPreferences.habitatId, habitatId))
-      ).all()
-    : db.select().from(notificationPreferences).where(
-        and(eq(notificationPreferences.userId, userId), isNull(notificationPreferences.habitatId))
-      ).all();
+    ? db
+        .select()
+        .from(notificationPreferences)
+        .where(
+          and(
+            eq(notificationPreferences.userId, userId),
+            eq(notificationPreferences.habitatId, habitatId),
+          ),
+        )
+        .all()
+    : db
+        .select()
+        .from(notificationPreferences)
+        .where(
+          and(
+            eq(notificationPreferences.userId, userId),
+            isNull(notificationPreferences.habitatId),
+          ),
+        )
+        .all();
 
   if (rows.length > 0) {
     const row = rows[0];
@@ -66,14 +81,20 @@ export function getPreferences(userId: string, habitatId?: string | null): Notif
 
   const id = uuidv4();
   const habitatIdVal = habitatId ?? null;
-  db.insert(notificationPreferences).values({
-    id,
-    userId,
-    habitatId: habitatIdVal,
-    ...DEFAULT_PREFS,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(notificationPreferences)
+      .values({
+        id,
+        userId,
+        habitatId: habitatIdVal,
+        ...DEFAULT_PREFS,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("notificationPreference", err as Error, id);
+  }
 
   return {
     id,
@@ -96,7 +117,9 @@ export function getPreferences(userId: string, habitatId?: string | null): Notif
 export function upsertPreferences(
   userId: string,
   habitatId: string | null | undefined,
-  updates: Partial<Omit<NotificationPreferences, 'id' | 'userId' | 'habitatId' | 'createdAt' | 'updatedAt'>>
+  updates: Partial<
+    Omit<NotificationPreferences, "id" | "userId" | "habitatId" | "createdAt" | "updatedAt">
+  >,
 ): NotificationPreferences {
   const db = getDb();
   const now = new Date().toISOString();
@@ -114,18 +137,21 @@ export function upsertPreferences(
     taskPriorityChanged: updates.taskPriorityChanged ?? existing.taskPriorityChanged,
   };
 
-  db.update(notificationPreferences).set({
-    taskAssigned: merged.taskAssigned ? 1 : 0,
-    taskSubmitted: merged.taskSubmitted ? 1 : 0,
-    taskApproved: merged.taskApproved ? 1 : 0,
-    taskRejected: merged.taskRejected ? 1 : 0,
-    taskOverdue: merged.taskOverdue ? 1 : 0,
-    taskMentioned: merged.taskMentioned ? 1 : 0,
-    taskWatching: merged.taskWatching ? 1 : 0,
-    taskReviewAssigned: merged.taskReviewAssigned ? 1 : 0,
-    taskPriorityChanged: merged.taskPriorityChanged ? 1 : 0,
-    updatedAt: now,
-  }).where(eq(notificationPreferences.id, existing.id)).run();
+  db.update(notificationPreferences)
+    .set({
+      taskAssigned: merged.taskAssigned ? 1 : 0,
+      taskSubmitted: merged.taskSubmitted ? 1 : 0,
+      taskApproved: merged.taskApproved ? 1 : 0,
+      taskRejected: merged.taskRejected ? 1 : 0,
+      taskOverdue: merged.taskOverdue ? 1 : 0,
+      taskMentioned: merged.taskMentioned ? 1 : 0,
+      taskWatching: merged.taskWatching ? 1 : 0,
+      taskReviewAssigned: merged.taskReviewAssigned ? 1 : 0,
+      taskPriorityChanged: merged.taskPriorityChanged ? 1 : 0,
+      updatedAt: now,
+    })
+    .where(eq(notificationPreferences.id, existing.id))
+    .run();
 
   return {
     ...existing,

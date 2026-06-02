@@ -1,6 +1,7 @@
-import { getDb } from '../db/index.js';
-import { users } from '../db/schema/index.js';
-import { eq, sql } from 'drizzle-orm';
+import { getDb } from "../db/index.js";
+import { users } from "../db/schema/index.js";
+import { eq, sql } from "drizzle-orm";
+import { repositoryUpdateError } from "../errors/repository.js";
 
 export interface UserLookup {
   id: string;
@@ -14,12 +15,25 @@ export function findUsersByUsernamesCaseInsensitive(usernames: string[]): UserLo
   const rows = db
     .select({ id: users.id, username: users.username })
     .from(users)
-    .where(sql`LOWER(${users.username}) IN (${sql.join(normalized.map(n => sql`${n}`), sql`, `)})`)
+    .where(
+      sql`LOWER(${users.username}) IN (${sql.join(
+        normalized.map((n) => sql`${n}`),
+        sql`, `,
+      )})`,
+    )
     .all();
   return rows;
 }
 
-export function getUserById(userId: string): { id: string; username: string; displayName: string; email: string | null; role: string } | null {
+export function getUserById(
+  userId: string,
+): {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string | null;
+  role: string;
+} | null {
   const db = getDb();
   const row = db
     .select({
@@ -38,8 +52,12 @@ export function getUserById(userId: string): { id: string; username: string; dis
 export function updateUserEmail(userId: string, email: string): void {
   const db = getDb();
   const now = new Date().toISOString();
-  db.update(users)
-    .set({ email: email || null, updatedAt: now })
-    .where(eq(users.id, userId))
-    .run();
+  try {
+    db.update(users)
+      .set({ email: email || null, updatedAt: now })
+      .where(eq(users.id, userId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("user", err as Error, userId);
+  }
 }

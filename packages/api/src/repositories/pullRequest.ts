@@ -3,6 +3,12 @@ import { pullRequests } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { PullRequest } from "../models/index.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export function createPullRequest(pr: {
   taskId: string;
@@ -19,26 +25,30 @@ export function createPullRequest(pr: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(pullRequests)
-    .values({
-      id,
-      taskId: pr.taskId,
-      provider: pr.provider,
-      repo: pr.repo,
-      prNumber: pr.prNumber,
-      prTitle: pr.prTitle ?? null,
-      prUrl: pr.prUrl,
-      branchName: pr.branchName ?? null,
-      state: pr.state ?? "open",
-      reviewStatus: pr.reviewStatus ?? "pending",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(pullRequests)
+      .values({
+        id,
+        taskId: pr.taskId,
+        provider: pr.provider,
+        repo: pr.repo,
+        prNumber: pr.prNumber,
+        prTitle: pr.prTitle ?? null,
+        prUrl: pr.prUrl,
+        branchName: pr.branchName ?? null,
+        state: pr.state ?? "open",
+        reviewStatus: pr.reviewStatus ?? "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("pullRequest", err as Error, id);
+  }
 
   const created = getById(id);
   if (!created) {
-    throw new Error(`Failed to retrieve pull_request after insert: id=${id}`);
+    throw repositoryNotFoundError("pullRequest", id);
   }
   return created;
 }
@@ -106,7 +116,11 @@ export function updatePullRequest(
   if (updates.state !== undefined) setValues.state = updates.state;
   if (updates.reviewStatus !== undefined) setValues.reviewStatus = updates.reviewStatus;
 
-  db.update(pullRequests).set(setValues).where(eq(pullRequests.id, id)).run();
+  try {
+    db.update(pullRequests).set(setValues).where(eq(pullRequests.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("pullRequest", err as Error, id);
+  }
   return getById(id);
 }
 
@@ -114,7 +128,11 @@ export function deleteByTaskId(taskId: string): boolean {
   const db = getDb();
   const existing = db.select().from(pullRequests).where(eq(pullRequests.taskId, taskId)).all();
   if (existing.length === 0) return false;
-  db.delete(pullRequests).where(eq(pullRequests.taskId, taskId)).run();
+  try {
+    db.delete(pullRequests).where(eq(pullRequests.taskId, taskId)).run();
+  } catch (err) {
+    throw repositoryDeleteError("pullRequest", err as Error, taskId);
+  }
   return true;
 }
 

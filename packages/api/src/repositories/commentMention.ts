@@ -1,27 +1,34 @@
-import { v4 as uuid } from 'uuid';
-import { getDb } from '../db/index.js';
-import { taskCommentMentions } from '../db/schema/index.js';
-import { inArray, asc } from 'drizzle-orm';
-import type { TaskCommentMention } from '../models/index.js';
+import { v4 as uuid } from "uuid";
+import { getDb } from "../db/index.js";
+import { taskCommentMentions } from "../db/schema/index.js";
+import { inArray, asc } from "drizzle-orm";
+import type { TaskCommentMention } from "../models/index.js";
+import { repositoryCreateError } from "../errors/repository.js";
 
-export function createMentions(input: Array<Omit<TaskCommentMention, 'id' | 'createdAt' | 'mentionedName'>>): TaskCommentMention[] {
+export function createMentions(
+  input: Array<Omit<TaskCommentMention, "id" | "createdAt" | "mentionedName">>,
+): TaskCommentMention[] {
   const db = getDb();
   const now = new Date().toISOString();
 
   const created: TaskCommentMention[] = [];
   for (const item of input) {
     const id = uuid();
-    db.insert(taskCommentMentions)
-      .values({
-        id,
-        commentId: item.commentId,
-        mentionedType: item.mentionedType,
-        mentionedId: item.mentionedId,
-        mentionText: item.mentionText,
-        createdAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
+    try {
+      db.insert(taskCommentMentions)
+        .values({
+          id,
+          commentId: item.commentId,
+          mentionedType: item.mentionedType,
+          mentionedId: item.mentionedId,
+          mentionText: item.mentionText,
+          createdAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+    } catch (err) {
+      throw repositoryCreateError("commentMention", err as Error, id);
+    }
     created.push({ ...item, id, createdAt: now });
   }
   return created;

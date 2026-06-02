@@ -1,8 +1,17 @@
-import { getDb } from '../db/index.js';
-import { integrationSyncRuns } from '../db/schema/index.js';
-import { eq, desc } from 'drizzle-orm';
-import type { IntegrationSyncRun, IntegrationSyncRunStatus, IntegrationSyncTrigger } from '@orcy/shared';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { integrationSyncRuns } from "../db/schema/index.js";
+import { eq, desc } from "drizzle-orm";
+import type {
+  IntegrationSyncRun,
+  IntegrationSyncRunStatus,
+  IntegrationSyncTrigger,
+} from "@orcy/shared";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+} from "../errors/repository.js";
 
 export function create(input: {
   connectionId: string;
@@ -13,39 +22,48 @@ export function create(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(integrationSyncRuns).values({
-    id,
-    connectionId: input.connectionId,
-    habitatId: input.habitatId,
-    trigger: input.trigger,
-    status: 'running',
-    startedAt: now,
-    finishedAt: null,
-    createdCount: 0,
-    updatedCount: 0,
-    skippedCount: 0,
-    failedCount: 0,
-    error: null,
-  }).run();
+  db.insert(integrationSyncRuns)
+    .values({
+      id,
+      connectionId: input.connectionId,
+      habitatId: input.habitatId,
+      trigger: input.trigger,
+      status: "running",
+      startedAt: now,
+      finishedAt: null,
+      createdCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      error: null,
+    })
+    .run();
 
   const result = getById(id);
-  if (!result) throw new Error('Failed to create integration sync run');
+  if (!result) throw new Error("Failed to create integration sync run");
   return result;
 }
 
 export function getById(id: string): IntegrationSyncRun | null {
   const db = getDb();
-  return db.select().from(integrationSyncRuns).where(eq(integrationSyncRuns.id, id)).get() as IntegrationSyncRun | null;
+  return db
+    .select()
+    .from(integrationSyncRuns)
+    .where(eq(integrationSyncRuns.id, id))
+    .get() as IntegrationSyncRun | null;
 }
 
-export function finish(id: string, input: {
-  status: IntegrationSyncRunStatus;
-  createdCount?: number;
-  updatedCount?: number;
-  skippedCount?: number;
-  failedCount?: number;
-  error?: string | null;
-}): IntegrationSyncRun | null {
+export function finish(
+  id: string,
+  input: {
+    status: IntegrationSyncRunStatus;
+    createdCount?: number;
+    updatedCount?: number;
+    skippedCount?: number;
+    failedCount?: number;
+    error?: string | null;
+  },
+): IntegrationSyncRun | null {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -62,13 +80,19 @@ export function finish(id: string, input: {
   if (input.failedCount !== undefined) values.failedCount = input.failedCount;
   if (input.error !== undefined) values.error = input.error;
 
-  db.update(integrationSyncRuns).set(values).where(eq(integrationSyncRuns.id, id)).run();
+  try {
+    db.update(integrationSyncRuns).set(values).where(eq(integrationSyncRuns.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("integrationSyncRun", err as Error, id);
+  }
   return getById(id);
 }
 
 export function listByConnectionId(connectionId: string, limit = 20): IntegrationSyncRun[] {
   const db = getDb();
-  return db.select().from(integrationSyncRuns)
+  return db
+    .select()
+    .from(integrationSyncRuns)
     .where(eq(integrationSyncRuns.connectionId, connectionId))
     .orderBy(desc(integrationSyncRuns.startedAt))
     .limit(limit)

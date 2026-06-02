@@ -1,8 +1,13 @@
-import { getDb } from '../db/index.js';
-import { projectInsights } from '../db/schema/index.js';
-import { eq, and, count, desc, sql } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import type { SignalType } from './pulse.js';
+import { getDb } from "../db/index.js";
+import { projectInsights } from "../db/schema/index.js";
+import { eq, and, count, desc, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import type { SignalType } from "./pulse.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+} from "../errors/repository.js";
 
 export interface ProjectInsight {
   id: string;
@@ -59,22 +64,30 @@ export function createInsight(input: CreateInsightInput): ProjectInsight {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(projectInsights).values({
-    id,
-    habitatId: input.habitatId,
-    sourcePulseId: input.sourcePulseId ?? null,
-    sourceMission: input.sourceMission ?? null,
-    signalType: input.signalType,
-    subject: input.subject,
-    body: input.body ?? '',
-    relevanceTags: input.relevanceTags ?? [],
-    promotedBy: input.promotedBy,
-    promotedAt: now,
-    isActive: true,
-    createdAt: now,
-  }).run();
+  try {
+    db.insert(projectInsights)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        sourcePulseId: input.sourcePulseId ?? null,
+        sourceMission: input.sourceMission ?? null,
+        signalType: input.signalType,
+        subject: input.subject,
+        body: input.body ?? "",
+        relevanceTags: input.relevanceTags ?? [],
+        promotedBy: input.promotedBy,
+        promotedAt: now,
+        isActive: true,
+        createdAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("insight", err as Error, id);
+  }
 
-  return getInsightById(id)!;
+  const insight = getInsightById(id);
+  if (!insight) throw repositoryNotFoundError("insight", id);
+  return insight;
 }
 
 export function getInsightById(id: string): ProjectInsight | null {
@@ -83,7 +96,10 @@ export function getInsightById(id: string): ProjectInsight | null {
   return rows.length > 0 ? rowToInsight(rows[0]) : null;
 }
 
-export function getInsightsByHabitat(habitatId: string, filters?: InsightFilters): { insights: ProjectInsight[]; total: number } {
+export function getInsightsByHabitat(
+  habitatId: string,
+  filters?: InsightFilters,
+): { insights: ProjectInsight[]; total: number } {
   const db = getDb();
   const conditions = [eq(projectInsights.habitatId, habitatId)];
 
@@ -102,7 +118,9 @@ export function getInsightsByHabitat(habitatId: string, filters?: InsightFilters
   const limit = filters?.limit ?? 50;
   const offset = filters?.offset ?? 0;
 
-  const rows = db.select().from(projectInsights)
+  const rows = db
+    .select()
+    .from(projectInsights)
     .where(where)
     .orderBy(desc(projectInsights.promotedAt))
     .limit(limit)
@@ -117,25 +135,40 @@ export function deactivateInsight(id: string): boolean {
   const insight = getInsightById(id);
   if (!insight) return false;
 
-  db.update(projectInsights).set({ isActive: false }).where(eq(projectInsights.id, id)).run();
+  try {
+    db.update(projectInsights).set({ isActive: false }).where(eq(projectInsights.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("insight", err as Error, id);
+  }
   return true;
 }
 
-export function getRelevantInsights(habitatId: string, tags: string[], limit = 5): ProjectInsight[] {
+export function getRelevantInsights(
+  habitatId: string,
+  tags: string[],
+  limit = 5,
+): ProjectInsight[] {
   if (tags.length === 0) return [];
   const db = getDb();
 
   const tagConditions = sql.join(
-    tags.map(t => sql`EXISTS (SELECT 1 FROM json_each(${projectInsights.relevanceTags}) WHERE value = ${t})`),
+    tags.map(
+      (t) =>
+        sql`EXISTS (SELECT 1 FROM json_each(${projectInsights.relevanceTags}) WHERE value = ${t})`,
+    ),
     sql` OR `,
   );
 
-  const rows = db.select().from(projectInsights)
-    .where(and(
-      eq(projectInsights.habitatId, habitatId),
-      eq(projectInsights.isActive, true),
-      tagConditions,
-    ))
+  const rows = db
+    .select()
+    .from(projectInsights)
+    .where(
+      and(
+        eq(projectInsights.habitatId, habitatId),
+        eq(projectInsights.isActive, true),
+        tagConditions,
+      ),
+    )
     .limit(limit)
     .all();
 

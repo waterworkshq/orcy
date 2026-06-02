@@ -3,6 +3,11 @@ import { taskTimeRecords, tasks, missions, agents, effortEntries } from "../db/s
 import { eq, and, sql, count, isNotNull, notInArray, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { TaskTimeRecord, HabitatMetrics } from "../models/index.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+} from "../errors/repository.js";
 
 const DEFAULT_TIME_RECORD_LIST_LIMIT = 1000;
 
@@ -16,20 +21,24 @@ export function createTimeRecord(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(taskTimeRecords)
-    .values({
-      id,
-      taskId: input.taskId,
-      agentId: input.agentId ?? null,
-      minutesSpent: input.minutesSpent,
-      recordedAt: now,
-      statusDuringWork: input.statusDuringWork,
-    })
-    .run();
+  try {
+    db.insert(taskTimeRecords)
+      .values({
+        id,
+        taskId: input.taskId,
+        agentId: input.agentId ?? null,
+        minutesSpent: input.minutesSpent,
+        recordedAt: now,
+        statusDuringWork: input.statusDuringWork,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("taskTimeRecord", err as Error, id);
+  }
 
   const created = getTimeRecordById(id);
   if (!created) {
-    throw new Error(`Failed to retrieve task_time_record after insert: id=${id}`);
+    throw repositoryNotFoundError("taskTimeRecord", id);
   }
   return created;
 }
@@ -298,14 +307,18 @@ export function recalculateMissionMetrics(missionId: string): void {
     missionTasks.length > 0 &&
     missionTasks.every((t) => t.status === "done" || t.status === "approved");
 
-  db.update(missions)
-    .set({
-      actualMinutes: actualSum,
-      plannedMinutes: plannedSum,
-      planningAccuracy,
-      completedAt: allDone ? new Date().toISOString() : null,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(missions.id, missionId))
-    .run();
+  try {
+    db.update(missions)
+      .set({
+        actualMinutes: actualSum,
+        plannedMinutes: plannedSum,
+        planningAccuracy,
+        completedAt: allDone ? new Date().toISOString() : null,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(missions.id, missionId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("mission", err as Error, missionId);
+  }
 }

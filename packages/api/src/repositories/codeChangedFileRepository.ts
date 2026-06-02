@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { codeChangedFiles } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import { repositoryCreateError } from "../errors/repository.js";
 
 const DEFAULT_CHANGED_FILE_LIST_LIMIT = 500;
 
@@ -30,38 +31,10 @@ export function create(input: {
   const id = uuid();
   const now = input.capturedAt ?? new Date().toISOString();
 
-  db.insert(codeChangedFiles)
-    .values({
-      id,
-      repositoryId: input.repositoryId ?? null,
-      commitId: input.commitId ?? null,
-      pullRequestId: input.pullRequestId ?? null,
-      provider: input.provider,
-      repoSlug: input.repoSlug ?? null,
-      path: input.path,
-      previousPath: input.previousPath ?? null,
-      changeType: input.changeType,
-      additions: input.additions ?? null,
-      deletions: input.deletions ?? null,
-      source: input.source,
-      capturedAt: now,
-      metadata: input.metadata ?? {},
-    })
-    .run();
-
-  return getById(id);
-}
-
-export function createMany(files: Array<Parameters<typeof create>[0]>) {
-  if (files.length === 0) return;
-
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  db.insert(codeChangedFiles)
-    .values(
-      files.map((input) => ({
-        id: uuid(),
+  try {
+    db.insert(codeChangedFiles)
+      .values({
+        id,
         repositoryId: input.repositoryId ?? null,
         commitId: input.commitId ?? null,
         pullRequestId: input.pullRequestId ?? null,
@@ -73,11 +46,47 @@ export function createMany(files: Array<Parameters<typeof create>[0]>) {
         additions: input.additions ?? null,
         deletions: input.deletions ?? null,
         source: input.source,
-        capturedAt: input.capturedAt ?? now,
+        capturedAt: now,
         metadata: input.metadata ?? {},
-      })),
-    )
-    .run();
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeChangedFile", err as Error, id);
+  }
+
+  return getById(id);
+}
+
+export function createMany(files: Array<Parameters<typeof create>[0]>) {
+  if (files.length === 0) return;
+
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  try {
+    db.insert(codeChangedFiles)
+      .values(
+        files.map((input) => ({
+          id: uuid(),
+          repositoryId: input.repositoryId ?? null,
+          commitId: input.commitId ?? null,
+          pullRequestId: input.pullRequestId ?? null,
+          provider: input.provider,
+          repoSlug: input.repoSlug ?? null,
+          path: input.path,
+          previousPath: input.previousPath ?? null,
+          changeType: input.changeType,
+          additions: input.additions ?? null,
+          deletions: input.deletions ?? null,
+          source: input.source,
+          capturedAt: input.capturedAt ?? now,
+          metadata: input.metadata ?? {},
+        })),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeChangedFile", err as Error, `batch:${files.length}`);
+  }
 }
 
 export function getByCommitId(commitId: string, options?: { limit?: number }) {

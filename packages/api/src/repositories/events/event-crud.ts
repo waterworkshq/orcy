@@ -1,8 +1,9 @@
-import { getDb } from '../../db/index.js';
-import { taskEvents } from '../../db/schema/index.js';
-import { eq, and, count, asc, desc } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import type { TaskEvent, ActorType, EventAction, TaskStatus } from '../../models/index.js';
+import { getDb } from "../../db/index.js";
+import { taskEvents } from "../../db/schema/index.js";
+import { eq, and, count, asc, desc } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import type { TaskEvent, ActorType, EventAction, TaskStatus } from "../../models/index.js";
+import { repositoryCreateError, repositoryNotFoundError } from "../../errors/repository.js";
 
 export interface CreateEventInput {
   taskId: string;
@@ -21,32 +22,34 @@ export function createEvent(input: CreateEventInput): TaskEvent {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(taskEvents)
-    .values({
-      id,
-      taskId: input.taskId,
-      actorType: input.actorType,
-      actorId: input.actorId,
-      action: input.action,
-      fromColumnId: input.fromColumnId ?? null,
-      toColumnId: input.toColumnId ?? null,
-      fromStatus: input.fromStatus ?? null,
-      toStatus: input.toStatus ?? null,
-      metadata: input.metadata ?? {},
-      timestamp: now,
-    })
-    .run();
+  try {
+    db.insert(taskEvents)
+      .values({
+        id,
+        taskId: input.taskId,
+        actorType: input.actorType,
+        actorId: input.actorId,
+        action: input.action,
+        fromColumnId: input.fromColumnId ?? null,
+        toColumnId: input.toColumnId ?? null,
+        fromStatus: input.fromStatus ?? null,
+        toStatus: input.toStatus ?? null,
+        metadata: input.metadata ?? {},
+        timestamp: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("taskEvent", err as Error, id);
+  }
 
-  return getEventById(id)!;
+  const event = getEventById(id);
+  if (!event) throw repositoryNotFoundError("taskEvent", id);
+  return event;
 }
 
 export function getEventById(id: string): TaskEvent | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(taskEvents)
-    .where(eq(taskEvents.id, id))
-    .get();
+  const row = db.select().from(taskEvents).where(eq(taskEvents.id, id)).get();
   return (row as TaskEvent) ?? null;
 }
 
@@ -74,18 +77,12 @@ export function getEventsByTaskId(
   return { events, total: totalResult?.count ?? 0 };
 }
 
-export function getEventsByActor(
-  actorType: ActorType,
-  actorId: string,
-  limit = 50,
-): TaskEvent[] {
+export function getEventsByActor(actorType: ActorType, actorId: string, limit = 50): TaskEvent[] {
   const db = getDb();
   return db
     .select()
     .from(taskEvents)
-    .where(
-      and(eq(taskEvents.actorType, actorType), eq(taskEvents.actorId, actorId)),
-    )
+    .where(and(eq(taskEvents.actorType, actorType), eq(taskEvents.actorId, actorId)))
     .orderBy(desc(taskEvents.timestamp))
     .limit(limit)
     .all() as TaskEvent[];

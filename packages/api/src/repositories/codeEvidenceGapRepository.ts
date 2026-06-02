@@ -7,6 +7,7 @@ import type {
   CodeEvidenceGapStatus,
   CodeEvidenceActorType,
 } from "@orcy/shared";
+import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 
 const DEFAULT_TARGET_LIST_LIMIT = 100;
 
@@ -71,24 +72,28 @@ export function create(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(codeEvidenceGaps)
-    .values({
-      id,
-      targetType: input.targetType,
-      targetId: input.targetId,
-      reasonCode: input.reasonCode,
-      reasonNote: input.reasonNote ?? null,
-      status: "active",
-      reportedByType: input.reportedByType,
-      reportedById: input.reportedById,
-      reportedAt: now,
-      resolvedByType: null,
-      resolvedById: null,
-      resolvedAt: null,
-      resolutionReason: null,
-      metadata: input.metadata ?? {},
-    })
-    .run();
+  try {
+    db.insert(codeEvidenceGaps)
+      .values({
+        id,
+        targetType: input.targetType,
+        targetId: input.targetId,
+        reasonCode: input.reasonCode,
+        reasonNote: input.reasonNote ?? null,
+        status: "active",
+        reportedByType: input.reportedByType,
+        reportedById: input.reportedById,
+        reportedAt: now,
+        resolvedByType: null,
+        resolvedById: null,
+        resolvedAt: null,
+        resolutionReason: null,
+        metadata: input.metadata ?? {},
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeEvidenceGap", err as Error, id);
+  }
 
   return getById(id);
 }
@@ -102,16 +107,20 @@ export function resolveGap(
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(codeEvidenceGaps)
-    .set({
-      status: "resolved",
-      resolvedByType,
-      resolvedById,
-      resolvedAt: now,
-      resolutionReason,
-    })
-    .where(eq(codeEvidenceGaps.id, id))
-    .run();
+  try {
+    db.update(codeEvidenceGaps)
+      .set({
+        status: "resolved",
+        resolvedByType,
+        resolvedById,
+        resolvedAt: now,
+        resolutionReason,
+      })
+      .where(eq(codeEvidenceGaps.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("codeEvidenceGap", err as Error, id);
+  }
 
   return getById(id);
 }
@@ -142,21 +151,25 @@ export function autoResolveByReasonCodes(
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(codeEvidenceGaps)
-    .set({
-      status: "resolved",
-      resolvedByType: "system",
-      resolvedById: "auto",
-      resolvedAt: now,
-      resolutionReason: "Auto-resolved: evidence linked",
-    })
-    .where(
-      and(
-        eq(codeEvidenceGaps.targetType, targetType),
-        eq(codeEvidenceGaps.targetId, targetId),
-        inArray(codeEvidenceGaps.reasonCode, reasonCodes),
-        eq(codeEvidenceGaps.status, "active"),
-      ),
-    )
-    .run();
+  try {
+    db.update(codeEvidenceGaps)
+      .set({
+        status: "resolved",
+        resolvedByType: "system",
+        resolvedById: "auto",
+        resolvedAt: now,
+        resolutionReason: "Auto-resolved: evidence linked",
+      })
+      .where(
+        and(
+          eq(codeEvidenceGaps.targetType, targetType),
+          eq(codeEvidenceGaps.targetId, targetId),
+          inArray(codeEvidenceGaps.reasonCode, reasonCodes),
+          eq(codeEvidenceGaps.status, "active"),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("codeEvidenceGap", err as Error, targetId);
+  }
 }

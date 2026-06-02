@@ -2,6 +2,13 @@ import { getDb } from "../db/index.js";
 import { habitatSkills, habitatSkillSignals } from "../db/schema/index.js";
 import { eq, and, count, desc, gt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
+import { isSqliteError } from "../errors/sqlite.js";
 
 export type SkillCategory =
   | "convention"
@@ -127,22 +134,26 @@ export function createSkill(habitatId: string): HabitatSkill {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(habitatSkills)
-    .values({
-      id,
-      habitatId,
-      content: "",
-      signalCount: 0,
-      avgStrength: 0,
-      lastGeneratedAt: now,
-      generationCount: 1,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(habitatSkills)
+      .values({
+        id,
+        habitatId,
+        content: "",
+        signalCount: 0,
+        avgStrength: 0,
+        lastGeneratedAt: now,
+        generationCount: 1,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("habitatSkill", err as Error, id);
+  }
 
   const skill = getSkillById(id);
-  if (!skill) throw new Error(`Failed to read skill ${id} after insert`);
+  if (!skill) throw repositoryNotFoundError("habitatSkill", id);
   return skill;
 }
 
@@ -164,7 +175,10 @@ export function getOrCreateSkill(habitatId: string): HabitatSkill {
   try {
     return createSkill(habitatId);
   } catch (err) {
-    if (String(err).includes("FOREIGN KEY") || String(err).includes("foreign key")) throw err;
+    if (isSqliteError(err) && err.code === "SQLITE_CONSTRAINT_FOREIGNKEY") throw err;
+    // If the create failed for a non-FK reason (race or transient DB error), the existing
+    // row will satisfy getSkillByHabitatId. If the re-read returns null, the recursive
+    // createSkill() call will surface the real error (e.g., disk full) as a RepositoryError.
     return getSkillByHabitatId(habitatId) ?? createSkill(habitatId);
   }
 }
@@ -178,17 +192,21 @@ export function updateSkillContent(
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(habitatSkills)
-    .set({
-      content,
-      signalCount,
-      avgStrength,
-      lastGeneratedAt: now,
-      generationCount: sql`${habitatSkills.generationCount} + 1`,
-      updatedAt: now,
-    })
-    .where(eq(habitatSkills.habitatId, habitatId))
-    .run();
+  try {
+    db.update(habitatSkills)
+      .set({
+        content,
+        signalCount,
+        avgStrength,
+        lastGeneratedAt: now,
+        generationCount: sql`${habitatSkills.generationCount} + 1`,
+        updatedAt: now,
+      })
+      .where(eq(habitatSkills.habitatId, habitatId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("habitatSkill", err as Error, habitatId);
+  }
 }
 
 export function createSignal(input: CreateSignalInput): HabitatSkillSignal {
@@ -204,36 +222,40 @@ export function createSignal(input: CreateSignalInput): HabitatSkillSignal {
   const sourceCommentIds = input.sourceCommentId ? JSON.stringify([input.sourceCommentId]) : null;
   const corroboratingAgentIds = input.agentId ? JSON.stringify([input.agentId]) : null;
 
-  db.insert(habitatSkillSignals)
-    .values({
-      id,
-      habitatId: input.habitatId,
-      clusterKey: input.clusterKey,
-      skillCategory: input.skillCategory,
-      sourceSignalType: input.sourceSignalType,
-      sourceType: input.sourceType ?? "pulse",
-      subject: input.subject,
-      summary: input.summary ?? null,
-      strength: input.strength ?? 0.1,
-      frequency: 1,
-      corroboratingAgents: 1,
-      crossMissionCount: 0,
-      successfulTasks: 0,
-      failedTasks: input.initialFailedTasks ?? 0,
-      lastSeenAt: now,
-      firstSeenAt: now,
-      sourcePulseIds,
-      sourceTaskIds,
-      sourceCommentIds,
-      corroboratingAgentIds,
-      promotedToSkill: 0,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(habitatSkillSignals)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        clusterKey: input.clusterKey,
+        skillCategory: input.skillCategory,
+        sourceSignalType: input.sourceSignalType,
+        sourceType: input.sourceType ?? "pulse",
+        subject: input.subject,
+        summary: input.summary ?? null,
+        strength: input.strength ?? 0.1,
+        frequency: 1,
+        corroboratingAgents: 1,
+        crossMissionCount: 0,
+        successfulTasks: 0,
+        failedTasks: input.initialFailedTasks ?? 0,
+        lastSeenAt: now,
+        firstSeenAt: now,
+        sourcePulseIds,
+        sourceTaskIds,
+        sourceCommentIds,
+        corroboratingAgentIds,
+        promotedToSkill: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("habitatSkillSignal", err as Error, id);
+  }
 
   const signal = getSignalById(id);
-  if (!signal) throw new Error(`Failed to read signal ${id} after insert`);
+  if (!signal) throw repositoryNotFoundError("habitatSkillSignal", id);
   return signal;
 }
 
@@ -291,7 +313,11 @@ export function updateSignal(
     set.corroboratingAgentIds = updates.corroboratingAgentIds;
   if (updates.promotedToSkill !== undefined) set.promotedToSkill = updates.promotedToSkill;
 
-  db.update(habitatSkillSignals).set(set).where(eq(habitatSkillSignals.id, id)).run();
+  try {
+    db.update(habitatSkillSignals).set(set).where(eq(habitatSkillSignals.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("habitatSkillSignal", err as Error, id);
+  }
 }
 
 export function getPromotedSignals(habitatId: string): HabitatSkillSignal[] {
@@ -365,6 +391,10 @@ export function getAllSignalsByHabitat(habitatId: string): HabitatSkillSignal[] 
 
 export function deleteSignal(id: string): boolean {
   const db = getDb();
-  const result = db.delete(habitatSkillSignals).where(eq(habitatSkillSignals.id, id)).run();
-  return result.changes > 0;
+  try {
+    const result = db.delete(habitatSkillSignals).where(eq(habitatSkillSignals.id, id)).run();
+    return result.changes > 0;
+  } catch (err) {
+    throw repositoryDeleteError("habitatSkillSignal", err as Error, id);
+  }
 }

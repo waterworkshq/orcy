@@ -4,6 +4,11 @@ import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
 import { logger } from "../lib/logger.js";
+import {
+  repositoryCreateError,
+  repositoryUpsertError,
+  repositoryUpdateError,
+} from "../errors/repository.js";
 
 export function getById(id: string) {
   const db = getDb();
@@ -42,64 +47,8 @@ export function create(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(codeBranches)
-    .values({
-      id,
-      repositoryId: input.repositoryId ?? null,
-      provider: input.provider,
-      repoSlug: input.repoSlug ?? null,
-      name: input.name,
-      baseBranch: input.baseBranch ?? null,
-      headSha: input.headSha ?? null,
-      url: input.url ?? null,
-      createdFromTaskId: input.createdFromTaskId ?? null,
-      verificationState: input.verificationState ?? "unverified",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-
-  return getById(id);
-}
-
-export function upsertByRepoAndName(input: Parameters<typeof create>[0]) {
-  const db = getDb();
-
-  return db.transaction((tx) => {
-    const conditions = input.repositoryId
-      ? [eq(codeBranches.repositoryId, input.repositoryId), eq(codeBranches.name, input.name)]
-      : [eq(codeBranches.name, input.name)];
-
-    const matches = tx
-      .select()
-      .from(codeBranches)
-      .where(and(...conditions))
-      .all();
-
-    if (matches.length > 0) {
-      if (matches.length > 1) {
-        logger.warn(
-          { branchName: input.name, count: matches.length },
-          "Multiple branches found, using first match",
-        );
-      }
-      const now = new Date().toISOString();
-      tx.update(codeBranches)
-        .set({
-          headSha: input.headSha ?? null,
-          url: input.url ?? null,
-          verificationState: input.verificationState ?? "unverified",
-          updatedAt: now,
-        })
-        .where(eq(codeBranches.id, matches[0].id))
-        .run();
-      const rows = tx.select().from(codeBranches).where(eq(codeBranches.id, matches[0].id)).all();
-      return rows.length > 0 ? rows[0] : null;
-    }
-
-    const id = uuid();
-    const now = new Date().toISOString();
-    tx.insert(codeBranches)
+  try {
+    db.insert(codeBranches)
       .values({
         id,
         repositoryId: input.repositoryId ?? null,
@@ -115,10 +64,74 @@ export function upsertByRepoAndName(input: Parameters<typeof create>[0]) {
         updatedAt: now,
       })
       .run();
+  } catch (err) {
+    throw repositoryCreateError("codeBranch", err as Error, id);
+  }
 
-    const rows = tx.select().from(codeBranches).where(eq(codeBranches.id, id)).all();
-    return rows.length > 0 ? rows[0] : null;
-  });
+  return getById(id);
+}
+
+export function upsertByRepoAndName(input: Parameters<typeof create>[0]) {
+  const db = getDb();
+
+  try {
+    return db.transaction((tx) => {
+      const conditions = input.repositoryId
+        ? [eq(codeBranches.repositoryId, input.repositoryId), eq(codeBranches.name, input.name)]
+        : [eq(codeBranches.name, input.name)];
+
+      const matches = tx
+        .select()
+        .from(codeBranches)
+        .where(and(...conditions))
+        .all();
+
+      if (matches.length > 0) {
+        if (matches.length > 1) {
+          logger.warn(
+            { branchName: input.name, count: matches.length },
+            "Multiple branches found, using first match",
+          );
+        }
+        const now = new Date().toISOString();
+        tx.update(codeBranches)
+          .set({
+            headSha: input.headSha ?? null,
+            url: input.url ?? null,
+            verificationState: input.verificationState ?? "unverified",
+            updatedAt: now,
+          })
+          .where(eq(codeBranches.id, matches[0].id))
+          .run();
+        const rows = tx.select().from(codeBranches).where(eq(codeBranches.id, matches[0].id)).all();
+        return rows.length > 0 ? rows[0] : null;
+      }
+
+      const id = uuid();
+      const now = new Date().toISOString();
+      tx.insert(codeBranches)
+        .values({
+          id,
+          repositoryId: input.repositoryId ?? null,
+          provider: input.provider,
+          repoSlug: input.repoSlug ?? null,
+          name: input.name,
+          baseBranch: input.baseBranch ?? null,
+          headSha: input.headSha ?? null,
+          url: input.url ?? null,
+          createdFromTaskId: input.createdFromTaskId ?? null,
+          verificationState: input.verificationState ?? "unverified",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+
+      const rows = tx.select().from(codeBranches).where(eq(codeBranches.id, id)).all();
+      return rows.length > 0 ? rows[0] : null;
+    });
+  } catch (err) {
+    throw repositoryUpsertError("codeBranch", err as Error, input.name);
+  }
 }
 
 export function updateById(
@@ -138,6 +151,10 @@ export function updateById(
   if (updates.verificationState !== undefined)
     setValues.verificationState = updates.verificationState;
 
-  db.update(codeBranches).set(setValues).where(eq(codeBranches.id, id)).run();
+  try {
+    db.update(codeBranches).set(setValues).where(eq(codeBranches.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("codeBranch", err as Error, id);
+  }
   return getById(id);
 }

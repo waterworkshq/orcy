@@ -1,7 +1,13 @@
-import { getDb } from '../db/index.js';
-import { taskSubtasks } from '../db/schema/index.js';
-import { eq, sql, inArray, asc } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { taskSubtasks } from "../db/schema/index.js";
+import { eq, sql, inArray, asc } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export interface Subtask {
   id: string;
@@ -24,18 +30,26 @@ export function createSubtask(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(taskSubtasks).values({
-    id,
-    taskId: input.taskId,
-    title: input.title,
-    completed: false,
-    order: input.order ?? 0,
-    assigneeId: input.assigneeId ?? null,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(taskSubtasks)
+      .values({
+        id,
+        taskId: input.taskId,
+        title: input.title,
+        completed: false,
+        order: input.order ?? 0,
+        assigneeId: input.assigneeId ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("subtask", err as Error, id);
+  }
 
-  return getSubtaskById(id)!;
+  const subtask = getSubtaskById(id);
+  if (!subtask) throw repositoryNotFoundError("subtask", id);
+  return subtask;
 }
 
 export function getSubtasksByTaskId(taskId: string): Subtask[] {
@@ -50,17 +64,13 @@ export function getSubtasksByTaskId(taskId: string): Subtask[] {
 
 export function getSubtaskById(subtaskId: string): Subtask | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(taskSubtasks)
-    .where(eq(taskSubtasks.id, subtaskId))
-    .get();
+  const row = db.select().from(taskSubtasks).where(eq(taskSubtasks.id, subtaskId)).get();
   return (row as Subtask) ?? null;
 }
 
 export function updateSubtask(
   subtaskId: string,
-  data: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null }
+  data: { title?: string; completed?: boolean; order?: number; assigneeId?: string | null },
 ): Subtask | null {
   const db = getDb();
   const now = new Date().toISOString();
@@ -71,23 +81,28 @@ export function updateSubtask(
   if (data.order !== undefined) set.order = data.order;
   if (data.assigneeId !== undefined) set.assigneeId = data.assigneeId;
 
-  db.update(taskSubtasks)
-    .set(set)
-    .where(eq(taskSubtasks.id, subtaskId))
-    .run();
+  try {
+    db.update(taskSubtasks).set(set).where(eq(taskSubtasks.id, subtaskId)).run();
+  } catch (err) {
+    throw repositoryUpdateError("subtask", err as Error, subtaskId);
+  }
 
   return getSubtaskById(subtaskId);
 }
 
 export function deleteSubtask(subtaskId: string): boolean {
   const db = getDb();
-  db.delete(taskSubtasks)
-    .where(eq(taskSubtasks.id, subtaskId))
-    .run();
+  try {
+    db.delete(taskSubtasks).where(eq(taskSubtasks.id, subtaskId)).run();
+  } catch (err) {
+    throw repositoryDeleteError("subtask", err as Error, subtaskId);
+  }
   return true;
 }
 
-export function getSubtaskCounts(taskIds: string[]): Record<string, { total: number; completed: number }> {
+export function getSubtaskCounts(
+  taskIds: string[],
+): Record<string, { total: number; completed: number }> {
   if (taskIds.length === 0) return {};
 
   const db = getDb();

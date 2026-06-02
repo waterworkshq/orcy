@@ -1,12 +1,20 @@
-import { getDb } from '../db/index.js';
-import { missions, missionDependencies, columns } from '../db/schema/index.js';
-import { eq, and, sql, count, max, asc, notInArray } from 'drizzle-orm';
-import { priorityOrderExpr } from '../db/sql-helpers.js';
-import type { Mission, MissionStatus, TaskPriority } from '../models/index.js';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { missions, missionDependencies, columns } from "../db/schema/index.js";
+import { eq, and, sql, count, max, asc, notInArray } from "drizzle-orm";
+import { priorityOrderExpr } from "../db/sql-helpers.js";
+import type { Mission, MissionStatus, TaskPriority } from "../models/index.js";
+import { v4 as uuid } from "uuid";
+import { badRequest } from "../errors.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+  repositoryTransactionError,
+} from "../errors/repository.js";
 
 function normalizeMissionId(id: string): { exact: string; withPrefix: string | null } {
-  if (id.startsWith('mission-')) {
+  if (id.startsWith("mission-")) {
     return { exact: id, withPrefix: null };
   }
   return { exact: id, withPrefix: `mission-${id}` };
@@ -59,7 +67,7 @@ export function createMission(input: CreateMissionInput): Mission {
       .orderBy(columns.order)
       .all();
     columnId = habitatColumns[0]?.id;
-    if (!columnId) throw new Error('Habitat has no columns');
+    if (!columnId) throw badRequest("Habitat has no columns");
   }
 
   let displayOrder = input.displayOrder;
@@ -72,42 +80,50 @@ export function createMission(input: CreateMissionInput): Mission {
     displayOrder = (result?.maxOrder ?? -1) + 1;
   }
 
-  db.transaction((tx) => {
-    tx.insert(missions).values({
-      id,
-      habitatId: input.habitatId,
-      columnId,
-      title: input.title,
-      description: input.description ?? '',
-      acceptanceCriteria: input.acceptanceCriteria ?? '',
-      priority: input.priority ?? 'medium',
-      labels: input.labels ?? [],
-      status: 'not_started',
-      displayOrder,
-      dependsOn: input.dependsOn ?? [],
-      blocks: input.blocks ?? [],
-      dueAt: input.dueAt ?? null,
-      slaMinutes: input.slaMinutes ?? null,
-      createdBy: input.createdBy,
-      createdAt: now,
-      updatedAt: now,
-      version: 1,
-    }).run();
+  try {
+    db.transaction((tx) => {
+      tx.insert(missions)
+        .values({
+          id,
+          habitatId: input.habitatId,
+          columnId,
+          title: input.title,
+          description: input.description ?? "",
+          acceptanceCriteria: input.acceptanceCriteria ?? "",
+          priority: input.priority ?? "medium",
+          labels: input.labels ?? [],
+          status: "not_started",
+          displayOrder,
+          dependsOn: input.dependsOn ?? [],
+          blocks: input.blocks ?? [],
+          dueAt: input.dueAt ?? null,
+          slaMinutes: input.slaMinutes ?? null,
+          createdBy: input.createdBy,
+          createdAt: now,
+          updatedAt: now,
+          version: 1,
+        })
+        .run();
 
-    if (input.dependsOn && input.dependsOn.length > 0) {
-      tx.insert(missionDependencies).values(
-        input.dependsOn.map(depId => ({ missionId: id, dependsOnId: depId }))
-      ).run();
-    }
+      if (input.dependsOn && input.dependsOn.length > 0) {
+        tx.insert(missionDependencies)
+          .values(input.dependsOn.map((depId) => ({ missionId: id, dependsOnId: depId })))
+          .run();
+      }
 
-    if (input.blocks && input.blocks.length > 0) {
-      tx.insert(missionDependencies).values(
-        input.blocks.map(blockedId => ({ missionId: blockedId, dependsOnId: id }))
-      ).run();
-    }
-  });
+      if (input.blocks && input.blocks.length > 0) {
+        tx.insert(missionDependencies)
+          .values(input.blocks.map((blockedId) => ({ missionId: blockedId, dependsOnId: id })))
+          .run();
+      }
+    });
+  } catch (err) {
+    throw repositoryCreateError("mission", err as Error, id);
+  }
 
-  return getMissionById(id)!;
+  const mission = getMissionById(id);
+  if (!mission) throw repositoryNotFoundError("mission", id);
+  return mission;
 }
 
 export function getMissionById(id: string): Mission | null {
@@ -116,14 +132,21 @@ export function getMissionById(id: string): Mission | null {
   const result = db.select().from(missions).where(eq(missions.id, exact)).get() as Mission | null;
   if (result) return result;
   if (withPrefix) {
-    return db.select().from(missions).where(eq(missions.id, withPrefix)).get() as Mission ?? null;
+    return (db.select().from(missions).where(eq(missions.id, withPrefix)).get() as Mission) ?? null;
   }
   return null;
 }
 
 export function getMissionsByHabitatId(
   habitatId: string,
-  filters?: { columnId?: string; status?: MissionStatus; priority?: TaskPriority; limit?: number; offset?: number; isArchived?: boolean }
+  filters?: {
+    columnId?: string;
+    status?: MissionStatus;
+    priority?: TaskPriority;
+    limit?: number;
+    offset?: number;
+    isArchived?: boolean;
+  },
 ): { missions: Mission[]; total: number } {
   const db = getDb();
 
@@ -131,28 +154,37 @@ export function getMissionsByHabitatId(
   if (filters?.columnId) conditions.push(eq(missions.columnId, filters.columnId));
   if (filters?.status) conditions.push(eq(missions.status, filters.status));
   if (filters?.priority) conditions.push(eq(missions.priority, filters.priority));
-  if (filters?.isArchived !== undefined) conditions.push(eq(missions.isArchived, filters.isArchived));
+  if (filters?.isArchived !== undefined)
+    conditions.push(eq(missions.isArchived, filters.isArchived));
 
   const where = and(...conditions);
 
-  const countResult = db
-    .select({ total: count() })
-    .from(missions)
-    .where(where)
-    .get();
+  const countResult = db.select({ total: count() }).from(missions).where(where).get();
   const total = countResult?.total ?? 0;
 
   const priorityOrder = priorityOrderExpr(missions.priority);
 
-  const query = db.select().from(missions).where(where).orderBy(asc(missions.displayOrder), priorityOrder, asc(missions.createdAt));
-  const results = filters?.limit !== undefined
-    ? query.limit(filters.limit).offset(filters?.offset ?? 0).all()
-    : query.all();
+  const query = db
+    .select()
+    .from(missions)
+    .where(where)
+    .orderBy(asc(missions.displayOrder), priorityOrder, asc(missions.createdAt));
+  const results =
+    filters?.limit !== undefined
+      ? query
+          .limit(filters.limit)
+          .offset(filters?.offset ?? 0)
+          .all()
+      : query.all();
 
   return { missions: results as Mission[], total };
 }
 
-export function updateMission(id: string, input: UpdateMissionInput, expectedVersion?: number):
+export function updateMission(
+  id: string,
+  input: UpdateMissionInput,
+  expectedVersion?: number,
+):
   | { success: true; mission: Mission }
   | { success: false; notFound: true }
   | { success: false; versionMismatch: true; currentVersion: number } {
@@ -191,27 +223,34 @@ export function updateMission(id: string, input: UpdateMissionInput, expectedVer
   if (input.displayOrder !== undefined) set.displayOrder = input.displayOrder;
   if (input.isArchived !== undefined) set.isArchived = input.isArchived;
 
-  db.transaction((tx) => {
-    tx.update(missions).set({ ...set, version: sql`${missions.version} + 1` }).where(eq(missions.id, id)).run();
+  try {
+    db.transaction((tx) => {
+      tx.update(missions)
+        .set({ ...set, version: sql`${missions.version} + 1` })
+        .where(eq(missions.id, id))
+        .run();
 
-    if (input.dependsOn !== undefined) {
-      tx.delete(missionDependencies).where(eq(missionDependencies.missionId, id)).run();
-      if (input.dependsOn.length > 0) {
-        tx.insert(missionDependencies).values(
-          input.dependsOn.map(depId => ({ missionId: id, dependsOnId: depId }))
-        ).run();
+      if (input.dependsOn !== undefined) {
+        tx.delete(missionDependencies).where(eq(missionDependencies.missionId, id)).run();
+        if (input.dependsOn.length > 0) {
+          tx.insert(missionDependencies)
+            .values(input.dependsOn.map((depId) => ({ missionId: id, dependsOnId: depId })))
+            .run();
+        }
       }
-    }
 
-    if (input.blocks !== undefined) {
-      tx.delete(missionDependencies).where(eq(missionDependencies.dependsOnId, id)).run();
-      if (input.blocks.length > 0) {
-        tx.insert(missionDependencies).values(
-          input.blocks.map(blockedId => ({ missionId: blockedId, dependsOnId: id }))
-        ).run();
+      if (input.blocks !== undefined) {
+        tx.delete(missionDependencies).where(eq(missionDependencies.dependsOnId, id)).run();
+        if (input.blocks.length > 0) {
+          tx.insert(missionDependencies)
+            .values(input.blocks.map((blockedId) => ({ missionId: blockedId, dependsOnId: id })))
+            .run();
+        }
       }
-    }
-  });
+    });
+  } catch (err) {
+    throw repositoryTransactionError("mission", err as Error, id);
+  }
 
   const mission = getMissionById(id);
   return { success: true, mission: mission! };
@@ -219,21 +258,33 @@ export function updateMission(id: string, input: UpdateMissionInput, expectedVer
 
 export function deleteMission(id: string): void {
   const db = getDb();
-  db.delete(missions).where(eq(missions.id, id)).run();
+  try {
+    db.delete(missions).where(eq(missions.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("mission", err as Error, id);
+  }
 }
 
 export function moveMission(missionId: string, toColumnId: string): Mission | null {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(missions)
-    .set({ columnId: toColumnId, updatedAt: now, version: sql`${missions.version} + 1` })
-    .where(eq(missions.id, missionId))
-    .run();
+  try {
+    db.update(missions)
+      .set({ columnId: toColumnId, updatedAt: now, version: sql`${missions.version} + 1` })
+      .where(eq(missions.id, missionId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("mission", err as Error, missionId);
+  }
   return getMissionById(missionId);
 }
 
-export function reorderMission(missionId: string, afterMissionId: string | null, beforeMissionId: string | null): Mission | null {
+export function reorderMission(
+  missionId: string,
+  afterMissionId: string | null,
+  beforeMissionId: string | null,
+): Mission | null {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -260,7 +311,12 @@ export function reorderMission(missionId: string, afterMissionId: string | null,
     newOrder = afterRow.displayOrder + 1;
     db.update(missions)
       .set({ displayOrder: sql`${missions.displayOrder} + 1` })
-      .where(and(eq(missions.columnId, columnId), sql`${missions.displayOrder} > ${afterRow.displayOrder}`))
+      .where(
+        and(
+          eq(missions.columnId, columnId),
+          sql`${missions.displayOrder} > ${afterRow.displayOrder}`,
+        ),
+      )
       .run();
   } else {
     const beforeRow = db
@@ -272,27 +328,49 @@ export function reorderMission(missionId: string, afterMissionId: string | null,
     newOrder = beforeRow.displayOrder;
     db.update(missions)
       .set({ displayOrder: sql`${missions.displayOrder} + 1` })
-      .where(and(eq(missions.columnId, columnId), sql`${missions.displayOrder} >= ${beforeRow.displayOrder}`))
+      .where(
+        and(
+          eq(missions.columnId, columnId),
+          sql`${missions.displayOrder} >= ${beforeRow.displayOrder}`,
+        ),
+      )
       .run();
   }
 
-  db.update(missions)
-    .set({ displayOrder: newOrder, updatedAt: now, version: sql`${missions.version} + 1` })
-    .where(eq(missions.id, missionId))
-    .run();
+  try {
+    db.update(missions)
+      .set({ displayOrder: newOrder, updatedAt: now, version: sql`${missions.version} + 1` })
+      .where(eq(missions.id, missionId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("mission", err as Error, missionId);
+  }
   return getMissionById(missionId);
 }
 
 export function addMissionDependency(missionId: string, dependsOnId: string): void {
   const db = getDb();
-  db.insert(missionDependencies).values({ missionId, dependsOnId }).run();
+  try {
+    db.insert(missionDependencies).values({ missionId, dependsOnId }).run();
+  } catch (err) {
+    throw repositoryCreateError("missionDependency", err as Error, `${missionId}->${dependsOnId}`);
+  }
 }
 
 export function removeMissionDependency(missionId: string, dependsOnId: string): void {
   const db = getDb();
-  db.delete(missionDependencies)
-    .where(and(eq(missionDependencies.missionId, missionId), eq(missionDependencies.dependsOnId, dependsOnId)))
-    .run();
+  try {
+    db.delete(missionDependencies)
+      .where(
+        and(
+          eq(missionDependencies.missionId, missionId),
+          eq(missionDependencies.dependsOnId, dependsOnId),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryDeleteError("missionDependency", err as Error, `${missionId}->${dependsOnId}`);
+  }
 }
 
 export function areAllMissionDependenciesMet(missionId: string): boolean {
@@ -301,12 +379,7 @@ export function areAllMissionDependenciesMet(missionId: string): boolean {
     .select({ count: count() })
     .from(missionDependencies)
     .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
-    .where(
-      and(
-        eq(missionDependencies.missionId, missionId),
-        notInArray(missions.status, ['done'])
-      )
-    )
+    .where(and(eq(missionDependencies.missionId, missionId), notInArray(missions.status, ["done"])))
     .get();
   return (result?.count ?? 0) === 0;
 }

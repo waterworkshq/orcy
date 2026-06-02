@@ -1,19 +1,26 @@
-import { getDb } from '../db/index.js';
+import { getDb } from "../db/index.js";
 import {
   qualityChecklistTemplates,
   qualityChecklistItems,
   taskQualityChecklists,
   taskQualityChecklistItems,
-} from '../db/schema/index.js';
-import { eq, and } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
+} from "../db/schema/index.js";
+import { eq, and } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
 import type {
   QualityChecklistTemplate,
   QualityChecklistItem,
   TaskQualityChecklist,
   TaskQualityChecklistItem,
   TaskQualityReport,
-} from '../models/index.js';
+} from "../models/index.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+  repositoryTransactionError,
+} from "../errors/repository.js";
 
 export function createTemplate(input: {
   name: string;
@@ -26,41 +33,61 @@ export function createTemplate(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(qualityChecklistTemplates).values({
-    id,
-    name: input.name,
-    description: input.description ?? '',
-    category: input.category,
-    isRequired: input.isRequired ?? true,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(qualityChecklistTemplates)
+      .values({
+        id,
+        name: input.name,
+        description: input.description ?? "",
+        category: input.category,
+        isRequired: input.isRequired ?? true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("qualityChecklistTemplate", err as Error, id);
+  }
 
   input.items.forEach((item, index) => {
-    db.insert(qualityChecklistItems).values({
-      id: uuid(),
-      templateId: id,
-      title: item.title,
-      description: item.description ?? '',
-      required: item.required ?? true,
-      orderIndex: index,
-      createdAt: now,
-    }).run();
+    try {
+      db.insert(qualityChecklistItems)
+        .values({
+          id: uuid(),
+          templateId: id,
+          title: item.title,
+          description: item.description ?? "",
+          required: item.required ?? true,
+          orderIndex: index,
+          createdAt: now,
+        })
+        .run();
+    } catch (err) {
+      throw repositoryCreateError("qualityChecklistItem", err as Error, id);
+    }
   });
 
-  return getTemplateById(id)!;
+  const template = getTemplateById(id);
+  if (!template) throw repositoryNotFoundError("qualityChecklistTemplate", id);
+  return template;
 }
 
 export function getTemplateById(id: string): QualityChecklistTemplate | null {
   const db = getDb();
-  return db.select().from(qualityChecklistTemplates)
-    .where(eq(qualityChecklistTemplates.id, id))
-    .get() as QualityChecklistTemplate ?? null;
+  return (
+    (db
+      .select()
+      .from(qualityChecklistTemplates)
+      .where(eq(qualityChecklistTemplates.id, id))
+      .get() as QualityChecklistTemplate) ?? null
+  );
 }
 
 export function getTemplateItems(templateId: string): QualityChecklistItem[] {
   const db = getDb();
-  return db.select().from(qualityChecklistItems)
+  return db
+    .select()
+    .from(qualityChecklistItems)
     .where(eq(qualityChecklistItems.templateId, templateId))
     .orderBy(qualityChecklistItems.orderIndex)
     .all() as QualityChecklistItem[];
@@ -76,51 +103,73 @@ export function createTaskChecklist(taskId: string, templateId: string): TaskQua
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(taskQualityChecklists).values({
-    id,
-    taskId,
-    templateId,
-    status: 'pending',
-    completedAt: null,
-    completedBy: null,
-    notes: '',
-    createdAt: now,
-  }).run();
+  try {
+    db.insert(taskQualityChecklists)
+      .values({
+        id,
+        taskId,
+        templateId,
+        status: "pending",
+        completedAt: null,
+        completedBy: null,
+        notes: "",
+        createdAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("taskQualityChecklist", err as Error, id);
+  }
 
   const items = getTemplateItems(templateId);
   for (const item of items) {
-    db.insert(taskQualityChecklistItems).values({
-      id: uuid(),
-      checklistId: id,
-      itemId: item.id,
-      isCompleted: false,
-      completedBy: null,
-      completedAt: null,
-      evidenceUrl: null,
-      notes: '',
-    }).run();
+    try {
+      db.insert(taskQualityChecklistItems)
+        .values({
+          id: uuid(),
+          checklistId: id,
+          itemId: item.id,
+          isCompleted: false,
+          completedBy: null,
+          completedAt: null,
+          evidenceUrl: null,
+          notes: "",
+        })
+        .run();
+    } catch (err) {
+      throw repositoryCreateError("taskQualityChecklistItem", err as Error, id);
+    }
   }
 
-  return getTaskChecklistById(id)!;
+  const checklist = getTaskChecklistById(id);
+  if (!checklist) throw repositoryNotFoundError("taskQualityChecklist", id);
+  return checklist;
 }
 
 export function getTaskChecklistById(id: string): TaskQualityChecklist | null {
   const db = getDb();
-  return db.select().from(taskQualityChecklists)
-    .where(eq(taskQualityChecklists.id, id))
-    .get() as TaskQualityChecklist ?? null;
+  return (
+    (db
+      .select()
+      .from(taskQualityChecklists)
+      .where(eq(taskQualityChecklists.id, id))
+      .get() as TaskQualityChecklist) ?? null
+  );
 }
 
 export function getTaskChecklists(taskId: string): TaskQualityChecklist[] {
   const db = getDb();
-  return db.select().from(taskQualityChecklists)
+  return db
+    .select()
+    .from(taskQualityChecklists)
     .where(eq(taskQualityChecklists.taskId, taskId))
     .all() as TaskQualityChecklist[];
 }
 
 export function getChecklistItems(checklistId: string): TaskQualityChecklistItem[] {
   const db = getDb();
-  return db.select().from(taskQualityChecklistItems)
+  return db
+    .select()
+    .from(taskQualityChecklistItems)
     .where(eq(taskQualityChecklistItems.checklistId, checklistId))
     .all() as TaskQualityChecklistItem[];
 }
@@ -133,7 +182,7 @@ export function updateChecklistItem(
     completedBy?: string;
     evidenceUrl?: string;
     notes?: string;
-  }
+  },
 ): TaskQualityChecklistItem | null {
   const db = getDb();
   const now = new Date().toISOString();
@@ -147,48 +196,62 @@ export function updateChecklistItem(
   if (input.evidenceUrl !== undefined) updates.evidenceUrl = input.evidenceUrl;
   if (input.notes !== undefined) updates.notes = input.notes;
 
-  db.update(taskQualityChecklistItems)
-    .set(updates)
-    .where(eq(taskQualityChecklistItems.id, checklistItemId))
-    .run();
+  try {
+    db.update(taskQualityChecklistItems)
+      .set(updates)
+      .where(eq(taskQualityChecklistItems.id, checklistItemId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("taskQualityChecklistItem", err as Error, checklistItemId);
+  }
 
-  const result = db.select().from(taskQualityChecklistItems)
+  const result = db
+    .select()
+    .from(taskQualityChecklistItems)
     .where(eq(taskQualityChecklistItems.id, checklistItemId))
     .get();
-  return result as TaskQualityChecklistItem ?? null;
+  return (result as TaskQualityChecklistItem) ?? null;
 }
 
 export function updateChecklistStatus(checklistId: string): string {
   const db = getDb();
   const items = getChecklistItems(checklistId);
   const templateChecklist = getTaskChecklistById(checklistId);
-  if (!templateChecklist) return 'pending';
+  if (!templateChecklist) return "pending";
 
-  const template = getTemplateById(templateChecklist.templateId ?? '');
+  const template = getTemplateById(templateChecklist.templateId ?? "");
   const requiredItems = template?.isRequired
-    ? items.filter(i => {
-      const templateItem = db.select().from(qualityChecklistItems).where(eq(qualityChecklistItems.id, i.itemId)).get();
-      return templateItem?.required ?? true;
-    })
+    ? items.filter((i) => {
+        const templateItem = db
+          .select()
+          .from(qualityChecklistItems)
+          .where(eq(qualityChecklistItems.id, i.itemId))
+          .get();
+        return templateItem?.required ?? true;
+      })
     : items;
 
-  const completedRequired = requiredItems.filter(i => i.isCompleted).length;
+  const completedRequired = requiredItems.filter((i) => i.isCompleted).length;
   const totalRequired = requiredItems.length;
 
-  let status = 'pending';
+  let status = "pending";
   if (completedRequired === totalRequired && totalRequired > 0) {
-    status = 'passed';
+    status = "passed";
   } else if (completedRequired > 0) {
-    status = 'in_progress';
+    status = "in_progress";
   }
 
-  db.update(taskQualityChecklists)
-    .set({
-      status,
-      completedAt: status === 'passed' ? new Date().toISOString() : null,
-    })
-    .where(eq(taskQualityChecklists.id, checklistId))
-    .run();
+  try {
+    db.update(taskQualityChecklists)
+      .set({
+        status,
+        completedAt: status === "passed" ? new Date().toISOString() : null,
+      })
+      .where(eq(taskQualityChecklists.id, checklistId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("taskQualityChecklist", err as Error, checklistId);
+  }
 
   return status;
 }
@@ -197,20 +260,23 @@ export function getQualityReport(taskId: string): TaskQualityReport {
   const db = getDb();
   const checklists = getTaskChecklists(taskId);
 
-  const reportChecklists: TaskQualityReport['checklists'] = [];
-  const missingRequirements: TaskQualityReport['missingRequirements'] = [];
+  const reportChecklists: TaskQualityReport["checklists"] = [];
+  const missingRequirements: TaskQualityReport["missingRequirements"] = [];
   let allPassed = true;
 
   for (const checklist of checklists) {
     const template = checklist.templateId ? getTemplateById(checklist.templateId) : null;
     const items = getChecklistItems(checklist.id);
 
-    const reportItems = items.map(item => {
-      const templateItem = db.select().from(qualityChecklistItems)
-        .where(eq(qualityChecklistItems.id, item.itemId)).get();
+    const reportItems = items.map((item) => {
+      const templateItem = db
+        .select()
+        .from(qualityChecklistItems)
+        .where(eq(qualityChecklistItems.id, item.itemId))
+        .get();
       return {
         id: item.id,
-        title: templateItem?.title ?? 'Unknown',
+        title: templateItem?.title ?? "Unknown",
         required: templateItem?.required ?? true,
         isCompleted: item.isCompleted,
         completedBy: item.completedBy,
@@ -220,22 +286,22 @@ export function getQualityReport(taskId: string): TaskQualityReport {
       };
     });
 
-    const completed = items.filter(i => i.isCompleted).length;
-    const requiredMissing = reportItems.filter(i => i.required && !i.isCompleted);
+    const completed = items.filter((i) => i.isCompleted).length;
+    const requiredMissing = reportItems.filter((i) => i.required && !i.isCompleted);
 
     if (requiredMissing.length > 0 && template?.isRequired) {
       allPassed = false;
       missingRequirements.push({
-        category: template?.category ?? 'unknown',
-        missingItems: requiredMissing.map(i => i.title),
+        category: template?.category ?? "unknown",
+        missingItems: requiredMissing.map((i) => i.title),
       });
     }
 
     reportChecklists.push({
       id: checklist.id,
-      templateId: checklist.templateId ?? '',
-      templateName: template?.name ?? 'Unknown',
-      category: template?.category ?? 'unknown',
+      templateId: checklist.templateId ?? "",
+      templateName: template?.name ?? "Unknown",
+      category: template?.category ?? "unknown",
       required: template?.isRequired ?? true,
       status: checklist.status,
       progress: { total: items.length, completed },
@@ -245,14 +311,17 @@ export function getQualityReport(taskId: string): TaskQualityReport {
 
   return {
     taskId,
-    overallStatus: allPassed ? 'passed' : 'blocked',
+    overallStatus: allPassed ? "passed" : "blocked",
     canApprove: allPassed,
     checklists: reportChecklists,
     missingRequirements,
   };
 }
 
-export function validateQualityGates(taskId: string): { passed: boolean; failures: { category: string; missingItems: string[] }[] } {
+export function validateQualityGates(taskId: string): {
+  passed: boolean;
+  failures: { category: string; missingItems: string[] }[];
+} {
   const report = getQualityReport(taskId);
 
   if (report.missingRequirements.length === 0) {
@@ -267,13 +336,22 @@ export function validateQualityGates(taskId: string): { passed: boolean; failure
 
 export function ensureTaskChecklists(taskId: string): void {
   const db = getDb();
-  const templates = db.select().from(qualityChecklistTemplates)
+  const templates = db
+    .select()
+    .from(qualityChecklistTemplates)
     .where(eq(qualityChecklistTemplates.isRequired, true))
     .all() as QualityChecklistTemplate[];
 
   for (const template of templates) {
-    const existing = db.select().from(taskQualityChecklists)
-      .where(and(eq(taskQualityChecklists.taskId, taskId), eq(taskQualityChecklists.templateId, template.id)))
+    const existing = db
+      .select()
+      .from(taskQualityChecklists)
+      .where(
+        and(
+          eq(taskQualityChecklists.taskId, taskId),
+          eq(taskQualityChecklists.templateId, template.id),
+        ),
+      )
       .get();
 
     if (!existing) {
@@ -287,48 +365,92 @@ export function seedDefaultTemplates(): void {
   if (existing.length > 0) return;
 
   createTemplate({
-    name: 'Code Review',
-    category: 'code_review',
+    name: "Code Review",
+    category: "code_review",
     isRequired: true,
     items: [
-      { title: 'Code follows project conventions', required: true, description: 'Code style, naming conventions, file structure' },
-      { title: 'No linting errors', required: true, description: 'ESLint/Prettier checks pass' },
-      { title: 'TypeScript types are correct', required: true, description: 'No type errors, proper type definitions' },
-      { title: 'Code is documented', required: false, description: 'JSDoc comments for public APIs' },
+      {
+        title: "Code follows project conventions",
+        required: true,
+        description: "Code style, naming conventions, file structure",
+      },
+      { title: "No linting errors", required: true, description: "ESLint/Prettier checks pass" },
+      {
+        title: "TypeScript types are correct",
+        required: true,
+        description: "No type errors, proper type definitions",
+      },
+      {
+        title: "Code is documented",
+        required: false,
+        description: "JSDoc comments for public APIs",
+      },
     ],
   });
 
   createTemplate({
-    name: 'Testing',
-    category: 'testing',
+    name: "Testing",
+    category: "testing",
     isRequired: true,
     items: [
-      { title: 'Unit tests added/updated', required: true, description: 'New code has unit test coverage' },
-      { title: 'All tests pass', required: true, description: 'npm test passes without errors' },
-      { title: 'Test coverage maintained', required: true, description: 'Coverage does not decrease' },
-      { title: 'Integration tests updated', required: false, description: 'API integration tests reflect changes' },
+      {
+        title: "Unit tests added/updated",
+        required: true,
+        description: "New code has unit test coverage",
+      },
+      { title: "All tests pass", required: true, description: "npm test passes without errors" },
+      {
+        title: "Test coverage maintained",
+        required: true,
+        description: "Coverage does not decrease",
+      },
+      {
+        title: "Integration tests updated",
+        required: false,
+        description: "API integration tests reflect changes",
+      },
     ],
   });
 
   createTemplate({
-    name: 'Documentation',
-    category: 'documentation',
+    name: "Documentation",
+    category: "documentation",
     isRequired: true,
     items: [
-      { title: 'README updated', required: false, description: 'Project README reflects changes if needed' },
-      { title: 'API documentation updated', required: true, description: 'API endpoints documented' },
-      { title: 'Changelog entry', required: false, description: 'CHANGELOG.md updated' },
+      {
+        title: "README updated",
+        required: false,
+        description: "Project README reflects changes if needed",
+      },
+      {
+        title: "API documentation updated",
+        required: true,
+        description: "API endpoints documented",
+      },
+      { title: "Changelog entry", required: false, description: "CHANGELOG.md updated" },
     ],
   });
 
   createTemplate({
-    name: 'Deployment',
-    category: 'deployment',
+    name: "Deployment",
+    category: "deployment",
     isRequired: true,
     items: [
-      { title: 'Build succeeds', required: true, description: 'npm run build completes successfully' },
-      { title: 'Environment variables documented', required: false, description: 'New env vars are documented' },
-      { title: 'Rollback plan exists', required: false, description: 'Can revert changes if needed' },
+      {
+        title: "Build succeeds",
+        required: true,
+        description: "npm run build completes successfully",
+      },
+      {
+        title: "Environment variables documented",
+        required: false,
+        description: "New env vars are documented",
+      },
+      {
+        title: "Rollback plan exists",
+        required: false,
+        description: "Can revert changes if needed",
+      },
     ],
   });
 }

@@ -1,8 +1,18 @@
-import { getDb } from '../db/index.js';
-import { externalIssueLinks } from '../db/schema/index.js';
-import { eq, and } from 'drizzle-orm';
-import type { ExternalIssueLink, ExternalIssueStatus, ExternalIssueLinkSyncStatus, IntegrationProvider } from '@orcy/shared';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { externalIssueLinks } from "../db/schema/index.js";
+import { eq, and } from "drizzle-orm";
+import type {
+  ExternalIssueLink,
+  ExternalIssueStatus,
+  ExternalIssueLinkSyncStatus,
+  IntegrationProvider,
+} from "@orcy/shared";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+} from "../errors/repository.js";
 
 export function create(input: {
   connectionId: string;
@@ -20,57 +30,78 @@ export function create(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(externalIssueLinks).values({
-    id,
-    connectionId: input.connectionId,
-    habitatId: input.habitatId,
-    missionId: input.missionId,
-    provider: input.provider,
-    externalId: input.externalId,
-    externalKey: input.externalKey,
-    externalUrl: input.externalUrl,
-    externalStatus: input.externalStatus,
-    externalUpdatedAt: input.externalUpdatedAt ?? null,
-    providerLabels: input.providerLabels ?? [],
-    lastSyncedAt: now,
-    syncStatus: 'synced',
-    syncWarning: null,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  db.insert(externalIssueLinks)
+    .values({
+      id,
+      connectionId: input.connectionId,
+      habitatId: input.habitatId,
+      missionId: input.missionId,
+      provider: input.provider,
+      externalId: input.externalId,
+      externalKey: input.externalKey,
+      externalUrl: input.externalUrl,
+      externalStatus: input.externalStatus,
+      externalUpdatedAt: input.externalUpdatedAt ?? null,
+      providerLabels: input.providerLabels ?? [],
+      lastSyncedAt: now,
+      syncStatus: "synced",
+      syncWarning: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   const result = getById(id);
-  if (!result) throw new Error('Failed to create external issue link');
+  if (!result) throw new Error("Failed to create external issue link");
   return result;
 }
 
 export function getById(id: string): ExternalIssueLink | null {
   const db = getDb();
-  return db.select().from(externalIssueLinks).where(eq(externalIssueLinks.id, id)).get() as ExternalIssueLink | null;
+  return db
+    .select()
+    .from(externalIssueLinks)
+    .where(eq(externalIssueLinks.id, id))
+    .get() as ExternalIssueLink | null;
 }
 
-export function findByConnectionAndExternalId(connectionId: string, externalId: string): ExternalIssueLink | null {
+export function findByConnectionAndExternalId(
+  connectionId: string,
+  externalId: string,
+): ExternalIssueLink | null {
   const db = getDb();
-  return db.select().from(externalIssueLinks)
-    .where(and(eq(externalIssueLinks.connectionId, connectionId), eq(externalIssueLinks.externalId, externalId)))
+  return db
+    .select()
+    .from(externalIssueLinks)
+    .where(
+      and(
+        eq(externalIssueLinks.connectionId, connectionId),
+        eq(externalIssueLinks.externalId, externalId),
+      ),
+    )
     .get() as ExternalIssueLink | null;
 }
 
 export function listByMissionId(missionId: string): ExternalIssueLink[] {
   const db = getDb();
-  return db.select().from(externalIssueLinks)
+  return db
+    .select()
+    .from(externalIssueLinks)
     .where(eq(externalIssueLinks.missionId, missionId))
     .all() as ExternalIssueLink[];
 }
 
-export function update(id: string, input: {
-  externalStatus?: ExternalIssueStatus;
-  externalUpdatedAt?: string | null;
-  providerLabels?: string[];
-  lastSyncedAt?: string | null;
-  syncStatus?: ExternalIssueLinkSyncStatus;
-  syncWarning?: string | null;
-}): ExternalIssueLink | null {
+export function update(
+  id: string,
+  input: {
+    externalStatus?: ExternalIssueStatus;
+    externalUpdatedAt?: string | null;
+    providerLabels?: string[];
+    lastSyncedAt?: string | null;
+    syncStatus?: ExternalIssueLinkSyncStatus;
+    syncWarning?: string | null;
+  },
+): ExternalIssueLink | null {
   const db = getDb();
   const now = new Date().toISOString();
 
@@ -85,6 +116,10 @@ export function update(id: string, input: {
   if (input.syncStatus !== undefined) values.syncStatus = input.syncStatus;
   if (input.syncWarning !== undefined) values.syncWarning = input.syncWarning;
 
-  db.update(externalIssueLinks).set(values).where(eq(externalIssueLinks.id, id)).run();
+  try {
+    db.update(externalIssueLinks).set(values).where(eq(externalIssueLinks.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("externalIssueLink", err as Error, id);
+  }
   return getById(id);
 }

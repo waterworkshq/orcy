@@ -1,8 +1,19 @@
-import { getDb } from '../db/index.js';
-import { scheduledTasks } from '../db/schema/index.js';
-import { eq, and, sql, lte } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import type { ScheduledTask, ScheduleType, TaskPriority, TaskTemplateEntry } from '../models/index.js';
+import { getDb } from "../db/index.js";
+import { scheduledTasks } from "../db/schema/index.js";
+import { eq, and, sql, lte } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import type {
+  ScheduledTask,
+  ScheduleType,
+  TaskPriority,
+  TaskTemplateEntry,
+} from "../models/index.js";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export interface CreateScheduledTaskInput {
   habitatId: string;
@@ -48,43 +59,47 @@ export function createScheduledTask(input: CreateScheduledTaskInput): ScheduledT
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(scheduledTasks).values({
-    id,
-    habitatId: input.habitatId,
-    templateId: input.templateId ?? null,
-    name: input.name,
-    description: input.description ?? '',
-    scheduleType: input.scheduleType,
-    cronExpression: input.cronExpression ?? null,
-    intervalMinutes: input.intervalMinutes ?? null,
-    scheduledAt: input.scheduledAt ?? null,
-    timezone: input.timezone ?? 'UTC',
-    missionTitle: input.missionTitle,
-    missionDescription: input.missionDescription ?? '',
-    missionPriority: input.missionPriority ?? 'medium',
-    missionLabels: input.missionLabels ?? [],
-    missionDomain: input.missionDomain ?? null,
-    tasksTemplate: input.tasksTemplate ?? [],
-    enabled: true,
-    lastRunAt: null,
-    nextRunAt: input.nextRunAt,
-    runCount: 0,
-    lastCreatedMissionId: null,
-    createdBy: input.createdBy,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(scheduledTasks)
+      .values({
+        id,
+        habitatId: input.habitatId,
+        templateId: input.templateId ?? null,
+        name: input.name,
+        description: input.description ?? "",
+        scheduleType: input.scheduleType,
+        cronExpression: input.cronExpression ?? null,
+        intervalMinutes: input.intervalMinutes ?? null,
+        scheduledAt: input.scheduledAt ?? null,
+        timezone: input.timezone ?? "UTC",
+        missionTitle: input.missionTitle,
+        missionDescription: input.missionDescription ?? "",
+        missionPriority: input.missionPriority ?? "medium",
+        missionLabels: input.missionLabels ?? [],
+        missionDomain: input.missionDomain ?? null,
+        tasksTemplate: input.tasksTemplate ?? [],
+        enabled: true,
+        lastRunAt: null,
+        nextRunAt: input.nextRunAt,
+        runCount: 0,
+        lastCreatedMissionId: null,
+        createdBy: input.createdBy,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("scheduledTask", err as Error, id);
+  }
 
-  return getScheduledTaskById(id)!;
+  const task = getScheduledTaskById(id);
+  if (!task) throw repositoryNotFoundError("scheduledTask", id);
+  return task;
 }
 
 export function getScheduledTaskById(id: string): ScheduledTask | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(scheduledTasks)
-    .where(eq(scheduledTasks.id, id))
-    .get();
+  const row = db.select().from(scheduledTasks).where(eq(scheduledTasks.id, id)).get();
   return (row as ScheduledTask) ?? null;
 }
 
@@ -104,16 +119,14 @@ export function getDueScheduledTasks(): ScheduledTask[] {
   return db
     .select()
     .from(scheduledTasks)
-    .where(
-      and(
-        eq(scheduledTasks.enabled, true),
-        lte(scheduledTasks.nextRunAt, now),
-      )
-    )
+    .where(and(eq(scheduledTasks.enabled, true), lte(scheduledTasks.nextRunAt, now)))
     .all() as ScheduledTask[];
 }
 
-export function updateScheduledTask(id: string, input: UpdateScheduledTaskInput): ScheduledTask | null {
+export function updateScheduledTask(
+  id: string,
+  input: UpdateScheduledTaskInput,
+): ScheduledTask | null {
   const db = getDb();
   const existing = getScheduledTaskById(id);
   if (!existing) return null;
@@ -140,10 +153,11 @@ export function updateScheduledTask(id: string, input: UpdateScheduledTaskInput)
 
   set.updatedAt = new Date().toISOString();
 
-  db.update(scheduledTasks)
-    .set(set)
-    .where(eq(scheduledTasks.id, id))
-    .run();
+  try {
+    db.update(scheduledTasks).set(set).where(eq(scheduledTasks.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
   return getScheduledTaskById(id);
 }
 
@@ -158,19 +172,25 @@ export function claimExecution(id: string, nextRunAt: string): boolean {
     .get();
   const beforeRunCount = before?.runCount ?? -1;
 
-  db.update(scheduledTasks)
-    .set({
-      lastRunAt: now,
-      nextRunAt,
-      runCount: sql`${scheduledTasks.runCount} + 1`,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(scheduledTasks.id, id),
-      eq(scheduledTasks.enabled, true),
-      lte(scheduledTasks.nextRunAt, now),
-    ))
-    .run();
+  try {
+    db.update(scheduledTasks)
+      .set({
+        lastRunAt: now,
+        nextRunAt,
+        runCount: sql`${scheduledTasks.runCount} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scheduledTasks.id, id),
+          eq(scheduledTasks.enabled, true),
+          lte(scheduledTasks.nextRunAt, now),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
 
   const after = db
     .select({ runCount: scheduledTasks.runCount })
@@ -184,13 +204,17 @@ export function finalizeExecution(id: string, missionId: string): void {
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(scheduledTasks)
-    .set({
-      lastCreatedMissionId: missionId,
-      updatedAt: now,
-    })
-    .where(eq(scheduledTasks.id, id))
-    .run();
+  try {
+    db.update(scheduledTasks)
+      .set({
+        lastCreatedMissionId: missionId,
+        updatedAt: now,
+      })
+      .where(eq(scheduledTasks.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
 }
 
 export function deleteScheduledTask(id: string): boolean {
@@ -198,8 +222,10 @@ export function deleteScheduledTask(id: string): boolean {
   const existing = getScheduledTaskById(id);
   if (!existing) return false;
 
-  db.delete(scheduledTasks)
-    .where(eq(scheduledTasks.id, id))
-    .run();
+  try {
+    db.delete(scheduledTasks).where(eq(scheduledTasks.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("scheduledTask", err as Error, id);
+  }
   return true;
 }

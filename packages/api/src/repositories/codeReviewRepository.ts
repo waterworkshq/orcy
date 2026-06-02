@@ -3,6 +3,7 @@ import { codeReviews } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState, CodeEvidenceReviewStatus } from "@orcy/shared";
+import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 
 const DEFAULT_REVIEW_LIST_LIMIT = 100;
 
@@ -29,24 +30,28 @@ export function create(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(codeReviews)
-    .values({
-      id,
-      pullRequestId: input.pullRequestId ?? null,
-      repositoryId: input.repositoryId ?? null,
-      provider: input.provider,
-      repoSlug: input.repoSlug ?? null,
-      reviewUrl: input.reviewUrl ?? null,
-      reviewStatus: input.reviewStatus ?? "pending",
-      reviewerName: input.reviewerName ?? null,
-      reviewerId: input.reviewerId ?? null,
-      submittedAt: input.submittedAt ?? null,
-      verificationState: input.verificationState ?? "unverified",
-      metadata: input.metadata ?? {},
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+  try {
+    db.insert(codeReviews)
+      .values({
+        id,
+        pullRequestId: input.pullRequestId ?? null,
+        repositoryId: input.repositoryId ?? null,
+        provider: input.provider,
+        repoSlug: input.repoSlug ?? null,
+        reviewUrl: input.reviewUrl ?? null,
+        reviewStatus: input.reviewStatus ?? "pending",
+        reviewerName: input.reviewerName ?? null,
+        reviewerId: input.reviewerId ?? null,
+        submittedAt: input.submittedAt ?? null,
+        verificationState: input.verificationState ?? "unverified",
+        metadata: input.metadata ?? {},
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("codeReview", err as Error, id);
+  }
 
   return getById(id);
 }
@@ -74,7 +79,11 @@ export function updateById(
   if (updates.verificationState !== undefined)
     setValues.verificationState = updates.verificationState;
 
-  db.update(codeReviews).set(setValues).where(eq(codeReviews.id, id)).run();
+  try {
+    db.update(codeReviews).set(setValues).where(eq(codeReviews.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("codeReview", err as Error, id);
+  }
   return getById(id);
 }
 

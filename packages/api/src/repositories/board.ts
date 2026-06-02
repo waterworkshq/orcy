@@ -1,8 +1,22 @@
-import { getDb } from '../db/index.js';
-import { habitats, columns } from '../db/schema/index.js';
-import { eq, and, like, or, isNull, inArray, sql, desc } from 'drizzle-orm';
-import type { Habitat, Column, RetryPolicy, AnomalySettings, AutoAssignSettings, GitWorktreeSettings, PrioritizationSettings } from '../models/index.js';
-import { v4 as uuid } from 'uuid';
+import { getDb } from "../db/index.js";
+import { habitats, columns } from "../db/schema/index.js";
+import { eq, and, like, or, isNull, inArray, sql, desc } from "drizzle-orm";
+import type {
+  Habitat,
+  Column,
+  RetryPolicy,
+  AnomalySettings,
+  AutoAssignSettings,
+  GitWorktreeSettings,
+  PrioritizationSettings,
+} from "../models/index.js";
+import { v4 as uuid } from "uuid";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export interface CreateHabitatInput {
   name: string;
@@ -26,25 +40,29 @@ export function createHabitat(input: CreateHabitatInput): Habitat {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(habitats).values({
-    id,
-    name: input.name,
-    description: input.description ?? '',
-    createdAt: now,
-    updatedAt: now,
-    teamId: input.teamId ?? null,
-  }).run();
+  try {
+    db.insert(habitats)
+      .values({
+        id,
+        name: input.name,
+        description: input.description ?? "",
+        createdAt: now,
+        updatedAt: now,
+        teamId: input.teamId ?? null,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("habitat", err as Error, id);
+  }
 
-  return getHabitatById(id)!;
+  const habitat = getHabitatById(id);
+  if (!habitat) throw repositoryNotFoundError("habitat", id);
+  return habitat;
 }
 
 export function getHabitatById(id: string): Habitat | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(habitats)
-    .where(eq(habitats.id, id))
-    .get();
+  const row = db.select().from(habitats).where(eq(habitats.id, id)).get();
   return row ?? null;
 }
 
@@ -82,35 +100,47 @@ export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | 
   if (input.retrySettings !== undefined) values.retrySettings = input.retrySettings;
   if (input.anomalySettings !== undefined) values.anomalySettings = input.anomalySettings;
   if (input.autoAssignSettings !== undefined) values.autoAssignSettings = input.autoAssignSettings;
-  if (input.gitWorktreeSettings !== undefined) values.gitWorktreeSettings = input.gitWorktreeSettings;
+  if (input.gitWorktreeSettings !== undefined)
+    values.gitWorktreeSettings = input.gitWorktreeSettings;
   if (input.eventRetentionDays !== undefined) values.eventRetentionDays = input.eventRetentionDays;
-  if (input.prioritizationSettings !== undefined) values.prioritizationSettings = input.prioritizationSettings;
+  if (input.prioritizationSettings !== undefined)
+    values.prioritizationSettings = input.prioritizationSettings;
 
-  db.update(habitats)
-    .set(values)
-    .where(eq(habitats.id, id))
-    .run();
+  try {
+    db.update(habitats).set(values).where(eq(habitats.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("habitat", err as Error, id);
+  }
   return getHabitatById(id);
 }
 
 export function deleteHabitat(id: string): void {
   const db = getDb();
-  db.delete(habitats).where(eq(habitats.id, id)).run();
+  try {
+    db.delete(habitats).where(eq(habitats.id, id)).run();
+  } catch (err) {
+    throw repositoryDeleteError("habitat", err as Error, id);
+  }
 }
 
-export function getHabitatWithColumnsAndTasks(habitatId: string): { habitat: Habitat; columns: Column[] } | null {
+export function getHabitatWithColumnsAndTasks(
+  habitatId: string,
+): { habitat: Habitat; columns: Column[] } | null {
   const db = getDb();
-  const result = db.query.habitats.findFirst({
-    where: eq(habitats.id, habitatId),
-    with: {
-      columns: {
-        orderBy: columns.order,
-        with: {
-          missions: true,
+  const result = db.query.habitats
+    .findFirst({
+      where: eq(habitats.id, habitatId),
+      with: {
+        columns: {
+          orderBy: columns.order,
+          with: {
+            missions: true,
+          },
         },
       },
-    },
-  }).prepare().get();
+    })
+    .prepare()
+    .get();
 
   if (!result) return null;
 

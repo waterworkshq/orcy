@@ -46,6 +46,16 @@ vi.mock("../middleware/rbac.js", () => ({
   },
 }));
 vi.mock("../errors.js", () => ({
+  AppError: class AppError extends Error {
+    constructor(
+      public statusCode: number,
+      public code: string,
+      message: string,
+    ) {
+      super(message);
+      this.name = "AppError";
+    }
+  },
   badRequest: (msg: string) => Object.assign(new Error(msg), { statusCode: 400 }),
   notFound: (msg: string) => Object.assign(new Error(msg), { statusCode: 404 }),
   forbidden: (msg: string) => Object.assign(new Error(msg), { statusCode: 403 }),

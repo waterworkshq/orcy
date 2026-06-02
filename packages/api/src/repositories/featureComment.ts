@@ -1,15 +1,21 @@
-import { getDb } from '../db/index.js';
-import { missionComments } from '../db/schema/index.js';
-import { eq, desc, count } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import * as missionCommentMentionRepo from './featureCommentMention.js';
-import type { MissionCommentMention } from '@orcy/shared/types';
+import { getDb } from "../db/index.js";
+import { missionComments } from "../db/schema/index.js";
+import { eq, desc, count } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import * as missionCommentMentionRepo from "./featureCommentMention.js";
+import type { MissionCommentMention } from "@orcy/shared/types";
+import {
+  repositoryCreateError,
+  repositoryNotFoundError,
+  repositoryUpdateError,
+  repositoryDeleteError,
+} from "../errors/repository.js";
 
 export interface MissionCommentRow {
   id: string;
   missionId: string;
   parentId: string | null;
-  authorType: 'human' | 'agent';
+  authorType: "human" | "agent";
   authorId: string;
   content: string;
   createdAt: string;
@@ -30,7 +36,7 @@ function attachMentions(comments: MissionCommentRow[]): MissionCommentRow[] {
 
 export function createComment(input: {
   missionId: string;
-  authorType: 'human' | 'agent';
+  authorType: "human" | "agent";
   authorId: string;
   content: string;
   parentId?: string | null;
@@ -39,21 +45,33 @@ export function createComment(input: {
   const id = uuid();
   const now = new Date().toISOString();
 
-  db.insert(missionComments).values({
-    id,
-    missionId: input.missionId,
-    parentId: input.parentId ?? null,
-    authorType: input.authorType,
-    authorId: input.authorId,
-    content: input.content,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+  try {
+    db.insert(missionComments)
+      .values({
+        id,
+        missionId: input.missionId,
+        parentId: input.parentId ?? null,
+        authorType: input.authorType,
+        authorId: input.authorId,
+        content: input.content,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  } catch (err) {
+    throw repositoryCreateError("missionComment", err as Error, id);
+  }
 
-  return getCommentById(id)!;
+  const comment = getCommentById(id);
+  if (!comment) throw repositoryNotFoundError("missionComment", id);
+  return comment;
 }
 
-export function getCommentsByMissionId(missionId: string, limit = 50, offset = 0): { comments: MissionCommentRow[]; total: number } {
+export function getCommentsByMissionId(
+  missionId: string,
+  limit = 50,
+  offset = 0,
+): { comments: MissionCommentRow[]; total: number } {
   const db = getDb();
 
   const comments = db
@@ -76,11 +94,7 @@ export function getCommentsByMissionId(missionId: string, limit = 50, offset = 0
 
 export function getCommentById(commentId: string): MissionCommentRow | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(missionComments)
-    .where(eq(missionComments.id, commentId))
-    .get();
+  const row = db.select().from(missionComments).where(eq(missionComments.id, commentId)).get();
   if (!row) return null;
   return attachMentions([row as MissionCommentRow])[0] ?? null;
 }
@@ -89,19 +103,25 @@ export function updateComment(commentId: string, content: string): MissionCommen
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.update(missionComments)
-    .set({ content, updatedAt: now })
-    .where(eq(missionComments.id, commentId))
-    .run();
+  try {
+    db.update(missionComments)
+      .set({ content, updatedAt: now })
+      .where(eq(missionComments.id, commentId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("missionComment", err as Error, commentId);
+  }
 
   return getCommentById(commentId);
 }
 
 export function deleteComment(commentId: string): boolean {
   const db = getDb();
-  db.delete(missionComments)
-    .where(eq(missionComments.id, commentId))
-    .run();
+  try {
+    db.delete(missionComments).where(eq(missionComments.id, commentId)).run();
+  } catch (err) {
+    throw repositoryDeleteError("missionComment", err as Error, commentId);
+  }
   return true;
 }
 
