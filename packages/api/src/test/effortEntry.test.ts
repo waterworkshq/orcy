@@ -175,7 +175,7 @@ describe("getEffortEntriesByTask", () => {
   it("filters out corrections when includeCorrections=false", () => {
     const task = taskRepo.createTask({ missionId, title: "Filter task", createdBy: "test-user" });
 
-    effortRepo.createEffortEntry({
+    const orig = effortRepo.createEffortEntry({
       taskId: task.id,
       actorType: "human",
       minutes: 30,
@@ -186,7 +186,7 @@ describe("getEffortEntriesByTask", () => {
       actorType: "human",
       minutes: -5,
       source: "correction_adjustment",
-      correctsEntryId: "fake-id",
+      correctsEntryId: orig.id,
     });
 
     const withCorrections = effortRepo.getEffortEntriesByTask(task.id);
@@ -285,7 +285,7 @@ describe("getEffortTotalsForTask", () => {
       title: "Correction totals task",
       createdBy: "test-user",
     });
-    effortRepo.createEffortEntry({
+    const original = effortRepo.createEffortEntry({
       taskId: task.id,
       actorType: "human",
       minutes: 60,
@@ -296,7 +296,7 @@ describe("getEffortTotalsForTask", () => {
       actorType: "human",
       minutes: -10,
       source: "correction_adjustment",
-      correctsEntryId: "fake",
+      correctsEntryId: original.id,
     });
 
     const totals = effortRepo.getEffortTotalsForTask(task.id);
@@ -324,7 +324,7 @@ describe("getEffortTotalsForTask", () => {
 
   it("computes totalAccountedMinutes as sum of all three", () => {
     const task = taskRepo.createTask({ missionId, title: "Total task", createdBy: "test-user" });
-    effortRepo.createEffortEntry({
+    const entry = effortRepo.createEffortEntry({
       taskId: task.id,
       actorType: "human",
       minutes: 30,
@@ -335,7 +335,7 @@ describe("getEffortTotalsForTask", () => {
       actorType: "human",
       minutes: -5,
       source: "correction_adjustment",
-      correctsEntryId: "fake",
+      correctsEntryId: entry.id,
     });
     timeRepo.createTimeRecord({
       taskId: task.id,

@@ -248,7 +248,9 @@ export const codeEvidenceLinks = sqliteTable(
     correctedById: text("corrected_by_id"),
     correctedAt: text("corrected_at"),
     correctionReason: text("correction_reason"),
-    replacementLinkId: text("replacement_link_id"),
+    replacementLinkId: text("replacement_link_id").references((): any => codeEvidenceLinks.id, {
+      onDelete: "set null",
+    }),
     allowExternalRepository: integer("allow_external_repository", { mode: "boolean" })
       .notNull()
       .default(false),

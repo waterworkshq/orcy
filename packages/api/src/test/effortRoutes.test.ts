@@ -168,10 +168,10 @@ describe("Effort Routes", () => {
         title: "Corrections query task",
         createdBy: "test-user",
       });
-      effortRepo.createEffortEntry({
+      const original = effortRepo.createEffortEntry({
         taskId: task.id,
         actorType: "human",
-        minutes: 30,
+        minutes: 60,
         source: "human_manual",
       });
       effortRepo.createEffortEntry({
@@ -179,7 +179,7 @@ describe("Effort Routes", () => {
         actorType: "human",
         minutes: -5,
         source: "correction_adjustment",
-        correctsEntryId: "fake",
+        correctsEntryId: original.id,
       });
 
       const resWith = await app!.inject({

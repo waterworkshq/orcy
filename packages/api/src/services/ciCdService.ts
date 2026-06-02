@@ -138,23 +138,25 @@ function mapGitLabStatus(status: string): PipelineEventStatus {
   return map[status] ?? "queued";
 }
 
-export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): {
-  status: string;
-  taskId?: string;
-} {
-  const run = body.workflow_run;
-  const repo = run.repository.full_name;
-  const branch = run.head_branch;
-  const runId = String(run.id);
-  const mappedStatus = mapGitHubStatus(run.status, run.conclusion);
+interface PipelineEventArgs {
+  provider: "github" | "gitlab";
+  repo: string;
+  branch: string;
+  runId: string;
+  commitSha: string;
+  mappedStatus: PipelineEventStatus;
+  actorId: string;
+  artifactInfo?: { name: string; url: string };
+}
 
-  const taskId = findTaskAcrossHabitats(repo, branch);
+function handlePipelineEvent(args: PipelineEventArgs): { status: string; taskId?: string } {
+  const taskId = findTaskAcrossHabitats(args.repo, args.branch);
   if (!taskId) return { status: "no_matching_task" };
 
   const task = taskRepo.getTaskById(taskId);
   if (!task) return { status: "task_not_found" };
 
-  const existing = pipelineRepo.findByProviderAndRunId("github", repo, runId);
+  const existing = pipelineRepo.findByProviderAndRunId(args.provider, args.repo, args.runId);
 
   let pipelineRecord: {
     id: string;
@@ -165,40 +167,49 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): {
     branch: string;
     commitSha: string | null;
   } | null = null;
+
+  const updateFields: { status: PipelineEventStatus; commitSha?: string } = {
+    status: args.mappedStatus,
+  };
+  if (args.commitSha) updateFields.commitSha = args.commitSha;
+
   if (existing) {
-    pipelineRepo.updatePipelineEvent(existing.id, {
-      status: mappedStatus,
-      commitSha: run.head_sha,
-    });
+    pipelineRepo.updatePipelineEvent(existing.id, updateFields);
     pipelineRecord = existing;
   } else {
     pipelineRecord = pipelineRepo.createPipelineEvent({
       taskId,
-      provider: "github",
-      repo,
-      runId,
-      status: mappedStatus,
-      branch,
-      commitSha: run.head_sha,
+      provider: args.provider,
+      repo: args.repo,
+      runId: args.runId,
+      status: args.mappedStatus,
+      branch: args.branch,
+      commitSha: args.commitSha || null,
     });
   }
 
-  if (mappedStatus === "success" || mappedStatus === "failure") {
-    const artifactDesc = mappedStatus === "success" ? `${run.name} passed` : `${run.name} failed`;
-    const artifactUrl = run.html_url;
+  if (args.artifactInfo) {
+    const { name, url } = args.artifactInfo;
+    const desc = args.mappedStatus === "success" ? `${name} passed` : `${name} failed`;
     taskRepo.addArtifact(taskId, {
       type: "log",
-      url: artifactUrl,
-      description: artifactDesc,
+      url,
+      description: desc,
     });
   }
 
   eventRepo.createEvent({
     taskId,
     actorType: "system",
-    actorId: "github-ci",
+    actorId: args.actorId,
     action: "updated",
-    metadata: { provider: "github", runId, pipelineStatus: mappedStatus, repo, branch },
+    metadata: {
+      provider: args.provider,
+      runId: args.runId,
+      pipelineStatus: args.mappedStatus,
+      repo: args.repo,
+      branch: args.branch,
+    },
   });
 
   const habitatId = getHabitatIdForTask(taskId);
@@ -220,199 +231,61 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent): {
   return { status: "processed", taskId };
 }
 
-export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent): {
-  status: string;
-  taskId?: string;
-} {
-  const job = body.workflow_job;
-  const repo = job.repository.full_name;
-  const branch = job.head_branch;
-  const runId = String(job.run_id);
-  const mappedStatus = mapGitHubStatus(job.status, job.conclusion);
-
-  const taskId = findTaskAcrossHabitats(repo, branch);
-  if (!taskId) return { status: "no_matching_task" };
-
-  const task = taskRepo.getTaskById(taskId);
-  if (!task) return { status: "task_not_found" };
-
-  const existing = pipelineRepo.findByProviderAndRunId("github", repo, runId);
-
-  let pipelineRecord: {
-    id: string;
-    taskId: string;
-    provider: string;
-    repo: string;
-    runId: string;
-    branch: string;
-    commitSha: string | null;
-  } | null = null;
-  if (existing) {
-    pipelineRepo.updatePipelineEvent(existing.id, { status: mappedStatus });
-    pipelineRecord = existing;
-  } else {
-    pipelineRecord = pipelineRepo.createPipelineEvent({
-      taskId,
-      provider: "github",
-      repo,
-      runId,
-      status: mappedStatus,
-      branch,
-      commitSha: job.head_sha,
-    });
-  }
-
-  const habitatId2 = getHabitatIdForTask(taskId);
-  if (habitatId2) {
-    if (pipelineRecord) {
-      try {
-        codeEvidenceService.ensureEvidenceLinkForPipelineEvent(
-          pipelineRecord,
-          "webhook",
-          habitatId2,
-        );
-      } catch {
-        /* non-blocking enrichment */
-      }
-    }
-    publishTaskUpdated(habitatId2, taskId);
-  }
-
-  return { status: "processed", taskId };
-}
-
-export function handleGitLabPipelineEvent(body: GitLabPipelineEvent): {
-  status: string;
-  taskId?: string;
-} {
-  const attrs = body.object_attributes;
-  const repo = body.project.path_with_namespace;
-  const branch = attrs.ref;
-  const runId = String(attrs.id);
-  const mappedStatus = mapGitLabStatus(attrs.status);
-
-  const taskId = findTaskAcrossHabitats(repo, branch);
-  if (!taskId) return { status: "no_matching_task" };
-
-  const task = taskRepo.getTaskById(taskId);
-  if (!task) return { status: "task_not_found" };
-
-  const existing = pipelineRepo.findByProviderAndRunId("gitlab", repo, runId);
-
-  let pipelineRecord: {
-    id: string;
-    taskId: string;
-    provider: string;
-    repo: string;
-    runId: string;
-    branch: string;
-    commitSha: string | null;
-  } | null = null;
-  if (existing) {
-    pipelineRepo.updatePipelineEvent(existing.id, { status: mappedStatus, commitSha: attrs.sha });
-    pipelineRecord = existing;
-  } else {
-    pipelineRecord = pipelineRepo.createPipelineEvent({
-      taskId,
-      provider: "gitlab",
-      repo,
-      runId,
-      status: mappedStatus,
-      branch,
-      commitSha: attrs.sha,
-    });
-  }
-
-  if (mappedStatus === "success" || mappedStatus === "failure") {
-    const pipelineUrl = `${body.project.web_url}/-/pipelines/${attrs.id}`;
-    const artifactDesc = mappedStatus === "success" ? "Pipeline passed" : "Pipeline failed";
-    taskRepo.addArtifact(taskId, {
-      type: "log",
-      url: pipelineUrl,
-      description: artifactDesc,
-    });
-  }
-
-  eventRepo.createEvent({
-    taskId,
-    actorType: "system",
-    actorId: "gitlab-ci",
-    action: "updated",
-    metadata: { provider: "gitlab", runId, pipelineStatus: mappedStatus, repo, branch },
+export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent) {
+  const run = body.workflow_run;
+  return handlePipelineEvent({
+    provider: "github",
+    repo: run.repository.full_name,
+    branch: run.head_branch,
+    runId: String(run.id),
+    commitSha: run.head_sha,
+    mappedStatus: mapGitHubStatus(run.status, run.conclusion),
+    actorId: "github-ci",
+    artifactInfo: {
+      name: run.name,
+      url: run.html_url,
+    },
   });
-
-  const habitatId3 = getHabitatIdForTask(taskId);
-  if (habitatId3) {
-    if (pipelineRecord) {
-      try {
-        codeEvidenceService.ensureEvidenceLinkForPipelineEvent(
-          pipelineRecord,
-          "webhook",
-          habitatId3,
-        );
-      } catch {
-        /* non-blocking enrichment */
-      }
-    }
-    publishTaskUpdated(habitatId3, taskId);
-  }
-
-  return { status: "processed", taskId };
 }
 
-export function handleGitLabJobEvent(body: GitLabJobEvent): { status: string; taskId?: string } {
-  const repo = body.project.path_with_namespace;
-  const branch = body.ref;
-  const runId = String(body.pipeline_id);
-  const mappedStatus = mapGitLabStatus(body.build_status);
+export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent) {
+  const job = body.workflow_job;
+  return handlePipelineEvent({
+    provider: "github",
+    repo: job.repository.full_name,
+    branch: job.head_branch,
+    runId: String(job.run_id),
+    commitSha: job.head_sha,
+    mappedStatus: mapGitHubStatus(job.status, job.conclusion),
+    actorId: "github-ci",
+  });
+}
 
-  const taskId = findTaskAcrossHabitats(repo, branch);
-  if (!taskId) return { status: "no_matching_task" };
+export function handleGitLabPipelineEvent(body: GitLabPipelineEvent) {
+  const attrs = body.object_attributes;
+  return handlePipelineEvent({
+    provider: "gitlab",
+    repo: body.project.path_with_namespace,
+    branch: attrs.ref,
+    runId: String(attrs.id),
+    commitSha: attrs.sha,
+    mappedStatus: mapGitLabStatus(attrs.status),
+    actorId: "gitlab-ci",
+    artifactInfo: {
+      name: "Pipeline",
+      url: `${body.project.web_url}/-/pipelines/${attrs.id}`,
+    },
+  });
+}
 
-  const task = taskRepo.getTaskById(taskId);
-  if (!task) return { status: "task_not_found" };
-
-  const existing = pipelineRepo.findByProviderAndRunId("gitlab", repo, runId);
-
-  let pipelineRecord: {
-    id: string;
-    taskId: string;
-    provider: string;
-    repo: string;
-    runId: string;
-    branch: string;
-    commitSha: string | null;
-  } | null = null;
-  if (existing) {
-    pipelineRepo.updatePipelineEvent(existing.id, { status: mappedStatus });
-    pipelineRecord = existing;
-  } else {
-    pipelineRecord = pipelineRepo.createPipelineEvent({
-      taskId,
-      provider: "gitlab",
-      repo,
-      runId,
-      status: mappedStatus,
-      branch,
-      commitSha: body.sha,
-    });
-  }
-
-  const habitatId4 = getHabitatIdForTask(taskId);
-  if (habitatId4) {
-    if (pipelineRecord) {
-      try {
-        codeEvidenceService.ensureEvidenceLinkForPipelineEvent(
-          pipelineRecord,
-          "webhook",
-          habitatId4,
-        );
-      } catch {
-        /* non-blocking enrichment */
-      }
-    }
-    publishTaskUpdated(habitatId4, taskId);
-  }
-
-  return { status: "processed", taskId };
+export function handleGitLabJobEvent(body: GitLabJobEvent) {
+  return handlePipelineEvent({
+    provider: "gitlab",
+    repo: body.project.path_with_namespace,
+    branch: body.ref,
+    runId: String(body.pipeline_id),
+    commitSha: body.sha,
+    mappedStatus: mapGitLabStatus(body.build_status),
+    actorId: "gitlab-ci",
+  });
 }
