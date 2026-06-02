@@ -2,6 +2,24 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.16.4 — 2026-06-02
+
+### Features
+
+#### add repository error handling and SQLite error mapping ([`1d644c5`](https://github.com/waterworkshq/orcy/commit/1d644c5b1ff1463ae7c698ae007e82d810408884))
+
+1. This change introduces a comprehensive error handling system for database operations in the API layer. It adds:
+
+3. 1. A new `RepositoryError` class that wraps database errors with contextual information (entity, operation, ID)
+4. 2. Factory functions for creating specific repository errors (create, update, delete, upsert, read, transaction)
+5. 3. SQLite error detection and mapping to appropriate HTTP status codes
+6. 4. Enhanced error logging with additional context in the global error handler
+7. 5. Updated all repository functions to use the new error handling pattern
+
+9. The changes improve error reporting by providing more specific error messages and better context when database operations fail, making it easier to diagnose and handle issues in the application.
+
+
+
 ## 0.16.3 — 2026-06-02
 
 ### Chores
@@ -87,21 +105,3 @@
 2. reusable component with unified styling, loading states, and error handling.
 3. Also add batch insert operations to code evidence repositories, add confidence
 4. validation, improve relative time formatting, and add effort query key helpers.
-
-
-
-## 0.16.1 — 2026-06-01
-
-### Bug Fixes
-
-#### add habitat ID filtering and flatten MCP tool parameters ([`96f2035`](https://github.com/waterworkshq/orcy/commit/96f2035d789b22c2c6f25ea73924fc0c9099c5cb))
-
-1. The repository query for code evidence completeness was incorrectly filtering only by targetType instead of both targetType and targetId. Added habitatId parameter to code evidence linking for proper repository lookup. Refactored effort routes to use Zod schema validation and added support for correcting effort entries. Flattened MCP tool parameters for better developer experience.
-
-
-
-### Refactors
-
-#### add optimistic locking with retry logic for concurrent updates ([`198ba2e`](https://github.com/waterworkshq/orcy/commit/198ba2e6711fc528cf97c81a5cafcbc08d9808d9))
-
-1. Optimistic concurrency control with retry mechanism for task effort and time metric recalculation to prevent race conditions. Refactored recalculateTaskEffortMetrics and updateTaskTimeMetrics to check task versions and retry on conflicts. Also improved agent metrics calculation by replacing N+1 query pattern with aggregated SQL joins, and added safety checks for regex pattern matching in repository lookups.
