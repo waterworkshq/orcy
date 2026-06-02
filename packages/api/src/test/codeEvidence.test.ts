@@ -5,10 +5,14 @@ import * as codeBranchRepo from "../repositories/codeBranchRepository.js";
 import * as codeCommitRepo from "../repositories/codeCommitRepository.js";
 import * as codeChangedFileRepo from "../repositories/codeChangedFileRepository.js";
 import * as codeReviewRepo from "../repositories/codeReviewRepository.js";
+import * as pullRequestRepo from "../repositories/pullRequest.js";
 import * as codeEvidenceLinkRepo from "../repositories/codeEvidenceLinkRepository.js";
 import * as codeEvidenceCompletenessRepo from "../repositories/codeEvidenceCompletenessRepository.js";
 import * as codeEvidenceGapRepo from "../repositories/codeEvidenceGapRepository.js";
 import * as habitatRepo from "../repositories/board.js";
+import * as habitatService from "../services/boardService.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as taskRepo from "../repositories/task.js";
 import {
   habitatCodeRepositories,
   codeBranches,
@@ -41,6 +45,24 @@ function seedRepo(habitatId?: string) {
     repoSlug: "org/repo",
     displayName: "Test Repo",
   })!;
+}
+
+function seedTask(title: string) {
+  const { habitat, columns } = habitatService.createHabitat({
+    name: `${title} Habitat`,
+    defaultColumns: true,
+  });
+  const mission = missionRepo.createMission({
+    habitatId: habitat.id,
+    columnId: columns[0].id,
+    title: `${title} Mission`,
+    createdBy: "test-user",
+  });
+  return taskRepo.createTask({
+    missionId: mission.id,
+    title,
+    createdBy: "test-user",
+  });
 }
 
 describe("CodeEvidenceRepository", () => {
@@ -161,9 +183,10 @@ describe("CodeBranchRepository", () => {
       headSha: "abc123",
     });
 
-    const branch = codeBranchRepo.findByRepoAndName(null, "feature/no-repo");
+    const branches = codeBranchRepo.findByRepoAndName(null, "feature/no-repo");
 
-    expect(branch?.headSha).toBe("abc123");
+    expect(branches).toHaveLength(1);
+    expect(branches[0].headSha).toBe("abc123");
   });
 });
 
@@ -215,9 +238,10 @@ describe("CodeCommitRepository", () => {
       message: "Repository-less commit",
     });
 
-    const commit = codeCommitRepo.findByRepoAndSha(null, "no-repo-sha");
+    const commits = codeCommitRepo.findByRepoAndSha(null, "no-repo-sha");
 
-    expect(commit?.message).toBe("Repository-less commit");
+    expect(commits).toHaveLength(1);
+    expect(commits[0].message).toBe("Repository-less commit");
   });
 });
 
@@ -280,6 +304,39 @@ describe("CodeChangedFileRepository", () => {
     const files = codeChangedFileRepo.getByCommitId(commit.id);
     expect(files.map((file) => file.path).sort()).toEqual(["src/one.ts", "src/two.ts"]);
   });
+
+  it("limits changed files returned by commit", () => {
+    const repo = seedRepo();
+    const commit = codeCommitRepo.create({
+      repositoryId: repo.id,
+      provider: "github",
+      repoSlug: "org/repo",
+      sha: "limited-files-sha",
+    })!;
+
+    codeChangedFileRepo.createMany([
+      {
+        repositoryId: repo.id,
+        commitId: commit.id,
+        provider: "github",
+        repoSlug: "org/repo",
+        path: "src/one.ts",
+        changeType: "added",
+        source: "webhook",
+      },
+      {
+        repositoryId: repo.id,
+        commitId: commit.id,
+        provider: "github",
+        repoSlug: "org/repo",
+        path: "src/two.ts",
+        changeType: "modified",
+        source: "webhook",
+      },
+    ]);
+
+    expect(codeChangedFileRepo.getByCommitId(commit.id, { limit: 1 })).toHaveLength(1);
+  });
 });
 
 describe("CodeReviewRepository", () => {
@@ -295,6 +352,30 @@ describe("CodeReviewRepository", () => {
 
     expect(review!.reviewStatus).toBe("approved");
     expect(review!.reviewerName).toBe("Reviewer");
+  });
+
+  it("limits reviews returned by pull request", () => {
+    const task = seedTask("Review limit task");
+    const pr = pullRequestRepo.createPullRequest({
+      taskId: task.id,
+      provider: "github",
+      repo: "org/repo",
+      prNumber: 42,
+      prUrl: "https://github.com/org/repo/pull/42",
+    });
+
+    codeReviewRepo.create({
+      pullRequestId: pr.id,
+      provider: "github",
+      reviewStatus: "approved",
+    });
+    codeReviewRepo.create({
+      pullRequestId: pr.id,
+      provider: "github",
+      reviewStatus: "commented",
+    });
+
+    expect(codeReviewRepo.getByPullRequestId(pr.id, { limit: 1 })).toHaveLength(1);
   });
 });
 
@@ -441,6 +522,31 @@ describe("CodeEvidenceLinkRepository", () => {
     expect(active.length).toBe(2);
   });
 
+  it("limits active links returned by target", () => {
+    codeEvidenceLinkRepo.create({
+      targetType: "task",
+      targetId: "task-link-limit",
+      evidenceType: "commit",
+      evidenceId: "commit-link-limit-a",
+      linkSource: "webhook",
+      linkedByType: "system",
+      linkedById: "github",
+    });
+    codeEvidenceLinkRepo.create({
+      targetType: "task",
+      targetId: "task-link-limit",
+      evidenceType: "commit",
+      evidenceId: "commit-link-limit-b",
+      linkSource: "webhook",
+      linkedByType: "system",
+      linkedById: "github",
+    });
+
+    expect(
+      codeEvidenceLinkRepo.getActiveByTarget("task", "task-link-limit", { limit: 1 }),
+    ).toHaveLength(1);
+  });
+
   it("counts active links by target", () => {
     codeEvidenceLinkRepo.create({
       targetType: "task",
@@ -529,6 +635,27 @@ describe("CodeEvidenceGapRepository", () => {
     const active = codeEvidenceGapRepo.getActiveByTarget("task", "task-gap-2");
     expect(active.length).toBe(1);
     expect(active[0].status).toBe("active");
+  });
+
+  it("limits active gaps returned by target", () => {
+    codeEvidenceGapRepo.create({
+      targetType: "task",
+      targetId: "task-gap-limit",
+      reasonCode: "pr_commit_not_created_yet",
+      reportedByType: "agent",
+      reportedById: "agent-1",
+    });
+    codeEvidenceGapRepo.create({
+      targetType: "task",
+      targetId: "task-gap-limit",
+      reasonCode: "provider_webhook_missing",
+      reportedByType: "agent",
+      reportedById: "agent-1",
+    });
+
+    expect(
+      codeEvidenceGapRepo.getActiveByTarget("task", "task-gap-limit", { limit: 1 }),
+    ).toHaveLength(1);
   });
 
   it("resolves a gap", () => {

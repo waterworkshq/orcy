@@ -14,9 +14,10 @@ const missionIdParamsSchema = z.object({ id: z.string() });
 
 const includeCorrectionsQuerySchema = z.object({
   includeCorrections: z
-    .union([z.boolean(), z.string()])
+    .enum(["true", "false", "1", "0"])
     .optional()
-    .transform((v) => v !== "false" && v !== false),
+    .default("true")
+    .transform((v) => v !== "false" && v !== "0"),
   limit: z.coerce.number().int().min(1).max(1000).optional().default(100),
   offset: z.coerce.number().int().min(0).optional().default(0),
 });

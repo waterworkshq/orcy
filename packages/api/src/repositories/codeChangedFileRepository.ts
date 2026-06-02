@@ -3,6 +3,8 @@ import { codeChangedFiles } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+const DEFAULT_CHANGED_FILE_LIST_LIMIT = 500;
+
 export function getById(id: string) {
   const db = getDb();
   const rows = db.select().from(codeChangedFiles).where(eq(codeChangedFiles.id, id)).all();
@@ -78,16 +80,24 @@ export function createMany(files: Array<Parameters<typeof create>[0]>) {
     .run();
 }
 
-export function getByCommitId(commitId: string) {
+export function getByCommitId(commitId: string, options?: { limit?: number }) {
   const db = getDb();
-  return db.select().from(codeChangedFiles).where(eq(codeChangedFiles.commitId, commitId)).all();
+  const limit = options?.limit ?? DEFAULT_CHANGED_FILE_LIST_LIMIT;
+  return db
+    .select()
+    .from(codeChangedFiles)
+    .where(eq(codeChangedFiles.commitId, commitId))
+    .limit(limit)
+    .all();
 }
 
-export function getByPullRequestId(pullRequestId: string) {
+export function getByPullRequestId(pullRequestId: string, options?: { limit?: number }) {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_CHANGED_FILE_LIST_LIMIT;
   return db
     .select()
     .from(codeChangedFiles)
     .where(eq(codeChangedFiles.pullRequestId, pullRequestId))
+    .limit(limit)
     .all();
 }

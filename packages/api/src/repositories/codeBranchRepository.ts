@@ -11,19 +11,20 @@ export function getById(id: string) {
   return rows.length > 0 ? rows[0] : null;
 }
 
-export function findByRepoAndName(repositoryId: string | null, name: string) {
+export function findByRepoAndName(
+  repositoryId: string | null,
+  name: string,
+): (typeof codeBranches.$inferSelect)[] {
   const db = getDb();
   if (repositoryId) {
-    const rows = db
+    return db
       .select()
       .from(codeBranches)
       .where(and(eq(codeBranches.repositoryId, repositoryId), eq(codeBranches.name, name)))
       .all();
-    return rows.length > 0 ? rows[0] : null;
   }
   logger.warn({ branchName: name }, "Finding code branch without repositoryId may be ambiguous");
-  const rows = db.select().from(codeBranches).where(eq(codeBranches.name, name)).all();
-  return rows.length > 0 ? rows[0] : null;
+  return db.select().from(codeBranches).where(eq(codeBranches.name, name)).all();
 }
 
 export function create(input: {
@@ -62,15 +63,62 @@ export function create(input: {
 }
 
 export function upsertByRepoAndName(input: Parameters<typeof create>[0]) {
-  const existing = findByRepoAndName(input.repositoryId ?? null, input.name);
-  if (existing) {
-    return updateById(existing.id, {
-      headSha: input.headSha,
-      url: input.url,
-      verificationState: input.verificationState,
-    });
-  }
-  return create(input);
+  const db = getDb();
+
+  return db.transaction((tx) => {
+    const conditions = input.repositoryId
+      ? [eq(codeBranches.repositoryId, input.repositoryId), eq(codeBranches.name, input.name)]
+      : [eq(codeBranches.name, input.name)];
+
+    const matches = tx
+      .select()
+      .from(codeBranches)
+      .where(and(...conditions))
+      .all();
+
+    if (matches.length > 0) {
+      if (matches.length > 1) {
+        logger.warn(
+          { branchName: input.name, count: matches.length },
+          "Multiple branches found, using first match",
+        );
+      }
+      const now = new Date().toISOString();
+      tx.update(codeBranches)
+        .set({
+          headSha: input.headSha ?? null,
+          url: input.url ?? null,
+          verificationState: input.verificationState ?? "unverified",
+          updatedAt: now,
+        })
+        .where(eq(codeBranches.id, matches[0].id))
+        .run();
+      const rows = tx.select().from(codeBranches).where(eq(codeBranches.id, matches[0].id)).all();
+      return rows.length > 0 ? rows[0] : null;
+    }
+
+    const id = uuid();
+    const now = new Date().toISOString();
+    tx.insert(codeBranches)
+      .values({
+        id,
+        repositoryId: input.repositoryId ?? null,
+        provider: input.provider,
+        repoSlug: input.repoSlug ?? null,
+        name: input.name,
+        baseBranch: input.baseBranch ?? null,
+        headSha: input.headSha ?? null,
+        url: input.url ?? null,
+        createdFromTaskId: input.createdFromTaskId ?? null,
+        verificationState: input.verificationState ?? "unverified",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const rows = tx.select().from(codeBranches).where(eq(codeBranches.id, id)).all();
+    return rows.length > 0 ? rows[0] : null;
+  });
 }
 
 export function updateById(

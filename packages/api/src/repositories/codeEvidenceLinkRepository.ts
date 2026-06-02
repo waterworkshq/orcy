@@ -18,14 +18,21 @@ function validateConfidence(confidence: number | null | undefined): void {
   }
 }
 
+const DEFAULT_TARGET_LIST_LIMIT = 100;
+
 export function getById(id: string) {
   const db = getDb();
   const rows = db.select().from(codeEvidenceLinks).where(eq(codeEvidenceLinks.id, id)).all();
   return rows.length > 0 ? rows[0] : null;
 }
 
-export function getActiveByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+export function getActiveByTarget(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  options?: { limit?: number },
+) {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_TARGET_LIST_LIMIT;
   return db
     .select()
     .from(codeEvidenceLinks)
@@ -36,22 +43,34 @@ export function getActiveByTarget(targetType: CodeEvidenceTargetType, targetId: 
         eq(codeEvidenceLinks.status, "active"),
       ),
     )
+    .limit(limit)
     .all();
 }
 
-export function getAllByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+export function getAllByTarget(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  options?: { limit?: number },
+) {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_TARGET_LIST_LIMIT;
   return db
     .select()
     .from(codeEvidenceLinks)
     .where(
       and(eq(codeEvidenceLinks.targetType, targetType), eq(codeEvidenceLinks.targetId, targetId)),
     )
+    .limit(limit)
     .all();
 }
 
-export function getHistoryByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+export function getHistoryByTarget(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  options?: { limit?: number },
+) {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_TARGET_LIST_LIMIT;
   return db
     .select()
     .from(codeEvidenceLinks)
@@ -62,6 +81,7 @@ export function getHistoryByTarget(targetType: CodeEvidenceTargetType, targetId:
         ne(codeEvidenceLinks.status, "active"),
       ),
     )
+    .limit(limit)
     .all();
 }
 

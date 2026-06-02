@@ -24,6 +24,10 @@ export function logEffort(
     throw badRequest("minutes must be a positive integer");
   }
 
+  if ((actorType === "human" || actorType === "agent") && !actorId) {
+    throw badRequest("actor_id is required for human and agent effort entries");
+  }
+
   const source: EffortSource =
     input.source ?? (actorType === "human" ? "human_manual" : "agent_reported");
 
@@ -84,6 +88,10 @@ export function correctEffortEntry(
   }
   if (!input.correctionReason) {
     throw badRequest("correctionReason is required");
+  }
+
+  if ((actorType === "human" || actorType === "agent") && !actorId) {
+    throw badRequest("actor_id is required for human and agent effort entries");
   }
 
   const correction = effortRepo.createEffortEntry({

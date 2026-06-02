@@ -8,14 +8,21 @@ import type {
   CodeEvidenceActorType,
 } from "@orcy/shared";
 
+const DEFAULT_TARGET_LIST_LIMIT = 100;
+
 export function getById(id: string) {
   const db = getDb();
   const rows = db.select().from(codeEvidenceGaps).where(eq(codeEvidenceGaps.id, id)).all();
   return rows.length > 0 ? rows[0] : null;
 }
 
-export function getActiveByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+export function getActiveByTarget(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  options?: { limit?: number },
+) {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_TARGET_LIST_LIMIT;
   return db
     .select()
     .from(codeEvidenceGaps)
@@ -26,11 +33,17 @@ export function getActiveByTarget(targetType: CodeEvidenceTargetType, targetId: 
         eq(codeEvidenceGaps.status, "active"),
       ),
     )
+    .limit(limit)
     .all();
 }
 
-export function getResolvedByTarget(targetType: CodeEvidenceTargetType, targetId: string) {
+export function getResolvedByTarget(
+  targetType: CodeEvidenceTargetType,
+  targetId: string,
+  options?: { limit?: number },
+) {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_TARGET_LIST_LIMIT;
   return db
     .select()
     .from(codeEvidenceGaps)
@@ -41,6 +54,7 @@ export function getResolvedByTarget(targetType: CodeEvidenceTargetType, targetId
         eq(codeEvidenceGaps.status, "resolved"),
       ),
     )
+    .limit(limit)
     .all();
 }
 

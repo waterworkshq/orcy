@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState, CodeEvidenceReviewStatus } from "@orcy/shared";
 
+const DEFAULT_REVIEW_LIST_LIMIT = 100;
+
 export function getById(id: string) {
   const db = getDb();
   const rows = db.select().from(codeReviews).where(eq(codeReviews.id, id)).all();
@@ -76,7 +78,13 @@ export function updateById(
   return getById(id);
 }
 
-export function getByPullRequestId(pullRequestId: string) {
+export function getByPullRequestId(pullRequestId: string, options?: { limit?: number }) {
   const db = getDb();
-  return db.select().from(codeReviews).where(eq(codeReviews.pullRequestId, pullRequestId)).all();
+  const limit = options?.limit ?? DEFAULT_REVIEW_LIST_LIMIT;
+  return db
+    .select()
+    .from(codeReviews)
+    .where(eq(codeReviews.pullRequestId, pullRequestId))
+    .limit(limit)
+    .all();
 }

@@ -10,6 +10,13 @@ import * as connectionRepo from "../repositories/integrationConnection.js";
 import { agentOrHumanAuth, humanAuth, agentAuth } from "../middleware/auth.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
+
+interface WorktreeSettingsPayload {
+  path?: unknown;
+  repoSlug?: unknown;
+  provider?: unknown;
+}
+
 import * as eventRepo from "../repositories/events/event-crud.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
 import {
@@ -695,7 +702,7 @@ export async function repositorySettingsRoutes(fastify: FastifyInstance): Promis
       const habitat = habitatRepo.getHabitatById(request.params.habitatId);
       if (!habitat) throw notFound("Habitat not found");
 
-      const worktreeSettings = habitat.gitWorktreeSettings as Record<string, unknown> | null;
+      const worktreeSettings = habitat.gitWorktreeSettings as WorktreeSettingsPayload | null;
       if (!worktreeSettings || !worktreeSettings.path) {
         throw badRequest("No worktree path configured for this habitat");
       }

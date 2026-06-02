@@ -95,6 +95,25 @@ afterEach(() => {
 });
 
 describe("submitTask skips 0-minute record", () => {
+  it("limits time records returned by task", () => {
+    const task = createAndAdvanceToInProgress("Time record limit task");
+
+    timeRepo.createTimeRecord({
+      taskId: task.id,
+      agentId,
+      minutesSpent: 10,
+      statusDuringWork: "in_progress",
+    });
+    timeRepo.createTimeRecord({
+      taskId: task.id,
+      agentId,
+      minutesSpent: 15,
+      statusDuringWork: "in_progress",
+    });
+
+    expect(timeRepo.getTimeRecordsByTask(task.id, { limit: 1 })).toHaveLength(1);
+  });
+
   it("does not create a task_time_records entry with status_during_work='submitted'", () => {
     const task = createAndAdvanceToInProgress("Submit skip task");
 

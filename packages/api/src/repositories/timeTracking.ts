@@ -4,6 +4,8 @@ import { eq, and, sql, count, isNotNull, notInArray, inArray } from "drizzle-orm
 import { v4 as uuid } from "uuid";
 import type { TaskTimeRecord, HabitatMetrics } from "../models/index.js";
 
+const DEFAULT_TIME_RECORD_LIST_LIMIT = 1000;
+
 export function createTimeRecord(input: {
   taskId: string;
   agentId?: string;
@@ -40,13 +42,18 @@ export function getTimeRecordById(id: string): TaskTimeRecord | null {
   );
 }
 
-export function getTimeRecordsByTask(taskId: string): TaskTimeRecord[] {
+export function getTimeRecordsByTask(
+  taskId: string,
+  options?: { limit?: number },
+): TaskTimeRecord[] {
   const db = getDb();
+  const limit = options?.limit ?? DEFAULT_TIME_RECORD_LIST_LIMIT;
   return db
     .select()
     .from(taskTimeRecords)
     .where(eq(taskTimeRecords.taskId, taskId))
     .orderBy(taskTimeRecords.recordedAt)
+    .limit(limit)
     .all() as TaskTimeRecord[];
 }
 

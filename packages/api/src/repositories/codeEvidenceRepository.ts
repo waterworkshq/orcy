@@ -67,19 +67,40 @@ export function upsertByHabitatId(input: {
   localPath?: string;
   verificationState?: CodeEvidenceVerificationState;
 }) {
-  const existing = getByHabitatId(input.habitatId);
-  if (existing) {
-    return updateByHabitatId(input.habitatId, {
+  const db = getDb();
+  const id = uuid();
+  const now = new Date().toISOString();
+
+  db.insert(habitatCodeRepositories)
+    .values({
+      id,
+      habitatId: input.habitatId,
       provider: input.provider,
-      providerBaseUrl: input.providerBaseUrl,
-      externalId: input.externalId,
-      repoSlug: input.repoSlug,
-      displayName: input.displayName,
-      localPath: input.localPath,
-      verificationState: input.verificationState,
-    });
-  }
-  return create(input);
+      providerBaseUrl: input.providerBaseUrl ?? null,
+      externalId: input.externalId ?? null,
+      repoSlug: input.repoSlug ?? null,
+      displayName: input.displayName ?? null,
+      localPath: input.localPath ?? null,
+      verificationState: input.verificationState ?? "unverified",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: habitatCodeRepositories.habitatId,
+      set: {
+        provider: input.provider,
+        providerBaseUrl: input.providerBaseUrl ?? null,
+        externalId: input.externalId ?? null,
+        repoSlug: input.repoSlug ?? null,
+        displayName: input.displayName ?? null,
+        localPath: input.localPath ?? null,
+        verificationState: input.verificationState ?? "unverified",
+        updatedAt: now,
+      },
+    })
+    .run();
+
+  return getByHabitatId(input.habitatId);
 }
 
 export function updateByHabitatId(

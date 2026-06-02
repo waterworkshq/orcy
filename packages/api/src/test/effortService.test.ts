@@ -102,13 +102,28 @@ describe("logEffort", () => {
     );
   });
 
+  it("throws if actor_id is missing for human or agent entries", () => {
+    const task = taskRepo.createTask({
+      missionId,
+      title: "Missing actor task",
+      createdBy: "test-user",
+    });
+
+    expect(() => effortService.logEffort(task.id, "human", null, { minutes: 10 })).toThrow(
+      "actor_id is required for human and agent effort entries",
+    );
+    expect(() => effortService.logEffort(task.id, "agent", null, { minutes: 10 })).toThrow(
+      "actor_id is required for human and agent effort entries",
+    );
+  });
+
   it("recalculates task metrics after logging", () => {
     const task = taskRepo.createTask({
       missionId,
       title: "Recalc after log task",
       createdBy: "test-user",
     });
-    effortService.logEffort(task.id, "human", null, { minutes: 60 });
+    effortService.logEffort(task.id, "human", "user-1", { minutes: 60 });
 
     const updated = taskRepo.getTaskById(task.id);
     expect(updated?.actualMinutes).toBe(60);
@@ -116,7 +131,7 @@ describe("logEffort", () => {
 
   it("publishes SSE event", () => {
     const task = taskRepo.createTask({ missionId, title: "SSE task", createdBy: "test-user" });
-    effortService.logEffort(task.id, "human", null, { minutes: 15 });
+    effortService.logEffort(task.id, "human", "user-1", { minutes: 15 });
 
     expect(sseBroadcaster.publish).toHaveBeenCalledOnce();
     const call = vi.mocked(sseBroadcaster.publish).mock.calls[0];
@@ -135,7 +150,7 @@ describe("correctEffortEntry", () => {
       source: "human_manual",
     });
 
-    const correction = effortService.correctEffortEntry(task.id, original.id, "human", null, {
+    const correction = effortService.correctEffortEntry(task.id, original.id, "human", "user-1", {
       minutesDelta: -10,
       correctionReason: "Overcounted",
     });
@@ -149,7 +164,7 @@ describe("correctEffortEntry", () => {
     const task = taskRepo.createTask({ missionId, title: "No entry task", createdBy: "test-user" });
 
     expect(() =>
-      effortService.correctEffortEntry(task.id, "nonexistent", "human", null, {
+      effortService.correctEffortEntry(task.id, "nonexistent", "human", "user-1", {
         minutesDelta: -5,
         correctionReason: "reason",
       }),
@@ -211,7 +226,7 @@ describe("correctEffortEntry", () => {
       source: "human_manual",
     });
 
-    const correction = effortService.correctEffortEntry(task.id, entry.id, "human", null, {
+    const correction = effortService.correctEffortEntry(task.id, entry.id, "human", "user-1", {
       minutesDelta: -10,
       correctionReason: "Reduce",
     });
@@ -231,7 +246,7 @@ describe("correctEffortEntry", () => {
       source: "human_manual",
     });
 
-    effortService.correctEffortEntry(task.id, original.id, "human", null, {
+    effortService.correctEffortEntry(task.id, original.id, "human", "user-1", {
       minutesDelta: -15,
       correctionReason: "Adjusted down",
     });
