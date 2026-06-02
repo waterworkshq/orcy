@@ -2,6 +2,55 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.16.2 — 2026-06-02
+
+### Bug Fixes
+
+#### add missing mission gap handling actions and improve SSE event data ([`8e04b0e`](https://github.com/waterworkshq/orcy/commit/8e04b0ea90acd5b4af6a4e25c9eaf64f6c9fe5c5))
+
+1. Add four new mission code evidence actions for managing evidence gaps:
+2. mark-not-applicable: Mark mission evidence as not applicable with reason
+3. clear-not-applicable: Clear not-applicable status from mission evidence
+4. report-gap: Report a new evidence gap for a mission
+5. resolve-gap: Resolve an existing evidence gap
+
+7. Also include:
+8. Add normalizeMissionId function to shared package for consistent ID handling
+9. Add habitatId to code evidence responses for proper SSE event routing
+10. Improve SSE event publishing to include full task/mission data instead of just IDs
+11. Add pagination support (limit/offset) to effort entry queries
+12. Add atomic findOrCreateActive pattern for code evidence links
+13. Add required parameter validation to dispatch handlers
+14. Update error handling to return structured error results instead of throwing
+
+
+#### add actor_id validation for effort entries and improve repository consistency ([`f6b7b88`](https://github.com/waterworkshq/orcy/commit/f6b7b882b58c9212216ada76f7e46fdc48fd1fa2))
+
+1. Require actor_id for human and agent effort entries in logEffort and
+2. correctEffortEntry to ensure proper attribution.
+
+4. Improve repository functions by:
+5. Using transactions for atomic upsert operations in codeBranch and codeCommit
+6. Using onConflictDoUpdate for codeEvidence upsert
+7. Adding configurable limit parameters to all list queries with sensible defaults
+8. Changing findByRepoAndName/findByRepoAndSha to return arrays for consistent behavior
+9. Adding WorktreeSettingsPayload interface for type safety
+
+11. Update tests to reflect new validation requirements and array return types.
+
+
+
+### Refactors
+
+#### extract shared CodeEvidencePanel component ([`5c27d4e`](https://github.com/waterworkshq/orcy/commit/5c27d4e2ad4cd970be26a505241026b3748b6817))
+
+1. Consolidate duplicate TaskCodeEvidence and MissionCodeEvidence into a single
+2. reusable component with unified styling, loading states, and error handling.
+3. Also add batch insert operations to code evidence repositories, add confidence
+4. validation, improve relative time formatting, and add effort query key helpers.
+
+
+
 ## 0.16.1 — 2026-06-01
 
 ### Bug Fixes
@@ -113,23 +162,3 @@
 4. new dispatch actions and effort tool functions. Accompanied by UI integration through
 5. TaskEffortSection component, React Query hooks, and updated type definitions for
 6. effort data management across the stack.
-
-
-
-## 0.15.3 — 2026-05-29
-
-### Bug Fixes
-
-#### resolve stale cross-mission counts, FK retry loop, and signal matching gaps ([`8bf26d8`](https://github.com/waterworkshq/orcy/commit/8bf26d8320efe8d6d8bb30a3c2008529abfc0558))
-
-1. Defer cross-mission count updates to scoreAllSignals batch pass
-2. instead of per-ingest to avoid stale intermediate values
-3. Prevent infinite retry on foreign key constraint violations in
-4. getOrCreateSkill by re-throwing FK errors immediately
-5. Match task success signals against existing "Rejection:" and
-6. "Failure:" prefixed cluster keys to link outcomes correctly
-7. Correct MCP client to read skill properties from nested skill
-8. object instead of top-level response
-9. Rename list endpoint response key from "items" to "signals"
-10. Include signal limit in UI query key for proper cache isolation
-11. Export escapeMarkdown utility from service module
