@@ -3,6 +3,7 @@ import { codeCommits } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
+import { logger } from "../lib/logger.js";
 
 export function getById(id: string) {
   const db = getDb();
@@ -20,6 +21,7 @@ export function findByRepoAndSha(repositoryId: string | null, sha: string) {
       .all();
     return rows.length > 0 ? rows[0] : null;
   }
+  logger.warn({ sha }, "Finding code commit without repositoryId may be ambiguous");
   const rows = db.select().from(codeCommits).where(eq(codeCommits.sha, sha)).all();
   return rows.length > 0 ? rows[0] : null;
 }

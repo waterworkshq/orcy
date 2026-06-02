@@ -2,20 +2,26 @@ import React, { useState } from "react";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useModalStore } from "../../store/modalStore.js";
 import { useMissionDetails, useMissionExternalLinks } from "../../lib/useHabitatData.js";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/index.js";
+import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
 import { Button } from "../ui/Button.js";
-import { Badge } from "../ui/Badge.js";
+import { Badge, type BadgeProps } from "../ui/Badge.js";
 import { CreateTaskForm } from "./CreateTaskForm.js";
 import { ExternalIssueBadge } from "./ExternalIssueBadge.js";
 import { X, Plus, Sparkles, Trash2, ChevronRight, Loader2, Archive, RefreshCw } from "lucide-react";
 import { MissionCodeEvidence } from "./MissionCodeEvidence.js";
-import type { MissionWithProgress } from "../../types/index.js";
+import type { MissionStatus, MissionWithProgress, TaskStatus } from "../../types/index.js";
 
-const taskStatusVariant: Record<string, string> = {
+type BadgeVariant = NonNullable<BadgeProps["variant"]>;
+
+const taskStatusVariant: Record<TaskStatus | MissionStatus, BadgeVariant> = {
+  not_started: "pending",
   pending: "pending",
   claimed: "claimed",
   in_progress: "in_progress",
+  review: "submitted",
   submitted: "submitted",
   approved: "approved",
   rejected: "rejected",
@@ -27,6 +33,7 @@ export function FeatureDetailPanel() {
   const { selectedMissionId, setSelectedMission, features } = useHabitatStore();
   const { data: detailsData, isLoading } = useMissionDetails(selectedMissionId ?? undefined);
   const { data: externalLinksData } = useMissionExternalLinks(selectedMissionId ?? undefined);
+  const queryClient = useQueryClient();
   const feature = features.find((f) => f.id === selectedMissionId);
 
   const [showCreateTask, setShowCreateTask] = useState(false);
@@ -46,9 +53,22 @@ export function FeatureDetailPanel() {
     useModalStore.getState().openModal(taskId);
   }
 
+  async function invalidateMissionCaches(missionId: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.detail(missionId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.missionLinks(missionId) }),
+    ]);
+  }
+
   async function handleDelete() {
     try {
       await api.missions.delete(feature!.id);
+      await invalidateMissionCaches(feature!.id);
       setSelectedMission(null);
       notify.success("Mission deleted");
     } catch (err) {
@@ -61,6 +81,7 @@ export function FeatureDetailPanel() {
     setDecomposing(true);
     try {
       const result = await api.missions.decompose(feature!.id);
+      await invalidateMissionCaches(feature!.id);
       notify.success(`Created ${result.proposals.length} tasks`);
     } catch (err) {
       notify.error((err as Error).message);
@@ -72,6 +93,7 @@ export function FeatureDetailPanel() {
   async function handleArchive() {
     try {
       await api.missions.archive(feature!.id);
+      await invalidateMissionCaches(feature!.id);
       useHabitatStore.getState().removeFeature(feature!.id);
       setSelectedMission(null);
       notify.success("Mission archived");
@@ -83,6 +105,7 @@ export function FeatureDetailPanel() {
   async function handleRestore() {
     try {
       await api.missions.unarchive(feature!.id);
+      await invalidateMissionCaches(feature!.id);
       useHabitatStore
         .getState()
         .addFeature({ ...feature!, isArchived: false } as MissionWithProgress);
@@ -126,8 +149,8 @@ export function FeatureDetailPanel() {
           )}
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant={feature.priority as any}>{feature.priority}</Badge>
-            <Badge variant={taskStatusVariant[feature.status] as any}>
+            <Badge variant={feature.priority}>{feature.priority}</Badge>
+            <Badge variant={taskStatusVariant[feature.status]}>
               {feature.status.replace("_", " ")}
             </Badge>
             {feature.labels.map((label: string) => (
@@ -210,7 +233,7 @@ export function FeatureDetailPanel() {
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <Badge
-                        variant={taskStatusVariant[task.status] as any}
+                        variant={taskStatusVariant[task.status]}
                         className="text-[10px] px-1.5 py-0 shrink-0"
                       >
                         {task.status.replace("_", " ")}

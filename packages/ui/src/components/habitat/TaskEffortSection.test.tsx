@@ -180,9 +180,10 @@ describe("TaskEffortSection", () => {
     expect(screen.getByText(/Initial work/)).toBeTruthy();
   });
 
-  it("renders nothing while loading", () => {
+  it("renders a loading skeleton while loading", () => {
     mockGetReport.mockReturnValue({ data: undefined, isLoading: true });
-    const { container } = renderWithQC(<TaskEffortSection taskId="task-1" />);
-    expect(container.querySelector("[data-testid='detail-card']")).toBeNull();
+    renderWithQC(<TaskEffortSection taskId="task-1" />);
+    expect(screen.getByTestId("detail-card-title")).toHaveTextContent("Effort");
+    expect(screen.getByLabelText("Loading effort summary")).toHaveAttribute("aria-busy", "true");
   });
 });

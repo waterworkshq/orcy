@@ -164,4 +164,11 @@ export const queryKeys = {
     repository: (habitatId: string) =>
       [...queryKeys.codeEvidence.all, "repository", habitatId] as const,
   },
+  effort: {
+    all: ["effort"] as const,
+    task: (taskId: string) => [...queryKeys.effort.all, "task", taskId] as const,
+    entriesForTask: (taskId: string) => [...queryKeys.effort.all, "entries", taskId] as const,
+    entries: (taskId: string, includeCorrections?: boolean) =>
+      [...queryKeys.effort.entriesForTask(taskId), includeCorrections] as const,
+  },
 };

@@ -51,9 +51,31 @@ export function create(input: {
 }
 
 export function createMany(files: Array<Parameters<typeof create>[0]>) {
-  for (const f of files) {
-    create(f);
-  }
+  if (files.length === 0) return;
+
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  db.insert(codeChangedFiles)
+    .values(
+      files.map((input) => ({
+        id: uuid(),
+        repositoryId: input.repositoryId ?? null,
+        commitId: input.commitId ?? null,
+        pullRequestId: input.pullRequestId ?? null,
+        provider: input.provider,
+        repoSlug: input.repoSlug ?? null,
+        path: input.path,
+        previousPath: input.previousPath ?? null,
+        changeType: input.changeType,
+        additions: input.additions ?? null,
+        deletions: input.deletions ?? null,
+        source: input.source,
+        capturedAt: input.capturedAt ?? now,
+        metadata: input.metadata ?? {},
+      })),
+    )
+    .run();
 }
 
 export function getByCommitId(commitId: string) {

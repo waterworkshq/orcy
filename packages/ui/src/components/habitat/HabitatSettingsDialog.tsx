@@ -120,9 +120,16 @@ export function HabitatSettingsDialog({
     }
   }
 
-  function handleTabSave() {
+  async function handleTabSave() {
     const ref = getActiveRef();
-    ref.current?.save();
+    setTabSaving(true);
+    try {
+      await ref.current?.save();
+    } catch {
+      // Individual tabs surface their own save errors.
+    } finally {
+      setTabSaving(false);
+    }
   }
 
   const hasSaveButton = activeTab in SAVE_LABELS;

@@ -94,6 +94,7 @@ export const codeCommits = sqliteTable(
     metadata: text("metadata", { mode: "json" })
       .$type<Record<string, unknown>>()
       .notNull()
+      .default(sql`'{}'`)
       .$defaultFn(() => ({})),
     createdAt: text("created_at")
       .notNull()
@@ -136,6 +137,7 @@ export const codeChangedFiles = sqliteTable(
     metadata: text("metadata", { mode: "json" })
       .$type<Record<string, unknown>>()
       .notNull()
+      .default(sql`'{}'`)
       .$defaultFn(() => ({})),
   },
   (table) => [
@@ -174,6 +176,7 @@ export const codeReviews = sqliteTable(
     metadata: text("metadata", { mode: "json" })
       .$type<Record<string, unknown>>()
       .notNull()
+      .default(sql`'{}'`)
       .$defaultFn(() => ({})),
     createdAt: text("created_at")
       .notNull()
@@ -225,6 +228,7 @@ export const codeEvidenceLinks = sqliteTable(
     linkSources: text("link_sources", { mode: "json" })
       .$type<string[]>()
       .notNull()
+      .default(sql`'[]'`)
       .$defaultFn(() => []),
     linkedByType: text("linked_by_type", { enum: ["human", "agent", "system"] }).notNull(),
     linkedById: text("linked_by_id").notNull(),
@@ -251,6 +255,7 @@ export const codeEvidenceLinks = sqliteTable(
     metadata: text("metadata", { mode: "json" })
       .$type<Record<string, unknown>>()
       .notNull()
+      .default(sql`'{}'`)
       .$defaultFn(() => ({})),
   },
   (table) => [
@@ -301,6 +306,7 @@ export const codeEvidenceGaps = sqliteTable(
     metadata: text("metadata", { mode: "json" })
       .$type<Record<string, unknown>>()
       .notNull()
+      .default(sql`'{}'`)
       .$defaultFn(() => ({})),
   },
   (table) => [

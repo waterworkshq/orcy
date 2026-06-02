@@ -73,6 +73,9 @@ import type {
   IntegrationSyncRun,
   HabitatSkill,
   SkillSignal,
+  CodeEvidenceCompletenessInfo,
+  CodeEvidenceGapItem,
+  CodeEvidenceLinkItem,
 } from "../types/index.js";
 
 const BASE = "/api";
@@ -1475,7 +1478,7 @@ export const api = {
       linkId: string,
       input: import("../types/index.js").CodeEvidenceCorrectionInput,
     ) =>
-      request<{ link: any }>(`/tasks/${taskId}/code-evidence/${linkId}/correct`, {
+      request<{ link: CodeEvidenceLinkItem }>(`/tasks/${taskId}/code-evidence/${linkId}/correct`, {
         method: "POST",
         body: JSON.stringify(input),
       }),
@@ -1483,16 +1486,19 @@ export const api = {
       taskId: string,
       input: import("../types/index.js").CodeEvidenceNotApplicableInput,
     ) =>
-      request<{ completeness: any }>(`/tasks/${taskId}/code-evidence/not-applicable`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+      request<{ completeness: CodeEvidenceCompletenessInfo }>(
+        `/tasks/${taskId}/code-evidence/not-applicable`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
     clearTaskNotApplicable: (taskId: string) =>
       request<{ success: boolean }>(`/tasks/${taskId}/code-evidence/not-applicable`, {
         method: "DELETE",
       }),
     reportTaskGap: (taskId: string, input: import("../types/index.js").CodeEvidenceGapInput) =>
-      request<{ gap: any }>(`/tasks/${taskId}/code-evidence/gaps`, {
+      request<{ gap: CodeEvidenceGapItem }>(`/tasks/${taskId}/code-evidence/gaps`, {
         method: "POST",
         body: JSON.stringify(input),
       }),
@@ -1501,10 +1507,13 @@ export const api = {
       gapId: string,
       input: import("../types/index.js").CodeEvidenceGapResolveInput,
     ) =>
-      request<{ gap: any }>(`/tasks/${taskId}/code-evidence/gaps/${gapId}/resolve`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+      request<{ gap: CodeEvidenceGapItem }>(
+        `/tasks/${taskId}/code-evidence/gaps/${gapId}/resolve`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
 
     getMissionEvidence: (missionId: string, includeHistory?: boolean) => {
       const qs = includeHistory ? "?includeHistory=true" : "";
@@ -1525,18 +1534,24 @@ export const api = {
       linkId: string,
       input: import("../types/index.js").CodeEvidenceCorrectionInput,
     ) =>
-      request<{ link: any }>(`/missions/${missionId}/code-evidence/${linkId}/correct`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+      request<{ link: CodeEvidenceLinkItem }>(
+        `/missions/${missionId}/code-evidence/${linkId}/correct`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
     markMissionNotApplicable: (
       missionId: string,
       input: import("../types/index.js").CodeEvidenceNotApplicableInput,
     ) =>
-      request<{ completeness: any }>(`/missions/${missionId}/code-evidence/not-applicable`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
+      request<{ completeness: CodeEvidenceCompletenessInfo }>(
+        `/missions/${missionId}/code-evidence/not-applicable`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
     clearMissionNotApplicable: (missionId: string) =>
       request<{ success: boolean }>(`/missions/${missionId}/code-evidence/not-applicable`, {
         method: "DELETE",
@@ -1545,7 +1560,7 @@ export const api = {
       missionId: string,
       input: import("../types/index.js").CodeEvidenceGapInput,
     ) =>
-      request<{ gap: any }>(`/missions/${missionId}/code-evidence/gaps`, {
+      request<{ gap: CodeEvidenceGapItem }>(`/missions/${missionId}/code-evidence/gaps`, {
         method: "POST",
         body: JSON.stringify(input),
       }),

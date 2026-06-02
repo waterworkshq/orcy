@@ -61,6 +61,10 @@ function buildRelevanceTags(mission: Mission): string[] {
   return tags;
 }
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export class KanbanApiClient {
   private transport: ReturnType<typeof createApiClient>;
   private baseUrl: string;
@@ -216,7 +220,13 @@ export class KanbanApiClient {
       try {
         const res = await this.getMission(id);
         if (res.mission) dependencies.push(res.mission);
-      } catch {}
+      } catch (err) {
+        logger.warn("mission_context_dependency_fetch_failed", {
+          missionId,
+          dependencyMissionId: id,
+          err: getErrorMessage(err),
+        });
+      }
     }
 
     const blocking: Mission[] = [];
@@ -224,13 +234,24 @@ export class KanbanApiClient {
       try {
         const res = await this.getMission(id);
         if (res.mission) blocking.push(res.mission);
-      } catch {}
+      } catch (err) {
+        logger.warn("mission_context_blocking_fetch_failed", {
+          missionId,
+          blockingMissionId: id,
+          err: getErrorMessage(err),
+        });
+      }
     }
 
     let pulseDigest: PulseDigest | undefined;
     try {
       pulseDigest = await this.getPulseDigest(missionId);
-    } catch {}
+    } catch (err) {
+      logger.warn("mission_context_pulse_digest_fetch_failed", {
+        missionId,
+        err: getErrorMessage(err),
+      });
+    }
 
     let projectInsights: ProjectInsight[] = [];
     try {
@@ -238,7 +259,13 @@ export class KanbanApiClient {
       if (tags.length > 0) {
         projectInsights = await this.getRelevantInsights(details.mission.habitatId, tags);
       }
-    } catch {}
+    } catch (err) {
+      logger.warn("mission_context_project_insights_fetch_failed", {
+        missionId,
+        habitatId: details.mission.habitatId,
+        err: getErrorMessage(err),
+      });
+    }
 
     let skill: { content: string; signalCount: number; avgStrength: number } | undefined;
     try {
@@ -250,7 +277,13 @@ export class KanbanApiClient {
           avgStrength: skillResult.skill.avgStrength,
         };
       }
-    } catch {}
+    } catch (err) {
+      logger.warn("mission_context_habitat_skill_fetch_failed", {
+        missionId,
+        habitatId: details.mission.habitatId,
+        err: getErrorMessage(err),
+      });
+    }
 
     return {
       mission: details.mission,

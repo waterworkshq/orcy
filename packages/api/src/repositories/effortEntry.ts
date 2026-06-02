@@ -34,7 +34,7 @@ export function createEffortEntry(input: {
   endedAt?: string;
   correctsEntryId?: string;
   correctionReason?: string;
-  metadata?: string;
+  metadata?: Record<string, unknown>;
 }): EffortEntry {
   const db = getDb();
   const id = uuid();

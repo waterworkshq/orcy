@@ -35,7 +35,14 @@ export const RepositoryTab = forwardRef<RepositoryTabHandle, RepositoryTabProps>
     const queryClient = useQueryClient();
     const repoQueryKey = queryKeys.codeEvidence.repository(habitatId);
 
-    const { data: repoData, isLoading } = useQuery({
+    const {
+      data: repoData,
+      isLoading,
+      isError,
+      error,
+      refetch,
+      isFetching,
+    } = useQuery({
       queryKey: repoQueryKey,
       queryFn: () => api.codeEvidence.getRepository(habitatId),
     });
@@ -48,6 +55,7 @@ export const RepositoryTab = forwardRef<RepositoryTabHandle, RepositoryTabProps>
     const [displayName, setDisplayName] = useState("");
     const [localPath, setLocalPath] = useState("");
     const [saving, setSaving] = useState(false);
+    const [inferring, setInferring] = useState<"worktree" | "integration" | null>(null);
     const [verificationState, setVerificationState] =
       useState<CodeEvidenceVerificationState | null>(null);
 
@@ -106,22 +114,30 @@ export const RepositoryTab = forwardRef<RepositoryTabHandle, RepositoryTabProps>
     useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 
     const handleInferFromWorktree = async () => {
+      if (inferring) return;
+      setInferring("worktree");
       try {
         await api.codeEvidence.inferFromWorktree(habitatId);
         await queryClient.invalidateQueries({ queryKey: repoQueryKey });
         notify.success("Repository identity inferred from worktree");
       } catch (err: any) {
         notify.error(err?.message ?? "Failed to infer from worktree");
+      } finally {
+        setInferring(null);
       }
     };
 
     const handleInferFromIntegration = async () => {
+      if (inferring) return;
+      setInferring("integration");
       try {
         await api.codeEvidence.inferFromIntegration(habitatId);
         await queryClient.invalidateQueries({ queryKey: repoQueryKey });
         notify.success("Repository identity inferred from integration");
       } catch (err: any) {
         notify.error(err?.message ?? "Failed to infer from integration");
+      } finally {
+        setInferring(null);
       }
     };
 
@@ -133,6 +149,29 @@ export const RepositoryTab = forwardRef<RepositoryTabHandle, RepositoryTabProps>
       );
     }
 
+    if (isError) {
+      return (
+        <div className="space-y-4 rounded border border-destructive/30 bg-destructive/5 p-4">
+          <div>
+            <h3 className="text-sm font-medium text-destructive">
+              Repository settings failed to load
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {error instanceof Error ? error.message : "Unable to load repository identity."}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Retry
+          </Button>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         <p className="text-xs text-muted-foreground">
@@ -140,17 +179,30 @@ export const RepositoryTab = forwardRef<RepositoryTabHandle, RepositoryTabProps>
         </p>
 
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleInferFromWorktree} disabled={saving}>
-            <GitBranch className="mr-1.5 h-3.5 w-3.5" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleInferFromWorktree}
+            disabled={saving || inferring !== null}
+          >
+            {inferring === "worktree" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <GitBranch className="mr-1.5 h-3.5 w-3.5" />
+            )}
             Infer from Worktree
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleInferFromIntegration}
-            disabled={saving}
+            disabled={saving || inferring !== null}
           >
-            <Cloud className="mr-1.5 h-3.5 w-3.5" />
+            {inferring === "integration" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Cloud className="mr-1.5 h-3.5 w-3.5" />
+            )}
             Infer from Integration
           </Button>
         </div>

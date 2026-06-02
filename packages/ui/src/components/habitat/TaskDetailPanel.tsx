@@ -28,6 +28,7 @@ import { FeatureContextSection } from "./MissionContextSection.js";
 import { SiblingTasksSection } from "./SiblingTasksSection.js";
 import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
+import { notify } from "../../lib/toast.js";
 
 export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) {
   const { selectedMissionId, tasks } = useHabitatStore();
@@ -47,8 +48,12 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
     isCompleted: boolean,
   ) {
     if (!p.selectedTaskId) return;
-    await api.qualityGates.updateItem(p.selectedTaskId, checklistId, itemId, { isCompleted });
-    queryClient.invalidateQueries({ queryKey: queryKeys.tasks.quality(p.selectedTaskId) });
+    try {
+      await api.qualityGates.updateItem(p.selectedTaskId, checklistId, itemId, { isCompleted });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.quality(p.selectedTaskId) });
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Failed to update quality checklist");
+    }
   }
 
   function handleBack() {

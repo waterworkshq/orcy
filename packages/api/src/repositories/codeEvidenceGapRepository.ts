@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { codeEvidenceGaps } from "../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type {
   CodeEvidenceTargetType,
@@ -123,26 +123,26 @@ export function autoResolveByReasonCodes(
   targetId: string,
   reasonCodes: string[],
 ) {
+  if (reasonCodes.length === 0) return;
+
   const db = getDb();
   const now = new Date().toISOString();
 
-  for (const reasonCode of reasonCodes) {
-    db.update(codeEvidenceGaps)
-      .set({
-        status: "resolved",
-        resolvedByType: "system",
-        resolvedById: "auto",
-        resolvedAt: now,
-        resolutionReason: `Auto-resolved: evidence linked for ${reasonCode}`,
-      })
-      .where(
-        and(
-          eq(codeEvidenceGaps.targetType, targetType),
-          eq(codeEvidenceGaps.targetId, targetId),
-          eq(codeEvidenceGaps.reasonCode, reasonCode),
-          eq(codeEvidenceGaps.status, "active"),
-        ),
-      )
-      .run();
-  }
+  db.update(codeEvidenceGaps)
+    .set({
+      status: "resolved",
+      resolvedByType: "system",
+      resolvedById: "auto",
+      resolvedAt: now,
+      resolutionReason: "Auto-resolved: evidence linked",
+    })
+    .where(
+      and(
+        eq(codeEvidenceGaps.targetType, targetType),
+        eq(codeEvidenceGaps.targetId, targetId),
+        inArray(codeEvidenceGaps.reasonCode, reasonCodes),
+        eq(codeEvidenceGaps.status, "active"),
+      ),
+    )
+    .run();
 }

@@ -24,13 +24,17 @@ const sourceBadgeVariant: Record<EffortSource, "default" | "in_progress" | "subm
 
 function formatRelativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60000);
+  const minutes = Math.max(0, Math.floor(diff / 60000));
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  const years = Math.floor(days / 365);
+  return `${years}y ago`;
 }
 
 export function TaskEffortSection({ taskId }: TaskEffortSectionProps) {
@@ -46,7 +50,16 @@ export function TaskEffortSection({ taskId }: TaskEffortSectionProps) {
   const [correctionDelta, setCorrectionDelta] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
 
-  if (isLoading) return null;
+  if (isLoading) {
+    return (
+      <DetailCard icon={Clock} title="Effort" className="mb-4">
+        <div className="space-y-3" aria-busy="true" aria-label="Loading effort summary">
+          <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+          <div className="h-7 w-24 animate-pulse rounded bg-muted" />
+        </div>
+      </DetailCard>
+    );
+  }
 
   const totals = report?.totals;
   const entries = report?.entries ?? [];
@@ -193,6 +206,7 @@ export function TaskEffortSection({ taskId }: TaskEffortSectionProps) {
                       }}
                       className="text-muted-foreground hover:text-foreground"
                       title="Correct entry"
+                      aria-label="Correct entry"
                     >
                       <Pencil className="h-3 w-3" />
                     </button>

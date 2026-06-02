@@ -100,7 +100,7 @@ export interface EffortEntry {
   recordedAt: string;
   correctsEntryId: string | null;
   correctionReason: string | null;
-  metadata: string | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface EffortEntryWithActor extends EffortEntry {

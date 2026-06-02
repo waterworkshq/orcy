@@ -3,6 +3,7 @@ import { codeBranches } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
+import { logger } from "../lib/logger.js";
 
 export function getById(id: string) {
   const db = getDb();
@@ -20,6 +21,7 @@ export function findByRepoAndName(repositoryId: string | null, name: string) {
       .all();
     return rows.length > 0 ? rows[0] : null;
   }
+  logger.warn({ branchName: name }, "Finding code branch without repositoryId may be ambiguous");
   const rows = db.select().from(codeBranches).where(eq(codeBranches.name, name)).all();
   return rows.length > 0 ? rows[0] : null;
 }

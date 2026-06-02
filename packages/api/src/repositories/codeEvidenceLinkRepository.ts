@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { codeEvidenceLinks } from "../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type {
   CodeEvidenceType,
@@ -10,6 +10,13 @@ import type {
   CodeEvidenceTargetType,
   CodeEvidenceActorType,
 } from "@orcy/shared";
+
+function validateConfidence(confidence: number | null | undefined): void {
+  if (confidence == null) return;
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    throw new Error("Code evidence confidence must be between 0 and 1");
+  }
+}
 
 export function getById(id: string) {
   const db = getDb();
@@ -52,7 +59,7 @@ export function getHistoryByTarget(targetType: CodeEvidenceTargetType, targetId:
       and(
         eq(codeEvidenceLinks.targetType, targetType),
         eq(codeEvidenceLinks.targetId, targetId),
-        sql`${codeEvidenceLinks.status} != 'active'`,
+        ne(codeEvidenceLinks.status, "active"),
       ),
     )
     .all();
@@ -105,6 +112,7 @@ export function findOrCreateActive(input: {
   allowExternalRepository?: boolean;
   metadata?: Record<string, unknown>;
 }): { link: typeof codeEvidenceLinks.$inferSelect; created: boolean } | null {
+  validateConfidence(input.confidence);
   const db = getDb();
   const normalizedExternalUrl =
     input.normalizedExternalUrl ?? (input.externalUrl ? input.externalUrl.trim() : null);
@@ -188,6 +196,7 @@ export function create(input: {
   allowExternalRepository?: boolean;
   metadata?: Record<string, unknown>;
 }) {
+  validateConfidence(input.confidence);
   const db = getDb();
   const id = uuid();
   const now = input.linkedAt ?? new Date().toISOString();
@@ -351,7 +360,7 @@ export function hasExternalRepoEvidence(
         eq(codeEvidenceLinks.targetType, targetType),
         eq(codeEvidenceLinks.targetId, targetId),
         eq(codeEvidenceLinks.status, "active"),
-        sql`${codeEvidenceLinks.allowExternalRepository} = 1`,
+        eq(codeEvidenceLinks.allowExternalRepository, true),
       ),
     )
     .get();
@@ -367,7 +376,7 @@ function countNonActiveByTarget(targetType: CodeEvidenceTargetType, targetId: st
       and(
         eq(codeEvidenceLinks.targetType, targetType),
         eq(codeEvidenceLinks.targetId, targetId),
-        sql`${codeEvidenceLinks.status} != 'active'`,
+        ne(codeEvidenceLinks.status, "active"),
       ),
     )
     .get();

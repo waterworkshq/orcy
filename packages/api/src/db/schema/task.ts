@@ -279,7 +279,7 @@ export const effortEntries = sqliteTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    actorType: text("actor_type").notNull(),
+    actorType: text("actor_type", { enum: ["human", "agent", "system"] }).notNull(),
     actorId: text("actor_id"),
     minutes: integer("minutes").notNull(),
     source: text("source").notNull(),
@@ -293,7 +293,7 @@ export const effortEntries = sqliteTable(
       onDelete: "set null",
     }),
     correctionReason: text("correction_reason"),
-    metadata: text("metadata"),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
   },
   (table) => [
     index("idx_effort_entries_task").on(table.taskId),

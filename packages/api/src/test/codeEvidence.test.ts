@@ -152,6 +152,19 @@ describe("CodeBranchRepository", () => {
     const all = getDb().select().from(codeBranches).all();
     expect(all.length).toBe(1);
   });
+
+  it("keeps repository-less branch fallback behavior", () => {
+    codeBranchRepo.create({
+      provider: "github",
+      repoSlug: "org/repo",
+      name: "feature/no-repo",
+      headSha: "abc123",
+    });
+
+    const branch = codeBranchRepo.findByRepoAndName(null, "feature/no-repo");
+
+    expect(branch?.headSha).toBe("abc123");
+  });
 });
 
 describe("CodeCommitRepository", () => {
@@ -193,6 +206,19 @@ describe("CodeCommitRepository", () => {
     const all = getDb().select().from(codeCommits).all();
     expect(all.length).toBe(1);
   });
+
+  it("keeps repository-less commit fallback behavior", () => {
+    codeCommitRepo.create({
+      provider: "github",
+      repoSlug: "org/repo",
+      sha: "no-repo-sha",
+      message: "Repository-less commit",
+    });
+
+    const commit = codeCommitRepo.findByRepoAndSha(null, "no-repo-sha");
+
+    expect(commit?.message).toBe("Repository-less commit");
+  });
 });
 
 describe("CodeChangedFileRepository", () => {
@@ -219,6 +245,40 @@ describe("CodeChangedFileRepository", () => {
 
     expect(file!.path).toBe("src/index.ts");
     expect(file!.changeType).toBe("added");
+  });
+
+  it("creates changed files in a batch", () => {
+    const repo = seedRepo();
+    const commit = codeCommitRepo.create({
+      repositoryId: repo.id,
+      provider: "github",
+      repoSlug: "org/repo",
+      sha: "batch-sha",
+    })!;
+
+    codeChangedFileRepo.createMany([
+      {
+        repositoryId: repo.id,
+        commitId: commit.id,
+        provider: "github",
+        repoSlug: "org/repo",
+        path: "src/one.ts",
+        changeType: "added",
+        source: "webhook",
+      },
+      {
+        repositoryId: repo.id,
+        commitId: commit.id,
+        provider: "github",
+        repoSlug: "org/repo",
+        path: "src/two.ts",
+        changeType: "modified",
+        source: "webhook",
+      },
+    ]);
+
+    const files = codeChangedFileRepo.getByCommitId(commit.id);
+    expect(files.map((file) => file.path).sort()).toEqual(["src/one.ts", "src/two.ts"]);
   });
 });
 
@@ -257,6 +317,36 @@ describe("CodeEvidenceLinkRepository", () => {
     expect(link!.evidenceType).toBe("pull_request");
     expect(link!.status).toBe("active");
     expect(link!.confidence).toBeNull();
+  });
+
+  it("accepts confidence values in the inclusive range", () => {
+    const link = codeEvidenceLinkRepo.create({
+      targetType: "task",
+      targetId: "task-confidence-valid",
+      evidenceType: "commit",
+      evidenceId: "commit-confidence-valid",
+      linkSource: "agent_reported",
+      linkedByType: "agent",
+      linkedById: "agent-1",
+      confidence: 1,
+    });
+
+    expect(link!.confidence).toBe(1);
+  });
+
+  it("rejects confidence values outside the inclusive range", () => {
+    expect(() =>
+      codeEvidenceLinkRepo.create({
+        targetType: "task",
+        targetId: "task-confidence-invalid",
+        evidenceType: "commit",
+        evidenceId: "commit-confidence-invalid",
+        linkSource: "agent_reported",
+        linkedByType: "agent",
+        linkedById: "agent-1",
+        confidence: 1.1,
+      }),
+    ).toThrow("Code evidence confidence must be between 0 and 1");
   });
 
   it("detects duplicate active links", () => {
@@ -477,6 +567,42 @@ describe("CodeEvidenceGapRepository", () => {
 
     const active = codeEvidenceGapRepo.getActiveByTarget("task", "task-gap-4");
     expect(active.length).toBe(0);
+
+    const resolved = codeEvidenceGapRepo.getResolvedByTarget("task", "task-gap-4");
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].resolutionReason).toBe("Auto-resolved: evidence linked");
+  });
+
+  it("auto-resolves multiple matching gaps in one call", () => {
+    codeEvidenceGapRepo.create({
+      targetType: "task",
+      targetId: "task-gap-batch",
+      reasonCode: "pr_commit_not_created_yet",
+      reportedByType: "agent",
+      reportedById: "agent-2",
+    });
+    codeEvidenceGapRepo.create({
+      targetType: "task",
+      targetId: "task-gap-batch",
+      reasonCode: "provider_webhook_missing",
+      reportedByType: "agent",
+      reportedById: "agent-2",
+    });
+    codeEvidenceGapRepo.create({
+      targetType: "task",
+      targetId: "task-gap-batch",
+      reasonCode: "unrelated_gap",
+      reportedByType: "agent",
+      reportedById: "agent-2",
+    });
+
+    codeEvidenceGapRepo.autoResolveByReasonCodes("task", "task-gap-batch", [
+      "pr_commit_not_created_yet",
+      "provider_webhook_missing",
+    ]);
+
+    expect(codeEvidenceGapRepo.getResolvedByTarget("task", "task-gap-batch")).toHaveLength(2);
+    expect(codeEvidenceGapRepo.getActiveByTarget("task", "task-gap-batch")).toHaveLength(1);
   });
 
   it("counts active gaps by target", () => {
