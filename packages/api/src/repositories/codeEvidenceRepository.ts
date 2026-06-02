@@ -136,7 +136,10 @@ export function updateByHabitatId(
   return getByHabitatId(habitatId);
 }
 
-export function deleteById(id: string): void {
+export function deleteById(id: string): boolean {
   const db = getDb();
+  const existing = getById(id);
+  if (!existing) return false;
   db.delete(habitatCodeRepositories).where(eq(habitatCodeRepositories.id, id)).run();
+  return true;
 }

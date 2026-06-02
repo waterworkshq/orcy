@@ -61,6 +61,7 @@ export function upsertNotApplicable(input: {
         reasonNote: input.reasonNote ?? null,
         markedByType: input.markedByType,
         markedById: input.markedById,
+        createdAt: now,
         updatedAt: now,
       })
       .run();

@@ -104,7 +104,10 @@ export function updatePipelineEvent(
   return getById(id);
 }
 
-export function deleteByTaskId(taskId: string): void {
+export function deleteByTaskId(taskId: string): boolean {
   const db = getDb();
+  const existing = db.select().from(pipelineEvents).where(eq(pipelineEvents.taskId, taskId)).all();
+  if (existing.length === 0) return false;
   db.delete(pipelineEvents).where(eq(pipelineEvents.taskId, taskId)).run();
+  return true;
 }

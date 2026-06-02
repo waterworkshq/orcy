@@ -110,9 +110,12 @@ export function updatePullRequest(
   return getById(id);
 }
 
-export function deleteByTaskId(taskId: string): void {
+export function deleteByTaskId(taskId: string): boolean {
   const db = getDb();
+  const existing = db.select().from(pullRequests).where(eq(pullRequests.taskId, taskId)).all();
+  if (existing.length === 0) return false;
   db.delete(pullRequests).where(eq(pullRequests.taskId, taskId)).run();
+  return true;
 }
 
 const MAX_PATTERN_LENGTH = 256;

@@ -126,6 +126,8 @@ export async function initTestDb() {
     "0017_strength_check",
     "0018_code_evidence_provenance",
     "0019_effort_entries",
+    "0020_evidence_fk_and_indexes",
+    "0021_add_completeness_created_at",
   ];
   for (const migrationName of migrations) {
     const migrationFile = join(migrationFolder, `${migrationName}.sql`);

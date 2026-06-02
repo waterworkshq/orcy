@@ -279,6 +279,9 @@ export const codeEvidenceCompleteness = sqliteTable(
     updatedAt: text("updated_at")
       .notNull()
       .default(sql`(datetime('now'))`),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => [uniqueIndex("idx_evidence_completeness_target").on(table.targetType, table.targetId)],
 );
