@@ -30,6 +30,7 @@
     "release": "release-it",
     "release:minor": "release-it minor",
     "release:major": "release-it major",
+    "release:patch":"release-it patch",
     "release:dry": "release-it --dry-run"
   },
   "devDependencies": {
