@@ -5,7 +5,6 @@ import * as habitatRepo from "../repositories/board.js";
 import * as skillService from "../services/habitatSkillService.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
-import type { SkillCategory } from "../repositories/habitatSkill.js";
 
 const contributeBodySchema = z.object({
   insight: z

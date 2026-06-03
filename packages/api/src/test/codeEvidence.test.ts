@@ -302,7 +302,7 @@ describe("CodeChangedFileRepository", () => {
     ]);
 
     const files = codeChangedFileRepo.getByCommitId(commit.id);
-    expect(files.map((file) => file.path).sort()).toEqual(["src/one.ts", "src/two.ts"]);
+    expect(files.map((file) => file.path).toSorted()).toEqual(["src/one.ts", "src/two.ts"]);
   });
 
   it("limits changed files returned by commit", () => {

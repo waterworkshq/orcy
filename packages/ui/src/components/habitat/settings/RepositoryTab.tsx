@@ -5,7 +5,7 @@ import { Badge } from "../../ui/Badge.js";
 import { notify } from "../../../lib/toast.js";
 import { api } from "../../../api/index.js";
 import { queryKeys } from "../../../lib/queryKeys.js";
-import type { RepositoryIdentity, CodeEvidenceVerificationState } from "../../../types/index.js";
+import type { CodeEvidenceVerificationState } from "../../../types/index.js";
 import { GitBranch, RefreshCw, Cloud, Loader2 } from "lucide-react";
 
 export interface RepositoryTabHandle {

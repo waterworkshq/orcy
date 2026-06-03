@@ -13,7 +13,6 @@ import {
   repositoryCreateError,
   repositoryNotFoundError,
   repositoryUpdateError,
-  repositoryDeleteError,
 } from "../errors/repository.js";
 
 function lookupAgentNames(db: ReturnType<typeof getDb>, ids: string[]): Map<string, string> {
@@ -83,7 +82,6 @@ export function getEffortEntryById(id: string): EffortEntry | null {
 }
 
 const DEFAULT_EFFORT_LIMIT = 100;
-const MAX_EFFORT_LIMIT = 1000;
 
 export function getEffortEntriesByTask(
   taskId: string,

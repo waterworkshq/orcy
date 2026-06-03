@@ -16,13 +16,21 @@
         "_pipelineEvents", "_integrations", "_overdueData", "_dbShouldThrow",
         "_drizzleDb", "_sqlite", "_config", "_driver", "_jwtSecret",
         "_resetActiveWorktrees", "_isOrderBy", "_habitatId", "_userId",
-        "__pluginTestCalls"
+        "__pluginTestCalls",
+        "_insertRun", "_updateRun", "_deleteRun", "_selectAllResult",
+        "_selectGetResult", "_countResult", "_insertShouldThrow",
+        "_insertValues", "_insertReturnAll", "_selectAllQueue",
+        "_selectSingleResult", "_selectCountResult", "_getResult",
+        "_allResult", "_getResults", "_updateSetValues", "_selectQueue",
+        "_selectResult", "_mentionsStore", "_subtasksStore", "_watchersStore",
+        "_usersStore", "_habitatNameResult", "_taskResult", "_agentResult",
+        "_getSelectResult", "_selectAll"
       ]
     }]
   },
   "overrides": [
     {
-      "files": ["*.test.ts", "*.spec.ts"],
+      "files": ["*.test.ts", "*.test.tsx", "*.spec.ts"],
       "rules": {
         "no-unused-vars": "off"
       }

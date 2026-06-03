@@ -1,28 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDaemonRepo, mockDaemonEngine, mockHabitatRepo } = vi.hoisted(() => {
-  const mockDaemonRepo = {
+const mocks = vi.hoisted(() => ({
+  daemonRepo: {
     listDaemons: vi.fn(),
     getDaemonById: vi.fn(),
     getDaemonAgentsByDaemonId: vi.fn(),
     getActiveSessionsByDaemonId: vi.fn(),
-  };
-  const mockDaemonEngine = {
+  },
+  daemonEngine: {
     register: vi.fn(),
     start: vi.fn(),
     stop: vi.fn(),
     detectClisOnHost: vi.fn(),
     isRunning: vi.fn(),
-  };
-  const mockHabitatRepo = {
+  },
+  habitatRepo: {
     listHabitats: vi.fn(),
-  };
-  return { mockDaemonRepo, mockDaemonEngine, mockHabitatRepo };
-});
+  },
+}));
 
-vi.mock("../repositories/daemon.js", () => mockDaemonRepo);
-vi.mock("../repositories/board.js", () => mockHabitatRepo);
-vi.mock("../services/daemonEngine.js", () => mockDaemonEngine);
+vi.mock("../repositories/daemon.js", () => mocks.daemonRepo);
+vi.mock("../repositories/board.js", () => mocks.habitatRepo);
+vi.mock("../services/daemonEngine.js", () => mocks.daemonEngine);
 vi.mock("../services/agentService.js", () => ({ createAgent: vi.fn() }));
 vi.mock("../services/tasks/index.js", () => ({ claimTask: vi.fn() }));
 vi.mock("../services/taskSuggestion.js", () => ({ getSuggestionsForAgent: vi.fn() }));
@@ -114,14 +113,14 @@ describe("daemonAdminRoutes", () => {
 
   describe("GET /daemons", () => {
     it("returns empty list when no daemons", async () => {
-      mockDaemonRepo.listDaemons.mockReturnValue([]);
+      mocks.daemonRepo.listDaemons.mockReturnValue([]);
       const handler = routes.get("GET /daemons")!.handler;
       const result = await handler({});
       expect(result.daemons).toEqual([]);
     });
 
     it("returns daemons with derived status", async () => {
-      mockDaemonRepo.listDaemons.mockReturnValue([
+      mocks.daemonRepo.listDaemons.mockReturnValue([
         {
           id: D1,
           name: "test-daemon",
@@ -132,11 +131,11 @@ describe("daemonAdminRoutes", () => {
           createdAt: "2026-01-01T00:00:00Z",
         },
       ]);
-      mockDaemonRepo.getDaemonAgentsByDaemonId.mockReturnValue([
+      mocks.daemonRepo.getDaemonAgentsByDaemonId.mockReturnValue([
         { agentId: "agent-1", cliType: "claude-code" },
       ]);
-      mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
-      mockDaemonEngine.isRunning.mockReturnValue(true);
+      mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
+      mocks.daemonEngine.isRunning.mockReturnValue(true);
 
       const handler = routes.get("GET /daemons")!.handler;
       const result = await handler({});
@@ -151,14 +150,14 @@ describe("daemonAdminRoutes", () => {
 
   describe("GET /daemons/:id", () => {
     it("returns 404 for missing daemon", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue(null);
+      mocks.daemonRepo.getDaemonById.mockReturnValue(null);
       const handler = routes.get("GET /daemons/:id")!.handler;
 
       await expect(handler({ params: { id: "missing" } })).rejects.toThrow("Daemon not found");
     });
 
     it("returns daemon detail with agents and sessions", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue({
+      mocks.daemonRepo.getDaemonById.mockReturnValue({
         id: D1,
         name: "test-daemon",
         hostname: "localhost",
@@ -168,7 +167,7 @@ describe("daemonAdminRoutes", () => {
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
       });
-      mockDaemonRepo.getDaemonAgentsByDaemonId.mockReturnValue([
+      mocks.daemonRepo.getDaemonAgentsByDaemonId.mockReturnValue([
         {
           agentId: "agent-1",
           cliType: "claude-code",
@@ -177,8 +176,8 @@ describe("daemonAdminRoutes", () => {
           status: "idle",
         },
       ]);
-      mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
-      mockDaemonEngine.isRunning.mockReturnValue(false);
+      mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
+      mocks.daemonEngine.isRunning.mockReturnValue(false);
 
       const handler = routes.get("GET /daemons/:id")!.handler;
       const result = await handler({ params: { id: D1 } });
@@ -205,7 +204,7 @@ describe("daemonAdminRoutes", () => {
     });
 
     it("registers a daemon and returns agents", async () => {
-      mockDaemonEngine.register.mockReturnValue({
+      mocks.daemonEngine.register.mockReturnValue({
         daemonId: D1,
         agents: [
           { id: "agent-1", name: "daemon-test-claude-code", type: "claude-code", apiKey: "key-1" },
@@ -216,7 +215,7 @@ describe("daemonAdminRoutes", () => {
       const reply = mockReply();
       const result = await handler({ body: { name: "test", habitatIds: [HAB] } }, reply);
 
-      expect(mockDaemonEngine.register).toHaveBeenCalledWith("test", [HAB], undefined, undefined);
+      expect(mocks.daemonEngine.register).toHaveBeenCalledWith("test", [HAB], undefined, undefined);
       expect(reply.code).toHaveBeenCalledWith(201);
       expect(result.daemonId).toBe(D1);
       expect(result.agents).toHaveLength(1);
@@ -225,55 +224,55 @@ describe("daemonAdminRoutes", () => {
 
   describe("POST /daemons/:id/start", () => {
     it("returns 404 for missing daemon", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue(null);
+      mocks.daemonRepo.getDaemonById.mockReturnValue(null);
       const handler = routes.get("POST /daemons/:id/start")!.handler;
       await expect(handler({ params: { id: "missing" } })).rejects.toThrow("Daemon not found");
     });
 
     it("starts a daemon engine", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue({ id: D1 });
-      mockDaemonEngine.isRunning.mockReturnValue(false);
+      mocks.daemonRepo.getDaemonById.mockReturnValue({ id: D1 });
+      mocks.daemonEngine.isRunning.mockReturnValue(false);
 
       const handler = routes.get("POST /daemons/:id/start")!.handler;
       const result = await handler({ params: { id: D1 }, body: {} });
 
-      expect(mockDaemonEngine.start).toHaveBeenCalledWith(D1, undefined);
+      expect(mocks.daemonEngine.start).toHaveBeenCalledWith(D1, undefined);
       expect(result.status).toBe("started");
     });
 
     it("returns already_running if daemon is running", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue({ id: D1 });
-      mockDaemonEngine.isRunning.mockReturnValue(true);
+      mocks.daemonRepo.getDaemonById.mockReturnValue({ id: D1 });
+      mocks.daemonEngine.isRunning.mockReturnValue(true);
 
       const handler = routes.get("POST /daemons/:id/start")!.handler;
       const result = await handler({ params: { id: D1 }, body: {} });
 
-      expect(mockDaemonEngine.start).not.toHaveBeenCalled();
+      expect(mocks.daemonEngine.start).not.toHaveBeenCalled();
       expect(result.status).toBe("already_running");
     });
   });
 
   describe("POST /daemons/:id/stop", () => {
     it("returns 404 for missing daemon", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue(null);
+      mocks.daemonRepo.getDaemonById.mockReturnValue(null);
       const handler = routes.get("POST /daemons/:id/stop")!.handler;
       await expect(handler({ params: { id: "missing" } })).rejects.toThrow("Daemon not found");
     });
 
     it("stops a daemon engine", async () => {
-      mockDaemonRepo.getDaemonById.mockReturnValue({ id: D1 });
+      mocks.daemonRepo.getDaemonById.mockReturnValue({ id: D1 });
 
       const handler = routes.get("POST /daemons/:id/stop")!.handler;
       const result = await handler({ params: { id: D1 } });
 
-      expect(mockDaemonEngine.stop).toHaveBeenCalledWith(D1);
+      expect(mocks.daemonEngine.stop).toHaveBeenCalledWith(D1);
       expect(result.status).toBe("stopped");
     });
   });
 
   describe("GET /daemons/detect-clis", () => {
     it("returns detected CLIs", async () => {
-      mockDaemonEngine.detectClisOnHost.mockReturnValue([
+      mocks.daemonEngine.detectClisOnHost.mockReturnValue([
         { type: "claude-code", version: "1.0.0", path: "/usr/bin/claude" },
       ]);
 
@@ -285,7 +284,7 @@ describe("daemonAdminRoutes", () => {
     });
 
     it("returns empty array when no CLIs found", async () => {
-      mockDaemonEngine.detectClisOnHost.mockReturnValue([]);
+      mocks.daemonEngine.detectClisOnHost.mockReturnValue([]);
 
       const handler = routes.get("GET /daemons/detect-clis")!.handler;
       const result = await handler({});

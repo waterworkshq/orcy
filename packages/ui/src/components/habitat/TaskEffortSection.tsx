@@ -4,7 +4,7 @@ import { Badge } from "../ui/Badge.js";
 import { Button } from "../ui/Button.js";
 import { Clock, Plus, Pencil } from "lucide-react";
 import { useTaskEffortReport, useLogEffort, useCorrectEffortEntry } from "../../hooks/useEffort.js";
-import type { EffortSource, EffortActorType } from "../../types/index.js";
+import type { EffortSource } from "../../types/index.js";
 
 interface TaskEffortSectionProps {
   taskId: string;

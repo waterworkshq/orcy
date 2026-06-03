@@ -321,9 +321,7 @@ export function CodeEvidencePanel({ targetType, targetId }: CodeEvidencePanelPro
   const handleLink = () => {
     const trimmed = linkUrl.trim();
     if (!trimmed) return;
-    try {
-      new URL(trimmed);
-    } catch {
+    if (!URL.canParse(trimmed)) {
       notify.error("Enter a valid URL before linking evidence");
       return;
     }

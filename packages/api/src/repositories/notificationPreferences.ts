@@ -2,7 +2,7 @@ import { getDb } from "../db/index.js";
 import { notificationPreferences } from "../db/schema/index.js";
 import { eq, isNull, and } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
-import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
+import { repositoryCreateError } from "../errors/repository.js";
 
 export interface NotificationPreferences {
   id: string;

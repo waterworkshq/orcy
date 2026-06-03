@@ -1,5 +1,5 @@
 import { getDb } from "../db/index.js";
-import { daemonInstances, daemonAgents, daemonSessions, agents } from "../db/schema/index.js";
+import { daemonInstances, daemonAgents, daemonSessions } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { hashDaemonToken } from "../lib/daemonToken.js";

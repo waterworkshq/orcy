@@ -4,11 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
 import { logger } from "../lib/logger.js";
-import {
-  repositoryCreateError,
-  repositoryUpsertError,
-  repositoryTransactionError,
-} from "../errors/repository.js";
+import { repositoryCreateError, repositoryUpsertError } from "../errors/repository.js";
 
 export function getById(id: string) {
   const db = getDb();

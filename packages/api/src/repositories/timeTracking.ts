@@ -123,7 +123,6 @@ export function getHabitatMetrics(habitatId: string): HabitatMetrics {
 
   const totalCycleTime = completedTasks.reduce((acc, t) => acc + (t.cycleTimeMinutes ?? 0), 0);
   const totalLeadTime = completedTasks.reduce((acc, t) => acc + (t.leadTimeMinutes ?? 0), 0);
-  const totalActual = completedTasks.reduce((acc, t) => acc + (t.actualMinutes ?? 0), 0);
   const totalPlanned = completedTasks.reduce((acc, t) => acc + (t.estimatedMinutes ?? 0), 0);
 
   const tasksWithAccuracy = completedTasks.filter((t) => t.estimationAccuracy !== null);

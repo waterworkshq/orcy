@@ -21,7 +21,7 @@ import type {
   DaemonClaimNextInput,
   DaemonSessionUpdateInput,
 } from "../models/schemas.js";
-import { badRequest, notFound, forbidden, conflict } from "../errors.js";
+import { badRequest, notFound, forbidden } from "../errors.js";
 import * as daemonEngine from "../services/daemonEngine.js";
 
 export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {

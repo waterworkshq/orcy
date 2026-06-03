@@ -1,11 +1,7 @@
 import { getDb } from "../db/index.js";
 import { codeEvidenceCompleteness } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
-import type {
-  CodeEvidenceTargetType,
-  CodeEvidenceCompletenessStatus,
-  CodeEvidenceActorType,
-} from "@orcy/shared";
+import type { CodeEvidenceTargetType, CodeEvidenceActorType } from "@orcy/shared";
 import {
   repositoryCreateError,
   repositoryUpdateError,

@@ -18,8 +18,6 @@ import {
   repositoryCreateError,
   repositoryNotFoundError,
   repositoryUpdateError,
-  repositoryDeleteError,
-  repositoryTransactionError,
 } from "../errors/repository.js";
 
 export function createTemplate(input: {

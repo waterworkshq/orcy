@@ -9,11 +9,7 @@ import type {
   IntegrationSyncStatus,
 } from "@orcy/shared";
 import { v4 as uuid } from "uuid";
-import {
-  repositoryCreateError,
-  repositoryNotFoundError,
-  repositoryUpdateError,
-} from "../errors/repository.js";
+import { repositoryUpdateError } from "../errors/repository.js";
 
 export function create(input: {
   habitatId: string;

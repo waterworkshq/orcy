@@ -727,9 +727,6 @@ export const codeEvidenceLinksRelations = relations(codeEvidenceLinks, ({ one })
   }),
 }));
 
-export const codeEvidenceCompletenessRelations = relations(
-  codeEvidenceCompleteness,
-  ({ one }) => ({}),
-);
+export const codeEvidenceCompletenessRelations = relations(codeEvidenceCompleteness, () => ({}));
 
-export const codeEvidenceGapsRelations = relations(codeEvidenceGaps, ({ one }) => ({}));
+export const codeEvidenceGapsRelations = relations(codeEvidenceGaps, () => ({}));

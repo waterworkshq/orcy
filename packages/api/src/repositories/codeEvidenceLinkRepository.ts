@@ -6,13 +6,11 @@ import type {
   CodeEvidenceType,
   CodeEvidenceLinkSource,
   CodeEvidenceVerificationState,
-  CodeEvidenceLinkStatus,
   CodeEvidenceTargetType,
   CodeEvidenceActorType,
 } from "@orcy/shared";
 import {
   repositoryCreateError,
-  repositoryUpsertError,
   repositoryUpdateError,
   repositoryTransactionError,
 } from "../errors/repository.js";
@@ -192,7 +190,7 @@ export function findOrCreateActive(input: {
           correctedAt: null,
           correctionReason: null,
           replacementLinkId: null,
-          allowExternalRepository: input.allowExternalRepository ? true : false,
+          allowExternalRepository: Boolean(input.allowExternalRepository),
           metadata: input.metadata ?? {},
         })
         .run();
@@ -260,7 +258,7 @@ export function create(input: {
         correctedAt: null,
         correctionReason: null,
         replacementLinkId: null,
-        allowExternalRepository: input.allowExternalRepository ? true : false,
+        allowExternalRepository: Boolean(input.allowExternalRepository),
         metadata: input.metadata ?? {},
       })
       .run();

@@ -7,7 +7,7 @@ import type {
   CliType,
   ISessionUpdater,
 } from "../types.js";
-import { spawnCli, terminateProcess, type SpawnedProcess } from "./spawner.js";
+import { spawnCli, terminateProcess } from "./spawner.js";
 import { getAdapter } from "./adapters.js";
 import { validateWorktreeConfig, createWorkdir } from "../workdir.js";
 import { WorkdirError } from "../workdir.js";

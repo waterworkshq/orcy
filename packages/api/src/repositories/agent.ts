@@ -9,7 +9,6 @@ import {
   repositoryCreateError,
   assertFound,
   repositoryUpdateError,
-  repositoryDeleteError,
   repositoryTransactionError,
 } from "../errors/repository.js";
 

@@ -2,7 +2,6 @@ import { sqliteTable, text, integer, real, index, uniqueIndex } from "drizzle-or
 import { sql } from "drizzle-orm";
 import { habitats } from "./board.js";
 import { tasks } from "./task.js";
-import { missions } from "./board.js";
 import { pullRequests } from "./cicd.js";
 
 export const habitatCodeRepositories = sqliteTable(

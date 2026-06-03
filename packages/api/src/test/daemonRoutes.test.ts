@@ -1,18 +1,11 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 
-const {
-  mockAgentService,
-  mockTaskService,
-  mockTaskRepo,
-  mockHabitatRepo,
-  mockDaemonRepo,
-  mockSuggestionService,
-} = vi.hoisted(() => {
-  const mockAgentService = { createAgent: vi.fn() };
-  const mockTaskService = { claimTask: vi.fn() };
-  const mockTaskRepo = { getTaskById: vi.fn() };
-  const mockHabitatRepo = { getHabitatById: vi.fn() };
-  const mockDaemonRepo = {
+const mocks = vi.hoisted(() => ({
+  agentService: { createAgent: vi.fn() },
+  taskService: { claimTask: vi.fn() },
+  taskRepo: { getTaskById: vi.fn() },
+  habitatRepo: { getHabitatById: vi.fn() },
+  daemonRepo: {
     createDaemon: vi.fn(),
     createDaemonAgent: vi.fn(),
     updateDaemonHeartbeat: vi.fn(),
@@ -24,24 +17,16 @@ const {
     updateSessionStatus: vi.fn(),
     updateSessionProgress: vi.fn(),
     getActiveSessionsByDaemonId: vi.fn(),
-  };
-  const mockSuggestionService = { getSuggestionsForAgent: vi.fn() };
-  return {
-    mockAgentService,
-    mockTaskService,
-    mockTaskRepo,
-    mockHabitatRepo,
-    mockDaemonRepo,
-    mockSuggestionService,
-  };
-});
+  },
+  suggestionService: { getSuggestionsForAgent: vi.fn() },
+}));
 
-vi.mock("../services/agentService.js", () => mockAgentService);
-vi.mock("../services/tasks/index.js", () => mockTaskService);
-vi.mock("../repositories/task.js", () => mockTaskRepo);
-vi.mock("../repositories/board.js", () => mockHabitatRepo);
-vi.mock("../repositories/daemon.js", () => mockDaemonRepo);
-vi.mock("../services/taskSuggestion.js", () => mockSuggestionService);
+vi.mock("../services/agentService.js", () => mocks.agentService);
+vi.mock("../services/tasks/index.js", () => mocks.taskService);
+vi.mock("../repositories/task.js", () => mocks.taskRepo);
+vi.mock("../repositories/board.js", () => mocks.habitatRepo);
+vi.mock("../repositories/daemon.js", () => mocks.daemonRepo);
+vi.mock("../services/taskSuggestion.js", () => mocks.suggestionService);
 vi.mock("../lib/daemonToken.js", () => ({
   generateDaemonToken: () => "daemon-test-token-1234",
 }));
@@ -110,15 +95,15 @@ describe("daemonRoutes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDaemonRepo.createDaemonSession.mockReturnValue({ id: SESS });
-    mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
+    mocks.daemonRepo.createDaemonSession.mockReturnValue({ id: SESS });
+    mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([]);
   });
 
   describe("POST /daemon/register", () => {
     it("registers a daemon with managed agents", async () => {
-      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB, name: "Test" });
-      mockDaemonRepo.createDaemon.mockReturnValue({ id: D1, name: "ws" });
-      mockAgentService.createAgent
+      mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB, name: "Test" });
+      mocks.daemonRepo.createDaemon.mockReturnValue({ id: D1, name: "ws" });
+      mocks.agentService.createAgent
         .mockReturnValueOnce({
           agent: { id: AG1, name: "daemon-ws-claude-code" },
           plainApiKey: "key-1",
@@ -153,11 +138,11 @@ describe("daemonRoutes", () => {
       expect(result.agents).toHaveLength(2);
       expect(result.agents[0].apiKey).toBe("key-1");
       expect(result.agents[1].apiKey).toBe("key-2");
-      expect(mockDaemonRepo.createDaemonAgent).toHaveBeenCalledTimes(2);
+      expect(mocks.daemonRepo.createDaemonAgent).toHaveBeenCalledTimes(2);
     });
 
     it("rejects invalid habitat", async () => {
-      mockHabitatRepo.getHabitatById.mockReturnValue(null);
+      mocks.habitatRepo.getHabitatById.mockReturnValue(null);
       const reply = mockReply();
 
       await expect(
@@ -189,12 +174,12 @@ describe("daemonRoutes", () => {
         reply,
       );
 
-      expect(mockDaemonRepo.updateDaemonHeartbeat).toHaveBeenCalledWith(D1);
+      expect(mocks.daemonRepo.updateDaemonHeartbeat).toHaveBeenCalledWith(D1);
       expect(result.nextCheckInSeconds).toBe(30);
     });
 
     it("updates agent statuses for owned agents", async () => {
-      mockDaemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: D1 });
       const reply = mockReply();
       await routes.get("POST /daemon/heartbeat")!.handler(
         {
@@ -204,11 +189,11 @@ describe("daemonRoutes", () => {
         reply,
       );
 
-      expect(mockDaemonRepo.updateDaemonAgentStatus).toHaveBeenCalledWith("da-1", "working");
+      expect(mocks.daemonRepo.updateDaemonAgentStatus).toHaveBeenCalledWith("da-1", "working");
     });
 
     it("skips agent statuses for non-owned agents", async () => {
-      mockDaemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: "other" });
+      mocks.daemonRepo.getDaemonAgentByAgentId.mockReturnValue({ id: "da-1", daemonId: "other" });
       const reply = mockReply();
       await routes.get("POST /daemon/heartbeat")!.handler(
         {
@@ -218,22 +203,22 @@ describe("daemonRoutes", () => {
         reply,
       );
 
-      expect(mockDaemonRepo.updateDaemonAgentStatus).not.toHaveBeenCalled();
+      expect(mocks.daemonRepo.updateDaemonAgentStatus).not.toHaveBeenCalled();
     });
   });
 
   describe("POST /daemon/tasks/claim-next", () => {
     it("claims a task and returns it with worktree settings", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue({
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue({
         id: HAB,
         gitWorktreeSettings: { repoPath: "/repo", branchPrefix: "task/", autoCleanup: true },
       });
-      mockSuggestionService.getSuggestionsForAgent.mockReturnValue({
+      mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({
         suggestions: [{ taskId: T1, taskTitle: "Do thing" }],
       });
-      mockTaskService.claimTask.mockReturnValue({ success: true, task: { id: T1 } });
-      mockTaskRepo.getTaskById.mockReturnValue({
+      mocks.taskService.claimTask.mockReturnValue({ success: true, task: { id: T1 } });
+      mocks.taskRepo.getTaskById.mockReturnValue({
         id: T1,
         title: "Do thing",
         description: "desc",
@@ -252,7 +237,7 @@ describe("daemonRoutes", () => {
         reply,
       );
 
-      expect(mockDaemonRepo.createDaemonSession).toHaveBeenCalledWith(
+      expect(mocks.daemonRepo.createDaemonSession).toHaveBeenCalledWith(
         expect.objectContaining({ daemonId: D1, agentId: AG1, taskId: T1, workdir: "pending" }),
       );
       expect(result.daemonSessionId).toBe(SESS);
@@ -261,12 +246,12 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when no task can be claimed", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
-      mockSuggestionService.getSuggestionsForAgent.mockReturnValue({
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({
         suggestions: [{ taskId: T1 }],
       });
-      mockTaskService.claimTask.mockReturnValue({ success: false, reason: "already_claimed" });
+      mocks.taskService.claimTask.mockReturnValue({ success: false, reason: "already_claimed" });
 
       const reply = mockReply();
       await routes.get("POST /daemon/tasks/claim-next")!.handler(
@@ -278,19 +263,19 @@ describe("daemonRoutes", () => {
       );
 
       expect(reply.code).toHaveBeenCalledWith(204);
-      expect(mockDaemonRepo.createDaemonSession).not.toHaveBeenCalled();
+      expect(mocks.daemonRepo.createDaemonSession).not.toHaveBeenCalled();
     });
 
     it("tries second suggestion when first fails", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
-      mockSuggestionService.getSuggestionsForAgent.mockReturnValue({
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({
         suggestions: [{ taskId: T1 }, { taskId: T2 }],
       });
-      mockTaskService.claimTask
+      mocks.taskService.claimTask
         .mockReturnValueOnce({ success: false, reason: "already_claimed" })
         .mockReturnValueOnce({ success: true, task: { id: T2 } });
-      mockTaskRepo.getTaskById.mockReturnValue({
+      mocks.taskRepo.getTaskById.mockReturnValue({
         id: T2,
         title: "T2",
         description: "",
@@ -309,14 +294,14 @@ describe("daemonRoutes", () => {
         reply,
       );
 
-      expect(mockTaskService.claimTask).toHaveBeenCalledTimes(2);
-      expect(mockDaemonRepo.createDaemonSession).toHaveBeenCalledWith(
+      expect(mocks.taskService.claimTask).toHaveBeenCalledTimes(2);
+      expect(mocks.daemonRepo.createDaemonSession).toHaveBeenCalledWith(
         expect.objectContaining({ taskId: T2 }),
       );
     });
 
     it("rejects non-owned agent", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(false);
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(false);
       const reply = mockReply();
 
       await expect(
@@ -331,8 +316,8 @@ describe("daemonRoutes", () => {
     });
 
     it("rejects invalid habitat", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue(null);
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue(null);
       const reply = mockReply();
 
       await expect(
@@ -347,9 +332,9 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when no suggestions available", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
-      mockSuggestionService.getSuggestionsForAgent.mockReturnValue({ suggestions: [] });
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mocks.suggestionService.getSuggestionsForAgent.mockReturnValue({ suggestions: [] });
 
       const reply = mockReply();
       await routes.get("POST /daemon/tasks/claim-next")!.handler(
@@ -364,9 +349,9 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 204 when daemon is at max concurrency", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
-      mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([
         { id: "s1", agentId: AG2 },
         { id: "s2", agentId: "agent-3" },
       ]);
@@ -381,13 +366,13 @@ describe("daemonRoutes", () => {
       );
 
       expect(reply.code).toHaveBeenCalledWith(204);
-      expect(mockSuggestionService.getSuggestionsForAgent).not.toHaveBeenCalled();
+      expect(mocks.suggestionService.getSuggestionsForAgent).not.toHaveBeenCalled();
     });
 
     it("returns 204 when the daemon agent already has an active session", async () => {
-      mockDaemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
-      mockHabitatRepo.getHabitatById.mockReturnValue({ id: HAB });
-      mockDaemonRepo.getActiveSessionsByDaemonId.mockReturnValue([{ id: "s1", agentId: AG1 }]);
+      mocks.daemonRepo.isAgentOwnedByDaemon.mockReturnValue(true);
+      mocks.habitatRepo.getHabitatById.mockReturnValue({ id: HAB });
+      mocks.daemonRepo.getActiveSessionsByDaemonId.mockReturnValue([{ id: "s1", agentId: AG1 }]);
 
       const reply = mockReply();
       await routes.get("POST /daemon/tasks/claim-next")!.handler(
@@ -399,14 +384,14 @@ describe("daemonRoutes", () => {
       );
 
       expect(reply.code).toHaveBeenCalledWith(204);
-      expect(mockSuggestionService.getSuggestionsForAgent).not.toHaveBeenCalled();
+      expect(mocks.suggestionService.getSuggestionsForAgent).not.toHaveBeenCalled();
     });
   });
 
   describe("PATCH /daemon/sessions/:id", () => {
     it("updates session status", async () => {
-      mockDaemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: D1 });
-      mockDaemonRepo.updateSessionStatus.mockReturnValue({ id: SESS, status: "running" });
+      mocks.daemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: D1 });
+      mocks.daemonRepo.updateSessionStatus.mockReturnValue({ id: SESS, status: "running" });
 
       const reply = mockReply();
       const result = await routes.get("PATCH /daemon/sessions/:id")!.handler(
@@ -418,7 +403,7 @@ describe("daemonRoutes", () => {
         reply,
       );
 
-      expect(mockDaemonRepo.updateSessionStatus).toHaveBeenCalledWith(
+      expect(mocks.daemonRepo.updateSessionStatus).toHaveBeenCalledWith(
         SESS,
         "running",
         "halfway done",
@@ -427,9 +412,9 @@ describe("daemonRoutes", () => {
     });
 
     it("persists progress fields alongside status updates", async () => {
-      mockDaemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: D1 });
-      mockDaemonRepo.updateSessionStatus.mockReturnValue({ id: SESS, status: "running" });
-      mockDaemonRepo.updateSessionProgress.mockReturnValue({
+      mocks.daemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: D1 });
+      mocks.daemonRepo.updateSessionStatus.mockReturnValue({ id: SESS, status: "running" });
+      mocks.daemonRepo.updateSessionProgress.mockReturnValue({
         id: SESS,
         status: "running",
         pid: 123,
@@ -451,8 +436,8 @@ describe("daemonRoutes", () => {
         mockReply(),
       );
 
-      expect(mockDaemonRepo.updateSessionStatus).toHaveBeenCalledWith(SESS, "running", undefined);
-      expect(mockDaemonRepo.updateSessionProgress).toHaveBeenCalledWith(
+      expect(mocks.daemonRepo.updateSessionStatus).toHaveBeenCalledWith(SESS, "running", undefined);
+      expect(mocks.daemonRepo.updateSessionProgress).toHaveBeenCalledWith(
         SESS,
         expect.objectContaining({ pid: 123, workdir: "/tmp/workdir", cliSessionId: "cli-1" }),
       );
@@ -460,7 +445,7 @@ describe("daemonRoutes", () => {
     });
 
     it("returns 404 for missing session", async () => {
-      mockDaemonRepo.getSessionById.mockReturnValue(null);
+      mocks.daemonRepo.getSessionById.mockReturnValue(null);
       const reply = mockReply();
 
       await expect(
@@ -476,7 +461,7 @@ describe("daemonRoutes", () => {
     });
 
     it("rejects session belonging to another daemon", async () => {
-      mockDaemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: "other-daemon" });
+      mocks.daemonRepo.getSessionById.mockReturnValue({ id: SESS, daemonId: "other-daemon" });
       const reply = mockReply();
 
       await expect(

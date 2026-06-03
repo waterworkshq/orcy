@@ -2,11 +2,7 @@ import { getDb } from "../db/index.js";
 import { codeEvidenceGaps } from "../db/schema/index.js";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import type {
-  CodeEvidenceTargetType,
-  CodeEvidenceGapStatus,
-  CodeEvidenceActorType,
-} from "@orcy/shared";
+import type { CodeEvidenceTargetType, CodeEvidenceActorType } from "@orcy/shared";
 import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 
 const DEFAULT_TARGET_LIST_LIMIT = 100;
