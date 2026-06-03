@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.16.5 — 2026-06-03
+
+### Refactors
+
+#### clean up repository imports and type definitions ([`75276be`](https://github.com/waterworkshq/orcy/commit/75276bea9a553b3c1437bfa3e51dc678d4552ec2))
+
+1. This change removes unused error imports from repository files, updates type definitions to remove unused interfaces, and simplifies relation definitions. It also modernizes some code patterns by replacing ternary operators with Boolean() and updating test file mock organization. The changes reduce bundle size and improve code maintainability by eliminating dead code.
+
+
+
 ## 0.16.4 — 2026-06-02
 
 ### Features
@@ -56,52 +66,3 @@
 #### add self-referencing foreign key to code_evidence_links ([`d7825fb`](https://github.com/waterworkshq/orcy/commit/d7825fb70b37b3d283a257bcbb2ea8329ec72f11))
 
 1. Add a self-referencing foreign key constraint on code_evidence_links.replacement_link_id to enable link replacement functionality. This required rebuilding the table with foreign key support and updating the schema definition.
-
-
-
-## 0.16.2 — 2026-06-02
-
-### Bug Fixes
-
-#### add missing mission gap handling actions and improve SSE event data ([`8e04b0e`](https://github.com/waterworkshq/orcy/commit/8e04b0ea90acd5b4af6a4e25c9eaf64f6c9fe5c5))
-
-1. Add four new mission code evidence actions for managing evidence gaps:
-2. mark-not-applicable: Mark mission evidence as not applicable with reason
-3. clear-not-applicable: Clear not-applicable status from mission evidence
-4. report-gap: Report a new evidence gap for a mission
-5. resolve-gap: Resolve an existing evidence gap
-
-7. Also include:
-8. Add normalizeMissionId function to shared package for consistent ID handling
-9. Add habitatId to code evidence responses for proper SSE event routing
-10. Improve SSE event publishing to include full task/mission data instead of just IDs
-11. Add pagination support (limit/offset) to effort entry queries
-12. Add atomic findOrCreateActive pattern for code evidence links
-13. Add required parameter validation to dispatch handlers
-14. Update error handling to return structured error results instead of throwing
-
-
-#### add actor_id validation for effort entries and improve repository consistency ([`f6b7b88`](https://github.com/waterworkshq/orcy/commit/f6b7b882b58c9212216ada76f7e46fdc48fd1fa2))
-
-1. Require actor_id for human and agent effort entries in logEffort and
-2. correctEffortEntry to ensure proper attribution.
-
-4. Improve repository functions by:
-5. Using transactions for atomic upsert operations in codeBranch and codeCommit
-6. Using onConflictDoUpdate for codeEvidence upsert
-7. Adding configurable limit parameters to all list queries with sensible defaults
-8. Changing findByRepoAndName/findByRepoAndSha to return arrays for consistent behavior
-9. Adding WorktreeSettingsPayload interface for type safety
-
-11. Update tests to reflect new validation requirements and array return types.
-
-
-
-### Refactors
-
-#### extract shared CodeEvidencePanel component ([`5c27d4e`](https://github.com/waterworkshq/orcy/commit/5c27d4e2ad4cd970be26a505241026b3748b6817))
-
-1. Consolidate duplicate TaskCodeEvidence and MissionCodeEvidence into a single
-2. reusable component with unified styling, loading states, and error handling.
-3. Also add batch insert operations to code evidence repositories, add confidence
-4. validation, improve relative time formatting, and add effort query key helpers.
