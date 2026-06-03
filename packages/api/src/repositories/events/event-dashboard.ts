@@ -1,9 +1,17 @@
-import { getDb } from '../../db/index.js';
-import { taskEvents, tasks, missions, agents, columns, habitats, webhookDeliveries } from '../../db/schema/index.js';
-import { eq, and, isNotNull, sql, desc, asc, inArray } from 'drizzle-orm';
-import { cycleTimeMinutes } from '../../db/dialect-helpers.js';
-import { habitatFilter, resolveDateWindow } from './stats-helpers.js';
-import type { DashboardStats } from '../../models/index.js';
+import { getDb } from "../../db/index.js";
+import {
+  taskEvents,
+  tasks,
+  missions,
+  agents,
+  columns,
+  habitats,
+  webhookDeliveries,
+} from "../../db/schema/index.js";
+import { eq, and, isNotNull, sql, desc, asc, inArray } from "drizzle-orm";
+import { cycleTimeMinutes } from "../../db/dialect-helpers.js";
+import { habitatFilter, resolveDateWindow } from "./stats-helpers.js";
+import type { DashboardStats } from "../../models/index.js";
 
 function queryThroughput(
   db: ReturnType<typeof getDb>,
@@ -20,7 +28,7 @@ function queryThroughput(
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
-        eq(taskEvents.action, 'completed'),
+        eq(taskEvents.action, "completed"),
         sql`${taskEvents.timestamp} >= ${startDate}`,
         ...(habitatId ? [eq(missions.habitatId, habitatId)] : []),
       ),
@@ -39,7 +47,7 @@ function queryCycleTime(
   const rows = db
     .select({
       date: sql<string>`DATE(${tasks.completedAt})`,
-      avgMinutes: sql<number | null>`AVG(${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)})`,
+      minutes: cycleTimeMinutes(tasks.completedAt, tasks.claimedAt),
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
@@ -52,16 +60,31 @@ function queryCycleTime(
         ...(habitatId ? [eq(missions.habitatId, habitatId)] : []),
       ),
     )
-    .groupBy(sql`DATE(${tasks.completedAt})`)
-    .orderBy(asc(sql`DATE(${tasks.completedAt})`))
     .all();
-  return rows
-    .filter((r) => r.avgMinutes !== null)
-    .map((r) => ({
-      date: r.date,
-      avgMinutes: Math.round(r.avgMinutes!),
-      medianMinutes: Math.round(r.avgMinutes!),
-    }));
+
+  const byDate = new Map<string, number[]>();
+  for (const row of rows) {
+    const minutes = Number(row.minutes);
+    if (!Number.isFinite(minutes)) continue;
+    const bucket = byDate.get(row.date) ?? [];
+    bucket.push(minutes);
+    byDate.set(row.date, bucket);
+  }
+
+  return [...byDate.entries()]
+    .map(([date, values]) => {
+      const sorted = values.toSorted((a, b) => a - b);
+      const middle = Math.floor(sorted.length / 2);
+      const median =
+        sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+      const avg = sorted.reduce((sum, value) => sum + value, 0) / sorted.length;
+      return {
+        date,
+        avgMinutes: Math.round(avg),
+        medianMinutes: Math.round(median),
+      };
+    })
+    .toSorted((a, b) => a.date.localeCompare(b.date));
 }
 
 function queryRejectionRate(
@@ -80,7 +103,7 @@ function queryRejectionRate(
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
       and(
-        inArray(taskEvents.action, ['submitted', 'rejected', 'approved']),
+        inArray(taskEvents.action, ["submitted", "rejected", "approved"]),
         sql`${taskEvents.timestamp} >= ${startDate}`,
         ...(habitatId ? [eq(missions.habitatId, habitatId)] : []),
       ),
@@ -95,22 +118,21 @@ function queryAgentLeaderboard(
   db: ReturnType<typeof getDb>,
   habitatId: string | undefined,
   startDate: string,
-): DashboardStats['agentLeaderboard'] {
+): DashboardStats["agentLeaderboard"] {
   const leaderboardRows = db
     .select({
       agentId: agents.id,
       agentName: agents.name,
       completed: sql<number>`COUNT(CASE WHEN ${tasks.status} IN ('approved', 'done') THEN 1 END)`,
       failed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'failed' THEN 1 END)`,
-      avgCycle: sql<number | null>`AVG(CASE WHEN ${tasks.completedAt} IS NOT NULL AND ${tasks.claimedAt} IS NOT NULL THEN ${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)} END)`,
+      avgCycle: sql<
+        number | null
+      >`AVG(CASE WHEN ${tasks.completedAt} IS NOT NULL AND ${tasks.claimedAt} IS NOT NULL THEN ${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)} END)`,
     })
     .from(agents)
     .leftJoin(
       tasks,
-      and(
-        eq(tasks.assignedAgentId, agents.id),
-        sql`${tasks.completedAt} >= ${startDate}`,
-      ),
+      and(eq(tasks.assignedAgentId, agents.id), sql`${tasks.completedAt} >= ${startDate}`),
     )
     .leftJoin(missions, eq(tasks.missionId, missions.id))
     .where(habitatId ? eq(missions.habitatId, habitatId) : undefined)
@@ -132,9 +154,9 @@ function queryAgentLeaderboard(
       .from(taskEvents)
       .where(
         and(
-          eq(taskEvents.actorType, 'agent'),
+          eq(taskEvents.actorType, "agent"),
           inArray(taskEvents.actorId, agentIds),
-          inArray(taskEvents.action, ['submitted', 'approved']),
+          inArray(taskEvents.action, ["submitted", "approved"]),
         ),
       )
       .groupBy(taskEvents.actorId)
@@ -144,7 +166,7 @@ function queryAgentLeaderboard(
     }
   }
 
-  const leaderboard: DashboardStats['agentLeaderboard'] = [];
+  const leaderboard: DashboardStats["agentLeaderboard"] = [];
   for (const row of leaderboardRows) {
     const approval = approvalMap.get(row.agentId);
     const submissions = approval?.submissions || 1;
@@ -211,7 +233,7 @@ function queryTaskByStatus(
 function queryWipHealth(
   db: ReturnType<typeof getDb>,
   habitatId: string | undefined,
-): DashboardStats['wipHealth'] {
+): DashboardStats["wipHealth"] {
   const wipCondition = habitatId ? eq(columns.habitatId, habitatId) : sql`1=1`;
   const wipRows = db
     .select({
@@ -237,13 +259,13 @@ function queryWipHealth(
     .orderBy(asc(columns.habitatId), asc(columns.order))
     .all();
 
-  const wipHealth: DashboardStats['wipHealth'] = [];
+  const wipHealth: DashboardStats["wipHealth"] = [];
   for (const row of wipRows) {
     const limit = row.wipLimit;
-    let health: 'ok' | 'warning' | 'exceeded' = 'ok';
+    let health: "ok" | "warning" | "exceeded" = "ok";
     if (limit !== null) {
-      if (row.current > limit) health = 'exceeded';
-      else if (row.current >= limit * 0.8) health = 'warning';
+      if (row.current > limit) health = "exceeded";
+      else if (row.current >= limit * 0.8) health = "warning";
     }
     wipHealth.push({
       columnId: row.columnId,
@@ -261,7 +283,7 @@ function queryWipHealth(
 function queryWebhookStats(
   db: ReturnType<typeof getDb>,
   startDate: string,
-): DashboardStats['webhookStats'] {
+): DashboardStats["webhookStats"] {
   const webhookRow = db
     .select({
       total: sql<number>`COUNT(*)`,
@@ -279,9 +301,7 @@ function queryWebhookStats(
     failed: webhookRow?.failed || 0,
     pending: webhookRow?.pending || 0,
     successRate:
-      webhookTotal > 0
-        ? Math.round(((webhookRow?.success || 0) / webhookTotal) * 100) / 100
-        : 0,
+      webhookTotal > 0 ? Math.round(((webhookRow?.success || 0) / webhookTotal) * 100) / 100 : 0,
   };
 }
 
@@ -298,7 +318,9 @@ function querySummaryStats(
     .select({
       totalCompleted: sql<number>`COUNT(CASE WHEN ${tasks.status} IN ('approved', 'done') THEN 1 END)`,
       totalInProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} IN ('claimed', 'in_progress', 'submitted') THEN 1 END)`,
-      avgCycle: sql<number | null>`AVG(CASE WHEN ${tasks.completedAt} IS NOT NULL AND ${tasks.claimedAt} IS NOT NULL AND ${tasks.status} IN ('approved', 'done') THEN ${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)} END)`,
+      avgCycle: sql<
+        number | null
+      >`AVG(CASE WHEN ${tasks.completedAt} IS NOT NULL AND ${tasks.claimedAt} IS NOT NULL AND ${tasks.status} IN ('approved', 'done') THEN ${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)} END)`,
       activeAgents: sql<number>`COUNT(DISTINCT CASE WHEN ${tasks.assignedAgentId} IS NOT NULL AND ${tasks.status} IN ('claimed', 'in_progress', 'submitted') THEN ${tasks.assignedAgentId} END)`,
     })
     .from(tasks)
@@ -326,7 +348,10 @@ function queryRejectionTotal(
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(
-      and(inArray(taskEvents.action, ['submitted', 'approved', 'rejected']), habitatFilter(habitatId)),
+      and(
+        inArray(taskEvents.action, ["submitted", "approved", "rejected"]),
+        habitatFilter(habitatId),
+      ),
     )
     .get();
   return { rejections: row?.rejections || 0, totalReviews: row?.totalReviews || 0 };
@@ -334,7 +359,7 @@ function queryRejectionTotal(
 
 export function getDashboardStats(
   habitatId?: string,
-  period: '7d' | '30d' | '90d' = '30d',
+  period: "7d" | "30d" | "90d" = "30d",
 ): DashboardStats {
   const db = getDb();
   const { startDate } = resolveDateWindow(period);

@@ -1,19 +1,19 @@
-import { getDb } from '../db/index.js';
-import { taskEvents, missionEvents, tasks, missions, agents, columns } from '../db/schema/index.js';
-import { alias } from 'drizzle-orm/sqlite-core';
-import { eq, and, sql, desc, inArray } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import type { FastifyReply } from 'fastify';
+import { getDb } from "../db/index.js";
+import { taskEvents, missionEvents, tasks, missions, agents, columns } from "../db/schema/index.js";
+import { alias } from "drizzle-orm/sqlite-core";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import type { FastifyReply } from "fastify";
 
-const taskFromColumns = alias(columns, 'te_from_columns');
-const taskToColumns = alias(columns, 'te_to_columns');
-const missionFromColumns = alias(columns, 'fe_from_columns');
-const missionToColumns = alias(columns, 'fe_to_columns');
+const taskFromColumns = alias(columns, "te_from_columns");
+const taskToColumns = alias(columns, "te_to_columns");
+const missionFromColumns = alias(columns, "fe_from_columns");
+const missionToColumns = alias(columns, "fe_to_columns");
 
 const BATCH_SIZE = 1000;
 
 export interface AuditExportQuery {
-  format: 'csv' | 'json' | 'jsonl';
+  format: "csv" | "json" | "jsonl";
   since?: string;
   until?: string;
   actions?: string;
@@ -58,7 +58,7 @@ function buildConditions(habitatId: string, query: AuditExportQuery) {
     conditions.push(sql`${taskEvents.timestamp} <= ${query.until}`);
   }
   if (query.actions) {
-    const actionList = query.actions.split(',').map(a => a.trim());
+    const actionList = query.actions.split(",").map((a) => a.trim());
     conditions.push(inArray(taskEvents.action, actionList as any));
   }
   if (query.actorType) {
@@ -81,7 +81,7 @@ function buildMissionConditions(habitatId: string, query: AuditExportQuery) {
     conditions.push(sql`${missionEvents.timestamp} <= ${query.until}`);
   }
   if (query.actions) {
-    const actionList = query.actions.split(',').map(a => a.trim());
+    const actionList = query.actions.split(",").map((a) => a.trim());
     conditions.push(inArray(missionEvents.action, actionList as any));
   }
   if (query.actorType) {
@@ -94,18 +94,22 @@ function buildMissionConditions(habitatId: string, query: AuditExportQuery) {
   return and(...conditions);
 }
 
-function fetchTaskEventBatch(habitatId: string, query: AuditExportQuery, offset: number): AuditRow[] {
+function fetchTaskEventBatch(
+  habitatId: string,
+  query: AuditExportQuery,
+  offset: number,
+): AuditRow[] {
   const db = getDb();
   const whereClause = buildConditions(habitatId, query);
 
-  const includeMetadata = query.includeMetadata === 'true';
+  const includeMetadata = query.includeMetadata === "true";
 
   const rows = db
     .select({
       id: taskEvents.id,
       timestamp: taskEvents.timestamp,
       action: taskEvents.action,
-      entityType: sql`'task'`.as('entityType'),
+      entityType: sql`'task'`.as("entityType"),
       entityId: tasks.id,
       entityTitle: tasks.title,
       actorType: taskEvents.actorType,
@@ -115,7 +119,7 @@ function fetchTaskEventBatch(habitatId: string, query: AuditExportQuery, offset:
       toStatus: taskEvents.toStatus,
       fromColumn: taskFromColumns.name,
       toColumn: taskToColumns.name,
-      ...(includeMetadata ? { metadata: taskEvents.metadata } as any : {}),
+      ...(includeMetadata ? ({ metadata: taskEvents.metadata } as any) : {}),
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
@@ -131,23 +135,27 @@ function fetchTaskEventBatch(habitatId: string, query: AuditExportQuery, offset:
 
   return rows.map((row: any) => ({
     ...row,
-    entityType: 'task',
+    entityType: "task",
     metadata: includeMetadata ? (row.metadata as Record<string, unknown>) : null,
   }));
 }
 
-function fetchMissionEventBatch(habitatId: string, query: AuditExportQuery, offset: number): AuditRow[] {
+function fetchMissionEventBatch(
+  habitatId: string,
+  query: AuditExportQuery,
+  offset: number,
+): AuditRow[] {
   const db = getDb();
   const whereClause = buildMissionConditions(habitatId, query);
 
-  const includeMetadata = query.includeMetadata === 'true';
+  const includeMetadata = query.includeMetadata === "true";
 
   const rows = db
     .select({
       id: missionEvents.id,
       timestamp: missionEvents.timestamp,
       action: missionEvents.action,
-      entityType: sql`'mission'`.as('entityType'),
+      entityType: sql`'mission'`.as("entityType"),
       entityId: missions.id,
       entityTitle: missions.title,
       actorType: missionEvents.actorType,
@@ -157,7 +165,7 @@ function fetchMissionEventBatch(habitatId: string, query: AuditExportQuery, offs
       toStatus: missionEvents.toStatus,
       fromColumn: missionFromColumns.name,
       toColumn: missionToColumns.name,
-      ...(includeMetadata ? { metadata: missionEvents.metadata } as any : {}),
+      ...(includeMetadata ? ({ metadata: missionEvents.metadata } as any) : {}),
     })
     .from(missionEvents)
     .innerJoin(missions, eq(missionEvents.missionId, missions.id))
@@ -172,15 +180,15 @@ function fetchMissionEventBatch(habitatId: string, query: AuditExportQuery, offs
 
   return rows.map((row: any) => ({
     ...row,
-    entityType: 'mission',
+    entityType: "mission",
     metadata: includeMetadata ? (row.metadata as Record<string, unknown>) : null,
   }));
 }
 
 function csvEscape(value: unknown): string {
-  if (value === null || value === undefined) return '';
+  if (value === null || value === undefined) return "";
   const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -188,81 +196,100 @@ function csvEscape(value: unknown): string {
 
 function rowsToCsv(rows: AuditRow[], includeHeader: boolean): string {
   const headers = [
-    'event_id', 'timestamp', 'action', 'entity_type', 'entity_id', 'entity_title',
-    'actor_type', 'actor_id', 'actor_name',
-    'from_status', 'to_status', 'from_column', 'to_column',
+    "event_id",
+    "timestamp",
+    "action",
+    "entity_type",
+    "entity_id",
+    "entity_title",
+    "actor_type",
+    "actor_id",
+    "actor_name",
+    "from_status",
+    "to_status",
+    "from_column",
+    "to_column",
   ];
   const lines: string[] = [];
 
   if (includeHeader) {
-    lines.push(headers.join(','));
+    lines.push(headers.join(","));
   }
 
   for (const row of rows) {
-    lines.push([
-      csvEscape(row.id),
-      csvEscape(row.timestamp),
-      csvEscape(row.action),
-      csvEscape(row.entityType),
-      csvEscape(row.entityId),
-      csvEscape(row.entityTitle),
-      csvEscape(row.actorType),
-      csvEscape(row.actorId),
-      csvEscape(row.actorName),
-      csvEscape(row.fromStatus),
-      csvEscape(row.toStatus),
-      csvEscape(row.fromColumn),
-      csvEscape(row.toColumn),
-    ].join(','));
+    lines.push(
+      [
+        csvEscape(row.id),
+        csvEscape(row.timestamp),
+        csvEscape(row.action),
+        csvEscape(row.entityType),
+        csvEscape(row.entityId),
+        csvEscape(row.entityTitle),
+        csvEscape(row.actorType),
+        csvEscape(row.actorId),
+        csvEscape(row.actorName),
+        csvEscape(row.fromStatus),
+        csvEscape(row.toStatus),
+        csvEscape(row.fromColumn),
+        csvEscape(row.toColumn),
+      ].join(","),
+    );
   }
 
-  return lines.join('\n') + '\n';
+  return lines.join("\n") + "\n";
 }
 
 function rowsToJsonl(rows: AuditRow[]): string {
-  return rows.map(row => JSON.stringify({
-    id: row.id,
-    timestamp: row.timestamp,
-    action: row.action,
-    entityType: row.entityType,
-    entityId: row.entityId,
-    entityTitle: row.entityTitle,
-    actorType: row.actorType,
-    actorId: row.actorId,
-    actorName: row.actorName,
-    fromStatus: row.fromStatus,
-    toStatus: row.toStatus,
-    fromColumn: row.fromColumn,
-    toColumn: row.toColumn,
-    metadata: row.metadata,
-  })).join('\n') + '\n';
+  return (
+    rows
+      .map((row) =>
+        JSON.stringify({
+          id: row.id,
+          timestamp: row.timestamp,
+          action: row.action,
+          entityType: row.entityType,
+          entityId: row.entityId,
+          entityTitle: row.entityTitle,
+          actorType: row.actorType,
+          actorId: row.actorId,
+          actorName: row.actorName,
+          fromStatus: row.fromStatus,
+          toStatus: row.toStatus,
+          fromColumn: row.fromColumn,
+          toColumn: row.toColumn,
+          metadata: row.metadata,
+        }),
+      )
+      .join("\n") + "\n"
+  );
 }
 
-export function getExportFilename(habitatId: string, format: string): string {
-  const date = new Date().toISOString().split('T')[0];
-  return `audit-${habitatId.slice(0, 8)}-${date}.${format}`;
+function rowsToJson(rows: AuditRow[]): string {
+  return JSON.stringify(
+    rows.map((row) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      entityTitle: row.entityTitle,
+      actorType: row.actorType,
+      actorId: row.actorId,
+      actorName: row.actorName,
+      fromStatus: row.fromStatus,
+      toStatus: row.toStatus,
+      fromColumn: row.fromColumn,
+      toColumn: row.toColumn,
+      metadata: row.metadata,
+    })),
+    null,
+    2,
+  );
 }
 
-export function getExportContentType(format: string): string {
-  switch (format) {
-    case 'csv': return 'text/csv; charset=utf-8';
-    case 'json': return 'application/json; charset=utf-8';
-    case 'jsonl': return 'application/x-ndjson; charset=utf-8';
-    default: return 'application/octet-stream';
-  }
-}
-
-export async function streamAuditExport(
-  habitatId: string,
-  query: AuditExportQuery,
-  reply: FastifyReply
-): Promise<void> {
-  const format = query.format;
-  const includeTasks = !query.entityTypes || query.entityTypes.includes('task');
-  const includeMissions = !query.entityTypes || query.entityTypes.includes('mission');
-
-  reply.header('Content-Type', getExportContentType(format));
-  reply.header('Content-Disposition', `attachment; filename="${getExportFilename(habitatId, format)}"`);
+function collectAuditRows(habitatId: string, query: AuditExportQuery): AuditRow[] {
+  const includeTasks = !query.entityTypes || query.entityTypes.includes("task");
+  const includeMissions = !query.entityTypes || query.entityTypes.includes("mission");
 
   const collected: AuditRow[] = [];
   let taskOffset = 0;
@@ -286,31 +313,53 @@ export async function streamAuditExport(
     }
   }
 
-  collected.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  return collected.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
 
-  if (format === 'csv') {
-    return reply.send(rowsToCsv(collected, true));
-  } else if (format === 'jsonl') {
-    return reply.send(rowsToJsonl(collected));
-  } else {
-    const result = collected.map(row => ({
-      id: row.id,
-      timestamp: row.timestamp,
-      action: row.action,
-      entityType: row.entityType,
-      entityId: row.entityId,
-      entityTitle: row.entityTitle,
-      actorType: row.actorType,
-      actorId: row.actorId,
-      actorName: row.actorName,
-      fromStatus: row.fromStatus,
-      toStatus: row.toStatus,
-      fromColumn: row.fromColumn,
-      toColumn: row.toColumn,
-      metadata: row.metadata,
-    }));
-    return reply.send(result);
+export function generateAuditExportContent(habitatId: string, query: AuditExportQuery): string {
+  const rows = collectAuditRows(habitatId, query);
+
+  if (query.format === "csv") {
+    return rowsToCsv(rows, true);
   }
+  if (query.format === "jsonl") {
+    return rowsToJsonl(rows);
+  }
+  return rowsToJson(rows);
+}
+
+export function getExportFilename(habitatId: string, format: string): string {
+  const date = new Date().toISOString().split("T")[0];
+  return `audit-${habitatId.slice(0, 8)}-${date}.${format}`;
+}
+
+export function getExportContentType(format: string): string {
+  switch (format) {
+    case "csv":
+      return "text/csv; charset=utf-8";
+    case "json":
+      return "application/json; charset=utf-8";
+    case "jsonl":
+      return "application/x-ndjson; charset=utf-8";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+export async function streamAuditExport(
+  habitatId: string,
+  query: AuditExportQuery,
+  reply: FastifyReply,
+): Promise<void> {
+  const format = query.format;
+
+  reply.header("Content-Type", getExportContentType(format));
+  reply.header(
+    "Content-Disposition",
+    `attachment; filename="${getExportFilename(habitatId, format)}"`,
+  );
+  const content = generateAuditExportContent(habitatId, query);
+  return reply.send(format === "json" ? JSON.parse(content) : content);
 }
 
 export function getAuditSummary(habitatId: string, since?: string, until?: string): AuditSummary {
@@ -370,7 +419,11 @@ export function getAuditSummary(habitatId: string, since?: string, until?: strin
       if (existing) {
         existing.count++;
       } else {
-        missionMap.set(row.missionId, { missionId: row.missionId, missionTitle: row.missionTitle, count: 1 });
+        missionMap.set(row.missionId, {
+          missionId: row.missionId,
+          missionTitle: row.missionTitle,
+          count: 1,
+        });
       }
     }
   }
@@ -396,7 +449,7 @@ export interface AuditExportSchedule {
   id: string;
   habitatId: string;
   name: string;
-  format: 'csv' | 'json' | 'jsonl';
+  format: "csv" | "json" | "jsonl";
   filters: Record<string, unknown>;
   schedule: string;
   destination: string;
@@ -408,12 +461,15 @@ export interface AuditExportSchedule {
   createdAt: string;
 }
 
-export function createSchedule(habitatId: string, input: {
-  name: string;
-  format: 'csv' | 'json' | 'jsonl';
-  filters?: Record<string, unknown>;
-  schedule: string;
-}): AuditExportSchedule {
+export function createSchedule(
+  habitatId: string,
+  input: {
+    name: string;
+    format: "csv" | "json" | "jsonl";
+    filters?: Record<string, unknown>;
+    schedule: string;
+  },
+): AuditExportSchedule {
   const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
@@ -435,7 +491,9 @@ export function getScheduleById(id: string): AuditExportSchedule | null {
 
 export function listSchedules(habitatId: string): AuditExportSchedule[] {
   const db = getDb();
-  const rows = db.all(sql`SELECT * FROM audit_export_schedules WHERE habitat_id = ${habitatId} ORDER BY created_at`) as any[];
+  const rows = db.all(
+    sql`SELECT * FROM audit_export_schedules WHERE habitat_id = ${habitatId} ORDER BY created_at`,
+  ) as any[];
   return rows.map(mapScheduleRow);
 }
 
@@ -453,8 +511,8 @@ function mapScheduleRow(row: any): AuditExportSchedule {
     format: row.format,
     filters: JSON.parse(row.filters),
     schedule: row.schedule,
-    destination: row.destination ?? 'local',
-    destinationConfig: JSON.parse(row.destination_config ?? '{}'),
+    destination: row.destination ?? "local",
+    destinationConfig: JSON.parse(row.destination_config ?? "{}"),
     enabled: Boolean(row.enabled),
     lastRunAt: row.last_run_at ?? null,
     nextRunAt: row.next_run_at,

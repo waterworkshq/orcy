@@ -317,7 +317,7 @@ export interface ActivityPeriod {
     tasksCreated: number;
     tasksStarted: number;
     tasksRejected: number;
-    avgCycleTimeMinutes: number;
+    avgCycleTimeMinutes: number | null;
   };
 }
 

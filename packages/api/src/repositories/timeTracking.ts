@@ -3,6 +3,7 @@ import { taskTimeRecords, tasks, missions, agents, effortEntries } from "../db/s
 import { eq, and, sql, count, isNotNull, notInArray, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { TaskTimeRecord, HabitatMetrics } from "../models/index.js";
+import { getPersistedEffortMetricsForTask } from "./effortEntry.js";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -235,13 +236,18 @@ export function getHabitatMetrics(habitatId: string): HabitatMetrics {
   }
 
   const totalAccountedMinutes = totalLoggedEffortMinutes + totalInferredPresenceMinutes;
+  const totalActualMinutes = completedTasks.reduce(
+    (sum, task) =>
+      sum + getPersistedEffortMetricsForTask(task.id, task.estimatedMinutes).actualMinutes,
+    0,
+  );
 
   return {
     averageCycleTime: completedTasks.length > 0 ? totalCycleTime / completedTasks.length : 0,
     averageLeadTime: completedTasks.length > 0 ? totalLeadTime / completedTasks.length : 0,
     averageEstimationAccuracy: avgAccuracy,
     totalPlannedMinutes: totalPlanned,
-    totalActualMinutes: totalAccountedMinutes,
+    totalActualMinutes,
     overdueTasks: overdueTasks?.count ?? 0,
     onTimeCompletionRate:
       completedTasks.length > 0 ? onTimeTasks.length / completedTasks.length : 0,
@@ -261,16 +267,13 @@ export function updateTaskTimeMetrics(taskId: string): void {
     const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
     if (!task) return;
 
-    const totalMinutes = getTotalMinutesForTask(taskId);
+    const effortMetrics = getPersistedEffortMetricsForTask(taskId, task.estimatedMinutes);
 
     const updates: Partial<typeof tasks.$inferInsert> = {
-      actualMinutes: totalMinutes,
+      actualMinutes: effortMetrics.actualMinutes,
+      estimationAccuracy: effortMetrics.estimationAccuracy,
       updatedAt: new Date().toISOString(),
     };
-
-    if (task.estimatedMinutes && totalMinutes > 0) {
-      updates.estimationAccuracy = totalMinutes / task.estimatedMinutes;
-    }
 
     if (task.completedAt && task.createdAt) {
       const created = new Date(task.createdAt).getTime();

@@ -1,38 +1,37 @@
-import { CronExpressionParser } from 'cron-parser';
-import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
-import * as templateRepo from '../repositories/template.js';
-import * as missionRepo from '../repositories/feature.js';
-import * as taskRepo from '../repositories/task.js';
-import * as auditExportService from './auditExportService.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import { logger } from '../lib/logger.js';
-import { getDb } from '../db/index.js';
-import { auditExportSchedules } from '../db/schema/index.js';
-import { eq, and, lte } from 'drizzle-orm';
-import type { ScheduledTask, TaskTemplateEntry } from '../models/index.js';
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { sanitizeFilename } from './fileStorage.js';
+import { CronExpressionParser } from "cron-parser";
+import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
+import * as templateRepo from "../repositories/template.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as taskRepo from "../repositories/task.js";
+import * as auditExportService from "./auditExportService.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { logger } from "../lib/logger.js";
+import { getDb } from "../db/index.js";
+import { auditExportSchedules } from "../db/schema/index.js";
+import { eq, and, lte } from "drizzle-orm";
+import type { ScheduledTask, TaskTemplateEntry } from "../models/index.js";
+import type { AuditExportQuery } from "./auditExportService.js";
+import { writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
+import { sanitizeFilename } from "./fileStorage.js";
 
 export function substituteTokens(
   template: string,
   context: { runCount: number; timezone: string },
 ): string {
-  const date = new Intl.DateTimeFormat('en-CA', {
+  const date = new Intl.DateTimeFormat("en-CA", {
     timeZone: context.timezone,
   }).format(new Date());
-  return template
-    .replaceAll('{{date}}', date)
-    .replaceAll('{{counter}}', String(context.runCount));
+  return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
 }
 
 export function calculateNextRun(
   scheduleType: string,
   cronExpression: string | null,
   intervalMinutes: number | null,
-  timezone: string = 'UTC',
+  timezone: string = "UTC",
 ): string {
-  if (scheduleType === 'cron' && cronExpression) {
+  if (scheduleType === "cron" && cronExpression) {
     const interval = CronExpressionParser.parse(cronExpression, {
       tz: timezone,
     });
@@ -40,22 +39,25 @@ export function calculateNextRun(
     return next.toISOString() ?? new Date(Date.now() + 60_000).toISOString();
   }
 
-  if (scheduleType === 'interval' && intervalMinutes) {
+  if (scheduleType === "interval" && intervalMinutes) {
     return new Date(Date.now() + intervalMinutes * 60_000).toISOString();
   }
 
-  if (scheduleType === 'once') {
-    return new Date('9999-12-31T23:59:59Z').toISOString();
+  if (scheduleType === "once") {
+    return new Date("9999-12-31T23:59:59Z").toISOString();
   }
 
   return new Date(Date.now() + 60_000).toISOString();
 }
 
 function buildTokenContext(schedule: ScheduledTask) {
-  return { runCount: schedule.runCount + 1, timezone: schedule.timezone ?? 'UTC' };
+  return { runCount: schedule.runCount + 1, timezone: schedule.timezone ?? "UTC" };
 }
 
-function createMissionFromSchedule(schedule: ScheduledTask): { missionId: string; missionTitle: string } {
+function createMissionFromSchedule(schedule: ScheduledTask): {
+  missionId: string;
+  missionTitle: string;
+} {
   const ctx = buildTokenContext(schedule);
   const resolvedTitle = substituteTokens(schedule.missionTitle, ctx);
   const mission = missionRepo.createMission({
@@ -64,7 +66,7 @@ function createMissionFromSchedule(schedule: ScheduledTask): { missionId: string
     description: substituteTokens(schedule.missionDescription, ctx),
     priority: schedule.missionPriority,
     labels: schedule.missionLabels,
-    createdBy: 'system',
+    createdBy: "system",
   });
 
   for (const entry of (schedule.tasksTemplate ?? []) as TaskTemplateEntry[]) {
@@ -77,21 +79,26 @@ function createMissionFromSchedule(schedule: ScheduledTask): { missionId: string
       requiredCapabilities: entry.requiredCapabilities,
       estimatedMinutes: entry.estimatedMinutes,
       order: entry.order,
-      createdBy: 'system',
+      createdBy: "system",
     });
   }
 
   return { missionId: mission.id, missionTitle: resolvedTitle };
 }
 
-export function executeScheduledTask(id: string): { success: boolean; missionId?: string; error?: string; skipped?: boolean } {
+export function executeScheduledTask(id: string): {
+  success: boolean;
+  missionId?: string;
+  error?: string;
+  skipped?: boolean;
+} {
   const schedule = scheduledTaskRepo.getScheduledTaskById(id);
   if (!schedule) {
-    return { success: false, error: 'Scheduled task not found' };
+    return { success: false, error: "Scheduled task not found" };
   }
 
   if (!schedule.enabled) {
-    return { success: false, error: 'Scheduled task is disabled' };
+    return { success: false, error: "Scheduled task is disabled" };
   }
 
   const nextRunAt = calculateNextRun(
@@ -122,7 +129,7 @@ export function executeScheduledTask(id: string): { success: boolean; missionId?
           priority: schedule.missionPriority,
           labels: schedule.missionLabels,
         },
-        'system',
+        "system",
       );
 
       if (result) {
@@ -141,21 +148,21 @@ export function executeScheduledTask(id: string): { success: boolean; missionId?
 
     scheduledTaskRepo.finalizeExecution(id, missionId);
 
-    if (schedule.scheduleType === 'once') {
+    if (schedule.scheduleType === "once") {
       scheduledTaskRepo.updateScheduledTask(id, { enabled: false });
     }
 
     sseBroadcaster.publish(schedule.habitatId, {
-      type: 'scheduled_task.executed',
+      type: "scheduled_task.executed",
       data: { scheduleId: id, missionId, missionTitle },
     });
 
     return { success: true, missionId };
   } catch (err) {
-    logger.error({ err, scheduleId: id }, 'Error executing scheduled task');
+    logger.error({ err, scheduleId: id }, "Error executing scheduled task");
 
     sseBroadcaster.publish(schedule.habitatId, {
-      type: 'scheduled_task.failed',
+      type: "scheduled_task.failed",
       data: { scheduleId: id, error: (err as Error).message },
     });
 
@@ -188,12 +195,7 @@ export function processDueAuditExports(): { executed: number; failed: number } {
   const dueSchedules = db
     .select()
     .from(auditExportSchedules)
-    .where(
-      and(
-        eq(auditExportSchedules.enabled, true),
-        lte(auditExportSchedules.nextRunAt, now),
-      )
-    )
+    .where(and(eq(auditExportSchedules.enabled, true), lte(auditExportSchedules.nextRunAt, now)))
     .all() as any[];
 
   let executed = 0;
@@ -211,21 +213,24 @@ export function processDueAuditExports(): { executed: number; failed: number } {
 
       const habitatId = schedule.habitat_id ?? schedule.habitatId;
       const format = schedule.format;
-      const filters = typeof schedule.filters === 'string' ? JSON.parse(schedule.filters) : (schedule.filters ?? {});
+      const filters =
+        typeof schedule.filters === "string"
+          ? JSON.parse(schedule.filters)
+          : (schedule.filters ?? {});
 
       const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
-      const query = { format, since, userFilters: filters || {} };
+      const query = buildAuditExportQuery(format, since, filters || {});
 
       const filename = auditExportService.getExportFilename(habitatId, format);
       const safeHabitatDir = sanitizeFilename(habitatId);
-      const exportDir = join(process.cwd(), 'exports', safeHabitatDir);
+      const exportDir = join(process.cwd(), "exports", safeHabitatDir);
       mkdirSync(exportDir, { recursive: true });
       const filePath = join(exportDir, filename);
 
-      const content = generateAuditExportContent(habitatId, format, query);
-      writeFileSync(filePath, content, 'utf-8');
+      const content = auditExportService.generateAuditExportContent(habitatId, query);
+      writeFileSync(filePath, content, "utf-8");
 
-      const nextRunAt = calculateNextRun('cron', schedule.schedule, null);
+      const nextRunAt = calculateNextRun("cron", schedule.schedule, null);
       db.update(auditExportSchedules)
         .set({
           lastRunAt: now,
@@ -235,36 +240,45 @@ export function processDueAuditExports(): { executed: number; failed: number } {
         .run();
 
       executed++;
-      logger.info({ scheduleId: schedule.id, filePath }, 'Audit export schedule executed');
+      logger.info({ scheduleId: schedule.id, filePath }, "Audit export schedule executed");
     } catch (err) {
       failed++;
-      logger.error({ err, scheduleId: schedule.id }, 'Error executing audit export schedule');
+      logger.error({ err, scheduleId: schedule.id }, "Error executing audit export schedule");
     }
   }
 
   return { executed, failed };
 }
 
-function generateAuditExportContent(habitatId: string, format: string, query: Record<string, unknown>): string {
-  const summary = auditExportService.getAuditSummary(
-    habitatId,
-    query.since as string | undefined,
-  );
+function buildAuditExportQuery(
+  format: AuditExportQuery["format"],
+  since: string,
+  filters: Record<string, unknown>,
+): AuditExportQuery {
+  const query: AuditExportQuery = { format, since };
+  const stringFilters: Array<keyof Omit<AuditExportQuery, "format">> = [
+    "until",
+    "actions",
+    "actorType",
+    "actorId",
+    "entityTypes",
+    "includeMetadata",
+  ];
 
-  if (format === 'csv') {
-    const header = 'date,count\n';
-    const rows = summary.byDay.map(d => `${d.date},${d.count}`).join('\n');
-    return header + rows + '\n';
+  for (const key of stringFilters) {
+    const value = filters[key];
+    if (typeof value === "string" && value.length > 0) {
+      query[key] = value;
+    }
   }
 
-  if (format === 'jsonl') {
-    return summary.byDay.map(d => JSON.stringify(d)).join('\n') + '\n';
-  }
-
-  return JSON.stringify(summary, null, 2);
+  return query;
 }
 
-export function processDueScheduledTasks(): { tasks: { executed: number; failed: number }; audit: { executed: number; failed: number } } {
+export function processDueScheduledTasks(): {
+  tasks: { executed: number; failed: number };
+  audit: { executed: number; failed: number };
+} {
   const tasks = processDueTasks();
   const audit = processDueAuditExports();
   return { tasks, audit };
@@ -274,11 +288,16 @@ export function startScheduledTaskProcessor(intervalMs: number = 60_000): NodeJS
   return setInterval(() => {
     try {
       const result = processDueScheduledTasks();
-      if (result.tasks.executed > 0 || result.tasks.failed > 0 || result.audit.executed > 0 || result.audit.failed > 0) {
-        logger.info(result, 'Scheduled task processor completed');
+      if (
+        result.tasks.executed > 0 ||
+        result.tasks.failed > 0 ||
+        result.audit.executed > 0 ||
+        result.audit.failed > 0
+      ) {
+        logger.info(result, "Scheduled task processor completed");
       }
     } catch (err) {
-      logger.error({ err }, 'Error processing scheduled tasks');
+      logger.error({ err }, "Error processing scheduled tasks");
     }
   }, intervalMs);
 }

@@ -22,6 +22,8 @@ export type EventAction =
   | "dependency_resolved"
   | "updated"
   | "delegated"
+  | "effort_logged"
+  | "effort_corrected"
   | "cloned"
   | "retry_scheduled"
   | "retry_executed"

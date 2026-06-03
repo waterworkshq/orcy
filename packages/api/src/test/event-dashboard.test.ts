@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { closeDb, getDb, initTestDb } from '../db/index.js';
-import * as agentRepo from '../repositories/agent.js';
-import * as columnRepo from '../repositories/column.js';
-import * as habitatRepo from '../repositories/board.js';
-import * as missionRepo from '../repositories/feature.js';
-import * as taskRepo from '../repositories/task.js';
-import { getDashboardStats } from '../repositories/events/event-dashboard.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+import { closeDb, getDb, initTestDb } from "../db/index.js";
+import * as agentRepo from "../repositories/agent.js";
+import * as columnRepo from "../repositories/column.js";
+import * as habitatRepo from "../repositories/board.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as taskRepo from "../repositories/task.js";
+import { getDashboardStats } from "../repositories/events/event-dashboard.js";
 import {
   agents,
   columns,
@@ -16,9 +16,9 @@ import {
   tasks,
   webhookDeliveries,
   webhookSubscriptions,
-} from '../db/schema/index.js';
+} from "../db/schema/index.js";
 
-const NOW = new Date('2026-05-27T12:00:00.000Z');
+const NOW = new Date("2026-05-27T12:00:00.000Z");
 
 function iso(minutesAgo: number): string {
   return new Date(NOW.getTime() - minutesAgo * 60_000).toISOString();
@@ -27,8 +27,8 @@ function iso(minutesAgo: number): string {
 function createTask(input: {
   missionId: string;
   title: string;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
-  status?: 'pending' | 'claimed' | 'in_progress' | 'submitted' | 'approved' | 'done' | 'failed';
+  priority?: "low" | "medium" | "high" | "critical";
+  status?: "pending" | "claimed" | "in_progress" | "submitted" | "approved" | "done" | "failed";
   agentId?: string | null;
   claimedAt?: string | null;
   completedAt?: string | null;
@@ -36,14 +36,14 @@ function createTask(input: {
   const task = taskRepo.createTask({
     missionId: input.missionId,
     title: input.title,
-    priority: input.priority ?? 'medium',
-    createdBy: 'test-user',
+    priority: input.priority ?? "medium",
+    createdBy: "test-user",
   });
 
   getDb()
     .update(tasks)
     .set({
-      status: input.status ?? 'pending',
+      status: input.status ?? "pending",
       assignedAgentId: input.agentId ?? null,
       claimedAt: input.claimedAt ?? null,
       completedAt: input.completedAt ?? null,
@@ -58,7 +58,7 @@ function insertEvent(input: {
   id: string;
   taskId: string;
   actorId: string;
-  action: 'submitted' | 'approved' | 'rejected' | 'completed';
+  action: "submitted" | "approved" | "rejected" | "completed";
   timestamp: string;
 }) {
   getDb()
@@ -66,7 +66,7 @@ function insertEvent(input: {
     .values({
       id: input.id,
       taskId: input.taskId,
-      actorType: 'agent',
+      actorType: "agent",
       actorId: input.actorId,
       action: input.action,
       metadata: {},
@@ -95,9 +95,9 @@ afterEach(() => {
   closeDb();
 });
 
-describe('event-dashboard repository', () => {
-  it('returns zero-shaped dashboard stats for an empty database', () => {
-    const result = getDashboardStats(undefined, '7d');
+describe("event-dashboard repository", () => {
+  it("returns zero-shaped dashboard stats for an empty database", () => {
+    const result = getDashboardStats(undefined, "7d");
 
     expect(result).toEqual({
       throughput: [],
@@ -118,28 +118,28 @@ describe('event-dashboard repository', () => {
     });
   });
 
-  it('aggregates dashboard stats for the requested habitat', () => {
+  it("aggregates dashboard stats for the requested habitat", () => {
     const { agent } = agentRepo.createAgent({
-      name: 'dashboard-agent',
-      type: 'claude-code',
-      domain: 'backend',
+      name: "dashboard-agent",
+      type: "claude-code",
+      domain: "backend",
     });
     const otherAgent = agentRepo.createAgent({
-      name: 'other-dashboard-agent',
-      type: 'codex',
-      domain: 'frontend',
+      name: "other-dashboard-agent",
+      type: "codex",
+      domain: "frontend",
     }).agent;
-    const habitat = habitatRepo.createHabitat({ name: 'Dashboard Habitat' });
+    const habitat = habitatRepo.createHabitat({ name: "Dashboard Habitat" });
     const todo = columnRepo.createColumn({
       habitatId: habitat.id,
-      name: 'Todo',
+      name: "Todo",
       order: 0,
       wipLimit: 1,
       requiresClaim: false,
     });
     const doing = columnRepo.createColumn({
       habitatId: habitat.id,
-      name: 'Doing',
+      name: "Doing",
       order: 1,
       wipLimit: 5,
       requiresClaim: false,
@@ -147,102 +147,132 @@ describe('event-dashboard repository', () => {
     const targetMission = missionRepo.createMission({
       habitatId: habitat.id,
       columnId: todo.id,
-      title: 'Target Mission',
-      createdBy: 'test-user',
+      title: "Target Mission",
+      createdBy: "test-user",
     });
     const doingMission = missionRepo.createMission({
       habitatId: habitat.id,
       columnId: doing.id,
-      title: 'Doing Mission',
-      createdBy: 'test-user',
+      title: "Doing Mission",
+      createdBy: "test-user",
     });
 
     const completed = createTask({
       missionId: targetMission.id,
-      title: 'Completed',
-      priority: 'critical',
-      status: 'approved',
+      title: "Completed",
+      priority: "critical",
+      status: "approved",
       agentId: agent.id,
       claimedAt: iso(120),
       completedAt: iso(60),
     });
     createTask({
       missionId: targetMission.id,
-      title: 'Claimed',
-      priority: 'high',
-      status: 'claimed',
+      title: "Claimed",
+      priority: "high",
+      status: "claimed",
       agentId: agent.id,
     });
     createTask({
       missionId: targetMission.id,
-      title: 'Pending',
-      priority: 'low',
-      status: 'pending',
+      title: "Pending",
+      priority: "low",
+      status: "pending",
     });
     createTask({
       missionId: doingMission.id,
-      title: 'In progress one',
-      priority: 'medium',
-      status: 'in_progress',
+      title: "In progress one",
+      priority: "medium",
+      status: "in_progress",
       agentId: agent.id,
     });
     createTask({
       missionId: doingMission.id,
-      title: 'Submitted one',
-      priority: 'medium',
-      status: 'submitted',
+      title: "Submitted one",
+      priority: "medium",
+      status: "submitted",
       agentId: agent.id,
     });
     createTask({
       missionId: doingMission.id,
-      title: 'Doing pending one',
-      priority: 'medium',
-      status: 'pending',
+      title: "Doing pending one",
+      priority: "medium",
+      status: "pending",
     });
     createTask({
       missionId: doingMission.id,
-      title: 'Doing pending two',
-      priority: 'medium',
-      status: 'pending',
+      title: "Doing pending two",
+      priority: "medium",
+      status: "pending",
     });
 
-    const otherHabitat = habitatRepo.createHabitat({ name: 'Other Habitat' });
+    const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" });
     const otherColumn = columnRepo.createColumn({
       habitatId: otherHabitat.id,
-      name: 'Other Todo',
+      name: "Other Todo",
       order: 0,
       requiresClaim: false,
     });
     const otherMission = missionRepo.createMission({
       habitatId: otherHabitat.id,
       columnId: otherColumn.id,
-      title: 'Other Mission',
-      createdBy: 'test-user',
+      title: "Other Mission",
+      createdBy: "test-user",
     });
     const otherTask = createTask({
       missionId: otherMission.id,
-      title: 'Other Completed',
-      status: 'approved',
+      title: "Other Completed",
+      status: "approved",
       agentId: otherAgent.id,
       claimedAt: iso(100),
       completedAt: iso(20),
     });
 
-    insertEvent({ id: 'target-completed', taskId: completed.id, actorId: agent.id, action: 'completed', timestamp: iso(55) });
-    insertEvent({ id: 'target-submitted', taskId: completed.id, actorId: agent.id, action: 'submitted', timestamp: iso(50) });
-    insertEvent({ id: 'target-approved', taskId: completed.id, actorId: agent.id, action: 'approved', timestamp: iso(45) });
-    insertEvent({ id: 'target-rejected', taskId: completed.id, actorId: agent.id, action: 'rejected', timestamp: iso(40) });
-    insertEvent({ id: 'other-completed', taskId: otherTask.id, actorId: otherAgent.id, action: 'completed', timestamp: iso(10) });
+    insertEvent({
+      id: "target-completed",
+      taskId: completed.id,
+      actorId: agent.id,
+      action: "completed",
+      timestamp: iso(55),
+    });
+    insertEvent({
+      id: "target-submitted",
+      taskId: completed.id,
+      actorId: agent.id,
+      action: "submitted",
+      timestamp: iso(50),
+    });
+    insertEvent({
+      id: "target-approved",
+      taskId: completed.id,
+      actorId: agent.id,
+      action: "approved",
+      timestamp: iso(45),
+    });
+    insertEvent({
+      id: "target-rejected",
+      taskId: completed.id,
+      actorId: agent.id,
+      action: "rejected",
+      timestamp: iso(40),
+    });
+    insertEvent({
+      id: "other-completed",
+      taskId: otherTask.id,
+      actorId: otherAgent.id,
+      action: "completed",
+      timestamp: iso(10),
+    });
 
-    const result = getDashboardStats(habitat.id, '7d');
+    const result = getDashboardStats(habitat.id, "7d");
 
-    expect(result.throughput).toEqual([{ date: '2026-05-27', count: 1 }]);
-    expect(result.cycleTime).toEqual([{ date: '2026-05-27', avgMinutes: 60, medianMinutes: 60 }]);
-    expect(result.rejectionRate).toEqual([{ date: '2026-05-27', rejections: 1, total: 3 }]);
+    expect(result.throughput).toEqual([{ date: "2026-05-27", count: 1 }]);
+    expect(result.cycleTime).toEqual([{ date: "2026-05-27", avgMinutes: 60, medianMinutes: 60 }]);
+    expect(result.rejectionRate).toEqual([{ date: "2026-05-27", rejections: 1, total: 3 }]);
     expect(result.agentLeaderboard).toEqual([
       expect.objectContaining({
         agentId: agent.id,
-        agentName: 'dashboard-agent',
+        agentName: "dashboard-agent",
         completed: 1,
         failed: 0,
         avgCycleMinutes: 60,
@@ -250,10 +280,16 @@ describe('event-dashboard repository', () => {
       }),
     ]);
     expect(result.taskByPriority).toEqual({ critical: 1, high: 1, medium: 4, low: 1 });
-    expect(result.taskByStatus).toEqual({ pending: 3, claimed: 1, in_progress: 1, submitted: 1, done: 1 });
+    expect(result.taskByStatus).toEqual({
+      pending: 3,
+      claimed: 1,
+      in_progress: 1,
+      submitted: 1,
+      done: 1,
+    });
     expect(result.wipHealth).toEqual([
-      expect.objectContaining({ columnId: todo.id, current: 2, limit: 1, health: 'exceeded' }),
-      expect.objectContaining({ columnId: doing.id, current: 4, limit: 5, health: 'warning' }),
+      expect.objectContaining({ columnId: todo.id, current: 2, limit: 1, health: "exceeded" }),
+      expect.objectContaining({ columnId: doing.id, current: 4, limit: 5, health: "warning" }),
     ]);
     expect(result.summary).toEqual({
       totalTasksCompleted: 1,
@@ -262,5 +298,42 @@ describe('event-dashboard repository', () => {
       overallRejectionRate: 0.33,
       activeAgents: 1,
     });
+  });
+
+  it("computes median cycle time independently from average cycle time", () => {
+    const { agent } = agentRepo.createAgent({
+      name: "median-agent",
+      type: "claude-code",
+      domain: "backend",
+    });
+    const habitat = habitatRepo.createHabitat({ name: "Median Habitat" });
+    const column = columnRepo.createColumn({
+      habitatId: habitat.id,
+      name: "Todo",
+      order: 0,
+      requiresClaim: false,
+    });
+    const mission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: column.id,
+      title: "Median Mission",
+      createdBy: "test-user",
+    });
+
+    const durations = [10, 20, 90];
+    for (const duration of durations) {
+      createTask({
+        missionId: mission.id,
+        title: `Cycle ${duration}`,
+        status: "approved",
+        agentId: agent.id,
+        claimedAt: iso(120 + duration),
+        completedAt: iso(120),
+      });
+    }
+
+    const result = getDashboardStats(habitat.id, "7d");
+
+    expect(result.cycleTime).toEqual([{ date: "2026-05-27", avgMinutes: 40, medianMinutes: 20 }]);
   });
 });

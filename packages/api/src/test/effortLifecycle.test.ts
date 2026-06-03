@@ -140,7 +140,7 @@ describe("submitTask skips 0-minute record", () => {
     expect(submittedRecords.length).toBe(0);
   });
 
-  it("still recalculates actualMinutes from both tables on submit", () => {
+  it("persists logged effort as actualMinutes when logged and inferred effort may overlap", () => {
     const task = createAndAdvanceToInProgress("Submit metrics task", 120);
 
     timeRepo.createTimeRecord({
@@ -162,7 +162,7 @@ describe("submitTask skips 0-minute record", () => {
     expect(result.task).not.toBeNull();
 
     const updated = taskRepo.getTaskById(task.id)!;
-    expect(updated.actualMinutes).toBe(45);
+    expect(updated.actualMinutes).toBe(30);
   });
 
   it("still recalculates mission metrics on submit", () => {
@@ -183,8 +183,8 @@ describe("submitTask skips 0-minute record", () => {
   });
 });
 
-describe("completion metrics use dual-table totals", () => {
-  it("uses totalAccountedMinutes (heartbeat + effort) for actualMinutes", () => {
+describe("completion metrics use canonical effort basis", () => {
+  it("prefers logged effort for actualMinutes when logged and inferred effort may overlap", () => {
     const task = createAndAdvanceToInProgress("Dual-table complete", 100);
 
     timeRepo.createTimeRecord({
@@ -207,10 +207,10 @@ describe("completion metrics use dual-table totals", () => {
     timeTrackingService.calculateAndSetCompletionMetrics(task.id);
 
     const updated = taskRepo.getTaskById(task.id)!;
-    expect(updated.actualMinutes).toBe(55);
+    expect(updated.actualMinutes).toBe(35);
   });
 
-  it("uses combined total for estimationAccuracy", () => {
+  it("uses logged effort for estimationAccuracy when logged and inferred effort may overlap", () => {
     const task = createAndAdvanceToInProgress("Accuracy dual-table", 100);
 
     timeRepo.createTimeRecord({
@@ -233,10 +233,10 @@ describe("completion metrics use dual-table totals", () => {
     timeTrackingService.calculateAndSetCompletionMetrics(task.id);
 
     const updated = taskRepo.getTaskById(task.id)!;
-    expect(updated.estimationAccuracy).toBeCloseTo(0.5, 2);
+    expect(updated.estimationAccuracy).toBeCloseTo(0.2, 2);
   });
 
-  it("includes correction adjustments in total", () => {
+  it("includes correction adjustments in persisted logged basis", () => {
     const task = createAndAdvanceToInProgress("Correction total", 200);
 
     timeRepo.createTimeRecord({
@@ -267,7 +267,7 @@ describe("completion metrics use dual-table totals", () => {
     timeTrackingService.calculateAndSetCompletionMetrics(task.id);
 
     const updated = taskRepo.getTaskById(task.id)!;
-    expect(updated.actualMinutes).toBe(65);
+    expect(updated.actualMinutes).toBe(55);
   });
 
   it("still computes cycleTime and leadTime from timestamps", () => {
@@ -356,11 +356,12 @@ describe("habitat metrics include effort splits", () => {
     expect(metrics.totalAccountedMinutes).toBe(90);
   });
 
-  it("totalActualMinutes equals totalAccountedMinutes for backward compat", () => {
+  it("keeps totalActualMinutes canonical while totalAccountedMinutes remains a labeled rollup", () => {
     completeTaskWithEffort("Compat task", 10, 25, 5);
 
     const metrics = timeTrackingService.getHabitatMetrics(habitatId);
-    expect(metrics.totalActualMinutes).toBe(metrics.totalAccountedMinutes);
+    expect(metrics.totalActualMinutes).toBe(30);
+    expect(metrics.totalAccountedMinutes).toBe(40);
   });
 
   it("returns zeros when no completed tasks exist", () => {

@@ -106,7 +106,7 @@ CREATE TABLE `missions` (
 	`sla_deadline_at` text,
 	`actual_minutes` integer,
 	`planned_minutes` integer,
-	`planning_accuracy` integer,
+	`planning_accuracy` real,
 	`completed_at` text,
 	`is_archived` integer DEFAULT false NOT NULL,
 	`created_by` text NOT NULL,
@@ -204,7 +204,7 @@ CREATE TABLE `tasks` (
 	`actual_minutes` integer,
 	`cycle_time_minutes` integer,
 	`lead_time_minutes` integer,
-	`estimation_accuracy` integer,
+	`estimation_accuracy` real,
 	`created_by` text NOT NULL,
 	`created_at` text DEFAULT '(datetime(''now''))' NOT NULL,
 	`updated_at` text DEFAULT '(datetime(''now''))' NOT NULL,
@@ -301,6 +301,9 @@ CREATE TABLE `task_events` (
 CREATE INDEX `idx_task_events_task_id` ON `task_events` (`task_id`);--> statement-breakpoint
 CREATE INDEX `idx_task_events_timestamp` ON `task_events` (`timestamp`);--> statement-breakpoint
 CREATE INDEX `idx_task_events_actor` ON `task_events` (`actor_type`,`actor_id`);--> statement-breakpoint
+CREATE INDEX `idx_task_events_from_column_time` ON `task_events` (`from_column_id`,`timestamp`);--> statement-breakpoint
+CREATE INDEX `idx_task_events_to_column_time` ON `task_events` (`to_column_id`,`timestamp`);--> statement-breakpoint
+CREATE INDEX `idx_task_events_transition_time` ON `task_events` (`from_column_id`,`to_column_id`,`timestamp`);--> statement-breakpoint
 
 CREATE TABLE `task_subtasks` (
 	`id` text PRIMARY KEY NOT NULL,

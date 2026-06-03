@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { initTestDb, closeDb } from "../db/index.js";
+import { initTestDb, closeDb, getDb } from "../db/index.js";
+import { sql } from "drizzle-orm";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as habitatService from "../services/boardService.js";
@@ -481,6 +482,32 @@ describe("recalculateTaskEffortMetrics", () => {
     const updated = taskRepo.getTaskById(task.id);
     expect(updated?.estimationAccuracy).toBeCloseTo(0.5);
   });
+
+  it("persists fractional estimationAccuracy as a real value", () => {
+    const task = taskRepo.createTask({
+      missionId,
+      title: "Fractional accuracy task",
+      createdBy: "test-user",
+      estimatedMinutes: 60,
+    });
+    effortRepo.createEffortEntry({
+      taskId: task.id,
+      actorType: "human",
+      minutes: 30,
+      source: "human_manual",
+    });
+
+    effortRepo.recalculateTaskEffortMetrics(task.id);
+
+    const persisted = getDb().get(
+      sql`SELECT estimation_accuracy as value, typeof(estimation_accuracy) as valueType FROM tasks WHERE id = ${task.id}`,
+    ) as {
+      value: number;
+      valueType: string;
+    };
+    expect(persisted.value).toBeCloseTo(0.5);
+    expect(persisted.valueType).toBe("real");
+  });
 });
 
 describe("recalculateMissionEffortMetrics", () => {
@@ -514,5 +541,45 @@ describe("recalculateMissionEffortMetrics", () => {
 
     const mission = missionRepo.getMissionById(missionId);
     expect(mission?.actualMinutes).toBe(50);
+  });
+
+  it("persists fractional planningAccuracy as a real value", () => {
+    const task1 = taskRepo.createTask({
+      missionId,
+      title: "Plan accuracy task 1",
+      createdBy: "test-user",
+      estimatedMinutes: 40,
+    });
+    const task2 = taskRepo.createTask({
+      missionId,
+      title: "Plan accuracy task 2",
+      createdBy: "test-user",
+      estimatedMinutes: 60,
+    });
+
+    effortRepo.createEffortEntry({
+      taskId: task1.id,
+      actorType: "human",
+      minutes: 20,
+      source: "human_manual",
+    });
+    effortRepo.createEffortEntry({
+      taskId: task2.id,
+      actorType: "human",
+      minutes: 30,
+      source: "human_manual",
+    });
+
+    effortRepo.recalculateTaskEffortMetrics(task1.id);
+    effortRepo.recalculateTaskEffortMetrics(task2.id);
+
+    const persisted = getDb().get(
+      sql`SELECT planning_accuracy as value, typeof(planning_accuracy) as valueType FROM missions WHERE id = ${missionId}`,
+    ) as {
+      value: number;
+      valueType: string;
+    };
+    expect(persisted.value).toBeCloseTo(0.5);
+    expect(persisted.valueType).toBe("real");
   });
 });

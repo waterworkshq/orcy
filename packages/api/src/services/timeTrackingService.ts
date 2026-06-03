@@ -62,18 +62,13 @@ export function calculateAndSetCompletionMetrics(taskId: string): void {
     leadTimeMinutes = Math.round((completed - started) / 60000);
   }
 
-  const totals = effortRepo.getEffortTotalsForTask(taskId);
-  const totalMinutes = totals.totalAccountedMinutes;
-  let estimationAccuracy: number | null = null;
-  if (task.estimatedMinutes && totalMinutes > 0) {
-    estimationAccuracy = totalMinutes / task.estimatedMinutes;
-  }
+  const effortMetrics = effortRepo.getPersistedEffortMetricsForTask(taskId, task.estimatedMinutes);
 
   taskRepo.updateTask(taskId, {
-    actualMinutes: totalMinutes,
+    actualMinutes: effortMetrics.actualMinutes,
     cycleTimeMinutes,
     leadTimeMinutes,
-    estimationAccuracy,
+    estimationAccuracy: effortMetrics.estimationAccuracy,
     completedAt: now,
   });
 

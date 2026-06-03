@@ -158,6 +158,41 @@ describe("boardHealthService", () => {
     );
   });
 
+  it("derives formerly stubbed health fields from real metric inputs", () => {
+    timeTrackingMocks.getHabitatMetrics.mockReturnValue(
+      healthyMetrics({ onTimeCompletionRate: 0.6 }),
+    );
+    dashboardMocks.getDashboardStats.mockImplementation((_habitatId: string, period?: string) => {
+      if (period === "30d") {
+        return {
+          throughput: [{ count: 30 }],
+          summary: { averageCycleTimeMinutes: 100 },
+          wipHealth: [{ health: "ok" }, { health: "ok" }],
+          taskByStatus: { pending: 0 },
+        };
+      }
+      return {
+        throughput: [{ count: 14 }],
+        summary: { averageCycleTimeMinutes: 150 },
+        wipHealth: [{ health: "warning" }, { health: "exceeded" }],
+        taskByStatus: { pending: 9 },
+      };
+    });
+    capacityMocks.getCapacityReport.mockReturnValue({
+      summary: { averageUtilization: 0.7, totalAvailable: 3 },
+    });
+
+    const report = calculateHealth("habitat-1");
+
+    expect(report.dimensions.flow).toMatchObject({
+      cycleTimeTrend: 0.5,
+      throughputTrend: 1,
+      wipUtilization: 0.75,
+    });
+    expect(report.dimensions.delivery.slaCompliance).toBe(0.6);
+    expect(report.dimensions.capacity.backlogToAgentRatio).toBe(3);
+  });
+
   it("still returns a report when snapshot insertion fails", () => {
     insertShouldThrow = true;
 

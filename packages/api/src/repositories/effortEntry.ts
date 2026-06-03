@@ -333,6 +333,38 @@ export function getEffortByActorForTask(taskId: string): Array<{
 
 const MAX_RECALC_RETRIES = 3;
 
+export interface PersistedEffortMetrics {
+  actualMinutes: number;
+  estimationAccuracy: number | null;
+  basis: "logged_effort" | "inferred_only" | "unavailable";
+}
+
+export function getPersistedEffortMetricsForTask(
+  taskId: string,
+  estimatedMinutes?: number | null,
+): PersistedEffortMetrics {
+  const totals = getEffortTotalsForTask(taskId);
+  const correctedLoggedMinutes = totals.loggedEffortMinutes + totals.correctionAdjustmentMinutes;
+
+  let actualMinutes = 0;
+  let basis: PersistedEffortMetrics["basis"] = "unavailable";
+
+  if (totals.loggedEffortMinutes > 0 || totals.correctionAdjustmentMinutes !== 0) {
+    actualMinutes = correctedLoggedMinutes;
+    basis = "logged_effort";
+  } else if (totals.inferredPresenceMinutes > 0) {
+    actualMinutes = totals.inferredPresenceMinutes;
+    basis = "inferred_only";
+  }
+
+  return {
+    actualMinutes,
+    estimationAccuracy:
+      estimatedMinutes && basis !== "unavailable" ? actualMinutes / estimatedMinutes : null,
+    basis,
+  };
+}
+
 export function recalculateTaskEffortMetrics(taskId: string): void {
   const db = getDb();
 
@@ -340,16 +372,13 @@ export function recalculateTaskEffortMetrics(taskId: string): void {
     const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
     if (!task) return;
 
-    const totals = getEffortTotalsForTask(taskId);
+    const effortMetrics = getPersistedEffortMetricsForTask(taskId, task.estimatedMinutes);
 
     const updates: Partial<typeof tasks.$inferInsert> = {
-      actualMinutes: totals.totalAccountedMinutes,
+      actualMinutes: effortMetrics.actualMinutes,
+      estimationAccuracy: effortMetrics.estimationAccuracy,
       updatedAt: new Date().toISOString(),
     };
-
-    if (task.estimatedMinutes && totals.totalAccountedMinutes > 0) {
-      updates.estimationAccuracy = totals.totalAccountedMinutes / task.estimatedMinutes;
-    }
 
     const expectedVersion = task.version;
     const updated = db

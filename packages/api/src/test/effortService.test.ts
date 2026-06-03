@@ -6,6 +6,7 @@ import * as habitatService from "../services/boardService.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as effortRepo from "../repositories/effortEntry.js";
 import * as timeRepo from "../repositories/timeTracking.js";
+import * as eventRepo from "../repositories/events/index.js";
 
 vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: { publish: vi.fn() },
@@ -138,6 +139,35 @@ describe("logEffort", () => {
     expect(call[1].type).toBe("effort.updated");
     expect(call[1].data).toMatchObject({ minutes: 15, actorType: "human" });
   });
+
+  it("records an audit-visible task event", () => {
+    const task = taskRepo.createTask({
+      missionId,
+      title: "Audit log task",
+      createdBy: "test-user",
+    });
+
+    const entry = effortService.logEffort(task.id, "human", "user-1", {
+      minutes: 25,
+      source: "human_manual",
+      note: "Audit note",
+    });
+
+    const events = eventRepo.getEventsByTaskId(task.id).events;
+    const event = events.find((e) => e.action === "effort_logged");
+    expect(event).toMatchObject({
+      taskId: task.id,
+      actorType: "human",
+      actorId: "user-1",
+      action: "effort_logged",
+    });
+    expect(event?.metadata).toMatchObject({
+      effortEntryId: entry.id,
+      minutes: 25,
+      source: "human_manual",
+      note: "Audit note",
+    });
+  });
 });
 
 describe("correctEffortEntry", () => {
@@ -254,6 +284,42 @@ describe("correctEffortEntry", () => {
     const updated = taskRepo.getTaskById(task.id);
     expect(updated?.actualMinutes).toBe(45);
   });
+
+  it("records an audit-visible task event for corrections", () => {
+    const task = taskRepo.createTask({
+      missionId,
+      title: "Audit correction task",
+      createdBy: "test-user",
+    });
+    const original = effortRepo.createEffortEntry({
+      taskId: task.id,
+      actorType: "human",
+      minutes: 60,
+      source: "human_manual",
+    });
+
+    const correction = effortService.correctEffortEntry(task.id, original.id, "agent", agentId, {
+      minutesDelta: -10,
+      correctionReason: "Duplicate timer",
+      note: "Adjusted from review",
+    });
+
+    const events = eventRepo.getEventsByTaskId(task.id).events;
+    const event = events.find((e) => e.action === "effort_corrected");
+    expect(event).toMatchObject({
+      taskId: task.id,
+      actorType: "agent",
+      actorId: agentId,
+      action: "effort_corrected",
+    });
+    expect(event?.metadata).toMatchObject({
+      effortEntryId: correction.id,
+      correctsEntryId: original.id,
+      minutesDelta: -10,
+      correctionReason: "Duplicate timer",
+      note: "Adjusted from review",
+    });
+  });
 });
 
 describe("getTaskEffortReport", () => {
@@ -300,6 +366,34 @@ describe("getTaskEffortReport", () => {
       actorType: "human",
       minutes: 30,
       source: "human_manual",
+    });
+
+    const report = effortService.getTaskEffortReport(task.id);
+
+    expect(report!.accuracy.basis).toBe("logged_effort");
+    expect(report!.accuracy.estimationAccuracy).toBeCloseTo(0.5);
+  });
+
+  it("computes logged_effort accuracy with correction adjustments", () => {
+    const task = taskRepo.createTask({
+      missionId,
+      title: "Accuracy correction task",
+      createdBy: "test-user",
+      estimatedMinutes: 40,
+    });
+    const original = effortRepo.createEffortEntry({
+      taskId: task.id,
+      actorType: "human",
+      minutes: 30,
+      source: "human_manual",
+    });
+    effortRepo.createEffortEntry({
+      taskId: task.id,
+      actorType: "human",
+      minutes: -10,
+      source: "correction_adjustment",
+      correctsEntryId: original.id,
+      correctionReason: "Overcounted",
     });
 
     const report = effortService.getTaskEffortReport(task.id);

@@ -2,6 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
+  real,
   index,
   uniqueIndex,
   primaryKey,
@@ -72,7 +73,7 @@ export const tasks = sqliteTable(
     actualMinutes: integer("actual_minutes"),
     cycleTimeMinutes: integer("cycle_time_minutes"),
     leadTimeMinutes: integer("lead_time_minutes"),
-    estimationAccuracy: integer("estimation_accuracy"),
+    estimationAccuracy: real("estimation_accuracy"),
   },
   (table) => [
     index("idx_tasks_mission").on(table.missionId),
@@ -109,6 +110,8 @@ export const taskEvents = sqliteTable(
         "dependency_resolved",
         "updated",
         "delegated",
+        "effort_logged",
+        "effort_corrected",
         "cloned",
         "retry_scheduled",
         "retry_executed",
@@ -135,6 +138,13 @@ export const taskEvents = sqliteTable(
     index("idx_task_events_task_id").on(table.taskId),
     index("idx_task_events_timestamp").on(table.timestamp),
     index("idx_task_events_actor").on(table.actorType, table.actorId),
+    index("idx_task_events_from_column_time").on(table.fromColumnId, table.timestamp),
+    index("idx_task_events_to_column_time").on(table.toColumnId, table.timestamp),
+    index("idx_task_events_transition_time").on(
+      table.fromColumnId,
+      table.toColumnId,
+      table.timestamp,
+    ),
   ],
 );
 

@@ -1,5 +1,6 @@
 import * as effortRepo from "../repositories/effortEntry.js";
 import * as taskRepo from "../repositories/task.js";
+import * as eventRepo from "../repositories/events/index.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
 import { badRequest, notFound } from "../errors.js";
@@ -40,6 +41,21 @@ export function logEffort(
     note: input.note,
     startedAt: input.startedAt,
     endedAt: input.endedAt,
+  });
+
+  eventRepo.createEvent({
+    taskId,
+    actorType,
+    actorId: actorId ?? "system",
+    action: "effort_logged",
+    metadata: {
+      effortEntryId: entry.id,
+      minutes: input.minutes,
+      source,
+      note: input.note ?? null,
+      startedAt: input.startedAt ?? null,
+      endedAt: input.endedAt ?? null,
+    },
   });
 
   effortRepo.recalculateTaskEffortMetrics(taskId);
@@ -105,6 +121,20 @@ export function correctEffortEntry(
     correctionReason: input.correctionReason,
   });
 
+  eventRepo.createEvent({
+    taskId,
+    actorType,
+    actorId: actorId ?? "system",
+    action: "effort_corrected",
+    metadata: {
+      effortEntryId: correction.id,
+      correctsEntryId: entryId,
+      minutesDelta: input.minutesDelta,
+      correctionReason: input.correctionReason,
+      note: input.note ?? null,
+    },
+  });
+
   effortRepo.recalculateTaskEffortMetrics(taskId);
 
   const habitatId = getHabitatIdForTask(taskId);
@@ -134,18 +164,8 @@ export function getTaskEffortReport(taskId: string): EffortReport | null {
   const byActor = effortRepo.getEffortByActorForTask(taskId);
   const entries = effortRepo.getEffortEntriesWithActorByTask(taskId, { limit: 1000 });
 
-  let estimationAccuracy: number | null = null;
-  let basis: EffortReport["accuracy"]["basis"] = "unavailable";
-
-  if (task.estimatedMinutes && totals.loggedEffortMinutes > 0) {
-    estimationAccuracy = totals.loggedEffortMinutes / task.estimatedMinutes;
-    basis = "logged_effort";
-  } else if (totals.totalAccountedMinutes > 0) {
-    estimationAccuracy = task.estimatedMinutes
-      ? totals.totalAccountedMinutes / task.estimatedMinutes
-      : null;
-    basis = totals.inferredPresenceMinutes > 0 ? "inferred_only" : "total_accounted";
-  }
+  const effortMetrics = effortRepo.getPersistedEffortMetricsForTask(taskId, task.estimatedMinutes);
+  const basis: EffortReport["accuracy"]["basis"] = effortMetrics.basis;
 
   const warnings: string[] = [];
   if (totals.loggedEffortMinutes > 0 && totals.inferredPresenceMinutes > 0) {
@@ -160,7 +180,7 @@ export function getTaskEffortReport(taskId: string): EffortReport | null {
       cycleTimeMinutes: task.cycleTimeMinutes ?? null,
       leadTimeMinutes: task.leadTimeMinutes ?? null,
     },
-    accuracy: { estimationAccuracy, basis },
+    accuracy: { estimationAccuracy: effortMetrics.estimationAccuracy, basis },
     bySource,
     byActor,
     entries,

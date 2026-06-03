@@ -1,12 +1,12 @@
-import { getDb } from '../db/index.js';
-import { habitatHealthSnapshots } from '../db/schema/index.js';
-import { desc, eq, sql } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import * as capacityService from './capacityService.js';
-import * as anomalyService from './anomalyService.js';
-import * as predictionService from './predictionService.js';
-import * as timeTrackingRepo from '../repositories/timeTracking.js';
-import * as eventDashboard from '../repositories/events/event-dashboard.js';
+import { getDb } from "../db/index.js";
+import { habitatHealthSnapshots } from "../db/schema/index.js";
+import { desc, eq, sql } from "drizzle-orm";
+import { v4 as uuid } from "uuid";
+import * as capacityService from "./capacityService.js";
+import * as anomalyService from "./anomalyService.js";
+import * as predictionService from "./predictionService.js";
+import * as timeTrackingRepo from "../repositories/timeTracking.js";
+import * as eventDashboard from "../repositories/events/event-dashboard.js";
 
 export interface HealthDimensions {
   flow: {
@@ -51,25 +51,65 @@ export interface HabitatHealthReport {
 }
 
 function getGrade(score: number): string {
-  if (score >= 90) return 'A';
-  if (score >= 75) return 'B';
-  if (score >= 60) return 'C';
-  if (score >= 40) return 'D';
-  return 'F';
+  if (score >= 90) return "A";
+  if (score >= 75) return "B";
+  if (score >= 60) return "C";
+  if (score >= 40) return "D";
+  return "F";
 }
 
-function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: number; throughputTrend: number; wipUtilization: number } {
-  const cycleTimeTrend = 0;
-  const throughputTrend = 0;
+function roundedRatioChange(current: number, baseline: number): number {
+  if (baseline === 0) return 0;
+  return Math.round(((current - baseline) / baseline) * 100) / 100;
+}
+
+function getWipHealthValues(wipHealth: unknown): string[] {
+  if (Array.isArray(wipHealth)) {
+    return wipHealth
+      .map((item) =>
+        typeof item === "object" && item !== null ? (item as { health?: unknown }).health : item,
+      )
+      .filter((value): value is string => typeof value === "string");
+  }
+  if (typeof wipHealth === "object" && wipHealth !== null) {
+    return Object.values(wipHealth).filter((value): value is string => typeof value === "string");
+  }
+  return [];
+}
+
+function sumThroughput(stats: unknown): number {
+  const throughput = (stats as { throughput?: Array<{ count?: number }> })?.throughput;
+  if (!Array.isArray(throughput)) return 0;
+  return throughput.reduce((sum, day) => sum + (day.count ?? 0), 0);
+}
+
+function computeFlowScore(habitatId: string): {
+  score: number;
+  cycleTimeTrend: number;
+  throughputTrend: number;
+  wipUtilization: number;
+} {
+  let cycleTimeTrend = 0;
+  let throughputTrend = 0;
 
   let wipScore = 70;
   let wipUtilization = 0;
   try {
-    const dashboardStats = eventDashboard.getDashboardStats(habitatId) as any;
+    const dashboardStats = eventDashboard.getDashboardStats(habitatId, "7d") as any;
+    const baselineStats = eventDashboard.getDashboardStats(habitatId, "30d") as any;
+    cycleTimeTrend = roundedRatioChange(
+      dashboardStats?.summary?.averageCycleTimeMinutes ?? 0,
+      baselineStats?.summary?.averageCycleTimeMinutes ?? 0,
+    );
+    throughputTrend = roundedRatioChange(
+      sumThroughput(dashboardStats) / 7,
+      sumThroughput(baselineStats) / 30,
+    );
+
     if (dashboardStats?.wipHealth) {
-      const wipValues = Object.values(dashboardStats.wipHealth) as string[];
-      const exceeded = wipValues.filter((v: string) => v === 'exceeded').length;
-      const warning = wipValues.filter((v: string) => v === 'warning').length;
+      const wipValues = getWipHealthValues(dashboardStats.wipHealth);
+      const exceeded = wipValues.filter((v: string) => v === "exceeded").length;
+      const warning = wipValues.filter((v: string) => v === "warning").length;
       const total = wipValues.length;
 
       if (total > 0) {
@@ -87,7 +127,12 @@ function computeFlowScore(habitatId: string): { score: number; cycleTimeTrend: n
   return { score: flowScore, cycleTimeTrend, throughputTrend, wipUtilization };
 }
 
-function computeQualityScore(habitatId: string): { score: number; rejectionRate: number; estimationAccuracy: number; onTimeCompletionRate: number } {
+function computeQualityScore(habitatId: string): {
+  score: number;
+  rejectionRate: number;
+  estimationAccuracy: number;
+  onTimeCompletionRate: number;
+} {
   const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
   let rejectionRate = 0;
   let estimationAccuracy = metrics.averageEstimationAccuracy || 1;
@@ -95,7 +140,7 @@ function computeQualityScore(habitatId: string): { score: number; rejectionRate:
 
   try {
     const dashboardStats = eventDashboard.getDashboardStats(habitatId) as any;
-    if (dashboardStats?.rejectionRate && typeof dashboardStats.rejectionRate !== 'object') {
+    if (dashboardStats?.rejectionRate && typeof dashboardStats.rejectionRate !== "object") {
       rejectionRate = dashboardStats.rejectionRate;
     }
   } catch {}
@@ -116,12 +161,17 @@ function computeQualityScore(habitatId: string): { score: number; rejectionRate:
   return { score: qualityScore, rejectionRate, estimationAccuracy, onTimeCompletionRate };
 }
 
-function computeDeliveryScore(habitatId: string): { score: number; overdueTasks: number; atRiskTasks: number; slaCompliance: number } {
+function computeDeliveryScore(habitatId: string): {
+  score: number;
+  overdueTasks: number;
+  atRiskTasks: number;
+  slaCompliance: number;
+} {
   const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
   const overdueTasks = metrics.overdueTasks;
+  const slaCompliance = metrics.onTimeCompletionRate;
 
   let atRiskTasks = 0;
-  let slaCompliance = 1;
   try {
     const predictions = predictionService.getPredictions(habitatId);
     atRiskTasks = predictions.atRiskTasks.length;
@@ -135,11 +185,20 @@ function computeDeliveryScore(habitatId: string): { score: number; overdueTasks:
   if (atRiskTasks >= 5) atRiskScore = 30;
   else if (atRiskTasks >= 1) atRiskScore = 70;
 
-  const deliveryScore = Math.round((overdueScore + atRiskScore + 100) / 3);
+  let slaScore = 100;
+  if (slaCompliance < 0.5) slaScore = 40;
+  else if (slaCompliance < 0.8) slaScore = 70;
+
+  const deliveryScore = Math.round((overdueScore + atRiskScore + slaScore) / 3);
   return { score: deliveryScore, overdueTasks, atRiskTasks, slaCompliance };
 }
 
-function computeCapacityScore(habitatId: string): { score: number; agentUtilization: number; agentAvailability: number; backlogToAgentRatio: number } {
+function computeCapacityScore(habitatId: string): {
+  score: number;
+  agentUtilization: number;
+  agentAvailability: number;
+  backlogToAgentRatio: number;
+} {
   let agentUtilization = 0;
   let agentAvailability = 0;
   let backlogToAgentRatio = 0;
@@ -150,6 +209,9 @@ function computeCapacityScore(habitatId: string): { score: number; agentUtilizat
       agentUtilization = capacity.summary.averageUtilization;
       agentAvailability = capacity.summary.totalAvailable;
     }
+    const dashboardStats = eventDashboard.getDashboardStats(habitatId, "7d") as any;
+    const pendingTasks = dashboardStats?.taskByStatus?.pending ?? 0;
+    backlogToAgentRatio = agentAvailability > 0 ? pendingTasks / agentAvailability : pendingTasks;
   } catch {}
 
   let utilScore = 100;
@@ -159,11 +221,20 @@ function computeCapacityScore(habitatId: string): { score: number; agentUtilizat
   let availScore = 100;
   if (agentAvailability === 0) availScore = 50;
 
-  const capacityScore = Math.round((utilScore + availScore + 70) / 3);
+  let backlogScore = 100;
+  if (backlogToAgentRatio >= 10) backlogScore = 30;
+  else if (backlogToAgentRatio >= 5) backlogScore = 60;
+
+  const capacityScore = Math.round((utilScore + availScore + backlogScore) / 3);
   return { score: capacityScore, agentUtilization, agentAvailability, backlogToAgentRatio };
 }
 
-function computeStabilityScore(habitatId: string): { score: number; anomalyCount: number; criticalAnomalies: number; staleTaskCount: number } {
+function computeStabilityScore(habitatId: string): {
+  score: number;
+  anomalyCount: number;
+  criticalAnomalies: number;
+  staleTaskCount: number;
+} {
   let anomalyCount = 0;
   let criticalAnomalies = 0;
   let staleTaskCount = 0;
@@ -171,8 +242,8 @@ function computeStabilityScore(habitatId: string): { score: number; anomalyCount
   try {
     const anomalies = anomalyService.scanHabitat(habitatId);
     anomalyCount = anomalies.length;
-    criticalAnomalies = anomalies.filter(a => a.severity === 'critical').length;
-    staleTaskCount = anomalies.filter(a => a.type === 'stale_in_progress').length;
+    criticalAnomalies = anomalies.filter((a) => a.severity === "critical").length;
+    staleTaskCount = anomalies.filter((a) => a.type === "stale_in_progress").length;
   } catch {}
 
   let anomalyScore = 100;
@@ -194,38 +265,40 @@ function generateRecommendations(score: number, dimensions: HealthDimensions): s
   const recs: string[] = [];
 
   if (dimensions.quality.rejectionRate >= 0.1) {
-    recs.push('High rejection rate — review task descriptions for clarity and check agent domain matching');
+    recs.push(
+      "High rejection rate — review task descriptions for clarity and check agent domain matching",
+    );
   }
   if (dimensions.delivery.overdueTasks >= 3) {
-    recs.push('Multiple overdue tasks — consider reducing sprint scope or reassigning tasks');
+    recs.push("Multiple overdue tasks — consider reducing sprint scope or reassigning tasks");
   }
   if (dimensions.delivery.atRiskTasks >= 3) {
-    recs.push('Several at-risk tasks detected — check for blockers or stalled work');
+    recs.push("Several at-risk tasks detected — check for blockers or stalled work");
   }
   if (dimensions.capacity.agentAvailability === 0) {
-    recs.push('All agents are busy — consider adding more agents or reducing workload');
+    recs.push("All agents are busy — consider adding more agents or reducing workload");
   }
   if (dimensions.capacity.agentUtilization > 0.9) {
-    recs.push('Agent utilization is very high — risk of burnout, consider redistributing tasks');
+    recs.push("Agent utilization is very high — risk of burnout, consider redistributing tasks");
   }
   if (dimensions.capacity.agentUtilization < 0.3) {
-    recs.push('Agent utilization is low — agents may be idle, check domain/capability matching');
+    recs.push("Agent utilization is low — agents may be idle, check domain/capability matching");
   }
   if (dimensions.flow.wipUtilization >= 0.5) {
-    recs.push('WIP limits are exceeded — finish current work before starting new tasks');
+    recs.push("WIP limits are exceeded — finish current work before starting new tasks");
   }
   if (dimensions.stability.criticalAnomalies > 0) {
-    recs.push('Critical anomalies detected — review and address immediately');
+    recs.push("Critical anomalies detected — review and address immediately");
   }
   if (dimensions.stability.staleTaskCount >= 3) {
-    recs.push('Multiple stale tasks — agents may have gone offline without releasing claims');
+    recs.push("Multiple stale tasks — agents may have gone offline without releasing claims");
   }
   if (dimensions.quality.estimationAccuracy < 0.5) {
-    recs.push('Poor estimation accuracy — tasks are taking 2x+ longer than estimated');
+    recs.push("Poor estimation accuracy — tasks are taking 2x+ longer than estimated");
   }
 
   if (recs.length === 0 && score >= 90) {
-    recs.push('Habitat is healthy — keep up the good work!');
+    recs.push("Habitat is healthy — keep up the good work!");
   }
 
   return recs;
@@ -240,10 +313,10 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
 
   const score = Math.round(
     flow.score * 0.25 +
-    quality.score * 0.25 +
-    delivery.score * 0.20 +
-    capacity.score * 0.15 +
-    stability.score * 0.15
+      quality.score * 0.25 +
+      delivery.score * 0.2 +
+      capacity.score * 0.15 +
+      stability.score * 0.15,
   );
 
   const grade = getGrade(score);
@@ -255,23 +328,25 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
   const id = uuid();
 
   try {
-    db.insert(habitatHealthSnapshots).values({
-      id,
-      habitatId,
-      score,
-      grade: grade as 'A' | 'B' | 'C' | 'D' | 'F',
-      dimensions: JSON.stringify(dimensions),
-      metrics: JSON.stringify({
-        flow,
-        quality,
-        delivery,
-        capacity,
-        stability,
-      }),
-      recommendations: JSON.stringify(recommendations),
-      snapshotAt,
-      createdAt: snapshotAt,
-    }).run();
+    db.insert(habitatHealthSnapshots)
+      .values({
+        id,
+        habitatId,
+        score,
+        grade: grade as "A" | "B" | "C" | "D" | "F",
+        dimensions: JSON.stringify(dimensions),
+        metrics: JSON.stringify({
+          flow,
+          quality,
+          delivery,
+          capacity,
+          stability,
+        }),
+        recommendations: JSON.stringify(recommendations),
+        snapshotAt,
+        createdAt: snapshotAt,
+      })
+      .run();
   } catch {}
 
   return { habitatId, score, grade, dimensions, recommendations, snapshotAt };
@@ -307,12 +382,12 @@ export function getHealthHistory(habitatId: string, days = 30): HabitatHealthRep
     .select()
     .from(habitatHealthSnapshots)
     .where(
-      sql`${habitatHealthSnapshots.habitatId} = ${habitatId} AND ${habitatHealthSnapshots.snapshotAt} >= ${since}`
+      sql`${habitatHealthSnapshots.habitatId} = ${habitatId} AND ${habitatHealthSnapshots.snapshotAt} >= ${since}`,
     )
     .orderBy(desc(habitatHealthSnapshots.snapshotAt))
     .all();
 
-  return rows.map(row => ({
+  return rows.map((row) => ({
     habitatId: row.habitatId,
     score: row.score,
     grade: row.grade,
