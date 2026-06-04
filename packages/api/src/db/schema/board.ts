@@ -116,9 +116,7 @@ export const missions = sqliteTable(
 export const missionDependencies = sqliteTable(
   "mission_dependencies",
   {
-    missionId: text("mission_id")
-      .notNull()
-      .references(() => missions.id, { onDelete: "cascade" }),
+    missionId: text("mission_id").notNull(),
     dependsOnId: text("depends_on_id")
       .notNull()
       .references(() => missions.id, { onDelete: "cascade" }),

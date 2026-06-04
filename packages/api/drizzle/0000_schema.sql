@@ -144,8 +144,7 @@ CREATE TABLE `mission_events` (
 	`from_status` text,
 	`to_status` text,
 	`metadata` text NOT NULL DEFAULT '{}',
-	`timestamp` text DEFAULT '(datetime(''now''))' NOT NULL,
-	FOREIGN KEY (`mission_id`) REFERENCES `missions`(`id`) ON UPDATE no action ON DELETE cascade
+	`timestamp` text DEFAULT '(datetime(''now''))' NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `idx_mission_events_feature` ON `mission_events` (`mission_id`);--> statement-breakpoint

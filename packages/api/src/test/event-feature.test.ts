@@ -10,6 +10,7 @@ import {
   getMissionEventsByMissionId,
 } from "../repositories/events/event-feature.js";
 import { columns, habitats, missionEvents, missions } from "../db/schema/index.js";
+import { setAuditActor, runWithAuditProvenance } from "../services/auditProvenanceContext.js";
 
 beforeEach(async () => {
   await initTestDb();
@@ -73,6 +74,41 @@ describe("mission event repository", () => {
       timestamp: "2026-05-28T10:00:00.000Z",
     });
     expect(getMissionEventById(event.id)).toEqual(event);
+  });
+
+  it("adds request audit provenance metadata when context is active", () => {
+    const fixture = createMissionFixture("Provenance");
+
+    const event = runWithAuditProvenance(
+      {
+        source: "rest_api",
+        requestId: "req-1",
+        method: "PATCH",
+        route: "/missions/:missionId",
+      },
+      () => {
+        setAuditActor("human", "user-1");
+        return createMissionEvent({
+          missionId: fixture.mission.id,
+          actorType: "human",
+          actorId: "user-1",
+          action: "updated",
+          metadata: { reason: "rename" },
+        });
+      },
+    );
+
+    expect(event.metadata).toMatchObject({
+      reason: "rename",
+      audit: {
+        source: "rest_api",
+        requestId: "req-1",
+        method: "PATCH",
+        route: "/missions/:missionId",
+        actorType: "human",
+        actorId: "user-1",
+      },
+    });
   });
 
   it("returns mission events newest first with independent total count", () => {

@@ -3,6 +3,19 @@ export type { Agent, AgentStats, AllAgentStats } from "./agent.js";
 
 export type { Habitat, Column, HabitatStats, HabitatExport } from "./board.js";
 
+export type {
+  AuditActorRef,
+  AuditCompleteness,
+  AuditCompletenessSummary,
+  AuditEntityRef,
+  AuditEntityType,
+  AuditEvent,
+  AuditIntegrity,
+  AuditProvenance,
+  AuditSource,
+  AuditWarning,
+} from "./audit.js";
+
 export type { MissionStatus, MissionEventAction } from "./feature.js";
 export type {
   Mission,

@@ -1,9 +1,9 @@
 import * as effortRepo from "../repositories/effortEntry.js";
 import * as taskRepo from "../repositories/task.js";
-import * as eventRepo from "../repositories/events/index.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
 import { badRequest, notFound } from "../errors.js";
+import { emitTaskAuditEvent } from "./auditEventEmitter.js";
 import type {
   EffortEntry,
   EffortEntryWithActor,
@@ -43,7 +43,7 @@ export function logEffort(
     endedAt: input.endedAt,
   });
 
-  eventRepo.createEvent({
+  emitTaskAuditEvent({
     taskId,
     actorType,
     actorId: actorId ?? "system",
@@ -121,7 +121,7 @@ export function correctEffortEntry(
     correctionReason: input.correctionReason,
   });
 
-  eventRepo.createEvent({
+  emitTaskAuditEvent({
     taskId,
     actorType,
     actorId: actorId ?? "system",

@@ -3,6 +3,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as columnRepo from "../repositories/column.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
+import { emitMissionAuditEvent } from "./auditEventEmitter.js";
 import type { Mission, MissionStatus, Task, TaskPriority } from "../models/index.js";
 
 export interface CreateMissionInput {
@@ -247,7 +248,7 @@ export function deleteMission(
     return { success: false, reason: "has_dependents" };
   }
 
-  eventRepo.createMissionEvent({
+  emitMissionAuditEvent({
     missionId,
     actorType,
     actorId,

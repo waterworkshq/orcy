@@ -23,6 +23,7 @@ import { webhookRoutes } from "./routes/webhookOutgoing.js";
 import { commentRoutes } from "./routes/comments.js";
 import { missionCommentRoutes } from "./routes/missionComments.js";
 import { auditExportRoutes } from "./routes/auditExport.js";
+import { auditBundleRoutes } from "./routes/auditBundle.js";
 import { habitatHealthRoutes } from "./routes/boardHealth.js";
 import * as habitatRepo from "./repositories/board.js";
 import * as habitatHealthService from "./services/boardHealthService.js";
@@ -68,6 +69,10 @@ import { registerErrorHandler } from "./errors/plugin.js";
 import { perAgentRateLimit } from "./middleware/rateLimit.js";
 import { humanAuth } from "./middleware/auth.js";
 import { setJwtSecret } from "./middleware/jwt-verification.js";
+import {
+  runWithAuditProvenance,
+  updateAuditProvenance,
+} from "./services/auditProvenanceContext.js";
 import * as pluginManager from "./plugins/pluginManager.js";
 import { assertSecurityConfigOrExit } from "./config/security.js";
 
@@ -125,6 +130,29 @@ fastify.addHook("onResponse", (request, reply, done) => {
   done();
 });
 
+fastify.addHook("onRequest", (request, _reply, done) => {
+  runWithAuditProvenance(
+    { source: "rest_api", requestId: request.id, method: request.method },
+    done,
+  );
+});
+
+fastify.addHook("preHandler", (request, _reply, done) => {
+  const auditSource = request.headers["x-orcy-audit-source"];
+  const toolName = request.headers["x-orcy-mcp-tool"];
+  const mcpAction = request.headers["x-orcy-mcp-action"];
+  const isMcpTool = auditSource === "mcp_tool" && Boolean(request.headers["x-agent-api-key"]);
+
+  updateAuditProvenance({
+    ...(isMcpTool ? { source: "mcp_tool" } : {}),
+    route: request.routeOptions.url,
+    method: request.method,
+    ...(isMcpTool && typeof toolName === "string" ? { toolName } : {}),
+    ...(isMcpTool && typeof mcpAction === "string" ? { mcpAction } : {}),
+  });
+  done();
+});
+
 fastify.get("/health", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
 
 async function registerApiRoutes(f: FastifyInstance) {
@@ -139,6 +167,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(commentRoutes);
   await f.register(missionCommentRoutes);
   await f.register(auditExportRoutes);
+  await f.register(auditBundleRoutes);
   await f.register(habitatHealthRoutes);
   await f.register(subtaskRoutes);
   await f.register(templateRoutes);

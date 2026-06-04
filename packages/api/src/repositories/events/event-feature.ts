@@ -9,6 +9,7 @@ import type {
   MissionStatus,
 } from "../../models/index.js";
 import { repositoryCreateError, repositoryNotFoundError } from "../../errors/repository.js";
+import { withAuditProvenanceMetadata } from "../../services/auditProvenanceContext.js";
 
 export interface CreateMissionEventInput {
   missionId: string;
@@ -39,7 +40,7 @@ export function createMissionEvent(input: CreateMissionEventInput): MissionEvent
         toColumnId: input.toColumnId ?? null,
         fromStatus: input.fromStatus ?? null,
         toStatus: input.toStatus ?? null,
-        metadata: input.metadata ?? {},
+        metadata: withAuditProvenanceMetadata(input.metadata),
         timestamp: now,
       })
       .run();

@@ -1,16 +1,21 @@
-import * as connectionRepo from '../../repositories/integrationConnection.js';
-import * as linkRepo from '../../repositories/externalIssueLink.js';
-import * as syncRunRepo from '../../repositories/integrationSyncRun.js';
-import * as candidateRepo from '../../repositories/externalIntakeCandidate.js';
-import * as missionRepo from '../../repositories/feature.js';
-import * as taskRepo from '../../repositories/task.js';
-import { resolveImportColumn } from './columnResolver.js';
-import type { IntegrationConnection } from '@orcy/shared';
-import type { IssueProviderAdapter, IntegrationSyncResult, ExternalIssueSyncResult } from './types.js';
-import type { ExternalIssue, IntegrationSyncTrigger } from '@orcy/shared';
-import { logger } from '../../lib/logger.js';
+import * as connectionRepo from "../../repositories/integrationConnection.js";
+import * as linkRepo from "../../repositories/externalIssueLink.js";
+import * as syncRunRepo from "../../repositories/integrationSyncRun.js";
+import * as candidateRepo from "../../repositories/externalIntakeCandidate.js";
+import * as missionRepo from "../../repositories/feature.js";
+import * as taskRepo from "../../repositories/task.js";
+import { resolveImportColumn } from "./columnResolver.js";
+import { emitMissionAuditEvent } from "../auditEventEmitter.js";
+import type { IntegrationConnection } from "@orcy/shared";
+import type {
+  IssueProviderAdapter,
+  IntegrationSyncResult,
+  ExternalIssueSyncResult,
+} from "./types.js";
+import type { ExternalIssue, IntegrationSyncTrigger } from "@orcy/shared";
+import { logger } from "../../lib/logger.js";
 
-const TERMINAL_TASK_STATUSES = ['done', 'approved', 'failed'];
+const TERMINAL_TASK_STATUSES = ["done", "approved", "failed"];
 
 export async function syncConnection(
   connectionId: string,
@@ -19,8 +24,8 @@ export async function syncConnection(
 ): Promise<IntegrationSyncResult> {
   const connection = connectionRepo.getById(connectionId);
   if (!connection) throw new Error(`Connection ${connectionId} not found`);
-  if (!connection.enabled) throw new Error('Connection is disabled');
-  if (!connection.pullEnabled) throw new Error('Pull sync is disabled for this connection');
+  if (!connection.enabled) throw new Error("Connection is disabled");
+  if (!connection.pullEnabled) throw new Error("Pull sync is disabled for this connection");
 
   const syncRun = syncRunRepo.create({
     connectionId,
@@ -39,17 +44,18 @@ export async function syncConnection(
 
     for (const issue of issues) {
       try {
-        const result = syncExternalIssue(connection, issue);
-        if (result.action === 'created') createdCount++;
-        else if (result.action === 'updated' || result.action === 'closed') updatedCount++;
+        const result = syncExternalIssue(connection, issue, syncRun.id);
+        if (result.action === "created") createdCount++;
+        else if (result.action === "updated" || result.action === "closed") updatedCount++;
         else skippedCount++;
       } catch (err: any) {
         failedCount++;
-        logger.warn({ err, externalId: issue.externalId }, 'Failed to sync external issue');
+        logger.warn({ err, externalId: issue.externalId }, "Failed to sync external issue");
       }
     }
 
-    const status = failedCount > 0 ? (createdCount + updatedCount > 0 ? 'partial' : 'failed') : 'success';
+    const status =
+      failedCount > 0 ? (createdCount + updatedCount > 0 ? "partial" : "failed") : "success";
 
     syncRunRepo.finish(syncRun.id, {
       status: status as any,
@@ -64,15 +70,22 @@ export async function syncConnection(
     connectionRepo.update(connectionId, {
       lastSyncAt: now,
       lastSyncStatus: status as any,
-      lastSyncError: status === 'failed' ? overallError ?? null : null,
+      lastSyncError: status === "failed" ? (overallError ?? null) : null,
     });
 
-    return { syncRunId: syncRun.id, status: status as any, createdCount, updatedCount, skippedCount, failedCount };
+    return {
+      syncRunId: syncRun.id,
+      status: status as any,
+      createdCount,
+      updatedCount,
+      skippedCount,
+      failedCount,
+    };
   } catch (err: any) {
     overallError = err.message ?? String(err);
 
     syncRunRepo.finish(syncRun.id, {
-      status: 'failed',
+      status: "failed",
       createdCount,
       updatedCount,
       skippedCount,
@@ -82,25 +95,40 @@ export async function syncConnection(
 
     connectionRepo.update(connectionId, {
       lastSyncAt: new Date().toISOString(),
-      lastSyncStatus: 'failed',
+      lastSyncStatus: "failed",
       lastSyncError: overallError,
     });
 
-    return { syncRunId: syncRun.id, status: 'failed', createdCount, updatedCount, skippedCount, failedCount, error: overallError };
+    return {
+      syncRunId: syncRun.id,
+      status: "failed",
+      createdCount,
+      updatedCount,
+      skippedCount,
+      failedCount,
+      error: overallError,
+    };
   }
 }
 
 export function syncExternalIssue(
   connection: IntegrationConnection,
   issue: ExternalIssue,
+  syncRunId?: string,
 ): ExternalIssueSyncResult {
   const existingLink = linkRepo.findByConnectionAndExternalId(connection.id, issue.externalId);
 
   if (existingLink) {
-    return updateLinkedMission(connection, issue, existingLink.missionId, existingLink.id);
+    return updateLinkedMission(
+      connection,
+      issue,
+      existingLink.missionId,
+      existingLink.id,
+      syncRunId,
+    );
   }
 
-  if (connection.provider !== 'github') {
+  if (connection.provider !== "github") {
     return syncAsIntakeCandidate(connection, issue);
   }
 
@@ -108,8 +136,8 @@ export function syncExternalIssue(
     return syncAsIntakeCandidate(connection, issue);
   }
 
-  if (issue.status === 'closed') {
-    return { action: 'skipped', missionId: '', linkId: '' };
+  if (issue.status === "closed") {
+    return { action: "skipped", missionId: "", linkId: "" };
   }
 
   const col = resolveImportColumn(connection.habitatId);
@@ -123,8 +151,8 @@ export function syncExternalIssue(
     habitatId: connection.habitatId,
     columnId: col.columnId,
     title: issue.title,
-    description: issue.body || '',
-    priority: 'medium',
+    description: issue.body || "",
+    priority: "medium",
     labels,
     createdBy: connection.createdBy,
   });
@@ -142,14 +170,28 @@ export function syncExternalIssue(
     providerLabels: issue.labels,
   });
 
-  return { action: 'created', missionId: mission.id, linkId: link.id };
+  emitMissionAuditEvent({
+    missionId: mission.id,
+    actorType: "system",
+    actorId: "system:integration-sync",
+    action: "created",
+    metadata: integrationAuditMetadata(connection, issue, syncRunId, {
+      externalIssueLinkId: link.id,
+      changedFields: ["title", "description", "labels"],
+    }),
+  });
+
+  return { action: "created", missionId: mission.id, linkId: link.id };
 }
 
 function syncAsIntakeCandidate(
   connection: IntegrationConnection,
   issue: ExternalIssue,
 ): ExternalIssueSyncResult {
-  const existingCandidate = candidateRepo.findByConnectionAndExternalId(connection.id, issue.externalId);
+  const existingCandidate = candidateRepo.findByConnectionAndExternalId(
+    connection.id,
+    issue.externalId,
+  );
 
   if (existingCandidate) {
     const updates: Parameters<typeof candidateRepo.update>[1] = {
@@ -162,15 +204,15 @@ function syncAsIntakeCandidate(
       externalUpdatedAt: issue.updatedAt,
       rawProviderPayload: issue.rawProviderPayload ?? null,
     };
-    if (issue.status === 'closed' && existingCandidate.reviewStatus === 'new') {
-      updates.reviewStatus = 'ignored';
+    if (issue.status === "closed" && existingCandidate.reviewStatus === "new") {
+      updates.reviewStatus = "ignored";
     }
     candidateRepo.update(existingCandidate.id, updates);
-    return { action: 'updated', missionId: '', linkId: '' };
+    return { action: "updated", missionId: "", linkId: "" };
   }
 
-  if (issue.status === 'closed') {
-    return { action: 'skipped', missionId: '', linkId: '' };
+  if (issue.status === "closed") {
+    return { action: "skipped", missionId: "", linkId: "" };
   }
 
   candidateRepo.create({
@@ -192,7 +234,7 @@ function syncAsIntakeCandidate(
     externalUpdatedAt: issue.updatedAt,
   });
 
-  return { action: 'created', missionId: '', linkId: '' };
+  return { action: "created", missionId: "", linkId: "" };
 }
 
 function updateLinkedMission(
@@ -200,6 +242,7 @@ function updateLinkedMission(
   issue: ExternalIssue,
   missionId: string,
   linkId: string,
+  syncRunId?: string,
 ): ExternalIssueSyncResult {
   const existingLink = linkRepo.getById(linkId);
   if (!existingLink) throw new Error(`Link ${linkId} not found`);
@@ -207,7 +250,7 @@ function updateLinkedMission(
   const currentLabels = missionRepo.getMissionById(missionId)?.labels ?? [];
   const previousProviderLabels = existingLink.providerLabels ?? [];
 
-  const orcyOnlyLabels = currentLabels.filter(l => !previousProviderLabels.includes(l));
+  const orcyOnlyLabels = currentLabels.filter((l) => !previousProviderLabels.includes(l));
   const newLabels = [...orcyOnlyLabels, ...issue.labels];
   if (!newLabels.includes(`external:${issue.provider}`)) {
     newLabels.push(`external:${issue.provider}`);
@@ -215,61 +258,120 @@ function updateLinkedMission(
 
   missionRepo.updateMission(missionId, {
     title: issue.title,
-    description: issue.body || '',
+    description: issue.body || "",
     labels: newLabels,
   });
 
-  if (issue.status === 'closed') {
-    return handleExternalClose(missionId, linkId, issue);
+  emitMissionAuditEvent({
+    missionId,
+    actorType: "system",
+    actorId: "system:integration-sync",
+    action: "updated",
+    metadata: integrationAuditMetadata(connection, issue, syncRunId, {
+      externalIssueLinkId: linkId,
+      changedFields: ["title", "description", "labels"],
+    }),
+  });
+
+  if (issue.status === "closed") {
+    return handleExternalClose(connection, missionId, linkId, issue, syncRunId);
   }
 
   linkRepo.update(linkId, {
     externalStatus: issue.status,
     externalUpdatedAt: issue.updatedAt,
     providerLabels: issue.labels,
-    syncStatus: 'synced',
+    syncStatus: "synced",
     syncWarning: null,
     lastSyncedAt: new Date().toISOString(),
   });
 
-  return { action: 'updated', missionId, linkId };
+  return { action: "updated", missionId, linkId };
 }
 
 function handleExternalClose(
+  connection: IntegrationConnection,
   missionId: string,
   linkId: string,
   issue: ExternalIssue,
+  syncRunId?: string,
 ): ExternalIssueSyncResult {
   const tasks = taskRepo.getTasksByMissionId(missionId);
 
-  const allTerminal = tasks.every(t => TERMINAL_TASK_STATUSES.includes(t.status));
+  const allTerminal = tasks.every((t) => TERMINAL_TASK_STATUSES.includes(t.status));
 
   if (allTerminal) {
-    missionRepo.updateMission(missionId, { status: 'done' });
+    missionRepo.updateMission(missionId, { status: "done" });
+
+    emitMissionAuditEvent({
+      missionId,
+      actorType: "system",
+      actorId: "system:integration-sync",
+      action: "status_changed",
+      toStatus: "done",
+      metadata: integrationAuditMetadata(connection, issue, syncRunId, {
+        externalIssueLinkId: linkId,
+        externalStatus: "closed",
+      }),
+    });
 
     linkRepo.update(linkId, {
-      externalStatus: 'closed',
+      externalStatus: "closed",
       externalUpdatedAt: issue.updatedAt,
-      syncStatus: 'synced',
+      syncStatus: "synced",
       syncWarning: null,
       lastSyncedAt: new Date().toISOString(),
     });
 
-    return { action: 'closed', missionId, linkId };
+    return { action: "closed", missionId, linkId };
   }
 
   const currentLabels = missionRepo.getMissionById(missionId)?.labels ?? [];
-  if (!currentLabels.includes('external-closed')) {
-    missionRepo.updateMission(missionId, { labels: [...currentLabels, 'external-closed'] });
+  if (!currentLabels.includes("external-closed")) {
+    missionRepo.updateMission(missionId, { labels: [...currentLabels, "external-closed"] });
+    emitMissionAuditEvent({
+      missionId,
+      actorType: "system",
+      actorId: "system:integration-sync",
+      action: "updated",
+      metadata: integrationAuditMetadata(connection, issue, syncRunId, {
+        externalIssueLinkId: linkId,
+        externalStatus: "closed",
+        changedFields: ["labels"],
+        warning: "External issue closed while Orcy mission has active tasks",
+      }),
+    });
   }
 
   linkRepo.update(linkId, {
-    externalStatus: 'closed',
+    externalStatus: "closed",
     externalUpdatedAt: issue.updatedAt,
-    syncStatus: 'warning',
-    syncWarning: 'External issue closed while Orcy mission has active tasks',
+    syncStatus: "warning",
+    syncWarning: "External issue closed while Orcy mission has active tasks",
     lastSyncedAt: new Date().toISOString(),
   });
 
-  return { action: 'warning', missionId, linkId };
+  return { action: "warning", missionId, linkId };
+}
+
+function integrationAuditMetadata(
+  connection: IntegrationConnection,
+  issue: ExternalIssue,
+  syncRunId: string | undefined,
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    provider: issue.provider,
+    externalId: issue.externalId,
+    externalKey: issue.externalKey,
+    externalUrl: issue.url,
+    audit: {
+      source: "integration_sync",
+      provider: issue.provider,
+      externalId: issue.externalId,
+      ...(syncRunId ? { integrationSyncRunId: syncRunId } : {}),
+      reason: `integration:${connection.provider}`,
+    },
+  };
 }

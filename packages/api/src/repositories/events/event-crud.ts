@@ -4,6 +4,7 @@ import { eq, and, count, asc, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { TaskEvent, ActorType, EventAction, TaskStatus } from "../../models/index.js";
 import { repositoryCreateError, repositoryNotFoundError } from "../../errors/repository.js";
+import { withAuditProvenanceMetadata } from "../../services/auditProvenanceContext.js";
 
 export interface CreateEventInput {
   taskId: string;
@@ -34,7 +35,7 @@ export function createEvent(input: CreateEventInput): TaskEvent {
         toColumnId: input.toColumnId ?? null,
         fromStatus: input.fromStatus ?? null,
         toStatus: input.toStatus ?? null,
-        metadata: input.metadata ?? {},
+        metadata: withAuditProvenanceMetadata(input.metadata),
         timestamp: now,
       })
       .run();

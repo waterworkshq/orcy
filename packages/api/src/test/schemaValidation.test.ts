@@ -86,6 +86,11 @@ describe("Unified schema (0000_schema.sql)", () => {
     expect(missionsCreate).toContain("`acceptance_criteria`");
   });
 
+  it("mission_events are retained when missions are deleted", () => {
+    const missionEventsCreate = createTables.find((s) => s.includes("`mission_events`"))!;
+    expect(missionEventsCreate).not.toContain("REFERENCES `missions`(`id`)");
+  });
+
   it("mission_templates has tasks_template column", () => {
     const tmplCreate = createTables.find((s) => s.includes("`mission_templates`"))!;
     expect(tmplCreate).toContain("`tasks_template`");
