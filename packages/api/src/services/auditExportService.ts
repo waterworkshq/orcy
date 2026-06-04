@@ -1,16 +1,19 @@
 import { getDb } from "../db/index.js";
-import { taskEvents, missionEvents, tasks, missions, agents, columns } from "../db/schema/index.js";
-import { alias } from "drizzle-orm/sqlite-core";
-import { eq, and, sql, desc, inArray } from "drizzle-orm";
+import { taskEvents, missionEvents, tasks, missions } from "../db/schema/index.js";
+import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { FastifyReply } from "fastify";
-
-const taskFromColumns = alias(columns, "te_from_columns");
-const taskToColumns = alias(columns, "te_to_columns");
-const missionFromColumns = alias(columns, "fe_from_columns");
-const missionToColumns = alias(columns, "fe_to_columns");
-
-const BATCH_SIZE = 1000;
+import type {
+  AuditCompletenessSummary,
+  AuditEvent,
+  AuditSource,
+  AuditWarning,
+} from "@orcy/shared/types";
+import {
+  queryAuditEvents,
+  summarizeAuditCompleteness,
+  type AuditQueryInput,
+} from "./auditQueryService.js";
 
 export interface AuditExportQuery {
   format: "csv" | "json" | "jsonl";
@@ -20,7 +23,25 @@ export interface AuditExportQuery {
   actorType?: string;
   actorId?: string;
   entityTypes?: string;
+  entityType?: string;
+  entityId?: string;
+  taskId?: string;
+  missionId?: string;
+  source?: string;
+  provider?: string;
+  preset?: string;
   includeMetadata?: string;
+  includeProvenance?: string;
+  includeIntegrity?: string;
+  includeHealthSnapshots?: string;
+}
+
+export type AuditEventQuery = Omit<AuditExportQuery, "format">;
+
+export interface CanonicalAuditEventResult {
+  events: AuditEvent[];
+  warnings: AuditWarning[];
+  completenessSummary: AuditCompletenessSummary;
 }
 
 export interface AuditSummary {
@@ -29,160 +50,6 @@ export interface AuditSummary {
   byActorType: Record<string, number>;
   byDay: { date: string; count: number }[];
   topMissions: { missionId: string; missionTitle: string; count: number }[];
-}
-
-interface AuditRow {
-  id: string;
-  timestamp: string;
-  action: string;
-  entityType: string;
-  entityId: string;
-  entityTitle: string;
-  actorType: string;
-  actorId: string;
-  actorName: string | null;
-  fromStatus: string | null;
-  toStatus: string | null;
-  fromColumn: string | null;
-  toColumn: string | null;
-  metadata: Record<string, unknown> | null;
-}
-
-function buildConditions(habitatId: string, query: AuditExportQuery) {
-  const conditions = [eq(missions.habitatId, habitatId)];
-
-  if (query.since) {
-    conditions.push(sql`${taskEvents.timestamp} >= ${query.since}`);
-  }
-  if (query.until) {
-    conditions.push(sql`${taskEvents.timestamp} <= ${query.until}`);
-  }
-  if (query.actions) {
-    const actionList = query.actions.split(",").map((a) => a.trim());
-    conditions.push(inArray(taskEvents.action, actionList as any));
-  }
-  if (query.actorType) {
-    conditions.push(sql`${taskEvents.actorType} = ${query.actorType}`);
-  }
-  if (query.actorId) {
-    conditions.push(eq(taskEvents.actorId, query.actorId));
-  }
-
-  return and(...conditions);
-}
-
-function buildMissionConditions(habitatId: string, query: AuditExportQuery) {
-  const conditions = [eq(missions.habitatId, habitatId)];
-
-  if (query.since) {
-    conditions.push(sql`${missionEvents.timestamp} >= ${query.since}`);
-  }
-  if (query.until) {
-    conditions.push(sql`${missionEvents.timestamp} <= ${query.until}`);
-  }
-  if (query.actions) {
-    const actionList = query.actions.split(",").map((a) => a.trim());
-    conditions.push(inArray(missionEvents.action, actionList as any));
-  }
-  if (query.actorType) {
-    conditions.push(sql`${missionEvents.actorType} = ${query.actorType}`);
-  }
-  if (query.actorId) {
-    conditions.push(eq(missionEvents.actorId, query.actorId));
-  }
-
-  return and(...conditions);
-}
-
-function fetchTaskEventBatch(
-  habitatId: string,
-  query: AuditExportQuery,
-  offset: number,
-): AuditRow[] {
-  const db = getDb();
-  const whereClause = buildConditions(habitatId, query);
-
-  const includeMetadata = query.includeMetadata === "true";
-
-  const rows = db
-    .select({
-      id: taskEvents.id,
-      timestamp: taskEvents.timestamp,
-      action: taskEvents.action,
-      entityType: sql`'task'`.as("entityType"),
-      entityId: tasks.id,
-      entityTitle: tasks.title,
-      actorType: taskEvents.actorType,
-      actorId: taskEvents.actorId,
-      actorName: agents.name,
-      fromStatus: taskEvents.fromStatus,
-      toStatus: taskEvents.toStatus,
-      fromColumn: taskFromColumns.name,
-      toColumn: taskToColumns.name,
-      ...(includeMetadata ? ({ metadata: taskEvents.metadata } as any) : {}),
-    })
-    .from(taskEvents)
-    .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .leftJoin(agents, eq(taskEvents.actorId, agents.id))
-    .leftJoin(taskFromColumns, eq(taskEvents.fromColumnId, taskFromColumns.id))
-    .leftJoin(taskToColumns, eq(taskEvents.toColumnId, taskToColumns.id))
-    .where(whereClause)
-    .orderBy(desc(taskEvents.timestamp))
-    .limit(BATCH_SIZE)
-    .offset(offset)
-    .all();
-
-  return rows.map((row: any) => ({
-    ...row,
-    entityType: "task",
-    metadata: includeMetadata ? (row.metadata as Record<string, unknown>) : null,
-  }));
-}
-
-function fetchMissionEventBatch(
-  habitatId: string,
-  query: AuditExportQuery,
-  offset: number,
-): AuditRow[] {
-  const db = getDb();
-  const whereClause = buildMissionConditions(habitatId, query);
-
-  const includeMetadata = query.includeMetadata === "true";
-
-  const rows = db
-    .select({
-      id: missionEvents.id,
-      timestamp: missionEvents.timestamp,
-      action: missionEvents.action,
-      entityType: sql`'mission'`.as("entityType"),
-      entityId: missions.id,
-      entityTitle: missions.title,
-      actorType: missionEvents.actorType,
-      actorId: missionEvents.actorId,
-      actorName: agents.name,
-      fromStatus: missionEvents.fromStatus,
-      toStatus: missionEvents.toStatus,
-      fromColumn: missionFromColumns.name,
-      toColumn: missionToColumns.name,
-      ...(includeMetadata ? ({ metadata: missionEvents.metadata } as any) : {}),
-    })
-    .from(missionEvents)
-    .innerJoin(missions, eq(missionEvents.missionId, missions.id))
-    .leftJoin(agents, eq(missionEvents.actorId, agents.id))
-    .leftJoin(missionFromColumns, eq(missionEvents.fromColumnId, missionFromColumns.id))
-    .leftJoin(missionToColumns, eq(missionEvents.toColumnId, missionToColumns.id))
-    .where(whereClause)
-    .orderBy(desc(missionEvents.timestamp))
-    .limit(BATCH_SIZE)
-    .offset(offset)
-    .all();
-
-  return rows.map((row: any) => ({
-    ...row,
-    entityType: "mission",
-    metadata: includeMetadata ? (row.metadata as Record<string, unknown>) : null,
-  }));
 }
 
 function csvEscape(value: unknown): string {
@@ -194,138 +61,188 @@ function csvEscape(value: unknown): string {
   return str;
 }
 
-function rowsToCsv(rows: AuditRow[], includeHeader: boolean): string {
-  const headers = [
-    "event_id",
-    "timestamp",
-    "action",
-    "entity_type",
-    "entity_id",
-    "entity_title",
-    "actor_type",
-    "actor_id",
-    "actor_name",
-    "from_status",
-    "to_status",
-    "from_column",
-    "to_column",
-  ];
-  const lines: string[] = [];
+function parseCsvFilter(value: string | undefined): string[] {
+  return value
+    ? value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+}
 
-  if (includeHeader) {
-    lines.push(headers.join(","));
+function includeStructuredField(value: string | undefined): boolean {
+  return value === "true" || value === "1";
+}
+
+function isAuditEntityType(
+  value: string | undefined,
+): value is NonNullable<AuditQueryInput["entityType"]> {
+  if (!value) return false;
+  return [
+    "task",
+    "mission",
+    "effort_entry",
+    "code_evidence_link",
+    "code_evidence_gap",
+    "commit",
+    "changed_file",
+    "pull_request",
+    "code_review",
+    "pipeline_event",
+    "integration_sync_run",
+    "webhook_delivery",
+    "health_snapshot",
+  ].includes(value);
+}
+
+function isAuditSource(value: string | undefined): value is AuditSource {
+  if (!value) return false;
+  return [
+    "rest_api",
+    "mcp_tool",
+    "webhook",
+    "daemon",
+    "system",
+    "integration_sync",
+    "scheduler",
+    "migration",
+    "unknown",
+  ].includes(value);
+}
+
+function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInput {
+  const entityType = isAuditEntityType(query.entityType) ? query.entityType : undefined;
+  const source = isAuditSource(query.source) ? query.source : undefined;
+  return {
+    habitatId,
+    since: query.since,
+    until: query.until,
+    entityType,
+    entityId: query.entityId,
+    taskId: query.taskId,
+    missionId: query.missionId,
+    actorType:
+      query.actorType === "human" || query.actorType === "agent" || query.actorType === "system"
+        ? query.actorType
+        : undefined,
+    actorId: query.actorId,
+    source,
+    order: "asc",
+    includeHealthSnapshots: includeStructuredField(query.includeHealthSnapshots),
+  };
+}
+
+function eventMatchesExportFilters(event: AuditEvent, query: AuditEventQuery): boolean {
+  const actions = parseCsvFilter(query.actions);
+  if (actions.length > 0 && !actions.includes(event.action)) return false;
+
+  const entityTypes = parseCsvFilter(query.entityTypes);
+  if (entityTypes.length > 0 && !entityTypes.includes(event.entity.type)) return false;
+
+  if (query.provider) {
+    const provider = event.provenance.provider ?? event.metadata.provider;
+    if (provider !== query.provider) return false;
   }
 
-  for (const row of rows) {
+  switch (query.preset) {
+    case "effort_corrections":
+      return event.entity.type === "effort_entry" && event.action === "corrected";
+    case "code_evidence_changes":
+      return (
+        event.entity.type === "code_evidence_link" || event.entity.type === "code_evidence_gap"
+      );
+    case "failed_pipelines":
+      return event.entity.type === "pipeline_event" && event.action === "failure";
+    case undefined:
+    case "":
+      return true;
+    default:
+      return true;
+  }
+}
+
+function collectCanonicalAuditEvents(habitatId: string, query: AuditEventQuery): AuditEvent[] {
+  const result = queryAuditEvents(toAuditQuery(habitatId, query));
+  return result.events.filter((event) => eventMatchesExportFilters(event, query));
+}
+
+export function getCanonicalAuditEvents(
+  habitatId: string,
+  query: AuditEventQuery,
+): CanonicalAuditEventResult {
+  const result = queryAuditEvents(toAuditQuery(habitatId, query));
+  const events = result.events.filter((event) => eventMatchesExportFilters(event, query));
+  return {
+    events,
+    warnings: result.warnings,
+    completenessSummary: summarizeAuditCompleteness(events),
+  };
+}
+
+function canonicalEventsToCsv(events: AuditEvent[], query: AuditExportQuery): string {
+  const includeMetadata = includeStructuredField(query.includeMetadata);
+  const includeProvenance = includeStructuredField(query.includeProvenance);
+  const includeIntegrity = includeStructuredField(query.includeIntegrity);
+  const headers = [
+    "id",
+    "occurredAt",
+    "habitatId",
+    "entityType",
+    "entityId",
+    "action",
+    "actorType",
+    "actorId",
+    "source",
+    "summary",
+    "completenessStatus",
+    ...(includeProvenance ? ["provenanceJson"] : []),
+    ...(includeIntegrity ? ["integrityJson"] : []),
+    ...(includeMetadata ? ["metadataJson"] : []),
+  ];
+  const lines = [headers.join(",")];
+  for (const event of events) {
     lines.push(
       [
-        csvEscape(row.id),
-        csvEscape(row.timestamp),
-        csvEscape(row.action),
-        csvEscape(row.entityType),
-        csvEscape(row.entityId),
-        csvEscape(row.entityTitle),
-        csvEscape(row.actorType),
-        csvEscape(row.actorId),
-        csvEscape(row.actorName),
-        csvEscape(row.fromStatus),
-        csvEscape(row.toStatus),
-        csvEscape(row.fromColumn),
-        csvEscape(row.toColumn),
-      ].join(","),
+        event.id,
+        event.occurredAt,
+        event.habitatId,
+        event.entity.type,
+        event.entity.id,
+        event.action,
+        event.actor.type,
+        event.actor.id,
+        event.source,
+        event.summary,
+        event.completeness.status,
+        ...(includeProvenance ? [JSON.stringify(event.provenance)] : []),
+        ...(includeIntegrity ? [JSON.stringify(event.integrity ?? null)] : []),
+        ...(includeMetadata ? [JSON.stringify(event.metadata)] : []),
+      ]
+        .map(csvEscape)
+        .join(","),
     );
   }
-
   return lines.join("\n") + "\n";
 }
 
-function rowsToJsonl(rows: AuditRow[]): string {
-  return (
-    rows
-      .map((row) =>
-        JSON.stringify({
-          id: row.id,
-          timestamp: row.timestamp,
-          action: row.action,
-          entityType: row.entityType,
-          entityId: row.entityId,
-          entityTitle: row.entityTitle,
-          actorType: row.actorType,
-          actorId: row.actorId,
-          actorName: row.actorName,
-          fromStatus: row.fromStatus,
-          toStatus: row.toStatus,
-          fromColumn: row.fromColumn,
-          toColumn: row.toColumn,
-          metadata: row.metadata,
-        }),
-      )
-      .join("\n") + "\n"
-  );
+function canonicalEventsToJson(events: AuditEvent[]): string {
+  return JSON.stringify(events, null, 2);
 }
 
-function rowsToJson(rows: AuditRow[]): string {
-  return JSON.stringify(
-    rows.map((row) => ({
-      id: row.id,
-      timestamp: row.timestamp,
-      action: row.action,
-      entityType: row.entityType,
-      entityId: row.entityId,
-      entityTitle: row.entityTitle,
-      actorType: row.actorType,
-      actorId: row.actorId,
-      actorName: row.actorName,
-      fromStatus: row.fromStatus,
-      toStatus: row.toStatus,
-      fromColumn: row.fromColumn,
-      toColumn: row.toColumn,
-      metadata: row.metadata,
-    })),
-    null,
-    2,
-  );
-}
-
-function collectAuditRows(habitatId: string, query: AuditExportQuery): AuditRow[] {
-  const includeTasks = !query.entityTypes || query.entityTypes.includes("task");
-  const includeMissions = !query.entityTypes || query.entityTypes.includes("mission");
-
-  const collected: AuditRow[] = [];
-  let taskOffset = 0;
-  let missionOffset = 0;
-
-  if (includeTasks) {
-    while (true) {
-      const batch = fetchTaskEventBatch(habitatId, query, taskOffset);
-      if (batch.length === 0) break;
-      collected.push(...batch);
-      taskOffset += BATCH_SIZE;
-    }
-  }
-
-  if (includeMissions) {
-    while (true) {
-      const batch = fetchMissionEventBatch(habitatId, query, missionOffset);
-      if (batch.length === 0) break;
-      collected.push(...batch);
-      missionOffset += BATCH_SIZE;
-    }
-  }
-
-  return collected.toSorted((a, b) => b.timestamp.localeCompare(a.timestamp));
+function canonicalEventsToJsonl(events: AuditEvent[]): string {
+  return events.map((event) => JSON.stringify(event)).join("\n") + (events.length > 0 ? "\n" : "");
 }
 
 export function generateAuditExportContent(habitatId: string, query: AuditExportQuery): string {
-  const rows = collectAuditRows(habitatId, query);
+  const events = collectCanonicalAuditEvents(habitatId, query);
 
   if (query.format === "csv") {
-    return rowsToCsv(rows, true);
+    return canonicalEventsToCsv(events, query);
   }
   if (query.format === "jsonl") {
-    return rowsToJsonl(rows);
+    return canonicalEventsToJsonl(events);
   }
-  return rowsToJson(rows);
+  return canonicalEventsToJson(events);
 }
 
 export function getExportFilename(habitatId: string, format: string): string {

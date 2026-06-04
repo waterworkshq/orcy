@@ -15,8 +15,20 @@ const exportQuerySchema = z.object({
   actorType: z.string().optional(),
   actorId: z.string().optional(),
   entityTypes: z.string().optional(),
+  entityType: z.string().optional(),
+  entityId: z.string().optional(),
+  taskId: z.string().optional(),
+  missionId: z.string().optional(),
+  source: z.string().optional(),
+  provider: z.string().optional(),
+  preset: z.string().optional(),
   includeMetadata: z.string().optional(),
+  includeProvenance: z.string().optional(),
+  includeIntegrity: z.string().optional(),
+  includeHealthSnapshots: z.string().optional(),
 });
+
+const eventsQuerySchema = exportQuerySchema.omit({ format: true });
 
 const summaryQuerySchema = z.object({
   since: z.string().optional(),
@@ -48,6 +60,25 @@ async function requireAuditScheduleAccess(
 }
 
 export async function auditExportRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof eventsQuerySchema> }>(
+    "/habitats/:habitatId/audit/events",
+    { preHandler: [humanAuth, requireHabitatAccess] },
+    async (
+      request: FastifyRequest<{
+        Params: { habitatId: string };
+        Querystring: z.infer<typeof eventsQuerySchema>;
+      }>,
+      _reply: FastifyReply,
+    ) => {
+      const parsed = eventsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw badRequest("Invalid query", parsed.error.flatten());
+      }
+
+      return auditExportService.getCanonicalAuditEvents(request.params.habitatId, parsed.data);
+    },
+  );
+
   fastify.get<{ Params: { habitatId: string }; Querystring: z.infer<typeof exportQuerySchema> }>(
     "/habitats/:habitatId/audit/export",
     { preHandler: [humanAuth, requireHabitatAccess] },

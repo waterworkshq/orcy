@@ -11,6 +11,7 @@ interface CapturedRoute {
 
 const {
   mockStreamAuditExport,
+  mockGetCanonicalAuditEvents,
   mockGetAuditSummary,
   mockCreateSchedule,
   mockListSchedules,
@@ -18,6 +19,15 @@ const {
   mockGetScheduleById,
 } = vi.hoisted(() => ({
   mockStreamAuditExport: vi.fn(),
+  mockGetCanonicalAuditEvents: vi.fn(() => ({
+    events: [],
+    warnings: [],
+    completenessSummary: {
+      totalEvents: 0,
+      byStatus: { complete: 0, legacy_partial: 0, source_unavailable: 0 },
+      caveats: [],
+    },
+  })),
   mockGetAuditSummary: vi.fn(() => ({
     totalEvents: 0,
     byAction: {},
@@ -43,6 +53,7 @@ const { mockGetHabitatById, mockIsTeamMemberByHabitatId } = vi.hoisted(() => ({
 
 vi.mock("../services/auditExportService.js", () => ({
   streamAuditExport: mockStreamAuditExport,
+  getCanonicalAuditEvents: mockGetCanonicalAuditEvents,
   getAuditSummary: mockGetAuditSummary,
   createSchedule: mockCreateSchedule,
   listSchedules: mockListSchedules,
@@ -117,7 +128,7 @@ describe("auditExportRoutes auth", () => {
     const habitatRoutes = routes.filter((route) =>
       route.path.startsWith("/habitats/:habitatId/audit/"),
     );
-    expect(habitatRoutes).toHaveLength(4);
+    expect(habitatRoutes).toHaveLength(5);
     for (const route of habitatRoutes) {
       expect(route.preHandler).toContain(humanAuth);
       expect(route.preHandler).toContain(requireHabitatAccess);
@@ -163,5 +174,67 @@ describe("auditExportRoutes auth", () => {
       expect(isAppError(err)).toBe(true);
       if (isAppError(err)) expect(err.statusCode).toBe(403);
     }
+  });
+
+  it("accepts canonical export filters and forwards them to the service", async () => {
+    const routes = await captureAuditExportRoutes();
+    const route = routes.find(
+      (r) => r.method === "GET" && r.path === "/habitats/:habitatId/audit/export",
+    );
+
+    await route!.handler(
+      {
+        params: { habitatId: "habitat-1" },
+        query: {
+          format: "json",
+          entityType: "pipeline_event",
+          source: "webhook",
+          provider: "github",
+          preset: "failed_pipelines",
+          includeProvenance: "true",
+          includeIntegrity: "true",
+        },
+      },
+      {} as any,
+    );
+
+    expect(mockStreamAuditExport).toHaveBeenCalledWith(
+      "habitat-1",
+      expect.objectContaining({
+        format: "json",
+        entityType: "pipeline_event",
+        source: "webhook",
+        provider: "github",
+        preset: "failed_pipelines",
+        includeProvenance: "true",
+        includeIntegrity: "true",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("returns canonical audit events with completeness summaries", async () => {
+    const routes = await captureAuditExportRoutes();
+    const route = routes.find(
+      (r) => r.method === "GET" && r.path === "/habitats/:habitatId/audit/events",
+    );
+
+    const response = await route!.handler(
+      {
+        params: { habitatId: "habitat-1" },
+        query: { entityType: "task", includeHealthSnapshots: "true" },
+      },
+      {} as any,
+    );
+
+    expect(mockGetCanonicalAuditEvents).toHaveBeenCalledWith(
+      "habitat-1",
+      expect.objectContaining({ entityType: "task", includeHealthSnapshots: "true" }),
+    );
+    expect(response).toMatchObject({
+      events: [],
+      warnings: [],
+      completenessSummary: { totalEvents: 0 },
+    });
   });
 });

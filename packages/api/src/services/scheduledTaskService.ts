@@ -262,7 +262,17 @@ function buildAuditExportQuery(
     "actorType",
     "actorId",
     "entityTypes",
+    "entityType",
+    "entityId",
+    "taskId",
+    "missionId",
+    "source",
+    "provider",
+    "preset",
     "includeMetadata",
+    "includeProvenance",
+    "includeIntegrity",
+    "includeHealthSnapshots",
   ];
 
   for (const key of stringFilters) {

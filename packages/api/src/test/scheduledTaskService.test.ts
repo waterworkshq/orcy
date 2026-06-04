@@ -425,8 +425,11 @@ describe("processDueAuditExports", () => {
 
     expect(result).toEqual({ executed: 1, failed: 0 });
     const content = readOnlyExportFile(".csv");
-    expect(content).toContain("event_id,timestamp,action,entity_type,entity_id,entity_title");
-    expect(content).toContain(",created,task,");
+    expect(content).toContain(
+      "id,occurredAt,habitatId,entityType,entityId,action,actorType,actorId,source,summary,completenessStatus",
+    );
+    expect(content).toContain(",task,");
+    expect(content).toContain(",created,");
     expect(content).not.toContain("date,count\n");
   });
 
@@ -455,7 +458,7 @@ describe("processDueAuditExports", () => {
     expect(result).toEqual({ executed: 1, failed: 0 });
     const lines = readOnlyExportFile(".jsonl").trim().split("\n");
     expect(lines.length).toBeGreaterThan(0);
-    expect(JSON.parse(lines[0])).toMatchObject({ entityType: "task", action: "created" });
+    expect(JSON.parse(lines[0])).toMatchObject({ entity: { type: "task" }, action: "created" });
   });
 
   it("honors scheduled export action filters", () => {
@@ -487,7 +490,7 @@ describe("processDueAuditExports", () => {
     expect(result).toEqual({ executed: 1, failed: 0 });
     const rows = JSON.parse(readOnlyExportFile(".json"));
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ action: "claimed", entityType: "task" });
+    expect(rows[0]).toMatchObject({ action: "claimed", entity: { type: "task" } });
   });
 
   it("skips audit exports with future nextRunAt", () => {
