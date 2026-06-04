@@ -10,12 +10,14 @@ const dashboardMocks = vi.hoisted(() => ({ getDashboardStats: vi.fn() }));
 const predictionMocks = vi.hoisted(() => ({ getPredictions: vi.fn() }));
 const capacityMocks = vi.hoisted(() => ({ getCapacityReport: vi.fn() }));
 const anomalyMocks = vi.hoisted(() => ({ scanHabitat: vi.fn() }));
+const trendMocks = vi.hoisted(() => ({ getHabitatTrends: vi.fn() }));
 
 vi.mock("../repositories/timeTracking.js", () => timeTrackingMocks);
 vi.mock("../repositories/events/event-dashboard.js", () => dashboardMocks);
 vi.mock("../services/predictionService.js", () => predictionMocks);
 vi.mock("../services/capacityService.js", () => capacityMocks);
 vi.mock("../services/anomalyService.js", () => anomalyMocks);
+vi.mock("../services/trendService.js", () => trendMocks);
 vi.mock("uuid", () => ({ v4: vi.fn(() => "health-id") }));
 
 vi.mock("../db/index.js", () => ({
@@ -87,6 +89,20 @@ describe("boardHealthService", () => {
       rejectionRate: 0,
     });
     predictionMocks.getPredictions.mockReturnValue({ atRiskTasks: [] });
+    trendMocks.getHabitatTrends.mockReturnValue({
+      trends: [
+        {
+          metric: "cycle_time",
+          percentDelta: 0,
+          confidence: "insufficient_data",
+        },
+        {
+          metric: "throughput",
+          percentDelta: 0,
+          confidence: "insufficient_data",
+        },
+      ],
+    });
     capacityMocks.getCapacityReport.mockReturnValue({
       summary: { averageUtilization: 0.7, totalAvailable: 2 },
     });
@@ -178,6 +194,20 @@ describe("boardHealthService", () => {
         taskByStatus: { pending: 9 },
       };
     });
+    trendMocks.getHabitatTrends.mockReturnValue({
+      trends: [
+        {
+          metric: "cycle_time",
+          percentDelta: 0.5,
+          confidence: "low",
+        },
+        {
+          metric: "throughput",
+          percentDelta: 1,
+          confidence: "low",
+        },
+      ],
+    });
     capacityMocks.getCapacityReport.mockReturnValue({
       summary: { averageUtilization: 0.7, totalAvailable: 3 },
     });
@@ -191,6 +221,30 @@ describe("boardHealthService", () => {
     });
     expect(report.dimensions.delivery.slaCompliance).toBe(0.6);
     expect(report.dimensions.capacity.backlogToAgentRatio).toBe(3);
+  });
+
+  it("does not surface numeric flow trends when trend samples are insufficient", () => {
+    trendMocks.getHabitatTrends.mockReturnValue({
+      trends: [
+        {
+          metric: "cycle_time",
+          percentDelta: 0.5,
+          confidence: "insufficient_data",
+        },
+        {
+          metric: "throughput",
+          percentDelta: 1,
+          confidence: "insufficient_data",
+        },
+      ],
+    });
+
+    const report = calculateHealth("habitat-1");
+
+    expect(report.dimensions.flow).toMatchObject({
+      cycleTimeTrend: 0,
+      throughputTrend: 0,
+    });
   });
 
   it("still returns a report when snapshot insertion fails", () => {

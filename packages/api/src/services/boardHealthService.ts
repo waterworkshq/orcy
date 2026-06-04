@@ -5,8 +5,10 @@ import { v4 as uuid } from "uuid";
 import * as capacityService from "./capacityService.js";
 import * as anomalyService from "./anomalyService.js";
 import * as predictionService from "./predictionService.js";
+import * as trendService from "./trendService.js";
 import * as timeTrackingRepo from "../repositories/timeTracking.js";
 import * as eventDashboard from "../repositories/events/event-dashboard.js";
+import type { MetricTrend } from "./trendService.js";
 
 export interface HealthDimensions {
   flow: {
@@ -58,11 +60,6 @@ function getGrade(score: number): string {
   return "F";
 }
 
-function roundedRatioChange(current: number, baseline: number): number {
-  if (baseline === 0) return 0;
-  return Math.round(((current - baseline) / baseline) * 100) / 100;
-}
-
 function getWipHealthValues(wipHealth: unknown): string[] {
   if (Array.isArray(wipHealth)) {
     return wipHealth
@@ -77,10 +74,9 @@ function getWipHealthValues(wipHealth: unknown): string[] {
   return [];
 }
 
-function sumThroughput(stats: unknown): number {
-  const throughput = (stats as { throughput?: Array<{ count?: number }> })?.throughput;
-  if (!Array.isArray(throughput)) return 0;
-  return throughput.reduce((sum, day) => sum + (day.count ?? 0), 0);
+function legacyTrendValue(trend: MetricTrend | undefined): number {
+  if (!trend || trend.confidence === "insufficient_data") return 0;
+  return trend.percentDelta ?? 0;
 }
 
 function computeFlowScore(habitatId: string): {
@@ -96,15 +92,9 @@ function computeFlowScore(habitatId: string): {
   let wipUtilization = 0;
   try {
     const dashboardStats = eventDashboard.getDashboardStats(habitatId, "7d") as any;
-    const baselineStats = eventDashboard.getDashboardStats(habitatId, "30d") as any;
-    cycleTimeTrend = roundedRatioChange(
-      dashboardStats?.summary?.averageCycleTimeMinutes ?? 0,
-      baselineStats?.summary?.averageCycleTimeMinutes ?? 0,
-    );
-    throughputTrend = roundedRatioChange(
-      sumThroughput(dashboardStats) / 7,
-      sumThroughput(baselineStats) / 30,
-    );
+    const trends = trendService.getHabitatTrends(habitatId, 7).trends;
+    cycleTimeTrend = legacyTrendValue(trends.find((trend) => trend.metric === "cycle_time"));
+    throughputTrend = legacyTrendValue(trends.find((trend) => trend.metric === "throughput"));
 
     if (dashboardStats?.wipHealth) {
       const wipValues = getWipHealthValues(dashboardStats.wipHealth);

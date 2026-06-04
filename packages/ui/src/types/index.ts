@@ -438,15 +438,54 @@ export interface VelocityMetrics {
   perAgent: Record<string, { days7: number; days14: number; days30: number; agentName: string }>;
 }
 
+export type ForecastConfidence = "high" | "medium" | "low" | "insufficient_data";
+
+export interface ForecastReason {
+  code:
+    | "small_sample"
+    | "no_recent_velocity"
+    | "blocked_dependencies"
+    | "unstable_rejection_rate"
+    | "missing_estimates"
+    | "effort_overlap"
+    | "overdue"
+    | "stable_history";
+  message: string;
+  severity: "info" | "warning" | "critical";
+}
+
+export interface ForecastEstimate {
+  targetType: "task" | "mission" | "sprint";
+  targetId: string;
+  estimatedCompletionAt: string | null;
+  earliestCompletionAt: string | null;
+  latestCompletionAt: string | null;
+  confidence: ForecastConfidence;
+  confidenceScore: number;
+  reasons: ForecastReason[];
+  sampleSize: number;
+  basis: "throughput" | "logged_effort" | "inferred_presence" | "hybrid";
+}
+
 export interface TaskEstimate {
+  targetType: "task";
+  targetId: string;
   taskId: string;
+  missionId: string;
   taskTitle: string;
   status: TaskStatus;
   priority: TaskPriority;
   assignedAgentId: string | null;
   dueAt: string | null;
   estimatedCompletionAt: string | null;
-  confidence: "high" | "medium" | "low";
+  earliestCompletionAt: string | null;
+  latestCompletionAt: string | null;
+  confidence: ForecastConfidence;
+  confidenceScore: number;
+  confidenceReasons: string[];
+  reasons: ForecastReason[];
+  sampleSize: number;
+  basis: ForecastEstimate["basis"];
   positionInQueue: number;
   daysUntilDue: number | null;
   daysUntilEstimated: number | null;
@@ -466,6 +505,7 @@ export interface AtRiskTask {
 export interface PredictionResponse {
   velocity: VelocityMetrics;
   estimates: TaskEstimate[];
+  forecasts: ForecastEstimate[];
   atRiskTasks: AtRiskTask[];
 }
 
