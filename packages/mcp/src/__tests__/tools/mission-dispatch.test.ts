@@ -7,7 +7,7 @@ describe("MISSION_DISPATCH_TOOL", () => {
     expect(MISSION_DISPATCH_TOOL.name).toBe("orcy_habitat_mission");
   });
 
-  it("includes all 15 actions in the enum", () => {
+  it("includes all 16 actions in the enum", () => {
     const actionProp = MISSION_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
@@ -27,6 +27,7 @@ describe("MISSION_DISPATCH_TOOL", () => {
       "clear-not-applicable",
       "report-gap",
       "resolve-gap",
+      "get-audit-bundle",
     ]);
   });
 
@@ -60,8 +61,8 @@ describe("MISSION_ACTIONS", () => {
     expect(MISSION_ACTIONS["get-context"]).toBe(mission.missionGetContext);
   });
 
-  it("has exactly 15 actions", () => {
-    expect(Object.keys(MISSION_ACTIONS)).toHaveLength(15);
+  it("has exactly 16 actions", () => {
+    expect(Object.keys(MISSION_ACTIONS)).toHaveLength(16);
   });
 
   it("every action maps to a function", () => {

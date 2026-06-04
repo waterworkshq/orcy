@@ -1,5 +1,5 @@
-import { vi } from 'vitest';
-import type { KanbanApiClient } from '../../api.js';
+import { vi } from "vitest";
+import type { KanbanApiClient } from "../../api.js";
 
 export function createMockClient() {
   return {
@@ -46,8 +46,10 @@ export function createMockClient() {
     getHabitatSettings: vi.fn(),
     updateHabitatSettings: vi.fn(),
     getAgentStats: vi.fn(),
+    getTaskAuditBundle: vi.fn(),
+    getMissionAuditBundle: vi.fn(),
     getWorktree: vi.fn(),
-    getBaseUrl: vi.fn().mockReturnValue('http://localhost:3000'),
+    getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
     retryTask: vi.fn(),
     batchAssignTasks: vi.fn(),
     batchSetTaskPriority: vi.fn(),

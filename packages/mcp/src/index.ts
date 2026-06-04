@@ -108,7 +108,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   try {
-    const result = await handler(client, args as Record<string, unknown>);
+    const action =
+      typeof (args as Record<string, unknown>).action === "string"
+        ? ((args as Record<string, unknown>).action as string)
+        : undefined;
+    const result = await client.withAuditToolContext(name, action, () =>
+      handler(client, args as Record<string, unknown>),
+    );
     return result;
   } catch (err) {
     const error = err as Error & { status?: number };

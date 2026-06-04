@@ -43,12 +43,13 @@ import {
   habitatReportTaskEvidenceGap,
   habitatResolveTaskEvidenceGap,
 } from "./code-evidence.js";
+import { habitatGetTaskAuditBundle } from "./audit.js";
 import { PRIORITY_LEVELS, ARTIFACT_TYPES } from "./constants.js";
 
 export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_task",
   description:
-    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap)",
+    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle)",
   actions: [
     "list-in-mission",
     "create-in-mission",
@@ -85,6 +86,7 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     "list-effort",
     "get-effort-report",
     "correct-effort-entry",
+    "get-audit-bundle",
   ],
   sharedParams: {
     taskId: { type: "string", description: "Task UUID (used with most task actions)" },
@@ -284,6 +286,10 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "boolean",
       description: "Include correction records in listing (action=list-effort)",
     },
+    includeHealthSnapshots: {
+      type: "boolean",
+      description: "Include habitat health snapshots in audit evidence bundles",
+    },
   },
 });
 
@@ -323,6 +329,7 @@ export const TASK_ACTIONS: Record<string, Handler> = {
   "list-effort": habitatListEffort,
   "get-effort-report": habitatGetEffortReport,
   "correct-effort-entry": habitatCorrectEffortEntry,
+  "get-audit-bundle": habitatGetTaskAuditBundle,
 };
 
 const TASK_REQUIRED_PARAMS: Record<string, string[]> = {
@@ -341,6 +348,7 @@ const TASK_REQUIRED_PARAMS: Record<string, string[]> = {
   "create-subtask": ["taskId", "title"],
   "update-quality-checklist-item": ["taskId", "checklistId", "itemId"],
   submit: ["taskId", "result"],
+  "get-audit-bundle": ["taskId"],
 };
 
 export const TASK_DISPATCH_HANDLER = createDispatchHandler(TASK_ACTIONS, TASK_REQUIRED_PARAMS);

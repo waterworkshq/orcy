@@ -19,12 +19,13 @@ import {
   habitatReportMissionEvidenceGap,
   habitatResolveMissionEvidenceGap,
 } from "./code-evidence.js";
+import { habitatGetMissionAuditBundle } from "./audit.js";
 import { PRIORITY_LEVELS } from "./constants.js";
 
 export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_mission",
   description:
-    "Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment, code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap)",
+    "Mission operations: list (with optional isArchived), create, delete, archive, unarchive, get-context, get-comments, add-comment, code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle)",
   actions: [
     "list",
     "create",
@@ -41,6 +42,7 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
     "clear-not-applicable",
     "report-gap",
     "resolve-gap",
+    "get-audit-bundle",
   ],
   sharedParams: {
     boardId: { type: "string", description: "Habitat UUID (used with action=list, action=create)" },
@@ -171,6 +173,10 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "string",
       description: "Resolution reason (action=resolve-gap)",
     },
+    includeHealthSnapshots: {
+      type: "boolean",
+      description: "Include habitat health snapshots in audit evidence bundles",
+    },
   },
 });
 
@@ -190,6 +196,7 @@ export const MISSION_ACTIONS: Record<string, Handler> = {
   "clear-not-applicable": habitatClearMissionEvidenceNotApplicable,
   "report-gap": habitatReportMissionEvidenceGap,
   "resolve-gap": habitatResolveMissionEvidenceGap,
+  "get-audit-bundle": habitatGetMissionAuditBundle,
 };
 
 const MISSION_REQUIRED_PARAMS: Record<string, string[]> = {
@@ -207,6 +214,7 @@ const MISSION_REQUIRED_PARAMS: Record<string, string[]> = {
   "clear-not-applicable": ["missionId"],
   "report-gap": ["missionId", "gapReasonCode"],
   "resolve-gap": ["missionId", "gapId", "resolutionReason"],
+  "get-audit-bundle": ["missionId"],
 };
 
 export const MISSION_DISPATCH_HANDLER = createDispatchHandler(

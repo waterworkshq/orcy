@@ -46,8 +46,16 @@ import type {
   PostPulseResponse,
   ListPulsesResponse,
 } from "./types.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "./logger.js";
 import { getOrcyConfig, normalizeTaskId, normalizeMissionId, createApiClient } from "@orcy/shared";
+
+interface McpAuditToolContext {
+  toolName: string;
+  action?: string;
+}
+
+const mcpAuditToolStorage = new AsyncLocalStorage<McpAuditToolContext>();
 
 export { ApiClientError as KanbanApiError } from "@orcy/shared";
 
@@ -96,11 +104,25 @@ export class KanbanApiClient {
     };
   }
 
+  withAuditToolContext<T>(toolName: string, action: string | undefined, callback: () => T): T {
+    return mcpAuditToolStorage.run({ toolName, action }, callback);
+  }
+
+  private getAuditHeaders(): Record<string, string> {
+    const context = mcpAuditToolStorage.getStore();
+    if (!context) return {};
+    return {
+      "X-Orcy-Audit-Source": "mcp_tool",
+      "X-Orcy-MCP-Tool": context.toolName,
+      ...(context.action ? { "X-Orcy-MCP-Action": context.action } : {}),
+    };
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const { apiKey } = this.getCredentials();
     return this.transport.request<T>(method, path, {
       body,
-      headers: { "X-Agent-API-Key": apiKey },
+      headers: { "X-Agent-API-Key": apiKey, ...this.getAuditHeaders() },
     });
   }
 
@@ -484,6 +506,7 @@ export class KanbanApiClient {
     const url = `${this.baseUrl}/api/tasks/${taskId}/claim`;
     const headers: Record<string, string> = {
       "X-Agent-API-Key": apiKey,
+      ...this.getAuditHeaders(),
     };
     const startTime = Date.now();
     logger.debug("http_request", { method: "POST", url });
@@ -821,6 +844,16 @@ export class KanbanApiClient {
       actorType?: string;
       actorId?: string;
       entityTypes?: string;
+      entityType?: string;
+      entityId?: string;
+      taskId?: string;
+      missionId?: string;
+      source?: string;
+      provider?: string;
+      preset?: string;
+      includeProvenance?: boolean;
+      includeIntegrity?: boolean;
+      includeHealthSnapshots?: boolean;
     },
   ): Promise<string> {
     const params = new URLSearchParams({ format: options.format });
@@ -830,6 +863,16 @@ export class KanbanApiClient {
     if (options.actorType) params.set("actorType", options.actorType);
     if (options.actorId) params.set("actorId", options.actorId);
     if (options.entityTypes) params.set("entityTypes", options.entityTypes);
+    if (options.entityType) params.set("entityType", options.entityType);
+    if (options.entityId) params.set("entityId", options.entityId);
+    if (options.taskId) params.set("taskId", options.taskId);
+    if (options.missionId) params.set("missionId", options.missionId);
+    if (options.source) params.set("source", options.source);
+    if (options.provider) params.set("provider", options.provider);
+    if (options.preset) params.set("preset", options.preset);
+    if (options.includeProvenance) params.set("includeProvenance", "true");
+    if (options.includeIntegrity) params.set("includeIntegrity", "true");
+    if (options.includeHealthSnapshots) params.set("includeHealthSnapshots", "true");
 
     return this.request<string>(
       "GET",
@@ -849,6 +892,34 @@ export class KanbanApiClient {
     return this.request<Record<string, unknown>>(
       "GET",
       `/api/habitats/${boardId}/audit/summary${qs ? `?${qs}` : ""}`,
+    );
+  }
+
+  async getTaskAuditBundle(
+    taskId: string,
+    options?: { includeHealthSnapshots?: boolean },
+  ): Promise<Record<string, unknown>> {
+    taskId = normalizeTaskId(taskId);
+    const params = new URLSearchParams();
+    if (options?.includeHealthSnapshots) params.set("includeHealthSnapshots", "true");
+    const qs = params.toString();
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/tasks/${taskId}/audit/bundle${qs ? `?${qs}` : ""}`,
+    );
+  }
+
+  async getMissionAuditBundle(
+    missionId: string,
+    options?: { includeHealthSnapshots?: boolean },
+  ): Promise<Record<string, unknown>> {
+    missionId = normalizeMissionId(missionId);
+    const params = new URLSearchParams();
+    if (options?.includeHealthSnapshots) params.set("includeHealthSnapshots", "true");
+    const qs = params.toString();
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/missions/${missionId}/audit/bundle${qs ? `?${qs}` : ""}`,
     );
   }
 
