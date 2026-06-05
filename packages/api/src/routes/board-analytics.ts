@@ -11,6 +11,7 @@ import * as predictionService from "../services/predictionService.js";
 import * as habitatSummaryService from "../services/boardSummaryService.js";
 import * as cumulativeFlowService from "../services/cumulativeFlowService.js";
 import * as bottleneckService from "../services/bottleneckService.js";
+import * as agentQualityService from "../services/agentQualityService.js";
 import { notFound } from "../errors.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
@@ -161,6 +162,28 @@ export async function habitatAnalyticsRoutes(fastify: FastifyInstance): Promise<
       }
       const days = request.query.days ?? 30;
       return bottleneckService.getBottlenecks(request.params.habitatId, days);
+    },
+  );
+
+  /** GET /habitats/:habitatId/agent-quality - Get informational agent quality signals. Auth: agentOrHumanAuth + board access. Query: ?agentId=... */
+  fastify.withTypeProvider<ZodTypeProvider>().get(
+    "/habitats/:habitatId/agent-quality",
+    {
+      schema: {
+        params: habitatIdParamsSchema,
+        querystring: z.object({ agentId: z.string().optional() }),
+      },
+      preHandler: [agentOrHumanAuth, requireHabitatAccess],
+    },
+    async (request, _reply) => {
+      const result = habitatService.getHabitat(request.params.habitatId);
+      if (!result) {
+        throw notFound("Habitat not found");
+      }
+      return agentQualityService.getAgentQualitySignals(
+        request.params.habitatId,
+        request.query.agentId,
+      );
     },
   );
 

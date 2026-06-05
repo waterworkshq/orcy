@@ -668,6 +668,29 @@ export interface SprintCarryOverReport {
   warnings: AnalyticsWarning[];
 }
 
+export interface AgentQualitySignal {
+  agentId: string;
+  agentName: string;
+  score: number | null;
+  confidence: AnalyticsConfidence;
+  sampleSize: number;
+  dimensions: {
+    approval: number | null;
+    rejection: number | null;
+    consistency: number | null;
+    cycleReliability: number | null;
+    estimateAccuracy: number | null;
+    evidenceCompleteness: number | null;
+  };
+  warnings: string[];
+}
+
+export interface AgentQualityResponse {
+  habitatId: string;
+  generatedAt: string;
+  signals: AgentQualitySignal[];
+}
+
 export interface Notification {
   id: string;
   type: string;

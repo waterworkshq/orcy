@@ -5,6 +5,7 @@ import * as taskDetail from "../../tools/task-detail.js";
 import * as lifecycleGaps from "../../tools/lifecycle-gaps.js";
 import * as subtask from "../../tools/subtask.js";
 import * as mission from "../../tools/mission.js";
+import * as audit from "../../tools/audit.js";
 import { TASK_DISPATCH_TOOL, TASK_ACTIONS } from "../../tools/task-dispatch.js";
 
 describe("TASK_DISPATCH_TOOL", () => {
@@ -12,7 +13,7 @@ describe("TASK_DISPATCH_TOOL", () => {
     expect(TASK_DISPATCH_TOOL.name).toBe("orcy_habitat_task");
   });
 
-  it("includes all 35 actions in the enum", () => {
+  it("includes all 36 actions in the enum", () => {
     const actionProp = TASK_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
@@ -52,6 +53,7 @@ describe("TASK_DISPATCH_TOOL", () => {
       "list-effort",
       "get-effort-report",
       "correct-effort-entry",
+      "get-audit-bundle",
     ]);
   });
 
@@ -177,8 +179,14 @@ describe("TASK_ACTIONS", () => {
     });
   });
 
-  it("has exactly 35 actions", () => {
-    expect(Object.keys(TASK_ACTIONS)).toHaveLength(35);
+  describe("audit actions", () => {
+    it("routes get-audit-bundle to habitatGetTaskAuditBundle", () => {
+      expect(TASK_ACTIONS["get-audit-bundle"]).toBe(audit.habitatGetTaskAuditBundle);
+    });
+  });
+
+  it("has exactly 36 actions", () => {
+    expect(Object.keys(TASK_ACTIONS)).toHaveLength(36);
   });
 
   it("every action maps to a function", () => {
@@ -193,6 +201,6 @@ describe("TASK_ACTIONS", () => {
       "new-action": () => {},
     };
     expect(extendedActions["new-action"]).toBeDefined();
-    expect(Object.keys(extendedActions)).toHaveLength(36);
+    expect(Object.keys(extendedActions)).toHaveLength(37);
   });
 });

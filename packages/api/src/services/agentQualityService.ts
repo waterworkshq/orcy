@@ -1,0 +1,272 @@
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { getDb } from "../db/index.js";
+import {
+  agents,
+  codeEvidenceCompleteness,
+  codeEvidenceGaps,
+  codeEvidenceLinks,
+  missions,
+  taskEvents,
+  tasks,
+} from "../db/schema/index.js";
+import * as effortRepo from "../repositories/effortEntry.js";
+
+export type AgentQualityConfidence = "high" | "medium" | "low" | "insufficient_data";
+
+export interface AgentQualityInputs {
+  agentId: string;
+  agentName: string;
+  completedTasks: number;
+  approvedEvents: number;
+  rejectedEvents: number;
+  totalRejections: number;
+  cycleTimeSamples: number[];
+  estimateAccuracySamples: number[];
+  evidenceCompletenessSamples: Array<0 | 0.5 | 1>;
+}
+
+export interface AgentQualitySignal {
+  agentId: string;
+  agentName: string;
+  score: number | null;
+  confidence: AgentQualityConfidence;
+  sampleSize: number;
+  dimensions: {
+    approval: number | null;
+    rejection: number | null;
+    consistency: number | null;
+    cycleReliability: number | null;
+    estimateAccuracy: number | null;
+    evidenceCompleteness: number | null;
+  };
+  warnings: string[];
+}
+
+export interface AgentQualityResponse {
+  habitatId: string;
+  generatedAt: string;
+  signals: AgentQualitySignal[];
+}
+
+const COMPLETE_STATUSES = ["approved", "done"] as const;
+
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function confidenceForSample(sampleSize: number): AgentQualityConfidence {
+  if (sampleSize <= 2) return "insufficient_data";
+  if (sampleSize <= 9) return "low";
+  if (sampleSize <= 29) return "medium";
+  return "high";
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function standardDeviation(values: number[]): number | null {
+  const avg = average(values);
+  if (avg === null || values.length < 2) return null;
+  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function cycleMinutes(task: {
+  cycleTimeMinutes: number | null;
+  claimedAt: string | null;
+  completedAt: string | null;
+}): number | null {
+  if (task.cycleTimeMinutes !== null && task.cycleTimeMinutes >= 0) return task.cycleTimeMinutes;
+  if (!task.claimedAt || !task.completedAt) return null;
+  const start = new Date(task.claimedAt).getTime();
+  const end = new Date(task.completedAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return Math.round((end - start) / 60_000);
+}
+
+function estimateAccuracyScore(actualMinutes: number, estimatedMinutes: number): number {
+  if (estimatedMinutes <= 0) return 0;
+  const ratio = actualMinutes / estimatedMinutes;
+  return round(Math.max(0, 1 - Math.abs(ratio - 1)));
+}
+
+function evidenceSampleForTask(taskId: string): 0 | 0.5 | 1 {
+  const db = getDb();
+  const activeLink = db
+    .select({ id: codeEvidenceLinks.id })
+    .from(codeEvidenceLinks)
+    .where(
+      and(
+        eq(codeEvidenceLinks.targetType, "task"),
+        eq(codeEvidenceLinks.targetId, taskId),
+        eq(codeEvidenceLinks.status, "active"),
+      ),
+    )
+    .get();
+  if (activeLink) return 1;
+
+  const completeness = db
+    .select({ status: codeEvidenceCompleteness.status })
+    .from(codeEvidenceCompleteness)
+    .where(
+      and(
+        eq(codeEvidenceCompleteness.targetType, "task"),
+        eq(codeEvidenceCompleteness.targetId, taskId),
+      ),
+    )
+    .get();
+  if (completeness?.status === "complete" || completeness?.status === "not_applicable") return 1;
+  if (completeness?.status === "partial") return 0.5;
+
+  const activeGap = db
+    .select({ id: codeEvidenceGaps.id })
+    .from(codeEvidenceGaps)
+    .where(
+      and(
+        eq(codeEvidenceGaps.targetType, "task"),
+        eq(codeEvidenceGaps.targetId, taskId),
+        eq(codeEvidenceGaps.status, "active"),
+      ),
+    )
+    .get();
+  return activeGap ? 0 : 0;
+}
+
+export function getAgentQualityInputs(habitatId: string, agentId?: string): AgentQualityInputs[] {
+  const db = getDb();
+  const agentQuery = db.select({ id: agents.id, name: agents.name }).from(agents);
+  const agentRows = agentId ? agentQuery.where(eq(agents.id, agentId)).all() : agentQuery.all();
+
+  return agentRows.map((agent) => {
+    const assignedTasks = db
+      .select({
+        id: tasks.id,
+        status: tasks.status,
+        rejectedCount: tasks.rejectedCount,
+        estimatedMinutes: tasks.estimatedMinutes,
+        cycleTimeMinutes: tasks.cycleTimeMinutes,
+        claimedAt: tasks.claimedAt,
+        completedAt: tasks.completedAt,
+      })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(and(eq(missions.habitatId, habitatId), eq(tasks.assignedAgentId, agent.id)))
+      .all();
+    const completedTasks = assignedTasks.filter((task) =>
+      COMPLETE_STATUSES.includes(task.status as "approved" | "done"),
+    );
+    const taskIds = assignedTasks.map((task) => task.id);
+
+    const eventRows = taskIds.length
+      ? db
+          .select({ action: taskEvents.action, count: sql<number>`count(*)` })
+          .from(taskEvents)
+          .where(
+            and(
+              inArray(taskEvents.taskId, taskIds),
+              inArray(taskEvents.action, ["approved", "rejected"]),
+            ),
+          )
+          .groupBy(taskEvents.action)
+          .all()
+      : [];
+    const approvedEvents = eventRows.find((row) => row.action === "approved")?.count ?? 0;
+    const rejectedEvents = eventRows.find((row) => row.action === "rejected")?.count ?? 0;
+    const totalRejections =
+      assignedTasks.reduce((sum, task) => sum + task.rejectedCount, 0) + rejectedEvents;
+
+    const cycleTimeSamples = completedTasks
+      .map(cycleMinutes)
+      .filter((value): value is number => value !== null && value >= 0);
+    const estimateAccuracySamples = completedTasks
+      .map((task) => {
+        if (!task.estimatedMinutes) return null;
+        const totals = effortRepo.getEffortTotalsForTask(task.id);
+        const correctedLogged = totals.loggedEffortMinutes + totals.correctionAdjustmentMinutes;
+        const actual = correctedLogged > 0 ? correctedLogged : totals.inferredPresenceMinutes;
+        return actual > 0 ? estimateAccuracyScore(actual, task.estimatedMinutes) : null;
+      })
+      .filter((value): value is number => value !== null);
+    const evidenceCompletenessSamples = completedTasks.map((task) =>
+      evidenceSampleForTask(task.id),
+    );
+
+    return {
+      agentId: agent.id,
+      agentName: agent.name,
+      completedTasks: completedTasks.length,
+      approvedEvents,
+      rejectedEvents,
+      totalRejections,
+      cycleTimeSamples,
+      estimateAccuracySamples,
+      evidenceCompletenessSamples,
+    };
+  });
+}
+
+export function buildAgentQualitySignal(inputs: AgentQualityInputs): AgentQualitySignal {
+  const sampleSize = inputs.completedTasks;
+  const confidence = confidenceForSample(sampleSize);
+  const reviewEvents = inputs.approvedEvents + inputs.rejectedEvents;
+  const approval = reviewEvents > 0 ? round(inputs.approvedEvents / reviewEvents) : null;
+  const rejection = reviewEvents > 0 ? round(1 - inputs.rejectedEvents / reviewEvents) : null;
+  const avgCycle = average(inputs.cycleTimeSamples);
+  const cycleStdDev = standardDeviation(inputs.cycleTimeSamples);
+  const consistency =
+    avgCycle !== null && cycleStdDev !== null && avgCycle > 0
+      ? round(Math.max(0, 1 - Math.min(cycleStdDev / avgCycle, 1)))
+      : null;
+  const cycleReliability =
+    sampleSize > 0 ? round(inputs.cycleTimeSamples.length / sampleSize) : null;
+  const estimateAccuracy = average(inputs.estimateAccuracySamples);
+  const evidenceCompleteness = average(inputs.evidenceCompletenessSamples);
+  const dimensions = {
+    approval,
+    rejection,
+    consistency,
+    cycleReliability,
+    estimateAccuracy: estimateAccuracy === null ? null : round(estimateAccuracy),
+    evidenceCompleteness: evidenceCompleteness === null ? null : round(evidenceCompleteness),
+  };
+  const warnings: string[] = [];
+  if (confidence === "insufficient_data") {
+    warnings.push("Low confidence: not enough completed work yet.");
+  }
+  if (reviewEvents === 0)
+    warnings.push("No approval/rejection review events found in this sample.");
+  if (inputs.estimateAccuracySamples.length === 0) {
+    warnings.push("Estimate accuracy is unavailable because effort or estimate data is missing.");
+  }
+  if (dimensions.evidenceCompleteness !== null && dimensions.evidenceCompleteness < 0.8) {
+    warnings.push("Code evidence completeness is below the target range for this sample.");
+  }
+  if (inputs.totalRejections >= 3 || (rejection !== null && rejection < 0.7)) {
+    warnings.push("High rejection rate in recent sample.");
+  }
+
+  const scoreInputs = Object.values(dimensions).filter((value): value is number => value !== null);
+  const score =
+    confidence === "insufficient_data" || scoreInputs.length === 0
+      ? null
+      : round(average(scoreInputs)!);
+  return {
+    agentId: inputs.agentId,
+    agentName: inputs.agentName,
+    score,
+    confidence,
+    sampleSize,
+    dimensions,
+    warnings,
+  };
+}
+
+export function getAgentQualitySignals(habitatId: string, agentId?: string): AgentQualityResponse {
+  const inputs = getAgentQualityInputs(habitatId, agentId);
+  const signals = inputs
+    .map(buildAgentQualitySignal)
+    .toSorted((a, b) => a.agentName.localeCompare(b.agentName));
+  return { habitatId, generatedAt: new Date().toISOString(), signals };
+}

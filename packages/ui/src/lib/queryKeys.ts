@@ -12,6 +12,8 @@ export const queryKeys = {
       [...queryKeys.habitats.all, "cumulativeFlow", habitatId] as const,
     bottlenecks: (habitatId: string) =>
       [...queryKeys.habitats.all, "bottlenecks", habitatId] as const,
+    agentQuality: (habitatId: string) =>
+      [...queryKeys.habitats.all, "agentQuality", habitatId] as const,
     anomalies: (habitatId: string) => [...queryKeys.habitats.all, "anomalies", habitatId] as const,
     capacity: (habitatId: string) => [...queryKeys.habitats.all, "capacity", habitatId] as const,
     metrics: (habitatId: string) => [...queryKeys.habitats.all, "metrics", habitatId] as const,

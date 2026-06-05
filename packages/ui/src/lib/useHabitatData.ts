@@ -187,6 +187,15 @@ export function useBottlenecks(boardId: string | undefined, days?: number) {
   });
 }
 
+export function useAgentQuality(boardId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.habitats.agentQuality(boardId ?? ""),
+    queryFn: () => api.habitats.agentQuality(boardId!),
+    enabled: !!boardId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useSprintMetrics(sprintId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.sprints.metrics(sprintId ?? ""),

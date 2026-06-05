@@ -937,6 +937,24 @@ export class KanbanApiClient {
     );
   }
 
+  async getHabitatPredictions(boardId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/predictions`);
+  }
+
+  async getHabitatBottlenecks(boardId: string, days?: number): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams();
+    if (days) params.set("days", String(days));
+    const qs = params.toString();
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/habitats/${boardId}/bottlenecks${qs ? `?${qs}` : ""}`,
+    );
+  }
+
+  async getHabitatAgentQuality(boardId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/agent-quality`);
+  }
+
   async listSubtasks(taskId: string): Promise<ListSubtasksResponse> {
     taskId = normalizeTaskId(taskId);
     return this.request<ListSubtasksResponse>("GET", `/api/tasks/${taskId}/subtasks`);
@@ -1742,6 +1760,18 @@ export class KanbanApiClient {
 
   async getSprint(sprintId: string): Promise<{ sprint: Sprint }> {
     return this.request<{ sprint: Sprint }>("GET", `/api/sprints/${sprintId}`);
+  }
+
+  async getSprintMetrics(sprintId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("GET", `/api/sprints/${sprintId}/metrics`);
+  }
+
+  async getSprintBurndown(sprintId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("GET", `/api/sprints/${sprintId}/burndown`);
+  }
+
+  async getSprintCarryOver(sprintId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>("GET", `/api/sprints/${sprintId}/carry-over`);
   }
 
   async createSprint(habitatId: string, input: SprintCreateInput): Promise<{ sprint: Sprint }> {

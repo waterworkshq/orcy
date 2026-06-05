@@ -80,6 +80,7 @@ import type {
   CumulativeFlowResponse,
   SprintCarryOverReport,
   SprintMetricsV2,
+  AgentQualityResponse,
 } from "../types/index.js";
 
 const BASE = "/api";
@@ -297,6 +298,8 @@ export const api = {
       request<CumulativeFlowResponse>(`/habitats/${boardId}/cumulative-flow?days=${days ?? 30}`),
     bottlenecks: (boardId: string, days?: number) =>
       request<BottleneckResponse>(`/habitats/${boardId}/bottlenecks?days=${days ?? 30}`),
+    agentQuality: (boardId: string) =>
+      request<AgentQualityResponse>(`/habitats/${boardId}/agent-quality`),
     tasks: (
       boardId: string,
       filters?: {

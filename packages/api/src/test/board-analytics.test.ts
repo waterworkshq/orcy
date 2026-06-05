@@ -56,9 +56,9 @@ describe("habitatAnalyticsRoutes", () => {
     expect(habitatAnalyticsRoutes.name).toBe("habitatAnalyticsRoutes");
   });
 
-  it("registers 8 analytics endpoints", () => {
+  it("registers 9 analytics endpoints", () => {
     const routes = captureAnalyticsRoutes();
-    expect(routes).toHaveLength(8);
+    expect(routes).toHaveLength(9);
   });
 
   it("registers GET /habitats/:habitatId/stats", () => {
@@ -99,6 +99,11 @@ describe("habitatAnalyticsRoutes", () => {
   it("registers GET /habitats/:habitatId/bottlenecks", () => {
     const routes = captureAnalyticsRoutes();
     expect(routes.find((r) => r.path === "/habitats/:habitatId/bottlenecks")).toBeDefined();
+  });
+
+  it("registers GET /habitats/:habitatId/agent-quality", () => {
+    const routes = captureAnalyticsRoutes();
+    expect(routes.find((r) => r.path === "/habitats/:habitatId/agent-quality")).toBeDefined();
   });
 
   it("all analytics endpoints have auth + habitat access preHandlers", () => {
@@ -148,5 +153,10 @@ describe("habitats.ts no longer contains analytics handlers", () => {
   it("does not register /habitats/:habitatId/bottlenecks", () => {
     const routes = captureHabitatRoutes();
     expect(routes.find((r) => r.path === "/habitats/:habitatId/bottlenecks")).toBeUndefined();
+  });
+
+  it("does not register /habitats/:habitatId/agent-quality", () => {
+    const routes = captureHabitatRoutes();
+    expect(routes.find((r) => r.path === "/habitats/:habitatId/agent-quality")).toBeUndefined();
   });
 });

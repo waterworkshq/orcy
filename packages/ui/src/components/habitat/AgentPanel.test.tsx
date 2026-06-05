@@ -7,6 +7,7 @@ import { AgentPanel } from "./AgentPanel.js";
 
 const mockAgentsListWithTasks = vi.fn();
 const mockAgentStats = vi.fn();
+const mockAgentQuality = vi.fn();
 const mockApiDelete = vi.fn();
 const mockRemoveAgent = vi.fn();
 const mockInvalidateQueries = vi.fn();
@@ -25,6 +26,7 @@ vi.mock("../../store/habitatStore.js", () => ({
 vi.mock("../../lib/useHabitatData.js", () => ({
   useAgentsListWithTasks: (...args: unknown[]) => mockAgentsListWithTasks(...args),
   useAgentStats: (...args: unknown[]) => mockAgentStats(...args),
+  useAgentQuality: (...args: unknown[]) => mockAgentQuality(...args),
 }));
 
 vi.mock("../../api/index.js", () => ({
@@ -178,6 +180,7 @@ describe("AgentPanel", () => {
       },
       isLoading: false,
     });
+    mockAgentQuality.mockReturnValue({ data: { signals: [] }, isLoading: false, error: null });
     mockApiDelete.mockResolvedValue(undefined);
     mockInvalidateQueries.mockResolvedValue(undefined);
   });
@@ -213,6 +216,7 @@ describe("AgentPanel", () => {
   it("calls useAgentsListWithTasks with board id", () => {
     renderWithQC(<AgentPanel onClose={vi.fn()} />);
     expect(mockAgentsListWithTasks).toHaveBeenCalledWith("board-1");
+    expect(mockAgentQuality).toHaveBeenCalledWith("board-1");
   });
 
   it("calls useAgentStats per agent", () => {

@@ -112,3 +112,33 @@ describe("KanbanApiClient audit exports", () => {
     );
   });
 });
+
+describe("KanbanApiClient analytics endpoints", () => {
+  it("calls habitat analytics endpoints with concise query params", async () => {
+    const { client, request } = createClientWithRequestSpy();
+
+    await client.getHabitatPredictions("habitat-1");
+    await client.getHabitatBottlenecks("habitat-1", 14);
+    await client.getHabitatAgentQuality("habitat-1");
+
+    expect(request).toHaveBeenNthCalledWith(1, "GET", "/api/habitats/habitat-1/predictions");
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "GET",
+      "/api/habitats/habitat-1/bottlenecks?days=14",
+    );
+    expect(request).toHaveBeenNthCalledWith(3, "GET", "/api/habitats/habitat-1/agent-quality");
+  });
+
+  it("calls sprint analytics endpoints", async () => {
+    const { client, request } = createClientWithRequestSpy();
+
+    await client.getSprintMetrics("sprint-1");
+    await client.getSprintBurndown("sprint-1");
+    await client.getSprintCarryOver("sprint-1");
+
+    expect(request).toHaveBeenNthCalledWith(1, "GET", "/api/sprints/sprint-1/metrics");
+    expect(request).toHaveBeenNthCalledWith(2, "GET", "/api/sprints/sprint-1/burndown");
+    expect(request).toHaveBeenNthCalledWith(3, "GET", "/api/sprints/sprint-1/carry-over");
+  });
+});
