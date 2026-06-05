@@ -448,6 +448,42 @@ export const habitatHealthSnapshots = sqliteTable(
   ],
 );
 
+export const cumulativeFlowSnapshots = sqliteTable(
+  "cumulative_flow_snapshots",
+  {
+    id: text("id").primaryKey(),
+    habitatId: text("habitat_id")
+      .notNull()
+      .references(() => habitats.id, { onDelete: "cascade" }),
+    snapshotDate: text("snapshot_date").notNull(),
+    countsByColumn: text("counts_by_column", { mode: "json" })
+      .$type<Record<string, number>>()
+      .notNull()
+      .$defaultFn(() => ({})),
+    countsByStatus: text("counts_by_status", { mode: "json" })
+      .$type<Record<string, number>>()
+      .notNull()
+      .$defaultFn(() => ({})),
+    source: text("source", { enum: ["generated", "backfilled", "current_state"] })
+      .notNull()
+      .default("generated"),
+    completeness: text("completeness", { enum: ["complete", "partial"] })
+      .notNull()
+      .default("complete"),
+    warnings: text("warnings", { mode: "json" })
+      .$type<Array<{ code: string; message: string; severity: "info" | "warning" | "critical" }>>()
+      .notNull()
+      .$defaultFn(() => []),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    uniqueIndex("idx_cumulative_flow_snapshot_unique").on(table.habitatId, table.snapshotDate),
+    index("idx_cumulative_flow_snapshots_habitat_date").on(table.habitatId, table.snapshotDate),
+  ],
+);
+
 export const sprints = sqliteTable(
   "sprints",
   {

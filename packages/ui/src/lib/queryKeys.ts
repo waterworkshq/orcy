@@ -8,6 +8,10 @@ export const queryKeys = {
     predictions: (habitatId: string) =>
       [...queryKeys.habitats.all, "predictions", habitatId] as const,
     burndown: (habitatId: string) => [...queryKeys.habitats.all, "burndown", habitatId] as const,
+    cumulativeFlow: (habitatId: string) =>
+      [...queryKeys.habitats.all, "cumulativeFlow", habitatId] as const,
+    bottlenecks: (habitatId: string) =>
+      [...queryKeys.habitats.all, "bottlenecks", habitatId] as const,
     anomalies: (habitatId: string) => [...queryKeys.habitats.all, "anomalies", habitatId] as const,
     capacity: (habitatId: string) => [...queryKeys.habitats.all, "capacity", habitatId] as const,
     metrics: (habitatId: string) => [...queryKeys.habitats.all, "metrics", habitatId] as const,
@@ -131,6 +135,9 @@ export const queryKeys = {
     list: (habitatId: string) => [...queryKeys.sprints.all, "list", habitatId] as const,
     active: (habitatId: string) => [...queryKeys.sprints.all, "active", habitatId] as const,
     detail: (sprintId: string) => [...queryKeys.sprints.all, "detail", sprintId] as const,
+    metrics: (sprintId: string) => [...queryKeys.sprints.all, "metrics", sprintId] as const,
+    burndown: (sprintId: string) => [...queryKeys.sprints.all, "burndown", sprintId] as const,
+    carryOver: (sprintId: string) => [...queryKeys.sprints.all, "carryOver", sprintId] as const,
   },
   reviewRules: {
     all: ["reviewRules"] as const,

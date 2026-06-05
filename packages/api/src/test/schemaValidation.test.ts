@@ -19,8 +19,8 @@ const tableNames = createTables
 const createIndexes = statements.filter((s) => /^CREATE\s+(UNIQUE\s+)?INDEX\b/i.test(s));
 
 describe("Unified schema (0000_schema.sql)", () => {
-  it("contains exactly 33 tables", () => {
-    expect(createTables.length).toBe(33);
+  it("contains exactly 34 tables", () => {
+    expect(createTables.length).toBe(34);
   });
 
   it("has all core tables", () => {
@@ -111,8 +111,17 @@ describe("Unified schema (0000_schema.sql)", () => {
     }
   });
 
-  it("has 75 indexes including unique indexes", () => {
-    expect(createIndexes.length).toBe(75);
+  it("has 77 indexes including unique indexes", () => {
+    expect(createIndexes.length).toBe(77);
+  });
+
+  it("has cumulative flow snapshots for analytics", () => {
+    const snapshotsCreate = createTables.find((s) => s.includes("`cumulative_flow_snapshots`"))!;
+    expect(snapshotsCreate).toContain("`counts_by_column` text NOT NULL DEFAULT '{}'");
+    expect(snapshotsCreate).toContain("`counts_by_status` text NOT NULL DEFAULT '{}'");
+    expect(snapshotsCreate).toContain("`warnings` text NOT NULL DEFAULT '[]'");
+    expect(schemaSql).toContain("`idx_cumulative_flow_snapshot_unique`");
+    expect(schemaSql).toContain("`idx_cumulative_flow_snapshots_habitat_date`");
   });
 
   it("has task transition indexes for analytics", () => {

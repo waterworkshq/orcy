@@ -580,6 +580,94 @@ export interface HabitatTimeMetrics {
   }[];
 }
 
+export type AnalyticsConfidence = "high" | "medium" | "low" | "insufficient_data";
+
+export interface AnalyticsWarning {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+}
+
+export interface CumulativeFlowPoint {
+  date: string;
+  countsByColumn: Record<string, number>;
+  countsByStatus: Record<string, number>;
+  source?: string;
+  completeness?: string;
+  warnings?: AnalyticsWarning[];
+}
+
+export interface CumulativeFlowResponse {
+  habitatId: string;
+  days: number;
+  generatedAt: string;
+  columns: Array<{ columnId: string; name: string; order: number }>;
+  data: CumulativeFlowPoint[];
+  warnings: AnalyticsWarning[];
+}
+
+export interface BottleneckFinding {
+  columnId?: string;
+  columnName?: string;
+  missionId?: string;
+  severity: "low" | "medium" | "high" | "critical";
+  signal:
+    | "accumulation"
+    | "dwell_time"
+    | "wip_exceeded"
+    | "blocked_dependencies"
+    | "backlog_growth";
+  confidence: AnalyticsConfidence;
+  summary: string;
+  evidence: Record<string, unknown>;
+  recommendation: string;
+}
+
+export interface BottleneckResponse {
+  habitatId: string;
+  days: number;
+  generatedAt: string;
+  findings: BottleneckFinding[];
+  warnings: AnalyticsWarning[];
+}
+
+export interface SprintMetricsV2 {
+  sprintId: string;
+  totalMissions: number;
+  completedMissions: number;
+  completionPercentage: number;
+  totalTasks: number;
+  completedTasks: number;
+  velocity: number;
+  remainingDays: number;
+  isOnTrack: boolean;
+  plannedMinutes: number | null;
+  loggedEffortMinutes: number;
+  inferredPresenceMinutes: number;
+  carryOverCount: number;
+  forecast: ForecastEstimate | null;
+  warnings: AnalyticsWarning[];
+}
+
+export interface SprintCarryOverReason {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+}
+
+export interface SprintCarryOverReport {
+  sprintId: string;
+  generatedAt: string;
+  policy: "backlog" | "next_sprint" | "none";
+  carriedOverMissions: Array<{
+    missionId: string;
+    title: string;
+    status: string;
+    reasons: SprintCarryOverReason[];
+  }>;
+  warnings: AnalyticsWarning[];
+}
+
 export interface Notification {
   id: string;
   type: string;

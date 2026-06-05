@@ -76,6 +76,10 @@ import type {
   CodeEvidenceCompletenessInfo,
   CodeEvidenceGapItem,
   CodeEvidenceLinkItem,
+  BottleneckResponse,
+  CumulativeFlowResponse,
+  SprintCarryOverReport,
+  SprintMetricsV2,
 } from "../types/index.js";
 
 const BASE = "/api";
@@ -289,6 +293,10 @@ export const api = {
       request<PredictionResponse>(`/habitats/${boardId}/predictions`),
     burndown: (boardId: string, days?: number) =>
       request<BurndownResponse>(`/habitats/${boardId}/burndown?days=${days ?? 30}`),
+    cumulativeFlow: (boardId: string, days?: number) =>
+      request<CumulativeFlowResponse>(`/habitats/${boardId}/cumulative-flow?days=${days ?? 30}`),
+    bottlenecks: (boardId: string, days?: number) =>
+      request<BottleneckResponse>(`/habitats/${boardId}/bottlenecks?days=${days ?? 30}`),
     tasks: (
       boardId: string,
       filters?: {
@@ -1250,6 +1258,10 @@ export const api = {
       request<{ sprint: Sprint }>(`/sprints/${sprintId}/complete`, { method: "POST" }),
     cancel: (sprintId: string) =>
       request<{ sprint: Sprint }>(`/sprints/${sprintId}/cancel`, { method: "POST" }),
+    metrics: (sprintId: string) => request<SprintMetricsV2>(`/sprints/${sprintId}/metrics`),
+    burndown: (sprintId: string) => request<BurndownResponse>(`/sprints/${sprintId}/burndown`),
+    carryOver: (sprintId: string) =>
+      request<SprintCarryOverReport>(`/sprints/${sprintId}/carry-over`),
     addMission: (sprintId: string, missionId: string) =>
       request<{ sprint: Sprint }>(`/sprints/${sprintId}/missions`, {
         method: "POST",

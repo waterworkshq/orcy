@@ -13,6 +13,7 @@ export {
   auditExportSchedules,
   scheduledTasks,
   habitatHealthSnapshots,
+  cumulativeFlowSnapshots,
   sprints,
 } from "./board.js";
 export {

@@ -1,37 +1,38 @@
-import React, { Suspense } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
-import { KPICard } from './KPICard.js';
-import { SkeletonCard } from '../ui/SkeletonCard.js';
-import { CheckCircle2, Clock, TrendingUp, Users, AlertCircle, Activity } from 'lucide-react';
-import type { DashboardStats } from '../../types/index.js';
+import React, { Suspense } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
+import { KPICard } from "./KPICard.js";
+import { FlowAnalyticsPanel } from "./FlowAnalyticsPanel.js";
+import { SkeletonCard } from "../ui/SkeletonCard.js";
+import { CheckCircle2, Clock, TrendingUp, Users, AlertCircle, Activity } from "lucide-react";
+import type { DashboardStats } from "../../types/index.js";
 
 const ThroughputChart = React.lazy(() =>
-  import('./ThroughputChart.js').then((m) => ({ default: m.ThroughputChart }))
+  import("./ThroughputChart.js").then((m) => ({ default: m.ThroughputChart })),
 );
 const CycleTimeChart = React.lazy(() =>
-  import('./CycleTimeChart.js').then((m) => ({ default: m.CycleTimeChart }))
+  import("./CycleTimeChart.js").then((m) => ({ default: m.CycleTimeChart })),
 );
 const AgentLeaderboard = React.lazy(() =>
-  import('./AgentLeaderboard.js').then((m) => ({ default: m.AgentLeaderboard }))
+  import("./AgentLeaderboard.js").then((m) => ({ default: m.AgentLeaderboard })),
 );
 const TaskDistribution = React.lazy(() =>
-  import('./TaskDistribution.js').then((m) => ({ default: m.TaskDistribution }))
+  import("./TaskDistribution.js").then((m) => ({ default: m.TaskDistribution })),
 );
 const WipHealthChart = React.lazy(() =>
-  import('./WipHealthChart.js').then((m) => ({ default: m.WipHealthChart }))
+  import("./WipHealthChart.js").then((m) => ({ default: m.WipHealthChart })),
 );
 const CapacityChart = React.lazy(() =>
-  import('./CapacityChart.js').then((m) => ({ default: m.CapacityChart }))
+  import("./CapacityChart.js").then((m) => ({ default: m.CapacityChart })),
 );
 
 interface DashboardChartsProps {
   stats: DashboardStats;
-  period: '7d' | '30d' | '90d';
+  period: "7d" | "30d" | "90d";
   habitatId?: string;
 }
 
 function formatCycleTime(minutes: number): string {
-  if (minutes === 0) return '0m';
+  if (minutes === 0) return "0m";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
@@ -72,14 +73,14 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
         <KPICard
           title="Rejection Rate"
           value={`${(stats.summary.overallRejectionRate * 100).toFixed(1)}%`}
-          trend={stats.summary.overallRejectionRate > 0.2 ? 'down' : 'up'}
+          trend={stats.summary.overallRejectionRate > 0.2 ? "down" : "up"}
           subtitle="Tasks sent back for rework"
           icon={<AlertCircle className="h-5 w-5 text-error" />}
         />
         <KPICard
           title="Webhook Success"
           value={`${(stats.webhookStats.successRate * 100).toFixed(1)}%`}
-          trend={stats.webhookStats.successRate > 0.9 ? 'up' : 'neutral'}
+          trend={stats.webhookStats.successRate > 0.9 ? "up" : "neutral"}
           subtitle={`${stats.webhookStats.success}/${stats.webhookStats.total} delivered`}
           icon={<Activity className="h-5 w-5 text-[var(--agent-blue)]" />}
         />
@@ -145,7 +146,14 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
       </Card>
 
       {habitatId && (
-        <div>
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold text-on-surface mb-4">Flow Analytics</h2>
+            <FlowAnalyticsPanel
+              habitatId={habitatId}
+              days={period === "7d" ? 7 : period === "90d" ? 90 : 30}
+            />
+          </div>
           <h2 className="text-lg font-semibold text-on-surface mb-4">Agent Capacity</h2>
           <Suspense fallback={<SkeletonCard />}>
             <CapacityChart habitatId={habitatId} />

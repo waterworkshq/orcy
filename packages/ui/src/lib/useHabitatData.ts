@@ -169,6 +169,51 @@ export function useBoardBurndown(boardId: string | undefined, days?: number) {
   });
 }
 
+export function useCumulativeFlow(boardId: string | undefined, days?: number) {
+  return useQuery({
+    queryKey: [...queryKeys.habitats.cumulativeFlow(boardId ?? ""), days] as const,
+    queryFn: () => api.habitats.cumulativeFlow(boardId!, days),
+    enabled: !!boardId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useBottlenecks(boardId: string | undefined, days?: number) {
+  return useQuery({
+    queryKey: [...queryKeys.habitats.bottlenecks(boardId ?? ""), days] as const,
+    queryFn: () => api.habitats.bottlenecks(boardId!, days),
+    enabled: !!boardId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useSprintMetrics(sprintId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.sprints.metrics(sprintId ?? ""),
+    queryFn: () => api.sprints.metrics(sprintId!),
+    enabled: !!sprintId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useSprintBurndown(sprintId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.sprints.burndown(sprintId ?? ""),
+    queryFn: () => api.sprints.burndown(sprintId!),
+    enabled: !!sprintId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useSprintCarryOver(sprintId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.sprints.carryOver(sprintId ?? ""),
+    queryFn: () => api.sprints.carryOver(sprintId!),
+    enabled: !!sprintId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useBoardAnomalies(boardId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.habitats.anomalies(boardId ?? ""),
