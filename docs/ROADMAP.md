@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.16.0 | **Updated:** 2026-06-01
+> **Version:** v0.17.0 | **Updated:** 2026-06-05
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -40,12 +40,37 @@ Turn provenance into stronger history and forward-looking insight.
 
 | Feature | Problem it solves |
 |---------|-------------------|
-| Audit Trail V2 | Evolves audit exports into richer, provenance-aware, potentially tamper-evident history |
-| Advanced Analytics | Adds forecasting, trend analysis, quality/trust signals, bottleneck detection, and estimate accuracy |
+| Audit Trail V2 | Evolves audit exports into richer, provenance-aware history with canonical source/entity/provenance fields, scoped evidence bundles, and completeness caveats. Active tamper-evidence remains future scope. |
+| Advanced Analytics | Adds confidence-aware forecasting, trend analysis, cumulative-flow snapshots, bottleneck detection, sprint analytics, and informational quality signals. |
 
 **Why together:** Analytics should consume reliable history, not partial lifecycle timestamps. Audit Trail V2 establishes the normalized evidence model that advanced analytics can safely build on.
 
+**Implementation status:** Audit Trail V2 and Advanced Analytics implementation slices are complete in the working tree. Release remains upcoming until final release gates pass.
+
+| Implemented slice | Notes |
+|-------------------|-------|
+| Canonical audit projection and exports | Task, mission, effort, code evidence, pipeline, integration, webhook, and opt-in health snapshot sources project into canonical audit events with completeness summaries. |
+| Scoped evidence bundles | Task and mission bundle routes/MCP actions return metadata-only evidence. Mission bundles separate direct mission evidence from rolled-up task evidence. |
+| Integrity-ready archival | Canonical task/mission archive files include metadata and completeness summaries. Active hash chaining, verification endpoints, and tamper-evidence claims are deferred. |
+| Forecasts and trends | Forecasts expose point/range estimates, sample-size confidence, and reasons. Trends suppress movement when confidence is insufficient. |
+| Flow, bottleneck, and sprint analytics | Cumulative-flow snapshots, dwell/WIP/blocked-dependency bottleneck findings, sprint metrics, sprint burndown, and carry-over reports are available through API/UI. |
+| Agent quality signals | Approval/rejection, consistency, estimate accuracy, and evidence completeness hints are informational-only and do not affect assignment, approvals, review routing, eligibility, or permissions. |
+| Agent-facing analytics | MCP exposes concise predictions, bottlenecks, agent quality, sprint metrics, sprint burndown summaries, and carry-over reports. Dense chart/time-series payloads remain API/UI-first. |
+
 Planning seeds: `docs/plans/v3/03-audit-trail-v2.md`, `docs/plans/v3/04-advanced-analytics.md`
+
+---
+
+### v0.17.1 — "Deepen: Transition Core"
+
+Concentrate the scattered task transition side-effect chain and split the API client god classes.
+
+| Architecture | What deepens |
+|--------------|--------------|
+| TransitionEmitter (#1) | Extract the repeated DB write → event → SSE → watcher → mission recalc chain (copy-pasted across 15+ functions in 5 files) into a single deep module with a narrow interface. One function call per transition. |
+| API Client Domain Split (#2) | Split the MCP `KanbanApiClient` (147 methods, 1,798 lines) and UI API client (1,593 lines) into domain-segregated interfaces (`TaskClient`, `MissionClient`, `PulseClient`, etc.). Keep the mega-client as a facade. Mock coverage goes from 33% to per-domain completeness. |
+
+**Why after v0.17:** The emitter creates the canonical event pipeline that v0.18's automation engine will tap into. The client split prevents the monolith from reaching ~200 methods when automation and notification endpoints arrive. Both deepen the seams v0.18 will stress — without blocking v0.17 itself.
 
 ---
 
@@ -61,6 +86,26 @@ Move from rules that score work to rules that take action.
 **Why together:** Automation needs actions, and many high-value actions are notifications or escalations. The daemon/cron foundation gives these rules a runtime; Notification V2 makes them visible and controllable.
 
 Planning seeds: `docs/plans/v3/05-workflow-automation-engine.md`, `docs/plans/v3/06-notification-system-v2.md`
+
+**Architecture prereq folded in:**
+
+| Architecture | Why here, not a patch |
+|--------------|----------------------|
+| SSE Event Registry (#4) | Replaces the triple-switch pattern (3 files, ~30 event types each) with a centralized event-to-handler map. Automation and Notification V2 will add many new SSE event types — the registry must exist first, or every new event = 3 coordinated file edits with no compile-time guarantee of completeness. |
+
+---
+
+### v0.18.1 — "Deepen: Public Surface Prep"
+
+Enforce data access discipline and clean up route-layer coupling before the public API takes shape.
+
+| Architecture | What deepens |
+|--------------|--------------|
+| Data Access Discipline (#3) | Eliminate 64 direct `getDb()` calls across 24 services. Extract `dependencyRepository`, move `columnResolver` into a repo, add missing `userRepo` methods. Hard rule: services never import schema or call `getDb()`. |
+| Fat Route Extraction (#6) | Move business logic from route handlers into services (intake promotion, pulse posting, daemon registration). Eliminate 50 direct repository imports across 19 route files. Create `requireEntity()` middleware factory to replace 40+ duplicated existence checks. |
+| Dual-Write Consolidation (#5) | Move all server-derived data (tasks, missions, agents, comments) out of Zustand into React Query exclusively. Zustand keeps only ephemeral UI state (selections, modals, theme). Eliminates the `detailsData?.task ?? tasks.find()` fallback divergence and dual-write hooks. |
+
+**Why after v0.18:** v0.19 defines the public API surface. Clean repos and thin routes are prerequisites for versioned, scoped API boundaries. The Zustand → React Query migration removes the consistency risk before external consumers depend on it.
 
 ---
 
@@ -91,6 +136,24 @@ First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chai
 
 Planning seed: `docs/plans/v3/09-agent-orchestration-platforms.md`
 
+**Architecture prereq folded in:**
+
+| Architecture | Why here, not a patch |
+|--------------|----------------------|
+| API → Daemon Interface Seam (#7) | Break the circular dependency (API imports daemon runtime classes directly). Consolidate shared types (`CliType`→`AgentType`, `SessionStatus`, `ClaimResult`) into `@orcy/shared`. Define `ISessionManager` interface so the daemon becomes a swappable adapter. Orchestration builds on a clean daemon seam — fixing this after would mean reworking orchestration's foundation. |
+
+---
+
+### v0.20.1 — "Deepen: Trim Pass-Throughs"
+
+Remove modules that fail the deletion test — complexity would vanish, not reappear in callers.
+
+| Architecture | What deepens |
+|--------------|--------------|
+| Pass-Through Elimination (#8) | Inline `watcherService` pass-throughs, remove `task-movement.ts` (unused params, read-named-as-write), delete misleading aliases in `task-details.ts`. Auto-generate the ~70% of MCP tool handlers that are pure forwarding wrappers from a declarative config. |
+
+**Why after v0.20:** All major seams have been deepened through v0.17.1–v0.20.1. The remaining shallow modules are pure cleanup with no feature dependency — good timing for a final sweep before the ecosystem and knowledge base layers.
+
 ---
 
 ### v0.21.0 — "Living Library"
@@ -118,3 +181,29 @@ Turn Orcy's matured internal extension seams into a safe plugin platform.
 **Why last:** Plugin surfaces should be extracted from mature internal patterns, not guessed early. By this point Orcy has integrations, automation, notifications, auth scopes, public APIs, knowledge, and audit trails worth exposing safely.
 
 Planning seed: `docs/plans/v3/11-plugin-system-v2.md`
+
+---
+
+### Architecture Deepening (2026-06-04 Review)
+
+Patch releases dedicated to deepening shallow modules into deep ones — better locality, leverage, and testability. Feature releases stay feature-focused; architecture work lands in patch releases after the feature stabilizes.
+
+| Patch | Candidates | Stressed seam |
+|-------|-----------|---------------|
+| v0.17.1 | TransitionEmitter (#1), API Client Split (#2) | Task lifecycle side-effects, MCP+UI client surface area |
+| v0.18.0 (folded) | SSE Event Registry (#4) | Event handling — prereq for automation + notification events |
+| v0.18.1 | Data Access Discipline (#3), Fat Route Extraction (#6), Dual-Write Consolidation (#5) | Repo layer, route→service boundary, Zustand vs React Query |
+| v0.20.0 (folded) | API → Daemon Interface Seam (#7) | Cross-package dependency — prereq for multi-agent orchestration |
+| v0.20.1 | Pass-Through Elimination (#8) | Dead indirection cleanup |
+
+Full report: `/tmp/architecture-review-20260604.html`
+
+---
+
+### Future Cross-Cutting Seeds
+
+These are intentionally unscheduled until their prerequisite foundations are in place.
+
+| Seed | Why it waits |
+|------|--------------|
+| Learning Loop / Data Extraction (`docs/plans/v3/12-learning-loop-data-extraction.md`) | Depends on canonical audit history, durable knowledge surfaces, automation rules, and plugin/source extension points before Orcy can safely extract insights from accumulated data and feed them back into knowledge, recommendations, rules, and agent context. |

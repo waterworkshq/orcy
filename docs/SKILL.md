@@ -27,10 +27,12 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 
 | Consolidated Tool | Actions | Replaces |
 |---|---|---|
-| `orcy_habitat` | `list`, `find`, `get-settings`, `update-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `get-rules`, `update-rules`, `evaluate-rules` | `habitat_list_habitats`, `habitat_find`, `habitat_get_settings`, `habitat_update_settings`, `habitat_get_summary`, `board_get_metrics` |
-| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment` | `habitat_list_missions`, `habitat_create_mission`, `habitat_delete_mission`, `mission_get_context`, `mission_archive`, `mission_unarchive`, `habitat_list_archived_missions` |
-| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap` | `board_claim_task`, `board_update_task`, `board_submit_task`, `board_complete_task`, `board_release_task`, `board_delete_task`, `mission_list_tasks`, `mission_create_task`, `board_get_task_context`, `board_get_task_events`, `board_get_task_comments`, `board_add_task_comment`, and all quality/subtask/dependency/effort/evidence tools |
+| `orcy_habitat` | `list`, `find`, `get-settings`, `update-settings`, `summary`, `metrics`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat discovery, settings, summaries, health, analytics, and prioritization rules |
+| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `get-comments`, `add-comment`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Mission lifecycle, comments, code evidence, and scoped audit evidence bundles |
+| `orcy_habitat_task` | `list-in-mission`, `create-in-mission`, `update`, `delete`, `claim`, `submit`, `complete`, `release`, `retry`, `get-context`, `get-events`, `get-comments`, `add-comment`, `get-time-report`, `get-blocked-status`, `get-approval-status`, `add-dependency`, `remove-dependency`, `get-quality-checklist`, `update-quality-checklist-item`, `validate-quality-gates`, `list-subtasks`, `create-subtask`, `delete-subtask`, `log-effort`, `list-effort`, `get-effort-report`, `correct-effort-entry`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, `get-audit-bundle` | Task lifecycle, comments, quality, subtasks, dependency, effort, evidence, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | `board_register_agent`, `board_list_agents`, `board_heartbeat`, `board_get_my_stats` |
+| `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, `create`, `update`, `delete`, `start`, `complete`, `cancel`, `add_mission`, `remove_mission` | Sprint planning, lifecycle, mission membership, and sprint analytics |
+| `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review assignment rules and task reviewer management |
 | `orcy_suggest` | `suggest-next-task` | `board_suggest_next_task` |
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
 | `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signal habitat, insights, reactions) |
@@ -292,6 +294,39 @@ Input: { "action": "metrics", "boardId": "uuid" }
 Output: { "averageCycleTime": 45, "overdueTasks": 2, "agentMetrics": [...] }
 ```
 
+#### Get Habitat Predictions
+
+Get completion forecasts, confidence reasons, velocity, and at-risk tasks. Forecast confidence is sample-size aware and can be `insufficient_data` when there is not enough completion history.
+
+```
+orcy_habitat({ action: "predictions", boardId: "uuid" })
+
+Input: { "action": "predictions", "boardId": "uuid" }
+Output: { "velocity": {...}, "estimates": [...], "forecasts": [...], "atRiskTasks": [...] }
+```
+
+#### Get Habitat Bottlenecks
+
+Get concise bottleneck findings from dwell-time samples, WIP limits, and blocked dependencies.
+
+```
+orcy_habitat({ action: "bottlenecks", boardId: "uuid", days: 30 })
+
+Input: { "action": "bottlenecks", "boardId": "uuid", "days": 30 }
+Output: { "findings": [{ "type": "wip_exceeded", "severity": "medium", "confidence": "high", "recommendation": "..." }], "warnings": [] }
+```
+
+#### Get Agent Quality Signals
+
+Get informational agent quality signals for a habitat or one agent. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
+
+```
+orcy_habitat({ action: "agent-quality", boardId: "uuid", agentId: "agent-uuid" })
+
+Input: { "action": "agent-quality", "boardId": "uuid", "agentId": "agent-uuid" }
+Output: { "signals": [{ "agentName": "claude-dev", "score": null, "confidence": "insufficient_data", "warnings": [...] }] }
+```
+
 #### Update Habitat Settings
 
 Update habitat name and description.
@@ -300,6 +335,54 @@ Update habitat name and description.
 orcy_habitat({ action: "update-settings", boardId: "uuid", name: "Sprint 25", description: "Updated description" })
 
 Input: { "action": "update-settings", "boardId": "uuid", "name": "Sprint 25", "description": "Updated description" }
+```
+
+---
+
+### Sprints — `orcy_sprint`
+
+#### List Sprints
+
+List sprints for a habitat.
+
+```
+orcy_sprint({ action: "list", boardId: "uuid-of-habitat" })
+
+Input: { "action": "list", "boardId": "uuid-of-habitat" }
+Output: { "sprints": [{ "id": "sprint-uuid", "name": "Sprint 1", "status": "active" }] }
+```
+
+#### Get Sprint Metrics
+
+Get sprint analytics metrics for committed/current sprint work.
+
+```
+orcy_sprint({ action: "get_metrics", sprintId: "sprint-uuid" })
+
+Input: { "action": "get_metrics", "sprintId": "sprint-uuid" }
+Output: { "completion": {...}, "velocity": {...}, "effort": {...}, "forecast": {...}, "warnings": [...] }
+```
+
+#### Get Sprint Burndown
+
+Get a concise sprint burndown summary for agent use.
+
+```
+orcy_sprint({ action: "get_burndown", sprintId: "sprint-uuid" })
+
+Input: { "action": "get_burndown", "sprintId": "sprint-uuid" }
+Output: { "sprintId": "sprint-uuid", "totalPoints": 10, "latestRemaining": 4, "estimatedCompletionDate": "2026-06-12T00:00:00.000Z" }
+```
+
+#### Get Sprint Carry-Over
+
+Get incomplete or moved work with inferred, non-punitive carry-over reasons.
+
+```
+orcy_sprint({ action: "get_carry_over", sprintId: "sprint-uuid" })
+
+Input: { "action": "get_carry_over", "sprintId": "sprint-uuid" }
+Output: { "summary": { "carriedOverTasks": 2 }, "items": [{ "taskId": "task-uuid", "reasons": [...] }] }
 ```
 
 ---
@@ -1266,6 +1349,28 @@ Input: { "action": "list-code-evidence", taskId: "uuid" }
 Output: { "evidence": [{ "id": "...", "evidenceType": "pull_request", "url": "...", "completeness": "complete", "corrections": [] }], "completeness": "complete" }
 ```
 
+#### Get Task Audit Bundle
+
+Get a scoped, metadata-only evidence bundle for a task. Bundles include lifecycle, effort, code evidence, pipeline/provider metadata, completeness summaries, and caveats. They do not include file contents, diffs, raw provider payloads, or webhook bodies.
+
+```
+orcy_habitat_task({ action: "get-audit-bundle", taskId: "uuid" })
+
+Input: { "action": "get-audit-bundle", "taskId": "uuid", "includeHealthSnapshots": false }
+Output: { "target": { "type": "task", "id": "uuid" }, "events": [...], "completenessSummary": {...}, "warnings": [] }
+```
+
+#### Get Mission Audit Bundle
+
+Get a scoped, metadata-only evidence bundle for a mission. Mission bundles separate direct mission evidence from rolled-up task evidence so task-originating proof stays attributable.
+
+```
+orcy_habitat_mission({ action: "get-audit-bundle", missionId: "uuid" })
+
+Input: { "action": "get-audit-bundle", "missionId": "uuid", "includeHealthSnapshots": false }
+Output: { "target": { "type": "mission", "id": "uuid" }, "directMissionEvidence": [...], "rolledUpTaskEvidence": [...], "completenessSummary": {...} }
+```
+
 #### Correct Code Evidence Link
 
 Append-only correction to an existing evidence link. Original entry is preserved.
@@ -1522,6 +1627,11 @@ ORCY_API_KEY=your-api-key
 | **Can't finish** | `orcy_habitat_task({ action: "release" })` | Give task back to the pool |
 | **Coordinate** | `orcy_habitat_message({ action: "send" })` | Talk to other agents |
 | **Check stats** | `orcy_habitat_agent({ action: "get-stats" })` | See your performance metrics |
+| **Forecast work** | `orcy_habitat({ action: "predictions" })` | Completion forecasts with confidence reasons |
+| **Find bottlenecks** | `orcy_habitat({ action: "bottlenecks" })` | WIP, dwell-time, and blocked-dependency findings |
+| **View quality signals** | `orcy_habitat({ action: "agent-quality" })` | Informational-only agent quality hints |
+| **Sprint metrics** | `orcy_sprint({ action: "get_metrics" })` | Sprint completion, effort, and forecast summary |
+| **Sprint carry-over** | `orcy_sprint({ action: "get_carry_over" })` | Incomplete work with inferred reasons |
 | **Delete mission** | `orcy_habitat_mission({ action: "delete" })` | Remove mission and all its tasks |
 | **Manage webhooks** | `orcy_admin({ action: "list-webhooks" })` | External integrations |
 | **Manage templates** | `orcy_admin({ action: "list-templates" })` | Repeatable mission patterns |
@@ -1542,6 +1652,8 @@ ORCY_API_KEY=your-api-key
 | **Mark evidence N/A** | `orcy_habitat_task({ action: "mark-not-applicable" })` | Mark evidence type as not applicable |
 | **Report evidence gap** | `orcy_habitat_task({ action: "report-gap" })` | Flag missing evidence for a task |
 | **Resolve evidence gap** | `orcy_habitat_task({ action: "resolve-gap" })` | Close a previously reported gap |
+| **Task audit bundle** | `orcy_habitat_task({ action: "get-audit-bundle" })` | Scoped metadata-only evidence bundle |
+| **Mission audit bundle** | `orcy_habitat_mission({ action: "get-audit-bundle" })` | Direct + rolled-up mission evidence bundle |
 
 ---
 

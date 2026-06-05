@@ -313,7 +313,7 @@ Feature-level audit trail for column movements and status changes.
 | `feature_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Related feature |
 | `actor_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Actor type |
 | `actor_id` | TEXT | NOT NULL | UUID of the actor |
-| `action` | TEXT | NOT NULL CHECK (IN 'created','updated','moved','status_changed','completed','deleted','dependency_resolved','code_evidence_linked','code_evidence_corrected','code_evidence_not_applicable','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_backfilled') | Event action |
+| `action` | TEXT | NOT NULL CHECK (IN 'created','updated','moved','status_changed','completed','deleted','dependency_resolved','code_evidence_linked','code_evidence_corrected','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_marked_not_applicable','code_evidence_cleared_not_applicable') | Event action |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
 | `to_column_id` | TEXT | DEFAULT NULL | Target column |
 | `from_status` | TEXT | DEFAULT NULL | Previous status |
@@ -401,7 +401,7 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | Related task |
 | `actor_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Actor type |
 | `actor_id` | TEXT | NOT NULL | UUID of the actor |
-| `action` | TEXT | NOT NULL CHECK (IN 'created','claimed','started','submitted','approved','rejected','completed','failed','moved','released','dependency_resolved','updated','delegated','cloned','retry_scheduled','retry_executed','escalated','code_evidence_linked','code_evidence_corrected','code_evidence_not_applicable','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_backfilled') | Event action |
+| `action` | TEXT | NOT NULL CHECK (IN 'created','claimed','started','submitted','approved','rejected','completed','failed','moved','released','dependency_resolved','updated','delegated','effort_logged','effort_corrected','cloned','retry_scheduled','retry_executed','escalated','code_evidence_linked','code_evidence_corrected','code_evidence_gap_reported','code_evidence_gap_resolved','code_evidence_marked_not_applicable','code_evidence_cleared_not_applicable') | Event action |
 | `from_column_id` | TEXT | DEFAULT NULL | Source column |
 | `to_column_id` | TEXT | DEFAULT NULL | Target column |
 | `from_status` | TEXT | DEFAULT NULL | Previous status |
@@ -409,7 +409,7 @@ Tasks are work units inside features. Every task belongs to exactly one feature.
 | `metadata` | TEXT | NOT NULL DEFAULT '{}' (JSON) | JSON blob with details |
 | `timestamp` | TEXT | NOT NULL DEFAULT (datetime('now')) | Event timestamp |
 
-**Indexes:** `idx_task_events_task_id`, `idx_task_events_timestamp(timestamp DESC)`, `idx_task_events_actor(actor_type, actor_id)`
+**Indexes:** `idx_task_events_task_id`, `idx_task_events_timestamp(timestamp DESC)`, `idx_task_events_actor(actor_type, actor_id)`, `idx_task_events_from_column_time(from_column_id, timestamp)`, `idx_task_events_to_column_time(to_column_id, timestamp)`, `idx_task_events_transition_time(from_column_id, to_column_id, timestamp)`
 
 #### `task_dependencies`
 
@@ -792,6 +792,24 @@ Toggle-based reactions on pulse signals. Three fixed reaction types. Reactions a
 | `branch_id` | TEXT | FK → code_branches(id) | Linked code evidence branch |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 
+#### `cumulative_flow_snapshots`
+
+Daily cumulative-flow snapshot rows for chart reads. Stored snapshots are authoritative; services may project the current day from live state when no snapshot exists and mark older missing history as partial.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Snapshot identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat being measured |
+| `snapshot_date` | TEXT | NOT NULL | Snapshot date (`YYYY-MM-DD`) |
+| `counts_by_column` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Mission/task counts keyed by column id/name |
+| `counts_by_status` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Counts keyed by lifecycle status |
+| `source` | TEXT | NOT NULL DEFAULT 'generated' CHECK (IN 'generated','backfilled','current_state') | Snapshot origin |
+| `completeness` | TEXT | NOT NULL DEFAULT 'complete' CHECK (IN 'complete','partial') | Whether the point is complete or caveated |
+| `warnings` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Warning objects with code, message, and severity |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+
+**Unique index:** `idx_cumulative_flow_snapshot_unique(habitat_id, snapshot_date)`
+**Index:** `idx_cumulative_flow_snapshots_habitat_date(habitat_id, snapshot_date)`
 
 #### `task_time_records`
 

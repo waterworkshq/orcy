@@ -68,11 +68,13 @@ This document covers the system architecture, design decisions, key flows, and i
 | File | Responsibility |
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
-| `src/tools/index.ts` | All tool exports + 12 dispatch tool files (17 tools including prioritization, scheduled task, and code evidence actions) |
-| `src/tools/habitat-dispatch.ts` | Habitat dispatch: list, find, summary, metrics, settings |
-| `src/tools/mission-dispatch.ts` | Mission dispatch: list, create, delete, archive, get-context, link-code, list-code-evidence, correct-code-evidence-link (11 actions) |
-| `src/tools/task-dispatch.ts` | Task dispatch: claim, submit, complete, release, update, comments, code evidence actions (31 actions) |
+| `src/tools/index.ts` | All tool exports + 13 dispatch tool files (15 MCP tools total, including instructions tools) |
+| `src/tools/habitat-dispatch.ts` | Habitat dispatch: list, find, summary, metrics, settings, health, analytics, prioritization rules |
+| `src/tools/mission-dispatch.ts` | Mission dispatch: lifecycle, context, comments, code evidence, scoped audit bundle |
+| `src/tools/task-dispatch.ts` | Task dispatch: lifecycle, CRUD, details, quality, subtasks, dependencies, effort, code evidence, scoped audit bundle |
 | `src/tools/agent-dispatch.ts` | Agent dispatch: register, heartbeat, stats |
+| `src/tools/sprint-dispatch.ts` | Sprint dispatch: lifecycle, mission membership, metrics, burndown, carry-over |
+| `src/tools/review-dispatch.ts` | Review dispatch: review assignment rules and task reviewers |
 | `src/tools/suggest-dispatch.ts` | Suggest dispatch: suggest-next-task |
 | `src/tools/code-evidence.ts` | Code evidence handlers: link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, backfill (10 handler functions) |
 | `src/tools/instructions.ts` | Hierarchical agent workflow instructions |
@@ -302,8 +304,8 @@ packages/api/
   src/routes/codeEvidence.ts                 — API endpoints for evidence operations
 packages/mcp/
   src/tools/code-evidence.ts                 — 10 MCP handler functions
-  src/tools/task-dispatch.ts                 — 7 code evidence actions added (31 total)
-  src/tools/mission-dispatch.ts              — 3 code evidence actions added (11 total)
+  src/tools/task-dispatch.ts                 — code evidence + scoped audit bundle actions
+  src/tools/mission-dispatch.ts              — code evidence + scoped audit bundle actions
 ```
 
 **Decision:** Use `better-sqlite3` for production storage; `sql.js` (WASM) only for test environments.
@@ -488,13 +490,13 @@ Similarly, `GET /missions/:id/details` returns mission + tasks + events + progre
 
 ### MCP Tool Architecture (Consolidated Dispatch Pattern)
 
-The MCP server exposes **13 dispatch tool modules** containing 24+ actions (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each tool accepts an `action` parameter to route to specific operations:
+The MCP server exposes **13 dispatch tools** with dozens of action-routed operations (plus `orcy_instructions` and `orcy_pulse_instructions` standalone tools). Each dispatch tool accepts an `action` parameter to route to specific operations:
 
 | Dispatch Tool | Actions | Purpose |
 |---------------|---------|---------|
-| `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `update-settings`, `get-health`, `get-health-history`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations + prioritization rules |
-| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, `link-code`, `list-code-evidence`, `correct-code-evidence-link` | Mission CRUD + context + code evidence linking (11 actions) |
-| `orcy_habitat_task` | `list-in-mission`, `claim`, `submit`, `complete`, `release`, `get-context`, `get-comments`, `link-code`, `list-code-evidence`, `correct-code-evidence-link`, `mark-not-applicable`, `clear-not-applicable`, `report-gap`, `resolve-gap`, ... | Task lifecycle + details + code evidence (31 actions) |
+| `orcy_habitat` | `list`, `find`, `summary`, `metrics`, `get-settings`, `update-settings`, `get-health`, `get-health-history`, `predictions`, `bottlenecks`, `agent-quality`, `get-rules`, `update-rules`, `evaluate-rules` | Habitat-level operations, health, analytics, and prioritization rules |
+| `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, comments, code evidence, `get-audit-bundle` | Mission lifecycle, context, code evidence, and scoped audit bundles |
+| `orcy_habitat_task` | lifecycle, CRUD, detail, quality, subtasks, dependency, effort, code evidence, `get-audit-bundle` | Task lifecycle, evidence, effort, quality, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
 | `orcy_suggest` | `suggest-next-task` | AI-ranked task suggestions |
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
@@ -503,6 +505,8 @@ The MCP server exposes **13 dispatch tool modules** containing 24+ actions (plus
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `list-templates`, `batch-assign-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | Admin operations + scheduled tasks |
 | `orcy_worktree` | `get-worktree` | Git worktree info |
 | `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — get skill document, trigger regeneration, submit direct insights |
+| `orcy_sprint` | `list`, `get`, `get_active`, `get_metrics`, `get_burndown`, `get_carry_over`, lifecycle and mission membership actions | Sprint planning, lifecycle, and analytics |
+| `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review rules and task reviewer assignment |
 | `orcy_instructions` | (tool) | Returns orcy skill guide |
 
 ### Pulse Signal Architecture

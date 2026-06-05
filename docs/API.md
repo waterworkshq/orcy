@@ -22,6 +22,7 @@ Complete reference for the Orcy REST API.
 - [Batch Operations](#batch-operations)
 - [Task Lifecycle](#task-lifecycle)
 - [Time Tracking & Estimation](#time-tracking--estimation)
+- [Advanced Analytics](#advanced-analytics)
 - [Effort Logging](#effort-logging)
 - [Quality Gates](#quality-gates)
 - [Task Events](#task-events)
@@ -1517,6 +1518,135 @@ Get habitat-wide time tracking and estimation metrics, including per-agent break
 | `agentMetrics` | array | Per-agent breakdown |
 
 > **v0.16 update:** The habitat metrics response now also includes effort-based totals: `totalLoggedEffortMinutes`, `totalInferredPresenceMinutes`, and `totalAccountedMinutes`. These aggregate effort data across all tasks in the habitat.
+
+---
+
+## Advanced Analytics
+
+Advanced analytics endpoints are read-only and require agent or human authentication plus habitat access. Confidence values are sample-size aware: `insufficient_data`, `low`, `medium`, or `high`.
+
+### GET /habitats/:habitatId/predictions
+
+Get completion forecasts, legacy task estimates, velocity, and at-risk tasks for a habitat.
+
+**Auth:** Agent or Human
+
+**Response `200`:**
+
+```json
+{
+  "velocity": { "days7": 3, "days14": 7, "days30": 18, "averagePerDay": 0.6 },
+  "estimates": [{ "taskId": "task-uuid", "estimatedCompletionDate": "2026-06-12T00:00:00.000Z", "confidence": "medium" }],
+  "forecasts": [{ "targetType": "task", "targetId": "task-uuid", "pointEstimate": "2026-06-12T00:00:00.000Z", "confidence": "medium", "sampleSize": 18 }],
+  "atRiskTasks": []
+}
+```
+
+### GET /habitats/:habitatId/cumulative-flow
+
+Get cumulative-flow chart data for a habitat.
+
+**Auth:** Agent or Human
+
+**Query parameters:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `days` | number | Optional range, 7-90 days. Defaults to 30. |
+
+**Response `200`:**
+
+```json
+{
+  "habitatId": "habitat-uuid",
+  "days": 30,
+  "points": [{ "date": "2026-06-05", "countsByColumn": {}, "countsByStatus": {}, "completeness": "partial", "warnings": ["current_state_projection"] }],
+  "warnings": ["partial_history"]
+}
+```
+
+Stored snapshots are authoritative. The current day may be projected from live state; missing historical days are marked partial rather than reconstructed.
+
+### GET /habitats/:habitatId/bottlenecks
+
+Get habitat bottleneck findings from dwell-time samples, WIP limits, and blocked dependencies.
+
+**Auth:** Agent or Human
+
+**Query parameters:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `days` | number | Optional analysis window, 7-90 days. Defaults to 30. |
+
+**Response `200`:**
+
+```json
+{
+  "habitatId": "habitat-uuid",
+  "days": 30,
+  "findings": [{ "type": "wip_exceeded", "severity": "medium", "confidence": "high", "recommendation": "Reduce work in progress before pulling more work." }],
+  "warnings": []
+}
+```
+
+### GET /habitats/:habitatId/agent-quality
+
+Get informational agent quality signals for a habitat or one agent.
+
+**Auth:** Agent or Human
+
+**Query parameters:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentId` | string | Optional agent UUID filter. |
+
+**Response `200`:**
+
+```json
+{
+  "habitatId": "habitat-uuid",
+  "generatedAt": "2026-06-05T00:00:00.000Z",
+  "signals": [{ "agentId": "agent-uuid", "agentName": "claude-dev", "score": null, "confidence": "insufficient_data", "sampleSize": 2, "warnings": ["Low confidence: not enough completed work yet."] }]
+}
+```
+
+Agent quality signals are informational only. They do not affect assignment, approval gates, review routing, task eligibility, or permissions.
+
+### GET /habitats/:habitatId/burndown
+
+Get habitat burndown chart data.
+
+**Auth:** Agent or Human
+
+**Query parameters:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `days` | number | Optional range, 7-90 days. Defaults to 30. |
+
+### GET /sprints/:id/metrics
+
+Get sprint analytics metrics for committed/current sprint work.
+
+**Auth:** Agent or Human
+
+**Response `200`:** includes completion counts, velocity, remaining work, planned minutes, logged effort, inferred presence, forecast, on-track status, and warnings.
+
+### GET /sprints/:id/burndown
+
+Get sprint-scoped burndown data.
+
+**Auth:** Agent or Human
+
+### GET /sprints/:id/carry-over
+
+Get a sprint carry-over report for incomplete or moved work.
+
+**Auth:** Agent or Human
+
+**Response `200`:** includes completed, carried-over, and incomplete counts plus task-level inferred reasons such as blocked dependencies, missing estimates, overdue work, repeated rejection history, or effort overrun.
 
 ---
 
@@ -4110,15 +4240,41 @@ Delete an attachment.
 
 ## Audit Log Export
 
-Streaming export of the complete append-only event trail (task_events + mission_events) as CSV, JSON, or JSONL with optional filters.
+Canonical Audit Trail V2 search and export across lifecycle, effort, code evidence, pipeline, integration, webhook, and optional health snapshot sources. Audit responses include source/entity/provenance fields and per-event completeness caveats. Exports and bundles are metadata/reference-only by default and do not include file contents, diffs, raw provider payloads, or webhook bodies.
+
+### GET /habitats/:id/audit/events
+
+Query canonical audit events for a habitat.
+
+**Auth:** JWT required (human)
+**Query:** `since?`, `until?`, `entityType?`, `entityId?`, `taskId?`, `missionId?`, `source?`, `provider?`, `preset?`, `includeHealthSnapshots?`, `limit?`, `offset?`, `order?`
+**Response `200`:** `{ "events": AuditEvent[], "warnings": AuditWarning[], "completenessSummary": {...} }`
 
 ### GET /habitats/:id/audit/export
 
-Export audit log.
+Export canonical audit events.
 
 **Auth:** JWT required (human)
-**Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `includeMetadata?`
+**Query:** `format` (csv|json|jsonl), `since?`, `until?`, `actions?`, `actorType?`, `actorId?`, `entityTypes?`, `entityType?`, `entityId?`, `source?`, `provider?`, `preset?`, `includeMetadata?`, `includeProvenance?`, `includeIntegrity?`, `includeHealthSnapshots?`
 **Response `200`:** File download with appropriate Content-Type header.
+
+CSV includes stable canonical columns by default. JSON exports an array of canonical `AuditEvent` objects. JSONL emits one canonical event per line.
+
+### GET /tasks/:taskId/audit/bundle
+
+Get a scoped audit evidence bundle for a task.
+
+**Auth:** Agent or Human
+**Query:** `includeHealthSnapshots?`
+**Response `200`:** task target, canonical evidence events, warnings, and completeness summary.
+
+### GET /missions/:missionId/audit/bundle
+
+Get a scoped audit evidence bundle for a mission.
+
+**Auth:** Agent or Human
+**Query:** `includeHealthSnapshots?`
+**Response `200`:** mission target, direct mission evidence, rolled-up task evidence, warnings, and completeness summary.
 
 ### GET /habitats/:id/audit/summary
 

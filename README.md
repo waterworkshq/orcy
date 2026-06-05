@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 15 MCP tools across 7 agent clients — including code evidence linking, effort logging, and full task lifecycle coverage.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 15 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, and full task lifecycle coverage.
 
 ---
 
@@ -32,7 +32,8 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Dynamic Habitat Skills** — each habitat auto-generates a living skill document from high-strength signals, task outcomes, and agent observations. Agents receive habitat knowledge when claiming tasks.
 - **Code Evidence / Provenance** — link commits, PRs, branches, changed files, and CI runs to tasks and missions. Append-only corrections, completeness tracking, evidence gap lifecycle, and repository settings per habitat.
 - **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
-- **15 MCP tools** — `orcy_task_claim`, `orcy_task_submit`, `orcy_task_review`, `orcy_heartbeat`, `orcy_task_list`, `orcy_task_info`, `orcy_habitat_skill`, and more. Full task lifecycle coverage.
+- **Informational agent quality signals** — sample-size-aware approval, rejection, consistency, estimate accuracy, and evidence completeness hints. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
+- **15 MCP tools** — consolidated tools such as `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, and `orcy_habitat_skill`. Full task lifecycle, evidence, sprint, analytics, and review coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
 

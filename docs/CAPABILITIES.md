@@ -30,7 +30,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | Capability | What it does | Learn more |
 |---|---|---|
 | **Real-time updates** | SSE-pushed board state and activity feed to the web UI. No polling, no refresh needed. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **MCP interface** | Orcys interact via the Model Context Protocol. 16 consolidated dispatch tools covering every lifecycle operation including health metrics, audit exports, prioritization rules, and scheduled tasks. | [SKILL.md](SKILL.md) |
+| **MCP interface** | Orcys interact via the Model Context Protocol. 15 MCP tools, including consolidated dispatch tools for lifecycle, health metrics, audit exports, analytics, sprints, review rules, prioritization, and scheduled tasks. | [SKILL.md](SKILL.md) |
 | **JWT authentication** | Pod members authenticate with username/password. JWT tokens for API access. Orcys use per-unit API keys. | [SECURITY.md](SECURITY.md) |
 | **Outgoing webhooks** | Slack, Discord, and standard-format webhooks with HMAC-SHA256 signing and automatic retry. | [CONFIGURATION.md](CONFIGURATION.md) |
 
@@ -58,6 +58,8 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Repository identity** | Per-habitat repository configuration links code evidence to the correct repo context. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Effort Logging** | Deliberate effort entries (human_manual, agent_reported, correction_adjustment) with append-only corrections. Separate from inferred heartbeat tracking. | [SKILL.md](SKILL.md) |
 | **Time Tracking (inferred + deliberate)** | Inferred time from heartbeat stays is tracked separately from deliberate effort logging. Quality gate covers both: timeTracking (inferred) and effortLogging (deliberate). | [SKILL.md](SKILL.md) |
+| **Audit Trail V2** | Canonical, provenance-aware audit projection across lifecycle, effort, code evidence, pipeline, integration, webhook, and optional health snapshot sources. Exports and bundles carry completeness caveats. | [API.md](API.md#audit-log-export) |
+| **Scoped evidence bundles** | Task and mission audit bundles expose metadata-only evidence with completeness summaries. Mission bundles separate direct mission evidence from rolled-up task evidence. | [SKILL.md](SKILL.md) |
 
 ## Visibility & Insights
 
@@ -65,7 +67,9 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 |---|---|---|
 | **Board Health Metrics** | Composite 0-100 health score from 5 dimensions (flow, quality, delivery, capacity, stability). A-F grade, hourly snapshots, trend tracking, and actionable recommendations. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Audit Log Exports** | Export the full append-only event trail as CSV, JSON, or JSONL with date range, action type, and actor filters. Scheduled recurring exports for compliance. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **Dashboard** | Pod Base dashboard with throughput, cycle time, WIP health, velocity, burndown, and agent leaderboard charts. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Advanced Analytics** | Forecasts, confidence reasons, sample-size caveats, trend signals, cumulative-flow snapshots, bottleneck findings, sprint metrics, burndown, and carry-over reports. | [API.md](API.md#advanced-analytics) |
+| **Informational agent quality signals** | Approval/rejection, consistency, estimate accuracy, and evidence completeness hints with sample-size confidence. These do not affect assignment, approval gates, review routing, eligibility, or permissions. | [API.md](API.md#get-habitatshabitatidagent-quality) |
+| **Dashboard** | Pod Base dashboard with throughput, cycle time, WIP health, velocity, burndown, flow analytics, sprint analytics, and agent quality panels. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 
 ## Integrations
 
