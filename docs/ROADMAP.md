@@ -27,37 +27,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.14.0 | "Autonomous" — daemon & cron automation: standalone CLI daemon, in-process UI-controlled daemon engine, daemon-owned agents for Claude/Codex/OpenCode/Cursor/Gemini, worktree-backed session spawning, scheduler pulse nudges/digests, daemon status/setup UI |
 | v0.15.0 | "The Habitat Remembers" — dynamic habitat skills: auto-generated living skill documents from pulse signals, task outcomes, and agent observations. Signal clustering, strength scoring, category classification (domain knowledge, conventions, patterns, anti-patterns). Hook registry for ingestion. MCP/CLI/UI integration. Skill context injected into agent mission context. |
 | v0.16.0 | "Provenance" — code ↔ task linking (8 provenance tables, 7 evidence types, append-only corrections, completeness & gap tracking, repository settings, backfill) and time tracking & effort logging (deliberate effort entries separate from inferred time, correction audit trail, quality gate split, habitat effort metrics) |
+| v0.17.0 | "Evidence" — Audit Trail V2 (canonical, provenance-aware audit projection across lifecycle, effort, code evidence, pipeline, integration, webhook, and opt-in health snapshot sources; scoped task/mission evidence bundles; integrity-ready archival) and Advanced Analytics (confidence-aware forecasting, trend analysis, cumulative-flow snapshots, bottleneck detection, sprint analytics, and informational-only agent quality signals) |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.17.0 — "Evidence"
-
-Turn provenance into stronger history and forward-looking insight.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Audit Trail V2 | Evolves audit exports into richer, provenance-aware history with canonical source/entity/provenance fields, scoped evidence bundles, and completeness caveats. Active tamper-evidence remains future scope. |
-| Advanced Analytics | Adds confidence-aware forecasting, trend analysis, cumulative-flow snapshots, bottleneck detection, sprint analytics, and informational quality signals. |
-
-**Why together:** Analytics should consume reliable history, not partial lifecycle timestamps. Audit Trail V2 establishes the normalized evidence model that advanced analytics can safely build on.
-
-**Implementation status:** Audit Trail V2 and Advanced Analytics implementation slices are complete in the working tree. Release remains upcoming until final release gates pass.
-
-| Implemented slice | Notes |
-|-------------------|-------|
-| Canonical audit projection and exports | Task, mission, effort, code evidence, pipeline, integration, webhook, and opt-in health snapshot sources project into canonical audit events with completeness summaries. |
-| Scoped evidence bundles | Task and mission bundle routes/MCP actions return metadata-only evidence. Mission bundles separate direct mission evidence from rolled-up task evidence. |
-| Integrity-ready archival | Canonical task/mission archive files include metadata and completeness summaries. Active hash chaining, verification endpoints, and tamper-evidence claims are deferred. |
-| Forecasts and trends | Forecasts expose point/range estimates, sample-size confidence, and reasons. Trends suppress movement when confidence is insufficient. |
-| Flow, bottleneck, and sprint analytics | Cumulative-flow snapshots, dwell/WIP/blocked-dependency bottleneck findings, sprint metrics, sprint burndown, and carry-over reports are available through API/UI. |
-| Agent quality signals | Approval/rejection, consistency, estimate accuracy, and evidence completeness hints are informational-only and do not affect assignment, approvals, review routing, eligibility, or permissions. |
-| Agent-facing analytics | MCP exposes concise predictions, bottlenecks, agent quality, sprint metrics, sprint burndown summaries, and carry-over reports. Dense chart/time-series payloads remain API/UI-first. |
-
-Planning seeds: `docs/plans/v3/03-audit-trail-v2.md`, `docs/plans/v3/04-advanced-analytics.md`
 
 ---
 

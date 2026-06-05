@@ -17,6 +17,7 @@ export interface CumulativeFlowPoint {
   date: string;
   countsByColumn: Record<string, number>;
   countsByStatus: Record<string, number>;
+  interpolated?: boolean;
 }
 
 function dateKey(date: Date): string {
@@ -37,7 +38,7 @@ function normalizeCounts(
 ): Record<string, number> {
   const normalized: Record<string, number> = {};
   for (const [key, value] of Object.entries(counts ?? {})) {
-    normalized[key] = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+    normalized[key] = Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
   }
   return normalized;
 }
@@ -103,15 +104,21 @@ export function getCumulativeFlow(habitatId: string, requestedDays = 30): Cumula
   const byDate = new Map(snapshots.map((snapshot) => [snapshot.snapshotDate, snapshot]));
   const warnings: AnalyticsWarning[] = [];
   const data: CumulativeFlowPoint[] = [];
+  let lastKnown: {
+    countsByColumn: Record<string, number>;
+    countsByStatus: Record<string, number>;
+  } | null = null;
 
   for (const date of dates) {
     const snapshot = byDate.get(date);
     if (snapshot) {
-      data.push({
+      const point = {
         date,
         countsByColumn: normalizeCounts(snapshot.countsByColumn),
         countsByStatus: normalizeCounts(snapshot.countsByStatus),
-      });
+      };
+      data.push(point);
+      lastKnown = { countsByColumn: point.countsByColumn, countsByStatus: point.countsByStatus };
       if (snapshot.completeness === "partial") {
         addWarning(warnings, {
           code: "partial_history",
@@ -129,6 +136,18 @@ export function getCumulativeFlow(habitatId: string, requestedDays = 30): Cumula
         code: "current_state_projection",
         message:
           "The current day is projected from live board state because no daily snapshot exists yet.",
+        severity: "info",
+      });
+    } else if (lastKnown) {
+      data.push({
+        date,
+        countsByColumn: { ...lastKnown.countsByColumn },
+        countsByStatus: { ...lastKnown.countsByStatus },
+        interpolated: true,
+      });
+      addWarning(warnings, {
+        code: "interpolated_history",
+        message: "Some days carry forward the most recent known snapshot.",
         severity: "info",
       });
     } else {

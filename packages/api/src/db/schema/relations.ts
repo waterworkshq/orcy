@@ -14,6 +14,8 @@ import {
   auditExportSchedules,
   scheduledTasks,
   sprints,
+  habitatHealthSnapshots,
+  cumulativeFlowSnapshots,
 } from "./board.js";
 import {
   tasks,
@@ -75,6 +77,8 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
     fields: [habitats.id],
     references: [habitatCodeRepositories.habitatId],
   }),
+  healthSnapshots: many(habitatHealthSnapshots),
+  cumulativeFlowSnapshots: many(cumulativeFlowSnapshots),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -730,3 +734,17 @@ export const codeEvidenceLinksRelations = relations(codeEvidenceLinks, ({ one })
 export const codeEvidenceCompletenessRelations = relations(codeEvidenceCompleteness, () => ({}));
 
 export const codeEvidenceGapsRelations = relations(codeEvidenceGaps, () => ({}));
+
+export const habitatHealthSnapshotsRelations = relations(habitatHealthSnapshots, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [habitatHealthSnapshots.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const cumulativeFlowSnapshotsRelations = relations(cumulativeFlowSnapshots, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [cumulativeFlowSnapshots.habitatId],
+    references: [habitats.id],
+  }),
+}));

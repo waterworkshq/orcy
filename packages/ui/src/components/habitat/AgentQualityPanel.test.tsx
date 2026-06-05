@@ -21,9 +21,9 @@ const response: AgentQualityResponse = {
       sampleSize: 1,
       dimensions: {
         approval: 1,
-        rejection: 1,
+        nonRejectionRate: 1,
         consistency: null,
-        cycleReliability: 1,
+        cycleDataCompleteness: 1,
         estimateAccuracy: null,
         evidenceCompleteness: 0.5,
       },
@@ -37,13 +37,13 @@ const response: AgentQualityResponse = {
       sampleSize: 4,
       dimensions: {
         approval: 0.75,
-        rejection: 0.75,
+        nonRejectionRate: 0.75,
         consistency: 0.9,
-        cycleReliability: 1,
+        cycleDataCompleteness: 1,
         estimateAccuracy: 0.8,
         evidenceCompleteness: 0.7,
       },
-      warnings: ["High rejection rate in recent sample."],
+      warnings: ["High nonRejectionRate rate in recent sample."],
     },
   ],
 };
@@ -66,7 +66,7 @@ describe("AgentQualityPanel", () => {
     expect(screen.getByText("Careful Capybara")).toBeInTheDocument();
     expect(screen.getByText("Low confidence: not enough completed work yet.")).toBeInTheDocument();
     expect(screen.getByText("Signal Salamander")).toBeInTheDocument();
-    expect(screen.getByText("High rejection rate in recent sample.")).toBeInTheDocument();
+    expect(screen.getByText("High nonRejectionRate rate in recent sample.")).toBeInTheDocument();
     expect(screen.queryByText(/bad agent/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/low performer/i)).not.toBeInTheDocument();
   });

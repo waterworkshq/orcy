@@ -268,26 +268,25 @@ export function calculateVelocity(
   const msDay = 24 * 60 * 60 * 1000;
   const since = (days: number) => new Date(now - days * msDay).toISOString();
 
-  function countCompleted(sinceDate: string, agentId?: string): number {
-    const conditions = [
-      eq(missions.habitatId, habitatId),
-      inArray(tasks.status, ["approved", "done"]),
-      sql`${tasks.completedAt} >= ${sinceDate}`,
-    ];
-    if (agentId) conditions.push(eq(tasks.assignedAgentId, agentId));
-    if (options?.sprintId) conditions.push(eq(missions.sprintId, options.sprintId));
+  const baseConditions = [
+    eq(missions.habitatId, habitatId),
+    inArray(tasks.status, ["approved", "done"]),
+  ];
+  if (options?.sprintId) baseConditions.push(eq(missions.sprintId, options.sprintId));
+
+  function countCompletedSince(sinceDate: string): number {
     const row = db
       .select({ count: sql<number>`count(*)` })
       .from(tasks)
       .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(and(...conditions))
+      .where(and(...baseConditions, sql`${tasks.completedAt} >= ${sinceDate}`))
       .get();
     return row?.count ?? 0;
   }
 
-  const days7 = countCompleted(since(7));
-  const days14 = countCompleted(since(14));
-  const days30 = countCompleted(since(30));
+  const days7 = countCompletedSince(since(7));
+  const days14 = countCompletedSince(since(14));
+  const days30 = countCompletedSince(since(30));
 
   const agentRows = db
     .selectDistinct({ id: agents.id, name: agents.name })
@@ -297,13 +296,48 @@ export function calculateVelocity(
     .where(eq(missions.habitatId, habitatId))
     .all();
 
+  const since7 = since(7);
+  const since14 = since(14);
+  const since30 = since(30);
+
   const perAgent: VelocityMetrics["perAgent"] = {};
-  for (const row of agentRows) {
-    perAgent[row.id] = {
-      days7: countCompleted(since(7), row.id),
-      days14: countCompleted(since(14), row.id),
-      days30: countCompleted(since(30), row.id),
-      agentName: row.name,
+  for (const agent of agentRows) {
+    const agentConditions = [
+      eq(missions.habitatId, habitatId),
+      inArray(tasks.status, ["approved", "done"]),
+      eq(tasks.assignedAgentId, agent.id),
+    ];
+    if (options?.sprintId) agentConditions.push(eq(missions.sprintId, options.sprintId));
+
+    const buckets = db
+      .select({
+        bucket: sql<string>`CASE
+          WHEN ${tasks.completedAt} >= ${since7} THEN 'd7'
+          WHEN ${tasks.completedAt} >= ${since14} THEN 'd14'
+          WHEN ${tasks.completedAt} >= ${since30} THEN 'd30'
+        END`,
+        count: sql<number>`count(*)`,
+      })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(and(...agentConditions, sql`${tasks.completedAt} >= ${since30}`))
+      .groupBy(sql`1`)
+      .all();
+
+    let a7 = 0;
+    let a14 = 0;
+    let a30 = 0;
+    for (const b of buckets) {
+      if (b.bucket === "d7") a7 += b.count;
+      if (b.bucket === "d7" || b.bucket === "d14") a14 += b.count;
+      a30 += b.count;
+    }
+
+    perAgent[agent.id] = {
+      days7: a7,
+      days14: a14,
+      days30: a30,
+      agentName: agent.name,
     };
   }
 
@@ -345,6 +379,27 @@ export function estimateCompletionDates(
     .orderBy(priorityOrderExpr(tasks.priority), tasks.createdAt)
     .all();
 
+  const taskIds = rows.map((r) => r.id);
+  const depCountRows =
+    taskIds.length > 0
+      ? db
+          .select({
+            taskId: taskDependencies.taskId,
+            count: sql<number>`count(*)`,
+          })
+          .from(taskDependencies)
+          .innerJoin(tasks, eq(taskDependencies.dependsOnId, tasks.id))
+          .where(
+            and(
+              inArray(taskDependencies.taskId, taskIds),
+              notInArray(tasks.status, ["approved", "done"]),
+            ),
+          )
+          .groupBy(taskDependencies.taskId)
+          .all()
+      : [];
+  const depCountMap = new Map(depCountRows.map((r) => [r.taskId, r.count]));
+
   const estimates: TaskEstimate[] = [];
   let queuePosition = 0;
 
@@ -353,15 +408,7 @@ export function estimateCompletionDates(
     const status = row.status as TaskStatus;
     const priority = row.priority as TaskPriority;
 
-    const depRow = db
-      .select({ count: sql<number>`count(*)` })
-      .from(taskDependencies)
-      .innerJoin(tasks, eq(taskDependencies.dependsOnId, tasks.id))
-      .where(
-        and(eq(taskDependencies.taskId, taskId), notInArray(tasks.status, ["approved", "done"])),
-      )
-      .get();
-    const unmetDeps = depRow?.count ?? 0;
+    const unmetDeps = depCountMap.get(taskId) ?? 0;
 
     let positionInQueue = queuePosition;
     if (status === "in_progress" || status === "claimed") {
@@ -436,6 +483,7 @@ export function estimateCompletionDates(
 export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]): AtRiskTask[] {
   const db = getDb();
   const now = Date.now();
+  const msDay = 24 * 60 * 60 * 1000;
   const msHour = 60 * 60 * 1000;
   const atRisk: AtRiskTask[] = [];
 
@@ -444,7 +492,7 @@ export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]):
       const dueDate = new Date(est.dueAt).getTime();
       const estDate = new Date(est.estimatedCompletionAt).getTime();
       if (estDate > dueDate) {
-        const daysOver = (estDate - dueDate) / (24 * msHour);
+        const daysOver = (estDate - dueDate) / msDay;
         const severity: AtRiskTask["severity"] =
           daysOver > 3 ? "critical" : daysOver > 1 ? "high" : "medium";
         atRisk.push({

@@ -220,7 +220,7 @@ export async function habitatGetBottlenecks(
   return {
     boardId: args.boardId,
     days: result.days,
-    findings: result.findings,
+    bottlenecks: result.bottlenecks,
     warnings: result.warnings,
   };
 }

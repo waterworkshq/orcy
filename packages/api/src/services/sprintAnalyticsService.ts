@@ -118,8 +118,8 @@ export function getSprintMetrics(sprintId: string): SprintMetricsV2 | null {
 
   let loggedEffortMinutes = 0;
   let inferredPresenceMinutes = 0;
-  for (const task of taskRows) {
-    const totals = effortRepo.getEffortTotalsForTask(task.id);
+  const effortTotals = effortRepo.getEffortTotalsForTasks(taskRows.map((t) => t.id));
+  for (const [, totals] of effortTotals) {
     loggedEffortMinutes += totals.loggedEffortMinutes + totals.correctionAdjustmentMinutes;
     inferredPresenceMinutes += totals.inferredPresenceMinutes;
   }
@@ -139,9 +139,7 @@ export function getSprintMetrics(sprintId: string): SprintMetricsV2 | null {
     predictions.forecasts.find(
       (candidate) => candidate.targetType === "sprint" && candidate.targetId === sprint.id,
     ) ?? null;
-  const velocity = predictionService.calculateVelocity(sprint.habitatId, {
-    sprintId: sprint.id,
-  }).days30;
+  const velocity = predictions.velocity.days30;
 
   const warnings: AnalyticsWarning[] = [];
   let isOnTrack = false;
@@ -199,7 +197,18 @@ export function getSprintBurndown(sprintId: string): predictionService.BurndownR
   );
 }
 
-function buildCarryOverReasons(missionId: string, now: Date): SprintCarryOverReason[] {
+function buildCarryOverReasons(
+  missionId: string,
+  now: Date,
+  effortTotals: Map<
+    string,
+    {
+      loggedEffortMinutes: number;
+      inferredPresenceMinutes: number;
+      correctionAdjustmentMinutes: number;
+    }
+  >,
+): SprintCarryOverReason[] {
   const db = getDb();
   const taskRows = db.select().from(tasks).where(eq(tasks.missionId, missionId)).all();
   const reasons: SprintCarryOverReason[] = [];
@@ -289,10 +298,10 @@ function buildCarryOverReasons(missionId: string, now: Date): SprintCarryOverRea
 
   const overruns = taskRows.filter((task) => {
     if (!task.estimatedMinutes) return false;
-    const totals = effortRepo.getEffortTotalsForTask(task.id);
+    const totals = effortTotals.get(task.id);
     const actual =
-      totals.loggedEffortMinutes + totals.correctionAdjustmentMinutes ||
-      totals.inferredPresenceMinutes;
+      (totals?.loggedEffortMinutes ?? 0) + (totals?.correctionAdjustmentMinutes ?? 0) ||
+      (totals?.inferredPresenceMinutes ?? 0);
     return actual > task.estimatedMinutes * 1.25;
   }).length;
   if (overruns > 0) {
@@ -339,11 +348,27 @@ export function getSprintCarryOver(sprintId: string): SprintCarryOverReport | nu
     .where(eq(habitats.id, sprint.habitatId))
     .get();
   const now = new Date();
+
+  const allTaskIds =
+    missionRows.length > 0
+      ? db
+          .select({ id: tasks.id, missionId: tasks.missionId })
+          .from(tasks)
+          .where(
+            inArray(
+              tasks.missionId,
+              missionRows.map((m) => m.id),
+            ),
+          )
+          .all()
+      : [];
+  const carryOverEffort = effortRepo.getEffortTotalsForTasks(allTaskIds.map((t) => t.id));
+
   const carriedOverMissions = missionRows.map((mission) => ({
     missionId: mission.id,
     title: mission.title,
     status: mission.status,
-    reasons: buildCarryOverReasons(mission.id, now),
+    reasons: buildCarryOverReasons(mission.id, now, carryOverEffort),
   }));
   const warnings: AnalyticsWarning[] = [];
   if (sprint.status !== "completed") {

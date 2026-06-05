@@ -96,6 +96,7 @@ export function getTimeInColumnSummary(habitatId: string, requestedDays = 30): T
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));
   const generatedAt = new Date().toISOString();
   const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const lookbackStart = new Date(Date.now() - days * 2 * 24 * 60 * 60 * 1000).toISOString();
   const columnRows = db
     .select({ columnId: columns.id, columnName: columns.name, order: columns.order })
     .from(columns)
@@ -116,7 +117,7 @@ export function getTimeInColumnSummary(habitatId: string, requestedDays = 30): T
     .where(
       and(
         eq(missions.habitatId, habitatId),
-        sql`${taskEvents.timestamp} >= ${startDate}`,
+        sql`${taskEvents.timestamp} >= ${lookbackStart}`,
         or(isNotNull(taskEvents.fromColumnId), isNotNull(taskEvents.toColumnId)),
       ),
     )

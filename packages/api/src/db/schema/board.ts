@@ -192,9 +192,7 @@ export const missionWatchers = sqliteTable(
 
 const missionCommentsColumns = {
   id: text("id").primaryKey(),
-  missionId: text("mission_id")
-    .notNull()
-    .references(() => missions.id, { onDelete: "cascade" }),
+  missionId: text("mission_id").notNull(),
   parentId: text("parent_id").references(
     (): ReturnType<typeof text> => missionComments.id as ReturnType<typeof text>,
     { onDelete: "cascade" },
@@ -480,7 +478,6 @@ export const cumulativeFlowSnapshots = sqliteTable(
   },
   (table) => [
     uniqueIndex("idx_cumulative_flow_snapshot_unique").on(table.habitatId, table.snapshotDate),
-    index("idx_cumulative_flow_snapshots_habitat_date").on(table.habitatId, table.snapshotDate),
   ],
 );
 

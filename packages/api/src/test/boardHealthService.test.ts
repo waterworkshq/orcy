@@ -93,12 +93,12 @@ describe("boardHealthService", () => {
       trends: [
         {
           metric: "cycle_time",
-          percentDelta: 0,
+          relativeDelta: 0,
           confidence: "insufficient_data",
         },
         {
           metric: "throughput",
-          percentDelta: 0,
+          relativeDelta: 0,
           confidence: "insufficient_data",
         },
       ],
@@ -198,12 +198,12 @@ describe("boardHealthService", () => {
       trends: [
         {
           metric: "cycle_time",
-          percentDelta: 0.5,
+          relativeDelta: 0.5,
           confidence: "low",
         },
         {
           metric: "throughput",
-          percentDelta: 1,
+          relativeDelta: 1,
           confidence: "low",
         },
       ],
@@ -228,12 +228,12 @@ describe("boardHealthService", () => {
       trends: [
         {
           metric: "cycle_time",
-          percentDelta: 0.5,
+          relativeDelta: 0.5,
           confidence: "insufficient_data",
         },
         {
           metric: "throughput",
-          percentDelta: 1,
+          relativeDelta: 1,
           confidence: "insufficient_data",
         },
       ],

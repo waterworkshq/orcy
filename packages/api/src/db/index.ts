@@ -131,6 +131,8 @@ export async function initTestDb() {
     "0022_evidence_link_self_fk",
     "0023_task_event_transition_indexes",
     "0024_preserve_mission_events_on_delete",
+    "0025_cumulative_flow_snapshots",
+    "0026_drop_duplicate_unique_indexes",
   ];
   for (const migrationName of migrations) {
     const migrationFile = join(migrationFolder, `${migrationName}.sql`);

@@ -1,4 +1,4 @@
-import type { KanbanApiClient } from "../api.js";
+import type { KanbanApiClient, SprintMetricsResponse, SprintCarryOverResponse } from "../api.js";
 import type { Sprint } from "@orcy/shared";
 
 export async function listSprints(
@@ -25,7 +25,7 @@ export async function getSprint(
 export async function getSprintMetrics(
   client: KanbanApiClient,
   args: { sprintId: string },
-): Promise<Record<string, unknown>> {
+): Promise<SprintMetricsResponse> {
   return client.getSprintMetrics(args.sprintId);
 }
 
@@ -47,7 +47,7 @@ export async function getSprintBurndown(
 export async function getSprintCarryOver(
   client: KanbanApiClient,
   args: { sprintId: string },
-): Promise<Record<string, unknown>> {
+): Promise<SprintCarryOverResponse> {
   return client.getSprintCarryOver(args.sprintId);
 }
 

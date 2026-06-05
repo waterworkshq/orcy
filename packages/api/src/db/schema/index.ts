@@ -121,4 +121,6 @@ export {
   codeEvidenceLinksRelations,
   codeEvidenceCompletenessRelations,
   codeEvidenceGapsRelations,
+  cumulativeFlowSnapshotsRelations,
+  habitatHealthSnapshotsRelations,
 } from "./relations.js";

@@ -76,7 +76,7 @@ function getWipHealthValues(wipHealth: unknown): string[] {
 
 function legacyTrendValue(trend: MetricTrend | undefined): number {
   if (!trend || trend.confidence === "insufficient_data") return 0;
-  return trend.percentDelta ?? 0;
+  return trend.relativeDelta ?? 0;
 }
 
 function computeFlowScore(habitatId: string): {
@@ -111,7 +111,10 @@ function computeFlowScore(habitatId: string): {
         else wipScore = 100;
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error("[boardHealth] computeFlowScore failed:", err);
+    wipScore = 50;
+  }
 
   const flowScore = Math.round((70 + wipScore) / 2);
   return { score: flowScore, cycleTimeTrend, throughputTrend, wipUtilization };
@@ -125,7 +128,7 @@ function computeQualityScore(habitatId: string): {
 } {
   const metrics = timeTrackingRepo.getHabitatMetrics(habitatId);
   let rejectionRate = 0;
-  let estimationAccuracy = metrics.averageEstimationAccuracy || 1;
+  let estimationAccuracy = metrics.averageEstimationAccuracy ?? 1;
   const onTimeCompletionRate = metrics.onTimeCompletionRate;
 
   try {
@@ -133,7 +136,9 @@ function computeQualityScore(habitatId: string): {
     if (dashboardStats?.rejectionRate && typeof dashboardStats.rejectionRate !== "object") {
       rejectionRate = dashboardStats.rejectionRate;
     }
-  } catch {}
+  } catch (err) {
+    console.error("[boardHealth] computeQualityScore rejection lookup failed:", err);
+  }
 
   let rejectionScore = 100;
   if (rejectionRate >= 0.25) rejectionScore = 30;
@@ -165,7 +170,9 @@ function computeDeliveryScore(habitatId: string): {
   try {
     const predictions = predictionService.getPredictions(habitatId);
     atRiskTasks = predictions.atRiskTasks.length;
-  } catch {}
+  } catch (err) {
+    console.error("[boardHealth] computeDeliveryScore predictions failed:", err);
+  }
 
   let overdueScore = 100;
   if (overdueTasks >= 5) overdueScore = 30;
@@ -202,7 +209,9 @@ function computeCapacityScore(habitatId: string): {
     const dashboardStats = eventDashboard.getDashboardStats(habitatId, "7d") as any;
     const pendingTasks = dashboardStats?.taskByStatus?.pending ?? 0;
     backlogToAgentRatio = agentAvailability > 0 ? pendingTasks / agentAvailability : pendingTasks;
-  } catch {}
+  } catch (err) {
+    console.error("[boardHealth] computeCapacityScore failed:", err);
+  }
 
   let utilScore = 100;
   if (agentUtilization > 0.9 || agentUtilization < 0.4) utilScore = 40;
@@ -234,7 +243,9 @@ function computeStabilityScore(habitatId: string): {
     anomalyCount = anomalies.length;
     criticalAnomalies = anomalies.filter((a) => a.severity === "critical").length;
     staleTaskCount = anomalies.filter((a) => a.type === "stale_in_progress").length;
-  } catch {}
+  } catch (err) {
+    console.error("[boardHealth] computeStabilityScore failed:", err);
+  }
 
   let anomalyScore = 100;
   if (anomalyCount >= 5) anomalyScore = 30;
@@ -337,7 +348,9 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
         createdAt: snapshotAt,
       })
       .run();
-  } catch {}
+  } catch (err) {
+    console.error("[boardHealth] failed to persist health snapshot:", err);
+  }
 
   return { habitatId, score, grade, dimensions, recommendations, snapshotAt };
 }

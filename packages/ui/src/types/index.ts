@@ -676,9 +676,9 @@ export interface AgentQualitySignal {
   sampleSize: number;
   dimensions: {
     approval: number | null;
-    rejection: number | null;
+    nonRejectionRate: number | null;
     consistency: number | null;
-    cycleReliability: number | null;
+    cycleDataCompleteness: number | null;
     estimateAccuracy: number | null;
     evidenceCompleteness: number | null;
   };

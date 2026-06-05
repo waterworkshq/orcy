@@ -18,12 +18,7 @@ export interface BottleneckFinding {
   columnName?: string;
   missionId?: string;
   severity: "low" | "medium" | "high" | "critical";
-  signal:
-    | "accumulation"
-    | "dwell_time"
-    | "wip_exceeded"
-    | "blocked_dependencies"
-    | "backlog_growth";
+  signal: "dwell_time" | "wip_exceeded" | "blocked_dependencies";
   confidence: AnalyticsConfidence;
   summary: string;
   evidence: Record<string, unknown>;
@@ -89,7 +84,7 @@ export function getBottlenecks(habitatId: string, requestedDays = 30): Bottlenec
     .all();
 
   for (const row of wipRows) {
-    if (row.wipLimit === null || row.current <= row.wipLimit) continue;
+    if (row.wipLimit === null || row.wipLimit === 0 || row.current <= row.wipLimit) continue;
     bottlenecks.push({
       columnId: row.columnId,
       columnName: row.columnName,
@@ -113,6 +108,7 @@ export function getBottlenecks(habitatId: string, requestedDays = 30): Bottlenec
       and(
         eq(missions.habitatId, habitatId),
         notInArray(dependencyTask.status, ["approved", "done"]),
+        sql`${missions.isArchived} IS NOT TRUE`,
       ),
     )
     .groupBy(missions.id)

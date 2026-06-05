@@ -48,7 +48,13 @@ import type {
 } from "./types.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "./logger.js";
-import { getOrcyConfig, normalizeTaskId, normalizeMissionId, createApiClient } from "@orcy/shared";
+import {
+  getOrcyConfig,
+  normalizeTaskId,
+  normalizeMissionId,
+  createApiClient,
+  ApiClientError,
+} from "@orcy/shared";
 
 interface McpAuditToolContext {
   toolName: string;
@@ -58,6 +64,88 @@ interface McpAuditToolContext {
 const mcpAuditToolStorage = new AsyncLocalStorage<McpAuditToolContext>();
 
 export { ApiClientError as KanbanApiError } from "@orcy/shared";
+
+export interface AnalyticsWarning {
+  code: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+}
+
+export interface SprintMetricsResponse {
+  sprintId: string;
+  totalMissions: number;
+  completedMissions: number;
+  completionPercentage: number;
+  totalTasks: number;
+  completedTasks: number;
+  velocity: number;
+  remainingDays: number;
+  isOnTrack: boolean;
+  plannedMinutes: number | null;
+  loggedEffortMinutes: number;
+  inferredPresenceMinutes: number;
+  carryOverCount: number;
+  forecast: unknown | null;
+  warnings: AnalyticsWarning[];
+}
+
+export interface SprintBurndownResponse {
+  sprintId: string;
+  generatedAt: string;
+  totalTasks: number;
+  completedTasks: number;
+  remainingTasks: number;
+  averageDailyVelocity: number;
+  estimatedCompletionDate: string | null;
+  days: unknown[];
+  warnings: AnalyticsWarning[];
+}
+
+export interface SprintCarryOverResponse {
+  sprintId: string;
+  generatedAt: string;
+  policy: string;
+  carriedOverMissions: unknown[];
+  warnings: AnalyticsWarning[];
+}
+
+export interface PredictionResponse {
+  habitatId: string;
+  velocity: unknown;
+  forecasts: unknown[];
+  atRiskTasks: unknown[];
+  generatedAt: string;
+}
+
+export interface BottleneckResponse {
+  habitatId: string;
+  days: number;
+  generatedAt: string;
+  bottlenecks: unknown[];
+  warnings: AnalyticsWarning[];
+}
+
+export interface AgentQualityResponse {
+  habitatId: string;
+  generatedAt: string;
+  signals: unknown[];
+}
+
+export interface CumulativeFlowResponse {
+  habitatId: string;
+  days: number;
+  generatedAt: string;
+  data: unknown[];
+  warnings: AnalyticsWarning[];
+}
+
+export interface HabitatHealthResponse {
+  habitatId: string;
+  generatedAt: string;
+  score: number;
+  dimensions: Record<string, unknown>;
+  warnings: AnalyticsWarning[];
+}
 
 function buildRelevanceTags(mission: Mission): string[] {
   const tags: string[] = [];
@@ -237,75 +325,78 @@ export class KanbanApiClient {
     const depIds = details.dependencies?.dependsOn ?? [];
     const blockIds = details.dependencies?.blocks ?? [];
 
-    const dependencies: Mission[] = [];
-    for (const id of depIds) {
-      try {
-        const res = await this.getMission(id);
-        if (res.mission) dependencies.push(res.mission);
-      } catch (err) {
-        logger.warn("mission_context_dependency_fetch_failed", {
-          missionId,
-          dependencyMissionId: id,
-          err: getErrorMessage(err),
-        });
-      }
-    }
-
-    const blocking: Mission[] = [];
-    for (const id of blockIds) {
-      try {
-        const res = await this.getMission(id);
-        if (res.mission) blocking.push(res.mission);
-      } catch (err) {
-        logger.warn("mission_context_blocking_fetch_failed", {
-          missionId,
-          blockingMissionId: id,
-          err: getErrorMessage(err),
-        });
-      }
-    }
-
-    let pulseDigest: PulseDigest | undefined;
-    try {
-      pulseDigest = await this.getPulseDigest(missionId);
-    } catch (err) {
-      logger.warn("mission_context_pulse_digest_fetch_failed", {
-        missionId,
-        err: getErrorMessage(err),
-      });
-    }
-
-    let projectInsights: ProjectInsight[] = [];
-    try {
-      const tags = buildRelevanceTags(details.mission);
-      if (tags.length > 0) {
-        projectInsights = await this.getRelevantInsights(details.mission.habitatId, tags);
-      }
-    } catch (err) {
-      logger.warn("mission_context_project_insights_fetch_failed", {
-        missionId,
-        habitatId: details.mission.habitatId,
-        err: getErrorMessage(err),
-      });
-    }
-
-    let skill: { content: string; signalCount: number; avgStrength: number } | undefined;
-    try {
-      const skillResult = await this.getHabitatSkill(details.mission.habitatId);
-      if (skillResult?.skill) {
-        skill = {
-          content: skillResult.skill.content,
-          signalCount: skillResult.skill.signalCount,
-          avgStrength: skillResult.skill.avgStrength,
-        };
-      }
-    } catch (err) {
-      logger.warn("mission_context_habitat_skill_fetch_failed", {
-        missionId,
-        habitatId: details.mission.habitatId,
-        err: getErrorMessage(err),
-      });
-    }
+    const [depResults, blockResults, pulseDigest, projectInsights, skillResult] = await Promise.all(
+      [
+        Promise.all(
+          depIds.map((id) =>
+            this.getMission(id)
+              .then((res) => res.mission)
+              .catch((err) => {
+                logger.warn("mission_context_dependency_fetch_failed", {
+                  missionId,
+                  dependencyMissionId: id,
+                  err: getErrorMessage(err),
+                });
+                return undefined;
+              }),
+          ),
+        ),
+        Promise.all(
+          blockIds.map((id) =>
+            this.getMission(id)
+              .then((res) => res.mission)
+              .catch((err) => {
+                logger.warn("mission_context_blocking_fetch_failed", {
+                  missionId,
+                  blockingMissionId: id,
+                  err: getErrorMessage(err),
+                });
+                return undefined;
+              }),
+          ),
+        ),
+        this.getPulseDigest(missionId).catch((err) => {
+          logger.warn("mission_context_pulse_digest_fetch_failed", {
+            missionId,
+            err: getErrorMessage(err),
+          });
+          return undefined;
+        }),
+        (async () => {
+          try {
+            const tags = buildRelevanceTags(details.mission);
+            if (tags.length > 0) {
+              return await this.getRelevantInsights(details.mission.habitatId, tags);
+            }
+          } catch (err) {
+            logger.warn("mission_context_project_insights_fetch_failed", {
+              missionId,
+              habitatId: details.mission.habitatId,
+              err: getErrorMessage(err),
+            });
+          }
+          return [];
+        })(),
+        this.getHabitatSkill(details.mission.habitatId)
+          .then((res) =>
+            res?.skill
+              ? {
+                  content: res.skill.content,
+                  signalCount: res.skill.signalCount,
+                  avgStrength: res.skill.avgStrength,
+                }
+              : undefined,
+          )
+          .catch((err) => {
+            logger.warn("mission_context_habitat_skill_fetch_failed", {
+              missionId,
+              habitatId: details.mission.habitatId,
+              err: getErrorMessage(err),
+            });
+            return undefined;
+          }),
+      ],
+    );
 
     return {
       mission: details.mission,
@@ -317,11 +408,11 @@ export class KanbanApiClient {
         artifacts: t.artifacts,
         assignedAgentId: t.assignedAgentId,
       })),
-      dependencies,
-      blocking,
+      dependencies: depResults.filter((m): m is MissionWithProgress => m !== undefined),
+      blocking: blockResults.filter((m): m is MissionWithProgress => m !== undefined),
       pulse: pulseDigest,
-      projectInsights,
-      skill,
+      projectInsights: projectInsights ?? [],
+      skill: skillResult,
     };
   }
 
@@ -502,54 +593,34 @@ export class KanbanApiClient {
     | { success: false; reason: string; message: string; missingCapabilities?: string[] }
   > {
     taskId = normalizeTaskId(taskId);
-    const { apiKey, agentId: _agentId } = this.getCredentials();
-    const url = `${this.baseUrl}/api/tasks/${taskId}/claim`;
-    const headers: Record<string, string> = {
-      "X-Agent-API-Key": apiKey,
-      ...this.getAuditHeaders(),
-    };
-    const startTime = Date.now();
-    logger.debug("http_request", { method: "POST", url });
-    const response = await globalThis.fetch(url, {
-      method: "POST",
-      headers,
-    });
-    const duration = Date.now() - startTime;
-
-    if (response.ok) {
-      logger.info("http_response", { method: "POST", url, status: response.status, duration });
-      return response.json() as Promise<ClaimTaskResponse>;
-    }
-
-    const errorData = await response.text().catch(() => "");
-    logger.error("http_error", {
-      method: "POST",
-      url,
-      status: response.status,
-      duration,
-      error: errorData,
-    });
-    if (response.status === 403) {
-      try {
-        const parsed = JSON.parse(errorData);
-        if (parsed.missingCapabilities) {
-          return {
-            success: false,
-            reason: "capability_mismatch",
-            message: `Missing capabilities: ${parsed.missingCapabilities.join(", ")}`,
-            missingCapabilities: parsed.missingCapabilities,
-          };
-        }
-      } catch {
-        /* fall through */
-      }
-    }
-
     try {
-      const parsed = JSON.parse(errorData);
-      return { success: false, reason: parsed.error || "unknown", message: errorData };
-    } catch {
-      return { success: false, reason: "unknown", message: errorData || response.statusText };
+      return await this.request<ClaimTaskResponse>("POST", `/api/tasks/${taskId}/claim`);
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        const body = err.message.replace(/^API \d+: /, "");
+        if (err.status === 403) {
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed.missingCapabilities) {
+              return {
+                success: false,
+                reason: "capability_mismatch",
+                message: `Missing capabilities: ${parsed.missingCapabilities.join(", ")}`,
+                missingCapabilities: parsed.missingCapabilities,
+              };
+            }
+          } catch {
+            /* fall through */
+          }
+        }
+        try {
+          const parsed = JSON.parse(body);
+          return { success: false, reason: parsed.error || "unknown", message: body };
+        } catch {
+          return { success: false, reason: "unknown", message: body };
+        }
+      }
+      return { success: false, reason: "unknown", message: String(err) };
     }
   }
 
@@ -923,36 +994,36 @@ export class KanbanApiClient {
     );
   }
 
-  async getHabitatHealth(boardId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/health`);
+  async getHabitatHealth(boardId: string): Promise<HabitatHealthResponse> {
+    return this.request<HabitatHealthResponse>("GET", `/api/habitats/${boardId}/health`);
   }
 
-  async getHabitatHealthHistory(boardId: string, days?: number): Promise<Record<string, unknown>> {
+  async getHabitatHealthHistory(boardId: string, days?: number): Promise<HabitatHealthResponse> {
     const params = new URLSearchParams();
     if (days) params.set("days", String(days));
     const qs = params.toString();
-    return this.request<Record<string, unknown>>(
+    return this.request<HabitatHealthResponse>(
       "GET",
       `/api/habitats/${boardId}/health/history${qs ? `?${qs}` : ""}`,
     );
   }
 
-  async getHabitatPredictions(boardId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/predictions`);
+  async getHabitatPredictions(boardId: string): Promise<PredictionResponse> {
+    return this.request<PredictionResponse>("GET", `/api/habitats/${boardId}/predictions`);
   }
 
-  async getHabitatBottlenecks(boardId: string, days?: number): Promise<Record<string, unknown>> {
+  async getHabitatBottlenecks(boardId: string, days?: number): Promise<BottleneckResponse> {
     const params = new URLSearchParams();
     if (days) params.set("days", String(days));
     const qs = params.toString();
-    return this.request<Record<string, unknown>>(
+    return this.request<BottleneckResponse>(
       "GET",
       `/api/habitats/${boardId}/bottlenecks${qs ? `?${qs}` : ""}`,
     );
   }
 
-  async getHabitatAgentQuality(boardId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/habitats/${boardId}/agent-quality`);
+  async getHabitatAgentQuality(boardId: string): Promise<AgentQualityResponse> {
+    return this.request<AgentQualityResponse>("GET", `/api/habitats/${boardId}/agent-quality`);
   }
 
   async listSubtasks(taskId: string): Promise<ListSubtasksResponse> {
@@ -1197,7 +1268,7 @@ export class KanbanApiClient {
     note?: string,
     startedAt?: string,
     endedAt?: string,
-  ): Promise<any> {
+  ): Promise<{ entry: unknown }> {
     taskId = normalizeTaskId(taskId);
     return this.request("POST", `/api/tasks/${taskId}/effort-entries`, {
       minutes,
@@ -1210,7 +1281,7 @@ export class KanbanApiClient {
   async listEffortEntries(
     taskId: string,
     options: { includeCorrections?: boolean; limit?: number; offset?: number } = {},
-  ): Promise<any> {
+  ): Promise<{ entries: unknown[] }> {
     taskId = normalizeTaskId(taskId);
     const params = new URLSearchParams();
     if (options.includeCorrections !== undefined) {
@@ -1226,7 +1297,7 @@ export class KanbanApiClient {
     return this.request("GET", `/api/tasks/${taskId}/effort-entries${query ? `?${query}` : ""}`);
   }
 
-  async getEffortReport(taskId: string): Promise<any> {
+  async getEffortReport(taskId: string): Promise<{ report: unknown }> {
     taskId = normalizeTaskId(taskId);
     return this.request("GET", `/api/tasks/${taskId}/effort-report`);
   }
@@ -1237,7 +1308,7 @@ export class KanbanApiClient {
     minutesDelta: number,
     correctionReason: string,
     note?: string,
-  ): Promise<any> {
+  ): Promise<{ entry: unknown }> {
     taskId = normalizeTaskId(taskId);
     return this.request("POST", `/api/tasks/${taskId}/effort-entries/${entryId}/correct`, {
       minutesDelta,
@@ -1246,7 +1317,7 @@ export class KanbanApiClient {
     });
   }
 
-  async getMissionEffortReport(missionId: string): Promise<any> {
+  async getMissionEffortReport(missionId: string): Promise<{ report: unknown }> {
     missionId = normalizeMissionId(missionId);
     return this.request("GET", `/api/missions/${missionId}/effort-report`);
   }
@@ -1762,16 +1833,16 @@ export class KanbanApiClient {
     return this.request<{ sprint: Sprint }>("GET", `/api/sprints/${sprintId}`);
   }
 
-  async getSprintMetrics(sprintId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/sprints/${sprintId}/metrics`);
+  async getSprintMetrics(sprintId: string): Promise<SprintMetricsResponse> {
+    return this.request<SprintMetricsResponse>("GET", `/api/sprints/${sprintId}/metrics`);
   }
 
-  async getSprintBurndown(sprintId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/sprints/${sprintId}/burndown`);
+  async getSprintBurndown(sprintId: string): Promise<SprintBurndownResponse> {
+    return this.request<SprintBurndownResponse>("GET", `/api/sprints/${sprintId}/burndown`);
   }
 
-  async getSprintCarryOver(sprintId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>("GET", `/api/sprints/${sprintId}/carry-over`);
+  async getSprintCarryOver(sprintId: string): Promise<SprintCarryOverResponse> {
+    return this.request<SprintCarryOverResponse>("GET", `/api/sprints/${sprintId}/carry-over`);
   }
 
   async createSprint(habitatId: string, input: SprintCreateInput): Promise<{ sprint: Sprint }> {

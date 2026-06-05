@@ -24,10 +24,11 @@ import {
   pullRequests,
   taskEvents,
   tasks,
+  users,
   webhookDeliveries,
   webhookSubscriptions,
 } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { badRequest } from "../errors.js";
 import { normalizeAuditActorAndSource } from "./auditProjectionNormalizer.js";
 
@@ -57,6 +58,8 @@ export interface AuditQueryInput {
   source?: AuditSource;
   order?: "asc" | "desc";
   includeHealthSnapshots?: boolean;
+  limit?: number;
+  offset?: number;
 }
 
 export interface AuditQueryResult {
@@ -360,9 +363,9 @@ function projectTaskRow(row: TaskAuditRow): AuditEvent {
   };
 }
 
-function projectMissionRow(row: MissionAuditRow): AuditEvent {
+function projectMissionRow(row: MissionAuditRow, fallbackHabitatId: string): AuditEvent {
   const title = row.missionTitle ?? readString(row.metadata.title) ?? row.missionId;
-  const habitatId = row.missionHabitatId ?? readString(row.metadata.habitatId) ?? "";
+  const habitatId = row.missionHabitatId ?? readString(row.metadata.habitatId) ?? fallbackHabitatId;
   const normalized = normalizeAuditActorAndSource({
     actorType: row.actorType,
     actorId: row.actorId,
@@ -900,82 +903,115 @@ export function summarizeAuditCompleteness(events: AuditEvent[]): AuditCompleten
   };
 }
 
+const DEFAULT_AUDIT_LIMIT = 1000;
+const MAX_AUDIT_LIMIT = 10000;
+
 export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
   const query = normalizeFilters(input);
   const db = getDb();
   const warnings: AuditWarning[] = [];
+  const effectiveLimit = Math.min(query.limit ?? DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT);
+  const effectiveOffset = query.offset ?? 0;
 
-  const taskRows = db
-    .select({
-      id: taskEvents.id,
-      taskId: taskEvents.taskId,
-      taskTitle: tasks.title,
-      missionId: tasks.missionId,
-      missionTitle: missions.title,
-      missionHabitatId: missions.habitatId,
-      actorType: taskEvents.actorType,
-      actorId: taskEvents.actorId,
-      actorName: agents.name,
-      action: taskEvents.action,
-      fromStatus: taskEvents.fromStatus,
-      toStatus: taskEvents.toStatus,
-      fromColumnId: taskEvents.fromColumnId,
-      toColumnId: taskEvents.toColumnId,
-      metadata: taskEvents.metadata,
-      timestamp: taskEvents.timestamp,
-    })
-    .from(taskEvents)
-    .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .leftJoin(agents, eq(taskEvents.actorId, agents.id))
-    .all() as TaskAuditRow[];
+  const entityTypeFilter = query.entityType;
+  const habitatFilter = query.habitatId;
 
-  const missionRows = db
-    .select({
-      id: missionEvents.id,
-      missionId: missionEvents.missionId,
-      missionTitle: missions.title,
-      missionHabitatId: missions.habitatId,
-      actorType: missionEvents.actorType,
-      actorId: missionEvents.actorId,
-      actorName: agents.name,
-      action: missionEvents.action,
-      fromStatus: missionEvents.fromStatus,
-      toStatus: missionEvents.toStatus,
-      fromColumnId: missionEvents.fromColumnId,
-      toColumnId: missionEvents.toColumnId,
-      metadata: missionEvents.metadata,
-      timestamp: missionEvents.timestamp,
-    })
-    .from(missionEvents)
-    .leftJoin(missions, eq(missionEvents.missionId, missions.id))
-    .leftJoin(agents, eq(missionEvents.actorId, agents.id))
-    .all() as MissionAuditRow[];
+  const shouldQueryTasks = !entityTypeFilter || entityTypeFilter === "task";
+  const shouldQueryMissions = !entityTypeFilter || entityTypeFilter === "mission";
+  const shouldQueryEffort = !entityTypeFilter || entityTypeFilter === "effort_entry";
+  const shouldQueryCodeLinks = !entityTypeFilter || entityTypeFilter === "code_evidence_link";
+  const shouldQueryCodeGaps = !entityTypeFilter || entityTypeFilter === "code_evidence_gap";
+  const shouldQueryCommits = !entityTypeFilter || entityTypeFilter === "commit";
+  const shouldQueryChangedFiles = !entityTypeFilter || entityTypeFilter === "changed_file";
+  const shouldQueryPullRequests = !entityTypeFilter || entityTypeFilter === "pull_request";
+  const shouldQueryCodeReviews = !entityTypeFilter || entityTypeFilter === "code_review";
+  const shouldQueryPipelineEvents = !entityTypeFilter || entityTypeFilter === "pipeline_event";
+  const shouldQueryIntegrationSyncs =
+    !entityTypeFilter || entityTypeFilter === "integration_sync_run";
+  const shouldQueryWebhookDeliveries = !entityTypeFilter || entityTypeFilter === "webhook_delivery";
+  const shouldQueryHealthSnapshots =
+    query.includeHealthSnapshots || entityTypeFilter === "health_snapshot";
 
-  const effortRows = db
-    .select({
-      id: effortEntries.id,
-      taskId: effortEntries.taskId,
-      taskTitle: tasks.title,
-      missionId: tasks.missionId,
-      missionTitle: missions.title,
-      missionHabitatId: missions.habitatId,
-      actorType: effortEntries.actorType,
-      actorId: effortEntries.actorId,
-      actorName: agents.name,
-      minutes: effortEntries.minutes,
-      source: effortEntries.source,
-      note: effortEntries.note,
-      correctsEntryId: effortEntries.correctsEntryId,
-      correctionReason: effortEntries.correctionReason,
-      metadata: effortEntries.metadata,
-      recordedAt: effortEntries.recordedAt,
-    })
-    .from(effortEntries)
-    .innerJoin(tasks, eq(effortEntries.taskId, tasks.id))
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .leftJoin(agents, eq(effortEntries.actorId, agents.id))
-    .all() as EffortAuditRow[];
+  const taskRows = shouldQueryTasks
+    ? (db
+        .select({
+          id: taskEvents.id,
+          taskId: taskEvents.taskId,
+          taskTitle: tasks.title,
+          missionId: tasks.missionId,
+          missionTitle: missions.title,
+          missionHabitatId: missions.habitatId,
+          actorType: taskEvents.actorType,
+          actorId: taskEvents.actorId,
+          actorName: agents.name,
+          action: taskEvents.action,
+          fromStatus: taskEvents.fromStatus,
+          toStatus: taskEvents.toStatus,
+          fromColumnId: taskEvents.fromColumnId,
+          toColumnId: taskEvents.toColumnId,
+          metadata: taskEvents.metadata,
+          timestamp: taskEvents.timestamp,
+        })
+        .from(taskEvents)
+        .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
+        .innerJoin(missions, eq(tasks.missionId, missions.id))
+        .leftJoin(agents, eq(taskEvents.actorId, agents.id))
+        .where(eq(missions.habitatId, habitatFilter))
+        .all() as TaskAuditRow[])
+    : [];
+
+  const missionRows = shouldQueryMissions
+    ? (db
+        .select({
+          id: missionEvents.id,
+          missionId: missionEvents.missionId,
+          missionTitle: missions.title,
+          missionHabitatId: missions.habitatId,
+          actorType: missionEvents.actorType,
+          actorId: missionEvents.actorId,
+          actorName: agents.name,
+          action: missionEvents.action,
+          fromStatus: missionEvents.fromStatus,
+          toStatus: missionEvents.toStatus,
+          fromColumnId: missionEvents.fromColumnId,
+          toColumnId: missionEvents.toColumnId,
+          metadata: missionEvents.metadata,
+          timestamp: missionEvents.timestamp,
+        })
+        .from(missionEvents)
+        .leftJoin(missions, eq(missionEvents.missionId, missions.id))
+        .leftJoin(agents, eq(missionEvents.actorId, agents.id))
+        .where(sql`(${missions.habitatId} = ${habitatFilter} OR ${missions.id} IS NULL)`)
+        .all() as MissionAuditRow[])
+    : [];
+
+  const effortRows = shouldQueryEffort
+    ? (db
+        .select({
+          id: effortEntries.id,
+          taskId: effortEntries.taskId,
+          taskTitle: tasks.title,
+          missionId: tasks.missionId,
+          missionTitle: missions.title,
+          missionHabitatId: missions.habitatId,
+          actorType: effortEntries.actorType,
+          actorId: effortEntries.actorId,
+          actorName: agents.name,
+          minutes: effortEntries.minutes,
+          source: effortEntries.source,
+          note: effortEntries.note,
+          correctsEntryId: effortEntries.correctsEntryId,
+          correctionReason: effortEntries.correctionReason,
+          metadata: effortEntries.metadata,
+          recordedAt: effortEntries.recordedAt,
+        })
+        .from(effortEntries)
+        .innerJoin(tasks, eq(effortEntries.taskId, tasks.id))
+        .innerJoin(missions, eq(tasks.missionId, missions.id))
+        .leftJoin(agents, eq(effortEntries.actorId, agents.id))
+        .where(eq(missions.habitatId, habitatFilter))
+        .all() as EffortAuditRow[])
+    : [];
 
   const taskInfoRows = db
     .select({
@@ -987,6 +1023,7 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(eq(missions.habitatId, habitatFilter))
     .all();
   const missionInfoRows = db
     .select({
@@ -995,32 +1032,138 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
       habitatId: missions.habitatId,
     })
     .from(missions)
+    .where(eq(missions.habitatId, habitatFilter))
     .all();
-  const codeEvidenceLinkRows = db.select().from(codeEvidenceLinks).all() as CodeEvidenceLinkRow[];
-  const codeEvidenceGapRows = db.select().from(codeEvidenceGaps).all() as CodeEvidenceGapRow[];
-  const codeCommitRows = db.select().from(codeCommits).all() as CodeCommitRow[];
-  const codeChangedFileRows = db.select().from(codeChangedFiles).all() as CodeChangedFileRow[];
-  const pullRequestRows = db.select().from(pullRequests).all() as PullRequestRow[];
-  const codeReviewRows = db.select().from(codeReviews).all() as CodeReviewRow[];
-  const codeRepositoryRows = db.select().from(habitatCodeRepositories).all() as CodeRepositoryRow[];
-  const pipelineEventRows = db.select().from(pipelineEvents).all() as PipelineEventRow[];
-  const integrationSyncRunRows = db
+
+  const taskIds = new Set(taskInfoRows.map((r) => r.taskId));
+  const missionIds = new Set(missionInfoRows.map((r) => r.missionId));
+  const repoRows = db
     .select()
-    .from(integrationSyncRuns)
-    .all() as IntegrationSyncRunRow[];
-  const integrationConnectionRows = db
-    .select()
-    .from(integrationConnections)
-    .all() as IntegrationConnectionRow[];
-  const webhookDeliveryRows = db.select().from(webhookDeliveries).all() as WebhookDeliveryRow[];
-  const webhookSubscriptionRows = db
-    .select()
-    .from(webhookSubscriptions)
-    .all() as WebhookSubscriptionRow[];
-  const healthSnapshotRows =
-    query.includeHealthSnapshots || query.entityType === "health_snapshot"
-      ? (db.select().from(habitatHealthSnapshots).all() as HabitatHealthSnapshotRow[])
+    .from(habitatCodeRepositories)
+    .where(eq(habitatCodeRepositories.habitatId, habitatFilter))
+    .all() as CodeRepositoryRow[];
+  const repoIds = new Set(repoRows.map((r) => r.id));
+
+  const codeEvidenceLinkRows = shouldQueryCodeLinks
+    ? (db
+        .select()
+        .from(codeEvidenceLinks)
+        .where(
+          and(
+            sql`(${codeEvidenceLinks.targetType} = 'task' AND ${codeEvidenceLinks.targetId} IN (${sql.join([...taskIds], sql`, `)})) OR (${codeEvidenceLinks.targetType} = 'mission' AND ${codeEvidenceLinks.targetId} IN (${sql.join([...missionIds], sql`, `)}))`,
+          ),
+        )
+        .all() as CodeEvidenceLinkRow[])
+    : [];
+  const codeEvidenceGapRows = shouldQueryCodeGaps
+    ? (db
+        .select()
+        .from(codeEvidenceGaps)
+        .where(
+          and(
+            sql`(${codeEvidenceGaps.targetType} = 'task' AND ${codeEvidenceGaps.targetId} IN (${sql.join([...taskIds], sql`, `)})) OR (${codeEvidenceGaps.targetType} = 'mission' AND ${codeEvidenceGaps.targetId} IN (${sql.join([...missionIds], sql`, `)}))`,
+          ),
+        )
+        .all() as CodeEvidenceGapRow[])
+    : [];
+  const codeCommitRows = shouldQueryCommits
+    ? (db
+        .select()
+        .from(codeCommits)
+        .where(
+          repoIds.size > 0
+            ? sql`${codeCommits.repositoryId} IN (${sql.join([...repoIds], sql`, `)})`
+            : sql`1 = 0`,
+        )
+        .all() as CodeCommitRow[])
+    : [];
+  const codeChangedFileRows = shouldQueryChangedFiles
+    ? (db
+        .select()
+        .from(codeChangedFiles)
+        .where(
+          repoIds.size > 0
+            ? sql`${codeChangedFiles.repositoryId} IN (${sql.join([...repoIds], sql`, `)})`
+            : sql`1 = 0`,
+        )
+        .all() as CodeChangedFileRow[])
+    : [];
+  const pullRequestRows = shouldQueryPullRequests
+    ? (db
+        .select()
+        .from(pullRequests)
+        .where(
+          taskIds.size > 0
+            ? sql`${pullRequests.taskId} IN (${sql.join([...taskIds], sql`, `)})`
+            : sql`1 = 0`,
+        )
+        .all() as PullRequestRow[])
+    : [];
+  const codeReviewRows = shouldQueryCodeReviews
+    ? (db
+        .select()
+        .from(codeReviews)
+        .where(
+          repoIds.size > 0
+            ? sql`${codeReviews.repositoryId} IN (${sql.join([...repoIds], sql`, `)})`
+            : sql`1 = 0`,
+        )
+        .all() as CodeReviewRow[])
+    : [];
+  const pipelineEventRows = shouldQueryPipelineEvents
+    ? (db
+        .select()
+        .from(pipelineEvents)
+        .where(
+          taskIds.size > 0
+            ? sql`${pipelineEvents.taskId} IN (${sql.join([...taskIds], sql`, `)})`
+            : sql`1 = 0`,
+        )
+        .all() as PipelineEventRow[])
+    : [];
+
+  const integrationSyncRunRows = shouldQueryIntegrationSyncs
+    ? (db
+        .select()
+        .from(integrationSyncRuns)
+        .where(eq(integrationSyncRuns.habitatId, habitatFilter))
+        .all() as IntegrationSyncRunRow[])
+    : [];
+  const connectionIds = new Set(integrationSyncRunRows.map((r) => r.connectionId));
+  const integrationConnectionRows =
+    connectionIds.size > 0
+      ? (db
+          .select()
+          .from(integrationConnections)
+          .where(sql`${integrationConnections.id} IN (${sql.join([...connectionIds], sql`, `)})`)
+          .all() as IntegrationConnectionRow[])
       : [];
+
+  const webhookSubscriptionRows = shouldQueryWebhookDeliveries
+    ? (db
+        .select()
+        .from(webhookSubscriptions)
+        .where(eq(webhookSubscriptions.habitatId, habitatFilter))
+        .all() as WebhookSubscriptionRow[])
+    : [];
+  const subscriptionIds = new Set(webhookSubscriptionRows.map((r) => r.id));
+  const webhookDeliveryRows =
+    shouldQueryWebhookDeliveries && subscriptionIds.size > 0
+      ? (db
+          .select()
+          .from(webhookDeliveries)
+          .where(
+            sql`${webhookDeliveries.subscriptionId} IN (${sql.join([...subscriptionIds], sql`, `)})`,
+          )
+          .all() as WebhookDeliveryRow[])
+      : [];
+  const healthSnapshotRows = shouldQueryHealthSnapshots
+    ? (db
+        .select()
+        .from(habitatHealthSnapshots)
+        .where(eq(habitatHealthSnapshots.habitatId, habitatFilter))
+        .all() as HabitatHealthSnapshotRow[])
+    : [];
 
   const taskById = new Map<string, TaskInfo>();
   for (const row of taskInfoRows) {
@@ -1044,7 +1187,7 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
   const context: CodeProjectionContext = {
     taskById,
     missionById,
-    repositoryById: new Map(codeRepositoryRows.map((row) => [row.id, row])),
+    repositoryById: new Map(repoRows.map((row) => [row.id, row])),
     pullRequestById: new Map(pullRequestRows.map((row) => [row.id, row])),
     commitById: new Map(codeCommitRows.map((row) => [row.id, row])),
     evidenceTargetsByEvidence: new Map(),
@@ -1126,7 +1269,7 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
 
   const events = [
     ...projectedTaskEvents,
-    ...missionRows.map(projectMissionRow),
+    ...missionRows.map((row) => projectMissionRow(row, habitatFilter)),
     ...effortRows.map(projectEffortRow),
     ...codeEvents,
     ...systemEvents,
@@ -1160,9 +1303,39 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
     });
   }
 
+  const humanActorIds = [
+    ...new Set(
+      events
+        .filter((e) => e.actor.type === "human" && e.actor.id && !e.actor.name)
+        .map((e) => e.actor.id!),
+    ),
+  ];
+  if (humanActorIds.length > 0) {
+    const userRows = db
+      .select({ id: users.id, username: users.username, displayName: users.displayName })
+      .from(users)
+      .where(inArray(users.id, humanActorIds))
+      .all();
+    const nameMap = new Map(userRows.map((u) => [u.id, u.displayName || u.username]));
+    for (const event of events) {
+      if (event.actor.type === "human" && event.actor.id && !event.actor.name) {
+        event.actor.name = nameMap.get(event.actor.id) ?? null;
+      }
+    }
+  }
+
   const sortedEvents = sortEvents(events, query.order ?? "desc");
+  const paginatedEvents = sortedEvents.slice(effectiveOffset, effectiveOffset + effectiveLimit);
+
+  if (sortedEvents.length > effectiveLimit) {
+    warnings.push({
+      code: "result_truncated",
+      message: `Result set truncated to ${effectiveLimit} of ${sortedEvents.length} matching events. Use limit/offset parameters for pagination.`,
+    });
+  }
+
   return {
-    events: sortedEvents,
+    events: paginatedEvents,
     warnings,
     completenessSummary: summarizeAuditCompleteness(sortedEvents),
   };

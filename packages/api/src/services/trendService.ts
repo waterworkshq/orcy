@@ -1,7 +1,6 @@
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { missions, tasks } from "../db/schema/index.js";
-import { cycleTimeMinutes } from "../db/dialect-helpers.js";
 
 export type TrendConfidence = "high" | "medium" | "low" | "insufficient_data";
 export type TrendDirection = "improving" | "worsening" | "stable" | "unknown";
@@ -11,7 +10,7 @@ export interface MetricTrend {
   current: number;
   previous: number;
   absoluteDelta: number;
-  percentDelta: number | null;
+  relativeDelta: number | null;
   direction: TrendDirection;
   sampleSize: number;
   confidence: TrendConfidence;
@@ -43,7 +42,7 @@ function compareMetric(
   lowerIsBetter: boolean,
 ): MetricTrend {
   const absoluteDelta = rounded(current - previous);
-  const percentDelta = previous === 0 ? null : rounded(absoluteDelta / previous);
+  const relativeDelta = previous === 0 ? null : rounded(absoluteDelta / previous);
   const confidence = confidenceForSample(sampleSize);
   let direction: TrendDirection = "unknown";
 
@@ -61,7 +60,7 @@ function compareMetric(
     current: rounded(current),
     previous: rounded(previous),
     absoluteDelta,
-    percentDelta,
+    relativeDelta,
     direction,
     sampleSize,
     confidence,
@@ -101,19 +100,24 @@ function countCompleted(habitatId: string, start: string, end: string): number {
   return row?.count ?? 0;
 }
 
-function averageCycleMinutes(
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function medianCycleMinutes(
   habitatId: string,
   start: string,
   end: string,
 ): {
-  average: number;
+  value: number;
   sampleSize: number;
 } {
   const db = getDb();
-  const row = db
+  const rows = db
     .select({
-      average: sql<number | null>`avg(${cycleTimeMinutes(tasks.completedAt, tasks.claimedAt)})`,
-      count: sql<number>`count(*)`,
+      minutes: sql<number>`round((julianday(${tasks.completedAt}) - julianday(${tasks.claimedAt})) * 1440)`,
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
@@ -127,9 +131,13 @@ function averageCycleMinutes(
         sql`${tasks.completedAt} < ${end}`,
       ),
     )
-    .get();
+    .all();
 
-  return { average: row?.average ?? 0, sampleSize: row?.count ?? 0 };
+  const samples = rows.map((r) => r.minutes).filter((m) => m > 0);
+  return {
+    value: samples.length > 0 ? median(samples) : 0,
+    sampleSize: samples.length,
+  };
 }
 
 export function getHabitatTrends(habitatId: string, periodDays = 7): HabitatTrends {
@@ -137,8 +145,8 @@ export function getHabitatTrends(habitatId: string, periodDays = 7): HabitatTren
   const { currentStart, previousStart, currentEnd } = windowBounds(days);
   const currentCompleted = countCompleted(habitatId, currentStart, currentEnd);
   const previousCompleted = countCompleted(habitatId, previousStart, currentStart);
-  const currentCycle = averageCycleMinutes(habitatId, currentStart, currentEnd);
-  const previousCycle = averageCycleMinutes(habitatId, previousStart, currentStart);
+  const currentCycle = medianCycleMinutes(habitatId, currentStart, currentEnd);
+  const previousCycle = medianCycleMinutes(habitatId, previousStart, currentStart);
 
   return {
     habitatId,
@@ -154,8 +162,8 @@ export function getHabitatTrends(habitatId: string, periodDays = 7): HabitatTren
       ),
       compareMetric(
         "cycle_time",
-        currentCycle.average,
-        previousCycle.average,
+        currentCycle.value,
+        previousCycle.value,
         currentCycle.sampleSize + previousCycle.sampleSize,
         true,
       ),

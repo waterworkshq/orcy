@@ -32,6 +32,7 @@ import {
   webhookSubscriptions,
 } from "../db/schema/index.js";
 import { queryAuditEvents } from "../services/auditQueryService.js";
+import { users } from "../db/schema/index.js";
 import { deleteMission } from "../services/featureService.js";
 import { correctEffortEntry, logEffort } from "../services/effortService.js";
 import { runWithAuditProvenance, setAuditActor } from "../services/auditProvenanceContext.js";
@@ -554,5 +555,30 @@ describe("auditQueryService", () => {
       actor: { type: "system", id: "system:health-engine" },
       source: "system",
     });
+  });
+
+  it("resolves human actor names from users table", async () => {
+    const db = getDb();
+    const fixture = createFixture();
+    db.insert(users)
+      .values({
+        id: "human-test-user",
+        username: "testhuman",
+        passwordHash: "hash",
+        displayName: "Test Human",
+      })
+      .run();
+
+    eventRepo.createEvent({
+      taskId: fixture.task.id,
+      actorType: "human",
+      actorId: "human-test-user",
+      action: "started",
+    });
+
+    const result = queryAuditEvents({ habitatId: fixture.habitat.id, order: "asc" });
+    const humanEvent = result.events.find((e) => e.actor.id === "human-test-user");
+    expect(humanEvent).toBeDefined();
+    expect(humanEvent!.actor.name).toBe("Test Human");
   });
 });

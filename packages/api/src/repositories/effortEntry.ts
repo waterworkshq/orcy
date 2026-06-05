@@ -203,6 +203,86 @@ export function getEffortTotalsForTask(taskId: string): EffortTotals {
   };
 }
 
+export function getEffortTotalsForTasks(taskIds: string[]): Map<string, EffortTotals> {
+  const result = new Map<string, EffortTotals>();
+  if (taskIds.length === 0) return result;
+  for (const id of taskIds) {
+    result.set(id, {
+      loggedEffortMinutes: 0,
+      inferredPresenceMinutes: 0,
+      correctionAdjustmentMinutes: 0,
+      totalAccountedMinutes: 0,
+    });
+  }
+
+  const db = getDb();
+  const idList = sql.join(taskIds, sql`, `);
+
+  const loggedRows = db
+    .select({
+      taskId: effortEntries.taskId,
+      total: sql<number>`COALESCE(SUM(${effortEntries.minutes}), 0)`,
+    })
+    .from(effortEntries)
+    .where(
+      and(
+        sql`${effortEntries.taskId} IN (${idList})`,
+        sql`${effortEntries.source} IN ('human_manual', 'agent_reported')`,
+      ),
+    )
+    .groupBy(effortEntries.taskId)
+    .all();
+  for (const row of loggedRows) {
+    const t = result.get(row.taskId);
+    if (t) t.loggedEffortMinutes = row.total;
+  }
+
+  const correctionRows = db
+    .select({
+      taskId: effortEntries.taskId,
+      total: sql<number>`COALESCE(SUM(${effortEntries.minutes}), 0)`,
+    })
+    .from(effortEntries)
+    .where(
+      and(
+        sql`${effortEntries.taskId} IN (${idList})`,
+        eq(effortEntries.source, "correction_adjustment"),
+      ),
+    )
+    .groupBy(effortEntries.taskId)
+    .all();
+  for (const row of correctionRows) {
+    const t = result.get(row.taskId);
+    if (t) t.correctionAdjustmentMinutes = row.total;
+  }
+
+  const inferredRows = db
+    .select({
+      taskId: taskTimeRecords.taskId,
+      total: sql<number>`COALESCE(SUM(${taskTimeRecords.minutesSpent}), 0)`,
+    })
+    .from(taskTimeRecords)
+    .where(
+      and(
+        sql`${taskTimeRecords.taskId} IN (${idList})`,
+        eq(taskTimeRecords.statusDuringWork, "in_progress"),
+      ),
+    )
+    .groupBy(taskTimeRecords.taskId)
+    .all();
+  for (const row of inferredRows) {
+    const t = result.get(row.taskId);
+    if (t) t.inferredPresenceMinutes = row.total;
+  }
+
+  for (const [, t] of result) {
+    t.totalAccountedMinutes =
+      t.loggedEffortMinutes + t.correctionAdjustmentMinutes + t.inferredPresenceMinutes;
+  }
+
+  return result;
+}
+
 export function getEffortBySourceForTask(taskId: string): Record<string, number> {
   const db = getDb();
 

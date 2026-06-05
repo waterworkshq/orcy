@@ -1,6 +1,6 @@
 import { getDb } from "../../db/index.js";
 import { missionEvents, missions } from "../../db/schema/index.js";
-import { eq, count, desc, inArray } from "drizzle-orm";
+import { eq, count, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type {
   MissionEvent,
@@ -90,28 +90,23 @@ export function getMissionEventsByHabitatId(
 ): { events: MissionEvent[]; total: number } {
   const db = getDb();
 
-  const missionIds = db
-    .select({ id: missions.id })
-    .from(missions)
-    .where(eq(missions.habitatId, habitatId))
-    .all()
-    .map((r) => r.id);
-
-  if (missionIds.length === 0) return { events: [], total: 0 };
-
-  const result = db
+  const rows = db
     .select()
     .from(missionEvents)
-    .where(inArray(missionEvents.missionId, missionIds))
+    .innerJoin(missions, eq(missionEvents.missionId, missions.id))
+    .where(eq(missions.habitatId, habitatId))
     .orderBy(desc(missionEvents.timestamp))
     .limit(limit)
     .offset(offset)
-    .all() as MissionEvent[];
+    .all();
+
+  const result = rows.map((row) => row.mission_events) as MissionEvent[];
 
   const totalResult = db
     .select({ count: count() })
     .from(missionEvents)
-    .where(inArray(missionEvents.missionId, missionIds))
+    .innerJoin(missions, eq(missionEvents.missionId, missions.id))
+    .where(eq(missions.habitatId, habitatId))
     .get();
 
   return { events: result, total: totalResult?.count ?? 0 };

@@ -33,9 +33,9 @@ export interface AgentQualitySignal {
   sampleSize: number;
   dimensions: {
     approval: number | null;
-    rejection: number | null;
+    nonRejectionRate: number | null;
     consistency: number | null;
-    cycleReliability: number | null;
+    cycleDataCompleteness: number | null;
     estimateAccuracy: number | null;
     evidenceCompleteness: number | null;
   };
@@ -69,7 +69,7 @@ function average(values: number[]): number | null {
 function standardDeviation(values: number[]): number | null {
   const avg = average(values);
   if (avg === null || values.length < 2) return null;
-  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (values.length - 1);
   return Math.sqrt(variance);
 }
 
@@ -92,52 +92,72 @@ function estimateAccuracyScore(actualMinutes: number, estimatedMinutes: number):
   return round(Math.max(0, 1 - Math.abs(ratio - 1)));
 }
 
-function evidenceSampleForTask(taskId: string): 0 | 0.5 | 1 {
+function evidenceSamplesForTasks(taskIds: string[]): Map<string, 0 | 0.5 | 1> {
+  const result = new Map<string, 0 | 0.5 | 1>();
+  if (taskIds.length === 0) return result;
   const db = getDb();
-  const activeLink = db
-    .select({ id: codeEvidenceLinks.id })
-    .from(codeEvidenceLinks)
-    .where(
-      and(
-        eq(codeEvidenceLinks.targetType, "task"),
-        eq(codeEvidenceLinks.targetId, taskId),
-        eq(codeEvidenceLinks.status, "active"),
-      ),
-    )
-    .get();
-  if (activeLink) return 1;
+  const idList = sql.join(taskIds, sql`, `);
 
-  const completeness = db
-    .select({ status: codeEvidenceCompleteness.status })
-    .from(codeEvidenceCompleteness)
-    .where(
-      and(
-        eq(codeEvidenceCompleteness.targetType, "task"),
-        eq(codeEvidenceCompleteness.targetId, taskId),
-      ),
-    )
-    .get();
-  if (completeness?.status === "complete" || completeness?.status === "not_applicable") return 1;
-  if (completeness?.status === "partial") return 0.5;
+  const linkedIds = new Set(
+    db
+      .select({ targetId: codeEvidenceLinks.targetId })
+      .from(codeEvidenceLinks)
+      .where(
+        and(
+          eq(codeEvidenceLinks.targetType, "task"),
+          sql`${codeEvidenceLinks.targetId} IN (${idList})`,
+          eq(codeEvidenceLinks.status, "active"),
+        ),
+      )
+      .all()
+      .map((r) => r.targetId),
+  );
 
-  const activeGap = db
-    .select({ id: codeEvidenceGaps.id })
-    .from(codeEvidenceGaps)
-    .where(
-      and(
-        eq(codeEvidenceGaps.targetType, "task"),
-        eq(codeEvidenceGaps.targetId, taskId),
-        eq(codeEvidenceGaps.status, "active"),
-      ),
-    )
-    .get();
-  return activeGap ? 0 : 0;
+  const completenessMap = new Map(
+    db
+      .select({
+        targetId: codeEvidenceCompleteness.targetId,
+        status: codeEvidenceCompleteness.status,
+      })
+      .from(codeEvidenceCompleteness)
+      .where(
+        and(
+          eq(codeEvidenceCompleteness.targetType, "task"),
+          sql`${codeEvidenceCompleteness.targetId} IN (${idList})`,
+        ),
+      )
+      .all()
+      .map((r) => [r.targetId, r.status]),
+  );
+
+  for (const taskId of taskIds) {
+    if (linkedIds.has(taskId)) {
+      result.set(taskId, 1);
+      continue;
+    }
+    const status = completenessMap.get(taskId);
+    if (status === "complete" || status === "not_applicable") {
+      result.set(taskId, 1);
+      continue;
+    }
+    if (status === "partial") {
+      result.set(taskId, 0.5);
+      continue;
+    }
+    result.set(taskId, 0);
+  }
+  return result;
 }
 
-export function getAgentQualityInputs(habitatId: string, agentId?: string): AgentQualityInputs[] {
+export function getAgentQualityInputs(
+  habitatId: string,
+  agentId?: string,
+  windowDays = 90,
+): AgentQualityInputs[] {
   const db = getDb();
   const agentQuery = db.select({ id: agents.id, name: agents.name }).from(agents);
   const agentRows = agentId ? agentQuery.where(eq(agents.id, agentId)).all() : agentQuery.all();
+  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
 
   return agentRows.map((agent) => {
     const assignedTasks = db
@@ -152,7 +172,13 @@ export function getAgentQualityInputs(habitatId: string, agentId?: string): Agen
       })
       .from(tasks)
       .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(and(eq(missions.habitatId, habitatId), eq(tasks.assignedAgentId, agent.id)))
+      .where(
+        and(
+          eq(missions.habitatId, habitatId),
+          eq(tasks.assignedAgentId, agent.id),
+          sql`${tasks.completedAt} >= ${windowStart}`,
+        ),
+      )
       .all();
     const completedTasks = assignedTasks.filter((task) =>
       COMPLETE_STATUSES.includes(task.status as "approved" | "done"),
@@ -180,17 +206,23 @@ export function getAgentQualityInputs(habitatId: string, agentId?: string): Agen
     const cycleTimeSamples = completedTasks
       .map(cycleMinutes)
       .filter((value): value is number => value !== null && value >= 0);
+    const completedTaskIds = completedTasks.map((t) => t.id);
+    const completedEffort = effortRepo.getEffortTotalsForTasks(completedTaskIds);
+    const completedEvidence = evidenceSamplesForTasks(completedTaskIds);
+
     const estimateAccuracySamples = completedTasks
       .map((task) => {
         if (!task.estimatedMinutes) return null;
-        const totals = effortRepo.getEffortTotalsForTask(task.id);
-        const correctedLogged = totals.loggedEffortMinutes + totals.correctionAdjustmentMinutes;
-        const actual = correctedLogged > 0 ? correctedLogged : totals.inferredPresenceMinutes;
+        const totals = completedEffort.get(task.id);
+        const correctedLogged =
+          (totals?.loggedEffortMinutes ?? 0) + (totals?.correctionAdjustmentMinutes ?? 0);
+        const actual =
+          correctedLogged > 0 ? correctedLogged : (totals?.inferredPresenceMinutes ?? 0);
         return actual > 0 ? estimateAccuracyScore(actual, task.estimatedMinutes) : null;
       })
       .filter((value): value is number => value !== null);
-    const evidenceCompletenessSamples = completedTasks.map((task) =>
-      evidenceSampleForTask(task.id),
+    const evidenceCompletenessSamples = completedTasks.map(
+      (task) => completedEvidence.get(task.id) ?? 0,
     );
 
     return {
@@ -212,22 +244,23 @@ export function buildAgentQualitySignal(inputs: AgentQualityInputs): AgentQualit
   const confidence = confidenceForSample(sampleSize);
   const reviewEvents = inputs.approvedEvents + inputs.rejectedEvents;
   const approval = reviewEvents > 0 ? round(inputs.approvedEvents / reviewEvents) : null;
-  const rejection = reviewEvents > 0 ? round(1 - inputs.rejectedEvents / reviewEvents) : null;
+  const nonRejectionRate =
+    reviewEvents > 0 ? round(1 - inputs.rejectedEvents / reviewEvents) : null;
   const avgCycle = average(inputs.cycleTimeSamples);
   const cycleStdDev = standardDeviation(inputs.cycleTimeSamples);
   const consistency =
     avgCycle !== null && cycleStdDev !== null && avgCycle > 0
       ? round(Math.max(0, 1 - Math.min(cycleStdDev / avgCycle, 1)))
       : null;
-  const cycleReliability =
+  const cycleDataCompleteness =
     sampleSize > 0 ? round(inputs.cycleTimeSamples.length / sampleSize) : null;
   const estimateAccuracy = average(inputs.estimateAccuracySamples);
   const evidenceCompleteness = average(inputs.evidenceCompletenessSamples);
   const dimensions = {
     approval,
-    rejection,
+    nonRejectionRate,
     consistency,
-    cycleReliability,
+    cycleDataCompleteness,
     estimateAccuracy: estimateAccuracy === null ? null : round(estimateAccuracy),
     evidenceCompleteness: evidenceCompleteness === null ? null : round(evidenceCompleteness),
   };
@@ -243,7 +276,7 @@ export function buildAgentQualitySignal(inputs: AgentQualityInputs): AgentQualit
   if (dimensions.evidenceCompleteness !== null && dimensions.evidenceCompleteness < 0.8) {
     warnings.push("Code evidence completeness is below the target range for this sample.");
   }
-  if (inputs.totalRejections >= 3 || (rejection !== null && rejection < 0.7)) {
+  if (inputs.totalRejections >= 3 || (nonRejectionRate !== null && nonRejectionRate < 0.7)) {
     warnings.push("High rejection rate in recent sample.");
   }
 

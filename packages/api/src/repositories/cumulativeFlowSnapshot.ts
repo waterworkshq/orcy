@@ -23,8 +23,32 @@ export type CumulativeFlowSnapshot = typeof cumulativeFlowSnapshots.$inferSelect
 
 export function upsertSnapshot(input: CumulativeFlowSnapshotInput): CumulativeFlowSnapshot {
   const db = getDb();
-  const existing = db
-    .select({ id: cumulativeFlowSnapshots.id })
+  const id = uuid();
+  db.insert(cumulativeFlowSnapshots)
+    .values({
+      id,
+      habitatId: input.habitatId,
+      snapshotDate: input.snapshotDate,
+      countsByColumn: input.countsByColumn,
+      countsByStatus: input.countsByStatus,
+      source: input.source ?? "generated",
+      completeness: input.completeness ?? "complete",
+      warnings: input.warnings ?? [],
+    })
+    .onConflictDoUpdate({
+      target: [cumulativeFlowSnapshots.habitatId, cumulativeFlowSnapshots.snapshotDate],
+      set: {
+        countsByColumn: input.countsByColumn,
+        countsByStatus: input.countsByStatus,
+        source: input.source ?? "generated",
+        completeness: input.completeness ?? "complete",
+        warnings: input.warnings ?? [],
+      },
+    })
+    .run();
+
+  const snapshot = db
+    .select()
     .from(cumulativeFlowSnapshots)
     .where(
       and(
@@ -32,32 +56,6 @@ export function upsertSnapshot(input: CumulativeFlowSnapshotInput): CumulativeFl
         eq(cumulativeFlowSnapshots.snapshotDate, input.snapshotDate),
       ),
     )
-    .get();
-
-  const values = {
-    id: existing?.id ?? uuid(),
-    habitatId: input.habitatId,
-    snapshotDate: input.snapshotDate,
-    countsByColumn: input.countsByColumn,
-    countsByStatus: input.countsByStatus,
-    source: input.source ?? "generated",
-    completeness: input.completeness ?? "complete",
-    warnings: input.warnings ?? [],
-  };
-
-  if (existing) {
-    db.update(cumulativeFlowSnapshots)
-      .set(values)
-      .where(eq(cumulativeFlowSnapshots.id, existing.id))
-      .run();
-  } else {
-    db.insert(cumulativeFlowSnapshots).values(values).run();
-  }
-
-  const snapshot = db
-    .select()
-    .from(cumulativeFlowSnapshots)
-    .where(eq(cumulativeFlowSnapshots.id, values.id))
     .get();
   if (!snapshot) throw new Error("CUMULATIVE_FLOW_SNAPSHOT_NOT_FOUND");
   return snapshot;
