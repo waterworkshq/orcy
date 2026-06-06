@@ -12,6 +12,7 @@ import { notify } from "../../lib/toast.js";
 import { truncateId } from "../../lib/formatting.js";
 import type { Sprint } from "../../types/index.js";
 import { Plus, Play, CheckCircle, XCircle, ChevronRight, ChevronDown } from "lucide-react";
+import { ConfirmDialog } from "../ui/ConfirmDialog.js";
 
 interface SprintPlanningPanelProps {
   habitatId: string;
@@ -33,6 +34,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
   const [creating, setCreating] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [missionLoading, setMissionLoading] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -128,6 +130,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
 
   async function handleCancel(sprintId: string) {
     setActing(sprintId);
+    setCancelTarget(null);
     try {
       await api.sprints.cancel(sprintId);
       notify.success("Sprint cancelled");
@@ -189,7 +192,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
               missionLoading={missionLoading}
               onStart={handleStart}
               onComplete={handleComplete}
-              onCancel={handleCancel}
+              onCancelRequest={setCancelTarget}
               onAddMission={handleAddMission}
               onRemoveMission={handleRemoveMission}
               habitatId={habitatId}
@@ -289,7 +292,7 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
                   missionLoading={missionLoading}
                   onStart={handleStart}
                   onComplete={handleComplete}
-                  onCancel={handleCancel}
+                  onCancelRequest={setCancelTarget}
                   onAddMission={handleAddMission}
                   onRemoveMission={handleRemoveMission}
                   habitatId={habitatId}
@@ -305,6 +308,16 @@ export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelP
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        onConfirm={() => cancelTarget && handleCancel(cancelTarget)}
+        onCancel={() => setCancelTarget(null)}
+        title="Cancel Sprint"
+        description="This will uncommit all missions and mark the sprint as cancelled. This cannot be undone."
+        confirmLabel="Cancel Sprint"
+        variant="danger"
+      />
     </Drawer>
   );
 }
@@ -318,7 +331,7 @@ function SprintCard({
   missionLoading,
   onStart,
   onComplete,
-  onCancel,
+  onCancelRequest,
   onAddMission,
   onRemoveMission,
   habitatId,
@@ -331,7 +344,7 @@ function SprintCard({
   missionLoading: string | null;
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
-  onCancel: (id: string) => void;
+  onCancelRequest: (id: string) => void;
   onAddMission: (sprintId: string, missionId: string) => void;
   onRemoveMission: (sprintId: string, missionId: string) => void;
   habitatId: string;
@@ -396,7 +409,7 @@ function SprintCard({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => onCancel(sprint.id)}
+              onClick={() => onCancelRequest(sprint.id)}
               disabled={!!acting}
             >
               <XCircle className="h-3 w-3" />
