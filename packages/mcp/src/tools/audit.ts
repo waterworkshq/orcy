@@ -10,8 +10,11 @@ export const habitatGetMissionAuditBundle: Handler = (client, args) =>
     includeHealthSnapshots: Boolean(args.includeHealthSnapshots),
   });
 
-export const adminExportAuditLog: Handler = (client, args) =>
-  client.exportAuditLog(args.boardId, {
+export const adminExportAuditLog: Handler = (client, args) => {
+  if (args.entityTypes && args.entityType) {
+    throw new Error("Cannot specify both entityTypes and entityType. Use one or the other.");
+  }
+  return client.exportAuditLog(args.boardId, {
     format: args.format ?? "json",
     since: args.since,
     until: args.until,
@@ -30,6 +33,7 @@ export const adminExportAuditLog: Handler = (client, args) =>
     includeIntegrity: Boolean(args.includeIntegrity),
     includeHealthSnapshots: Boolean(args.includeHealthSnapshots),
   });
+};
 
 export const adminGetAuditSummary: Handler = (client, args) =>
   client.getAuditSummary(args.boardId, {

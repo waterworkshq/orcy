@@ -566,8 +566,13 @@ export class KanbanApiClient {
   }
 
   async getRelevantInsights(boardId: string, tags: string[]): Promise<ProjectInsight[]> {
-    const { insights } = await this.getInsights(boardId, { isActive: true, limit: 100 });
-    return insights.filter((i) => i.relevanceTags.some((t) => tags.includes(t))).slice(0, 5);
+    const params = new URLSearchParams({ tags: tags.join(",") });
+    const query = params.toString();
+    const result = await this.request<{ items: ProjectInsight[]; total: number }>(
+      "GET",
+      `/api/habitats/${boardId}/insights?${query}`,
+    );
+    return result.items;
   }
 
   async reactToPulse(
@@ -713,8 +718,9 @@ export class KanbanApiClient {
   async getAgentById(agentId: string): Promise<{ agent: Agent } | null> {
     try {
       return await this.request<{ agent: Agent }>("GET", `/api/agents/${agentId}`);
-    } catch {
-      return null;
+    } catch (err) {
+      if ((err as { status?: number }).status === 404) return null;
+      throw err;
     }
   }
 

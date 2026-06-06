@@ -161,9 +161,29 @@ export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     tasksTemplate: {
       type: "array",
-      items: { type: "object" },
       description:
         "Task templates for the feature (action=create-scheduled-task, action=update-scheduled-task)",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Task title" },
+          description: { type: "string", description: "Task description" },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "critical"],
+            description: "Task priority",
+          },
+          requiredDomain: { type: "string", description: "Required agent domain" },
+          requiredCapabilities: {
+            type: "array",
+            items: { type: "string" },
+            description: "Required agent capabilities",
+          },
+          estimatedMinutes: { type: "number", description: "Estimated effort in minutes" },
+          order: { type: "number", description: "Display/execution order" },
+        },
+        required: ["title"],
+      },
     },
     enabled: {
       type: "boolean",
