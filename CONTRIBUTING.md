@@ -185,21 +185,26 @@ The MCP server uses a **consolidated dispatch pattern**. New actions are added t
 
 ## Adding a Database Migration
 
-> **Note:** The old SQL migration system (`packages/api/db/*.sql`) is no longer used. Migrations are now managed via **Drizzle Kit** in `packages/api/drizzle/`.
+> **Important:** The Drizzle TypeScript schema files are the **single source of truth**. Never edit SQL files directly. For the complete workflow, see [`docs/DATABASE.md` — Schema Workflow](./docs/DATABASE.md#schema-workflow).
 
-1. Generate a new migration using Drizzle Kit:
+**Quick summary:**
 
-   ```bash
-   cd packages/api
-   npx drizzle-kit generate
-   ```
+1. Edit the Drizzle schema in `packages/api/src/db/schema/` (e.g., `board.ts`, `cicd.ts`)
+2. Generate the migration: `cd packages/api && pnpm drizzle-kit generate --name <descriptive_name>`
+3. Regenerate `0000_schema.sql` (see DATABASE.md for the exact commands)
+4. Update `packages/api/src/test/schemaValidation.test.ts` if table/index counts changed
+5. Run tests: `pnpm --filter @orcy/api test && pnpm -r typecheck && pnpm lint`
 
-   This creates a new `.sql` file in `packages/api/drizzle/`
-2. Migrations run automatically on API startup via `packages/api/src/db/index.ts` using Drizzle's `migrate()` function
-3. The migration journal (`packages/api/drizzle/meta/_journal.json`) tracks which migrations have been applied
-4. Migrations are idempotent — they can be safely re-run
-5. Update Drizzle schema in `packages/api/src/db/schema.ts` if adding new columns/tables
-6. Update repository files to use new columns/tables
+**Two deployment paths:**
+
+- **Test DBs** use only `0000_schema.sql` (fast, no data preservation needed)
+- **Production DBs** apply migrations 0000-0026 incrementally (preserves data)
+
+**Common mistakes to avoid:**
+
+- Don't edit `0000_schema.sql` by hand — it gets regenerated
+- Don't add indexes only in migration SQL — they must be in the Drizzle schema too
+- Don't delete `drizzle/meta/` — Drizzle needs the snapshot to diff for future migrations
 
 ---
 
