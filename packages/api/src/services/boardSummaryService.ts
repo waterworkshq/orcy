@@ -3,6 +3,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as eventRepo from "../repositories/event.js";
 import * as agentRepo from "../repositories/agent.js";
+import { MS_PER_DAY } from "./analyticsDate.js";
 
 export interface HabitatSummaryOptions {
   since?: "24h" | "7d" | "30d" | "all";
@@ -508,13 +509,13 @@ function dayStart(d: Date): Date {
 function computeBuckets(since: string, now: Date): TimeBucket[] {
   switch (since) {
     case "24h": {
-      const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const from = new Date(now.getTime() - MS_PER_DAY);
       return [{ label: "last_24h", from: toIso(from), to: toIso(now) }];
     }
     case "7d": {
       const today = dayStart(now);
-      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const yesterday = new Date(today.getTime() - MS_PER_DAY);
+      const weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
       return [
         { label: "today", from: toIso(today), to: toIso(now) },
         { label: "yesterday", from: toIso(yesterday), to: toIso(today) },
@@ -522,8 +523,8 @@ function computeBuckets(since: string, now: Date): TimeBucket[] {
       ];
     }
     case "30d": {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
+      const monthAgo = new Date(now.getTime() - 30 * MS_PER_DAY);
       return [
         { label: "last_7_days", from: toIso(weekAgo), to: toIso(now) },
         { label: "earlier_this_month", from: toIso(monthAgo), to: toIso(weekAgo) },
@@ -531,8 +532,8 @@ function computeBuckets(since: string, now: Date): TimeBucket[] {
     }
     case "all":
     default: {
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
+      const monthAgo = new Date(now.getTime() - 30 * MS_PER_DAY);
       return [
         { label: "last_7_days", from: toIso(weekAgo), to: toIso(now) },
         { label: "last_30_days", from: toIso(monthAgo), to: toIso(weekAgo) },
@@ -546,15 +547,15 @@ function computeSinceDate(since: string): string {
   const now = Date.now();
   switch (since) {
     case "24h":
-      return new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      return new Date(now - MS_PER_DAY).toISOString();
     case "7d":
-      return new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+      return new Date(now - 7 * MS_PER_DAY).toISOString();
     case "30d":
-      return new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+      return new Date(now - 30 * MS_PER_DAY).toISOString();
     case "all":
       return "2000-01-01T00:00:00.000Z";
     default:
-      return new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+      return new Date(now - 7 * MS_PER_DAY).toISOString();
   }
 }
 

@@ -1,8 +1,14 @@
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { missions, tasks } from "../db/schema/index.js";
+import {
+  daysAgoISO,
+  utcNowISO,
+  confidenceForSample,
+  type AnalyticsConfidence,
+} from "./analyticsDate.js";
 
-export type TrendConfidence = "high" | "medium" | "low" | "insufficient_data";
+export type TrendConfidence = AnalyticsConfidence;
 export type TrendDirection = "improving" | "worsening" | "stable" | "unknown";
 
 export interface MetricTrend {
@@ -21,13 +27,6 @@ export interface HabitatTrends {
   periodDays: number;
   generatedAt: string;
   trends: MetricTrend[];
-}
-
-function confidenceForSample(sampleSize: number): TrendConfidence {
-  if (sampleSize <= 2) return "insufficient_data";
-  if (sampleSize <= 9) return "low";
-  if (sampleSize <= 29) return "medium";
-  return "high";
 }
 
 function rounded(value: number): number {
@@ -72,12 +71,11 @@ function windowBounds(periodDays: number): {
   previousStart: string;
   currentEnd: string;
 } {
-  const now = Date.now();
-  const msDay = 24 * 60 * 60 * 1000;
+  const now = new Date();
   return {
-    currentStart: new Date(now - periodDays * msDay).toISOString(),
-    previousStart: new Date(now - periodDays * 2 * msDay).toISOString(),
-    currentEnd: new Date(now).toISOString(),
+    currentStart: daysAgoISO(periodDays, now),
+    previousStart: daysAgoISO(periodDays * 2, now),
+    currentEnd: utcNowISO(),
   };
 }
 

@@ -4,6 +4,7 @@ import { getDb } from "../db/index.js";
 import { columns, missions, taskDependencies, tasks } from "../db/schema/index.js";
 import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js";
 import { getTimeInColumnSummary, type AnalyticsConfidence } from "./timeInColumnService.js";
+import { utcNowISO } from "./analyticsDate.js";
 
 export interface BottleneckReport {
   habitatId: string;
@@ -42,7 +43,7 @@ export function getBottlenecks(habitatId: string, requestedDays = 30): Bottlenec
   const db = getDb();
   const dependencyTask = alias(tasks, "dependency_task");
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));
-  const generatedAt = new Date().toISOString();
+  const generatedAt = utcNowISO();
   const warnings: AnalyticsWarning[] = [];
   const bottlenecks: BottleneckFinding[] = [];
   const dwell = getTimeInColumnSummary(habitatId, days);

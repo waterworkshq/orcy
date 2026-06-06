@@ -2,8 +2,15 @@ import { and, asc, eq, isNotNull, or, sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { columns, missions, taskEvents, tasks } from "../db/schema/index.js";
 import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js";
+import {
+  MS_PER_DAY,
+  daysAgoISO,
+  utcNowISO,
+  confidenceForSample,
+  type AnalyticsConfidence,
+} from "./analyticsDate.js";
 
-export type AnalyticsConfidence = "high" | "medium" | "low" | "insufficient_data";
+export type { AnalyticsConfidence };
 
 export interface TimeInColumnSummary {
   habitatId: string;
@@ -28,13 +35,6 @@ interface TransitionEventRow {
   fromColumnId: string | null;
   toColumnId: string | null;
   timestamp: string;
-}
-
-function confidenceForSample(sampleSize: number): AnalyticsConfidence {
-  if (sampleSize <= 2) return "insufficient_data";
-  if (sampleSize <= 9) return "low";
-  if (sampleSize <= 29) return "medium";
-  return "high";
 }
 
 function percentile(sorted: number[], percentileValue: number): number | null {
@@ -94,9 +94,9 @@ function computeSamples(rows: TransitionEventRow[]): Map<string, number[]> {
 export function getTimeInColumnSummary(habitatId: string, requestedDays = 30): TimeInColumnSummary {
   const db = getDb();
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));
-  const generatedAt = new Date().toISOString();
-  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const lookbackStart = new Date(Date.now() - days * 2 * 24 * 60 * 60 * 1000).toISOString();
+  const generatedAt = utcNowISO();
+  const startDate = daysAgoISO(days);
+  const lookbackStart = daysAgoISO(days * 2);
   const columnRows = db
     .select({ columnId: columns.id, columnName: columns.name, order: columns.order })
     .from(columns)

@@ -5,12 +5,13 @@ import * as effortRepo from "../repositories/effortEntry.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import * as predictionService from "./predictionService.js";
 import type { ForecastEstimate } from "./predictionService.js";
-
-export interface AnalyticsWarning {
-  code: string;
-  message: string;
-  severity: "info" | "warning" | "critical";
-}
+import {
+  MS_PER_DAY,
+  diffDays,
+  daysUntil,
+  utcNowISO,
+  type AnalyticsWarning,
+} from "./analyticsDate.js";
 
 export interface SprintMetricsV2 {
   sprintId: string;
@@ -64,19 +65,6 @@ const NO_RECENT_ACTIVITY_DAYS = 7;
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function diffDays(startDate: string, endDate: string): number {
-  const start = new Date(startDate).getTime();
-  const end = new Date(endDate).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
-  return Math.max(1, Math.ceil((end - start) / (24 * 60 * 60 * 1000)));
-}
-
-function daysUntil(date: string): number {
-  const timestamp = new Date(date).getTime();
-  if (!Number.isFinite(timestamp)) return 0;
-  return Math.max(0, Math.ceil((timestamp - Date.now()) / (24 * 60 * 60 * 1000)));
 }
 
 function getSprintMissionIds(sprintId: string, committedMissionIds: string[]): string[] {
@@ -278,7 +266,7 @@ function buildCarryOverReasons(
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
     .where(eq(tasks.missionId, missionId))
     .get()?.last;
-  const staleBefore = now.getTime() - NO_RECENT_ACTIVITY_DAYS * 24 * 60 * 60 * 1000;
+  const staleBefore = now.getTime() - NO_RECENT_ACTIVITY_DAYS * MS_PER_DAY;
   if (!lastActivity || new Date(lastActivity).getTime() < staleBefore) {
     reasons.push({
       code: "no_recent_activity",
@@ -389,7 +377,7 @@ export function getSprintCarryOver(sprintId: string): SprintCarryOverReport | nu
 
   return {
     sprintId: sprint.id,
-    generatedAt: now.toISOString(),
+    generatedAt: utcNowISO(),
     policy: (habitat?.carryOverPolicy as SprintCarryOverReport["policy"] | undefined) ?? "backlog",
     carriedOverMissions,
     warnings,

@@ -3,6 +3,7 @@ import { habitatHealthSnapshots } from "../db/schema/index.js";
 import { desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import * as capacityService from "./capacityService.js";
+import { daysAgoISO, utcNowISO } from "./analyticsDate.js";
 import * as anomalyService from "./anomalyService.js";
 import * as predictionService from "./predictionService.js";
 import * as trendService from "./trendService.js";
@@ -323,7 +324,7 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
   const grade = getGrade(score);
   const dimensions: HealthDimensions = { flow, quality, delivery, capacity, stability };
   const recommendations = generateRecommendations(score, dimensions);
-  const snapshotAt = new Date().toISOString();
+  const snapshotAt = utcNowISO();
 
   const db = getDb();
   const id = uuid();
@@ -379,7 +380,7 @@ export function getCurrentHealth(habitatId: string): HabitatHealthReport | null 
 
 export function getHealthHistory(habitatId: string, days = 30): HabitatHealthReport[] {
   const db = getDb();
-  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const since = daysAgoISO(days);
 
   const rows = db
     .select()

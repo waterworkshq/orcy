@@ -11,6 +11,7 @@ import { eq, and, sql, isNotNull, notInArray, inArray } from "drizzle-orm";
 import { dateDayExpr } from "../db/dialect-helpers.js";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { TaskPriority, TaskStatus } from "../models/index.js";
+import { MS_PER_DAY, utcDateKey, utcNowISO } from "./analyticsDate.js";
 
 export type ForecastConfidence = "high" | "medium" | "low" | "insufficient_data";
 
@@ -152,13 +153,12 @@ function dateRangeForOffset(
     return { earliestCompletionAt: null, latestCompletionAt: null };
   }
 
-  const msDay = 24 * 60 * 60 * 1000;
   const spread = confidence === "high" ? 0.2 : confidence === "medium" ? 0.5 : 1;
   const earliestOffset = Math.max(0, daysOffset * (1 - spread));
   const latestOffset = daysOffset * (1 + spread);
   return {
-    earliestCompletionAt: new Date(now + earliestOffset * msDay).toISOString(),
-    latestCompletionAt: new Date(now + latestOffset * msDay).toISOString(),
+    earliestCompletionAt: new Date(now + earliestOffset * MS_PER_DAY).toISOString(),
+    latestCompletionAt: new Date(now + latestOffset * MS_PER_DAY).toISOString(),
   };
 }
 
@@ -265,8 +265,7 @@ export function calculateVelocity(
 ): VelocityMetrics {
   const db = getDb();
   const now = Date.now();
-  const msDay = 24 * 60 * 60 * 1000;
-  const since = (days: number) => new Date(now - days * msDay).toISOString();
+  const since = (days: number) => new Date(now - days * MS_PER_DAY).toISOString();
 
   const baseConditions = [
     eq(missions.habitatId, habitatId),
@@ -350,7 +349,6 @@ export function estimateCompletionDates(
 ): TaskEstimate[] {
   const db = getDb();
   const now = Date.now();
-  const msDay = 24 * 60 * 60 * 1000;
 
   const dailyVelocity =
     velocity.days14 > 0 ? velocity.days14 / 14 : velocity.days30 > 0 ? velocity.days30 / 30 : 0.5;
@@ -443,13 +441,13 @@ export function estimateCompletionDates(
       unmetDeps,
     );
 
-    const estimatedCompletionAt = new Date(now + daysOffset * msDay).toISOString();
+    const estimatedCompletionAt = new Date(now + daysOffset * MS_PER_DAY).toISOString();
     const { earliestCompletionAt, latestCompletionAt } = dateRangeForOffset(
       now,
       daysOffset,
       confidence,
     );
-    const daysUntilDue = row.dueAt ? (new Date(row.dueAt).getTime() - now) / msDay : null;
+    const daysUntilDue = row.dueAt ? (new Date(row.dueAt).getTime() - now) / MS_PER_DAY : null;
     const daysUntilEstimated = daysOffset;
 
     estimates.push({
@@ -483,7 +481,6 @@ export function estimateCompletionDates(
 export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]): AtRiskTask[] {
   const db = getDb();
   const now = Date.now();
-  const msDay = 24 * 60 * 60 * 1000;
   const msHour = 60 * 60 * 1000;
   const atRisk: AtRiskTask[] = [];
 
@@ -492,7 +489,7 @@ export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]):
       const dueDate = new Date(est.dueAt).getTime();
       const estDate = new Date(est.estimatedCompletionAt).getTime();
       if (estDate > dueDate) {
-        const daysOver = (estDate - dueDate) / msDay;
+        const daysOver = (estDate - dueDate) / MS_PER_DAY;
         const severity: AtRiskTask["severity"] =
           daysOver > 3 ? "critical" : daysOver > 1 ? "high" : "medium";
         atRisk.push({
@@ -744,7 +741,6 @@ export function getBurndown(
 ): BurndownResponse {
   const db = getDb();
   const now = new Date();
-  const msDay = 24 * 60 * 60 * 1000;
 
   const sprintFilter = options?.sprintId ? eq(missions.sprintId, options.sprintId) : undefined;
 
@@ -761,13 +757,16 @@ export function getBurndown(
     if (sprintRow) {
       startDate = new Date(sprintRow.startDate);
       const sprintEnd = new Date(sprintRow.endDate);
-      effectiveDays = Math.max(1, Math.ceil((sprintEnd.getTime() - startDate.getTime()) / msDay));
+      effectiveDays = Math.max(
+        1,
+        Math.ceil((sprintEnd.getTime() - startDate.getTime()) / MS_PER_DAY),
+      );
     } else {
-      startDate = new Date(now.getTime() - days * msDay);
+      startDate = new Date(now.getTime() - days * MS_PER_DAY);
       effectiveDays = days;
     }
   } else {
-    startDate = new Date(now.getTime() - days * msDay);
+    startDate = new Date(now.getTime() - days * MS_PER_DAY);
     effectiveDays = days;
   }
 
@@ -838,8 +837,8 @@ export function getBurndown(
   const idealPerDay = totalTasks > 0 ? totalTasks / effectiveDays : 0;
 
   for (let i = 0; i <= effectiveDays; i++) {
-    const currentDate = new Date(startDate.getTime() + i * msDay);
-    const dateStr = currentDate.toISOString().split("T")[0];
+    const currentDate = new Date(startDate.getTime() + i * MS_PER_DAY);
+    const dateStr = utcDateKey(currentDate);
 
     const dailyCompleted = completedByDate[dateStr] ?? 0;
     cumulativeCompleted += dailyCompleted;
@@ -861,7 +860,7 @@ export function getBurndown(
   let estimatedCompletionDate: string | null = null;
   if (averageDailyVelocity > 0 && remainingTasks > 0) {
     const daysToComplete = remainingTasks / averageDailyVelocity;
-    estimatedCompletionDate = new Date(now.getTime() + daysToComplete * msDay).toISOString();
+    estimatedCompletionDate = new Date(now.getTime() + daysToComplete * MS_PER_DAY).toISOString();
   } else if (remainingTasks === 0) {
     estimatedCompletionDate = now.toISOString();
   }

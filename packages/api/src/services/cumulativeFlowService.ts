@@ -3,6 +3,7 @@ import { getDb } from "../db/index.js";
 import { columns, missions, tasks } from "../db/schema/index.js";
 import * as snapshotRepo from "../repositories/cumulativeFlowSnapshot.js";
 import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js";
+import { utcDateKey, dateRange as buildDateRange, utcNowISO } from "./analyticsDate.js";
 
 export interface CumulativeFlowResponse {
   habitatId: string;
@@ -20,17 +21,8 @@ export interface CumulativeFlowPoint {
   interpolated?: boolean;
 }
 
-function dateKey(date: Date): string {
-  return date.toISOString().split("T")[0];
-}
-
 function dateRange(days: number, now = new Date()): string[] {
-  const msDay = 24 * 60 * 60 * 1000;
-  const dates: string[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    dates.push(dateKey(new Date(now.getTime() - i * msDay)));
-  }
-  return dates;
+  return buildDateRange(days, now);
 }
 
 function normalizeCounts(
@@ -95,8 +87,8 @@ function addWarning(warnings: AnalyticsWarning[], warning: AnalyticsWarning): vo
 
 export function getCumulativeFlow(habitatId: string, requestedDays = 30): CumulativeFlowResponse {
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));
-  const generatedAt = new Date().toISOString();
-  const dates = dateRange(days, new Date(generatedAt));
+  const generatedAt = utcNowISO();
+  const dates = dateRange(days);
   const startDate = dates[0];
   const endDate = dates[dates.length - 1];
   const columnRows = getColumns(habitatId);

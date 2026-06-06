@@ -3,6 +3,7 @@ import { getDb } from "../db/index.js";
 import { habitats, missionEvents, taskEvents } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { daysAgoISO } from "./analyticsDate.js";
 import { dirname, join } from "path";
 import { logger } from "../lib/logger.js";
 import { queryAuditEvents, summarizeAuditCompleteness } from "./auditQueryService.js";
@@ -89,7 +90,7 @@ export function getRetentionSettings(habitatId: string): { eventRetentionDays: n
 
 export function archiveOldEvents(habitatId: string): ArchiveResult {
   const { eventRetentionDays } = getRetentionSettings(habitatId);
-  const cutoff = new Date(Date.now() - eventRetentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const cutoff = daysAgoISO(eventRetentionDays);
   const taskResult = queryAuditEvents({
     habitatId,
     until: cutoff,

@@ -10,8 +10,14 @@ import {
   tasks,
 } from "../db/schema/index.js";
 import * as effortRepo from "../repositories/effortEntry.js";
+import {
+  daysAgoISO,
+  utcNowISO,
+  confidenceForSample,
+  type AnalyticsConfidence,
+} from "./analyticsDate.js";
 
-export type AgentQualityConfidence = "high" | "medium" | "low" | "insufficient_data";
+export type AgentQualityConfidence = AnalyticsConfidence;
 
 export interface AgentQualityInputs {
   agentId: string;
@@ -52,13 +58,6 @@ const COMPLETE_STATUSES = ["approved", "done"] as const;
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
-}
-
-function confidenceForSample(sampleSize: number): AgentQualityConfidence {
-  if (sampleSize <= 2) return "insufficient_data";
-  if (sampleSize <= 9) return "low";
-  if (sampleSize <= 29) return "medium";
-  return "high";
 }
 
 function average(values: number[]): number | null {
@@ -157,7 +156,7 @@ export function getAgentQualityInputs(
   const db = getDb();
   const agentQuery = db.select({ id: agents.id, name: agents.name }).from(agents);
   const agentRows = agentId ? agentQuery.where(eq(agents.id, agentId)).all() : agentQuery.all();
-  const windowStart = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const windowStart = daysAgoISO(windowDays);
 
   return agentRows.map((agent) => {
     const assignedTasks = db
@@ -301,5 +300,5 @@ export function getAgentQualitySignals(habitatId: string, agentId?: string): Age
   const signals = inputs
     .map(buildAgentQualitySignal)
     .toSorted((a, b) => a.agentName.localeCompare(b.agentName));
-  return { habitatId, generatedAt: new Date().toISOString(), signals };
+  return { habitatId, generatedAt: utcNowISO(), signals };
 }
