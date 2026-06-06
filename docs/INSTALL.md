@@ -23,6 +23,14 @@ This project has two distinct workflows that share no state — different ports,
 
 ## Production Install (End User)
 
+> ## ⚠️ Prerelease — "Production" Here Means End-User Install, Not Production Workload
+>
+> This section describes installing Orcy for **end-user self-hosted use** — running it on your own machine or server for personal projects, experiments, or internal tools.
+>
+> **Orcy is in active prerelease (`0.x`).** Schema, APIs, MCP tool shapes, CLI commands, and on-disk formats may change between releases without a migration path. Your data, integrations, and configurations are **not guaranteed to survive an upgrade**. Pin your version, snapshot your data, and do not use prerelease Orcy for customer-facing production workloads.
+>
+> We are working toward a stable `1.0` release. See the project [README](../README.md#️-prerelease--not-production-ready) for the full disclaimer.
+
 One command installs the CLI, API, MCP server, and Web UI:
 
 ```bash

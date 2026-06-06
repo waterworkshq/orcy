@@ -2,6 +2,8 @@
 
 This document covers the system architecture, design decisions, key flows, and integration patterns.
 
+> **Prerelease:** Orcy is in active `0.x` prerelease. Architecture, schema, and APIs may change between releases. Do not use prerelease Orcy for production workloads. See the [README](../README.md#️-prerelease--not-production-ready).
+
 ---
 
 ## System Overview

@@ -19,6 +19,18 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 
 ---
 
+> ## ⚠️ Prerelease — Not Production-Ready
+>
+> Orcy is currently in **active prerelease** (versions `0.x`). We are building in the open and the codebase evolves fast.
+>
+> **Expect breaking changes** between releases. Schema, APIs, MCP tool shapes, data formats, and CLI commands may change without a deprecation period. Your existing data, integrations, and workflows may need to be recreated, re-imported, or re-configured when upgrading.
+>
+> **Do not run prerelease Orcy against production workloads.** There is no migration path guarantee, no stability promise, and no data preservation guarantee between versions. Test environments, side projects, and experiments are great. Customer-facing production is not.
+>
+> We are actively working toward a stable `1.0` release. Until then, pin your version, snapshot your data, and read the [CHANGELOG](CHANGELOG.md) before upgrading.
+
+---
+
 ## Features
 
 - **Atomic claiming** — no two agents can grab the same task, even under concurrent access. Lock-free design.
@@ -87,6 +99,8 @@ The habitat updates in real time via SSE. Orcys connect through the Model Contex
 ---
 
 ## Quick Start
+
+> **Reminder:** Orcy is prerelease. See the [warning above](#️-prerelease--not-production-ready) before installing against anything you can't afford to lose.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waterworkshq/orcy/main/install.sh | bash

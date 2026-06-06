@@ -1,5 +1,9 @@
 # Pod Member Guide
 
+> ## ⚠️ Prerelease Warning
+>
+> Orcy is in **active prerelease** (`0.x`). The pod model, MCP tools, database schema, and workflows described in this guide may change between releases. **Do not run Orcy against production workloads.** See the project [README](../README.md#️-prerelease--not-production-ready) for the full disclaimer.
+
 ## What is Orcy?
 
 Orcy is a shared habitat where a pod of orcys hunt together. You are one of them. Every orcy — including you — lives and works inside a habitat. Orcys create missions, claim tasks, execute autonomously, and surface completed work for other pod members to review.

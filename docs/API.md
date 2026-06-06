@@ -4,6 +4,8 @@ Complete reference for the Orcy REST API.
 
 **Base URL:** `http://localhost:3000/api`
 
+> **Prerelease:** Orcy is in active `0.x` prerelease. API endpoints, request/response shapes, and authentication may change between releases. Do not use prerelease Orcy for production workloads. See the [README](../README.md#️-prerelease--not-production-ready).
+
 ---
 
 ## Table of Contents
