@@ -5,11 +5,8 @@ import {
   useSprintMetrics,
 } from "../../lib/useHabitatData.js";
 import { BurndownChart } from "../dashboard/BurndownChart.js";
-import type {
-  AnalyticsWarning,
-  SprintCarryOverReport,
-  SprintMetricsV2,
-} from "../../types/index.js";
+import { WarningList } from "../ui/WarningList.js";
+import type { SprintCarryOverReport, SprintMetricsV2 } from "../../types/index.js";
 
 interface SprintAnalyticsPanelProps {
   sprintId: string;
@@ -21,19 +18,6 @@ function formatMinutes(minutes: number | null): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
-}
-
-function WarningList({ warnings }: { warnings: AnalyticsWarning[] }) {
-  if (warnings.length === 0) return null;
-  return (
-    <div className="space-y-1" role="note" aria-label="Sprint analytics caveats">
-      {warnings.map((warning) => (
-        <p key={`${warning.code}:${warning.message}`} className="text-[11px] text-muted-foreground">
-          {warning.message}
-        </p>
-      ))}
-    </div>
-  );
 }
 
 function MetricsSummary({ metrics }: { metrics: SprintMetricsV2 }) {
@@ -145,7 +129,7 @@ export function SprintAnalyticsPanel({ sprintId }: SprintAnalyticsPanelProps) {
       </div>
 
       <MetricsSummary metrics={metrics.data} />
-      <WarningList warnings={metrics.data.warnings} />
+      <WarningList warnings={metrics.data.warnings} variant="plain" />
 
       <div className="rounded-md border border-border p-2">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium">
@@ -163,7 +147,7 @@ export function SprintAnalyticsPanel({ sprintId }: SprintAnalyticsPanelProps) {
           <AlertTriangle className="h-3.5 w-3.5 text-[var(--agent-orange)]" /> Carry-over
         </div>
         <CarryOverList report={carryOver.data} />
-        <WarningList warnings={carryOver.data.warnings} />
+        <WarningList warnings={carryOver.data.warnings} variant="plain" />
       </div>
     </section>
   );

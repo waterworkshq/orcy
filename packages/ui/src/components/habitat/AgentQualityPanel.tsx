@@ -37,7 +37,7 @@ export function AgentQualityList({ signals }: { signals: AgentQualitySignal[] })
               </p>
             </div>
             <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-              {signal.confidence.replace("_", " ")}
+              {signal.confidence.replaceAll("_", " ")}
             </span>
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-muted-foreground">

@@ -151,7 +151,7 @@ export function FeatureDetailPanel() {
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={feature.priority}>{feature.priority}</Badge>
             <Badge variant={taskStatusVariant[feature.status]}>
-              {feature.status.replace("_", " ")}
+              {feature.status.replaceAll("_", " ")}
             </Badge>
             {feature.labels.map((label: string) => (
               <span
@@ -183,7 +183,7 @@ export function FeatureDetailPanel() {
                 <div className="flex flex-wrap gap-2 mt-2">
                   {Object.entries(progress.byStatus).map(([status, count]) => (
                     <span key={status} className="text-xs text-muted-foreground">
-                      {status.replace("_", " ")}: {count}
+                      {status.replaceAll("_", " ")}: {count}
                     </span>
                   ))}
                 </div>
@@ -236,7 +236,7 @@ export function FeatureDetailPanel() {
                         variant={taskStatusVariant[task.status]}
                         className="text-[10px] px-1.5 py-0 shrink-0"
                       >
-                        {task.status.replace("_", " ")}
+                        {task.status.replaceAll("_", " ")}
                       </Badge>
                       <span className="truncate">{task.title}</span>
                     </div>

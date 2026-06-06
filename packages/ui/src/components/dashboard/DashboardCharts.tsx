@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
 import { KPICard } from "./KPICard.js";
 import { FlowAnalyticsPanel } from "./FlowAnalyticsPanel.js";
 import { SkeletonCard } from "../ui/SkeletonCard.js";
+import { ErrorBoundary } from "../ui/ErrorBoundary.js";
 import { CheckCircle2, Clock, TrendingUp, Users, AlertCircle, Activity } from "lucide-react";
 import type { DashboardStats } from "../../types/index.js";
 
@@ -79,8 +80,12 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
         />
         <KPICard
           title="Webhook Success"
-          value={`${(stats.webhookStats.successRate * 100).toFixed(1)}%`}
-          trend={stats.webhookStats.successRate > 0.9 ? "up" : "neutral"}
+          value={`${((stats.webhookStats.total > 0 ? stats.webhookStats.successRate : 1) * 100).toFixed(1)}%`}
+          trend={
+            (stats.webhookStats.total > 0 ? stats.webhookStats.successRate : 1) > 0.9
+              ? "up"
+              : "neutral"
+          }
           subtitle={`${stats.webhookStats.success}/${stats.webhookStats.total} delivered`}
           icon={<Activity className="h-5 w-5 text-[var(--agent-blue)]" />}
         />
@@ -92,9 +97,11 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
             <CardTitle>Throughput (Tasks Completed per Day)</CardTitle>
           </CardHeader>
           <CardContent>
-            <Suspense fallback={<SkeletonCard />}>
-              <ThroughputChart data={stats.throughput} />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<SkeletonCard />}>
+                <ThroughputChart data={stats.throughput} />
+              </Suspense>
+            </ErrorBoundary>
           </CardContent>
         </Card>
 
@@ -103,9 +110,11 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
             <CardTitle>Cycle Time Trend</CardTitle>
           </CardHeader>
           <CardContent>
-            <Suspense fallback={<SkeletonCard />}>
-              <CycleTimeChart data={stats.cycleTime} />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<SkeletonCard />}>
+                <CycleTimeChart data={stats.cycleTime} />
+              </Suspense>
+            </ErrorBoundary>
           </CardContent>
         </Card>
       </div>
@@ -116,9 +125,11 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
             <CardTitle>Agent Leaderboard</CardTitle>
           </CardHeader>
           <CardContent>
-            <Suspense fallback={<SkeletonCard />}>
-              <AgentLeaderboard data={stats.agentLeaderboard} />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<SkeletonCard />}>
+                <AgentLeaderboard data={stats.agentLeaderboard} />
+              </Suspense>
+            </ErrorBoundary>
           </CardContent>
         </Card>
 
@@ -127,9 +138,11 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
             <CardTitle>Task Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <Suspense fallback={<SkeletonCard />}>
-              <TaskDistribution priority={stats.taskByPriority} status={stats.taskByStatus} />
-            </Suspense>
+            <ErrorBoundary>
+              <Suspense fallback={<SkeletonCard />}>
+                <TaskDistribution priority={stats.taskByPriority} status={stats.taskByStatus} />
+              </Suspense>
+            </ErrorBoundary>
           </CardContent>
         </Card>
       </div>
@@ -139,9 +152,11 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
           <CardTitle>WIP Health</CardTitle>
         </CardHeader>
         <CardContent>
-          <Suspense fallback={<SkeletonCard />}>
-            <WipHealthChart data={stats.wipHealth} />
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<SkeletonCard />}>
+              <WipHealthChart data={stats.wipHealth} />
+            </Suspense>
+          </ErrorBoundary>
         </CardContent>
       </Card>
 
@@ -155,9 +170,11 @@ export function DashboardCharts({ stats, period, habitatId }: DashboardChartsPro
             />
           </div>
           <h2 className="text-lg font-semibold text-on-surface mb-4">Agent Capacity</h2>
-          <Suspense fallback={<SkeletonCard />}>
-            <CapacityChart habitatId={habitatId} />
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<SkeletonCard />}>
+              <CapacityChart habitatId={habitatId} />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       )}
     </div>

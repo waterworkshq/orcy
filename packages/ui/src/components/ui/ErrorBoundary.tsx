@@ -1,61 +1,38 @@
-import React, { Component, type ReactNode } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { Button } from './Button.js';
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
-interface Props {
+interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
 }
 
-interface State {
+interface ErrorBoundaryState {
   hasError: boolean;
-  error: Error | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    this.props.onError?.(error, errorInfo);
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[ErrorBoundary]", error, info.componentStack);
   }
 
-  handleReset = (): void => {
-    this.setState({ hasError: false, error: null });
-  };
-
-  render(): ReactNode {
+  render() {
     if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
-
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-            <AlertTriangle className="h-6 w-6 text-destructive" />
+        this.props.fallback ?? (
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-on-surface-variant">
+            Something went wrong loading this section.
           </div>
-          <div className="text-center">
-            <h3 className="text-lg font-semibold">Something went wrong</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {this.state.error?.message ?? 'An unexpected error occurred'}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={this.handleReset}>
-            <RefreshCw className="h-4 w-4" />
-            Try again
-          </Button>
-        </div>
+        )
       );
     }
-
     return this.props.children;
   }
 }

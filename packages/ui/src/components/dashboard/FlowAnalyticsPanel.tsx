@@ -1,28 +1,12 @@
 import { AlertTriangle, GitBranch, Loader2 } from "lucide-react";
 import { useBottlenecks, useCumulativeFlow } from "../../lib/useHabitatData.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
-import type {
-  AnalyticsWarning,
-  BottleneckResponse,
-  CumulativeFlowResponse,
-} from "../../types/index.js";
+import { WarningList } from "../ui/WarningList.js";
+import type { BottleneckResponse, CumulativeFlowResponse } from "../../types/index.js";
 
 interface FlowAnalyticsPanelProps {
   habitatId: string;
   days: number;
-}
-
-function WarningList({ warnings }: { warnings: AnalyticsWarning[] }) {
-  if (warnings.length === 0) return null;
-  return (
-    <div className="space-y-1" role="note" aria-label="Analytics caveats">
-      {warnings.map((warning) => (
-        <p key={`${warning.code}:${warning.message}`} className="text-xs text-on-surface-variant">
-          {warning.severity === "critical" ? "Critical" : "Note"}: {warning.message}
-        </p>
-      ))}
-    </div>
-  );
 }
 
 function FlowChartPreview({ flow }: { flow: CumulativeFlowResponse }) {
@@ -104,7 +88,7 @@ export function FlowAnalyticsData({
                   </div>
                   <p className="mt-2 text-xs text-on-surface-variant">{finding.recommendation}</p>
                   <p className="mt-1 text-[10px] text-on-surface-variant">
-                    Confidence: {finding.confidence.replace("_", " ")}
+                    Confidence: {finding.confidence.replaceAll("_", " ")}
                   </p>
                 </article>
               ))}
@@ -147,7 +131,7 @@ export function FlowAnalyticsPanel({ habitatId, days }: FlowAnalyticsPanelProps)
     return (
       <Card>
         <CardContent className="py-8 text-center text-on-surface-variant">
-          Select a habitat to view flow analytics.
+          Flow data not available.
         </CardContent>
       </Card>
     );
