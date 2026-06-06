@@ -13,7 +13,7 @@ describe("TASK_DISPATCH_TOOL", () => {
     expect(TASK_DISPATCH_TOOL.name).toBe("orcy_habitat_task");
   });
 
-  it("includes all 36 actions in the enum", () => {
+  it("includes all 39 actions in the enum", () => {
     const actionProp = TASK_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
@@ -54,6 +54,9 @@ describe("TASK_DISPATCH_TOOL", () => {
       "get-effort-report",
       "correct-effort-entry",
       "get-audit-bundle",
+      "batch-assign",
+      "batch-set-priority",
+      "batch-delete",
     ]);
   });
 
@@ -185,8 +188,8 @@ describe("TASK_ACTIONS", () => {
     });
   });
 
-  it("has exactly 36 actions", () => {
-    expect(Object.keys(TASK_ACTIONS)).toHaveLength(36);
+  it("has exactly 39 actions", () => {
+    expect(Object.keys(TASK_ACTIONS)).toHaveLength(39);
   });
 
   it("every action maps to a function", () => {
@@ -201,6 +204,6 @@ describe("TASK_ACTIONS", () => {
       "new-action": () => {},
     };
     expect(extendedActions["new-action"]).toBeDefined();
-    expect(Object.keys(extendedActions)).toHaveLength(37);
+    expect(Object.keys(extendedActions)).toHaveLength(40);
   });
 });

@@ -1,4 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { KanbanApiClient } from "../api.js";
 import { createDispatchTool, createDispatchHandler, type Handler } from "./dispatch-utils.js";
 import {
   habitatClaimTask,
@@ -44,12 +45,17 @@ import {
   habitatResolveTaskEvidenceGap,
 } from "./code-evidence.js";
 import { habitatGetTaskAuditBundle } from "./audit.js";
+import {
+  habitatBatchAssignTasks,
+  habitatBatchSetTaskPriority,
+  habitatBatchDeleteTasks,
+} from "./task-batch.js";
 import { PRIORITY_LEVELS, ARTIFACT_TYPES } from "./constants.js";
 
 export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_task",
   description:
-    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle)",
+    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
   actions: [
     "list-in-mission",
     "create-in-mission",
@@ -87,6 +93,9 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     "get-effort-report",
     "correct-effort-entry",
     "get-audit-bundle",
+    "batch-assign",
+    "batch-set-priority",
+    "batch-delete",
   ],
   sharedParams: {
     taskId: { type: "string", description: "Task UUID (used with most task actions)" },
@@ -94,7 +103,11 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "string",
       description: "Mission UUID (action=list-in-mission, action=create-in-mission)",
     },
-    boardId: { type: "string", description: "Habitat UUID (action=list-in-mission)" },
+    boardId: {
+      type: "string",
+      description:
+        "Habitat UUID (action=list-in-mission, action=batch-assign, action=batch-set-priority, action=batch-delete)",
+    },
     title: { type: "string", description: "Task title (action=create-in-mission, action=update)" },
     description: {
       type: "string",
@@ -103,7 +116,8 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     priority: {
       type: "string",
       enum: [...PRIORITY_LEVELS],
-      description: "Task priority (action=create-in-mission, action=update)",
+      description:
+        "Task priority (action=create-in-mission, action=update, action=batch-set-priority)",
     },
     requiredDomain: {
       type: "string",
@@ -190,7 +204,16 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     assigneeId: {
       type: "string",
-      description: "Optional UUID of an agent to assign this subtask to (action=create-subtask)",
+      description:
+        "Agent UUID to assign subtask to (action=create-subtask) or batch-assign tasks to (action=batch-assign)",
+    },
+    taskIds: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 1,
+      maxItems: 100,
+      description:
+        "Array of task UUIDs (action=batch-assign, action=batch-set-priority, action=batch-delete)",
     },
     subtaskId: { type: "string", description: "The UUID of the subtask (action=delete-subtask)" },
     includeHistory: {
@@ -330,6 +353,20 @@ export const TASK_ACTIONS: Record<string, Handler> = {
   "get-effort-report": habitatGetEffortReport,
   "correct-effort-entry": habitatCorrectEffortEntry,
   "get-audit-bundle": habitatGetTaskAuditBundle,
+  "batch-assign": (client: KanbanApiClient, args: any) =>
+    habitatBatchAssignTasks(client, {
+      boardId: args.boardId,
+      taskIds: args.taskIds,
+      agentId: args.assigneeId,
+    }),
+  "batch-set-priority": (client: KanbanApiClient, args: any) =>
+    habitatBatchSetTaskPriority(client, {
+      boardId: args.boardId,
+      taskIds: args.taskIds,
+      priority: args.priority,
+    }),
+  "batch-delete": (client: KanbanApiClient, args: any) =>
+    habitatBatchDeleteTasks(client, { boardId: args.boardId, taskIds: args.taskIds }),
 };
 
 const TASK_REQUIRED_PARAMS: Record<string, string[]> = {
@@ -349,6 +386,9 @@ const TASK_REQUIRED_PARAMS: Record<string, string[]> = {
   "update-quality-checklist-item": ["taskId", "checklistId", "itemId"],
   submit: ["taskId", "result"],
   "get-audit-bundle": ["taskId"],
+  "batch-assign": ["boardId", "taskIds", "assigneeId"],
+  "batch-set-priority": ["boardId", "taskIds", "priority"],
+  "batch-delete": ["boardId", "taskIds"],
 };
 
 export const TASK_DISPATCH_HANDLER = createDispatchHandler(TASK_ACTIONS, TASK_REQUIRED_PARAMS);

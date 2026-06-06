@@ -1,102 +1,113 @@
-import { describe, it, expect, vi } from 'vitest';
-import {
-  ADMIN_DISPATCH_TOOL,
-  ADMIN_DISPATCH_HANDLER,
-} from '../../tools/index.js';
+import { describe, it, expect, vi } from "vitest";
+import { TASK_DISPATCH_TOOL, TASK_DISPATCH_HANDLER } from "../../tools/index.js";
 
-describe('ADMIN_DISPATCH_TOOL schema', () => {
-  it('has correct name', () => {
-    expect(ADMIN_DISPATCH_TOOL.name).toBe('orcy_admin');
+describe("TASK_DISPATCH_TOOL batch schema", () => {
+  it("includes batch-assign action", () => {
+    const action = TASK_DISPATCH_TOOL.inputSchema.properties!.action as {
+      type: string;
+      enum: string[];
+    };
+    expect(action.enum).toContain("batch-assign");
   });
 
-  it('includes batch-assign-tasks action', () => {
-    const action = ADMIN_DISPATCH_TOOL.inputSchema.properties!.action as { type: string; enum: string[] };
-    expect(action.enum).toContain('batch-assign-tasks');
+  it("includes batch-set-priority action", () => {
+    const action = TASK_DISPATCH_TOOL.inputSchema.properties!.action as {
+      type: string;
+      enum: string[];
+    };
+    expect(action.enum).toContain("batch-set-priority");
   });
 
-  it('includes batch-set-priority action', () => {
-    const action = ADMIN_DISPATCH_TOOL.inputSchema.properties!.action as { type: string; enum: string[] };
-    expect(action.enum).toContain('batch-set-priority');
+  it("includes batch-delete action", () => {
+    const action = TASK_DISPATCH_TOOL.inputSchema.properties!.action as {
+      type: string;
+      enum: string[];
+    };
+    expect(action.enum).toContain("batch-delete");
   });
 
-  it('includes batch-delete-tasks action', () => {
-    const action = ADMIN_DISPATCH_TOOL.inputSchema.properties!.action as { type: string; enum: string[] };
-    expect(action.enum).toContain('batch-delete-tasks');
+  it("has boardId, taskIds, assigneeId in shared params", () => {
+    const props = TASK_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty("boardId");
+    expect(props).toHaveProperty("taskIds");
+    expect(props).toHaveProperty("assigneeId");
   });
 
-  it('requires boardId, taskIds in shared params', () => {
-    const props = ADMIN_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
-    expect(props).toHaveProperty('boardId');
-    expect(props).toHaveProperty('taskIds');
-    expect(props).toHaveProperty('agentId');
-  });
-
-  it('accepts taskIds as string array with constraints', () => {
-    const props = ADMIN_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
-    const taskIds = props.taskIds as { type: string; items: { type: string }; minItems: number; maxItems: number };
-    expect(taskIds.type).toBe('array');
-    expect(taskIds.items.type).toBe('string');
+  it("accepts taskIds as string array with constraints", () => {
+    const props = TASK_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
+    const taskIds = props.taskIds as {
+      type: string;
+      items: { type: string };
+      minItems: number;
+      maxItems: number;
+    };
+    expect(taskIds.type).toBe("array");
+    expect(taskIds.items.type).toBe("string");
     expect(taskIds.minItems).toBe(1);
     expect(taskIds.maxItems).toBe(100);
   });
 
-  it('accepts priority as string enum with valid levels', () => {
-    const props = ADMIN_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
+  it("accepts priority as string enum with valid levels", () => {
+    const props = TASK_DISPATCH_TOOL.inputSchema.properties as Record<string, unknown>;
     const priority = props.priority as { type: string; enum: string[] };
-    expect(priority.type).toBe('string');
-    expect(priority.enum).toEqual(['low', 'medium', 'high', 'critical']);
+    expect(priority.type).toBe("string");
+    expect(priority.enum).toEqual(["low", "medium", "high", "critical"]);
   });
 });
 
-describe('admin dispatch batch-assign-tasks', () => {
+describe("task dispatch batch-assign", () => {
   function createMockClient() {
     return {
       batchAssignTasks: vi.fn(),
     } as any;
   }
 
-  it('calls client.batchAssignTasks with correct arguments', async () => {
+  it("calls client.batchAssignTasks with correct arguments", async () => {
     const client = createMockClient();
     const mockResult = {
       successCount: 2,
       failureCount: 0,
       results: [
-        { taskId: 'task-1', success: true },
-        { taskId: 'task-2', success: true },
+        { taskId: "task-1", success: true },
+        { taskId: "task-2", success: true },
       ],
     };
     client.batchAssignTasks.mockResolvedValue(mockResult);
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-assign-tasks',
-      boardId: 'board-1',
-      taskIds: ['task-1', 'task-2'],
-      agentId: 'agent-42',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-assign",
+      boardId: "board-1",
+      taskIds: ["task-1", "task-2"],
+      assigneeId: "agent-42",
     });
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.successCount).toBe(2);
     expect(result.failureCount).toBe(0);
-    expect(client.batchAssignTasks).toHaveBeenCalledWith('board-1', ['task-1', 'task-2'], 'agent-42');
+    expect(client.batchAssignTasks).toHaveBeenCalledWith(
+      "board-1",
+      ["task-1", "task-2"],
+      "agent-42",
+    );
   });
 
-  it('returns per-task failures when some assignments fail', async () => {
+  it("returns per-task failures when some assignments fail", async () => {
     const client = createMockClient();
     const mockResult = {
       successCount: 1,
       failureCount: 1,
       results: [
-        { taskId: 'task-1', success: true },
-        { taskId: 'task-2', success: false, error: 'Agent domain does not match task requirement' },
+        { taskId: "task-1", success: true },
+        { taskId: "task-2", success: false, error: "Agent domain does not match task requirement" },
       ],
     };
     client.batchAssignTasks.mockResolvedValue(mockResult);
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-assign-tasks',
-      boardId: 'board-1',
-      taskIds: ['task-1', 'task-2'],
-      agentId: 'agent-99',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-assign",
+      boardId: "board-1",
+      taskIds: ["task-1", "task-2"],
+      assigneeId: "agent-99",
     });
     const result = JSON.parse(raw.content[0].text);
 
@@ -104,10 +115,10 @@ describe('admin dispatch batch-assign-tasks', () => {
     expect(result.failureCount).toBe(1);
     expect(result.results[0].success).toBe(true);
     expect(result.results[1].success).toBe(false);
-    expect(result.results[1].error).toBe('Agent domain does not match task requirement');
+    expect(result.results[1].error).toBe("Agent domain does not match task requirement");
   });
 
-  it('handles empty taskIds array gracefully', async () => {
+  it("handles empty taskIds array gracefully", async () => {
     const client = createMockClient();
     client.batchAssignTasks.mockResolvedValue({
       successCount: 0,
@@ -115,11 +126,11 @@ describe('admin dispatch batch-assign-tasks', () => {
       results: [],
     });
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-assign-tasks',
-      boardId: 'board-1',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-assign",
+      boardId: "board-1",
       taskIds: [],
-      agentId: 'agent-42',
+      assigneeId: "agent-42",
     });
     const result = JSON.parse(raw.content[0].text);
 
@@ -129,55 +140,59 @@ describe('admin dispatch batch-assign-tasks', () => {
   });
 });
 
-describe('admin dispatch batch-set-priority', () => {
+describe("task dispatch batch-set-priority", () => {
   function createMockClient() {
     return {
       batchSetTaskPriority: vi.fn(),
     } as any;
   }
 
-  it('calls client.batchSetTaskPriority with correct arguments', async () => {
+  it("calls client.batchSetTaskPriority with correct arguments", async () => {
     const client = createMockClient();
     const mockResult = {
       successCount: 2,
       failureCount: 0,
       results: [
-        { taskId: 'task-1', success: true },
-        { taskId: 'task-2', success: true },
+        { taskId: "task-1", success: true },
+        { taskId: "task-2", success: true },
       ],
     };
     client.batchSetTaskPriority.mockResolvedValue(mockResult);
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-set-priority',
-      boardId: 'board-1',
-      taskIds: ['task-1', 'task-2'],
-      priority: 'high',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-set-priority",
+      boardId: "board-1",
+      taskIds: ["task-1", "task-2"],
+      priority: "high",
     });
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.successCount).toBe(2);
     expect(result.failureCount).toBe(0);
-    expect(client.batchSetTaskPriority).toHaveBeenCalledWith('board-1', ['task-1', 'task-2'], 'high');
+    expect(client.batchSetTaskPriority).toHaveBeenCalledWith(
+      "board-1",
+      ["task-1", "task-2"],
+      "high",
+    );
   });
 
-  it('returns per-task failures when some priority updates fail', async () => {
+  it("returns per-task failures when some priority updates fail", async () => {
     const client = createMockClient();
     const mockResult = {
       successCount: 1,
       failureCount: 1,
       results: [
-        { taskId: 'task-1', success: true },
-        { taskId: 'task-2', success: false, error: 'Priority update failed' },
+        { taskId: "task-1", success: true },
+        { taskId: "task-2", success: false, error: "Priority update failed" },
       ],
     };
     client.batchSetTaskPriority.mockResolvedValue(mockResult);
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-set-priority',
-      boardId: 'board-1',
-      taskIds: ['task-1', 'task-2'],
-      priority: 'low',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-set-priority",
+      boardId: "board-1",
+      taskIds: ["task-1", "task-2"],
+      priority: "low",
     });
     const result = JSON.parse(raw.content[0].text);
 
@@ -185,10 +200,10 @@ describe('admin dispatch batch-set-priority', () => {
     expect(result.failureCount).toBe(1);
     expect(result.results[0].success).toBe(true);
     expect(result.results[1].success).toBe(false);
-    expect(result.results[1].error).toBe('Priority update failed');
+    expect(result.results[1].error).toBe("Priority update failed");
   });
 
-  it('handles empty taskIds array gracefully', async () => {
+  it("handles empty taskIds array gracefully", async () => {
     const client = createMockClient();
     client.batchSetTaskPriority.mockResolvedValue({
       successCount: 0,
@@ -196,11 +211,11 @@ describe('admin dispatch batch-set-priority', () => {
       results: [],
     });
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-set-priority',
-      boardId: 'board-1',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-set-priority",
+      boardId: "board-1",
       taskIds: [],
-      priority: 'critical',
+      priority: "critical",
     });
     const result = JSON.parse(raw.content[0].text);
 
@@ -210,62 +225,62 @@ describe('admin dispatch batch-set-priority', () => {
   });
 });
 
-describe('admin dispatch batch-delete-tasks', () => {
+describe("task dispatch batch-delete", () => {
   function createMockClient() {
     return {
       batchDeleteTasks: vi.fn(),
     } as any;
   }
 
-  it('calls client.batchDeleteTasks with correct arguments', async () => {
+  it("calls client.batchDeleteTasks with correct arguments", async () => {
     const client = createMockClient();
     const mockResult = {
       successCount: 2,
       failureCount: 0,
       results: [
-        { taskId: 'task-1', success: true },
-        { taskId: 'task-2', success: true },
+        { taskId: "task-1", success: true },
+        { taskId: "task-2", success: true },
       ],
     };
     client.batchDeleteTasks.mockResolvedValue(mockResult);
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-delete-tasks',
-      boardId: 'board-1',
-      taskIds: ['task-1', 'task-2'],
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-delete",
+      boardId: "board-1",
+      taskIds: ["task-1", "task-2"],
     });
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.successCount).toBe(2);
     expect(result.failureCount).toBe(0);
-    expect(client.batchDeleteTasks).toHaveBeenCalledWith('board-1', ['task-1', 'task-2']);
+    expect(client.batchDeleteTasks).toHaveBeenCalledWith("board-1", ["task-1", "task-2"]);
   });
 
-  it('returns per-task failures with dependency errors', async () => {
+  it("returns per-task failures with dependency errors", async () => {
     const client = createMockClient();
     const mockResult = {
       successCount: 1,
       failureCount: 1,
       results: [
-        { taskId: 'task-1', success: true },
-        { taskId: 'task-2', success: false, error: 'Task has 3 dependent task(s)' },
+        { taskId: "task-1", success: true },
+        { taskId: "task-2", success: false, error: "Task has 3 dependent task(s)" },
       ],
     };
     client.batchDeleteTasks.mockResolvedValue(mockResult);
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-delete-tasks',
-      boardId: 'board-1',
-      taskIds: ['task-1', 'task-2'],
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-delete",
+      boardId: "board-1",
+      taskIds: ["task-1", "task-2"],
     });
     const result = JSON.parse(raw.content[0].text);
 
     expect(result.successCount).toBe(1);
     expect(result.failureCount).toBe(1);
-    expect(result.results[1].error).toBe('Task has 3 dependent task(s)');
+    expect(result.results[1].error).toBe("Task has 3 dependent task(s)");
   });
 
-  it('handles empty taskIds array gracefully', async () => {
+  it("handles empty taskIds array gracefully", async () => {
     const client = createMockClient();
     client.batchDeleteTasks.mockResolvedValue({
       successCount: 0,
@@ -273,9 +288,9 @@ describe('admin dispatch batch-delete-tasks', () => {
       results: [],
     });
 
-    const raw = await ADMIN_DISPATCH_HANDLER(client, {
-      action: 'batch-delete-tasks',
-      boardId: 'board-1',
+    const raw = await TASK_DISPATCH_HANDLER(client, {
+      action: "batch-delete",
+      boardId: "board-1",
       taskIds: [],
     });
     const result = JSON.parse(raw.content[0].text);

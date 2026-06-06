@@ -730,10 +730,14 @@ describe("Consolidated tools in ALL_TOOLS", () => {
     expect(toolNames).not.toContain("board_delete_feature");
   });
 
-  it("batch tools are consolidated under admin tool", () => {
+  it("batch actions are under task dispatch tool", () => {
     const toolNames = ALL_TOOLS.map((t) => t.name);
-    expect(toolNames).toContain("orcy_admin");
-    expect(toolNames).not.toContain("board_batch_assign_tasks");
-    expect(toolNames).not.toContain("board_batch_set_task_priority");
+    expect(toolNames).not.toContain("orcy_admin");
+    expect(toolNames).toContain("orcy_habitat_task");
+    const taskTool = ALL_TOOLS.find((t) => t.name === "orcy_habitat_task");
+    const actionProp = taskTool!.inputSchema.properties!.action as { enum: string[] };
+    expect(actionProp.enum).toContain("batch-assign");
+    expect(actionProp.enum).toContain("batch-set-priority");
+    expect(actionProp.enum).toContain("batch-delete");
   });
 });
