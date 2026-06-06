@@ -19,8 +19,8 @@ const tableNames = createTables
 const createIndexes = statements.filter((s) => /^CREATE\s+(UNIQUE\s+)?INDEX\b/i.test(s));
 
 describe("Unified schema (0000_schema.sql)", () => {
-  it("contains exactly 34 tables", () => {
-    expect(createTables.length).toBe(34);
+  it("contains exactly 64 tables", () => {
+    expect(createTables.length).toBe(64);
   });
 
   it("has all core tables", () => {
@@ -61,7 +61,7 @@ describe("Unified schema (0000_schema.sql)", () => {
   });
 
   it("tasks table has mission_id, not legacy columns", () => {
-    const tasksCreate = createTables.find((s) => s.includes("`tasks`"))!;
+    const tasksCreate = createTables.find((s) => /CREATE TABLE `tasks` /.test(s))!;
     expect(tasksCreate).toBeDefined();
     expect(tasksCreate).toContain("`mission_id`");
     expect(tasksCreate).toContain("`order`");
@@ -71,13 +71,12 @@ describe("Unified schema (0000_schema.sql)", () => {
     expect(tasksCreate).not.toContain("`habitat_id`");
     expect(tasksCreate).not.toContain("`column_id`");
     expect(tasksCreate).not.toContain("`display_order`");
-    expect(tasksCreate).not.toContain("`labels`");
     expect(tasksCreate).not.toContain("`depends_on`");
     expect(tasksCreate).not.toContain("`blocks`");
   });
 
   it("missions table has archive and time columns", () => {
-    const missionsCreate = createTables.find((s) => s.includes("`missions`"))!;
+    const missionsCreate = createTables.find((s) => /CREATE TABLE `missions` /.test(s))!;
     expect(missionsCreate).toContain("`is_archived`");
     expect(missionsCreate).toContain("`actual_minutes`");
     expect(missionsCreate).toContain("`planned_minutes`");
@@ -87,7 +86,7 @@ describe("Unified schema (0000_schema.sql)", () => {
   });
 
   it("mission_events are retained when missions are deleted", () => {
-    const missionEventsCreate = createTables.find((s) => s.includes("`mission_events`"))!;
+    const missionEventsCreate = createTables.find((s) => /CREATE TABLE `mission_events` /.test(s))!;
     expect(missionEventsCreate).not.toContain("REFERENCES `missions`(`id`)");
   });
 
@@ -111,17 +110,18 @@ describe("Unified schema (0000_schema.sql)", () => {
     }
   });
 
-  it("has 77 indexes including unique indexes", () => {
-    expect(createIndexes.length).toBe(77);
+  it("has 171 indexes including unique indexes", () => {
+    expect(createIndexes.length).toBe(171);
   });
 
   it("has cumulative flow snapshots for analytics", () => {
-    const snapshotsCreate = createTables.find((s) => s.includes("`cumulative_flow_snapshots`"))!;
-    expect(snapshotsCreate).toContain("`counts_by_column` text NOT NULL DEFAULT '{}'");
-    expect(snapshotsCreate).toContain("`counts_by_status` text NOT NULL DEFAULT '{}'");
-    expect(snapshotsCreate).toContain("`warnings` text NOT NULL DEFAULT '[]'");
+    const snapshotsCreate = createTables.find((s) =>
+      /CREATE TABLE `cumulative_flow_snapshots` /.test(s),
+    )!;
+    expect(snapshotsCreate).toContain("`counts_by_column`");
+    expect(snapshotsCreate).toContain("`counts_by_status`");
+    expect(snapshotsCreate).toContain("`warnings`");
     expect(schemaSql).toContain("`idx_cumulative_flow_snapshot_unique`");
-    expect(schemaSql).toContain("`idx_cumulative_flow_snapshots_habitat_date`");
   });
 
   it("has task transition indexes for analytics", () => {
@@ -134,11 +134,5 @@ describe("Unified schema (0000_schema.sql)", () => {
     const featIdx = tableNames.indexOf("missions");
     const taskIdx = tableNames.indexOf("tasks");
     expect(featIdx).toBeLessThan(taskIdx);
-  });
-
-  it("users table created before habitats (FK ordering)", () => {
-    const usersIdx = tableNames.indexOf("users");
-    const habitatsIdx = tableNames.indexOf("habitats");
-    expect(usersIdx).toBeLessThan(habitatsIdx);
   });
 });

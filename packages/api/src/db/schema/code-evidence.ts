@@ -262,6 +262,7 @@ export const codeEvidenceLinks = sqliteTable(
   (table) => [
     index("idx_evidence_links_target_status").on(table.targetType, table.targetId, table.status),
     index("idx_evidence_links_evidence").on(table.evidenceType, table.evidenceId),
+    index("idx_code_evidence_links_linked_by").on(table.linkedByType, table.linkedById),
   ],
 );
 
@@ -316,5 +317,6 @@ export const codeEvidenceGaps = sqliteTable(
   (table) => [
     index("idx_evidence_gaps_target_status").on(table.targetType, table.targetId, table.status),
     index("idx_evidence_gaps_reason_status").on(table.reasonCode, table.status),
+    index("idx_code_evidence_gaps_reported_by").on(table.reportedByType, table.reportedById),
   ],
 );

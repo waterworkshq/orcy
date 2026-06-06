@@ -131,9 +131,7 @@ export const missionEvents = sqliteTable(
   "mission_events",
   {
     id: text("id").primaryKey(),
-    missionId: text("mission_id")
-      .notNull()
-      .references(() => missions.id, { onDelete: "cascade" }),
+    missionId: text("mission_id").notNull(),
     actorType: text("actor_type", { enum: ["human", "agent", "system"] }).notNull(),
     actorId: text("actor_id").notNull(),
     action: text("action", {

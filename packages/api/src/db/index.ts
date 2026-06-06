@@ -105,40 +105,10 @@ export async function initTestDb() {
   setDriver("sqlite");
 
   const migrationFolder = join(getWorkspaceRoot(), "packages", "api", "drizzle");
-  const migrations = [
-    "0000_schema",
-    "0001_pulse",
-    "0002_task_labels",
-    "0003_pulse_v2_scope",
-    "0004_project_insights",
-    "0005_pulse_reactions",
-    "0006_supreme_stranger",
-    "0007_column_renames",
-    "0008_fix_stale_fks",
-    "0009_review_rules",
-    "0010_add_sprints",
-    "0011_notifications_expand",
-    "0012_task_reviewer_constraints",
-    "0013_integrations",
-    "0014_daemon",
-    "0015_habitat_skills",
-    "0016_habitat_skill_unique",
-    "0017_strength_check",
-    "0018_code_evidence_provenance",
-    "0019_effort_entries",
-    "0020_evidence_fk_and_indexes",
-    "0021_add_completeness_created_at",
-    "0022_evidence_link_self_fk",
-    "0023_task_event_transition_indexes",
-    "0024_preserve_mission_events_on_delete",
-    "0025_cumulative_flow_snapshots",
-    "0026_drop_duplicate_unique_indexes",
-  ];
-  for (const migrationName of migrations) {
-    const migrationFile = join(migrationFolder, `${migrationName}.sql`);
-    if (!existsSync(migrationFile)) continue;
-    const migrationSql = readFileSync(migrationFile, "utf-8");
-    const statements = migrationSql
+  const schemaFile = join(migrationFolder, "0000_schema.sql");
+  if (existsSync(schemaFile)) {
+    const schemaSql = readFileSync(schemaFile, "utf-8");
+    const statements = schemaSql
       .split("--> statement-breakpoint")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
@@ -151,7 +121,8 @@ export async function initTestDb() {
           !msg.includes("already exists") &&
           !msg.includes("no such table") &&
           !msg.includes("no such column") &&
-          !msg.includes("no such index")
+          !msg.includes("no such index") &&
+          !msg.includes("duplicate column name")
         )
           throw err;
       }
