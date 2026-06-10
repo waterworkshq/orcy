@@ -1,7 +1,7 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema/index.js";
 import { join, dirname } from "path";
-import { existsSync, readFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, readdirSync } from "fs";
 import { ORCY_PATHS } from "@orcy/shared";
 import { createHash } from "crypto";
 import { setDriver } from "./dialect-helpers.js";
@@ -109,6 +109,33 @@ export async function initTestDb() {
   if (existsSync(schemaFile)) {
     const schemaSql = readFileSync(schemaFile, "utf-8");
     const statements = schemaSql
+      .split("--> statement-breakpoint")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    for (const stmt of statements) {
+      try {
+        testSqlite.run(stmt);
+      } catch (err: any) {
+        const msg = String(err?.message ?? err ?? "");
+        if (
+          !msg.includes("already exists") &&
+          !msg.includes("no such table") &&
+          !msg.includes("no such column") &&
+          !msg.includes("no such index") &&
+          !msg.includes("duplicate column name")
+        )
+          throw err;
+      }
+    }
+  }
+
+  const incrementalMigrations = readdirSync(migrationFolder)
+    .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
+    .sort();
+  for (const migrationFile of incrementalMigrations) {
+    const filePath = join(migrationFolder, migrationFile);
+    const sql = readFileSync(filePath, "utf-8");
+    const statements = sql
       .split("--> statement-breakpoint")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
