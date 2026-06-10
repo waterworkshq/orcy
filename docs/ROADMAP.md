@@ -37,6 +37,18 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ---
 
+### v0.17.3 — "Prep: Event Spine"
+
+Prepare the real-time UI event path before v0.18 adds automation and Notification V2 events.
+
+| Architecture | Problem it solves |
+|--------------|-------------------|
+| SSE Event Registry | Replaces the triple-switch pattern in Zustand mutation, React Query invalidation, and toast/dropdown notification handling with a centralized event registry. New SSE event types are registered once and covered by completeness tests. |
+
+**Why before v0.18:** Workflow automation and Notification System V2 will add more event types. Shipping the registry as a patch isolates behavior-preserving event plumbing from new feature behavior.
+
+---
+
 ### v0.18.0 — "Rules That Act"
 
 Move from rules that score work to rules that take action.
@@ -50,11 +62,7 @@ Move from rules that score work to rules that take action.
 
 Planning seeds: `docs/plans/v3/05-workflow-automation-engine.md`, `docs/plans/v3/06-notification-system-v2.md`
 
-**Architecture prereq folded in:**
-
-| Architecture | Why here, not a patch |
-|--------------|----------------------|
-| SSE Event Registry (#4) | Replaces the triple-switch pattern (3 files, ~30 event types each) with a centralized event-to-handler map. Automation and Notification V2 will add many new SSE event types — the registry must exist first, or every new event = 3 coordinated file edits with no compile-time guarantee of completeness. |
+**Architecture prereq:** SSE Event Registry (#4) ships first in v0.17.3. v0.18 consumes that registry when adding automation and Notification V2 event types.
 
 ---
 
@@ -154,7 +162,7 @@ Patch releases dedicated to deepening shallow modules into deep ones — better 
 | Patch | Candidates | Stressed seam |
 |-------|-----------|---------------|
 | v0.17.1 | TransitionEmitter (#1), API Client Split (#2) | Task lifecycle side-effects, MCP+UI client surface area |
-| v0.18.0 (folded) | SSE Event Registry (#4) | Event handling — prereq for automation + notification events |
+| v0.17.3 | SSE Event Registry (#4) | Event handling — prereq for automation + notification events |
 | v0.18.1 | Data Access Discipline (#3), Fat Route Extraction (#6), Dual-Write Consolidation (#5) | Repo layer, route→service boundary, Zustand vs React Query |
 | v0.20.0 (folded) | API → Daemon Interface Seam (#7) | Cross-package dependency — prereq for multi-agent orchestration |
 | v0.20.1 | Pass-Through Elimination (#8) | Dead indirection cleanup |
