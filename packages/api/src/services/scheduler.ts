@@ -10,6 +10,7 @@ import { autoCompleteSprints } from "./sprintService.js";
 import { nudgeAllDaemons } from "./daemonNudgeService.js";
 import { generateAllDigests } from "./habitatDigestService.js";
 import { regenerateAllSkills } from "./habitatSkillService.js";
+import { runAllScans } from "./automationScanService.js";
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
@@ -189,6 +190,20 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
       },
       24 * 60 * 60_000,
     ),
+  );
+
+  intervals.push(
+    setInterval(() => {
+      try {
+        const reports = runAllScans();
+        const matched = reports.reduce((sum, r) => sum + r.rulesMatched, 0);
+        if (matched > 0 || reports.some((r) => r.errors.length > 0)) {
+          fastify.log.info({ count: reports.length, matched }, "Automation scans completed");
+        }
+      } catch (err) {
+        fastify.log.error({ err }, "Error running automation scans");
+      }
+    }, 5 * 60_000),
   );
 
   return {

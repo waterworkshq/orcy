@@ -1,9 +1,13 @@
-import type { SSEEvent } from '../models/index.js';
-import { dispatchWebhooks } from '../services/webhookDispatcher.js';
-import { processEvent } from '../services/notificationService.js';
-import type { NotificationEventType, NotificationEventData } from '../services/notificationService.js';
-import { processEvent as chatProcessEvent } from '../services/chatService.js';
-import { logger } from '../lib/logger.js';
+import type { SSEEvent } from "../models/index.js";
+import { dispatchWebhooks } from "../services/webhookDispatcher.js";
+import { processEvent } from "../services/notificationService.js";
+import type {
+  NotificationEventType,
+  NotificationEventData,
+} from "../services/notificationService.js";
+import { processEvent as chatProcessEvent } from "../services/chatService.js";
+import { ingestEvent } from "../services/automationEventService.js";
+import { logger } from "../lib/logger.js";
 
 class SSEBroadcaster {
   private habitatStreams = new Map<string, Set<(event: SSEEvent) => void>>();
@@ -30,13 +34,31 @@ class SSEBroadcaster {
       }
     }
 
-    if (event.type.startsWith('task.') || event.type.startsWith('column.') || event.type.startsWith('agent.') || event.type.startsWith('anomaly.') || event.type.startsWith('mission.') || event.type.startsWith('sprint.')) {
-      dispatchWebhooks(habitatId, event).catch(err => {
-        logger.error({ err }, 'Webhook dispatch error');
+    if (
+      event.type.startsWith("task.") ||
+      event.type.startsWith("column.") ||
+      event.type.startsWith("agent.") ||
+      event.type.startsWith("anomaly.") ||
+      event.type.startsWith("mission.") ||
+      event.type.startsWith("sprint.")
+    ) {
+      dispatchWebhooks(habitatId, event).catch((err) => {
+        logger.error({ err }, "Webhook dispatch error");
       });
-      chatProcessEvent(event.type, habitatId, event.data as Record<string, unknown>).catch(err => {
-        logger.error({ err }, 'Chat push error');
-      });
+      chatProcessEvent(event.type, habitatId, event.data as Record<string, unknown>).catch(
+        (err) => {
+          logger.error({ err }, "Chat push error");
+        },
+      );
+      // Non-blocking automation event ingestion
+      try {
+        ingestEvent(habitatId, {
+          type: event.type,
+          data: event.data as Record<string, unknown>,
+        });
+      } catch (err) {
+        logger.error({ err }, "Automation event ingestion error");
+      }
     }
 
     this.triggerNotifications(habitatId, event);
@@ -46,91 +68,143 @@ class SSEBroadcaster {
     eventType: NotificationEventType,
     habitatId: string,
     data: NotificationEventData,
-    label: string
+    label: string,
   ): void {
-    processEvent(eventType, habitatId, data).catch(err => {
+    processEvent(eventType, habitatId, data).catch((err) => {
       logger.error({ err, eventType, label }, `[notifications] ${label} error`);
     });
   }
 
   private triggerNotifications(habitatId: string, event: SSEEvent): void {
     switch (event.type) {
-      case 'task.claimed':
-        this.notifySafe('task.assigned', habitatId, {
-          taskId: event.data.taskId,
-          actorId: event.data.agentId,
-        }, 'task.assigned');
-        break;
-
-      case 'task.submitted':
-        this.notifySafe('task.submitted', habitatId, {
-          taskId: event.data.taskId,
-          actorId: event.data.agentId,
-        }, 'task.submitted');
-        break;
-
-      case 'task.approved':
-        this.notifySafe('task.approved', habitatId, {
-          taskId: event.data.taskId,
-          actorId: event.data.reviewerId,
-        }, 'task.approved');
-        break;
-
-      case 'task.rejected':
-        this.notifySafe('task.rejected', habitatId, {
-          taskId: event.data.taskId,
-          actorId: event.data.reviewerId,
-          reason: event.data.reason,
-        }, 'task.rejected');
-        break;
-
-      case 'task.overdue':
-        this.notifySafe('task.overdue', habitatId, {
-          taskId: event.data.taskId,
-        }, 'task.overdue');
-        break;
-
-      case 'task.mentioned':
-        if (event.data.mentionedType === 'human') {
-          this.notifySafe('comment.mentioned', habitatId, {
+      case "task.claimed":
+        this.notifySafe(
+          "task.assigned",
+          habitatId,
+          {
             taskId: event.data.taskId,
-            mentionedUserId: event.data.mentionedId,
-            mentionedByName: event.data.mentionedName,
-            commentContent: (event.data as Record<string, unknown>).commentContent as string | undefined,
-          }, 'comment.mentioned');
+            actorId: event.data.agentId,
+          },
+          "task.assigned",
+        );
+        break;
+
+      case "task.submitted":
+        this.notifySafe(
+          "task.submitted",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+            actorId: event.data.agentId,
+          },
+          "task.submitted",
+        );
+        break;
+
+      case "task.approved":
+        this.notifySafe(
+          "task.approved",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+            actorId: event.data.reviewerId,
+          },
+          "task.approved",
+        );
+        break;
+
+      case "task.rejected":
+        this.notifySafe(
+          "task.rejected",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+            actorId: event.data.reviewerId,
+            reason: event.data.reason,
+          },
+          "task.rejected",
+        );
+        break;
+
+      case "task.overdue":
+        this.notifySafe(
+          "task.overdue",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+          },
+          "task.overdue",
+        );
+        break;
+
+      case "task.mentioned":
+        if (event.data.mentionedType === "human") {
+          this.notifySafe(
+            "comment.mentioned",
+            habitatId,
+            {
+              taskId: event.data.taskId,
+              mentionedUserId: event.data.mentionedId,
+              mentionedByName: event.data.mentionedName,
+              commentContent: (event.data as Record<string, unknown>).commentContent as
+                | string
+                | undefined,
+            },
+            "comment.mentioned",
+          );
         }
         break;
 
-      case 'mission.mentioned':
-        if (event.data.mentionedType === 'human') {
-          this.notifySafe('comment.mentioned', habitatId, {
-            missionId: event.data.missionId,
-            mentionedUserId: event.data.mentionedId,
-            mentionedByName: event.data.mentionedName,
-          }, 'comment.mentioned');
+      case "mission.mentioned":
+        if (event.data.mentionedType === "human") {
+          this.notifySafe(
+            "comment.mentioned",
+            habitatId,
+            {
+              missionId: event.data.missionId,
+              mentionedUserId: event.data.mentionedId,
+              mentionedByName: event.data.mentionedName,
+            },
+            "comment.mentioned",
+          );
         }
         break;
 
-      case 'task.watcher_notify':
-        this.notifySafe('task.watching', habitatId, {
-          taskId: event.data.taskId,
-        }, 'task.watching');
+      case "task.watcher_notify":
+        this.notifySafe(
+          "task.watching",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+          },
+          "task.watching",
+        );
         break;
 
-      case 'task.review_assigned':
-        this.notifySafe('task.review_assigned', habitatId, {
-          taskId: event.data.taskId,
-          reviewerId: event.data.reviewerId,
-          actorId: event.data.actorId,
-        }, 'task.review_assigned');
+      case "task.review_assigned":
+        this.notifySafe(
+          "task.review_assigned",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+            reviewerId: event.data.reviewerId,
+            actorId: event.data.actorId,
+          },
+          "task.review_assigned",
+        );
         break;
 
-      case 'task.priority_changed':
-        this.notifySafe('task.priority_changed', habitatId, {
-          taskId: event.data.taskId,
-          oldPriority: event.data.oldPriority ?? undefined,
-          newPriority: event.data.newPriority,
-        }, 'task.priority_changed');
+      case "task.priority_changed":
+        this.notifySafe(
+          "task.priority_changed",
+          habitatId,
+          {
+            taskId: event.data.taskId,
+            oldPriority: event.data.oldPriority ?? undefined,
+            newPriority: event.data.newPriority,
+          },
+          "task.priority_changed",
+        );
         break;
     }
   }
