@@ -37,6 +37,14 @@ import {
 } from "./integration.js";
 import { daemonInstances, daemonAgents, daemonSessions } from "./daemon.js";
 import { habitatSkills, habitatSkillSignals } from "./habitat-skill.js";
+import {
+  notificationEvents,
+  notificationDeliveries,
+  notificationDeliveryAttempts,
+  notificationSubscriptions,
+  notificationDigestItems,
+  notificationRetentionPolicies,
+} from "./notification.js";
 import { agents, agentMessages } from "./agent.js";
 import { users, notificationPreferences, organizations, teams, teamMembers } from "./user.js";
 import { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
@@ -79,6 +87,13 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   }),
   healthSnapshots: many(habitatHealthSnapshots),
   cumulativeFlowSnapshots: many(cumulativeFlowSnapshots),
+  notificationEvents: many(notificationEvents),
+  notificationDeliveries: many(notificationDeliveries),
+  notificationSubscriptions: many(notificationSubscriptions),
+  notificationRetentionPolicy: one(notificationRetentionPolicies, {
+    fields: [habitats.id],
+    references: [notificationRetentionPolicies.habitatId],
+  }),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -748,3 +763,73 @@ export const cumulativeFlowSnapshotsRelations = relations(cumulativeFlowSnapshot
     references: [habitats.id],
   }),
 }));
+
+export const notificationEventsRelations = relations(notificationEvents, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [notificationEvents.habitatId],
+    references: [habitats.id],
+  }),
+  deliveries: many(notificationDeliveries),
+}));
+
+export const notificationDeliveriesRelations = relations(
+  notificationDeliveries,
+  ({ one, many }) => ({
+    event: one(notificationEvents, {
+      fields: [notificationDeliveries.eventId],
+      references: [notificationEvents.id],
+    }),
+    habitat: one(habitats, {
+      fields: [notificationDeliveries.habitatId],
+      references: [habitats.id],
+    }),
+    attempts: many(notificationDeliveryAttempts),
+  }),
+);
+
+export const notificationDeliveryAttemptsRelations = relations(
+  notificationDeliveryAttempts,
+  ({ one }) => ({
+    delivery: one(notificationDeliveries, {
+      fields: [notificationDeliveryAttempts.deliveryId],
+      references: [notificationDeliveries.id],
+    }),
+  }),
+);
+
+export const notificationSubscriptionsRelations = relations(
+  notificationSubscriptions,
+  ({ one }) => ({
+    habitat: one(habitats, {
+      fields: [notificationSubscriptions.habitatId],
+      references: [habitats.id],
+    }),
+  }),
+);
+
+export const notificationDigestItemsRelations = relations(notificationDigestItems, ({ one }) => ({
+  digestEvent: one(notificationEvents, {
+    fields: [notificationDigestItems.digestEventId],
+    references: [notificationEvents.id],
+    relationName: "digestEvent",
+  }),
+  includedEvent: one(notificationEvents, {
+    fields: [notificationDigestItems.includedEventId],
+    references: [notificationEvents.id],
+    relationName: "includedEvent",
+  }),
+  includedDelivery: one(notificationDeliveries, {
+    fields: [notificationDigestItems.includedDeliveryId],
+    references: [notificationDeliveries.id],
+  }),
+}));
+
+export const notificationRetentionPoliciesRelations = relations(
+  notificationRetentionPolicies,
+  ({ one }) => ({
+    habitat: one(habitats, {
+      fields: [notificationRetentionPolicies.habitatId],
+      references: [habitats.id],
+    }),
+  }),
+);

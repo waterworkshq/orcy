@@ -60,7 +60,7 @@ Move from rules that score work to rules that take action.
 
 **Why together:** Automation needs actions, and many high-value actions are notifications or escalations. The daemon/cron foundation gives these rules a runtime; Notification V2 makes them visible and controllable.
 
-Planning seeds: `docs/plans/v3/05-workflow-automation-engine.md`, `docs/plans/v3/06-notification-system-v2.md`
+Planning directory: `docs/plans/v18/`
 
 **Architecture prereq:** SSE Event Registry (#4) ships first in v0.17.3. v0.18 consumes that registry when adding automation and Notification V2 event types.
 

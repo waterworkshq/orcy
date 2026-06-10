@@ -110,6 +110,28 @@ export type {
   ReviewRuleUpdateInput,
 } from "./review.js";
 
+export type {
+  NotificationEventType,
+  NotificationSourceType,
+  NotificationTargetType,
+  NotificationRecipientType,
+  NotificationSeverity,
+  NotificationChannel,
+  NotificationDeliveryStatus,
+  NotificationAttemptStatus,
+  NotificationSubscriptionScope,
+  NotificationCadence,
+  NotificationActorType,
+  NotificationEvent,
+  NotificationDelivery,
+  NotificationDeliveryAttempt,
+  NotificationSubscription,
+  NotificationDigestItem,
+  NotificationRetentionPolicy,
+  EnqueueNotificationInput,
+  NotificationDashboardView,
+} from "./notification.js";
+
 export type { SprintStatus, CarryOverPolicy } from "./sprint.js";
 export type { Sprint, SprintMetrics, SprintCreateInput, SprintUpdateInput } from "./sprint.js";
 

@@ -84,6 +84,66 @@ _Avoid_: Treating missing evidence as zero code work
 A future Orcy capability where trusted history and outcomes are extracted into reusable knowledge, recommendations, rules, or agent context while preserving source citations, permissions, and uncertainty.
 _Avoid_: Treating raw audit history as automatic wisdom
 
+**Automation Rule**:
+A habitat-scoped rule that reacts to a server-side trigger, checks conditions, and requests bounded actions such as notification, signal creation, task creation under an existing mission, priority change, assignment, review request, risk marking, or webhook call.
+_Avoid_: Workflow rule, automation workflow
+
+**Automation Run**:
+A durable record of one Automation Rule evaluation or execution, including trigger context, condition result, skip reason, action results, and audit provenance.
+_Avoid_: Treating automation side effects as invisible background work
+
+**Notification**:
+A recipient-scoped attention request for a human or agent to notice, acknowledge, defer, or act on something in a habitat.
+_Avoid_: Pulse signal, toast
+
+**Notification Event**:
+The shared reason a notification exists, such as a task becoming blocked, an automation rule matching, a review being requested, or a digest becoming ready.
+_Avoid_: Delivery, channel attempt
+
+**Notification Delivery**:
+The recipient-specific attention state for a notification event, including whether that human or agent has seen, acknowledged, snoozed, or muted it.
+_Avoid_: Notification event, channel attempt
+
+**Notification Subscription**:
+A habitat default or recipient override that expresses which notification events should reach which humans or agents and through which channels.
+_Avoid_: Global boolean preference
+
+**Notification Channel**:
+A route used to deliver notification attention, such as in-app, webhook, Slack, or Discord.
+_Avoid_: Notification event, subscription
+
+**Notification Digest**:
+A recipient-facing summary notification that gathers multiple notification events into one attention item.
+_Avoid_: Replacing the source notification events
+
+**Notification Escalation**:
+An automation-driven follow-up when a notification remains unacknowledged or otherwise needs more attention.
+_Avoid_: Built-in notification rule engine
+
+**Notification Mute**:
+A recipient override that suppresses future matching notification deliveries without deleting historical attention records.
+_Avoid_: Deleting notifications
+
+**Notification Snooze**:
+A time-bound deferral of a notification delivery or subscription so attention returns after the chosen time.
+_Avoid_: Mute, acknowledgment
+
+**Notification Clearance**:
+The removal of resolved recipient attention state from the active inbox/query path after acknowledgment, resolution, expiry, or administrator cleanup while preserving compact history.
+_Avoid_: Treating active inbox state as permanent audit storage
+
+**Notification History**:
+Compact retained evidence that a notification event and delivery outcome happened, kept for traceability after active attention state is cleared.
+_Avoid_: Active delivery state
+
+**Required Notification**:
+A habitat-admin-defined notification default for critical events that can bypass recipient mute so operationally important attention is not silently suppressed.
+_Avoid_: Letting automation or personal preferences make arbitrary notifications unmutable
+
+**Pulse Signal**:
+A shared mission or habitat signal that humans and agents can post, read, and react to as collaborative context. Pulse is passive shared memory; notification is active recipient attention.
+_Avoid_: Notification, alert
+
 **Elapsed Time**:
 Clock time between lifecycle moments, such as claimed to completed or started to completed. Elapsed time is not the same as effort.
 _Avoid_: Effort, work time

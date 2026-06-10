@@ -61,6 +61,14 @@ export {
 export { daemonInstances, daemonAgents, daemonSessions } from "./daemon.js";
 export { habitatSkills, habitatSkillSignals } from "./habitat-skill.js";
 export {
+  notificationEvents,
+  notificationDeliveries,
+  notificationDeliveryAttempts,
+  notificationSubscriptions,
+  notificationDigestItems,
+  notificationRetentionPolicies,
+} from "./notification.js";
+export {
   habitatsRelations,
   columnsRelations,
   missionsRelations,
@@ -123,4 +131,10 @@ export {
   codeEvidenceGapsRelations,
   cumulativeFlowSnapshotsRelations,
   habitatHealthSnapshotsRelations,
+  notificationEventsRelations,
+  notificationDeliveriesRelations,
+  notificationDeliveryAttemptsRelations,
+  notificationSubscriptionsRelations,
+  notificationDigestItemsRelations,
+  notificationRetentionPoliciesRelations,
 } from "./relations.js";
