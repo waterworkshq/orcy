@@ -34,6 +34,8 @@ import { dashboardRoutes } from "./routes/dashboard.js";
 import { savedFilterRoutes } from "./routes/savedFilters.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { notificationPrefRoutes } from "./routes/notificationPreferences.js";
+import { notificationRoutes } from "./routes/notifications.js";
+import { automationRoutes } from "./routes/automationRules.js";
 import { chatIntegrationRoutes } from "./routes/chatIntegration.js";
 import { agentMessageRoutes } from "./routes/agentMessages.js";
 import { pulseRoutes } from "./routes/pulse.js";
@@ -176,6 +178,8 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(savedFilterRoutes);
   await f.register(attachmentRoutes);
   await f.register(notificationPrefRoutes);
+  await f.register(notificationRoutes);
+  await f.register(automationRoutes);
   await f.register(chatIntegrationRoutes);
   await f.register(agentMessageRoutes);
   await f.register(pulseRoutes);
