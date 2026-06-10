@@ -1,6 +1,9 @@
 import type { KanbanApiClient, SprintMetricsResponse, SprintCarryOverResponse } from "../api.js";
 import type { Sprint } from "@orcy/shared";
 
+/**
+ * @requires SprintClient
+ */
 export async function listSprints(
   client: KanbanApiClient,
   args: { boardId: string },
@@ -8,6 +11,9 @@ export async function listSprints(
   return client.listSprints(args.boardId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function getActiveSprint(
   client: KanbanApiClient,
   args: { boardId: string },
@@ -15,6 +21,9 @@ export async function getActiveSprint(
   return client.getActiveSprint(args.boardId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function getSprint(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -22,6 +31,9 @@ export async function getSprint(
   return client.getSprint(args.sprintId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function getSprintMetrics(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -29,6 +41,9 @@ export async function getSprintMetrics(
   return client.getSprintMetrics(args.sprintId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function getSprintBurndown(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -44,6 +59,9 @@ export async function getSprintBurndown(
   };
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function getSprintCarryOver(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -51,6 +69,9 @@ export async function getSprintCarryOver(
   return client.getSprintCarryOver(args.sprintId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function createSprint(
   client: KanbanApiClient,
   args: {
@@ -73,6 +94,9 @@ export async function createSprint(
   });
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function updateSprint(
   client: KanbanApiClient,
   args: {
@@ -95,6 +119,9 @@ export async function updateSprint(
   });
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function deleteSprint(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -103,6 +130,9 @@ export async function deleteSprint(
   return { success: true, sprintId: args.sprintId, message: `Sprint ${args.sprintId} deleted` };
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function startSprint(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -110,6 +140,9 @@ export async function startSprint(
   return client.startSprint(args.sprintId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function completeSprint(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -117,6 +150,9 @@ export async function completeSprint(
   return client.completeSprint(args.sprintId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function cancelSprint(
   client: KanbanApiClient,
   args: { sprintId: string },
@@ -124,6 +160,9 @@ export async function cancelSprint(
   return client.cancelSprint(args.sprintId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function addMissionToSprint(
   client: KanbanApiClient,
   args: { sprintId: string; missionId: string },
@@ -131,6 +170,9 @@ export async function addMissionToSprint(
   return client.addMissionToSprint(args.sprintId, args.missionId);
 }
 
+/**
+ * @requires SprintClient
+ */
 export async function removeMissionFromSprint(
   client: KanbanApiClient,
   args: { sprintId: string; missionId: string },

@@ -1,6 +1,9 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { TaskClient } from '../api/interfaces.js';
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_GET_WORKTREE_TOOL: Tool = {
   name: 'board_get_worktree',
   description:
@@ -20,8 +23,11 @@ export const BOARD_GET_WORKTREE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatGetWorktree(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { taskId: string }
 ) {
   const result = await client.getWorktree(args.taskId);

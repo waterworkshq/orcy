@@ -7,6 +7,10 @@ const SIGNAL_TYPES = [
   'question', 'answer', 'directive', 'context', 'handoff',
 ] as const;
 
+/**
+ * @requires PulseClient
+ * @requires AgentClient
+ */
 export async function pulsePost(
   client: KanbanApiClient,
   args: {
@@ -70,6 +74,10 @@ export async function pulsePost(
   });
 }
 
+/**
+ * @requires PulseClient
+ * @requires AgentClient
+ */
 export async function pulseCheck(
   client: KanbanApiClient,
   args: {

@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.17.1 | **Updated:** 2026-06-10
+> **Version:** v0.17.2 | **Updated:** 2026-06-10
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -29,36 +29,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.16.0 | "Provenance" — code ↔ task linking (8 provenance tables, 7 evidence types, append-only corrections, completeness & gap tracking, repository settings, backfill) and time tracking & effort logging (deliberate effort entries separate from inferred time, correction audit trail, quality gate split, habitat effort metrics) |
 | v0.17.0 | "Evidence" — Audit Trail V2 (canonical, provenance-aware audit projection across lifecycle, effort, code evidence, pipeline, integration, webhook, and opt-in health snapshot sources; scoped task/mission evidence bundles; integrity-ready archival) and Advanced Analytics (confidence-aware forecasting, trend analysis, cumulative-flow snapshots, bottleneck detection, sprint analytics, and informational-only agent quality signals) |
 | v0.17.1 | "Deepen: Transition Core" — TransitionEmitter deep module consolidating the 5-layer task transition side-effect chain (DB write → event → SSE → watcher → mission recalc) into one `emitTransition` seam across 5 caller files (16 actions, opt-in mission recalc debounce); and API Client Domain Split defining 23 per-domain interfaces with `KanbanApiClient` as the typed facade, per-domain mock factories (33% → 100% method coverage), and `getMissionContext` extracted to a standalone orchestrator service |
+| v0.17.2 | "Tighten: Effort and Notification Plumbing" — effort metrics recompute on complete/approve (FU-001 correctness fix), `NOTIFY_TASK_EVENT_ACTIONS` consumer audit constant, 13 MCP handler files narrowed to per-domain interfaces, `ORCY_TRANSITION_RECALC_DEBOUNCE` env documentation, 194 `@requires` JSDoc tags across 25 MCP tool files |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.17.2 — "Tighten: Effort and Notification Plumbing"
-
-Small, surgical follow-up to v0.17.1's TransitionEmitter refactor. Resolves the one inconsistency that became a real correctness gap once all task transitions funneled through a single emitter seam: effort metrics recompute was happening only at submit, so any task reaching `complete` or `approve` without submit (or with effort corrected after submit) drifted from canonical `EffortReport` semantics. Also normalizes a notification race that the new `notifyTaskEvent` gating made visible.
-
-| # | Task | Why now |
-|---|------|---------|
-| V17.1-FU-001 | Add `effortRepo.recalculateTaskEffortMetrics(taskId)` to `completeTask` and `approveTask` (try/catch wrapped, matching the `submitTask` pattern) so `actualMinutes` and `estimationAccuracy` stay in sync with canonical `EffortReport` semantics. | The emitter migration centralizes the side-effect chain, so a one-line addition is now zero-risk to land. Effort dashboard numbers stop lagging the lifecycle. |
-| V17.2-001 | Audit every `notifyTaskEvent` consumer (currently: `habitatSkillService.initSkillHooks`) and decide per-event whether to expand coverage. The v0.17.1 plan explicitly preserved the gap (consumers only check 4 events). If a new consumer lands in v0.18 (Notification V2 hooks), backfill `claim`/`submit`/`release` events at the same time. | Notification V2 will tap the same hook bus. Pre-filling the seams prevents Notification V2 from inheriting a partial event surface. |
-| V17.2-002 | Add `dispatch-utils` and dispatch test files to use the new per-domain interfaces (`TaskClient`, `MissionClient`, etc.) for the helper functions where they only need a single domain. | Mechanical, but the emitter migration + new per-domain mocks make this the right moment to tighten tool type boundaries. |
-| V17.2-003 | Enable `ORCY_TRANSITION_RECALC_DEBOUNCE=true` in the dev environment's `.env.example` with a comment explaining the performance characteristic (6–8 cascading recalcs → 1 per mission under batched transitions). | Documents the flag for next dev to find; no behavior change in default off. |
-| V17.2-004 | Update the MCP tools' signature docs in `packages/mcp/src/tools/` JSDoc blocks to reference the per-domain interfaces the tool uses, so a new contributor can find the contract without grep. | Documentation debt incurred by the v0.17.1 split. Low cost, high discoverability. |
-
-**Scope:** A patch release. No new features. No public API changes. No migration concerns.
-
-**Why this is a release and not a single PR:** the four follow-up items (especially FU-001) touch lifecycle correctness. Releasing independently of v0.18.0 (which lands automation + Notification V2) keeps the blast radius small and lets us test the emitter-driven effort recompute under real workload before it's also being driven by automation.
-
-**Definition of done:**
-
-- `pnpm -r test` green; full regression coverage of the 4 effort-related lifecycle paths in `effortLifecycle.test.ts`.
-- One-character version bump via `pnpm release:patch`.
-- `CHANGELOG.md` entry explaining the four items.
-
-Full plan: **[docs/plans/v0.17.2/](docs/plans/v0.17.2/)**
 
 ---
 

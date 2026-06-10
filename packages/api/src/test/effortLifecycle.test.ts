@@ -40,7 +40,7 @@ vi.mock("../services/qualityGateService.js", () => ({
 }));
 
 import * as timeTrackingService from "../services/timeTrackingService.js";
-import { claimTask, startTask, submitTask } from "../services/tasks/task-lifecycle.js";
+import { claimTask, startTask, submitTask, completeTask, approveTask } from "../services/tasks/task-lifecycle.js";
 
 let habitatId: string;
 let columnId: string;
@@ -371,5 +371,55 @@ describe("habitat metrics include effort splits", () => {
     expect(metrics.totalLoggedEffortMinutes).toBe(0);
     expect(metrics.totalInferredPresenceMinutes).toBe(0);
     expect(metrics.totalAccountedMinutes).toBe(0);
+  });
+});
+
+describe("effort metrics recalculate on complete and approve", () => {
+  function createAndAdvanceToSubmitted(title: string, estimatedMinutes?: number) {
+    const task = createAndAdvanceToInProgress(title, estimatedMinutes);
+    submitTask(task.id, agentId, "done", []);
+    return taskRepo.getTaskById(task.id)!;
+  }
+
+  it("recalculates effort metrics when a task is completed", () => {
+    const task = createAndAdvanceToSubmitted("Complete effort task", 60);
+
+    effortRepo.createEffortEntry({
+      taskId: task.id,
+      actorType: "human",
+      actorId: "user-1",
+      minutes: 45,
+      source: "correction_adjustment",
+    });
+
+    const beforeSpy = vi.spyOn(effortRepo, "recalculateTaskEffortMetrics");
+
+    completeTask(task.id, agentId, undefined, undefined, true);
+
+    expect(beforeSpy).toHaveBeenCalledWith(task.id);
+
+    const updated = taskRepo.getTaskById(task.id)!;
+    expect(updated.actualMinutes).toBe(45);
+  });
+
+  it("recalculates effort metrics when a task is approved", () => {
+    const task = createAndAdvanceToSubmitted("Approve effort task", 80);
+
+    effortRepo.createEffortEntry({
+      taskId: task.id,
+      actorType: "human",
+      actorId: "user-1",
+      minutes: 50,
+      source: "correction_adjustment",
+    });
+
+    const beforeSpy = vi.spyOn(effortRepo, "recalculateTaskEffortMetrics");
+
+    approveTask(task.id, "reviewer-1", "human");
+
+    expect(beforeSpy).toHaveBeenCalledWith(task.id);
+
+    const updated = taskRepo.getTaskById(task.id)!;
+    expect(updated.actualMinutes).toBe(50);
   });
 });

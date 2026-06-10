@@ -1,6 +1,9 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { TaskClient } from '../api/interfaces.js';
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_LIST_SUBTASKS_TOOL: Tool = {
   name: 'board_list_task_subtasks',
   description:
@@ -20,13 +23,19 @@ export const BOARD_LIST_SUBTASKS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatListTaskSubtasks(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { taskId: string }
 ) {
   return client.listSubtasks(args.taskId);
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_CREATE_SUBTASK_TOOL: Tool = {
   name: 'board_create_task_subtask',
   description:
@@ -58,8 +67,11 @@ export const BOARD_CREATE_SUBTASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatCreateTaskSubtask(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { taskId: string; title: string; order?: number; assigneeId?: string }
 ) {
   return client.createSubtask(args.taskId, {
@@ -69,6 +81,9 @@ export async function habitatCreateTaskSubtask(
   });
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_DELETE_SUBTASK_TOOL: Tool = {
   name: 'board_delete_task_subtask',
   description:
@@ -91,8 +106,11 @@ export const BOARD_DELETE_SUBTASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatDeleteTaskSubtask(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { taskId: string; subtaskId: string }
 ) {
   await client.deleteSubtask(args.taskId, args.subtaskId);

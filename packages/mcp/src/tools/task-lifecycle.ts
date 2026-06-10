@@ -4,6 +4,9 @@ import type { Task } from '@orcy/shared';
 import { enrichTaskWithAgentName } from './enrichment.js';
 import { ARTIFACT_SCHEMA_FRAGMENT } from './constants.js';
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_CLAIM_TASK_TOOL: Tool = {
   name: 'board_claim_task',
   description:
@@ -24,6 +27,9 @@ export const BOARD_CLAIM_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatClaimTask(
   client: KanbanApiClient,
   args: { taskId: string }
@@ -36,6 +42,9 @@ export async function habitatClaimTask(
   return { success: true, task: enrichedTask };
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_SUBMIT_TASK_TOOL: Tool = {
   name: 'board_submit_task',
   description:
@@ -64,6 +73,9 @@ export const BOARD_SUBMIT_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatSubmitTask(
   client: KanbanApiClient,
   args: { taskId: string; result: string; artifacts?: { type: string; url: string; description: string }[] }
@@ -71,6 +83,9 @@ export async function habitatSubmitTask(
   return client.submitTask(args.taskId, args.result, args.artifacts as Task['artifacts']);
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_COMPLETE_TASK_TOOL: Tool = {
   name: 'board_complete_task',
   description:
@@ -100,6 +115,9 @@ export const BOARD_COMPLETE_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatCompleteTask(
   client: KanbanApiClient,
   args: { taskId: string; reviewNote?: string; artifacts?: { type: string; url: string; description: string }[] }
@@ -107,6 +125,9 @@ export async function habitatCompleteTask(
   return client.completeTask(args.taskId, args.reviewNote, args.artifacts as Task['artifacts']);
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_RELEASE_TASK_TOOL: Tool = {
   name: 'board_release_task',
   description:
@@ -130,6 +151,9 @@ export const BOARD_RELEASE_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatReleaseTask(
   client: KanbanApiClient,
   args: { taskId: string; reason: string }
@@ -137,6 +161,9 @@ export async function habitatReleaseTask(
   return client.releaseTask(args.taskId, args.reason);
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_RETRY_TASK_TOOL: Tool = {
   name: 'board_retry_task',
   description:
@@ -155,6 +182,9 @@ export const BOARD_RETRY_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatRetryTask(
   client: KanbanApiClient,
   args: { taskId: string }

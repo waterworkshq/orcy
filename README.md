@@ -155,7 +155,6 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.17.2** | Tighten: Effort and Notification Plumbing — effort-metrics recompute on complete/approve, notifyTaskEvent consumer audit, dispatch-utils narrowing, env-doc hygiene |
 | **v0.18** | Rules That Act — workflow automation engine, Notification System V2 |
 | **v0.19** | Public Surface — SSO / auth providers, API public surface |
 

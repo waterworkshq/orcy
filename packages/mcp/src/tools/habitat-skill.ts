@@ -1,13 +1,18 @@
-import type { KanbanApiClient } from "../api.js";
 import type { SkillClient } from "../api/interfaces.js";
 
-export async function habitatSkillGet(client: KanbanApiClient, args: Record<string, any>) {
+/**
+ * @requires SkillClient
+ */
+export async function habitatSkillGet(client: SkillClient, args: Record<string, any>) {
   const boardId = args.boardId;
   if (!boardId) return { error: "Missing required parameter: boardId" };
   return client.getHabitatSkill(boardId);
 }
 
-export async function habitatSkillRefresh(client: KanbanApiClient, args: Record<string, any>) {
+/**
+ * @requires SkillClient
+ */
+export async function habitatSkillRefresh(client: SkillClient, args: Record<string, any>) {
   const boardId = args.boardId;
   if (!boardId) return { error: "Missing required parameter: boardId" };
   return client.refreshHabitatSkill(boardId);
@@ -15,7 +20,10 @@ export async function habitatSkillRefresh(client: KanbanApiClient, args: Record<
 
 const VALID_CATEGORIES = ["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"];
 
-export async function habitatSkillContribute(client: KanbanApiClient, args: Record<string, any>) {
+/**
+ * @requires SkillClient
+ */
+export async function habitatSkillContribute(client: SkillClient, args: Record<string, any>) {
   const boardId = args.boardId;
   const insight = args.insight;
   const skillCategory = args.skillCategory;

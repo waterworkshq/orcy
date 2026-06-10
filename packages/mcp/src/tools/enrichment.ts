@@ -88,6 +88,9 @@ export async function enrichMessagesWithFromAgentNames(
   }));
 }
 
+/**
+ * @requires AgentClient
+ */
 export async function enrichTaskWithAgentName(
   client: KanbanApiClient,
   task: Task

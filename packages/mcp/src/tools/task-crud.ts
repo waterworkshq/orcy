@@ -3,6 +3,9 @@ import type { KanbanApiClient } from '../api.js';
 import { enrichTaskWithAgentName } from './enrichment.js';
 import { PRIORITY_LEVELS, TASK_UPDATE_STATUSES } from './constants.js';
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_UPDATE_TASK_TOOL: Tool = {
   name: 'board_update_task',
   description:
@@ -101,6 +104,9 @@ export const BOARD_UPDATE_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatUpdateTask(
   client: KanbanApiClient,
   args: {
@@ -186,6 +192,9 @@ export async function habitatUpdateTask(
   return { success: true, task: enrichedTask };
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_DELETE_TASK_TOOL: Tool = {
   name: 'board_delete_task',
   description:
@@ -203,6 +212,9 @@ export const BOARD_DELETE_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatDeleteTask(
   client: KanbanApiClient,
   args: { taskId: string }

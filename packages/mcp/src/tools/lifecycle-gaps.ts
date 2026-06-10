@@ -1,6 +1,12 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_GET_TASK_TIME_REPORT_TOOL: Tool = {
   name: "board_get_task_time_report",
   description:
@@ -18,10 +24,22 @@ export const BOARD_GET_TASK_TIME_REPORT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatGetTaskTimeReport(client: KanbanApiClient, args: { taskId: string }) {
   return client.getTaskTimeReport(args.taskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_GET_METRICS_TOOL: Tool = {
   name: "board_get_metrics",
   description:
@@ -39,10 +57,22 @@ export const BOARD_GET_METRICS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatGetMetrics(client: KanbanApiClient, args: { boardId: string }) {
   return client.getHabitatMetrics(args.boardId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_GET_TASK_BLOCKED_STATUS_TOOL: Tool = {
   name: "board_get_task_blocked_status",
   description:
@@ -60,6 +90,12 @@ export const BOARD_GET_TASK_BLOCKED_STATUS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatGetTaskBlockedStatus(
   client: KanbanApiClient,
   args: { taskId: string },
@@ -67,6 +103,12 @@ export async function habitatGetTaskBlockedStatus(
   return client.getTaskBlockedStatus(args.taskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_ADD_TASK_DEPENDENCY_TOOL: Tool = {
   name: "board_add_task_dependency",
   description:
@@ -88,6 +130,12 @@ export const BOARD_ADD_TASK_DEPENDENCY_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatAddTaskDependency(
   client: KanbanApiClient,
   args: { taskId: string; dependsOnTaskId: string },
@@ -95,6 +143,12 @@ export async function habitatAddTaskDependency(
   return client.addTaskDependency(args.taskId, args.dependsOnTaskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_REMOVE_TASK_DEPENDENCY_TOOL: Tool = {
   name: "board_remove_task_dependency",
   description: "Remove a dependency from a task.",
@@ -114,6 +168,12 @@ export const BOARD_REMOVE_TASK_DEPENDENCY_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatRemoveTaskDependency(
   client: KanbanApiClient,
   args: { taskId: string; dependencyTaskId: string },
@@ -121,6 +181,12 @@ export async function habitatRemoveTaskDependency(
   return client.removeTaskDependency(args.taskId, args.dependencyTaskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_GET_TASK_QUALITY_CHECKLIST_TOOL: Tool = {
   name: "board_get_task_quality_checklist",
   description:
@@ -138,6 +204,12 @@ export const BOARD_GET_TASK_QUALITY_CHECKLIST_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatGetTaskQualityChecklist(
   client: KanbanApiClient,
   args: { taskId: string },
@@ -145,6 +217,12 @@ export async function habitatGetTaskQualityChecklist(
   return client.getTaskQualityChecklist(args.taskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_UPDATE_QUALITY_CHECKLIST_ITEM_TOOL: Tool = {
   name: "board_update_quality_checklist_item",
   description:
@@ -181,6 +259,12 @@ export const BOARD_UPDATE_QUALITY_CHECKLIST_ITEM_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatUpdateQualityChecklistItem(
   client: KanbanApiClient,
   args: {
@@ -199,6 +283,12 @@ export async function habitatUpdateQualityChecklistItem(
   return client.updateQualityChecklistItem(args.taskId, args.checklistId, args.itemId, input);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_VALIDATE_QUALITY_GATES_TOOL: Tool = {
   name: "board_validate_quality_gates",
   description:
@@ -216,6 +306,12 @@ export const BOARD_VALIDATE_QUALITY_GATES_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatValidateQualityGates(
   client: KanbanApiClient,
   args: { taskId: string },
@@ -223,6 +319,12 @@ export async function habitatValidateQualityGates(
   return client.validateQualityGates(args.taskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export const BOARD_GET_TASK_APPROVAL_STATUS_TOOL: Tool = {
   name: "board_get_task_approval_status",
   description:
@@ -240,6 +342,12 @@ export const BOARD_GET_TASK_APPROVAL_STATUS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatGetTaskApprovalStatus(
   client: KanbanApiClient,
   args: { taskId: string },
@@ -247,6 +355,12 @@ export async function habitatGetTaskApprovalStatus(
   return client.getTaskApprovalStatus(args.taskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatLogEffort(
   client: KanbanApiClient,
   args: { taskId: string; minutes: number; note?: string; startedAt?: string; endedAt?: string },
@@ -254,6 +368,12 @@ export async function habitatLogEffort(
   return client.logEffort(args.taskId, args.minutes, args.note, args.startedAt, args.endedAt);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatListEffort(
   client: KanbanApiClient,
   args: { taskId: string; includeCorrections?: boolean },
@@ -263,10 +383,22 @@ export async function habitatListEffort(
   });
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatGetEffortReport(client: KanbanApiClient, args: { taskId: string }) {
   return client.getEffortReport(args.taskId);
 }
 
+/**
+ * @requires QualityClient
+ * @requires DependencyClient
+ * @requires EffortClient
+ * @requires TimeTrackingClient
+ */
 export async function habitatCorrectEffortEntry(
   client: KanbanApiClient,
   args: {

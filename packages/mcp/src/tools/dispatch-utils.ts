@@ -6,11 +6,19 @@ type ToolResult = {
   isError?: boolean;
 };
 
+/**
+ * Generic tool handler. Uses KanbanApiClient because dispatch handlers
+ * route to domain-specific implementations at runtime.
+ */
 export type Handler<TResult = unknown> = (
   client: KanbanApiClient,
   args: any,
 ) => TResult | Promise<TResult>;
 
+/**
+ * Generic tool handler. Uses KanbanApiClient because dispatch handlers
+ * route to domain-specific implementations at runtime.
+ */
 export type ToolHandler = (client: KanbanApiClient, args: any) => Promise<ToolResult>;
 
 export interface DispatchToolConfig {

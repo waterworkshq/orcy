@@ -5,6 +5,10 @@ import type { Agent } from '@orcy/shared';
 import { enrichMessagesWithFromAgentNames } from './enrichment.js';
 import { MESSAGE_TYPES, MESSAGE_PRIORITIES } from './constants.js';
 
+/**
+ * @requires MessageClient
+ * @requires AgentClient
+ */
 export const BOARD_SEND_MESSAGE_TOOL: Tool = {
   name: 'board_send_message',
   description:
@@ -53,6 +57,10 @@ export const BOARD_SEND_MESSAGE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MessageClient
+ * @requires AgentClient
+ */
 export async function habitatSendMessage(
   client: KanbanApiClient,
   args: { toAgentId?: string; toAgentName?: string; boardId: string; taskId?: string; subject: string; body: string; messageType?: 'info' | 'request' | 'response' | 'alert'; priority?: 'low' | 'normal' | 'high' | 'urgent' }
@@ -85,6 +93,10 @@ export async function habitatSendMessage(
   });
 }
 
+/**
+ * @requires MessageClient
+ * @requires AgentClient
+ */
 export const BOARD_GET_MESSAGES_TOOL: Tool = {
   name: 'board_get_messages',
   description:
@@ -114,6 +126,10 @@ export const BOARD_GET_MESSAGES_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MessageClient
+ * @requires AgentClient
+ */
 export async function habitatGetMessages(
   client: KanbanApiClient,
   args: { unreadOnly?: boolean; taskId?: string; limit?: number; offset?: number }

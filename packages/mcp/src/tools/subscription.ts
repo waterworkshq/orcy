@@ -2,6 +2,9 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
 import { getCurrentAgentId } from './agent-id.js';
 
+/**
+ * @requires KanbanApiClient
+ */
 export const BOARD_SUBSCRIBE_TOOL: Tool = {
   name: 'board_subscribe',
   description:
@@ -21,6 +24,9 @@ export const BOARD_SUBSCRIBE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires KanbanApiClient
+ */
 export async function habitatSubscribe(
   client: KanbanApiClient,
   args: { boardId: string }
@@ -33,6 +39,9 @@ export async function habitatSubscribe(
   return subscribe(client, args.boardId, agentId);
 }
 
+/**
+ * @requires KanbanApiClient
+ */
 export const BOARD_UNSUBSCRIBE_TOOL: Tool = {
   name: 'board_unsubscribe',
   description:
@@ -50,6 +59,9 @@ export const BOARD_UNSUBSCRIBE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires KanbanApiClient
+ */
 export async function habitatUnsubscribe(
   _client: KanbanApiClient,
   args: { boardId: string }

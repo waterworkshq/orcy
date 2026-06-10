@@ -1,4 +1,4 @@
-import type { KanbanApiClient } from '../api.js';
+import type { ReviewClient } from '../api/interfaces.js';
 import type { ReviewRule, TaskReviewer, ReviewRuleStrategy } from '@orcy/shared';
 
 const VALID_STRATEGIES: readonly string[] = ['domain_expert', 'round_robin', 'least_loaded', 'random', 'fixed'] as const;
@@ -11,15 +11,21 @@ function parseStrategy(s: string | undefined): ReviewRuleStrategy | undefined {
   return s as ReviewRuleStrategy;
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function listReviewRules(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: { boardId: string }
 ): Promise<{ reviewRules: ReviewRule[] }> {
   return client.listReviewRules(args.boardId);
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function createReviewRule(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: {
     boardId: string;
     name: string;
@@ -48,8 +54,11 @@ export async function createReviewRule(
   });
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function updateReviewRule(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: {
     ruleId: string;
     name?: string;
@@ -78,23 +87,32 @@ export async function updateReviewRule(
   });
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function deleteReviewRule(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: { ruleId: string }
 ): Promise<Record<string, unknown>> {
   await client.deleteReviewRule(args.ruleId);
   return { success: true, ruleId: args.ruleId, message: `Review rule ${args.ruleId} deleted` };
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function listTaskReviewers(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: { taskId: string }
 ): Promise<{ reviewers: TaskReviewer[] }> {
   return client.listTaskReviewers(args.taskId);
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function addTaskReviewer(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: { taskId: string; reviewerId: string; reviewerType?: string }
 ): Promise<{ reviewer: TaskReviewer }> {
   return client.addTaskReviewer(args.taskId, {
@@ -103,8 +121,11 @@ export async function addTaskReviewer(
   });
 }
 
+/**
+ * @requires ReviewClient
+ */
 export async function removeTaskReviewer(
-  client: KanbanApiClient,
+  client: ReviewClient,
   args: { taskId: string; reviewerId: string }
 ): Promise<Record<string, unknown>> {
   await client.removeTaskReviewer(args.taskId, args.reviewerId);

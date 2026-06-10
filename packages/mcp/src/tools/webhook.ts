@@ -1,6 +1,9 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { WebhookClient } from '../api/interfaces.js';
 
+/**
+ * @requires WebhookClient
+ */
 export const BOARD_LIST_WEBHOOKS_TOOL: Tool = {
   name: 'board_list_webhooks',
   description:
@@ -18,14 +21,20 @@ export const BOARD_LIST_WEBHOOKS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires WebhookClient
+ */
 export async function habitatListWebhooks(
-  client: KanbanApiClient,
+  client: WebhookClient,
   args: { boardId: string }
 ) {
   const result = await client.listWebhooks(args.boardId);
   return { webhooks: result.webhooks };
 }
 
+/**
+ * @requires WebhookClient
+ */
 export const BOARD_CREATE_WEBHOOK_TOOL: Tool = {
   name: 'board_create_webhook',
   description:
@@ -62,8 +71,11 @@ export const BOARD_CREATE_WEBHOOK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires WebhookClient
+ */
 export async function habitatCreateWebhook(
-  client: KanbanApiClient,
+  client: WebhookClient,
   args: { boardId: string; name: string; url: string; events: string[]; format?: 'standard' | 'slack' | 'discord' }
 ) {
   const result = await client.createWebhook(args.boardId, {
@@ -75,6 +87,9 @@ export async function habitatCreateWebhook(
   return { webhook: result.webhook };
 }
 
+/**
+ * @requires WebhookClient
+ */
 export const BOARD_DELETE_WEBHOOK_TOOL: Tool = {
   name: 'board_delete_webhook',
   description:
@@ -92,8 +107,11 @@ export const BOARD_DELETE_WEBHOOK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires WebhookClient
+ */
 export async function habitatDeleteWebhook(
-  client: KanbanApiClient,
+  client: WebhookClient,
   args: { webhookId: string }
 ) {
   await client.deleteWebhook(args.webhookId);

@@ -1,7 +1,10 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { TaskClient } from '../api/interfaces.js';
 import { PRIORITY_LEVELS } from './constants.js';
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_BATCH_ASSIGN_TASKS_TOOL: Tool = {
   name: 'board_batch_assign_tasks',
   description:
@@ -31,6 +34,9 @@ export const BOARD_BATCH_ASSIGN_TASKS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_BATCH_SET_TASK_PRIORITY_TOOL: Tool = {
   name: 'board_batch_set_task_priority',
   description:
@@ -61,20 +67,29 @@ export const BOARD_BATCH_SET_TASK_PRIORITY_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatBatchAssignTasks(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { boardId: string; taskIds: string[]; agentId: string }
 ) {
   return client.batchAssignTasks(args.boardId, args.taskIds, args.agentId);
 }
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatBatchSetTaskPriority(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { boardId: string; taskIds: string[]; priority: string }
 ) {
   return client.batchSetTaskPriority(args.boardId, args.taskIds, args.priority);
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_BATCH_DELETE_TASKS_TOOL: Tool = {
   name: 'board_batch_delete_tasks',
   description:
@@ -100,8 +115,11 @@ export const BOARD_BATCH_DELETE_TASKS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatBatchDeleteTasks(
-  client: KanbanApiClient,
+  client: TaskClient,
   args: { boardId: string; taskIds: string[] }
 ) {
   return client.batchDeleteTasks(args.boardId, args.taskIds);

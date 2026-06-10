@@ -1,7 +1,10 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { TemplateClient } from '../api/interfaces.js';
 import { PRIORITY_LEVELS } from './constants.js';
 
+/**
+ * @requires TemplateClient
+ */
 export const BOARD_LIST_TEMPLATES_TOOL: Tool = {
   name: 'board_list_templates',
   description:
@@ -19,14 +22,20 @@ export const BOARD_LIST_TEMPLATES_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TemplateClient
+ */
 export async function habitatListTemplates(
-  client: KanbanApiClient,
+  client: TemplateClient,
   args: { boardId: string }
 ) {
   const result = await client.listTemplates(args.boardId);
   return { templates: result.templates };
 }
 
+/**
+ * @requires TemplateClient
+ */
 export const BOARD_CREATE_TEMPLATE_TOOL: Tool = {
   name: 'board_create_template',
   description:
@@ -70,8 +79,11 @@ export const BOARD_CREATE_TEMPLATE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TemplateClient
+ */
 export async function habitatCreateTemplate(
-  client: KanbanApiClient,
+  client: TemplateClient,
   args: {
     boardId: string;
     name: string;
@@ -93,6 +105,9 @@ export async function habitatCreateTemplate(
   return { template: result.template };
 }
 
+/**
+ * @requires TemplateClient
+ */
 export const BOARD_DELETE_TEMPLATE_TOOL: Tool = {
   name: 'board_delete_template',
   description:
@@ -109,8 +124,11 @@ export const BOARD_DELETE_TEMPLATE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TemplateClient
+ */
 export async function habitatDeleteTemplate(
-  client: KanbanApiClient,
+  client: TemplateClient,
   args: { templateId: string }
 ) {
   await client.deleteTemplate(args.templateId);

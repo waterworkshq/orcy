@@ -1,9 +1,11 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { KanbanApiClient } from "../api.js";
 import type { AgentClient } from "../api/interfaces.js";
 import type { Agent } from "@orcy/shared";
 import { AGENT_STATUSES, AGENT_TYPES } from "./constants.js";
 
+/**
+ * @requires AgentClient
+ */
 export const BOARD_REGISTER_AGENT_TOOL: Tool = {
   name: "board_register_agent",
   description:
@@ -37,8 +39,11 @@ export const BOARD_REGISTER_AGENT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires AgentClient
+ */
 export async function habitatRegisterAgent(
-  client: KanbanApiClient,
+  client: AgentClient,
   args: {
     name: string;
     type: "claude-code" | "codex" | "opencode" | "cursor" | "gemini";
@@ -62,6 +67,9 @@ export async function habitatRegisterAgent(
   };
 }
 
+/**
+ * @requires AgentClient
+ */
 export const BOARD_LIST_AGENTS_TOOL: Tool = {
   name: "board_list_agents",
   description:
@@ -84,8 +92,11 @@ export const BOARD_LIST_AGENTS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires AgentClient
+ */
 export async function habitatListAgents(
-  client: KanbanApiClient,
+  client: AgentClient,
   args: { status?: string; domain?: string },
 ) {
   const result = await client.listAgents({
@@ -108,6 +119,9 @@ export async function habitatListAgents(
   };
 }
 
+/**
+ * @requires AgentClient
+ */
 export const BOARD_HEARTBEAT_TOOL: Tool = {
   name: "board_heartbeat",
   description:
@@ -131,13 +145,19 @@ export const BOARD_HEARTBEAT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires AgentClient
+ */
 export async function habitatHeartbeat(
-  client: KanbanApiClient,
+  client: AgentClient,
   args: { taskId?: string; progress?: string },
 ) {
   return client.heartbeat(args.taskId, args.progress);
 }
 
+/**
+ * @requires AgentClient
+ */
 export const BOARD_GET_MY_STATS_TOOL: Tool = {
   name: "board_get_my_stats",
   description:
@@ -150,7 +170,10 @@ export const BOARD_GET_MY_STATS_TOOL: Tool = {
   },
 };
 
-export async function habitatGetMyStats(client: KanbanApiClient, _args: Record<string, never>) {
+/**
+ * @requires AgentClient
+ */
+export async function habitatGetMyStats(client: AgentClient, _args: Record<string, never>) {
   const agentResp = await client.getAgent();
   const statsResp = await client.getAgentStats(agentResp.agent.id);
   return { agentId: agentResp.agent.id, stats: statsResp.stats };

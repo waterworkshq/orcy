@@ -4,6 +4,9 @@ import type { TaskContext } from '../types.js';
 import { enrichTaskWithAgentName, enrichEventsWithActorNames, enrichCommentsWithAuthorNames } from './enrichment.js';
 import type { EnrichedTaskEvent, EnrichedComment } from './enrichment.js';
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_GET_TASK_CONTEXT_TOOL: Tool = {
   name: 'board_get_task_context',
   description:
@@ -23,6 +26,9 @@ export const BOARD_GET_TASK_CONTEXT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatGetTaskContext(
   client: KanbanApiClient,
   args: { taskId: string }
@@ -32,6 +38,9 @@ export async function habitatGetTaskContext(
   return { ...result, task: enrichedTask };
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_GET_TASK_EVENTS_TOOL: Tool = {
   name: 'board_get_task_events',
   description:
@@ -60,6 +69,9 @@ export const BOARD_GET_TASK_EVENTS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatGetTaskEvents(
   client: KanbanApiClient,
   args: { taskId: string; limit?: number; offset?: number }
@@ -73,6 +85,9 @@ export async function habitatGetTaskEvents(
   return { events: enrichedEvents, total: result.total };
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_GET_TASK_COMMENTS_TOOL: Tool = {
   name: 'board_get_task_comments',
   description:
@@ -103,6 +118,9 @@ export const BOARD_GET_TASK_COMMENTS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatGetTaskComments(
   client: KanbanApiClient,
   args: { taskId: string; limit?: number; offset?: number }
@@ -116,6 +134,9 @@ export async function habitatGetTaskComments(
   return { comments: enrichedComments, total: result.total };
 }
 
+/**
+ * @requires TaskClient
+ */
 export const BOARD_ADD_TASK_COMMENT_TOOL: Tool = {
   name: 'board_add_task_comment',
   description:
@@ -145,6 +166,9 @@ export const BOARD_ADD_TASK_COMMENT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires TaskClient
+ */
 export async function habitatAddTaskComment(
   client: KanbanApiClient,
   args: { taskId: string; content: string; parentId?: string }

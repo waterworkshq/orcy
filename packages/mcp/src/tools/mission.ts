@@ -3,6 +3,10 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
 import { PRIORITY_LEVELS, FEATURE_STATUSES } from './constants.js';
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const HABITAT_CREATE_MISSION_TOOL: Tool = {
   name: 'habitat_create_mission',
   description:
@@ -60,6 +64,10 @@ export const HABITAT_CREATE_MISSION_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function habitatCreateMission(
   client: KanbanApiClient,
   args: {
@@ -89,6 +97,10 @@ export async function habitatCreateMission(
   return { mission: result.mission };
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const HABITAT_LIST_MISSIONS_TOOL: Tool = {
   name: 'habitat_list_missions',
   description:
@@ -123,6 +135,10 @@ export const HABITAT_LIST_MISSIONS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function habitatListMissions(
   client: KanbanApiClient,
   args: { boardId: string; status?: string; priority?: string; limit?: number; isArchived?: boolean }
@@ -135,6 +151,10 @@ export async function habitatListMissions(
   });
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_LIST_TASKS_TOOL: Tool = {
   name: 'mission_list_tasks',
   description:
@@ -151,6 +171,10 @@ export const MISSION_LIST_TASKS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionListTasks(
   client: KanbanApiClient,
   args: { missionId: string }
@@ -158,6 +182,10 @@ export async function missionListTasks(
   return client.listTasksInMission(args.missionId);
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_CREATE_TASK_TOOL: Tool = {
   name: 'mission_create_task',
   description:
@@ -200,6 +228,10 @@ export const MISSION_CREATE_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionCreateTask(
   client: KanbanApiClient,
   args: {
@@ -223,6 +255,10 @@ export async function missionCreateTask(
   return { task: result.task };
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_GET_CONTEXT_TOOL: Tool = {
   name: 'mission_get_context',
   description:
@@ -240,6 +276,10 @@ export const MISSION_GET_CONTEXT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionGetContext(
   client: KanbanApiClient,
   args: { missionId: string }
@@ -247,6 +287,10 @@ export async function missionGetContext(
   return client.getMissionContext(args.missionId);
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const HABITAT_DELETE_MISSION_TOOL: Tool = {
   name: 'habitat_delete_mission',
   description:
@@ -263,6 +307,10 @@ export const HABITAT_DELETE_MISSION_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function habitatDeleteMission(
   client: KanbanApiClient,
   args: { missionId: string }
@@ -271,6 +319,10 @@ export async function habitatDeleteMission(
   return { success: true, missionId: args.missionId, message: `Mission ${args.missionId} deleted` };
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const HABITAT_LIST_ARCHIVED_MISSIONS_TOOL: Tool = {
   name: 'habitat_list_archived_missions',
   description:
@@ -287,6 +339,10 @@ export const HABITAT_LIST_ARCHIVED_MISSIONS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function habitatListArchivedMissions(
   client: KanbanApiClient,
   args: { boardId: string }
@@ -296,6 +352,10 @@ export async function habitatListArchivedMissions(
   });
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_ARCHIVE_TOOL: Tool = {
   name: 'mission_archive',
   description:
@@ -312,6 +372,10 @@ export const MISSION_ARCHIVE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionArchive(
   client: KanbanApiClient,
   args: { missionId: string }
@@ -320,6 +384,10 @@ export async function missionArchive(
   return { success: true, mission: result.mission };
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_UNARCHIVE_TOOL: Tool = {
   name: 'mission_unarchive',
   description:
@@ -336,6 +404,10 @@ export const MISSION_UNARCHIVE_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionUnarchive(
   client: KanbanApiClient,
   args: { missionId: string }
@@ -344,6 +416,10 @@ export async function missionUnarchive(
   return { success: true, mission: result.mission };
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_GET_COMMENTS_TOOL: Tool = {
   name: 'mission_get_comments',
   description:
@@ -372,6 +448,10 @@ export const MISSION_GET_COMMENTS_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionGetComments(
   client: KanbanApiClient,
   args: { missionId: string; limit?: number; offset?: number }
@@ -382,6 +462,10 @@ export async function missionGetComments(
   });
 }
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export const MISSION_ADD_COMMENT_TOOL: Tool = {
   name: 'mission_add_comment',
   description:
@@ -408,6 +492,10 @@ export const MISSION_ADD_COMMENT_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
 export async function missionAddComment(
   client: KanbanApiClient,
   args: { missionId: string; content: string; parentId?: string }

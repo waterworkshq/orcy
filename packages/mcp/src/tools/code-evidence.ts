@@ -1,4 +1,3 @@
-import type { KanbanApiClient } from "../api.js";
 import type { CodeEvidenceClient } from "../api/interfaces.js";
 
 function buildReasonInput(args: {
@@ -17,15 +16,21 @@ function buildReasonInput(args: {
   return input;
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatListTaskCodeEvidence(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: { taskId: string; includeHistory?: boolean },
 ) {
   return client.getTaskCodeEvidence(args.taskId, args.includeHistory);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatLinkTaskCode(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     taskId: string;
     branchName?: string;
@@ -133,8 +138,11 @@ export async function habitatLinkTaskCode(
   return client.linkTaskCodeEvidence(taskId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatCorrectTaskEvidenceLink(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     taskId: string;
     linkId: string;
@@ -148,8 +156,11 @@ export async function habitatCorrectTaskEvidenceLink(
   return client.correctTaskEvidenceLink(taskId, linkId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatMarkTaskEvidenceNotApplicable(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     taskId: string;
     reasonCode?: string;
@@ -163,15 +174,21 @@ export async function habitatMarkTaskEvidenceNotApplicable(
   return client.markTaskEvidenceNotApplicable(taskId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatClearTaskEvidenceNotApplicable(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: { taskId: string },
 ) {
   return client.clearTaskEvidenceNotApplicable(args.taskId);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatReportTaskEvidenceGap(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     taskId: string;
     reasonCode?: string;
@@ -185,23 +202,32 @@ export async function habitatReportTaskEvidenceGap(
   return client.reportTaskEvidenceGap(taskId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatResolveTaskEvidenceGap(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: { taskId: string; gapId: string; resolutionReason: string },
 ) {
   const { taskId, gapId, ...input } = args;
   return client.resolveTaskEvidenceGap(taskId, gapId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatListMissionCodeEvidence(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: { missionId: string; includeHistory?: boolean },
 ) {
   return client.getMissionCodeEvidence(args.missionId, args.includeHistory);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatLinkMissionCode(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     missionId: string;
     branchName?: string;
@@ -309,8 +335,11 @@ export async function habitatLinkMissionCode(
   return client.linkMissionCodeEvidence(missionId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatCorrectMissionEvidenceLink(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     missionId: string;
     linkId: string;
@@ -324,8 +353,11 @@ export async function habitatCorrectMissionEvidenceLink(
   return client.correctMissionEvidenceLink(missionId, linkId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatMarkMissionEvidenceNotApplicable(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     missionId: string;
     reasonCode?: string;
@@ -339,15 +371,21 @@ export async function habitatMarkMissionEvidenceNotApplicable(
   return client.markMissionEvidenceNotApplicable(missionId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatClearMissionEvidenceNotApplicable(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: { missionId: string },
 ) {
   return client.clearMissionEvidenceNotApplicable(args.missionId);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatReportMissionEvidenceGap(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: {
     missionId: string;
     reasonCode?: string;
@@ -361,8 +399,11 @@ export async function habitatReportMissionEvidenceGap(
   return client.reportMissionEvidenceGap(missionId, input);
 }
 
+/**
+ * @requires CodeEvidenceClient
+ */
 export async function habitatResolveMissionEvidenceGap(
-  client: KanbanApiClient,
+  client: CodeEvidenceClient,
   args: { missionId: string; gapId: string; resolutionReason: string },
 ) {
   const { missionId, gapId, ...input } = args;

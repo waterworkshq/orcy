@@ -1,14 +1,20 @@
-import type { KanbanApiClient } from '../api.js';
+import type { ScheduledTaskClient } from '../api/interfaces.js';
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminListScheduledTasks(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: { boardId: string }
 ) {
   return client.listScheduledTasks(args.boardId);
 }
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminCreateScheduledTask(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: {
     boardId: string;
     name: string;
@@ -36,22 +42,31 @@ export async function adminCreateScheduledTask(
   return client.createScheduledTask(args.boardId, args);
 }
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminRunScheduledTask(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: { scheduledTaskId: string }
 ) {
   return client.runScheduledTask(args.scheduledTaskId);
 }
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminGetScheduledTask(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: { scheduledTaskId: string }
 ) {
   return client.getScheduledTask(args.scheduledTaskId);
 }
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminUpdateScheduledTask(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: {
     scheduledTaskId: string;
     name?: string;
@@ -81,15 +96,21 @@ export async function adminUpdateScheduledTask(
   return client.updateScheduledTask(scheduledTaskId, input);
 }
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminDeleteScheduledTask(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: { scheduledTaskId: string }
 ) {
   return client.deleteScheduledTask(args.scheduledTaskId);
 }
 
+/**
+ * @requires ScheduledTaskClient
+ */
 export async function adminToggleScheduledTask(
-  client: KanbanApiClient,
+  client: ScheduledTaskClient,
   args: { scheduledTaskId: string; enabled: boolean }
 ) {
   return args.enabled

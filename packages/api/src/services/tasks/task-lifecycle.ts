@@ -258,6 +258,12 @@ export function completeTask(
 
   timeTrackingService.calculateAndSetCompletionMetrics(taskId);
 
+  try {
+    effortRepo.recalculateTaskEffortMetrics(taskId);
+  } catch (err) {
+    logger.warn({ err, taskId }, "Failed to recalculate effort metrics on complete");
+  }
+
   mergeArtifacts(taskId, current, artifacts);
 
   if (reviewNote) {
@@ -336,6 +342,12 @@ export function approveTask(
     timeTrackingService.calculateAndSetCompletionMetrics(taskId);
   } catch (err) {
     logger.warn({ err, taskId }, "Failed to calculate completion metrics");
+  }
+
+  try {
+    effortRepo.recalculateTaskEffortMetrics(taskId);
+  } catch (err) {
+    logger.warn({ err, taskId }, "Failed to recalculate effort metrics on approve");
   }
 
   const habitatId = getHabitatId(task);

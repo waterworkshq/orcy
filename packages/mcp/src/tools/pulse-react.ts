@@ -1,8 +1,10 @@
 import type { PulseClient } from "../api/interfaces.js";
-import type { KanbanApiClient } from '../api.js';
 
+/**
+ * @requires PulseClient
+ */
 export async function pulseReact(
-  client: KanbanApiClient,
+  client: PulseClient,
   args: {
     pulseId: string;
     reaction: 'seen' | 'ack' | 'question';

@@ -1,7 +1,10 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import type { KanbanApiClient } from '../api.js';
+import type { AgentClient } from '../api/interfaces.js';
 import { getCurrentAgentId } from './agent-id.js';
 
+/**
+ * @requires AgentClient
+ */
 export const BOARD_SUGGEST_NEXT_TASK_TOOL: Tool = {
   name: 'board_suggest_next_task',
   description:
@@ -27,8 +30,11 @@ export const BOARD_SUGGEST_NEXT_TASK_TOOL: Tool = {
   },
 };
 
+/**
+ * @requires AgentClient
+ */
 export async function habitatSuggestNextTask(
-  client: KanbanApiClient,
+  client: AgentClient,
   args: { boardId: string; limit?: number }
 ) {
   return client.getSuggestions(getCurrentAgentId(), args.boardId, args.limit ?? 3);

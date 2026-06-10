@@ -242,6 +242,19 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
   },
 };
 
+/**
+ * Actions currently firing via the task-event hook bus (notifyTaskEvent).
+ * Per the v0.17.1 plan's inconsistency #2, this list intentionally
+ * does not include all transition actions. If you add a new action
+ * here, audit every `onTaskEvent` consumer to confirm they handle it.
+ */
+export const NOTIFY_TASK_EVENT_ACTIONS: readonly TaskAction[] = [
+  "completed",
+  "approved",
+  "rejected",
+  "failed",
+];
+
 let recalcDebounceEnabled = process.env.ORCY_TRANSITION_RECALC_DEBOUNCE === "true";
 const pendingRecalcs = new Map<string, NodeJS.Timeout>();
 
