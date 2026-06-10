@@ -68,6 +68,7 @@ export {
   notificationDigestItems,
   notificationRetentionPolicies,
 } from "./notification.js";
+export { automationRules, automationRuleRuns } from "./automation.js";
 export {
   habitatsRelations,
   columnsRelations,
@@ -137,4 +138,6 @@ export {
   notificationSubscriptionsRelations,
   notificationDigestItemsRelations,
   notificationRetentionPoliciesRelations,
+  automationRulesRelations,
+  automationRuleRunsRelations,
 } from "./relations.js";

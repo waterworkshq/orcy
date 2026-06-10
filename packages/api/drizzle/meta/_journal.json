@@ -15,6 +15,13 @@
       "when": 1781088401635,
       "tag": "0001_green_shadowcat",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781093203518,
+      "tag": "0002_purple_fallen_one",
+      "breakpoints": true
     }
   ]
 }

@@ -45,6 +45,7 @@ import {
   notificationDigestItems,
   notificationRetentionPolicies,
 } from "./notification.js";
+import { automationRules, automationRuleRuns } from "./automation.js";
 import { agents, agentMessages } from "./agent.js";
 import { users, notificationPreferences, organizations, teams, teamMembers } from "./user.js";
 import { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
@@ -94,6 +95,8 @@ export const habitatsRelations = relations(habitats, ({ many, one }) => ({
     fields: [habitats.id],
     references: [notificationRetentionPolicies.habitatId],
   }),
+  automationRules: many(automationRules),
+  automationRuleRuns: many(automationRuleRuns),
   team: one(teams, {
     fields: [habitats.teamId],
     references: [teams.id],
@@ -833,3 +836,22 @@ export const notificationRetentionPoliciesRelations = relations(
     }),
   }),
 );
+
+export const automationRulesRelations = relations(automationRules, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [automationRules.habitatId],
+    references: [habitats.id],
+  }),
+  runs: many(automationRuleRuns),
+}));
+
+export const automationRuleRunsRelations = relations(automationRuleRuns, ({ one }) => ({
+  rule: one(automationRules, {
+    fields: [automationRuleRuns.ruleId],
+    references: [automationRules.id],
+  }),
+  habitat: one(habitats, {
+    fields: [automationRuleRuns.habitatId],
+    references: [habitats.id],
+  }),
+}));
