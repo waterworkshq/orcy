@@ -2,6 +2,18 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.17.2 — 2026-06-10
+
+### Performance
+
+#### add effort metrics recalculation and transition debouncing ([`a52c609`](https://github.com/waterworkshq/orcy/commit/a52c60989e17b41720c552f5ec827ab5494b734a))
+
+1. This change implements automatic recalculation of effort metrics when tasks are completed or approved, ensuring consistent actualMinutes values. It also introduces transition recalculation debouncing via the ORCY_TRANSITION_RECALC_DEBOUNCE environment variable to optimize performance in high-frequency transition scenarios.
+
+3. The implementation adds error handling for effort metric recalculations and includes comprehensive test coverage for the new functionality. Additionally, it defines which task actions trigger notifications via the notifyTaskEvent system to prevent inconsistencies.
+
+
+
 ## 0.17.1 — 2026-06-10
 
 ### Features
@@ -167,19 +179,3 @@
 
 
 #### consolidate schema, fix snapshots, simplify test init (P2-15, P2-16 + cleanup) ([`09d24f4`](https://github.com/waterworkshq/orcy/commit/09d24f4a05c11cdead0e88fd55c1bf7a4b751693))
-
-
-
-## 0.16.6 — 2026-06-03
-
-### Performance
-
-#### improve effort tracking metrics and database indexes ([`f7e99a3`](https://github.com/waterworkshq/orcy/commit/f7e99a37a2a9bdaa885221d1a6ec14fa89842ecb))
-
-1. Change estimation_accuracy and planning_accuracy to real type for fractional values
-2. Add new indexes for task event transitions to improve query performance
-3. Implement canonical effort metrics with logged effort basis
-4. Add audit export route tests with proper authentication
-5. Improve board health and summary services with real metrics
-6. Update effort service to record audit events for logging and corrections
-7. Fix effort calculation to prefer logged effort over inferred time
