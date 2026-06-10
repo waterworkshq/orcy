@@ -30,6 +30,8 @@ export * from "./habitat-skill.js";
 export * from "./habitat-skill-dispatch.js";
 export * from "./code-evidence.js";
 export * from "./audit.js";
+export * from "./notifications.js";
+export * from "./automation.js";
 
 // Re-export dispatch utilities (for tests)
 export * from "./dispatch-utils.js";
@@ -56,6 +58,11 @@ import {
 } from "./habitat-skill-dispatch.js";
 import { ORCY_INITIAL_INSTRUCTIONS_TOOL } from "./instructions.js";
 import { PULSE_SKILL_TOOL } from "./pulse-skill.js";
+import {
+  NOTIFICATION_DISPATCH_TOOL,
+  NOTIFICATION_DISPATCH_HANDLER,
+} from "./notification-dispatch.js";
+import { AUTOMATION_DISPATCH_TOOL, AUTOMATION_DISPATCH_HANDLER } from "./automation-dispatch.js";
 
 // Re-export dispatch handlers for consumers (src/index.ts, tests)
 export {
@@ -72,6 +79,8 @@ export {
   REVIEW_DISPATCH_HANDLER,
   SPRINT_DISPATCH_HANDLER,
   HABITAT_SKILL_DISPATCH_HANDLER,
+  NOTIFICATION_DISPATCH_HANDLER,
+  AUTOMATION_DISPATCH_HANDLER,
 };
 export {
   HABITAT_DISPATCH_TOOL,
@@ -87,6 +96,8 @@ export {
   REVIEW_DISPATCH_TOOL,
   SPRINT_DISPATCH_TOOL,
   HABITAT_SKILL_DISPATCH_TOOL,
+  NOTIFICATION_DISPATCH_TOOL,
+  AUTOMATION_DISPATCH_TOOL,
 };
 
 export const ALL_TOOLS: Tool[] = [
@@ -104,4 +115,6 @@ export const ALL_TOOLS: Tool[] = [
   REVIEW_DISPATCH_TOOL,
   SPRINT_DISPATCH_TOOL,
   HABITAT_SKILL_DISPATCH_TOOL,
+  NOTIFICATION_DISPATCH_TOOL,
+  AUTOMATION_DISPATCH_TOOL,
 ];

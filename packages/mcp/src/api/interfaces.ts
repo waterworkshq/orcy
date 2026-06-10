@@ -178,11 +178,16 @@ export interface TaskClient {
 }
 
 export interface HabitatClient {
-  getHabitat(habitatId: string): Promise<{ habitat: { id: string; name: string; columns: { name: string }[] } }>;
+  getHabitat(
+    habitatId: string,
+  ): Promise<{ habitat: { id: string; name: string; columns: { name: string }[] } }>;
   listHabitats(name?: string): Promise<{ habitats: Habitat[] }>;
   createHabitat(input: { name: string; description?: string }): Promise<{ habitat: Habitat }>;
   getHabitatSettings(boardId: string): Promise<{ habitat: HabitatSettings }>;
-  updateHabitatSettings(boardId: string, settings: Partial<HabitatSettings>): Promise<{ habitat: HabitatSettings }>;
+  updateHabitatSettings(
+    boardId: string,
+    settings: Partial<HabitatSettings>,
+  ): Promise<{ habitat: HabitatSettings }>;
   getHabitatRepository(habitatId: string): Promise<unknown>;
   setHabitatRepository(habitatId: string, repo: unknown): Promise<unknown>;
   inferRepositoryFromWorktree(
@@ -219,9 +224,11 @@ export interface PulseClient {
     },
   ): Promise<ListPulsesResponse>;
   getPulseDigest(missionId: string): Promise<PulseDigest>;
-  getPulseInbox(
-    filters?: { signalType?: string; limit?: number; offset?: number },
-  ): Promise<ListPulsesResponse>;
+  getPulseInbox(filters?: {
+    signalType?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ListPulsesResponse>;
   deletePulse(pulseId: string): Promise<void>;
   getPulseReplies(pulseId: string): Promise<{ items: Pulse[] }>;
   postHabitatPulse(
@@ -264,7 +271,10 @@ export interface CodeEvidenceClient {
     gapId: string,
     input: Record<string, unknown>,
   ): Promise<Record<string, unknown>>;
-  getMissionCodeEvidence(missionId: string, includeHistory?: boolean): Promise<Record<string, unknown>>;
+  getMissionCodeEvidence(
+    missionId: string,
+    includeHistory?: boolean,
+  ): Promise<Record<string, unknown>>;
   linkMissionCodeEvidence(
     missionId: string,
     input: Record<string, unknown>,
@@ -291,9 +301,7 @@ export interface CodeEvidenceClient {
 }
 
 export interface SkillClient {
-  getHabitatSkill(
-    boardId: string,
-  ): Promise<{
+  getHabitatSkill(boardId: string): Promise<{
     skill: {
       id: string;
       content: string;
@@ -317,9 +325,7 @@ export interface AgentClient {
   heartbeat(taskId?: string, progress?: string): Promise<HeartbeatResponse>;
   getAgent(): Promise<{ agent: Agent }>;
   getAgentById(agentId: string): Promise<{ agent: Agent } | null>;
-  listAgents(
-    options?: { status?: string; domain?: string; include?: string },
-  ): Promise<{
+  listAgents(options?: { status?: string; domain?: string; include?: string }): Promise<{
     agents: Agent[] | { agent: Agent; currentTaskTitle: string | null }[];
   }>;
   registerAgent(input: unknown): Promise<{ agent: Agent; apiKey: string }>;
@@ -360,7 +366,10 @@ export interface ScheduledTaskClient {
 
 export interface ReviewClient {
   listReviewRules(habitatId: string): Promise<{ reviewRules: ReviewRule[] }>;
-  createReviewRule(habitatId: string, input: ReviewRuleCreateInput): Promise<{ reviewRule: ReviewRule }>;
+  createReviewRule(
+    habitatId: string,
+    input: ReviewRuleCreateInput,
+  ): Promise<{ reviewRule: ReviewRule }>;
   updateReviewRule(
     ruleId: string,
     input: ReviewRuleUpdateInput,
@@ -415,11 +424,7 @@ export interface CommentClient {
     taskId: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ comments: TaskComment[] }>;
-  addComment(
-    taskId: string,
-    content: string,
-    parentId?: string,
-  ): Promise<{ comment: TaskComment }>;
+  addComment(taskId: string, content: string, parentId?: string): Promise<{ comment: TaskComment }>;
   getMissionComments(
     missionId: string,
     options?: { limit?: number; offset?: number },
@@ -436,7 +441,10 @@ export interface AuditClient {
     habitatId: string,
     options?: { format?: string; fromDate?: string; toDate?: string },
   ): Promise<unknown>;
-  getAuditSummary(boardId: string, options?: { since?: string; until?: string }): Promise<Record<string, unknown>>;
+  getAuditSummary(
+    boardId: string,
+    options?: { since?: string; until?: string },
+  ): Promise<Record<string, unknown>>;
   getTaskAuditBundle(taskId: string): Promise<unknown>;
   getMissionAuditBundle(missionId: string): Promise<unknown>;
 }
@@ -516,4 +524,22 @@ export interface TimeTrackingClient {
 
 export interface IntegrationClient {
   inferRepositoryFromIntegration(habitatId: string): Promise<unknown>;
+}
+
+export interface NotificationClient {
+  getInbox(habitatId: string, options?: { limit?: number; offset?: number }): Promise<unknown>;
+  getHistory(habitatId: string, options?: { limit?: number; offset?: number }): Promise<unknown>;
+  getDelivery(habitatId: string, deliveryId: string): Promise<unknown>;
+  acknowledgeDelivery(habitatId: string, deliveryId: string): Promise<unknown>;
+  snoozeDelivery(habitatId: string, deliveryId: string, snoozedUntil: string): Promise<unknown>;
+  clearDelivery(habitatId: string, deliveryId: string): Promise<unknown>;
+  getSubscriptions(habitatId: string): Promise<unknown>;
+}
+
+export interface AutomationClient {
+  listRules(habitatId: string): Promise<unknown>;
+  getRule(ruleId: string): Promise<unknown>;
+  simulateRule(ruleId: string, input: Record<string, unknown>): Promise<unknown>;
+  listRuns(habitatId: string, options?: { limit?: number; offset?: number }): Promise<unknown>;
+  getRuleRuns(ruleId: string, options?: { limit?: number; offset?: number }): Promise<unknown>;
 }

@@ -18,6 +18,8 @@ import {
   REVIEW_DISPATCH_HANDLER,
   SPRINT_DISPATCH_HANDLER,
   HABITAT_SKILL_DISPATCH_HANDLER,
+  NOTIFICATION_DISPATCH_HANDLER,
+  AUTOMATION_DISPATCH_HANDLER,
 } from "./tools/index.js";
 import { KanbanApiClient } from "./api.js";
 import { setNotificationSender, cleanupAll as cleanupSubscriptions } from "./subscriptions.js";
@@ -84,6 +86,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_review: REVIEW_DISPATCH_HANDLER,
   orcy_sprint: SPRINT_DISPATCH_HANDLER,
   orcy_habitat_skill: HABITAT_SKILL_DISPATCH_HANDLER,
+  orcy_notification: NOTIFICATION_DISPATCH_HANDLER,
+  orcy_automation: AUTOMATION_DISPATCH_HANDLER,
 };
 
 // ---------------------------------------------------------------------------

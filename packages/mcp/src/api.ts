@@ -1911,4 +1911,112 @@ export class KanbanApiClient
       : "";
     return this.request("GET", `/api/habitats/${boardId}/skill/signals${qs}`);
   }
+
+  // Notification V2 — MCP self-service (read-only + own attention state)
+  async getInbox(
+    habitatId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<unknown> {
+    const qs = options
+      ? "?" +
+        new URLSearchParams(
+          Object.entries(options)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)] as [string, string]),
+        ).toString()
+      : "";
+    return this.request("GET", `/api/habitats/${habitatId}/notifications/inbox${qs}`);
+  }
+
+  async getHistory(
+    habitatId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<unknown> {
+    const qs = options
+      ? "?" +
+        new URLSearchParams(
+          Object.entries(options)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)] as [string, string]),
+        ).toString()
+      : "";
+    return this.request("GET", `/api/habitats/${habitatId}/notifications/history${qs}`);
+  }
+
+  async getDelivery(habitatId: string, deliveryId: string): Promise<unknown> {
+    return this.request("GET", `/api/habitats/${habitatId}/notifications/deliveries/${deliveryId}`);
+  }
+
+  async acknowledgeDelivery(habitatId: string, deliveryId: string): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/habitats/${habitatId}/notifications/deliveries/${deliveryId}/ack`,
+    );
+  }
+
+  async snoozeDelivery(
+    habitatId: string,
+    deliveryId: string,
+    snoozedUntil: string,
+  ): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/habitats/${habitatId}/notifications/deliveries/${deliveryId}/snooze`,
+      { snoozedUntil },
+    );
+  }
+
+  async clearDelivery(habitatId: string, deliveryId: string): Promise<unknown> {
+    return this.request(
+      "POST",
+      `/api/habitats/${habitatId}/notifications/deliveries/${deliveryId}/clear`,
+    );
+  }
+
+  async getSubscriptions(habitatId: string): Promise<unknown> {
+    return this.request("GET", `/api/habitats/${habitatId}/notifications/subscriptions`);
+  }
+
+  // Automation — MCP read/simulate/history-only
+  async listAutomationRules(habitatId: string): Promise<unknown> {
+    return this.request("GET", `/api/habitats/${habitatId}/automation-rules`);
+  }
+
+  async getAutomationRule(ruleId: string): Promise<unknown> {
+    return this.request("GET", `/api/automation-rules/${ruleId}`);
+  }
+
+  async simulateAutomationRule(ruleId: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/api/automation-rules/${ruleId}/simulate`, input);
+  }
+
+  async listAutomationRuns(
+    habitatId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<unknown> {
+    const qs = options
+      ? "?" +
+        new URLSearchParams(
+          Object.entries(options)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)] as [string, string]),
+        ).toString()
+      : "";
+    return this.request("GET", `/api/habitats/${habitatId}/automation-runs${qs}`);
+  }
+
+  async getAutomationRuleRuns(
+    ruleId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<unknown> {
+    const qs = options
+      ? "?" +
+        new URLSearchParams(
+          Object.entries(options)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)] as [string, string]),
+        ).toString()
+      : "";
+    return this.request("GET", `/api/automation-rules/${ruleId}/runs${qs}`);
+  }
 }
