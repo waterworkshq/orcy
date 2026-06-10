@@ -12,6 +12,7 @@ import {
 } from "./settings/AnomalyDetectionTab.js";
 import { AutoAssignTab, type AutoAssignTabHandle } from "./settings/AutoAssignTab.js";
 import { PrioritizationTab, type PrioritizationTabHandle } from "./settings/PrioritizationTab.js";
+import { AutomationTab, type AutomationTabHandle } from "./settings/AutomationTab.js";
 import { ScheduledTasksTab } from "./settings/ScheduledTasksTab.js";
 import { ReviewRulesTab } from "./settings/ReviewRulesTab.js";
 import { IntegrationsTab } from "./settings/IntegrationsTab.js";
@@ -31,6 +32,7 @@ type SettingsTab =
   | "anomaly"
   | "auto_assign"
   | "prioritization"
+  | "automation"
   | "scheduled_tasks"
   | "review_rules"
   | "integrations"
@@ -45,6 +47,7 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "anomaly", label: "Anomaly Detection" },
   { key: "auto_assign", label: "Auto-Assign" },
   { key: "prioritization", label: "Prioritization" },
+  { key: "automation", label: "Automation" },
   { key: "scheduled_tasks", label: "Scheduled Tasks" },
   { key: "review_rules", label: "Review Rules" },
   { key: "integrations", label: "Integrations" },
@@ -90,6 +93,7 @@ export function HabitatSettingsDialog({
   const anomalyRef = useRef<AnomalyDetectionTabHandle>(null);
   const autoAssignRef = useRef<AutoAssignTabHandle>(null);
   const prioritizationRef = useRef<PrioritizationTabHandle>(null);
+  const automationRef = useRef<AutomationTabHandle>(null);
   const worktreeRef = useRef<WorktreeTabHandle>(null);
   const repositoryRef = useRef<RepositoryTabHandle>(null);
 
@@ -111,6 +115,8 @@ export function HabitatSettingsDialog({
         return autoAssignRef;
       case "prioritization":
         return prioritizationRef;
+      case "automation":
+        return automationRef;
       case "worktree":
         return worktreeRef;
       case "repository":
@@ -219,6 +225,13 @@ export function HabitatSettingsDialog({
           </div>
           <div className={activeTab !== "scheduled_tasks" ? "hidden" : ""}>
             <ScheduledTasksTab habitatId={board.id} />
+          </div>
+          <div className={activeTab !== "automation" ? "hidden" : ""}>
+            <AutomationTab
+              ref={automationRef}
+              habitatId={board.id}
+              onSavingChange={handleTabSavingChange}
+            />
           </div>
           <div className={activeTab !== "review_rules" ? "hidden" : ""}>
             <ReviewRulesTab habitatId={board.id} />

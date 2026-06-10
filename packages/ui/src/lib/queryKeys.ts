@@ -180,4 +180,24 @@ export const queryKeys = {
     entries: (taskId: string, includeCorrections?: boolean) =>
       [...queryKeys.effort.entriesForTask(taskId), includeCorrections] as const,
   },
+  notificationsV2: {
+    all: ["notificationsV2"] as const,
+    inbox: (habitatId: string) => [...queryKeys.notificationsV2.all, "inbox", habitatId] as const,
+    history: (habitatId: string) =>
+      [...queryKeys.notificationsV2.all, "history", habitatId] as const,
+    subscriptions: (habitatId: string) =>
+      [...queryKeys.notificationsV2.all, "subscriptions", habitatId] as const,
+    adminSubscriptions: (habitatId: string) =>
+      [...queryKeys.notificationsV2.all, "admin", "subscriptions", habitatId] as const,
+    retention: (habitatId: string) =>
+      [...queryKeys.notificationsV2.all, "admin", "retention", habitatId] as const,
+  },
+  automation: {
+    all: ["automation"] as const,
+    rules: (habitatId: string) => [...queryKeys.automation.all, "rules", habitatId] as const,
+    rule: (ruleId: string) => [...queryKeys.automation.all, "rule", ruleId] as const,
+    runsForRule: (ruleId: string) => [...queryKeys.automation.all, "runs", "rule", ruleId] as const,
+    runsForHabitat: (habitatId: string) =>
+      [...queryKeys.automation.all, "runs", "habitat", habitatId] as const,
+  },
 };
