@@ -8,9 +8,11 @@ import { applyAllHabitats } from "./prioritizationService.js";
 import { startScheduledTaskProcessor as startScheduledTaskPoller } from "./scheduledTaskService.js";
 import { autoCompleteSprints } from "./sprintService.js";
 import { nudgeAllDaemons } from "./daemonNudgeService.js";
-import { generateAllDigests } from "./habitatDigestService.js";
+import { generateAllDigests as generateAllHabitatDigests } from "./habitatDigestService.js";
+import { generateAllDigests as generateAllNotificationDigests } from "./notificationDigestService.js";
 import { regenerateAllSkills } from "./habitatSkillService.js";
 import { runAllScans } from "./automationScanService.js";
+import { runScheduledClearance } from "./notificationClearanceService.js";
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
@@ -162,7 +164,7 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
     setInterval(
       () => {
         try {
-          const results = generateAllDigests();
+          const results = generateAllHabitatDigests();
           const generated = results.filter((r) => r.pulseId);
           if (generated.length > 0) {
             fastify.log.info({ count: generated.length }, "Habitat digest generated");
@@ -204,6 +206,43 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         fastify.log.error({ err }, "Error running automation scans");
       }
     }, 5 * 60_000),
+  );
+
+  intervals.push(
+    setInterval(() => {
+      try {
+        const digestResults = generateAllNotificationDigests();
+        const grouped = digestResults.reduce((sum, r) => sum + r.deliveriesGrouped, 0);
+        if (grouped > 0) {
+          fastify.log.info(
+            { results: digestResults.length, grouped },
+            "Notification digests generated",
+          );
+        }
+      } catch (err) {
+        fastify.log.error({ err }, "Error generating notification digests");
+      }
+    }, 60 * 60_000),
+  );
+
+  intervals.push(
+    setInterval(
+      () => {
+        try {
+          const clearanceResults = runScheduledClearance();
+          const cleared = clearanceResults.reduce((sum, r) => sum + r.cleared, 0);
+          if (cleared > 0) {
+            fastify.log.info(
+              { habitats: clearanceResults.length, cleared },
+              "Notification clearance completed",
+            );
+          }
+        } catch (err) {
+          fastify.log.error({ err }, "Error running notification clearance");
+        }
+      },
+      24 * 60 * 60_000,
+    ),
   );
 
   return {
