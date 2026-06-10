@@ -2,6 +2,18 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.17.1 — 2026-06-10
+
+### Features
+
+#### consolidate task transition side-effects and split API client domains ([`369bd1c`](https://github.com/waterworkshq/orcy/commit/369bd1c7c52a9dde2607e221641d29d4ad14b5b1))
+
+1. This change introduces the TransitionEmitter module to consolidate the scattered task transition side-effect chain (DB write → event → SSE → watcher → mission recalc) into a single `emitTransition` function. It also implements the API Client Domain Split, defining 23 per-domain interfaces with `KanbanApiClient` as the typed facade, per-domain mock factories (33% → 100% method coverage), and extracts `getMissionContext` to a standalone orchestrator service.
+
+3. The consolidation resolves a correctness gap where effort metrics recompute was inconsistent across task transitions, and normalizes a notification race condition that became visible after the new `notifyTaskEvent` gating was implemented.
+
+
+
 ## 0.17.0 — 2026-06-06
 
 ### Bug Fixes
@@ -171,13 +183,3 @@
 5. Improve board health and summary services with real metrics
 6. Update effort service to record audit events for logging and corrections
 7. Fix effort calculation to prefer logged effort over inferred time
-
-
-
-## 0.16.5 — 2026-06-03
-
-### Refactors
-
-#### clean up repository imports and type definitions ([`75276be`](https://github.com/waterworkshq/orcy/commit/75276bea9a553b3c1437bfa3e51dc678d4552ec2))
-
-1. This change removes unused error imports from repository files, updates type definitions to remove unused interfaces, and simplifies relation definitions. It also modernizes some code patterns by replacing ternary operators with Boolean() and updating test file mock organization. The changes reduce bundle size and improve code maintainability by eliminating dead code.
