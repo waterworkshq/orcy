@@ -46,6 +46,32 @@ import type {
   PostPulseResponse,
   ListPulsesResponse,
 } from "./types.js";
+import type {
+  TaskClient as TaskClientIface,
+  MissionClient as MissionClientIface,
+  HabitatClient as HabitatClientIface,
+  PulseClient as PulseClientIface,
+  CodeEvidenceClient as CodeEvidenceClientIface,
+  SkillClient as SkillClientIface,
+  AgentClient as AgentClientIface,
+  SprintClient as SprintClientIface,
+  ScheduledTaskClient as ScheduledTaskClientIface,
+  ReviewClient as ReviewClientIface,
+  EffortClient as EffortClientIface,
+  MessageClient as MessageClientIface,
+  CommentClient as CommentClientIface,
+  AuditClient as AuditClientIface,
+  InsightClient as InsightClientIface,
+  QualityClient as QualityClientIface,
+  DependencyClient as DependencyClientIface,
+  HealthClient as HealthClientIface,
+  DashboardClient as DashboardClientIface,
+  WebhookClient as WebhookClientIface,
+  TemplateClient as TemplateClientIface,
+  TimeTrackingClient as TimeTrackingClientIface,
+  IntegrationClient as IntegrationClientIface,
+} from "./api/interfaces.js";
+import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "./logger.js";
 import {
@@ -157,11 +183,32 @@ function buildRelevanceTags(mission: Mission): string[] {
   return tags;
 }
 
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-export class KanbanApiClient {
+export class KanbanApiClient
+  implements
+    TaskClientIface,
+    MissionClientIface,
+    HabitatClientIface,
+    PulseClientIface,
+    CodeEvidenceClientIface,
+    SkillClientIface,
+    AgentClientIface,
+    SprintClientIface,
+    ScheduledTaskClientIface,
+    ReviewClientIface,
+    EffortClientIface,
+    MessageClientIface,
+    CommentClientIface,
+    AuditClientIface,
+    InsightClientIface,
+    QualityClientIface,
+    DependencyClientIface,
+    HealthClientIface,
+    DashboardClientIface,
+    WebhookClientIface,
+    TemplateClientIface,
+    TimeTrackingClientIface,
+    IntegrationClientIface
+{
   private transport: ReturnType<typeof createApiClient>;
   private baseUrl: string;
 
@@ -319,101 +366,15 @@ export class KanbanApiClient {
   }
 
   async getMissionContext(missionId: string): Promise<MissionContext> {
-    missionId = normalizeMissionId(missionId);
-    const details = await this.getMissionDetails(missionId);
-
-    const depIds = details.dependencies?.dependsOn ?? [];
-    const blockIds = details.dependencies?.blocks ?? [];
-
-    const [depResults, blockResults, pulseDigest, projectInsights, skillResult] = await Promise.all(
-      [
-        Promise.all(
-          depIds.map((id) =>
-            this.getMission(id)
-              .then((res) => res.mission)
-              .catch((err) => {
-                logger.warn("mission_context_dependency_fetch_failed", {
-                  missionId,
-                  dependencyMissionId: id,
-                  err: getErrorMessage(err),
-                });
-                return undefined;
-              }),
-          ),
-        ),
-        Promise.all(
-          blockIds.map((id) =>
-            this.getMission(id)
-              .then((res) => res.mission)
-              .catch((err) => {
-                logger.warn("mission_context_blocking_fetch_failed", {
-                  missionId,
-                  blockingMissionId: id,
-                  err: getErrorMessage(err),
-                });
-                return undefined;
-              }),
-          ),
-        ),
-        this.getPulseDigest(missionId).catch((err) => {
-          logger.warn("mission_context_pulse_digest_fetch_failed", {
-            missionId,
-            err: getErrorMessage(err),
-          });
-          return undefined;
-        }),
-        (async () => {
-          try {
-            const tags = buildRelevanceTags(details.mission);
-            if (tags.length > 0) {
-              return await this.getRelevantInsights(details.mission.habitatId, tags);
-            }
-          } catch (err) {
-            logger.warn("mission_context_project_insights_fetch_failed", {
-              missionId,
-              habitatId: details.mission.habitatId,
-              err: getErrorMessage(err),
-            });
-          }
-          return [];
-        })(),
-        this.getHabitatSkill(details.mission.habitatId)
-          .then((res) =>
-            res?.skill
-              ? {
-                  content: res.skill.content,
-                  signalCount: res.skill.signalCount,
-                  avgStrength: res.skill.avgStrength,
-                }
-              : undefined,
-          )
-          .catch((err) => {
-            logger.warn("mission_context_habitat_skill_fetch_failed", {
-              missionId,
-              habitatId: details.mission.habitatId,
-              err: getErrorMessage(err),
-            });
-            return undefined;
-          }),
-      ],
+    return composeMissionContext(
+      {
+        mission: this,
+        pulse: this,
+        insight: this,
+        skill: this,
+      },
+      missionId,
     );
-
-    return {
-      mission: details.mission,
-      tasks: details.tasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        status: t.status,
-        result: t.result,
-        artifacts: t.artifacts,
-        assignedAgentId: t.assignedAgentId,
-      })),
-      dependencies: depResults.filter((m): m is MissionWithProgress => m !== undefined),
-      blocking: blockResults.filter((m): m is MissionWithProgress => m !== undefined),
-      pulse: pulseDigest,
-      projectInsights: projectInsights ?? [],
-      skill: skillResult,
-    };
   }
 
   async postPulse(

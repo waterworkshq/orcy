@@ -1,0 +1,28 @@
+export type {
+  TaskFilters,
+  MissionClient,
+  TaskClient,
+  HabitatClient,
+  PulseClient,
+  CodeEvidenceClient,
+  SkillClient,
+  AgentClient,
+  SprintClient,
+  ScheduledTaskClient,
+  ReviewClient,
+  EffortClient,
+  MessageClient,
+  CommentClient,
+  AuditClient,
+  InsightClient,
+  QualityClient,
+  DependencyClient,
+  HealthClient,
+  DashboardClient,
+  WebhookClient,
+  TemplateClient,
+  TimeTrackingClient,
+  IntegrationClient,
+} from "./interfaces.js";
+export { createFacade, type ApiClient, type ApiClientDomains } from "./facade.js";
+export { composeMissionContext, type MissionContextClients } from "../services/mission-context.js";

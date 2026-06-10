@@ -1,11 +1,11 @@
 import * as taskRepo from '../../repositories/task.js';
 import * as agentRepo from '../../repositories/agent.js';
-import * as eventRepo from '../../repositories/event.js';
 import { sseBroadcaster } from '../../sse/broadcaster.js';
 import * as watcherService from '../watcherService.js';
 import * as missionService from '../featureService.js';
 import type { Task } from '../../models/index.js';
 import { validateAgentCapabilities } from './helpers.js';
+import { emitTransition } from './transition-emitter.js';
 
 export function delegateTask(
   taskId: string,
@@ -56,19 +56,14 @@ export function delegateTask(
 
   const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, 'delegated', habitatId, {
     actorType: 'agent',
     actorId: fromAgentId,
-    action: 'delegated',
+    fromAgentId,
+    toAgentId,
     metadata: { toAgentId, reason: reason ?? null },
+    task: result.task,
   });
-
-  sseBroadcaster.publish(habitatId, {
-    type: 'task.delegated',
-    data: { taskId, fromAgentId, toAgentId },
-  });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
 
   return { success: true, task: result.task };
 }
@@ -100,23 +95,14 @@ export function claimDelegatedTask(taskId: string, agentId: string): { success: 
   if (result.success) {
     const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
 
-    eventRepo.createEvent({
-      taskId,
+    emitTransition(taskId, 'claimed_delegated', habitatId, {
       actorType: 'agent',
       actorId: agentId,
-      action: 'claimed',
-      toStatus: 'claimed',
+      newStatus: 'claimed',
+      assignedAgentId: agentId,
       metadata: { delegatedClaim: true },
+      task: result.task,
     });
-
-    sseBroadcaster.publish(habitatId, {
-      type: 'task.claimed',
-      data: { taskId, agentId },
-    });
-    sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
-    if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.claimed');
-
-    missionService.recalculateMissionStatus(current.missionId);
   }
 
   return result;

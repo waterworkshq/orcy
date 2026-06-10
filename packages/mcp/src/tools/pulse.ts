@@ -1,3 +1,4 @@
+import type { PulseClient } from "../api/interfaces.js";
 import type { KanbanApiClient } from '../api.js';
 import type { Agent } from '@orcy/shared';
 

@@ -1,6 +1,5 @@
 import * as taskRepo from "../../repositories/task.js";
 import * as agentRepo from "../../repositories/agent.js";
-import * as eventRepo from "../../repositories/event.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import * as watcherService from "../watcherService.js";
 import * as retryService from "../retryService.js";
@@ -15,6 +14,7 @@ import { validateTransition, mergeArtifacts, validateAgentCapabilities } from ".
 import { logger } from "../../lib/logger.js";
 import * as pulseService from "../pulseService.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
+import { emitTransition } from "./transition-emitter.js";
 
 export interface TaskEventOpts {
   taskId: string;
@@ -25,7 +25,7 @@ export interface TaskEventOpts {
   metadata?: Record<string, unknown>;
 }
 
-type TaskEventHook = (opts: TaskEventOpts) => void;
+export type TaskEventHook = (opts: TaskEventOpts) => void;
 const taskEventHooks: TaskEventHook[] = [];
 
 export function onTaskEvent(hook: TaskEventHook): () => void {
@@ -100,35 +100,13 @@ export function claimTask(
   if (result.success) {
     const habitatId = getHabitatId(result.task);
 
-    eventRepo.createEvent({
-      taskId,
+    emitTransition(taskId, "claimed", habitatId, {
       actorType: "agent",
       actorId: agentId,
-      action: "claimed",
-      toStatus: "claimed",
-    });
-
-    sseBroadcaster.publish(habitatId, {
-      type: "task.claimed",
-      data: { taskId, agentId },
-    });
-    sseBroadcaster.publish(habitatId, { type: "task.updated", data: result.task });
-    if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.claimed");
-
-    const agent = agentRepo.getAgentById(agentId);
-    if (agent) {
-      pluginManager.emitTaskClaimed(result.task, agent).catch(() => {});
-    }
-
-    withMissionRecalc(taskId, current.missionId, () => {
-      missionService.recalculateMissionStatus(current.missionId);
-    });
-
-    pulseService.emitAutoSignal({
-      missionId: result.task.missionId,
-      signalType: "context",
-      subject: `${agent?.name ?? agentId} claimed '${result.task.title}'`,
-      taskId: result.task.id,
+      oldStatus: "pending",
+      newStatus: "claimed",
+      assignedAgentId: agentId,
+      task: result.task,
     });
   }
 
@@ -154,19 +132,14 @@ export function startTask(taskId: string, agentId: string): Task | null {
 
   const habitatId = getHabitatId(task);
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "started", habitatId, {
     actorType: "agent",
     actorId: agentId,
-    action: "started",
-    toStatus: "in_progress",
+    oldStatus: current.status,
+    newStatus: "in_progress",
+    task,
   });
 
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
   return task;
 }
 
@@ -207,32 +180,13 @@ export function submitTask(
     logger.warn({ err, taskId }, "Failed to recalculate effort metrics on submit");
   }
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "submitted", habitatId, {
     actorType: "agent",
     actorId: agentId,
-    action: "submitted",
-    toStatus: "submitted",
+    oldStatus: current.status,
+    newStatus: "submitted",
     metadata: { result },
-  });
-
-  sseBroadcaster.publish(habitatId, {
-    type: "task.submitted",
-    data: { taskId, agentId },
-  });
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.submitted");
-  pluginManager.emitTaskSubmitted(task).catch(() => {});
-
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
-
-  pulseService.emitAutoSignal({
-    missionId: current.missionId,
-    signalType: "offer",
-    subject: `Results for '${task.title}' available for review`,
-    taskId: task.id,
+    task,
   });
 
   try {
@@ -321,47 +275,14 @@ export function completeTask(
     isSelfApproval: !reviewAssignment.hasAssignedReviewers(taskId),
   };
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "completed", habitatId, {
     actorType: "agent",
     actorId: agentId,
-    action: "completed",
-    toStatus: "done",
+    oldStatus: current.status,
+    newStatus: "done",
     metadata,
+    task,
   });
-
-  sseBroadcaster.publish(habitatId, {
-    type: "task.completed",
-    data: { taskId },
-  });
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.completed");
-  pluginManager.emitTaskApproved(task).catch(() => {});
-
-  unblockDependents(taskId);
-
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
-
-  const resolvingAgent = agentRepo.getAgentById(agentId);
-  pulseService.emitAutoSignal({
-    missionId: current.missionId,
-    signalType: "context",
-    subject: `${resolvingAgent?.name ?? agentId} completed '${current.title}'`,
-    taskId: current.id,
-  });
-
-  if (current.labels?.includes("blocker-clearance")) {
-    const clearedSubject = current.title.replace(/^Clear Blocker:\s*/, "");
-    pulseService.emitAutoSignal({
-      missionId: current.missionId,
-      signalType: "context",
-      subject: `Blocker cleared: ${clearedSubject}`,
-      taskId: current.id,
-    });
-  }
 
   if (habitatId) {
     notifyTaskEvent({
@@ -419,24 +340,14 @@ export function approveTask(
 
   const habitatId = getHabitatId(task);
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "approved", habitatId, {
     actorType: reviewerType,
     actorId: reviewerId,
-    action: "approved",
-    toStatus: "approved",
+    reviewerId,
+    oldStatus: current.status,
+    newStatus: "approved",
+    task,
   });
-
-  sseBroadcaster.publish(habitatId, {
-    type: "task.approved",
-    data: { taskId, reviewerId },
-  });
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.approved");
-
-  pluginManager.emitTaskApproved(task).catch(() => {});
-
-  unblockDependents(taskId);
 
   if (habitatId) {
     notifyTaskEvent({
@@ -448,9 +359,6 @@ export function approveTask(
     });
   }
 
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
   return task;
 }
 
@@ -476,29 +384,16 @@ export function rejectTask(
 
   const habitatId = getHabitatId(task);
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "rejected", habitatId, {
     actorType: reviewerType,
     actorId: reviewerId,
-    action: "rejected",
-    toStatus: "rejected",
+    reviewerId,
+    oldStatus: current.status,
+    newStatus: "rejected",
+    reason,
     metadata: { reason },
+    task,
   });
-
-  sseBroadcaster.publish(habitatId, {
-    type: "task.rejected",
-    data: { taskId, reason, reviewerId },
-  });
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.rejected");
-
-  if (retryService.shouldRetry(task)) {
-    retryService.scheduleRetry(task);
-  } else if (retryService.getEffectivePolicy(task)?.escalateToHuman) {
-    retryService.escalateToHuman(task);
-  }
-
-  pluginManager.emitTaskRejected(task, reason).catch(() => {});
 
   if (habitatId) {
     notifyTaskEvent({
@@ -511,9 +406,6 @@ export function rejectTask(
     });
   }
 
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
   return task;
 }
 
@@ -530,32 +422,14 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
 
   const habitatId = getHabitatId(task);
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "released", habitatId, {
     actorType: current.assignedAgentId ? "agent" : "human",
     actorId,
-    action: "released",
-    fromStatus: current.status,
-    toStatus: "pending",
+    oldStatus: current.status,
+    newStatus: "pending",
+    reason,
     metadata: { reason },
-  });
-
-  sseBroadcaster.publish(habitatId, {
-    type: "task.released",
-    data: { taskId, reason },
-  });
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.released");
-
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
-
-  pulseService.emitAutoSignal({
-    missionId: current.missionId,
-    signalType: "context",
-    subject: `Task '${task.title}' released, available for claim`,
-    taskId: task.id,
+    task,
   });
 
   return task;
@@ -579,37 +453,14 @@ export function failTask(
 
   const habitatId = getHabitatId(task);
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, "failed", habitatId, {
     actorType,
     actorId,
-    action: "failed",
-    toStatus: "failed",
+    oldStatus: current.status,
+    newStatus: "failed",
+    reason,
     metadata: { reason },
-  });
-
-  sseBroadcaster.publish(habitatId, {
-    type: "task.failed",
-    data: { taskId, reason },
-  });
-  sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, "task.failed");
-
-  if (retryService.shouldRetry(task)) {
-    retryService.scheduleRetry(task);
-  } else if (retryService.getEffectivePolicy(task)?.escalateToHuman) {
-    retryService.escalateToHuman(task);
-  }
-
-  withMissionRecalc(taskId, current.missionId, () => {
-    missionService.recalculateMissionStatus(current.missionId);
-  });
-
-  pulseService.emitAutoSignal({
-    missionId: current.missionId,
-    signalType: "warning",
-    subject: `Task '${task.title}' failed: ${reason}`,
-    taskId: task.id,
+    task,
   });
 
   if (habitatId) {
@@ -624,21 +475,4 @@ export function failTask(
   }
 
   return task;
-}
-
-function unblockDependents(completedTaskId: string): void {
-  const dependents = taskRepo.getTasksByDependency(completedTaskId);
-  for (const dependent of dependents) {
-    if (taskRepo.areAllDependenciesMet(dependent.id) && dependent.status === "pending") {
-      const habitatId = getHabitatId(dependent);
-      eventRepo.createEvent({
-        taskId: dependent.id,
-        actorType: "system",
-        actorId: "system",
-        action: "dependency_resolved",
-        metadata: { unblockedBy: completedTaskId },
-      });
-      sseBroadcaster.publish(habitatId, { type: "task.updated", data: dependent });
-    }
-  }
 }

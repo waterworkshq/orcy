@@ -1,3 +1,4 @@
+import type { InsightClient } from "../api/interfaces.js";
 import type { KanbanApiClient } from '../api.js';
 
 export async function pulsePromote(

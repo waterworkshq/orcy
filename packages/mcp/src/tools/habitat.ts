@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";
+import type { HabitatClient, DashboardClient, HealthClient } from "../api/interfaces.js";
 import { TIME_RANGES } from "./constants.js";
 
 export const HABITAT_LIST_HABITATS_TOOL: Tool = {

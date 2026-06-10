@@ -1,10 +1,8 @@
 import * as taskRepo from '../repositories/task.js';
 import * as habitatRepo from '../repositories/board.js';
-import * as eventRepo from '../repositories/event.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import * as missionService from './featureService.js';
 import { logger } from '../lib/logger.js';
 import type { Task, RetryPolicy } from '../models/index.js';
+import { emitTransition } from './tasks/transition-emitter.js';
 
 const DEFAULT_POLICY: RetryPolicy = {
   maxRetries: 3,
@@ -59,17 +57,14 @@ export function scheduleRetry(task: Task): Task | null {
 
   const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
 
-  eventRepo.createEvent({
-    taskId: task.id,
+  emitTransition(task.id, 'retry_scheduled', habitatId, {
     actorType: 'system',
     actorId: 'retry-service',
-    action: 'retry_scheduled',
+    retryCount: task.retryCount,
+    nextRetryAt,
+    backoffSeconds,
     metadata: { nextRetryAt, retryCount: task.retryCount, backoffSeconds },
-  });
-
-  sseBroadcaster.publish(habitatId, {
-    type: 'task.retry_scheduled',
-    data: { taskId: task.id, nextRetryAt, retryCount: task.retryCount },
+    task: result.task,
   });
 
   return result.task;
@@ -90,22 +85,15 @@ export function executeRetry(task: Task): Task | null {
 
   const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
 
-  eventRepo.createEvent({
-    taskId: task.id,
+  emitTransition(task.id, 'retry_executed', habitatId, {
     actorType: 'system',
     actorId: 'retry-service',
-    action: 'retry_executed',
-    toStatus: 'pending',
+    oldStatus: task.status,
+    newStatus: 'pending',
+    retryCount: newRetryCount,
     metadata: { retryCount: newRetryCount },
+    task: result.task,
   });
-
-  sseBroadcaster.publish(habitatId, {
-    type: 'task.retry_executed',
-    data: { taskId: task.id, retryCount: newRetryCount },
-  });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
-
-  missionService.recalculateMissionStatus(task.missionId);
 
   return result.task;
 }
@@ -122,25 +110,18 @@ export function escalateToHuman(task: Task): Task | null {
 
   const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
 
-  eventRepo.createEvent({
-    taskId: task.id,
+  emitTransition(task.id, 'escalated', habitatId, {
     actorType: 'system',
     actorId: 'retry-service',
-    action: 'escalated',
+    reason: task.rejectionReason ?? 'max retries exceeded',
+    retryCount: task.retryCount,
     metadata: {
       retryCount: task.retryCount,
       maxRetries: policy?.maxRetries ?? DEFAULT_POLICY.maxRetries,
       rejectionReason: task.rejectionReason,
     },
+    task: result.task,
   });
-
-  sseBroadcaster.publish(habitatId, {
-    type: 'task.escalated',
-    data: { taskId: task.id, retryCount: task.retryCount, reason: task.rejectionReason ?? 'max retries exceeded' },
-  });
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: result.task });
-
-  missionService.recalculateMissionStatus(task.missionId);
 
   return result.task;
 }

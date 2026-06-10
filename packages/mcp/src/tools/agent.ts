@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { KanbanApiClient } from "../api.js";
+import type { AgentClient } from "../api/interfaces.js";
 import type { Agent } from "@orcy/shared";
 import { AGENT_STATUSES, AGENT_TYPES } from "./constants.js";
 

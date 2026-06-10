@@ -12,6 +12,7 @@ import * as commentRepo from '../../repositories/comment.js';
 import type { Task, TaskStatus } from '../../models/index.js';
 import { formatClonedTitle } from './helpers.js';
 import { logger } from '../../lib/logger.js';
+import { emitTransition } from './transition-emitter.js';
 
 export function createTask(input: { missionId: string; title: string; description?: string; labels?: string[]; priority?: import('../../models/index.js').TaskPriority; requiredDomain?: string | null; requiredCapabilities?: string[]; createdBy: string; order?: number; estimatedMinutes?: number | null }): Task {
   const task = taskRepo.createTask(input);
@@ -19,24 +20,17 @@ export function createTask(input: { missionId: string; title: string; descriptio
   const mission = missionRepo.getMissionById(input.missionId);
   const habitatId = mission?.habitatId ?? '';
 
-  eventRepo.createEvent({
-    taskId: task.id,
+  emitTransition(task.id, 'created', habitatId, {
     actorType: 'human',
     actorId: input.createdBy,
-    action: 'created',
-    toStatus: task.status,
+    newStatus: task.status,
     metadata: { title: task.title, missionId: input.missionId },
+    task,
   });
-
-  sseBroadcaster.publish(habitatId, { type: 'task.created', data: task });
 
   if (habitatId) {
     autoAssignService.assignTask(task.id, habitatId);
     pluginManager.emitTaskCreated(task, habitatRepo.getHabitatById(habitatId)).catch(() => {});
-  }
-
-  if (mission) {
-    missionService.recalculateMissionStatus(mission.id);
   }
 
   return task;
@@ -66,6 +60,9 @@ export function cloneTask(
   const mission = missionRepo.getMissionById(source.missionId);
   const habitatId = mission?.habitatId ?? '';
 
+  // cloneTask is a separate flow: the canonical 'cloned' event action is
+  // specific to cloning (not in the TaskAction union), so we emit the audit
+  // event directly while letting the SSE `task.cloned` + `task.created` fan out.
   eventRepo.createEvent({
     taskId: cloned.id,
     actorType: 'human',
@@ -142,24 +139,15 @@ export function updateTask(
   const task = result.task;
   const habitatId = taskRepo.getHabitatIdForTask(taskId) ?? '';
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, 'updated', habitatId, {
     actorType: 'human',
     actorId: editorId,
-    action: 'updated',
+    oldStatus: current.status,
+    newStatus: ('status' in fields && fields.status !== undefined ? (fields.status as string) : current.status),
+    changedFields: Object.keys(fields),
     metadata: { changedFields: Object.keys(fields) },
+    task,
   });
-
-  sseBroadcaster.publish(habitatId, { type: 'task.updated', data: task });
-  if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.updated');
-
-  if ('status' in fields && fields.status !== undefined && fields.status !== current.status) {
-    try {
-      missionService.recalculateMissionStatus(current.missionId);
-    } catch (err) {
-      logger.error({ err, missionId: current.missionId }, 'Mission recalculation failed');
-    }
-  }
 
   return { success: true, task };
 }
@@ -182,11 +170,10 @@ export function deleteTask(taskId: string): { success: true } | { success: false
   if (habitatId) watcherService.notifyWatchers(taskId, habitatId, 'task.deleted');
   taskRepo.deleteTask(taskId);
 
-  sseBroadcaster.publish(habitatId, { type: 'task.deleted', data: { taskId } });
-
-  if (missionId) {
-    missionService.recalculateMissionStatus(missionId);
-  }
+  emitTransition(taskId, 'deleted', habitatId, {
+    actorType: 'human',
+    actorId: 'system',
+  });
 
   return { success: true };
 }

@@ -1,4 +1,5 @@
 import type { KanbanApiClient } from "../api.js";
+import type { SkillClient } from "../api/interfaces.js";
 
 export async function habitatSkillGet(client: KanbanApiClient, args: Record<string, any>) {
   const boardId = args.boardId;

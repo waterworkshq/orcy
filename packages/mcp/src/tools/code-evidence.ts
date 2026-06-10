@@ -1,4 +1,5 @@
 import type { KanbanApiClient } from "../api.js";
+import type { CodeEvidenceClient } from "../api/interfaces.js";
 
 function buildReasonInput(args: {
   reasonCode?: string;

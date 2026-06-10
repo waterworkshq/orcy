@@ -1,3 +1,4 @@
+import type { MissionClient } from "../api/interfaces.js";
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
 import { PRIORITY_LEVELS, FEATURE_STATUSES } from './constants.js';

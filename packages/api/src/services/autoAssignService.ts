@@ -4,10 +4,8 @@ import { eq, and, sql, inArray } from 'drizzle-orm';
 import * as agentRepo from '../repositories/agent.js';
 import * as taskRepo from '../repositories/task.js';
 import * as habitatRepo from '../repositories/board.js';
-import * as eventRepo from '../repositories/event.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import * as missionService from './featureService.js';
 import type { AutoAssignSettings, Task } from '../models/index.js';
+import { emitTransition } from './tasks/transition-emitter.js';
 
 const DEFAULT_SETTINGS: AutoAssignSettings = {
   enabled: false,
@@ -169,18 +167,15 @@ export function assignTask(taskId: string, habitatId: string): AssignResult {
   const claimResult = taskRepo.claimTask(taskId, selected.id);
   if (!claimResult.success) return { success: false, reason: claimResult.reason };
 
-  eventRepo.createEvent({
-    taskId,
+  emitTransition(taskId, 'claimed', habitatId, {
     actorType: 'system',
     actorId: 'auto_assign',
-    action: 'claimed',
-    toStatus: 'claimed',
+    oldStatus: 'pending',
+    newStatus: 'claimed',
+    assignedAgentId: selected.id,
     metadata: { strategy: settings.strategy, agentId: selected.id, agentName: selected.name, autoAssigned: true },
+    task: claimResult.task,
   });
-
-  sseBroadcaster.publish(habitatId, { type: 'task.claimed', data: { taskId, agentId: selected.id } });
-
-  missionService.recalculateMissionStatus(task.missionId);
 
   return { success: true, agentId: selected.id, agentName: selected.name };
 }
