@@ -138,11 +138,11 @@ function executeNotify(
 
   const severity = (action.severity ?? "info") as "info" | "warning" | "critical";
 
+  const eventType = resolveNotifyEventType(rule);
+
   const result = enqueueNotificationForRecipients(
     rule.habitatId,
-    (action.template?.includes("task.blocked")
-      ? "task.blocked"
-      : "task.assigned") as NotificationEventType, // heuristic; real mapping would use trigger type
+    eventType,
     "automation",
     severity,
     recipients,
@@ -525,6 +525,31 @@ function executeMarkRisk(
       targetId: ctx.task?.id ?? ctx.mission?.id,
     },
   };
+}
+
+const AUTOMATION_TRIGGER_TO_NOTIFY_EVENT: Record<string, NotificationEventType> = {
+  "task.rejected": "task.review_requested",
+  "task.overdue": "task.assigned",
+  "task.priority_changed": "task.assigned",
+  "task.review_assigned": "task.review_requested",
+  "task.review_completed": "task.review_requested",
+  "mission.status_changed": "mission.risk_marked",
+  "mission.progress": "mission.risk_marked",
+  "pulse.signal_posted": "pulse.signal_posted",
+  "scheduled_task.failed": "automation.action_failed",
+  "code_evidence.updated": "automation.rule_matched",
+  "anomaly.detected": "mission.risk_marked",
+  "sprint.started": "automation.rule_matched",
+  "sprint.completed": "automation.rule_matched",
+  mission_blocked: "task.blocked",
+  sprint_ending: "task.blocked",
+  agent_silent: "task.blocked",
+  evidence_gap_open: "task.blocked",
+};
+
+function resolveNotifyEventType(rule: AutomationRule): NotificationEventType {
+  const triggerType = rule.trigger.type === "scan" ? rule.trigger.scanType : rule.trigger.eventType;
+  return AUTOMATION_TRIGGER_TO_NOTIFY_EVENT[triggerType] ?? "automation.rule_matched";
 }
 
 function calculateRunStatus(succeeded: number, failed: number, total: number): AutomationRunStatus {
