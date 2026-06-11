@@ -1,7 +1,6 @@
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import { buildTriggerContext } from "./automationContextBuilder.js";
-import { buildFingerprint } from "@orcy/shared";
 import type {
   AutomationEventType,
   AutomationTriggerType,
@@ -110,22 +109,8 @@ function checkFingerprintGuard(
   triggerType: AutomationTriggerType,
   event: IncomingEvent,
 ): { shouldSkip: boolean; skipReason?: string } {
-  const fp = buildFingerprint(
-    habitatId,
-    ruleId,
-    triggerType,
-    (event.data?.eventId as string) ?? null,
-    resolveTargetType(event) ?? null,
-    ((event.data?.taskId ??
-      event.data?.missionId ??
-      event.data?.agentId ??
-      event.data?.sprintId) as string) ?? null,
-  );
-
   const rule = ruleRepo.getAutomationRuleById(ruleId);
   if (!rule) return { shouldSkip: true, skipReason: "missing_target" };
-
-  if (!rule.enabled) return { shouldSkip: true, skipReason: "disabled" };
 
   const lastSuccess = runRepo.getLastSuccessfulRunForFingerprint({
     habitatId,

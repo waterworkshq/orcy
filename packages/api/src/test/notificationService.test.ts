@@ -4,15 +4,13 @@ vi.mock("../repositories/notificationPreferences.js", () => ({ getPreferences: v
 vi.mock("../repositories/task.js", () => ({ getTaskById: vi.fn() }));
 vi.mock("../repositories/feature.js", () => ({ getMissionById: vi.fn() }));
 vi.mock("../repositories/board.js", () => ({ getHabitatById: vi.fn() }));
-vi.mock("../repositories/agent.js", () => ({ getAgentById: vi.fn() }));
+vi.mock("../repositories/user.js", () => ({
+  getActorName: vi.fn(),
+  getUserEmail: vi.fn(),
+  getAdmins: vi.fn(() => []),
+}));
 vi.mock("../repositories/watcher.js", () => ({ getWatcherUserIdsForTask: vi.fn() }));
 vi.mock("../services/emailService.js", () => ({ isConfigured: vi.fn(), sendEmail: vi.fn() }));
-vi.mock("../db/index.js", () => ({
-  getDb: () => ({
-    select: () => ({ from: () => ({ where: () => ({ get: () => ({}), all: () => [] }) }) }),
-  }),
-}));
-vi.mock("../db/schema/index.js", () => ({ users: {} }));
 vi.mock("drizzle-orm", async () => {
   const actual = await vi.importActual("drizzle-orm");
   return { ...actual, eq: vi.fn((_c, _v) => ({ _type: "eq" })) };

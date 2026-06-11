@@ -1,23 +1,42 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import * as connectionRepo from '../repositories/integrationConnection.js';
-import * as linkRepo from '../repositories/externalIssueLink.js';
-import * as candidateRepo from '../repositories/externalIntakeCandidate.js';
-import * as syncRunRepo from '../repositories/integrationSyncRun.js';
-import * as missionRepo from '../repositories/feature.js';
-import { syncConnection } from '../services/integrations/syncService.js';
-import { startGitHubDeviceFlow, pollGitHubDeviceFlow, getGitHubViewer } from '../services/integrations/githubOAuth.js';
-import { getJiraCredentials, getJiraAuthorizationUrl, exchangeJiraCode, discoverJiraCloudIds } from '../services/integrations/jiraOAuth.js';
-import { getLinearClientId, generatePKCEPair, getLinearAuthorizationUrl, exchangeLinearCode, getLinearTeams } from '../services/integrations/linearOAuth.js';
-import { generateState, storeCodeVerifier, consumeState } from '../services/integrations/oauthState.js';
-import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
-import { requireHabitatAccess } from '../middleware/team.js';
-import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
-import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
-import { getHabitatById } from '../repositories/board.js';
-import { resolveImportColumn } from '../services/integrations/columnResolver.js';
-import { z } from 'zod';
-import crypto from 'crypto';
-import type { ExternalIntakeReviewStatus, IntegrationProvider } from '@orcy/shared';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import * as connectionRepo from "../repositories/integrationConnection.js";
+import * as linkRepo from "../repositories/externalIssueLink.js";
+import * as candidateRepo from "../repositories/externalIntakeCandidate.js";
+import * as syncRunRepo from "../repositories/integrationSyncRun.js";
+import * as missionRepo from "../repositories/feature.js";
+import { syncConnection } from "../services/integrations/syncService.js";
+import {
+  startGitHubDeviceFlow,
+  pollGitHubDeviceFlow,
+  getGitHubViewer,
+} from "../services/integrations/githubOAuth.js";
+import {
+  getJiraCredentials,
+  getJiraAuthorizationUrl,
+  exchangeJiraCode,
+  discoverJiraCloudIds,
+} from "../services/integrations/jiraOAuth.js";
+import {
+  getLinearClientId,
+  generatePKCEPair,
+  getLinearAuthorizationUrl,
+  exchangeLinearCode,
+  getLinearTeams,
+} from "../services/integrations/linearOAuth.js";
+import {
+  generateState,
+  storeCodeVerifier,
+  consumeState,
+} from "../services/integrations/oauthState.js";
+import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
+import { requireHabitatAccess } from "../middleware/team.js";
+import { badRequest, notFound, forbidden, unauthorized } from "../errors.js";
+import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
+import { getHabitatById } from "../repositories/board.js";
+import { resolveImportColumn } from "../repositories/column.js";
+import { z } from "zod";
+import crypto from "crypto";
+import type { ExternalIntakeReviewStatus, IntegrationProvider } from "@orcy/shared";
 
 const promotingCandidates = new Set<string>();
 
@@ -43,42 +62,42 @@ const deviceFlowPollSchema = z.object({
 
 function verifyConnectionAccess(request: FastifyRequest, habitatId: string): void {
   const habitat = getHabitatById(habitatId);
-  if (!habitat) throw notFound('Habitat not found');
+  if (!habitat) throw notFound("Habitat not found");
 
   if (request.agent) {
     if (!habitat.teamId) return;
-    throw forbidden('Agents cannot access team habitats', 'BOARD_ACCESS_DENIED');
+    throw forbidden("Agents cannot access team habitats", "BOARD_ACCESS_DENIED");
   }
 
   if (request.user) {
     if (!habitat.teamId) return;
     if (isTeamMemberByHabitatId(habitatId, request.user.id)) return;
-    throw forbidden('You do not have access to this habitat', 'BOARD_ACCESS_DENIED');
+    throw forbidden("You do not have access to this habitat", "BOARD_ACCESS_DENIED");
   }
 
-  throw unauthorized('Authentication required');
+  throw unauthorized("Authentication required");
 }
 
 function getAdapter(provider: string) {
-  if (provider === 'github') {
+  if (provider === "github") {
     try {
-      return require('../services/integrations/githubAdapter.js').githubAdapter;
+      return require("../services/integrations/githubAdapter.js").githubAdapter;
     } catch {
-      throw badRequest('GitHub adapter is not available');
+      throw badRequest("GitHub adapter is not available");
     }
   }
-  if (provider === 'jira') {
+  if (provider === "jira") {
     try {
-      return require('../services/integrations/jiraAdapter.js').jiraAdapter;
+      return require("../services/integrations/jiraAdapter.js").jiraAdapter;
     } catch {
-      throw badRequest('Jira adapter is not available');
+      throw badRequest("Jira adapter is not available");
     }
   }
-  if (provider === 'linear') {
+  if (provider === "linear") {
     try {
-      return require('../services/integrations/linearAdapter.js').linearAdapter;
+      return require("../services/integrations/linearAdapter.js").linearAdapter;
     } catch {
-      throw badRequest('Linear adapter is not available');
+      throw badRequest("Linear adapter is not available");
     }
   }
   throw badRequest(`Provider '${provider}' is not supported yet`);
@@ -86,32 +105,32 @@ function getAdapter(provider: string) {
 
 export async function integrationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { habitatId: string } }>(
-    '/habitats/:habitatId/integrations',
+    "/habitats/:habitatId/integrations",
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request) => {
       const connections = connectionRepo.listByHabitat(request.params.habitatId);
-      return { integrations: connections.map(c => connectionRepo.toView(c)) };
-    }
+      return { integrations: connections.map((c) => connectionRepo.toView(c)) };
+    },
   );
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof createPatSchema> }>(
-    '/habitats/:habitatId/integrations/github/pat',
+    "/habitats/:habitatId/integrations/github/pat",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = createPatSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const userId = (request as any).user?.id ?? 'unknown';
+      const userId = (request as any).user?.id ?? "unknown";
 
-      const webhookSecret = crypto.randomBytes(32).toString('hex');
+      const webhookSecret = crypto.randomBytes(32).toString("hex");
 
       const connection = connectionRepo.create({
         habitatId: request.params.habitatId,
-        provider: 'github',
+        provider: "github",
         name: parsed.data.name,
-        authMethod: 'pat',
+        authMethod: "pat",
         accessToken: parsed.data.token,
         repositoryOwner: parsed.data.repositoryOwner,
         repositoryName: parsed.data.repositoryName,
@@ -122,11 +141,11 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       });
 
       reply.code(201).send({ integration: connectionRepo.toView(connection) });
-    }
+    },
   );
 
   fastify.post<{ Params: { habitatId: string } }>(
-    '/habitats/:habitatId/integrations/github/oauth/device/start',
+    "/habitats/:habitatId/integrations/github/oauth/device/start",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (_request) => {
       const flow = await startGitHubDeviceFlow();
@@ -137,39 +156,39 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         expiresIn: flow.expires_in,
         interval: flow.interval,
       };
-    }
+    },
   );
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof deviceFlowPollSchema> }>(
-    '/habitats/:habitatId/integrations/github/oauth/device/poll',
+    "/habitats/:habitatId/integrations/github/oauth/device/poll",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = deviceFlowPollSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('deviceCode is required');
+        throw badRequest("deviceCode is required");
       }
 
       const { deviceCode } = parsed.data;
       const result = await pollGitHubDeviceFlow(deviceCode);
 
-      if (result.error === 'authorization_pending') {
-        return { status: 'pending' };
+      if (result.error === "authorization_pending") {
+        return { status: "pending" };
       }
 
-      if (result.error === 'slow_down') {
-        return { status: 'pending' };
+      if (result.error === "slow_down") {
+        return { status: "pending" };
       }
 
       if (result.access_token) {
         const viewer = await getGitHubViewer(result.access_token);
 
-        const userId = (request as any).user?.id ?? 'unknown';
+        const userId = (request as any).user?.id ?? "unknown";
 
         const connection = connectionRepo.create({
           habitatId: request.params.habitatId,
-          provider: 'github',
+          provider: "github",
           name: `${viewer.login}/github`,
-          authMethod: 'oauth_device',
+          authMethod: "oauth_device",
           accessToken: result.access_token,
           repositoryOwner: viewer.login,
           repositoryName: null,
@@ -184,90 +203,92 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
         return reply;
       }
 
-      if (result.error === 'expired_token') {
-        throw badRequest('Device code expired. Please start a new authorization flow.');
+      if (result.error === "expired_token") {
+        throw badRequest("Device code expired. Please start a new authorization flow.");
       }
 
-      if (result.error === 'access_denied') {
-        throw badRequest('Authorization was denied by the user.');
+      if (result.error === "access_denied") {
+        throw badRequest("Authorization was denied by the user.");
       }
 
-      throw badRequest(result.error_description || result.error || 'Unknown error during authorization');
-    }
+      throw badRequest(
+        result.error_description || result.error || "Unknown error during authorization",
+      );
+    },
   );
 
   fastify.patch<{ Params: { connectionId: string }; Body: z.infer<typeof updateConnectionSchema> }>(
-    '/integrations/:connectionId',
+    "/integrations/:connectionId",
     { preHandler: [humanAuth] },
     async (request) => {
       const parsed = updateConnectionSchema.safeParse(request.body);
       if (!parsed.success) {
-        throw badRequest('Validation failed', parsed.error.flatten());
+        throw badRequest("Validation failed", parsed.error.flatten());
       }
 
       const existing = connectionRepo.getById(request.params.connectionId);
-      if (!existing) throw notFound('Connection not found');
+      if (!existing) throw notFound("Connection not found");
 
       verifyConnectionAccess(request, existing.habitatId);
 
       const updated = connectionRepo.update(request.params.connectionId, parsed.data);
       return { integration: connectionRepo.toView(updated!) };
-    }
+    },
   );
 
   fastify.delete<{ Params: { connectionId: string } }>(
-    '/integrations/:connectionId',
+    "/integrations/:connectionId",
     { preHandler: [humanAuth] },
     async (request: FastifyRequest<{ Params: { connectionId: string } }>, reply: FastifyReply) => {
       const existing = connectionRepo.getById(request.params.connectionId);
-      if (!existing) throw notFound('Connection not found');
+      if (!existing) throw notFound("Connection not found");
 
       verifyConnectionAccess(request, existing.habitatId);
 
       connectionRepo.disable(request.params.connectionId);
       reply.code(204).send();
-    }
+    },
   );
 
   fastify.post<{ Params: { connectionId: string } }>(
-    '/integrations/:connectionId/sync',
+    "/integrations/:connectionId/sync",
     { preHandler: [humanAuth] },
     async (request) => {
       const existing = connectionRepo.getById(request.params.connectionId);
-      if (!existing) throw notFound('Connection not found');
+      if (!existing) throw notFound("Connection not found");
 
       verifyConnectionAccess(request, existing.habitatId);
 
-      if (!existing.enabled) throw badRequest('Connection is disabled');
-      if (!existing.pullEnabled) throw badRequest('Pull sync is disabled');
+      if (!existing.enabled) throw badRequest("Connection is disabled");
+      if (!existing.pullEnabled) throw badRequest("Pull sync is disabled");
 
       const adapter = getAdapter(existing.provider);
-      const result = await syncConnection(request.params.connectionId, 'manual', adapter);
+      const result = await syncConnection(request.params.connectionId, "manual", adapter);
       return result;
-    }
+    },
   );
 
   fastify.get<{ Params: { connectionId: string } }>(
-    '/integrations/:connectionId/sync-runs',
+    "/integrations/:connectionId/sync-runs",
     { preHandler: [humanAuth] },
     async (request) => {
       const existing = connectionRepo.getById(request.params.connectionId);
-      if (!existing) throw notFound('Connection not found');
+      if (!existing) throw notFound("Connection not found");
 
       verifyConnectionAccess(request, existing.habitatId);
 
       const runs = syncRunRepo.listByConnectionId(request.params.connectionId);
       return { syncRuns: runs };
-    }
+    },
   );
 
   fastify.get<{ Params: { missionId: string } }>(
-    '/missions/:missionId/external-links',
+    "/missions/:missionId/external-links",
     { preHandler: [agentOrHumanAuth] },
     async (request) => {
       const links = linkRepo.listByMissionId(request.params.missionId);
       return { externalLinks: links };
-    }
+    },
   );
 
   const jiraOAuthStartSchema = z.object({
@@ -275,17 +296,17 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
   });
 
   fastify.post<{ Params: { habitatId: string }; Body?: z.infer<typeof jiraOAuthStartSchema> }>(
-    '/habitats/:habitatId/integrations/jira/oauth/start',
+    "/habitats/:habitatId/integrations/jira/oauth/start",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request) => {
       const { clientId, clientSecret: _secret } = getJiraCredentials();
       const state = generateState(request.params.habitatId);
       const port = (request.body as any)?.redirectPort;
-      if (!port) throw new Error('redirectPort is required');
+      if (!port) throw new Error("redirectPort is required");
       const redirectUri = `http://127.0.0.1:${port}/callback`;
       const authUrl = getJiraAuthorizationUrl(clientId, redirectUri, state);
       return { authUrl, state, redirectPort: port };
-    }
+    },
   );
 
   const jiraOAuthCompleteSchema = z.object({
@@ -295,14 +316,14 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
   });
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof jiraOAuthCompleteSchema> }>(
-    '/habitats/:habitatId/integrations/jira/oauth/complete',
+    "/habitats/:habitatId/integrations/jira/oauth/complete",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = jiraOAuthCompleteSchema.safeParse(request.body);
-      if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten());
+      if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
 
       const stateResult = consumeState(parsed.data.state, request.params.habitatId);
-      if (!stateResult) throw badRequest('Invalid or expired OAuth state');
+      if (!stateResult) throw badRequest("Invalid or expired OAuth state");
 
       const { code, redirectPort } = parsed.data;
       const { clientId, clientSecret } = getJiraCredentials();
@@ -312,17 +333,17 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       const resources = await discoverJiraCloudIds(tokens.access_token);
 
       if (resources.length === 0) {
-        throw badRequest('No accessible Jira Cloud instances found');
+        throw badRequest("No accessible Jira Cloud instances found");
       }
 
       const resource = resources[0];
-      const userId = (request as any).user?.id ?? 'unknown';
+      const userId = (request as any).user?.id ?? "unknown";
 
       const connection = connectionRepo.create({
         habitatId: request.params.habitatId,
-        provider: 'jira',
+        provider: "jira",
         name: `${resource.name}/jira`,
-        authMethod: 'oauth_code',
+        authMethod: "oauth_code",
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
@@ -336,7 +357,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
       reply.code(201).send({ integration: connectionRepo.toView(connection) });
       return reply;
-    }
+    },
   );
 
   const jiraApiKeySchema = z.object({
@@ -350,24 +371,24 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
   });
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof jiraApiKeySchema> }>(
-    '/habitats/:habitatId/integrations/jira/api-key',
+    "/habitats/:habitatId/integrations/jira/api-key",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = jiraApiKeySchema.safeParse(request.body);
-      if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten());
+      if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
 
-      const userId = (request as any).user?.id ?? 'unknown';
+      const userId = (request as any).user?.id ?? "unknown";
 
       const connection = connectionRepo.create({
         habitatId: request.params.habitatId,
-        provider: 'jira',
+        provider: "jira",
         name: parsed.data.name,
-        authMethod: 'api_key',
+        authMethod: "api_key",
         accessToken: parsed.data.token,
         externalAccountName: parsed.data.email,
         externalTenantId: null,
         externalTenantName: new URL(parsed.data.siteUrl).hostname,
-        externalBaseUrl: parsed.data.siteUrl.replace(/\/+$/, ''),
+        externalBaseUrl: parsed.data.siteUrl.replace(/\/+$/, ""),
         projectKey: parsed.data.projectKey,
         autoImport: parsed.data.autoImport ?? false,
         pullEnabled: parsed.data.pullEnabled ?? true,
@@ -376,7 +397,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
       reply.code(201).send({ integration: connectionRepo.toView(connection) });
       return reply;
-    }
+    },
   );
 
   const linearOAuthStartSchema = z.object({
@@ -384,7 +405,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
   });
 
   fastify.post<{ Params: { habitatId: string }; Body?: z.infer<typeof linearOAuthStartSchema> }>(
-    '/habitats/:habitatId/integrations/linear/oauth/start',
+    "/habitats/:habitatId/integrations/linear/oauth/start",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request) => {
       const clientId = getLinearClientId();
@@ -392,11 +413,11 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       const state = generateState(request.params.habitatId);
       storeCodeVerifier(state, codeVerifier);
       const port = (request.body as any)?.redirectPort;
-      if (!port) throw new Error('redirectPort is required');
+      if (!port) throw new Error("redirectPort is required");
       const redirectUri = `http://127.0.0.1:${port}/callback`;
       const authUrl = getLinearAuthorizationUrl(clientId, redirectUri, codeChallenge, state);
       return { authUrl, state, redirectPort: port };
-    }
+    },
   );
 
   const linearOAuthCompleteSchema = z.object({
@@ -406,32 +427,40 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
   });
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof linearOAuthCompleteSchema> }>(
-    '/habitats/:habitatId/integrations/linear/oauth/complete',
+    "/habitats/:habitatId/integrations/linear/oauth/complete",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = linearOAuthCompleteSchema.safeParse(request.body);
-      if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten());
+      if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
 
       const stateResult = consumeState(parsed.data.state, request.params.habitatId);
-      if (!stateResult || !stateResult.codeVerifier) throw badRequest('Invalid or expired OAuth state');
+      if (!stateResult || !stateResult.codeVerifier)
+        throw badRequest("Invalid or expired OAuth state");
 
       const { code, redirectPort } = parsed.data;
       const clientId = getLinearClientId();
       const redirectUri = `http://127.0.0.1:${redirectPort}/callback`;
 
-      const tokens = await exchangeLinearCode(code, clientId, redirectUri, stateResult.codeVerifier);
+      const tokens = await exchangeLinearCode(
+        code,
+        clientId,
+        redirectUri,
+        stateResult.codeVerifier,
+      );
       const teams = await getLinearTeams(tokens.access_token);
 
-      const userId = (request as any).user?.id ?? 'unknown';
+      const userId = (request as any).user?.id ?? "unknown";
 
       const connection = connectionRepo.create({
         habitatId: request.params.habitatId,
-        provider: 'linear',
-        name: teams.length > 0 ? `${teams[0].name}/linear` : 'linear',
-        authMethod: 'oauth_pkce',
+        provider: "linear",
+        name: teams.length > 0 ? `${teams[0].name}/linear` : "linear",
+        authMethod: "oauth_pkce",
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token ?? null,
-        tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
+        tokenExpiresAt: tokens.expires_in
+          ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+          : null,
         teamId: teams.length > 0 ? teams[0].id : null,
         pullEnabled: true,
         autoImport: false,
@@ -440,7 +469,7 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
       reply.code(201).send({ integration: connectionRepo.toView(connection), teams });
       return reply;
-    }
+    },
   );
 
   const linearApiKeySchema = z.object({
@@ -452,19 +481,19 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
   });
 
   fastify.post<{ Params: { habitatId: string }; Body: z.infer<typeof linearApiKeySchema> }>(
-    '/habitats/:habitatId/integrations/linear/api-key',
+    "/habitats/:habitatId/integrations/linear/api-key",
     { preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const parsed = linearApiKeySchema.safeParse(request.body);
-      if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten());
+      if (!parsed.success) throw badRequest("Validation failed", parsed.error.flatten());
 
-      const userId = (request as any).user?.id ?? 'unknown';
+      const userId = (request as any).user?.id ?? "unknown";
 
       const connection = connectionRepo.create({
         habitatId: request.params.habitatId,
-        provider: 'linear',
+        provider: "linear",
         name: parsed.data.name,
-        authMethod: 'api_key',
+        authMethod: "api_key",
         accessToken: parsed.data.token,
         teamId: parsed.data.teamId,
         autoImport: parsed.data.autoImport ?? false,
@@ -474,63 +503,68 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
 
       reply.code(201).send({ integration: connectionRepo.toView(connection) });
       return reply;
-    }
+    },
   );
 
-  fastify.get<{ Params: { habitatId: string }; Querystring: { reviewStatus?: string; provider?: string } }>(
-    '/habitats/:habitatId/intake-candidates',
+  fastify.get<{
+    Params: { habitatId: string };
+    Querystring: { reviewStatus?: string; provider?: string };
+  }>(
+    "/habitats/:habitatId/intake-candidates",
     { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request) => {
-      const filters: { reviewStatus?: ExternalIntakeReviewStatus; provider?: IntegrationProvider } = {};
-      if (request.query.reviewStatus) filters.reviewStatus = request.query.reviewStatus as ExternalIntakeReviewStatus;
+      const filters: { reviewStatus?: ExternalIntakeReviewStatus; provider?: IntegrationProvider } =
+        {};
+      if (request.query.reviewStatus)
+        filters.reviewStatus = request.query.reviewStatus as ExternalIntakeReviewStatus;
       if (request.query.provider) filters.provider = request.query.provider as IntegrationProvider;
 
       const candidates = candidateRepo.listByHabitat(request.params.habitatId, filters);
       return { candidates, total: candidates.length };
-    }
+    },
   );
 
   fastify.get<{ Params: { candidateId: string } }>(
-    '/intake-candidates/:candidateId',
+    "/intake-candidates/:candidateId",
     { preHandler: [agentOrHumanAuth] },
     async (request) => {
       const candidate = candidateRepo.getById(request.params.candidateId);
-      if (!candidate) throw notFound('Candidate not found');
+      if (!candidate) throw notFound("Candidate not found");
       verifyConnectionAccess(request, candidate.habitatId);
       return { candidate };
-    }
+    },
   );
 
   fastify.post<{ Params: { candidateId: string } }>(
-    '/intake-candidates/:candidateId/promote',
+    "/intake-candidates/:candidateId/promote",
     { preHandler: [humanAuth] },
     async (request, reply) => {
       const candidateId = request.params.candidateId;
       if (promotingCandidates.has(candidateId)) {
-        throw badRequest('Candidate is already being promoted');
+        throw badRequest("Candidate is already being promoted");
       }
       promotingCandidates.add(candidateId);
       try {
         const candidate = candidateRepo.getById(candidateId);
-        if (!candidate) throw notFound('Candidate not found');
+        if (!candidate) throw notFound("Candidate not found");
         verifyConnectionAccess(request, candidate.habitatId);
 
-        if (candidate.reviewStatus === 'promoted') {
-          throw badRequest('Candidate has already been promoted');
+        if (candidate.reviewStatus === "promoted") {
+          throw badRequest("Candidate has already been promoted");
         }
 
         const col = resolveImportColumn(candidate.habitatId);
-        if (!col) throw badRequest('No import column found for habitat');
+        if (!col) throw badRequest("No import column found for habitat");
 
         const labels = [...candidate.sourceLabels, `external:${candidate.provider}`];
         const mission = missionRepo.createMission({
           habitatId: candidate.habitatId,
           columnId: col.columnId,
           title: candidate.sourceTitle,
-          description: candidate.sourceBody || '',
-          priority: 'medium',
+          description: candidate.sourceBody || "",
+          priority: "medium",
           labels,
-          createdBy: (request as any).user?.id ?? 'unknown',
+          createdBy: (request as any).user?.id ?? "unknown",
         });
 
         const link = linkRepo.create({
@@ -541,12 +575,12 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
           externalId: candidate.externalId,
           externalKey: candidate.externalKey,
           externalUrl: candidate.externalUrl,
-          externalStatus: candidate.sourceStatus === 'closed' ? 'closed' : 'open',
+          externalStatus: candidate.sourceStatus === "closed" ? "closed" : "open",
           providerLabels: candidate.sourceLabels,
         });
 
         candidateRepo.update(candidate.id, {
-          reviewStatus: 'promoted',
+          reviewStatus: "promoted",
           promotedMissionId: mission.id,
         });
 
@@ -555,32 +589,32 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       } finally {
         promotingCandidates.delete(candidateId);
       }
-    }
+    },
   );
 
   fastify.post<{ Params: { candidateId: string } }>(
-    '/intake-candidates/:candidateId/ignore',
+    "/intake-candidates/:candidateId/ignore",
     { preHandler: [humanAuth] },
     async (request) => {
       const candidate = candidateRepo.getById(request.params.candidateId);
-      if (!candidate) throw notFound('Candidate not found');
+      if (!candidate) throw notFound("Candidate not found");
       verifyConnectionAccess(request, candidate.habitatId);
 
-      const updated = candidateRepo.update(candidate.id, { reviewStatus: 'ignored' });
+      const updated = candidateRepo.update(candidate.id, { reviewStatus: "ignored" });
       return { candidate: updated };
-    }
+    },
   );
 
   fastify.post<{ Params: { candidateId: string } }>(
-    '/intake-candidates/:candidateId/needs-clarification',
+    "/intake-candidates/:candidateId/needs-clarification",
     { preHandler: [humanAuth] },
     async (request) => {
       const candidate = candidateRepo.getById(request.params.candidateId);
-      if (!candidate) throw notFound('Candidate not found');
+      if (!candidate) throw notFound("Candidate not found");
       verifyConnectionAccess(request, candidate.habitatId);
 
-      const updated = candidateRepo.update(candidate.id, { reviewStatus: 'needs_clarification' });
+      const updated = candidateRepo.update(candidate.id, { reviewStatus: "needs_clarification" });
       return { candidate: updated };
-    }
+    },
   );
 }

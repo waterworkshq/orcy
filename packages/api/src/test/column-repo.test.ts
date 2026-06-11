@@ -38,9 +38,9 @@ vi.mock("drizzle-orm", async () => {
   };
 });
 
-import { resolveImportColumn } from "../services/integrations/columnResolver.js";
+import { resolveImportColumn } from "../repositories/column.js";
 
-describe("columnResolver", () => {
+describe("column repository: resolveImportColumn", () => {
   it("returns Todo column by exact name", () => {
     _getResults = [{ id: "col-todo", name: "Todo" }];
     const r = resolveImportColumn("h1")!;

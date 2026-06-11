@@ -4,7 +4,7 @@ import * as syncRunRepo from "../../repositories/integrationSyncRun.js";
 import * as candidateRepo from "../../repositories/externalIntakeCandidate.js";
 import * as missionRepo from "../../repositories/feature.js";
 import * as taskRepo from "../../repositories/task.js";
-import { resolveImportColumn } from "./columnResolver.js";
+import { resolveImportColumn } from "../../repositories/column.js";
 import { emitMissionAuditEvent } from "../auditEventEmitter.js";
 import type { IntegrationConnection } from "@orcy/shared";
 import type {

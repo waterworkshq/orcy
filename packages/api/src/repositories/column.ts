@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { columns, missions } from "../db/schema/index.js";
-import { eq, and, max, count } from "drizzle-orm";
+import { eq, and, max, count, asc } from "drizzle-orm";
 import type { Column } from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import {
@@ -149,4 +149,47 @@ export function getTaskCountForColumn(columnId: string): number {
     .where(eq(missions.columnId, columnId))
     .get();
   return result?.count ?? 0;
+}
+
+export function resolveImportColumn(
+  habitatId: string,
+): { columnId: string; warning?: string } | null {
+  const db = getDb();
+
+  const todoCol = db
+    .select()
+    .from(columns)
+    .where(and(eq(columns.habitatId, habitatId), eq(columns.name, "Todo")))
+    .get();
+
+  if (todoCol) {
+    return { columnId: todoCol.id };
+  }
+
+  const caseInsensitive = db
+    .select()
+    .from(columns)
+    .where(and(eq(columns.habitatId, habitatId)))
+    .all()
+    .find((c) => c.name.toLowerCase() === "todo");
+
+  if (caseInsensitive) {
+    return { columnId: caseInsensitive.id };
+  }
+
+  const nonTerminal = db
+    .select()
+    .from(columns)
+    .where(and(eq(columns.habitatId, habitatId), eq(columns.isTerminal, false)))
+    .orderBy(asc(columns.order))
+    .get();
+
+  if (nonTerminal) {
+    return {
+      columnId: nonTerminal.id,
+      warning: `No 'Todo' column found; using '${nonTerminal.name}' as import target`,
+    };
+  }
+
+  return null;
 }

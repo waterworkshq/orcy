@@ -39,6 +39,10 @@ vi.mock("../db/index.js", () => ({
   closeDb: vi.fn(),
 }));
 
+vi.mock("../repositories/agent.js", () => ({
+  getAgentById: vi.fn(),
+}));
+
 vi.mock("../db/schema/index.js", () => ({
   users: {
     id: "id",
@@ -47,6 +51,14 @@ vi.mock("../db/schema/index.js", () => ({
     email: "email",
     role: "role",
     updatedAt: "updated_at",
+  },
+  agents: {
+    id: "id",
+    name: "name",
+    type: "type",
+  },
+  tasks: {
+    id: "id",
   },
 }));
 
@@ -72,7 +84,11 @@ import {
   findUsersByUsernamesCaseInsensitive,
   getUserById,
   updateUserEmail,
+  getAdmins,
+  getUserEmail as repoGetUserEmail,
+  getActorName,
 } from "../repositories/user.js";
+import { getAgentById } from "../repositories/agent.js";
 
 describe("user repository", () => {
   beforeEach(() => {
@@ -167,6 +183,64 @@ describe("user repository", () => {
       updateUserEmail("user-1", "");
 
       expect(_updateRun).toHaveBeenCalled();
+    });
+  });
+
+  describe("getAdmins", () => {
+    it("returns admin user ids", () => {
+      _allResult = [{ id: "u1" }, { id: "u2" }];
+      const result = getAdmins();
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe("u1");
+    });
+
+    it("returns empty array when no admins", () => {
+      _allResult = [];
+      const result = getAdmins();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("getUserEmail", () => {
+    it("returns email when found", () => {
+      _getResult = { email: "user@test.com" };
+      const result = repoGetUserEmail("user-1");
+      expect(result).toBe("user@test.com");
+    });
+
+    it("returns null when not found", () => {
+      _getResult = undefined;
+      const result = repoGetUserEmail("nonexistent");
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("getActorName", () => {
+    it("returns agent name when agent exists", () => {
+      vi.mocked(getAgentById).mockReturnValue({ name: "Bot-1" } as any);
+      const result = getActorName("agent-1");
+      expect(result).toBe("Bot-1");
+    });
+
+    it("returns user displayName when no agent", () => {
+      vi.mocked(getAgentById).mockReturnValue(null);
+      _getResult = { displayName: "Vikas K.", username: "vikas" };
+      const result = getActorName("user-1");
+      expect(result).toBe("Vikas K.");
+    });
+
+    it("falls back to username when displayName empty", () => {
+      vi.mocked(getAgentById).mockReturnValue(null);
+      _getResult = { displayName: "", username: "vikas" };
+      const result = getActorName("user-1");
+      expect(result).toBe("vikas");
+    });
+
+    it("returns actorId when no agent or user", () => {
+      vi.mocked(getAgentById).mockReturnValue(null);
+      _getResult = undefined;
+      const result = getActorName("orphan-id");
+      expect(result).toBe("orphan-id");
     });
   });
 });

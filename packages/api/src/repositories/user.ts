@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { users } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
 import { repositoryUpdateError } from "../errors/repository.js";
+import * as agentRepo from "./agent.js";
 
 export interface UserLookup {
   id: string;
@@ -25,9 +26,7 @@ export function findUsersByUsernamesCaseInsensitive(usernames: string[]): UserLo
   return rows;
 }
 
-export function getUserById(
-  userId: string,
-): {
+export function getUserById(userId: string): {
   id: string;
   username: string;
   displayName: string;
@@ -60,4 +59,30 @@ export function updateUserEmail(userId: string, email: string): void {
   } catch (err) {
     throw repositoryUpdateError("user", err as Error, userId);
   }
+}
+
+export function getAdmins(): Array<{ id: string }> {
+  const db = getDb();
+  const rows = db.select({ id: users.id }).from(users).where(eq(users.role, "admin")).all();
+  return rows as Array<{ id: string }>;
+}
+
+export function getUserEmail(userId: string): string | null {
+  const db = getDb();
+  const row = db.select({ email: users.email }).from(users).where(eq(users.id, userId)).get();
+  return row?.email ?? null;
+}
+
+export function getActorName(actorId: string): string {
+  const agent = agentRepo.getAgentById(actorId);
+  if (agent) return agent.name;
+
+  const db = getDb();
+  const row = db
+    .select({ displayName: users.displayName, username: users.username })
+    .from(users)
+    .where(eq(users.id, actorId))
+    .get();
+  if (row) return row.displayName || row.username || actorId;
+  return actorId;
 }
