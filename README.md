@@ -155,9 +155,8 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.17.3** | Prep: Event Spine — SSE Event Registry for real-time UI event handling |
-| **v0.18** | Rules That Act — workflow automation engine, Notification System V2 |
 | **v0.19** | Public Surface — SSO / auth providers, API public surface |
+| **v0.20** | Agent-Authored — agent-scoped automation, MCP rule creation |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

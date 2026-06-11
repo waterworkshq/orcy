@@ -36,6 +36,8 @@ export type AuditSource =
   | "integration_sync"
   | "scheduler"
   | "migration"
+  | "automation"
+  | "notification"
   | "unknown";
 
 export interface AuditProvenance {

@@ -879,3 +879,65 @@ packages/api/
     githubIssueWebhooks.ts    — Webhook route (raw body → verify → handle)
   src/db/schema/integration.ts — Drizzle schema for 4 tables
 ```
+
+---
+
+## Notification System V2 (v0.18)
+
+Notification V2 replaces the legacy email-only `notification_preferences` with a durable attention system:
+
+| Component | Responsibility |
+|-----------|---------------|
+| `notificationCommandService.ts` | Command seam — enqueues notifications through subscription resolution |
+| `notificationSubscriptionResolver.ts` | Resolves habitat defaults + recipient overrides (required bypass, mute, cadence) |
+| `notificationDeliveryService.ts` | Dispatches deliveries to channel adapters (in-app, webhook, Slack, Discord) |
+| `notificationDigestService.ts` | Groups non-immediate deliveries into digest.ready events |
+| `notificationClearanceService.ts` | Clears acknowledged/failed deliveries past retention windows |
+| `notification-channels/` | Per-channel delivery adapters with attempt recording + redaction |
+
+### Data Model
+
+6 tables: `notification_events`, `notification_deliveries`, `notification_delivery_attempts`, `notification_subscriptions`, `notification_digest_items`, `notification_retention_policies`
+
+### Subscription Resolution
+
+1. Load habitat defaults matching event type
+2. Apply recipient overrides
+3. Required defaults bypass mute
+4. Non-required mute suppresses future delivery
+5. Cadence determines immediate vs. digest queueing
+
+---
+
+## Workflow Automation Engine (v0.18)
+
+Server-side rules that react to events with bounded actions:
+
+| Component | Responsibility |
+|-----------|---------------|
+| `automationContextBuilder.ts` | Loads task/mission/agent/sprint/habitat context from repositories |
+| `automationEvaluator.ts` | Evaluates 12 condition types with AND/OR/NOT nesting (depth ≤ 5) |
+| `automationExecutor.ts` | Executes 9 action types with per-action results + composite status |
+| `automationSimulationService.ts` | Preview — condition tree, action previews, no side effects |
+| `automationEventService.ts` | Ingests server events → finds matching rules → applies guards |
+| `automationScanService.ts` | Scheduled scans (mission_blocked, sprint_ending, agent_silent, evidence_gap_open) |
+| `automationTemplateRenderer.ts` | `{{task.title}}` token substitution with ~30 allowed tokens |
+
+### Safety Guards
+
+| Guard | Skip Reason |
+|-------|-------------|
+| Cooldown | `cooldown` |
+| Hourly cap | `rate_limited` |
+| Self-loop prevention | `loop_guard` |
+| Disabled rule | `disabled` |
+
+### Execution Flow
+
+```
+server event or scan → matching enabled rules → guards → start run →
+  evaluator → executor (notify/create_signal/create_task/etc.) →
+  finish run with per-action results → audit projection
+```
+
+Notification V2 is the only notification path — Automation never calls legacy preferences, email service, or channel adapters directly.

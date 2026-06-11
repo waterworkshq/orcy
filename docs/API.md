@@ -5741,3 +5741,81 @@ The UI client implements exponential backoff reconnection (1s → 30s max). The 
 - `X-Accel-Buffering: no`
 
 ---
+
+---
+
+## Notification System V2 (v0.18)
+
+Durable notification system with subscriptions, channel routing, digests, acknowledgment, snooze, mute, and retention-based clearance.
+
+### Recipient Routes
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/habitats/:hid/notifications/inbox` | Active inbox (pending, delivered, snoozed, failed) |
+| GET | `/habitats/:hid/notifications/history` | Full delivery history |
+| GET | `/habitats/:hid/notifications/deliveries/:did` | Delivery detail + event |
+| POST | `/habitats/:hid/notifications/deliveries/:did/ack` | Acknowledge delivery |
+| POST | `/habitats/:hid/notifications/deliveries/:did/snooze` | Snooze (body: `{snoozedUntil}`) |
+| POST | `/habitats/:hid/notifications/deliveries/:did/clear` | Clear from active inbox |
+| GET | `/habitats/:hid/notifications/subscriptions` | Own subscriptions |
+
+### Admin Routes
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/habitats/:hid/notifications/admin/subscriptions` | List all subscriptions |
+| POST | `/habitats/:hid/notifications/admin/subscriptions` | Create subscription |
+| PUT | `/habitats/:hid/notifications/admin/subscriptions/:sid` | Update subscription |
+| DELETE | `/habitats/:hid/notifications/admin/subscriptions/:sid` | Delete subscription |
+| GET | `/habitats/:hid/notifications/admin/retention` | Get retention policy |
+| PUT | `/habitats/:hid/notifications/admin/retention` | Update retention (admin-only) |
+| POST | `/habitats/:hid/notifications/admin/clear` | Admin clearance `{deliveryIds}` |
+| POST | `/habitats/:hid/notifications/admin/migrate-legacy` | Migrate legacy prefs |
+| GET | `/habitats/:hid/notifications/admin/delivery-monitor` | Channel attempt monitor |
+
+---
+
+## Automation (v0.18)
+
+Workflow automation engine — event-driven and scheduled rules with conditions, actions, simulation, and run history.
+
+### Rule Routes
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/habitats/:hid/automation-rules` | List rules (by priority asc) |
+| POST | `/habitats/:hid/automation-rules` | Create rule |
+| GET | `/automation-rules/:rid` | Get rule |
+| PUT | `/automation-rules/:rid` | Update rule |
+| DELETE | `/automation-rules/:rid` | Delete rule + runs |
+| POST | `/automation-rules/:rid/enable` | Enable rule |
+| POST | `/automation-rules/:rid/disable` | Disable rule |
+| POST | `/automation-rules/:rid/simulate` | Simulate (no side effects) |
+| POST | `/automation-rules/:rid/run` | Manual run |
+
+### Run History
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/automation-rules/:rid/runs` | Runs for rule |
+| GET | `/habitats/:hid/automation-runs` | All habitat runs |
+
+### Event Types
+
+`task.rejected`, `task.overdue`, `task.priority_changed`, `task.review_assigned`, `task.review_completed`, `mission.status_changed`, `mission.progress`, `pulse.signal_posted`, `scheduled_task.failed`, `code_evidence.updated`, `anomaly.detected`, `sprint.started`, `sprint.completed`
+
+### Scan Types
+
+`mission_blocked`, `sprint_ending`, `agent_silent`, `evidence_gap_open`
+
+### Actions
+
+`notify`, `create_signal`, `create_task`, `change_priority`, `assign`, `release_assignment`, `request_review`, `call_webhook`, `mark_risk`
+
+### MCP Tools
+
+| Tool | Actions | Safety |
+|------|---------|--------|
+| `orcy_notification` | get_inbox, get_history, get_delivery, ack, snooze, clear, get_subscriptions | Self-service only |
+| `orcy_automation` | list, get, simulate, list_runs, get_rule_runs | Read-only |

@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.17.2 | **Updated:** 2026-06-10
+> **Version:** v0.18.0 | **Updated:** 2026-06-11
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -30,41 +30,12 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.17.0 | "Evidence" — Audit Trail V2 (canonical, provenance-aware audit projection across lifecycle, effort, code evidence, pipeline, integration, webhook, and opt-in health snapshot sources; scoped task/mission evidence bundles; integrity-ready archival) and Advanced Analytics (confidence-aware forecasting, trend analysis, cumulative-flow snapshots, bottleneck detection, sprint analytics, and informational-only agent quality signals) |
 | v0.17.1 | "Deepen: Transition Core" — TransitionEmitter deep module consolidating the 5-layer task transition side-effect chain (DB write → event → SSE → watcher → mission recalc) into one `emitTransition` seam across 5 caller files (16 actions, opt-in mission recalc debounce); and API Client Domain Split defining 23 per-domain interfaces with `KanbanApiClient` as the typed facade, per-domain mock factories (33% → 100% method coverage), and `getMissionContext` extracted to a standalone orchestrator service |
 | v0.17.2 | "Tighten: Effort and Notification Plumbing" — effort metrics recompute on complete/approve (FU-001 correctness fix), `NOTIFY_TASK_EVENT_ACTIONS` consumer audit constant, 13 MCP handler files narrowed to per-domain interfaces, `ORCY_TRANSITION_RECALC_DEBOUNCE` env documentation, 194 `@requires` JSDoc tags across 25 MCP tool files |
+| v0.17.3 | "Prep: Event Spine" — SSE Event Registry: centralized event handler pattern replacing the triple-switch (Zustand mutation, React Query invalidation, toast/dropdown notification) across all SSE event types. New events registered once and covered by completeness tests. Foundation that v0.18 automation and Notification V2 event types build on. |
+| v0.18.0 | "Rules That Act" — Workflow Automation Engine (12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, simulation, cooldown/fingerprint/rate-limit guards, scheduled scans), Notification System V2 (subscriptions, channel routing, in-app/webhook/Slack/Discord delivery, acknowledgment/snooze/mute, digests with hourly/daily/weekly cadence, retention-based clearance), MCP self-service surfaces (read-only automation, self-service notifications), UI automation settings tab, REST routes, audit projection |
 
 ---
 
 ## Upcoming
-
----
-
-### v0.17.3 — "Prep: Event Spine"
-
-Prepare the real-time UI event path before v0.18 adds automation and Notification V2 events.
-
-| Architecture | Problem it solves |
-|--------------|-------------------|
-| SSE Event Registry | Replaces the triple-switch pattern in Zustand mutation, React Query invalidation, and toast/dropdown notification handling with a centralized event registry. New SSE event types are registered once and covered by completeness tests. |
-
-**Why before v0.18:** Workflow automation and Notification System V2 will add more event types. Shipping the registry as a patch isolates behavior-preserving event plumbing from new feature behavior.
-
----
-
-### v0.18.0 — "Rules That Act"
-
-Move from rules that score work to rules that take action.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Workflow Automation Engine | Lets Orcy react to events with configured actions: escalate, notify, create tasks/signals, change priority, call webhooks, request reviews |
-| Notification System V2 | Adds subscriptions, digests, channel routing, acknowledgments, mute/snooze, and escalation delivery |
-
-**Why together:** Automation needs actions, and many high-value actions are notifications or escalations. The daemon/cron foundation gives these rules a runtime; Notification V2 makes them visible and controllable.
-
-Planning directory: `docs/plans/v18/`
-
-**Architecture prereq:** SSE Event Registry (#4) ships first in v0.17.3. v0.18 consumes that registry when adding automation and Notification V2 event types.
-
----
 
 ### v0.18.1 — "Deepen: Public Surface Prep"
 

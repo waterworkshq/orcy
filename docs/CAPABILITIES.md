@@ -79,3 +79,27 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Code review webhooks** | Inbound webhooks from GitHub, GitLab, and Bitbucket for pull request review events. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Chat integrations** | Slack and Discord integrations for notifications and pod messaging. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Plugin system** | Extensible plugin architecture. Built-in auto-label plugin that categorizes tasks by analyzing their titles. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+
+## Notification System V2
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Notification Center** | Durable active inbox with acknowledgment, snooze, mute, and clearance for humans and agents. | [API.md](API.md) |
+| **Subscription management** | Habitat defaults and per-recipient overrides with channel routing (in-app, webhook, Slack, Discord). | [API.md](API.md) |
+| **Digests** | Hourly, daily, and weekly notification grouping with timezone-aware send times. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Retention & clearance** | Admin-controlled retention windows with automatic and manual clearance. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Delivery monitoring** | Per-channel attempt tracking with retry scheduling, redaction, and status filtering. | [API.md](API.md) |
+| **Legacy migration** | Migrates `notification_preferences` booleans to V2 recipient overrides. | [API.md](API.md) |
+
+## Workflow Automation
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Automation Rules** | Server-side event-driven and scheduled rules with trigger, condition, and ordered actions. | [API.md](API.md) |
+| **Condition evaluation** | 12 condition types (priority, status, assignment, labels, domain, field comparison) with AND/OR/NOT nesting. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Action execution** | 9 action types (notify, create_signal, create_task, change_priority, assign, release, request_review, call_webhook, mark_risk). | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Simulation** | Preview what a rule would do without side effects — condition tree + action previews. | [API.md](API.md) |
+| **Safety guards** | Cooldown, hourly rate limit, self-loop prevention, and fingerprint deduplication. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Scheduled scans** | Mission blocked, sprint ending, agent silent, and evidence gap open detection. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Run history** | Durable run records with status, skip reasons, condition results, and per-action outcomes. | [API.md](API.md) |
+| **MCP tools** | Agents can inspect automation (read/simulate/history) and manage own notification state (ack/snooze/inbox). | [API.md](API.md) |
