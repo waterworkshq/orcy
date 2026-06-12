@@ -50,15 +50,17 @@ class SSEBroadcaster {
           logger.error({ err }, "Chat push error");
         },
       );
-      // Non-blocking automation event ingestion
-      try {
-        ingestEvent(habitatId, {
-          type: event.type,
-          data: event.data as Record<string, unknown>,
+      // Non-blocking automation event ingestion — decoupled from SSE delivery latency
+      Promise.resolve()
+        .then(() =>
+          ingestEvent(habitatId, {
+            type: event.type,
+            data: event.data as Record<string, unknown>,
+          }),
+        )
+        .catch((err) => {
+          logger.error({ err }, "Automation event ingestion error");
         });
-      } catch (err) {
-        logger.error({ err }, "Automation event ingestion error");
-      }
     }
 
     this.triggerNotifications(habitatId, event);

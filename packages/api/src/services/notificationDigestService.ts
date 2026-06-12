@@ -165,6 +165,17 @@ function processDigestGroup(
   }
 }
 
+/**
+ * Determines whether a digest should fire at the current wall-clock minute.
+ *
+ * Relies on `Date.prototype.toLocaleString(..., { timeZone })` to resolve the
+ * caller's preferred local time.  This API depends on **full-icu** support
+ * from the Node runtime.  If the runtime was built with the default small-icu
+ * (`--with-intl=small-icu`), only the host's system timezone is available
+ * and arbitrary IANA timezone strings will produce "Invalid time zone";
+ * in that case this function returns `false` so digest cadences quietly
+ * fall back to UTC-based defaults.
+ */
 function shouldProcessAtThisTime(
   cadence: NotificationCadence,
   timezone: string | null,
