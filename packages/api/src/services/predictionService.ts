@@ -1,17 +1,6 @@
-import { getDb } from "../db/index.js";
-import {
-  tasks,
-  agents,
-  taskEvents,
-  taskDependencies,
-  missions,
-  sprints,
-} from "../db/schema/index.js";
-import { eq, and, sql, isNotNull, notInArray, inArray } from "drizzle-orm";
-import { dateDayExpr } from "../db/dialect-helpers.js";
-import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { TaskPriority, TaskStatus } from "../models/index.js";
-import { MS_PER_DAY, utcDateKey, utcNowISO } from "./analyticsDate.js";
+import * as predictionRepo from "../repositories/prediction.js";
+import { MS_PER_DAY, utcDateKey } from "./analyticsDate.js";
 
 export type ForecastConfidence = "high" | "medium" | "low" | "insufficient_data";
 
@@ -263,65 +252,27 @@ export function calculateVelocity(
   habitatId: string,
   options?: { sprintId?: string },
 ): VelocityMetrics {
-  const db = getDb();
   const now = Date.now();
   const since = (days: number) => new Date(now - days * MS_PER_DAY).toISOString();
-
-  const baseConditions = [
-    eq(missions.habitatId, habitatId),
-    inArray(tasks.status, ["approved", "done"]),
-  ];
-  if (options?.sprintId) baseConditions.push(eq(missions.sprintId, options.sprintId));
-
-  function countCompletedSince(sinceDate: string): number {
-    const row = db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(and(...baseConditions, sql`${tasks.completedAt} >= ${sinceDate}`))
-      .get();
-    return row?.count ?? 0;
-  }
-
-  const days7 = countCompletedSince(since(7));
-  const days14 = countCompletedSince(since(14));
-  const days30 = countCompletedSince(since(30));
-
-  const agentRows = db
-    .selectDistinct({ id: agents.id, name: agents.name })
-    .from(agents)
-    .innerJoin(tasks, eq(tasks.assignedAgentId, agents.id))
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(eq(missions.habitatId, habitatId))
-    .all();
 
   const since7 = since(7);
   const since14 = since(14);
   const since30 = since(30);
+  const days7 = predictionRepo.countCompletedTasksSince(habitatId, since7, options);
+  const days14 = predictionRepo.countCompletedTasksSince(habitatId, since14, options);
+  const days30 = predictionRepo.countCompletedTasksSince(habitatId, since30, options);
+  const agentRows = predictionRepo.getVelocityAgents(habitatId);
 
   const perAgent: VelocityMetrics["perAgent"] = {};
   for (const agent of agentRows) {
-    const agentConditions = [
-      eq(missions.habitatId, habitatId),
-      inArray(tasks.status, ["approved", "done"]),
-      eq(tasks.assignedAgentId, agent.id),
-    ];
-    if (options?.sprintId) agentConditions.push(eq(missions.sprintId, options.sprintId));
-
-    const buckets = db
-      .select({
-        bucket: sql<string>`CASE
-          WHEN ${tasks.completedAt} >= ${since7} THEN 'd7'
-          WHEN ${tasks.completedAt} >= ${since14} THEN 'd14'
-          WHEN ${tasks.completedAt} >= ${since30} THEN 'd30'
-        END`,
-        count: sql<number>`count(*)`,
-      })
-      .from(tasks)
-      .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(and(...agentConditions, sql`${tasks.completedAt} >= ${since30}`))
-      .groupBy(sql`1`)
-      .all();
+    const buckets = predictionRepo.getAgentCompletionBuckets(
+      habitatId,
+      agent.id,
+      since7,
+      since14,
+      since30,
+      options,
+    );
 
     let a7 = 0;
     let a14 = 0;
@@ -347,55 +298,15 @@ export function estimateCompletionDates(
   habitatId: string,
   velocity: VelocityMetrics,
 ): TaskEstimate[] {
-  const db = getDb();
   const now = Date.now();
 
   const dailyVelocity =
     velocity.days14 > 0 ? velocity.days14 / 14 : velocity.days30 > 0 ? velocity.days30 / 30 : 0.5;
 
-  const rows = db
-    .select({
-      id: tasks.id,
-      missionId: tasks.missionId,
-      title: tasks.title,
-      status: tasks.status,
-      priority: tasks.priority,
-      assignedAgentId: tasks.assignedAgentId,
-      dueAt: missions.dueAt,
-      lastActivity: sql<
-        string | null
-      >`(SELECT MAX(${taskEvents.timestamp}) FROM ${taskEvents} WHERE ${taskEvents.taskId} = ${tasks.id})`,
-    })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(
-      and(
-        eq(missions.habitatId, habitatId),
-        notInArray(tasks.status, ["approved", "done", "failed"]),
-      ),
-    )
-    .orderBy(priorityOrderExpr(tasks.priority), tasks.createdAt)
-    .all();
+  const rows = predictionRepo.getOpenTaskEstimateRows(habitatId);
 
   const taskIds = rows.map((r) => r.id);
-  const depCountRows =
-    taskIds.length > 0
-      ? db
-          .select({
-            taskId: taskDependencies.taskId,
-            count: sql<number>`count(*)`,
-          })
-          .from(taskDependencies)
-          .innerJoin(tasks, eq(taskDependencies.dependsOnId, tasks.id))
-          .where(
-            and(
-              inArray(taskDependencies.taskId, taskIds),
-              notInArray(tasks.status, ["approved", "done"]),
-            ),
-          )
-          .groupBy(taskDependencies.taskId)
-          .all()
-      : [];
+  const depCountRows = predictionRepo.getUnmetDependencyCounts(taskIds);
   const depCountMap = new Map(depCountRows.map((r) => [r.taskId, r.count]));
 
   const estimates: TaskEstimate[] = [];
@@ -403,8 +314,8 @@ export function estimateCompletionDates(
 
   for (const row of rows) {
     const taskId = row.id;
-    const status = row.status as TaskStatus;
-    const priority = row.priority as TaskPriority;
+    const status = row.status;
+    const priority = row.priority;
 
     const unmetDeps = depCountMap.get(taskId) ?? 0;
 
@@ -479,7 +390,6 @@ export function estimateCompletionDates(
 }
 
 export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]): AtRiskTask[] {
-  const db = getDb();
   const now = Date.now();
   const msHour = 60 * 60 * 1000;
   const atRisk: AtRiskTask[] = [];
@@ -519,24 +429,7 @@ export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]):
     }
   }
 
-  const activityRows = db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-      assignedAgentId: tasks.assignedAgentId,
-      dueAt: missions.dueAt,
-      updatedAt: tasks.updatedAt,
-      lastActivity: sql<
-        string | null
-      >`(SELECT MAX(${taskEvents.timestamp}) FROM ${taskEvents} WHERE ${taskEvents.taskId} = ${tasks.id})`,
-    })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(
-      and(eq(missions.habitatId, habitatId), inArray(tasks.status, ["claimed", "in_progress"])),
-    )
-    .all();
+  const activityRows = predictionRepo.getActiveTaskActivityRows(habitatId);
 
   for (const row of activityRows) {
     const lastActivity = row.lastActivity ?? row.updatedAt;
@@ -560,42 +453,10 @@ export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]):
     }
   }
 
-  const blockedRows = db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-      assignedAgentId: tasks.assignedAgentId,
-      dueAt: missions.dueAt,
-      lastActivity: sql<
-        string | null
-      >`(SELECT MAX(${taskEvents.timestamp}) FROM ${taskEvents} WHERE ${taskEvents.taskId} = ${tasks.id})`,
-    })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(
-      and(
-        eq(missions.habitatId, habitatId),
-        eq(tasks.status, "pending"),
-        sql`EXISTS (
-        SELECT 1 FROM task_dependencies td
-        INNER JOIN tasks dep ON td.depends_on_id = dep.id
-        WHERE td.task_id = ${tasks.id} AND dep.status NOT IN ('approved', 'done')
-      )`,
-      ),
-    )
-    .all();
+  const blockedRows = predictionRepo.getBlockedTaskRowsWithUnmetCounts(habitatId);
 
   for (const row of blockedRows) {
-    const depCountRow = db
-      .select({ count: sql<number>`count(*)` })
-      .from(taskDependencies)
-      .innerJoin(tasks, eq(taskDependencies.dependsOnId, tasks.id))
-      .where(
-        and(eq(taskDependencies.taskId, row.id), notInArray(tasks.status, ["approved", "done"])),
-      )
-      .get();
-    const unmetCount = depCountRow?.count ?? 0;
+    const unmetCount = row.unmetCount;
 
     const severity: AtRiskTask["severity"] = unmetCount > 2 ? "high" : "medium";
 
@@ -676,7 +537,6 @@ export function buildForecasts(
   velocity: VelocityMetrics,
   estimates: TaskEstimate[],
 ): ForecastEstimate[] {
-  const db = getDb();
   const forecasts: ForecastEstimate[] = estimates.map((estimate) => ({
     targetType: "task",
     targetId: estimate.taskId,
@@ -702,11 +562,7 @@ export function buildForecasts(
     if (forecast) forecasts.push(forecast);
   }
 
-  const missionRows = db
-    .select({ id: missions.id, sprintId: missions.sprintId })
-    .from(missions)
-    .where(and(eq(missions.habitatId, habitatId), isNotNull(missions.sprintId)))
-    .all();
+  const missionRows = predictionRepo.getMissionSprintRows(habitatId);
 
   const estimatesBySprint = new Map<string, TaskEstimate[]>();
   for (const mission of missionRows) {
@@ -739,21 +595,14 @@ export function getBurndown(
   days: number,
   options?: { sprintId?: string },
 ): BurndownResponse {
-  const db = getDb();
   const now = new Date();
-
-  const sprintFilter = options?.sprintId ? eq(missions.sprintId, options.sprintId) : undefined;
 
   let startDate: Date;
   let effectiveDays: number;
-  let sprintRow: { startDate: string; endDate: string } | undefined;
+  let sprintRow: predictionRepo.SprintDateRange | undefined;
 
   if (options?.sprintId) {
-    sprintRow = db
-      .select({ startDate: sprints.startDate, endDate: sprints.endDate })
-      .from(sprints)
-      .where(eq(sprints.id, options.sprintId))
-      .get();
+    sprintRow = predictionRepo.getSprintDateRange(options.sprintId);
     if (sprintRow) {
       startDate = new Date(sprintRow.startDate);
       const sprintEnd = new Date(sprintRow.endDate);
@@ -772,66 +621,26 @@ export function getBurndown(
 
   const endDate = options?.sprintId && sprintRow ? new Date(sprintRow.endDate) : now;
 
-  const baseConditions = [eq(missions.habitatId, habitatId)];
-  if (sprintFilter) baseConditions.push(sprintFilter);
-
-  const totalRow = db
-    .select({ count: sql<number>`count(*)` })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(and(...baseConditions))
-    .get();
-  const totalTasks = totalRow?.count ?? 0;
-
-  const completedRow = db
-    .select({ count: sql<number>`count(*)` })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(and(...baseConditions, inArray(tasks.status, ["approved", "done"])))
-    .get();
-  const completedTasks = completedRow?.count ?? 0;
+  const { totalTasks, completedTasks } = predictionRepo.getBurndownTaskCounts(habitatId, options);
 
   const remainingTasks = totalTasks - completedTasks;
 
-  const dayExpr = dateDayExpr(tasks.completedAt);
-  const dailyCompletedRows = db
-    .select({
-      date: dayExpr,
-      count: sql<number>`count(*)`,
-    })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(
-      and(
-        ...baseConditions,
-        inArray(tasks.status, ["approved", "done"]),
-        isNotNull(tasks.completedAt),
-        sql`${tasks.completedAt} >= ${startDate.toISOString()}`,
-      ),
-    )
-    .groupBy(dayExpr)
-    .orderBy(dayExpr)
-    .all();
+  const dailyCompletedRows = predictionRepo.getDailyCompletedTaskCounts(
+    habitatId,
+    startDate.toISOString(),
+    options,
+  );
 
   const completedByDate: Record<string, number> = {};
   for (const row of dailyCompletedRows) {
-    completedByDate[row.date as string] = row.count;
+    completedByDate[row.date] = row.count;
   }
 
-  const cumulativeRow = db
-    .select({ count: sql<number>`count(*)` })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(
-      and(
-        ...baseConditions,
-        inArray(tasks.status, ["approved", "done"]),
-        isNotNull(tasks.completedAt),
-        sql`${tasks.completedAt} < ${startDate.toISOString()}`,
-      ),
-    )
-    .get();
-  let cumulativeCompleted = cumulativeRow?.count ?? 0;
+  let cumulativeCompleted = predictionRepo.countCompletedTasksBefore(
+    habitatId,
+    startDate.toISOString(),
+    options,
+  );
 
   const data: BurndownDataPoint[] = [];
   const idealPerDay = totalTasks > 0 ? totalTasks / effectiveDays : 0;

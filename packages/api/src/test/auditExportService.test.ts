@@ -5,8 +5,15 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/task.js";
 import * as eventRepo from "../repositories/events/index.js";
-import { generateAuditExportContent } from "../services/auditExportService.js";
 import {
+  createSchedule,
+  deleteSchedule,
+  generateAuditExportContent,
+  getScheduleById,
+  listSchedules,
+} from "../services/auditExportService.js";
+import {
+  auditExportSchedules,
   columns,
   habitatCodeRepositories,
   habitats,
@@ -19,6 +26,7 @@ import {
 beforeEach(async () => {
   await initTestDb();
   const db = getDb();
+  db.delete(auditExportSchedules).run();
   db.delete(pipelineEvents).run();
   db.delete(habitatCodeRepositories).run();
   db.delete(taskEvents).run();
@@ -161,5 +169,33 @@ describe("auditExportService", () => {
       source: "webhook",
       provenance: { provider: "github" },
     });
+  });
+
+  it("creates, lists, reads, and deletes export schedules", () => {
+    const fixture = createFixture();
+
+    const schedule = createSchedule(fixture.habitat.id, {
+      name: "Daily JSONL",
+      format: "jsonl",
+      filters: { source: "scheduler" },
+      schedule: "0 8 * * *",
+    });
+
+    expect(schedule).toMatchObject({
+      habitatId: fixture.habitat.id,
+      name: "Daily JSONL",
+      format: "jsonl",
+      filters: { source: "scheduler" },
+      destination: "local",
+      destinationConfig: {},
+      enabled: true,
+      createdBy: "system",
+    });
+
+    expect(getScheduleById(schedule.id)?.id).toBe(schedule.id);
+    expect(listSchedules(fixture.habitat.id).map((item) => item.id)).toEqual([schedule.id]);
+
+    expect(deleteSchedule(schedule.id)).toBe(true);
+    expect(getScheduleById(schedule.id)).toBeNull();
   });
 });

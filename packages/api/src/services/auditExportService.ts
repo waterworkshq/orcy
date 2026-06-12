@@ -1,7 +1,3 @@
-import { getDb } from "../db/index.js";
-import { taskEvents, missionEvents, tasks, missions } from "../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
 import type { FastifyReply } from "fastify";
 import type {
   AuditCompletenessSummary,
@@ -14,6 +10,7 @@ import {
   summarizeAuditCompleteness,
   type AuditQueryInput,
 } from "./auditQueryService.js";
+import * as auditExportRepo from "../repositories/auditExport.js";
 
 export interface AuditExportQuery {
   format: "csv" | "json" | "jsonl";
@@ -280,44 +277,7 @@ export async function streamAuditExport(
 }
 
 export function getAuditSummary(habitatId: string, since?: string, until?: string): AuditSummary {
-  const db = getDb();
-
-  const taskCondition = [eq(missions.habitatId, habitatId)];
-  if (since) taskCondition.push(sql`${taskEvents.timestamp} >= ${since}`);
-  if (until) taskCondition.push(sql`${taskEvents.timestamp} <= ${until}`);
-
-  const taskRows = db
-    .select({
-      action: taskEvents.action,
-      actorType: taskEvents.actorType,
-      timestamp: taskEvents.timestamp,
-      missionId: missions.id,
-      missionTitle: missions.title,
-    })
-    .from(taskEvents)
-    .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(and(...taskCondition))
-    .all();
-
-  const missionCondition = [eq(missions.habitatId, habitatId)];
-  if (since) missionCondition.push(sql`${missionEvents.timestamp} >= ${since}`);
-  if (until) missionCondition.push(sql`${missionEvents.timestamp} <= ${until}`);
-
-  const missionRows = db
-    .select({
-      action: missionEvents.action,
-      actorType: missionEvents.actorType,
-      timestamp: missionEvents.timestamp,
-      missionId: missions.id,
-      missionTitle: missions.title,
-    })
-    .from(missionEvents)
-    .innerJoin(missions, eq(missionEvents.missionId, missions.id))
-    .where(and(...missionCondition))
-    .all();
-
-  const allRows = [...taskRows, ...missionRows];
+  const allRows = auditExportRepo.getAuditSummaryRows(habitatId, since, until);
 
   const byAction: Record<string, number> = {};
   const byActorType: Record<string, number> = {};
@@ -387,53 +347,18 @@ export function createSchedule(
     schedule: string;
   },
 ): AuditExportSchedule {
-  const db = getDb();
-  const id = uuid();
-  const now = new Date().toISOString();
-
-  db.run(sql`
-    INSERT INTO audit_export_schedules (id, habitat_id, name, format, filters, schedule, enabled, next_run_at, created_by, created_at)
-    VALUES (${id}, ${habitatId}, ${input.name}, ${input.format}, ${JSON.stringify(input.filters ?? {})}, ${input.schedule}, 1, ${now}, 'system', ${now})
-  `);
-
-  return getScheduleById(id)!;
+  return auditExportRepo.createScheduleRecord(habitatId, input);
 }
 
 export function getScheduleById(id: string): AuditExportSchedule | null {
-  const db = getDb();
-  const rows = db.all(sql`SELECT * FROM audit_export_schedules WHERE id = ${id}`) as any[];
-  if (rows.length === 0) return null;
-  return mapScheduleRow(rows[0]);
+  return auditExportRepo.getScheduleById(id);
 }
 
 export function listSchedules(habitatId: string): AuditExportSchedule[] {
-  const db = getDb();
-  const rows = db.all(
-    sql`SELECT * FROM audit_export_schedules WHERE habitat_id = ${habitatId} ORDER BY created_at`,
-  ) as any[];
-  return rows.map(mapScheduleRow);
+  return auditExportRepo.listSchedules(habitatId);
 }
 
 export function deleteSchedule(id: string): boolean {
-  const db = getDb();
-  db.run(sql`DELETE FROM audit_export_schedules WHERE id = ${id}`);
+  auditExportRepo.deleteSchedule(id);
   return true;
-}
-
-function mapScheduleRow(row: any): AuditExportSchedule {
-  return {
-    id: row.id,
-    habitatId: row.habitat_id,
-    name: row.name,
-    format: row.format,
-    filters: JSON.parse(row.filters),
-    schedule: row.schedule,
-    destination: row.destination ?? "local",
-    destinationConfig: JSON.parse(row.destination_config ?? "{}"),
-    enabled: Boolean(row.enabled),
-    lastRunAt: row.last_run_at ?? null,
-    nextRunAt: row.next_run_at,
-    createdBy: row.created_by,
-    createdAt: row.created_at,
-  };
 }

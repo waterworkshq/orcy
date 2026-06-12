@@ -1,9 +1,6 @@
-import { getDb } from "../db/index.js";
-import { tasks, missions, agents, users } from "../db/schema/index.js";
-import { eq, and, sql, isNotNull, inArray, desc, ne } from "drizzle-orm";
-import { cycleTimeMinutes } from "../db/dialect-helpers.js";
 import * as habitatRepo from "../repositories/board.js";
-import { daysAgoISO, utcNowISO, MS_PER_DAY } from "./analyticsDate.js";
+import * as anomalyRepo from "../repositories/anomaly.js";
+import { daysAgoISO } from "./analyticsDate.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as emailService from "./emailService.js";
 import * as chatService from "./chatService.js";
@@ -53,35 +50,13 @@ export function detectStaleInProgress(
   habitatId: string,
   settings: AnomalySettings,
 ): AnomalyResult[] {
-  const db = getDb();
   const thresholdMs = settings.thresholds.staleInProgressMinutes * 60 * 1000;
   const now = Date.now();
-
-  const habitatMissionIds = db
-    .select({ id: missions.id })
-    .from(missions)
-    .where(eq(missions.habitatId, habitatId))
-    .all()
-    .map((f) => f.id);
+  const habitatMissionIds = anomalyRepo.getMissionIdsForHabitat(habitatId);
 
   if (habitatMissionIds.length === 0) return [];
 
-  const rows = db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      startedAt: tasks.startedAt,
-      assignedAgentId: tasks.assignedAgentId,
-    })
-    .from(tasks)
-    .where(
-      and(
-        inArray(tasks.missionId, habitatMissionIds),
-        eq(tasks.status, "in_progress"),
-        isNotNull(tasks.startedAt),
-      ),
-    )
-    .all();
+  const rows = anomalyRepo.getStaleInProgressCandidates(habitatMissionIds);
 
   const anomalies: AnomalyResult[] = [];
   for (const row of rows) {
@@ -113,30 +88,12 @@ export function detectRejectionSpike(
   habitatId: string,
   settings: AnomalySettings,
 ): AnomalyResult[] {
-  const db = getDb();
   const windowSize = settings.thresholds.rejectionWindowTasks;
-
-  const habitatMissionIds = db
-    .select({ id: missions.id })
-    .from(missions)
-    .where(eq(missions.habitatId, habitatId))
-    .all()
-    .map((f) => f.id);
+  const habitatMissionIds = anomalyRepo.getMissionIdsForHabitat(habitatId);
 
   if (habitatMissionIds.length === 0) return [];
 
-  const rows = db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-      rejectedCount: tasks.rejectedCount,
-    })
-    .from(tasks)
-    .where(inArray(tasks.missionId, habitatMissionIds))
-    .orderBy(desc(tasks.updatedAt))
-    .limit(windowSize)
-    .all();
+  const rows = anomalyRepo.getRecentTasksForRejectionWindow(habitatMissionIds, windowSize);
 
   let rejectedCount = 0;
   let total = 0;
@@ -167,43 +124,23 @@ export function detectCycleTimeDegradation(
   habitatId: string,
   settings: AnomalySettings,
 ): AnomalyResult[] {
-  const db = getDb();
   const now = new Date();
   const sevenDaysAgo = daysAgoISO(7, now);
   const fourteenDaysAgo = daysAgoISO(14, now);
-
-  const habitatMissionIds = db
-    .select({ id: missions.id })
-    .from(missions)
-    .where(eq(missions.habitatId, habitatId))
-    .all()
-    .map((f) => f.id);
+  const habitatMissionIds = anomalyRepo.getMissionIdsForHabitat(habitatId);
 
   if (habitatMissionIds.length === 0) return [];
 
-  function getAvgCycleTime(since: string, until: string): number {
-    const ctExpr = cycleTimeMinutes(tasks.completedAt, tasks.claimedAt);
-    const row = db
-      .select({
-        avgMinutes: sql<number>`avg(${ctExpr})`,
-      })
-      .from(tasks)
-      .where(
-        and(
-          inArray(tasks.missionId, habitatMissionIds),
-          isNotNull(tasks.claimedAt),
-          isNotNull(tasks.completedAt),
-          inArray(tasks.status, ["approved", "done"]),
-          sql`${tasks.completedAt} >= ${since}`,
-          sql`${tasks.completedAt} < ${until}`,
-        ),
-      )
-      .get();
-    return row?.avgMinutes ?? 0;
-  }
-
-  const recentCycle = getAvgCycleTime(sevenDaysAgo, now.toISOString());
-  const previousCycle = getAvgCycleTime(fourteenDaysAgo, sevenDaysAgo);
+  const recentCycle = anomalyRepo.getAverageCycleTimeMinutes(
+    habitatMissionIds,
+    sevenDaysAgo,
+    now.toISOString(),
+  );
+  const previousCycle = anomalyRepo.getAverageCycleTimeMinutes(
+    habitatMissionIds,
+    fourteenDaysAgo,
+    sevenDaysAgo,
+  );
 
   if (previousCycle === 0 || recentCycle === 0) return [];
 
@@ -228,41 +165,11 @@ export function detectCycleTimeDegradation(
 }
 
 export function detectBacklogGrowth(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
-  const db = getDb();
-
-  const habitatMissionIds = db
-    .select({ id: missions.id })
-    .from(missions)
-    .where(eq(missions.habitatId, habitatId))
-    .all()
-    .map((f) => f.id);
+  const habitatMissionIds = anomalyRepo.getMissionIdsForHabitat(habitatId);
 
   if (habitatMissionIds.length === 0) return [];
 
-  const pendingRow = db
-    .select({ count: sql<number>`count(*)` })
-    .from(tasks)
-    .where(
-      and(
-        inArray(tasks.missionId, habitatMissionIds),
-        inArray(tasks.status, ["pending", "claimed"]),
-      ),
-    )
-    .get();
-  const pendingCount = pendingRow?.count ?? 0;
-
-  const agentRow = db
-    .select({ count: sql<number>`count(distinct ${tasks.assignedAgentId})` })
-    .from(tasks)
-    .where(
-      and(
-        inArray(tasks.missionId, habitatMissionIds),
-        inArray(tasks.status, ["claimed", "in_progress", "submitted"]),
-        isNotNull(tasks.assignedAgentId),
-      ),
-    )
-    .get();
-  const activeAgents = agentRow?.count ?? 0;
+  const { pendingCount, activeAgents } = anomalyRepo.getBacklogStats(habitatMissionIds);
 
   if (activeAgents === 0) return [];
 
@@ -287,19 +194,11 @@ export function detectBacklogGrowth(habitatId: string, settings: AnomalySettings
 }
 
 export function detectAgentOffline(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
-  const db = getDb();
   const thresholdMs = settings.thresholds.agentOfflineMinutes * 60 * 1000;
   const now = Date.now();
+  void habitatId;
 
-  const agentRows = db
-    .select({
-      id: agents.id,
-      name: agents.name,
-      lastHeartbeat: agents.lastHeartbeat,
-    })
-    .from(agents)
-    .where(ne(agents.status, "offline"))
-    .all();
+  const agentRows = anomalyRepo.getAgentOfflineCandidates();
 
   const anomalies: AnomalyResult[] = [];
   for (const row of agentRows) {
@@ -313,20 +212,16 @@ export function detectAgentOffline(habitatId: string, settings: AnomalySettings)
             ? "high"
             : "medium";
 
-      const taskRow = db
-        .select({ count: sql<number>`count(*)` })
-        .from(tasks)
-        .where(
-          and(eq(tasks.assignedAgentId, row.id), inArray(tasks.status, ["claimed", "in_progress"])),
-        )
-        .get();
-      const activeTasks = taskRow?.count ?? 0;
-
       anomalies.push({
         type: "agent_offline",
         severity,
         message: `Agent "${row.name}" has been offline for ${elapsedMinutes} minutes (threshold: ${settings.thresholds.agentOfflineMinutes}m)`,
-        data: { agentId: row.id, agentName: row.name, elapsedMinutes, activeTasks },
+        data: {
+          agentId: row.id,
+          agentName: row.name,
+          elapsedMinutes,
+          activeTasks: row.activeTasks,
+        },
       });
     }
   }
@@ -387,12 +282,7 @@ export function scanHabitat(habitatId: string): AnomalyResult[] {
 }
 
 function sendAnomalyEmails(habitatId: string, habitatName: string, anomaly: AnomalyResult): void {
-  const db = getDb();
-  const adminRows = db
-    .select({ id: users.id, email: users.email })
-    .from(users)
-    .where(eq(users.role, "admin"))
-    .all();
+  const adminRows = anomalyRepo.getAdminEmailRecipients();
   for (const row of adminRows) {
     if (!row.email) continue;
     const payload = emailService.anomalyAlertTemplate(
