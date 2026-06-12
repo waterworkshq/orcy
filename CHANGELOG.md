@@ -2,6 +2,37 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.18.1 — 2026-06-12
+
+### Refactors
+
+#### move column resolution logic to repository ([`fc5b8ab`](https://github.com/waterworkshq/orcy/commit/fc5b8abedeff8c462500695f9f3767b90b36a559))
+
+1. Move resolveImportColumn from services/integrations/columnResolver to repositories/column.ts and update all imports to use the new location. This change improves code organization by placing column-related functionality in the repository layer.
+
+3. The function was moved to maintain better separation of concerns, as column resolution is a data access operation that belongs in the repository layer rather than the services layer. All dependent services have been updated to use the new import path.
+
+
+#### extract database operations to repository layer ([`590d316`](https://github.com/waterworkshq/orcy/commit/590d3161a3dc74d791d440e566310b9e0a0d60b9))
+
+1. Extract database query logic from anomalyService, auditExportService, dependencyService, and predictionService into dedicated repository modules. This change improves code organization by separating data access concerns from business logic.
+
+3. The repository pattern implementation centralizes database operations, making services cleaner and more focused on their core responsibilities. Each service now delegates data access to its corresponding repository module, improving maintainability and testability.
+
+
+#### extract database operations to repository modules ([`459c79b`](https://github.com/waterworkshq/orcy/commit/459c79be5910deea0fd6bc97ea496f07474739d2))
+
+1. Extract database query logic from auditArchivalService, boardHealthService, sprintService, and webhook services into dedicated repository modules. This change improves code organization by separating data access concerns from business logic.
+
+3. The repository pattern implementation centralizes database operations, making services cleaner and more focused on their core responsibilities. Each service now delegates data access to its corresponding repository module, improving maintainability and testability.
+
+
+#### split repositories into specialized modules ([`78a7271`](https://github.com/waterworkshq/orcy/commit/78a7271e6dcde5680411336b2bf8eb4d47ee3ce6))
+
+1. Separate daemon and task repositories into specialized modules for better organization and maintainability. The daemon repository is split into daemonAgent, daemonInstance, and daemonSession modules, while the task repository is divided into taskCrud, taskQueries, and taskStateMachine modules. This modular approach improves code organization by separating concerns and makes the repository layer more granular and easier to understand.
+
+
+
 ## 0.18.0 — 2026-06-11
 
 ### Bug Fixes
@@ -215,15 +246,3 @@
 8. Documentation updates in README.md and docs/ROADMAP.md
 
 10. This change prepares the real-time UI event path for v0.18's workflow automation and Notification System V2 by establishing a centralized event handling architecture.
-
-
-
-## 0.17.2 — 2026-06-10
-
-### Performance
-
-#### add effort metrics recalculation and transition debouncing ([`a52c609`](https://github.com/waterworkshq/orcy/commit/a52c60989e17b41720c552f5ec827ab5494b734a))
-
-1. This change implements automatic recalculation of effort metrics when tasks are completed or approved, ensuring consistent actualMinutes values. It also introduces transition recalculation debouncing via the ORCY_TRANSITION_RECALC_DEBOUNCE environment variable to optimize performance in high-frequency transition scenarios.
-
-3. The implementation adds error handling for effort metric recalculations and includes comprehensive test coverage for the new functionality. Additionally, it defines which task actions trigger notifications via the notifyTaskEvent system to prevent inconsistencies.
