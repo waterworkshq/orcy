@@ -1,16 +1,15 @@
-import { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../lib/queryKeys.js';
-import { api } from '../api/index.js';
-import { useHabitatStore } from '../store/habitatStore.js';
-import { notify } from '../lib/toast.js';
-import { initEditForm } from '../lib/task-helpers.js';
-import type { Task } from '../types/index.js';
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys.js";
+import { api } from "../api/index.js";
+import { notify } from "../lib/toast.js";
+import { initEditForm } from "../lib/task-helpers.js";
+import type { Task } from "../types/index.js";
 
 interface EditFormState {
   title: string;
   description: string;
-  priority: 'low' | 'medium' | 'high' | 'critical';
+  priority: "low" | "medium" | "high" | "critical";
   labels: string;
   requiredDomain: string;
   requiredCapabilities: string[];
@@ -48,17 +47,25 @@ export function useTaskEdit(
   selectedTaskId: string | null,
   detailsData: any,
 ): UseTaskEditResult {
-  const { updateTask } = useHabitatStore();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<EditFormState>({
-    title: '', description: '', priority: 'medium', labels: '', requiredDomain: '', requiredCapabilities: [],
+    title: "",
+    description: "",
+    priority: "medium",
+    labels: "",
+    requiredDomain: "",
+    requiredCapabilities: [],
   });
-  const [editDueAt, setEditDueAt] = useState('');
-  const [editSlaMinutes, setEditSlaMinutes] = useState('');
-  const [editEstimatedMinutes, setEditEstimatedMinutes] = useState('');
+  const [editDueAt, setEditDueAt] = useState("");
+  const [editSlaMinutes, setEditSlaMinutes] = useState("");
+  const [editEstimatedMinutes, setEditEstimatedMinutes] = useState("");
   const [retryForm, setRetryForm] = useState<RetryFormState>({
-    maxRetries: '', backoffBase: '', backoffMultiplier: '', maxBackoff: '', escalateToHuman: true,
+    maxRetries: "",
+    backoffBase: "",
+    backoffMultiplier: "",
+    maxBackoff: "",
+    escalateToHuman: true,
   });
 
   useEffect(() => {
@@ -70,14 +77,14 @@ export function useTaskEdit(
   function startEditing() {
     if (!task) return;
     setEditForm(initEditForm(task));
-    setEditDueAt(detailsData?.feature?.dueAt ?? '');
-    setEditSlaMinutes(detailsData?.feature?.slaMinutes?.toString() ?? '');
-    setEditEstimatedMinutes(task.estimatedMinutes?.toString() ?? '');
+    setEditDueAt(detailsData?.feature?.dueAt ?? "");
+    setEditSlaMinutes(detailsData?.feature?.slaMinutes?.toString() ?? "");
+    setEditEstimatedMinutes(task.estimatedMinutes?.toString() ?? "");
     setRetryForm({
-      maxRetries: task.retryPolicy?.maxRetries?.toString() ?? '',
-      backoffBase: task.retryPolicy?.backoffBase?.toString() ?? '',
-      backoffMultiplier: task.retryPolicy?.backoffMultiplier?.toString() ?? '',
-      maxBackoff: task.retryPolicy?.maxBackoff?.toString() ?? '',
+      maxRetries: task.retryPolicy?.maxRetries?.toString() ?? "",
+      backoffBase: task.retryPolicy?.backoffBase?.toString() ?? "",
+      backoffMultiplier: task.retryPolicy?.backoffMultiplier?.toString() ?? "",
+      maxBackoff: task.retryPolicy?.maxBackoff?.toString() ?? "",
       escalateToHuman: task.retryPolicy?.escalateToHuman ?? true,
     });
     setIsEditing(true);
@@ -88,15 +95,22 @@ export function useTaskEdit(
     try {
       await api.tasks.update(task.id, {
         ...editForm,
-        labels: editForm.labels.split(',').map(l => l.trim()).filter(Boolean),
+        labels: editForm.labels
+          .split(",")
+          .map((l) => l.trim())
+          .filter(Boolean),
         estimatedMinutes: editEstimatedMinutes ? parseInt(editEstimatedMinutes, 10) : null,
-        retryPolicy: retryForm.maxRetries ? {
-          maxRetries: parseInt(retryForm.maxRetries, 10),
-          backoffBase: retryForm.backoffBase ? parseInt(retryForm.backoffBase, 10) : undefined,
-          backoffMultiplier: retryForm.backoffMultiplier ? parseFloat(retryForm.backoffMultiplier) : undefined,
-          maxBackoff: retryForm.maxBackoff ? parseInt(retryForm.maxBackoff, 10) : undefined,
-          escalateToHuman: retryForm.escalateToHuman,
-        } : null,
+        retryPolicy: retryForm.maxRetries
+          ? {
+              maxRetries: parseInt(retryForm.maxRetries, 10),
+              backoffBase: retryForm.backoffBase ? parseInt(retryForm.backoffBase, 10) : undefined,
+              backoffMultiplier: retryForm.backoffMultiplier
+                ? parseFloat(retryForm.backoffMultiplier)
+                : undefined,
+              maxBackoff: retryForm.maxBackoff ? parseInt(retryForm.maxBackoff, 10) : undefined,
+              escalateToHuman: retryForm.escalateToHuman,
+            }
+          : null,
         version: task.version,
       });
 
@@ -109,10 +123,12 @@ export function useTaskEdit(
         await api.missions.update(task.missionId, featureUpdate);
       }
 
-      const updatedLabels = editForm.labels.split(',').map(l => l.trim()).filter(Boolean);
-      updateTask({ ...task, ...editForm, labels: updatedLabels });
+      const updatedLabels = editForm.labels
+        .split(",")
+        .map((l) => l.trim())
+        .filter(Boolean);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
-      notify.success('Task updated');
+      notify.success("Task updated");
       setIsEditing(false);
     } catch (err) {
       notify.error((err as Error).message);
@@ -124,8 +140,20 @@ export function useTaskEdit(
   }
 
   return {
-    isEditing, editForm, editDueAt, editSlaMinutes, editEstimatedMinutes, retryForm,
-    setIsEditing, setEditForm, setEditDueAt, setEditSlaMinutes, setEditEstimatedMinutes, setRetryForm,
-    startEditing, handleEditSubmit, handleEditCancel,
+    isEditing,
+    editForm,
+    editDueAt,
+    editSlaMinutes,
+    editEstimatedMinutes,
+    retryForm,
+    setIsEditing,
+    setEditForm,
+    setEditDueAt,
+    setEditSlaMinutes,
+    setEditEstimatedMinutes,
+    setRetryForm,
+    startEditing,
+    handleEditSubmit,
+    handleEditCancel,
   };
 }

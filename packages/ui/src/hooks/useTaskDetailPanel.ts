@@ -120,13 +120,13 @@ export interface UseTaskDetailPanelResult {
 export function useTaskDetailPanel({
   editTaskId,
 }: UseTaskDetailPanelOptions = {}): UseTaskDetailPanelResult {
-  const { tasks, agents } = useHabitatStore();
+  const { agents } = useHabitatStore();
   const selectedTaskId = useModalStore((s) => s.selectedTaskId);
   const { data: detailsData, isLoading: contextLoading } = useTaskDetails(
     selectedTaskId ?? undefined,
   );
 
-  const task = detailsData?.task ?? tasks.find((t) => t.id === selectedTaskId);
+  const task = detailsData?.task;
   const { data: missionData } = useMission(task?.missionId);
   const mission = missionData?.feature;
   const { data: boardData } = useBoard(mission?.habitatId);

@@ -1,7 +1,6 @@
-import { useState } from 'react';
-import { api } from '../api/index.js';
-import { notify } from '../lib/toast.js';
-import { useHabitatStore } from '../store/habitatStore.js';
+import { useState } from "react";
+import { api } from "../api/index.js";
+import { notify } from "../lib/toast.js";
 
 export interface UseTaskActionsResult {
   deleteDialogOpen: boolean;
@@ -11,15 +10,13 @@ export interface UseTaskActionsResult {
 }
 
 export function useTaskActions(task: { id: string } | undefined): UseTaskActionsResult {
-  const { removeTask } = useHabitatStore();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   async function handleDelete() {
     if (!task) return;
     try {
       await api.tasks.delete(task.id);
-      removeTask(task.id);
-      notify.success('Task deleted');
+      notify.success("Task deleted");
     } catch (e) {
       notify.error((e as Error).message);
     }
@@ -29,7 +26,7 @@ export function useTaskActions(task: { id: string } | undefined): UseTaskActions
     if (!task) return;
     try {
       await api.tasks.clone(task.id);
-      notify.success('Task cloned');
+      notify.success("Task cloned");
     } catch (e) {
       notify.error((e as Error).message);
     }

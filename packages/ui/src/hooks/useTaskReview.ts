@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryKeys.js";
-import { useHabitatStore } from "../store/habitatStore.js";
 import { useAgents } from "../lib/useHabitatData.js";
 import { api } from "../api/index.js";
 import { notify } from "../lib/toast.js";
@@ -19,7 +18,6 @@ export interface UseTaskReviewResult {
 }
 
 export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
-  const updateTask = useHabitatStore((s) => s.updateTask);
   const { data: agents = [] } = useAgents();
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
@@ -55,8 +53,7 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
     if (!task) return;
     setSubmitting(true);
     try {
-      const result = await api.tasks.approve(task.id, reviewerId);
-      updateTask(result.task);
+      await api.tasks.approve(task.id, reviewerId);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(task.id) });
       notify.success("Task approved");
@@ -71,8 +68,7 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
     if (!task) return;
     setSubmitting(true);
     try {
-      const result = await api.tasks.reject(task.id, reviewerId, reason);
-      updateTask(result.task);
+      await api.tasks.reject(task.id, reviewerId, reason);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(task.id) });
       notify.success("Task rejected");

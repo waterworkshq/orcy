@@ -32,7 +32,7 @@ describe("SSE event registry", () => {
     expect(Object.keys(SSE_EVENT_REGISTRY).toSorted()).toEqual([...SSE_EVENT_TYPES].toSorted());
   });
 
-  it("preserves task claimed store mutation", () => {
+  it("no longer mutates task store for claimed event (zustand removed)", () => {
     const task = {
       id: "t1",
       status: "pending",
@@ -47,7 +47,7 @@ describe("SSE event registry", () => {
       set,
     );
 
-    expect(state.tasks[0]).toMatchObject({ id: "t1", status: "claimed", assignedAgentId: "a1" });
+    expect(set).not.toHaveBeenCalled();
   });
 
   it("preserves task review assigned cache invalidation", () => {

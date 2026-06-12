@@ -1,14 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { useNavigate } from 'react-router-dom';
-import { shallow } from 'zustand/shallow';
-import { Badge } from '../ui/Badge.js';
-import { Tooltip } from '../ui/Tooltip.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import type { MissionWithProgress } from '../../types/index.js';
-import { GripVertical, Link2 } from 'lucide-react';
-import { truncateId, formatDueDate, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, FEATURE_STATUS_VARIANT } from '../../lib/formatting.js';
+import React, { useState, useEffect } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useNavigate } from "react-router-dom";
+import { Badge } from "../ui/Badge.js";
+import { Tooltip } from "../ui/Tooltip.js";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { useMissionTasks, useAgents } from "../../lib/useHabitatData.js";
+import type { MissionWithProgress } from "../../types/index.js";
+import { GripVertical, Link2 } from "lucide-react";
+import {
+  truncateId,
+  formatDueDate,
+  PRIORITY_VARIANT,
+  PRIORITY_BORDER_CLASS,
+  FEATURE_STATUS_VARIANT,
+} from "../../lib/formatting.js";
 
 interface FeatureCardProps {
   feature: MissionWithProgress;
@@ -16,10 +22,10 @@ interface FeatureCardProps {
 }
 
 const priorityTooltip: Record<string, string> = {
-  critical: 'Critical priority',
-  high: 'High priority',
-  medium: 'Medium priority',
-  low: 'Low priority',
+  critical: "Critical priority",
+  high: "High priority",
+  medium: "Medium priority",
+  low: "Low priority",
 };
 
 function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
@@ -27,20 +33,12 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
   const toggleMissionSelection = useHabitatStore((s) => s.toggleMissionSelection);
-  const _tasks = useHabitatStore(
-    (s) => s.tasks.filter((t) => t.missionId === feature.id),
-    shallow
-  );
-  const activeAgents = useHabitatStore(
-    (s) => {
-      const featureTaskIds = new Set(
-        s.tasks.filter((t) => t.missionId === feature.id).map((t) => t.id)
-      );
-      return s.agents.filter(
-        (a) => a.currentTaskId !== null && featureTaskIds.has(a.currentTaskId)
-      );
-    },
-    shallow
+  const { data: tasksData } = useMissionTasks(feature.id);
+  const tasks = tasksData?.tasks ?? [];
+  const { data: agents = [] } = useAgents();
+  const featureTaskIds = new Set(tasks.map((t: any) => t.id));
+  const activeAgents = agents.filter(
+    (a: any) => a.currentTaskId !== null && featureTaskIds.has(a.currentTaskId),
   );
   const isSelected = selectedMissionIds.includes(feature.id);
   const [isHovered, setIsHovered] = useState(false);
@@ -77,9 +75,9 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
       onMouseLeave={() => setIsHovered(false)}
       data-testid={`feature-card-${feature.id}`}
       className={`group glass-card ${borderClass} p-3 hover:-translate-y-0.5 transition-colors transition-shadow duration-200 ease-out ${
-        isDragOverlay ? 'shadow-lg ring-2 ring-primary' : 'animate-card-hover'
-      } ${!isDragOverlay && animKey > 0 ? 'animate-task-move' : ''} ${
-        isSelected ? 'ring-2 ring-primary' : ''
+        isDragOverlay ? "shadow-lg ring-2 ring-primary" : "animate-card-hover"
+      } ${!isDragOverlay && animKey > 0 ? "animate-task-move" : ""} ${
+        isSelected ? "ring-2 ring-primary" : ""
       } cursor-pointer`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -93,11 +91,13 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
               className="h-5 w-5 flex-shrink-0 rounded border-[var(--outline-variant)] mobile-touch-target"
             />
           )}
-          <span className="text-sm font-medium leading-tight truncate text-[var(--on-surface)]">{feature.title}</span>
+          <span className="text-sm font-medium leading-tight truncate text-[var(--on-surface)]">
+            {feature.title}
+          </span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-xs text-on-surface-variant font-label whitespace-nowrap">
-            {truncateId(feature.id, 'FEAT')}
+            {truncateId(feature.id, "FEAT")}
           </span>
           {!isBulkSelectMode && !isDragOverlay && (
             <GripVertical className="h-4 w-4 cursor-grab text-[var(--on-surface-variant)] opacity-0 group-hover:opacity-100 touch-drag-handle transition-opacity" />
@@ -115,18 +115,16 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
       )}
 
       <div className="flex items-center gap-1.5 mt-2">
-        <Tooltip content={priorityTooltip[feature.priority] ?? ''} position="top">
-          <Badge variant={PRIORITY_VARIANT[feature.priority] ?? 'medium'}>
-            {feature.priority}
-          </Badge>
+        <Tooltip content={priorityTooltip[feature.priority] ?? ""} position="top">
+          <Badge variant={PRIORITY_VARIANT[feature.priority] ?? "medium"}>{feature.priority}</Badge>
         </Tooltip>
-        <Badge variant={(FEATURE_STATUS_VARIANT[feature.status] ?? 'pending') as any}>
-          {feature.status.replace('_', ' ')}
+        <Badge variant={(FEATURE_STATUS_VARIANT[feature.status] ?? "pending") as any}>
+          {feature.status.replace("_", " ")}
         </Badge>
         {feature.sprintId && (
           <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300">
             <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
-            {truncateId(feature.sprintId, 'SPR')}
+            {truncateId(feature.sprintId, "SPR")}
           </span>
         )}
       </div>
@@ -134,7 +132,9 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
       {total > 0 && (
         <div className="mt-2">
           <div className="flex items-center justify-between text-xs text-[var(--on-surface-variant)] mb-1">
-            <span>{completed}/{total} tasks</span>
+            <span>
+              {completed}/{total} tasks
+            </span>
             <span>{percentage}%</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-[var(--surface-container-high)] overflow-hidden">
@@ -146,9 +146,11 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
         </div>
       )}
 
-      <div className={`mt-2 overflow-hidden transition-[max-height,opacity] duration-200 ${
-          isHovered ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'
-        }`}>
+      <div
+        className={`mt-2 overflow-hidden transition-[max-height,opacity] duration-200 ${
+          isHovered ? "max-h-40 opacity-100" : "max-h-0 opacity-0"
+        }`}
+      >
         {feature.labels.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1">
             {feature.labels.slice(0, 3).map((label) => (
@@ -170,19 +172,22 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
         {feature.dependsOn.length > 0 && (
           <div className="mb-2 flex items-center gap-1 text-xs text-[var(--on-surface-variant)]">
             <Link2 className="h-3 w-3" />
-            <span>{feature.dependsOn.length} dependency{feature.dependsOn.length > 1 ? 's' : ''}</span>
+            <span>
+              {feature.dependsOn.length} dependency{feature.dependsOn.length > 1 ? "s" : ""}
+            </span>
           </div>
         )}
 
-        {(feature.dueAt || feature.slaDeadlineAt) && (() => {
-          const dd = formatDueDate(feature);
-          return dd ? (
-            <div className={`flex items-center gap-1 text-xs mt-1 ${dd.color}`}>
-              {dd.icon}
-              <span>{dd.text}</span>
-            </div>
-          ) : null;
-        })()}
+        {(feature.dueAt || feature.slaDeadlineAt) &&
+          (() => {
+            const dd = formatDueDate(feature);
+            return dd ? (
+              <div className={`flex items-center gap-1 text-xs mt-1 ${dd.color}`}>
+                {dd.icon}
+                <span>{dd.text}</span>
+              </div>
+            ) : null;
+          })()}
       </div>
     </div>
   );
@@ -191,14 +196,9 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
 export const FeatureCard = React.memo(FeatureCardInner);
 
 export function SortableFeatureCard({ feature }: { feature: MissionWithProgress }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: feature.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: feature.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),

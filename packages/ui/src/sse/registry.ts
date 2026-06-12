@@ -93,14 +93,12 @@ function getAgentName(agentId: string | null): string {
   return agentId ? `Agent ${agentId.slice(0, 8)}` : "Unknown agent";
 }
 
-function getTaskTitle(state: SSEStoreState, taskId: string | null): string {
-  const task = taskId ? state.tasks.find((t) => t.id === taskId) : null;
-  return task?.title ?? "Unknown task";
+function getTaskTitle(taskId: string | null): string {
+  return taskId ? `Task ${taskId.slice(0, 8)}` : "Unknown task";
 }
 
 function taskNotification(
   event: SSEEvent,
-  state: SSEStoreState,
   level: SSEToastNotification["level"],
   message: string,
 ): SSENotificationResult | null {
@@ -109,7 +107,7 @@ function taskNotification(
 
   const agentId = "agentId" in event.data ? event.data.agentId : null;
   const agentName = getAgentName(agentId);
-  const taskTitle = getTaskTitle(state, taskId);
+  const taskTitle = getTaskTitle(taskId);
 
   return {
     app: {
@@ -180,147 +178,71 @@ const sprintCacheHandler = defineSSEHandler<SSEEventType>({
 });
 
 export const SSE_EVENT_REGISTRY = {
-  "task.created": defineSSEHandler<"task.created">({
-    zustand: ({ event, state, set }) => {
-      if (!state.tasks.some((t) => t.id === event.data.id)) {
-        set({ tasks: [...state.tasks, event.data] });
-      }
-    },
-    cache: taskCacheHandler.cache,
-  }),
-  "task.updated": defineSSEHandler<"task.updated">({
-    zustand: ({ event, state, set }) => {
-      set({ tasks: state.tasks.map((t) => (t.id === event.data.id ? event.data : t)) });
-    },
-    cache: taskCacheHandler.cache,
-  }),
+  "task.created": taskCacheHandler,
+  "task.updated": taskCacheHandler,
   "task.moved": taskCacheHandler,
   "task.claimed": defineSSEHandler<"task.claimed">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId
-            ? { ...t, assignedAgentId: event.data.agentId, status: "claimed" as const }
-            : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
+    notification: ({ event }) => {
       const agentName = getAgentName(event.data.agentId);
-      const taskTitle = getTaskTitle(state, event.data.taskId);
-      return taskNotification(event, state, "info", `Agent ${agentName} claimed "${taskTitle}"`);
+      const taskTitle = getTaskTitle(event.data.taskId);
+      return taskNotification(event, "info", `Agent ${agentName} claimed "${taskTitle}"`);
     },
   }),
   "task.submitted": defineSSEHandler<"task.submitted">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId ? { ...t, status: "submitted" as const } : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
+    notification: ({ event }) => {
       const agentName = getAgentName(event.data.agentId);
-      const taskTitle = getTaskTitle(state, event.data.taskId);
+      const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(
         event,
-        state,
         "info",
         `Agent ${agentName} submitted "${taskTitle}" for review`,
       );
     },
   }),
   "task.approved": defineSSEHandler<"task.approved">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId ? { ...t, status: "approved" as const } : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
-      const taskTitle = getTaskTitle(state, event.data.taskId);
-      return taskNotification(event, state, "success", `Task "${taskTitle}" approved`);
+    notification: ({ event }) => {
+      const taskTitle = getTaskTitle(event.data.taskId);
+      return taskNotification(event, "success", `Task "${taskTitle}" approved`);
     },
   }),
   "task.rejected": defineSSEHandler<"task.rejected">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId ? { ...t, status: "rejected" as const } : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
-      const taskTitle = getTaskTitle(state, event.data.taskId);
+    notification: ({ event }) => {
+      const taskTitle = getTaskTitle(event.data.taskId);
       const message = `Task "${taskTitle}" rejected${event.data.reason ? `: ${event.data.reason}` : ""}`;
-      return taskNotification(event, state, "warning", message);
+      return taskNotification(event, "warning", message);
     },
   }),
   "task.completed": defineSSEHandler<"task.completed">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId ? { ...t, status: "done" as const } : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
-      const taskTitle = getTaskTitle(state, event.data.taskId);
-      return taskNotification(event, state, "success", `Task "${taskTitle}" completed`);
+    notification: ({ event }) => {
+      const taskTitle = getTaskTitle(event.data.taskId);
+      return taskNotification(event, "success", `Task "${taskTitle}" completed`);
     },
   }),
   "task.failed": defineSSEHandler<"task.failed">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId ? { ...t, status: "failed" as const } : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
-      const taskTitle = getTaskTitle(state, event.data.taskId);
+    notification: ({ event }) => {
+      const taskTitle = getTaskTitle(event.data.taskId);
       const message = `Task "${taskTitle}" failed${event.data.reason ? `: ${event.data.reason}` : ""}`;
-      return taskNotification(event, state, "error", message);
+      return taskNotification(event, "error", message);
     },
   }),
   "task.released": defineSSEHandler<"task.released">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId
-            ? { ...t, assignedAgentId: null, status: "pending" as const }
-            : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
-    notification: ({ event, state }) => {
-      const taskTitle = getTaskTitle(state, event.data.taskId);
-      return taskNotification(event, state, "info", `Task "${taskTitle}" released`);
+    notification: ({ event }) => {
+      const taskTitle = getTaskTitle(event.data.taskId);
+      return taskNotification(event, "info", `Task "${taskTitle}" released`);
     },
   }),
   "task.delegated": defineSSEHandler<"task.delegated">({
-    zustand: ({ event, state, set }) => {
-      set({
-        tasks: state.tasks.map((t) =>
-          t.id === event.data.taskId ? { ...t, delegatedToAgentId: event.data.toAgentId } : t,
-        ),
-      });
-    },
     cache: taskCacheHandler.cache,
   }),
   "task.cloned": noopHandler,
   "task.deleted": defineSSEHandler<"task.deleted">({
-    zustand: ({ event, state, set }) => {
-      set({ tasks: state.tasks.filter((t) => t.id !== event.data.taskId) });
-    },
     cache: taskCacheHandler.cache,
   }),
   "task.overdue": taskCacheHandler,
@@ -337,18 +259,18 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.mentioned": defineSSEHandler<"task.mentioned">({
-    notification: ({ event, state, currentUserId }) => {
+    notification: ({ event, currentUserId }) => {
       if (
         !currentUserId ||
         event.data.mentionedType !== "human" ||
         currentUserId !== event.data.mentionedId
       )
         return null;
-      const mentionedTask = state.tasks.find((t) => t.id === event.data.taskId);
+      const taskTitle = getTaskTitle(event.data.taskId);
       return {
         toast: {
           level: "info",
-          message: `You were mentioned on "${mentionedTask?.title ?? "a task"}"`,
+          message: `You were mentioned on "${taskTitle}"`,
         },
       };
     },
@@ -489,13 +411,6 @@ export const SSE_EVENT_REGISTRY = {
   "task.escalated": noopHandler,
   "anomaly.detected": noopHandler,
   "mission.created": defineSSEHandler<"mission.created">({
-    zustand: ({ event, state, set }) => {
-      if (!state.features.some((f) => f.id === event.data.id)) {
-        set({
-          columnPagination: { ...state.columnPagination, [event.data.columnId]: undefined },
-        });
-      }
-    },
     cache: missionListCacheHandler.cache,
   }),
   "mission.updated": defineSSEHandler<"mission.updated">({
@@ -519,28 +434,9 @@ export const SSE_EVENT_REGISTRY = {
     cache: missionListCacheHandler.cache,
   }),
   "mission.status_changed": defineSSEHandler<"mission.status_changed">({
-    zustand: ({ event, state, set }) => {
-      const existing = state.features.find((f) => f.id === event.data.missionId);
-      const colId = existing?.columnId;
-      if (colId) {
-        set({ columnPagination: { ...state.columnPagination, [colId]: undefined } });
-      }
-    },
     cache: missionListCacheHandler.cache,
   }),
   "mission.deleted": defineSSEHandler<"mission.deleted">({
-    zustand: ({ event, state, set }) => {
-      const deleted = state.features.find((f) => f.id === event.data.missionId);
-      const delColId = deleted?.columnId;
-      set({
-        selectedMissionIds: state.selectedMissionIds.filter((id) => id !== event.data.missionId),
-        selectedMissionId:
-          state.selectedMissionId === event.data.missionId ? null : state.selectedMissionId,
-        ...(delColId
-          ? { columnPagination: { ...state.columnPagination, [delColId]: undefined } }
-          : {}),
-      });
-    },
     cache: missionListCacheHandler.cache,
   }),
   "mission.progress": defineSSEHandler<"mission.progress">({

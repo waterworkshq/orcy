@@ -29,12 +29,15 @@ import { SiblingTasksSection } from "./SiblingTasksSection.js";
 import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
+import { useMissionTasks } from "../../lib/useHabitatData.js";
 
 export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) {
-  const { selectedMissionId, tasks } = useHabitatStore();
+  const { selectedMissionId } = useHabitatStore();
   const { openModal, closeModal } = useModalStore();
   const p = useTaskDetailPanel({ editTaskId });
   const queryClient = useQueryClient();
+  const { data: missionData } = useMissionTasks(selectedMissionId ?? undefined);
+  const missionTasks = missionData?.tasks ?? [];
 
   const { data: qualityReport, isLoading: qualityLoading } = useQuery({
     queryKey: queryKeys.tasks.quality(p.selectedTaskId ?? ""),
@@ -205,7 +208,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             crossHabitatDependsOn={p.crossHabitatDependsOn}
             blockedBy={p.blockedBy}
             blocking={p.blocking}
-            boardTasks={tasks.map((t) => ({ id: t.id, title: t.title, status: t.status }))}
+            boardTasks={missionTasks.map((t) => ({ id: t.id, title: t.title, status: t.status }))}
             onSelectTask={(id) => openModal(id)}
             onAddDependency={p.handleAddDependency}
             onRemoveDependency={p.handleRemoveDependency}

@@ -1,8 +1,6 @@
 import React, { useMemo } from "react";
-import { shallow } from "zustand/shallow";
 import { BurndownChart } from "../dashboard/BurndownChart.js";
-import { useHabitatStore } from "../../store/habitatStore.js";
-import { useBoardBurndown, useMissions } from "../../lib/useHabitatData.js";
+import { useBoardTasks, useBoardBurndown, useMissions } from "../../lib/useHabitatData.js";
 import type { Sprint, BurndownDataPoint } from "../../types/index.js";
 import { CheckCircle, Clock, TrendingUp, Target } from "lucide-react";
 
@@ -41,7 +39,8 @@ function MetricCard({
 export function SprintDashboard({ sprint, habitatId }: SprintDashboardProps) {
   const { data: missionsData } = useMissions(habitatId);
   const features = missionsData?.features ?? [];
-  const tasks = useHabitatStore((s) => s.tasks, shallow);
+  const { data: tasksData } = useBoardTasks(habitatId, {});
+  const tasks = tasksData?.tasks ?? [];
 
   const sprintMissions = useMemo(
     () => features.filter((f) => sprint.committedMissionIds.includes(f.id)),

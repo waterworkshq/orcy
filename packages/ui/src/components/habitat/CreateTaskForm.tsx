@@ -1,12 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/Dialog.js';
-import { Button } from '../ui/Button.js';
-import { RichTextEditor } from '../ui/RichTextEditor.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
-import { useTemplates, useCreateTaskInMission } from '../../lib/useHabitatData.js';
-import type { TaskPriority } from '../../types/index.js';
+import React, { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "../ui/Dialog.js";
+import { Button } from "../ui/Button.js";
+import { RichTextEditor } from "../ui/RichTextEditor.js";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
+import { useTemplates, useCreateTaskInMission } from "../../lib/useHabitatData.js";
+import type { TaskPriority } from "../../types/index.js";
 
 /** Props for the CreateTaskForm dialog. */
 interface CreateTaskFormProps {
@@ -21,41 +27,40 @@ interface CreateTaskFormProps {
  * labels, required domain, due date, and SLA. Resets on open/close.
  */
 export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
-  const { columns: _columns, addTask } = useHabitatStore();
   const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
-  const createTaskMutation = useCreateTaskInMission(missionId ?? '');
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [requiredDomain, setRequiredDomain] = useState('');
+  const createTaskMutation = useCreateTaskInMission(missionId ?? "");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [requiredDomain, setRequiredDomain] = useState("");
   const [requiredCapabilities, setRequiredCapabilities] = useState<string[]>([]);
-  const [capabilityInput, setCapabilityInput] = useState('');
-  const [estimatedMinutes, setEstimatedMinutes] = useState('');
+  const [capabilityInput, setCapabilityInput] = useState("");
+  const [estimatedMinutes, setEstimatedMinutes] = useState("");
 
   useEffect(() => {
     if (open) {
-      setSelectedTemplateId('');
-      setTitle('');
-      setDescription('');
-      setPriority('medium');
-      setRequiredDomain('');
+      setSelectedTemplateId("");
+      setTitle("");
+      setDescription("");
+      setPriority("medium");
+      setRequiredDomain("");
       setRequiredCapabilities([]);
-      setCapabilityInput('');
-      setEstimatedMinutes('');
+      setCapabilityInput("");
+      setEstimatedMinutes("");
     }
   }, [open]);
 
   function handleTemplateChange(templateId: string) {
     setSelectedTemplateId(templateId);
     if (!templateId) {
-      setTitle('');
-      setDescription('');
-      setPriority('medium');
-      setRequiredDomain('');
+      setTitle("");
+      setDescription("");
+      setPriority("medium");
+      setRequiredDomain("");
       setRequiredCapabilities([]);
-      setCapabilityInput('');
+      setCapabilityInput("");
       return;
     }
     const tmpl = templates.find((t) => t.id === templateId);
@@ -63,7 +68,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       setTitle(tmpl.titlePattern);
       setDescription(tmpl.descriptionPattern);
       setPriority(tmpl.priority);
-      setRequiredDomain(tmpl.requiredDomain ?? '');
+      setRequiredDomain(tmpl.requiredDomain ?? "");
       setRequiredCapabilities(tmpl.requiredCapabilities ?? []);
     }
   }
@@ -73,7 +78,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     if (trimmed && !requiredCapabilities.includes(trimmed)) {
       setRequiredCapabilities([...requiredCapabilities, trimmed]);
     }
-    setCapabilityInput('');
+    setCapabilityInput("");
   }
 
   function removeCapability(cap: string) {
@@ -81,7 +86,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   function handleCapabilityKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === ',') {
+    if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       addCapability(capabilityInput);
     }
@@ -100,21 +105,19 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
         estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
       });
-      addTask(result.task);
-
       if (selectedTemplateId) {
         api.templates.recordUsage(selectedTemplateId).catch(() => {});
       }
 
       notify.success(`Task "${title.trim()}" created`);
-      setTitle('');
-      setDescription('');
-      setPriority('medium');
-      setRequiredDomain('');
+      setTitle("");
+      setDescription("");
+      setPriority("medium");
+      setRequiredDomain("");
       setRequiredCapabilities([]);
-      setCapabilityInput('');
-      setEstimatedMinutes('');
-      setSelectedTemplateId('');
+      setCapabilityInput("");
+      setEstimatedMinutes("");
+      setSelectedTemplateId("");
       onClose();
     } catch (err) {
       notify.error((err as Error).message);
@@ -126,9 +129,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       <form onSubmit={handleSubmit}>
         <DialogHeader>
           <DialogTitle>Create Task</DialogTitle>
-          <DialogDescription>
-            Add a new task to this board.
-          </DialogDescription>
+          <DialogDescription>Add a new task to this board.</DialogDescription>
         </DialogHeader>
 
         <DialogContent>
@@ -144,7 +145,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
                   <option value="">Pick a template (optional)</option>
                   {templates.map((tmpl) => (
                     <option key={tmpl.id} value={tmpl.id}>
-                      {tmpl.name} {tmpl.habitatId ? '(board)' : '(global)'}
+                      {tmpl.name} {tmpl.habitatId ? "(board)" : "(global)"}
                     </option>
                   ))}
                 </select>
@@ -230,7 +231,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
                 value={capabilityInput}
                 onChange={(e) => setCapabilityInput(e.target.value)}
                 onKeyDown={handleCapabilityKeyDown}
-                onBlur={() => { if (capabilityInput.trim()) addCapability(capabilityInput); }}
+                onBlur={() => {
+                  if (capabilityInput.trim()) addCapability(capabilityInput);
+                }}
                 placeholder="e.g., typescript, react, python, node.js"
                 className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
@@ -254,7 +257,11 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={createTaskMutation.isPending} disabled={createTaskMutation.isPending || !title.trim()}>
+          <Button
+            type="submit"
+            loading={createTaskMutation.isPending}
+            disabled={createTaskMutation.isPending || !title.trim()}
+          >
             Create Task
           </Button>
         </DialogFooter>

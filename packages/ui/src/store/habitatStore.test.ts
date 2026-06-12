@@ -114,13 +114,13 @@ describe("habitat store mission selection", () => {
     expect(useHabitatStore.getState().tasks[0].id).toBe("task-2");
   });
 
-  it("handleSSEEvent task.deleted removes task from list", () => {
+  it("handleSSEEvent task.deleted does not mutate zustand tasks (RQ-managed)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({ type: "task.deleted", data: { taskId: "task-1" } });
 
     const state = useHabitatStore.getState();
-    expect(state.tasks.find((t) => t.id === "task-1")).toBeUndefined();
+    expect(state.tasks.find((t) => t.id === "task-1")).toBeDefined();
   });
 });
 
@@ -146,7 +146,7 @@ describe("habitat store SSE mission.created", () => {
     expect(true).toBe(true);
   });
 
-  it("only invalidates target column on mission.created", () => {
+  it("mission.created only uses cache invalidation (no zustand columnPagination change)", () => {
     useHabitatStore.setState({
       features: [],
       columnPagination: {
@@ -159,7 +159,7 @@ describe("habitat store SSE mission.created", () => {
     handleSSEEvent({ type: "mission.created", data: makeFeature("feat-new", "col-1") });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor());
     expect(pag["col-2"]).toEqual(paginationFor());
   });
 });
@@ -216,7 +216,7 @@ describe("habitat store SSE targeted column invalidation", () => {
     expect(pag["col-2"]).toBeUndefined();
   });
 
-  it("only invalidates affected column on mission.status_changed", () => {
+  it("mission.status_changed only uses cache invalidation (no zustand columnPagination change)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({
@@ -225,17 +225,17 @@ describe("habitat store SSE targeted column invalidation", () => {
     });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
     expect(pag["col-2"]).toEqual(paginationFor());
   });
 
-  it("only invalidates affected column on mission.deleted", () => {
+  it("mission.deleted only uses cache invalidation (no zustand columnPagination change)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({ type: "mission.deleted", data: { missionId: "feat-1" } });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
     expect(pag["col-2"]).toEqual(paginationFor());
   });
 
@@ -303,17 +303,17 @@ describe("habitat store SSE preserves third-column pagination", () => {
     expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
   });
 
-  it("preserves col-3 pagination on mission.deleted from col-1", () => {
+  it("preserves all pagination on mission.deleted (no zustand handler)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({ type: "mission.deleted", data: { missionId: "feat-1" } });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
     expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
   });
 
-  it("preserves col-3 pagination on mission.status_changed in col-1", () => {
+  it("preserves all pagination on mission.status_changed (no zustand handler)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({
@@ -322,7 +322,7 @@ describe("habitat store SSE preserves third-column pagination", () => {
     });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
     expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
   });
 });
