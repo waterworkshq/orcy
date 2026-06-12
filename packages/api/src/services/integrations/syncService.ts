@@ -14,6 +14,7 @@ import type {
 } from "./types.js";
 import type { ExternalIssue, IntegrationSyncTrigger } from "@orcy/shared";
 import { logger } from "../../lib/logger.js";
+import { badRequest, notFound } from "../../errors.js";
 
 const TERMINAL_TASK_STATUSES = ["done", "approved", "failed"];
 
@@ -374,4 +375,62 @@ function integrationAuditMetadata(
       reason: `integration:${connection.provider}`,
     },
   };
+}
+
+export interface PromoteIntakeCandidateInput {
+  candidateId: string;
+  createdBy: string;
+  verifyAccess: (habitatId: string) => void;
+}
+
+export interface PromoteIntakeCandidateResult {
+  mission: ReturnType<typeof missionRepo.createMission>;
+  link: ReturnType<typeof linkRepo.create>;
+  candidate: ReturnType<typeof candidateRepo.getById>;
+}
+
+export function promoteIntakeCandidate(
+  input: PromoteIntakeCandidateInput,
+): PromoteIntakeCandidateResult {
+  const candidate = candidateRepo.getById(input.candidateId);
+  if (!candidate) throw notFound("Candidate not found");
+
+  input.verifyAccess(candidate.habitatId);
+
+  if (candidate.reviewStatus === "promoted") {
+    throw badRequest("Candidate has already been promoted");
+  }
+
+  const col = resolveImportColumn(candidate.habitatId);
+  if (!col) throw badRequest("No import column found for habitat");
+
+  const labels = [...candidate.sourceLabels, `external:${candidate.provider}`];
+  const mission = missionRepo.createMission({
+    habitatId: candidate.habitatId,
+    columnId: col.columnId,
+    title: candidate.sourceTitle,
+    description: candidate.sourceBody || "",
+    priority: "medium",
+    labels,
+    createdBy: input.createdBy,
+  });
+
+  const link = linkRepo.create({
+    connectionId: candidate.connectionId,
+    habitatId: candidate.habitatId,
+    missionId: mission.id,
+    provider: candidate.provider,
+    externalId: candidate.externalId,
+    externalKey: candidate.externalKey,
+    externalUrl: candidate.externalUrl,
+    externalStatus: candidate.sourceStatus === "closed" ? "closed" : "open",
+    providerLabels: candidate.sourceLabels,
+  });
+
+  candidateRepo.update(candidate.id, {
+    reviewStatus: "promoted",
+    promotedMissionId: mission.id,
+  });
+
+  return { mission, link, candidate: candidateRepo.getById(candidate.id)! };
 }

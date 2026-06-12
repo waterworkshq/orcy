@@ -4,7 +4,7 @@ import * as linkRepo from "../repositories/externalIssueLink.js";
 import * as candidateRepo from "../repositories/externalIntakeCandidate.js";
 import * as syncRunRepo from "../repositories/integrationSyncRun.js";
 import * as missionRepo from "../repositories/feature.js";
-import { syncConnection } from "../services/integrations/syncService.js";
+import { syncConnection, promoteIntakeCandidate } from "../services/integrations/syncService.js";
 import {
   startGitHubDeviceFlow,
   pollGitHubDeviceFlow,
@@ -545,46 +545,13 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       }
       promotingCandidates.add(candidateId);
       try {
-        const candidate = candidateRepo.getById(candidateId);
-        if (!candidate) throw notFound("Candidate not found");
-        verifyConnectionAccess(request, candidate.habitatId);
-
-        if (candidate.reviewStatus === "promoted") {
-          throw badRequest("Candidate has already been promoted");
-        }
-
-        const col = resolveImportColumn(candidate.habitatId);
-        if (!col) throw badRequest("No import column found for habitat");
-
-        const labels = [...candidate.sourceLabels, `external:${candidate.provider}`];
-        const mission = missionRepo.createMission({
-          habitatId: candidate.habitatId,
-          columnId: col.columnId,
-          title: candidate.sourceTitle,
-          description: candidate.sourceBody || "",
-          priority: "medium",
-          labels,
+        const result = promoteIntakeCandidate({
+          candidateId,
           createdBy: (request as any).user?.id ?? "unknown",
+          verifyAccess: (habitatId: string) => verifyConnectionAccess(request, habitatId),
         });
 
-        const link = linkRepo.create({
-          connectionId: candidate.connectionId,
-          habitatId: candidate.habitatId,
-          missionId: mission.id,
-          provider: candidate.provider,
-          externalId: candidate.externalId,
-          externalKey: candidate.externalKey,
-          externalUrl: candidate.externalUrl,
-          externalStatus: candidate.sourceStatus === "closed" ? "closed" : "open",
-          providerLabels: candidate.sourceLabels,
-        });
-
-        candidateRepo.update(candidate.id, {
-          reviewStatus: "promoted",
-          promotedMissionId: mission.id,
-        });
-
-        reply.code(201).send({ mission, link, candidate: candidateRepo.getById(candidate.id) });
+        reply.code(201).send(result);
         return reply;
       } finally {
         promotingCandidates.delete(candidateId);

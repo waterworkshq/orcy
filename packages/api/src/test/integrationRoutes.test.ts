@@ -96,10 +96,14 @@ vi.mock("../repositories/integrationSyncRun.js", () => ({
   getById: vi.fn(),
 }));
 
-vi.mock("../services/integrations/syncService.js", () => ({
-  syncConnection: (...args: unknown[]) => mockSyncConnection(...args),
-  syncExternalIssue: vi.fn(),
-}));
+vi.mock("../services/integrations/syncService.js", async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    syncConnection: (...args: unknown[]) => mockSyncConnection(...args),
+    syncExternalIssue: vi.fn(),
+  };
+});
 
 vi.mock("../services/integrations/githubAdapter.js", () => {
   const fakeAdapter = {
@@ -145,12 +149,12 @@ vi.mock("../middleware/team.js", () => ({
   requireHabitatAccess: vi.fn((_req: any, _reply: any, done: any) => done()),
 }));
 
-vi.mock("../errors.js", () => ({
-  notFound: (msg: string) => ({ statusCode: 404, message: msg }),
-  badRequest: (msg: string) => ({ statusCode: 400, message: msg }),
-  forbidden: (msg: string) => ({ statusCode: 403, message: msg }),
-  unauthorized: (msg: string) => ({ statusCode: 401, message: msg }),
-}));
+vi.mock("../errors.js", async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+  };
+});
 
 vi.mock("uuid", () => ({ v4: () => "mock-uuid-123", default: { v4: () => "mock-uuid-123" } }));
 
