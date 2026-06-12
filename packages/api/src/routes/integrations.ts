@@ -13,15 +13,13 @@ import {
 import {
   getJiraCredentials,
   getJiraAuthorizationUrl,
-  exchangeJiraCode,
-  discoverJiraCloudIds,
+  completeJiraOAuth,
 } from "../services/integrations/jiraOAuth.js";
 import {
   getLinearClientId,
   generatePKCEPair,
   getLinearAuthorizationUrl,
-  exchangeLinearCode,
-  getLinearTeams,
+  completeLinearOAuth,
 } from "../services/integrations/linearOAuth.js";
 import {
   generateState,
@@ -325,37 +323,14 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       const stateResult = consumeState(parsed.data.state, request.params.habitatId);
       if (!stateResult) throw badRequest("Invalid or expired OAuth state");
 
-      const { code, redirectPort } = parsed.data;
-      const { clientId, clientSecret } = getJiraCredentials();
-      const redirectUri = `http://127.0.0.1:${redirectPort}/callback`;
-
-      const tokens = await exchangeJiraCode(code, clientId, clientSecret, redirectUri);
-      const resources = await discoverJiraCloudIds(tokens.access_token);
-
-      if (resources.length === 0) {
-        throw badRequest("No accessible Jira Cloud instances found");
-      }
-
-      const resource = resources[0];
-      const userId = (request as any).user?.id ?? "unknown";
-
-      const connection = connectionRepo.create({
+      const result = await completeJiraOAuth({
+        code: parsed.data.code,
+        redirectPort: parsed.data.redirectPort,
         habitatId: request.params.habitatId,
-        provider: "jira",
-        name: `${resource.name}/jira`,
-        authMethod: "oauth_code",
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-        externalTenantId: resource.id,
-        externalTenantName: resource.name,
-        externalBaseUrl: resource.url,
-        pullEnabled: true,
-        autoImport: false,
-        createdBy: userId,
+        userId: (request as any).user?.id ?? "unknown",
       });
 
-      reply.code(201).send({ integration: connectionRepo.toView(connection) });
+      reply.code(201).send(result);
       return reply;
     },
   );
@@ -437,37 +412,15 @@ export async function integrationRoutes(fastify: FastifyInstance): Promise<void>
       if (!stateResult || !stateResult.codeVerifier)
         throw badRequest("Invalid or expired OAuth state");
 
-      const { code, redirectPort } = parsed.data;
-      const clientId = getLinearClientId();
-      const redirectUri = `http://127.0.0.1:${redirectPort}/callback`;
-
-      const tokens = await exchangeLinearCode(
-        code,
-        clientId,
-        redirectUri,
-        stateResult.codeVerifier,
-      );
-      const teams = await getLinearTeams(tokens.access_token);
-
-      const userId = (request as any).user?.id ?? "unknown";
-
-      const connection = connectionRepo.create({
+      const result = await completeLinearOAuth({
+        code: parsed.data.code,
+        redirectPort: parsed.data.redirectPort,
         habitatId: request.params.habitatId,
-        provider: "linear",
-        name: teams.length > 0 ? `${teams[0].name}/linear` : "linear",
-        authMethod: "oauth_pkce",
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token ?? null,
-        tokenExpiresAt: tokens.expires_in
-          ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-          : null,
-        teamId: teams.length > 0 ? teams[0].id : null,
-        pullEnabled: true,
-        autoImport: false,
-        createdBy: userId,
+        userId: (request as any).user?.id ?? "unknown",
+        codeVerifier: stateResult.codeVerifier,
       });
 
-      reply.code(201).send({ integration: connectionRepo.toView(connection), teams });
+      reply.code(201).send(result);
       return reply;
     },
   );

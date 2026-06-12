@@ -86,3 +86,57 @@ export function getActorName(actorId: string): string {
   if (row) return row.displayName || row.username || actorId;
   return actorId;
 }
+
+export function countUsers(): number {
+  const db = getDb();
+  const result = db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(users)
+    .get();
+  return result?.count ?? 0;
+}
+
+export interface UserAuthRow {
+  id: string;
+  username: string;
+  passwordHash: string;
+  role: string;
+}
+
+export function getUserByUsername(username: string): UserAuthRow | null {
+  const db = getDb();
+  const row = db
+    .select({
+      id: users.id,
+      username: users.username,
+      passwordHash: users.passwordHash,
+      role: users.role,
+    })
+    .from(users)
+    .where(eq(users.username, username))
+    .get();
+  return row ?? null;
+}
+
+export function createUser(input: {
+  id: string;
+  username: string;
+  passwordHash: string;
+  displayName?: string;
+  role?: "admin" | "editor" | "viewer";
+  createdAt: string;
+  updatedAt: string;
+}): void {
+  const db = getDb();
+  db.insert(users)
+    .values({
+      id: input.id,
+      username: input.username,
+      passwordHash: input.passwordHash,
+      displayName: input.displayName ?? "",
+      role: input.role ?? "admin",
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+    })
+    .run();
+}

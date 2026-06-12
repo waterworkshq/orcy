@@ -1,8 +1,11 @@
+import * as connectionRepo from "../../repositories/integrationConnection.js";
+import { badRequest } from "../../errors.js";
+
 export function getJiraCredentials(): { clientId: string; clientSecret: string } {
   const clientId = process.env.ORCY_JIRA_OAUTH_CLIENT_ID;
   const clientSecret = process.env.ORCY_JIRA_OAUTH_CLIENT_SECRET;
-  if (!clientId) throw new Error('ORCY_JIRA_OAUTH_CLIENT_ID is not configured');
-  if (!clientSecret) throw new Error('ORCY_JIRA_OAUTH_CLIENT_SECRET is not configured');
+  if (!clientId) throw new Error("ORCY_JIRA_OAUTH_CLIENT_ID is not configured");
+  if (!clientSecret) throw new Error("ORCY_JIRA_OAUTH_CLIENT_SECRET is not configured");
   return { clientId, clientSecret };
 }
 
@@ -12,13 +15,13 @@ export function getJiraAuthorizationUrl(
   state: string,
 ): string {
   const params = new URLSearchParams({
-    audience: 'api.atlassian.com',
+    audience: "api.atlassian.com",
     client_id: clientId,
-    scope: 'read:jira-work offline_access',
+    scope: "read:jira-work offline_access",
     redirect_uri: redirectUri,
     state,
-    response_type: 'code',
-    prompt: 'consent',
+    response_type: "code",
+    prompt: "consent",
   });
   return `https://auth.atlassian.com/authorize?${params.toString()}`;
 }
@@ -37,11 +40,11 @@ export async function exchangeJiraCode(
   clientSecret: string,
   redirectUri: string,
 ): Promise<JiraTokenResponse> {
-  const res = await fetch('https://auth.atlassian.com/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch("https://auth.atlassian.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      grant_type: 'authorization_code',
+      grant_type: "authorization_code",
       client_id: clientId,
       client_secret: clientSecret,
       code,
@@ -50,8 +53,10 @@ export async function exchangeJiraCode(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as Record<string, string>;
-    throw new Error(body.error_description || body.error || `Jira token exchange failed (HTTP ${res.status})`);
+    const body = (await res.json().catch(() => ({}))) as Record<string, string>;
+    throw new Error(
+      body.error_description || body.error || `Jira token exchange failed (HTTP ${res.status})`,
+    );
   }
 
   return res.json() as Promise<JiraTokenResponse>;
@@ -65,8 +70,8 @@ export interface JiraCloudResource {
 }
 
 export async function discoverJiraCloudIds(accessToken: string): Promise<JiraCloudResource[]> {
-  const res = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+  const res = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
   });
 
   if (!res.ok) {
@@ -81,11 +86,11 @@ export async function refreshJiraToken(
   clientId: string,
   clientSecret: string,
 ): Promise<JiraTokenResponse> {
-  const res = await fetch('https://auth.atlassian.com/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch("https://auth.atlassian.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      grant_type: 'refresh_token',
+      grant_type: "refresh_token",
       client_id: clientId,
       client_secret: clientSecret,
       refresh_token: refreshToken,
@@ -93,9 +98,56 @@ export async function refreshJiraToken(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as Record<string, string>;
-    throw new Error(body.error_description || body.error || `Jira token refresh failed (HTTP ${res.status})`);
+    const body = (await res.json().catch(() => ({}))) as Record<string, string>;
+    throw new Error(
+      body.error_description || body.error || `Jira token refresh failed (HTTP ${res.status})`,
+    );
   }
 
   return res.json() as Promise<JiraTokenResponse>;
+}
+
+export interface CompleteJiraOAuthInput {
+  code: string;
+  redirectPort: number;
+  habitatId: string;
+  userId: string;
+}
+
+export interface CompleteJiraOAuthResult {
+  integration: ReturnType<typeof connectionRepo.toView>;
+}
+
+export async function completeJiraOAuth(
+  input: CompleteJiraOAuthInput,
+): Promise<CompleteJiraOAuthResult> {
+  const { clientId, clientSecret } = getJiraCredentials();
+  const redirectUri = `http://127.0.0.1:${input.redirectPort}/callback`;
+
+  const tokens = await exchangeJiraCode(input.code, clientId, clientSecret, redirectUri);
+  const resources = await discoverJiraCloudIds(tokens.access_token);
+
+  if (resources.length === 0) {
+    throw badRequest("No accessible Jira Cloud instances found");
+  }
+
+  const resource = resources[0];
+
+  const connection = connectionRepo.create({
+    habitatId: input.habitatId,
+    provider: "jira",
+    name: `${resource.name}/jira`,
+    authMethod: "oauth_code",
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+    externalTenantId: resource.id,
+    externalTenantName: resource.name,
+    externalBaseUrl: resource.url,
+    pullEnabled: true,
+    autoImport: false,
+    createdBy: input.userId,
+  });
+
+  return { integration: connectionRepo.toView(connection) };
 }

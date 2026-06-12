@@ -195,6 +195,9 @@ vi.mock("../services/integrations/jiraOAuth.js", () => ({
     Promise.resolve([{ id: "cloud-1", name: "MySite", url: "https://mysite.atlassian.net" }]),
   ),
   refreshJiraToken: vi.fn(),
+  completeJiraOAuth: vi.fn(() =>
+    Promise.resolve({ integration: { id: "conn-1", provider: "jira" } }),
+  ),
 }));
 
 vi.mock("../services/integrations/linearOAuth.js", () => ({
@@ -205,6 +208,12 @@ vi.mock("../services/integrations/linearOAuth.js", () => ({
     Promise.resolve({ access_token: "lin-at", refresh_token: "lin-rt", expires_in: 3600 }),
   ),
   getLinearTeams: vi.fn(() => Promise.resolve([{ id: "team-1", name: "My Team", key: "MT" }])),
+  completeLinearOAuth: vi.fn(() =>
+    Promise.resolve({
+      integration: { id: "conn-1", provider: "linear" },
+      teams: [{ id: "team-1", name: "My Team" }],
+    }),
+  ),
 }));
 
 vi.mock("../services/integrations/oauthState.js", () => ({
@@ -724,15 +733,7 @@ describe("POST /habitats/:habitatId/integrations/linear/oauth/complete", () => {
       (r) =>
         r.method === "POST" && r.path === "/habitats/:habitatId/integrations/linear/oauth/complete",
     )!;
-    const connRepo = await import("../repositories/integrationConnection.js");
-
-    const created = {
-      id: "conn-l-oauth",
-      habitatId: "hab-1",
-      provider: "linear",
-      authMethod: "oauth_pkce",
-    };
-    (connRepo.create as any).mockReturnValue(created);
+    const linearOAuth = await import("../services/integrations/linearOAuth.js");
 
     const reply = makeMockReply();
     await route.handler(
@@ -743,15 +744,13 @@ describe("POST /habitats/:habitatId/integrations/linear/oauth/complete", () => {
       reply,
     );
 
-    expect(connRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: "linear",
-        authMethod: "oauth_pkce",
-        accessToken: "lin-at",
-        refreshToken: "lin-rt",
-        teamId: "team-1",
-      }),
-    );
+    expect(linearOAuth.completeLinearOAuth).toHaveBeenCalledWith({
+      code: "lin-code",
+      redirectPort: 5555,
+      habitatId: "hab-1",
+      userId: "user-1",
+      codeVerifier: "cv-123",
+    });
     expect(reply.code).toHaveBeenCalledWith(201);
   });
 });

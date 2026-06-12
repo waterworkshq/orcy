@@ -1,11 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import * as agentService from "../services/agentService.js";
-import * as taskService from "../services/tasks/index.js";
-import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
 import * as daemonRepo from "../repositories/daemon.js";
-import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
-import { generateDaemonToken } from "../lib/daemonToken.js";
 import { daemonAuth } from "../middleware/daemonAuth.js";
 import { registrationAuth, humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
@@ -34,61 +28,10 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      const { name, hostname, maxConcurrent, daemonVersion, detectedClis, habitatIds } =
-        parsed.data;
-
-      for (const hid of habitatIds) {
-        const h = habitatRepo.getHabitatById(hid);
-        if (!h) {
-          throw badRequest(`Habitat ${hid} not found`);
-        }
-      }
-
-      const plainToken = generateDaemonToken();
-
-      const daemon = daemonRepo.createDaemon({
-        name,
-        hostname,
-        maxConcurrent,
-        daemonVersion,
-        plainToken,
-      });
-
-      const agents: Array<{ id: string; name: string; type: string; apiKey: string }> = [];
-
-      for (const cli of detectedClis) {
-        const agentName = `daemon-${name}-${cli.type}`;
-        const created = agentService.createAgent({
-          name: agentName,
-          type: cli.type as any,
-          domain: "fullstack",
-          capabilities: [],
-          metadata: { daemonId: daemon.id, cliPath: cli.path, cliVersion: cli.version },
-        });
-
-        daemonRepo.createDaemonAgent({
-          daemonId: daemon.id,
-          agentId: created.agent.id,
-          cliType: cli.type,
-          cliVersion: cli.version ?? null,
-          cliPath: cli.path,
-        });
-
-        agents.push({
-          id: created.agent.id,
-          name: created.agent.name,
-          type: cli.type,
-          apiKey: created.plainApiKey,
-        });
-      }
+      const result = daemonEngine.registerHttpDaemon(parsed.data);
 
       reply.code(201);
-      return {
-        daemonId: daemon.id,
-        daemonToken: plainToken,
-        heartbeatIntervalSeconds: 30,
-        agents,
-      };
+      return result;
     },
   );
 
@@ -152,57 +95,18 @@ export async function daemonRoutes(fastify: FastifyInstance): Promise<void> {
       const daemonId = request.daemon!.id;
       const { agentId, habitatId } = parsed.data;
 
-      if (!daemonRepo.isAgentOwnedByDaemon(agentId, daemonId)) {
-        throw forbidden("Agent does not belong to this daemon");
-      }
+      const result = daemonEngine.claimNextDaemonTask({
+        daemonId,
+        agentId,
+        habitatId,
+        maxConcurrent: request.daemon!.maxConcurrent,
+      });
 
-      const habitat = habitatRepo.getHabitatById(habitatId);
-      if (!habitat) {
-        throw badRequest(`Habitat ${habitatId} not found`);
-      }
-
-      const activeSessions = daemonRepo.getActiveSessionsByDaemonId(daemonId);
-      if (activeSessions.length >= request.daemon!.maxConcurrent) {
+      if (!result.claimed) {
         return _reply.code(204).send();
       }
 
-      if (activeSessions.some((session) => session.agentId === agentId)) {
-        return _reply.code(204).send();
-      }
-
-      const { suggestions } = getSuggestionsForAgent(habitatId, agentId, 10);
-
-      for (const suggestion of suggestions) {
-        const result = taskService.claimTask(suggestion.taskId, agentId);
-        if (result.success) {
-          const task = taskRepo.getTaskById(suggestion.taskId)!;
-
-          const session = daemonRepo.createDaemonSession({
-            daemonId,
-            agentId,
-            taskId: task.id,
-            habitatId,
-            workdir: "pending",
-          });
-
-          return {
-            daemonSessionId: session.id,
-            task: {
-              id: task.id,
-              title: task.title,
-              description: task.description,
-              missionId: task.missionId,
-              habitatId,
-              priority: task.priority,
-              requiredDomain: task.requiredDomain,
-              requiredCapabilities: task.requiredCapabilities,
-            },
-            worktreeSettings: habitat.gitWorktreeSettings,
-          };
-        }
-      }
-
-      return _reply.code(204).send();
+      return result;
     },
   );
 

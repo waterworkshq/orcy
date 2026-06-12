@@ -10,6 +10,7 @@ import * as habitatRepo from "../repositories/board.js";
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import { generateDaemonToken } from "../lib/daemonToken.js";
 import { InProcessSessionUpdater } from "./inProcessSessionUpdater.js";
+import { badRequest, forbidden } from "../errors.js";
 
 interface RunningDaemon {
   daemonId: string;
@@ -269,4 +270,154 @@ export function shutdownAll(): void {
   for (const [daemonId] of runningDaemons) {
     stop(daemonId).catch(() => {});
   }
+}
+
+export interface RegisterHttpDaemonInput {
+  name: string;
+  hostname: string;
+  maxConcurrent: number;
+  daemonVersion: string;
+  habitatIds: string[];
+  detectedClis: Array<{ type: string; path: string; version?: string | null }>;
+}
+
+export interface RegisterHttpDaemonResult {
+  daemonId: string;
+  daemonToken: string;
+  heartbeatIntervalSeconds: number;
+  agents: Array<{ id: string; name: string; type: string; apiKey: string }>;
+}
+
+export function registerHttpDaemon(input: RegisterHttpDaemonInput): RegisterHttpDaemonResult {
+  for (const hid of input.habitatIds) {
+    const h = habitatRepo.getHabitatById(hid);
+    if (!h) {
+      throw badRequest(`Habitat ${hid} not found`);
+    }
+  }
+
+  const plainToken = generateDaemonToken();
+
+  const daemon = daemonRepo.createDaemon({
+    name: input.name,
+    hostname: input.hostname,
+    maxConcurrent: input.maxConcurrent,
+    daemonVersion: input.daemonVersion,
+    plainToken,
+  });
+
+  const agents: Array<{ id: string; name: string; type: string; apiKey: string }> = [];
+
+  for (const cli of input.detectedClis) {
+    const agentName = `daemon-${input.name}-${cli.type}`;
+    const created = agentService.createAgent({
+      name: agentName,
+      type: cli.type as any,
+      domain: "fullstack",
+      capabilities: [],
+      metadata: { daemonId: daemon.id, cliPath: cli.path, cliVersion: cli.version },
+    });
+
+    daemonRepo.createDaemonAgent({
+      daemonId: daemon.id,
+      agentId: created.agent.id,
+      cliType: cli.type,
+      cliVersion: cli.version ?? null,
+      cliPath: cli.path,
+    });
+
+    agents.push({
+      id: created.agent.id,
+      name: created.agent.name,
+      type: cli.type,
+      apiKey: created.plainApiKey,
+    });
+  }
+
+  return {
+    daemonId: daemon.id,
+    daemonToken: plainToken,
+    heartbeatIntervalSeconds: 30,
+    agents,
+  };
+}
+
+export interface ClaimNextDaemonTaskInput {
+  daemonId: string;
+  agentId: string;
+  habitatId: string;
+  maxConcurrent: number;
+}
+
+export type ClaimNextDaemonTaskResult =
+  | {
+      claimed: true;
+      daemonSessionId: string;
+      task: {
+        id: string;
+        title: string;
+        description: string;
+        missionId: string;
+        habitatId: string;
+        priority: string;
+        requiredDomain: string | null;
+        requiredCapabilities: string[];
+      };
+      worktreeSettings: unknown;
+    }
+  | { claimed: false };
+
+export function claimNextDaemonTask(input: ClaimNextDaemonTaskInput): ClaimNextDaemonTaskResult {
+  if (!daemonRepo.isAgentOwnedByDaemon(input.agentId, input.daemonId)) {
+    throw forbidden("Agent does not belong to this daemon");
+  }
+
+  const habitat = habitatRepo.getHabitatById(input.habitatId);
+  if (!habitat) {
+    throw badRequest(`Habitat ${input.habitatId} not found`);
+  }
+
+  const activeSessions = daemonRepo.getActiveSessionsByDaemonId(input.daemonId);
+  if (activeSessions.length >= input.maxConcurrent) {
+    return { claimed: false };
+  }
+
+  if (activeSessions.some((session) => session.agentId === input.agentId)) {
+    return { claimed: false };
+  }
+
+  const { suggestions } = getSuggestionsForAgent(input.habitatId, input.agentId, 10);
+
+  for (const suggestion of suggestions) {
+    const result = taskService.claimTask(suggestion.taskId, input.agentId);
+    if (result.success) {
+      const task = taskRepo.getTaskById(suggestion.taskId)!;
+
+      const session = daemonRepo.createDaemonSession({
+        daemonId: input.daemonId,
+        agentId: input.agentId,
+        taskId: task.id,
+        habitatId: input.habitatId,
+        workdir: "pending",
+      });
+
+      return {
+        claimed: true,
+        daemonSessionId: session.id,
+        task: {
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          missionId: task.missionId,
+          habitatId: input.habitatId,
+          priority: task.priority,
+          requiredDomain: task.requiredDomain,
+          requiredCapabilities: task.requiredCapabilities,
+        },
+        worktreeSettings: habitat.gitWorktreeSettings,
+      };
+    }
+  }
+
+  return { claimed: false };
 }

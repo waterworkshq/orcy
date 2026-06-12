@@ -402,3 +402,30 @@ export function unarchiveMission(
   sseBroadcaster.publish(mission.habitatId, { type: "mission.updated", data: result.mission });
   return { success: true, mission: result.mission };
 }
+
+export interface MissionProgress {
+  completed: number;
+  total: number;
+  percentage: number;
+  byStatus: Record<string, number>;
+}
+
+export function getMissionProgress(missionId: string): MissionProgress | null {
+  const mission = missionRepo.getMissionById(missionId);
+  if (!mission) return null;
+
+  const tasks = taskRepo.getTasksByMissionId(missionId);
+
+  const byStatus: Record<string, number> = {};
+  for (const t of tasks) {
+    byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
+  }
+  const completed = tasks.filter((t) => ["done", "approved"].includes(t.status)).length;
+
+  return {
+    completed,
+    total: tasks.length,
+    percentage: tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0,
+    byStatus,
+  };
+}

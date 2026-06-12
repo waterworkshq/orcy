@@ -23,63 +23,59 @@ const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 const missionIdParamsSchema = z.object({ missionId: z.string() });
 
 export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify
-    .withTypeProvider<ZodTypeProvider>()
-    .post(
-      "/habitats/:habitatId/missions",
-      {
-        schema: { params: habitatIdParamsSchema, body: createMissionSchema },
-        preHandler: [agentOrHumanAuth, requireHabitat()],
-      },
-      async (request, reply) => {
-        const parsed = request.body;
-        const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/habitats/:habitatId/missions",
+    {
+      schema: { params: habitatIdParamsSchema, body: createMissionSchema },
+      preHandler: [agentOrHumanAuth, requireHabitat()],
+    },
+    async (request, reply) => {
+      const parsed = request.body;
+      const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
-        const mission = missionService.createMission({
-          habitatId: request.params.habitatId,
-          columnId: parsed.columnId,
-          title: parsed.title,
-          description: parsed.description,
-          acceptanceCriteria: parsed.acceptanceCriteria,
-          priority: parsed.priority,
-          labels: parsed.labels,
-          dependsOn: parsed.dependsOn,
-          blocks: parsed.blocks,
-          dueAt: parsed.dueAt,
-          slaMinutes: parsed.slaMinutes,
-          createdBy: actorId,
-        });
+      const mission = missionService.createMission({
+        habitatId: request.params.habitatId,
+        columnId: parsed.columnId,
+        title: parsed.title,
+        description: parsed.description,
+        acceptanceCriteria: parsed.acceptanceCriteria,
+        priority: parsed.priority,
+        labels: parsed.labels,
+        dependsOn: parsed.dependsOn,
+        blocks: parsed.blocks,
+        dueAt: parsed.dueAt,
+        slaMinutes: parsed.slaMinutes,
+        createdBy: actorId,
+      });
 
-        reply.code(201).send({ mission });
-      },
-    );
+      reply.code(201).send({ mission });
+    },
+  );
 
-  fastify
-    .withTypeProvider<ZodTypeProvider>()
-    .get(
-      "/habitats/:habitatId/missions",
-      {
-        schema: { params: habitatIdParamsSchema, querystring: missionQuerySchema },
-        preHandler: [agentOrHumanAuth],
-      },
-      async (request, _reply) => {
-        const parsed = request.query;
-        const habitat = habitatRepo.getHabitatById(request.params.habitatId);
-        if (!habitat) {
-          throw notFound("Habitat not found");
-        }
+  fastify.withTypeProvider<ZodTypeProvider>().get(
+    "/habitats/:habitatId/missions",
+    {
+      schema: { params: habitatIdParamsSchema, querystring: missionQuerySchema },
+      preHandler: [agentOrHumanAuth],
+    },
+    async (request, _reply) => {
+      const parsed = request.query;
+      const habitat = habitatRepo.getHabitatById(request.params.habitatId);
+      if (!habitat) {
+        throw notFound("Habitat not found");
+      }
 
-        const result = missionService.listMissions(request.params.habitatId, {
-          status: parsed.status,
-          priority: parsed.priority,
-          isArchived: parsed.isArchived,
-          limit: parsed.limit,
-          offset: parsed.offset,
-        });
+      const result = missionService.listMissions(request.params.habitatId, {
+        status: parsed.status,
+        priority: parsed.priority,
+        isArchived: parsed.isArchived,
+        limit: parsed.limit,
+        offset: parsed.offset,
+      });
 
-        return { missions: result.missions, total: result.total };
-      },
-    );
+      return { missions: result.missions, total: result.total };
+    },
+  );
 
   fastify
     .withTypeProvider<ZodTypeProvider>()
@@ -116,63 +112,52 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
           blocks: mission.blocks,
         };
 
-        const byStatus: Record<string, number> = {};
-        for (const t of tasks) {
-          byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
-        }
-        const completed = tasks.filter((t) => ["done", "approved"].includes(t.status)).length;
+        const progress = missionService.getMissionProgress(request.params.missionId)!;
 
         return {
           mission,
           tasks,
           events,
-          progress: {
-            completed,
-            total: tasks.length,
-            percentage: tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0,
-            byStatus,
-          },
+          progress,
           dependencies,
         };
       },
     );
 
-  fastify
-    .withTypeProvider<ZodTypeProvider>()
-    .patch(
-      "/missions/:missionId",
-      {
-        schema: { params: missionIdParamsSchema, body: updateMissionSchema },
-        preHandler: agentOrHumanAuth,
-      },
-      async (request, reply) => {
-        const parsed = request.body;
-        const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
+  fastify.withTypeProvider<ZodTypeProvider>().patch(
+    "/missions/:missionId",
+    {
+      schema: { params: missionIdParamsSchema, body: updateMissionSchema },
+      preHandler: agentOrHumanAuth,
+    },
+    async (request, reply) => {
+      const parsed = request.body;
+      const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
-        const mission = missionRepo.getMissionById(request.params.missionId);
-        if (mission?.isArchived) {
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (mission?.isArchived) {
+        throw forbidden("Cannot modify an archived mission");
+      }
+
+      const result = missionService.updateMission(request.params.missionId, parsed, actorId);
+      if (!result.success) {
+        if (result.notFound) {
+          throw notFound("Mission not found");
+        } else if (result.versionMismatch) {
+          reply.header("Retry-After", "5");
+          reply.header("X-Current-Version", String(result.currentVersion));
+          throw new AppError(409, "VERSION_CONFLICT", "Version conflict", {
+            currentVersion: result.currentVersion,
+            yourVersion: parsed.version,
+          });
+        } else if (result.archived) {
           throw forbidden("Cannot modify an archived mission");
         }
-
-        const result = missionService.updateMission(request.params.missionId, parsed, actorId);
-        if (!result.success) {
-          if (result.notFound) {
-            throw notFound("Mission not found");
-          } else if (result.versionMismatch) {
-            reply.header("Retry-After", "5");
-            reply.header("X-Current-Version", String(result.currentVersion));
-            throw new AppError(409, "VERSION_CONFLICT", "Version conflict", {
-              currentVersion: result.currentVersion,
-              yourVersion: parsed.version,
-            });
-          } else if (result.archived) {
-            throw forbidden("Cannot modify an archived mission");
-          }
-          throw internalError("Failed to update mission");
-        }
-        return { mission: result.mission };
-      },
-    );
+        throw internalError("Failed to update mission");
+      }
+      return { mission: result.mission };
+    },
+  );
 
   fastify
     .withTypeProvider<ZodTypeProvider>()
@@ -231,31 +216,29 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
       },
     );
 
-  fastify
-    .withTypeProvider<ZodTypeProvider>()
-    .post(
-      "/missions/:missionId/move",
-      {
-        schema: { params: missionIdParamsSchema, body: moveMissionSchema },
-        preHandler: agentOrHumanAuth,
-      },
-      async (request, _reply) => {
-        const parsed = request.body;
-        const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
-        const actorType = request.agent ? "agent" : "human";
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/missions/:missionId/move",
+    {
+      schema: { params: missionIdParamsSchema, body: moveMissionSchema },
+      preHandler: agentOrHumanAuth,
+    },
+    async (request, _reply) => {
+      const parsed = request.body;
+      const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
+      const actorType = request.agent ? "agent" : "human";
 
-        const mission = missionService.moveMissionToColumn(
-          request.params.missionId,
-          parsed.columnId,
-          actorId,
-          actorType,
-        );
-        if (!mission) {
-          throw notFound("Mission not found");
-        }
-        return { mission };
-      },
-    );
+      const mission = missionService.moveMissionToColumn(
+        request.params.missionId,
+        parsed.columnId,
+        actorId,
+        actorType,
+      );
+      if (!mission) {
+        throw notFound("Mission not found");
+      }
+      return { mission };
+    },
+  );
 
   fastify
     .withTypeProvider<ZodTypeProvider>()
@@ -273,41 +256,39 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
       },
     );
 
-  fastify
-    .withTypeProvider<ZodTypeProvider>()
-    .post(
-      "/missions/:missionId/tasks",
-      {
-        schema: { params: missionIdParamsSchema, body: createTaskInMissionSchema },
-        preHandler: agentOrHumanAuth,
-      },
-      async (request, reply) => {
-        const parsed = request.body;
-        const mission = missionRepo.getMissionById(request.params.missionId);
-        if (!mission) {
-          throw notFound("Mission not found");
-        }
-        if (mission.isArchived) {
-          throw forbidden("Cannot add tasks to an archived mission");
-        }
+  fastify.withTypeProvider<ZodTypeProvider>().post(
+    "/missions/:missionId/tasks",
+    {
+      schema: { params: missionIdParamsSchema, body: createTaskInMissionSchema },
+      preHandler: agentOrHumanAuth,
+    },
+    async (request, reply) => {
+      const parsed = request.body;
+      const mission = missionRepo.getMissionById(request.params.missionId);
+      if (!mission) {
+        throw notFound("Mission not found");
+      }
+      if (mission.isArchived) {
+        throw forbidden("Cannot add tasks to an archived mission");
+      }
 
-        const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
+      const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
-        const task = taskService.createTask({
-          missionId: mission.id,
-          title: parsed.title,
-          description: parsed.description,
-          priority: parsed.priority,
-          requiredDomain: parsed.requiredDomain,
-          requiredCapabilities: parsed.requiredCapabilities,
-          estimatedMinutes: parsed.estimatedMinutes,
-          order: parsed.order,
-          createdBy: actorId,
-        });
+      const task = taskService.createTask({
+        missionId: mission.id,
+        title: parsed.title,
+        description: parsed.description,
+        priority: parsed.priority,
+        requiredDomain: parsed.requiredDomain,
+        requiredCapabilities: parsed.requiredCapabilities,
+        estimatedMinutes: parsed.estimatedMinutes,
+        order: parsed.order,
+        createdBy: actorId,
+      });
 
-        reply.code(201).send({ task });
-      },
-    );
+      reply.code(201).send({ task });
+    },
+  );
 
   fastify
     .withTypeProvider<ZodTypeProvider>()
@@ -320,19 +301,11 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
           throw notFound("Mission not found");
         }
 
-        const tasks = taskRepo.getTasksByMissionId(request.params.missionId);
-        const byStatus: Record<string, number> = {};
-        for (const t of tasks) {
-          byStatus[t.status] = (byStatus[t.status] ?? 0) + 1;
+        const progress = missionService.getMissionProgress(request.params.missionId);
+        if (!progress) {
+          throw notFound("Mission not found");
         }
-        const completed = tasks.filter((t) => ["done", "approved"].includes(t.status)).length;
-
-        return {
-          completed,
-          total: tasks.length,
-          percentage: tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0,
-          byStatus,
-        };
+        return progress;
       },
     );
 
