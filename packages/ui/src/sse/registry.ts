@@ -136,13 +136,16 @@ const taskCacheHandler = defineSSEHandler<SSEEventType>({
     const taskId = getTaskId(context.event);
     if (taskId) {
       invalidateTaskDetail(context);
-      const task = context.getState().tasks.find((t) => t.id === taskId);
-      if (task?.missionId) {
+      const missionId =
+        "missionId" in context.event.data
+          ? (context.event.data as { missionId?: string }).missionId
+          : undefined;
+      if (missionId) {
         context.queryClient.invalidateQueries({
-          queryKey: queryKeys.missions.progress(task.missionId),
+          queryKey: queryKeys.missions.progress(missionId),
         });
         context.queryClient.invalidateQueries({
-          queryKey: queryKeys.missions.detail(task.missionId),
+          queryKey: queryKeys.missions.detail(missionId),
         });
       }
     }

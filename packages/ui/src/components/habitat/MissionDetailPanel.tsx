@@ -12,7 +12,7 @@ import { CreateTaskForm } from "./CreateTaskForm.js";
 import { ExternalIssueBadge } from "./ExternalIssueBadge.js";
 import { X, Plus, Sparkles, Trash2, ChevronRight, Loader2, Archive, RefreshCw } from "lucide-react";
 import { MissionCodeEvidence } from "./MissionCodeEvidence.js";
-import type { MissionStatus, MissionWithProgress, TaskStatus } from "../../types/index.js";
+import type { MissionStatus, TaskStatus } from "../../types/index.js";
 
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
@@ -94,7 +94,8 @@ export function FeatureDetailPanel() {
     try {
       await api.missions.archive(feature!.id);
       await invalidateMissionCaches(feature!.id);
-      useHabitatStore.getState().removeFeature(feature!.id);
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(feature!.habitatId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(feature!.habitatId) });
       setSelectedMission(null);
       notify.success("Mission archived");
     } catch (err) {
@@ -106,9 +107,8 @@ export function FeatureDetailPanel() {
     try {
       await api.missions.unarchive(feature!.id);
       await invalidateMissionCaches(feature!.id);
-      useHabitatStore
-        .getState()
-        .addFeature({ ...feature!, isArchived: false } as MissionWithProgress);
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(feature!.habitatId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(feature!.habitatId) });
       notify.success("Mission restored");
     } catch (err) {
       notify.error((err as Error).message);

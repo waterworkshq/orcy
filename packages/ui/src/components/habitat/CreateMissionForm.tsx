@@ -1,11 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/Dialog.js';
-import { Button } from '../ui/Button.js';
-import { RichTextEditor } from '../ui/RichTextEditor.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { notify } from '../../lib/toast.js';
-import { useTemplates, useCreateMission } from '../../lib/useHabitatData.js';
-import type { TaskPriority } from '../../types/index.js';
+import React, { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "../ui/Dialog.js";
+import { Button } from "../ui/Button.js";
+import { RichTextEditor } from "../ui/RichTextEditor.js";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { notify } from "../../lib/toast.js";
+import { useTemplates, useCreateMission } from "../../lib/useHabitatData.js";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys.js";
+import type { TaskPriority } from "../../types/index.js";
 
 interface CreateMissionFormProps {
   open: boolean;
@@ -14,34 +23,35 @@ interface CreateMissionFormProps {
 }
 
 export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFormProps) {
-  const { columns, addFeature } = useHabitatStore();
+  const { columns } = useHabitatStore();
   useTemplates(habitatId);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState('');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [columnId, setColumnId] = useState('');
-  const [labels, setLabels] = useState('');
-  const [dueAt, setDueAt] = useState('');
-  const [slaMinutes, setSlaMinutes] = useState('');
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [columnId, setColumnId] = useState("");
+  const [labels, setLabels] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [slaMinutes, setSlaMinutes] = useState("");
   const createMission = useCreateMission(habitatId);
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (open) {
-      setTitle('');
-      setDescription('');
-      setAcceptanceCriteria('');
-      setPriority('medium');
-      setLabels('');
-      setDueAt('');
-      setSlaMinutes('');
+      setTitle("");
+      setDescription("");
+      setAcceptanceCriteria("");
+      setPriority("medium");
+      setLabels("");
+      setDueAt("");
+      setSlaMinutes("");
     }
   }, [open]);
 
   useEffect(() => {
     if (open && columns.length > 0) {
       const firstNonTerminal = columns.find((c) => !c.isTerminal);
-      setColumnId(firstNonTerminal?.id ?? columns[0]?.id ?? '');
+      setColumnId(firstNonTerminal?.id ?? columns[0]?.id ?? "");
     }
   }, [open, columns]);
 
@@ -51,11 +61,11 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
 
     try {
       const labelList = labels
-        .split(',')
+        .split(",")
         .map((l) => l.trim())
         .filter(Boolean);
 
-      const result = await createMission.mutateAsync({
+      await createMission.mutateAsync({
         columnId,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -65,13 +75,8 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
         dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
         slaMinutes: slaMinutes ? parseInt(slaMinutes, 10) : undefined,
       });
-      addFeature({
-        ...result.feature,
-        progress: {
-          total: 0, pending: 0, claimed: 0, inProgress: 0,
-          submitted: 0, approved: 0, done: 0, failed: 0, rejected: 0, percentage: 0,
-        },
-      });
+      qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
+      qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
       notify.success(`Mission "${title.trim()}" created`);
       onClose();
     } catch (err) {
@@ -84,9 +89,7 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
       <form onSubmit={handleSubmit}>
         <DialogHeader>
           <DialogTitle>Create Mission</DialogTitle>
-          <DialogDescription>
-            Add a new mission to this habitat.
-          </DialogDescription>
+          <DialogDescription>Add a new mission to this habitat.</DialogDescription>
         </DialogHeader>
 
         <DialogContent>
@@ -172,7 +175,7 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
                 <input
                   type="datetime-local"
                   value={dueAt}
-                  onChange={e => setDueAt(e.target.value)}
+                  onChange={(e) => setDueAt(e.target.value)}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 />
               </div>
@@ -183,7 +186,7 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
                   min="1"
                   placeholder="e.g., 60"
                   value={slaMinutes}
-                  onChange={e => setSlaMinutes(e.target.value)}
+                  onChange={(e) => setSlaMinutes(e.target.value)}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 />
               </div>
@@ -195,7 +198,11 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={createMission.isPending} disabled={createMission.isPending || !title.trim()}>
+          <Button
+            type="submit"
+            loading={createMission.isPending}
+            disabled={createMission.isPending || !title.trim()}
+          >
             Create Mission
           </Button>
         </DialogFooter>
