@@ -2,6 +2,21 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.18.2 — 2026-06-12
+
+### Refactors
+
+#### extract route logic to service layer ([`e6c231f`](https://github.com/waterworkshq/orcy/commit/e6c231fac3dc070ec186f8542224f7106a51648a))
+
+1. Move complex business logic from route handlers to dedicated service functions. The integrations route now uses promoteIntakeCandidate service function, while the pulse route delegates to postMissionPulseSignal service function. This separation improves code organization, reduces route handler complexity, and enhances testability by isolating business logic.
+
+
+#### extract route logic to service layer ([`ea1f67d`](https://github.com/waterworkshq/orcy/commit/ea1f67dcc29cbf5f36e27e43e4329962cb27480e))
+
+1. Extract authentication, daemon, integration, and mission route logic to dedicated service functions. This change improves code organization, separates concerns, and enhances maintainability of route handlers. The service layer now handles business logic while routes focus on HTTP concerns.
+
+
+
 ## 0.18.1 — 2026-06-12
 
 ### Refactors
@@ -227,22 +242,3 @@
 7. Integration with existing audit infrastructure for consistent tracking
 
 9. These changes provide comprehensive audit trails for the new automation and notification features, enabling debugging and compliance monitoring.
-
-
-
-## 0.17.3 — 2026-06-10
-
-### Refactors
-
-#### centralize SSE event handling with registry module ([`971a571`](https://github.com/waterworkshq/orcy/commit/971a571296a5755b15d059b024808b1a9006577c))
-
-1. This change replaces the triple-switch pattern across Zustand mutation, React Query invalidation, and toast/dropdown notification handling with a centralized SSE Event Registry. The new architecture allows registering SSE event types once and ensures they are covered by completeness tests.
-
-3. The implementation includes:
-4. A new SSE registry module at packages/ui/src/sse/
-5. Updated useSSE hook to use the registry for cache invalidation
-6. Updated useSSENotifications hook to use the registry for notification handling
-7. Updated sseHandler slice to use the registry for state updates
-8. Documentation updates in README.md and docs/ROADMAP.md
-
-10. This change prepares the real-time UI event path for v0.18's workflow automation and Notification System V2 by establishing a centralized event handling architecture.
