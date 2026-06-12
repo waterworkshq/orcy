@@ -63,7 +63,6 @@ export function HabitatPage() {
   const {
     board,
     setBoard,
-    setAgents,
     isLoading,
     setLoading,
     setError,
@@ -213,13 +212,11 @@ export function HabitatPage() {
     setError(null);
     clearColumnPagination();
     try {
-      const [boardData, agentsData, firstPage] = await Promise.all([
+      const [boardData, firstPage] = await Promise.all([
         api.habitats.get(habitatId),
-        api.agents.list(),
         api.missions.list(habitatId, { limit: PAGE_SIZE, offset: 0 }),
       ]);
       setBoard(boardData.board, boardData.columns ?? [], boardData.features ?? []);
-      setAgents(agentsData);
 
       const firstPageFeatures = firstPage.features;
 
@@ -237,15 +234,7 @@ export function HabitatPage() {
       setError((err as Error).message);
       setLoading(false);
     }
-  }, [
-    habitatId,
-    setBoard,
-    setAgents,
-    setLoading,
-    setError,
-    clearColumnPagination,
-    setColumnPagination,
-  ]);
+  }, [habitatId, setBoard, setLoading, setError, clearColumnPagination, setColumnPagination]);
 
   useEffect(() => {
     loadBoard();

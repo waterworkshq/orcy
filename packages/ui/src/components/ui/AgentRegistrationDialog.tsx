@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
-import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from './Dialog.js';
-import { Button } from './Button.js';
-import { api } from '../../api/index.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { Copy, Check, Download, AlertCircle } from 'lucide-react';
+import React, { useState } from "react";
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogContent,
+  DialogFooter,
+} from "./Dialog.js";
+import { Button } from "./Button.js";
+import { api } from "../../api/index.js";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { Copy, Check, Download, AlertCircle } from "lucide-react";
 
 interface AgentRegistrationDialogProps {
   open: boolean;
@@ -11,37 +19,44 @@ interface AgentRegistrationDialogProps {
   onRegistered?: () => void;
 }
 
-type AgentType = 'claude-code' | 'codex' | 'opencode';
+type AgentType = "claude-code" | "codex" | "opencode";
 
 const AGENT_TYPES: { value: AgentType; label: string }[] = [
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'opencode', label: 'OpenCode' },
+  { value: "claude-code", label: "Claude Code" },
+  { value: "codex", label: "Codex" },
+  { value: "opencode", label: "OpenCode" },
 ];
 
 const DOMAINS = [
-  { value: 'frontend', label: 'Frontend' },
-  { value: 'backend', label: 'Backend' },
-  { value: 'devops', label: 'DevOps' },
-  { value: 'testing', label: 'Testing' },
-  { value: 'fullstack', label: 'Full Stack' },
+  { value: "frontend", label: "Frontend" },
+  { value: "backend", label: "Backend" },
+  { value: "devops", label: "DevOps" },
+  { value: "testing", label: "Testing" },
+  { value: "fullstack", label: "Full Stack" },
 ];
 
-export function AgentRegistrationDialog({ open, onClose, onRegistered }: AgentRegistrationDialogProps) {
-  const [name, setName] = useState('');
-  const [type, setType] = useState<AgentType>('opencode');
-  const [domain, setDomain] = useState('backend');
-  const [capabilities, setCapabilities] = useState('');
+export function AgentRegistrationDialog({
+  open,
+  onClose,
+  onRegistered,
+}: AgentRegistrationDialogProps) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState<AgentType>("opencode");
+  const [domain, setDomain] = useState("backend");
+  const [capabilities, setCapabilities] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [createdAgent, setCreatedAgent] = useState<{ agent: { id: string; name: string }; apiKey: string } | null>(null);
+  const [createdAgent, setCreatedAgent] = useState<{
+    agent: { id: string; name: string };
+    apiKey: string;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
-  const { upsertAgent } = useHabitatStore();
+  const qc = useQueryClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Agent name is required');
+      setError("Agent name is required");
       return;
     }
 
@@ -50,7 +65,7 @@ export function AgentRegistrationDialog({ open, onClose, onRegistered }: AgentRe
 
     try {
       const caps = capabilities
-        .split(',')
+        .split(",")
         .map((c) => c.trim())
         .filter(Boolean);
 
@@ -61,7 +76,8 @@ export function AgentRegistrationDialog({ open, onClose, onRegistered }: AgentRe
         capabilities: caps.length > 0 ? caps : undefined,
       });
 
-      upsertAgent(result.agent);
+      qc.invalidateQueries({ queryKey: queryKeys.agents.list() });
+      qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
       setCreatedAgent(result);
     } catch (err) {
       setError((err as Error).message);
@@ -85,21 +101,21 @@ ORCY_API_KEY=${createdAgent.apiKey}`;
     const config = `ORCY_API_URL=http://localhost:3000
 ORCY_AGENT_ID=${createdAgent.agent.id}
 ORCY_API_KEY=${createdAgent.apiKey}`;
-    const blob = new Blob([config], { type: 'text/plain' });
+    const blob = new Blob([config], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = '.env.orcy';
+    a.download = ".env.orcy";
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const handleClose = () => {
     setCreatedAgent(null);
-    setName('');
-    setType('opencode');
-    setDomain('backend');
-    setCapabilities('');
+    setName("");
+    setType("opencode");
+    setDomain("backend");
+    setCapabilities("");
     setError(null);
     setCopied(false);
     onClose();
@@ -180,8 +196,7 @@ ORCY_API_KEY=${createdAgent.apiKey}`;
 
               <div className="space-y-2">
                 <label htmlFor="agent-capabilities" className="text-sm font-medium">
-                  Capabilities{' '}
-                  <span className="font-normal text-muted-foreground">(optional)</span>
+                  Capabilities <span className="font-normal text-muted-foreground">(optional)</span>
                 </label>
                 <input
                   id="agent-capabilities"
@@ -202,7 +217,7 @@ ORCY_API_KEY=${createdAgent.apiKey}`;
                 Cancel
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Creating...' : 'Register Agent'}
+                {isLoading ? "Creating..." : "Register Agent"}
               </Button>
             </DialogFooter>
           </form>
@@ -212,8 +227,8 @@ ORCY_API_KEY=${createdAgent.apiKey}`;
           <DialogHeader>
             <DialogTitle>Agent Registered</DialogTitle>
             <DialogDescription>
-              Your agent <strong>{createdAgent.agent.name}</strong> has been created.
-              Copy these credentials — they will not be shown again.
+              Your agent <strong>{createdAgent.agent.name}</strong> has been created. Copy these
+              credentials — they will not be shown again.
             </DialogDescription>
           </DialogHeader>
 
@@ -227,12 +242,7 @@ ORCY_API_KEY=${createdAgent.apiKey}`}
             </div>
 
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={handleCopy}
-              >
+              <Button variant="outline" size="sm" className="flex-1" onClick={handleCopy}>
                 {copied ? (
                   <>
                     <Check className="mr-1 h-4 w-4" /> Copied
@@ -243,12 +253,7 @@ ORCY_API_KEY=${createdAgent.apiKey}`}
                   </>
                 )}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1"
-                onClick={handleDownload}
-              >
+              <Button variant="outline" size="sm" className="flex-1" onClick={handleDownload}>
                 <Download className="mr-1 h-4 w-4" /> Download .env
               </Button>
             </div>
@@ -257,7 +262,9 @@ ORCY_API_KEY=${createdAgent.apiKey}`}
               <p className="font-medium">Next Steps:</p>
               <ol className="mt-1 list-inside list-decimal space-y-1">
                 <li>Add these credentials to your agent's environment</li>
-                <li>Configure your agent's <code className="text-xs">.mcp.json</code> file</li>
+                <li>
+                  Configure your agent's <code className="text-xs">.mcp.json</code> file
+                </li>
                 <li>The agent will then be able to claim and work on tasks</li>
               </ol>
             </div>

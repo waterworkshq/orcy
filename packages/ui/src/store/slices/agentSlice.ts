@@ -1,27 +1,17 @@
-import type { StateCreator } from 'zustand';
-import type { Agent } from '../../types/index.js';
+import type { StateCreator } from "zustand";
+import type { Agent } from "../../types/index.js";
 
+/**
+ * Agent slice — retained for MissionCard (deferred to C5).
+ * Setters (setAgents, upsertAgent, removeAgent) removed in C1.
+ */
 export interface AgentSlice {
   agents: Agent[];
-  setAgents: (agents: Agent[]) => void;
-  upsertAgent: (agent: Agent) => void;
-  removeAgent: (agentId: string) => void;
 }
 
-export const createAgentSlice: StateCreator<AgentSlice, [], [], AgentSlice> = (set) => ({
+export const createAgentSlice: StateCreator<AgentSlice, [], [], AgentSlice> = () => ({
   agents: [],
-
-  setAgents: (agents) => set({ agents }),
-
-  upsertAgent: (agent) =>
-    set((state) => ({
-      agents: state.agents.some((a) => a.id === agent.id)
-        ? state.agents.map((a) => (a.id === agent.id ? agent : a))
-        : [...state.agents, agent],
-    })),
-
-  removeAgent: (agentId) =>
-    set((state) => ({
-      agents: state.agents.filter((a) => a.id !== agentId),
-    })),
+  // agents data is now provided via React Query (useAgents()).
+  // This empty array is a placeholder for MissionCard.tsx which
+  // still reads agents from Zustand alongside s.tasks (deferred to C5).
 });

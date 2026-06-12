@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   useSprintMetrics: vi.fn(),
   useSprintBurndown: vi.fn(),
   useSprintCarryOver: vi.fn(),
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
 }));
 
 vi.mock("../../lib/useHabitatData.js", () => mocks);

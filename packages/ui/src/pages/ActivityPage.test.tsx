@@ -51,6 +51,7 @@ let mockEventsResult: UseQueryResult<{ events: EnrichedHabitatEvent[]; total: nu
 } as any;
 
 vi.mock('../lib/useHabitatData.js', () => ({
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useBoardAnomalies: () => mockAnomaliesResult,
   useBoardEvents: () => mockEventsResult,
 }));

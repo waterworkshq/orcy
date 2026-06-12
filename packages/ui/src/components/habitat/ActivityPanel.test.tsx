@@ -30,6 +30,7 @@ vi.mock('../../store/modalStore.js', () => ({
 }));
 
 vi.mock('../../lib/useHabitatData.js', () => ({
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useBoardEvents: (...args: unknown[]) => mockBoardEvents(...args),
   useBoardAnomalies: (...args: unknown[]) => mockBoardAnomalies(...args),
 }));

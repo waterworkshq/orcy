@@ -1,11 +1,11 @@
-import React from 'react';
-import { useQueries } from '@tanstack/react-query';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { api } from '../../api/index.js';
-import { queryKeys } from '../../lib/queryKeys.js';
-import { formatRelativeTime } from './MissionHeader.js';
-import { Bot } from 'lucide-react';
-import type { Task, TaskComment } from '../../types/index.js';
+import React from "react";
+import { useQueries } from "@tanstack/react-query";
+import { useAgents } from "../../lib/useHabitatData.js";
+import { api } from "../../api/index.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { formatRelativeTime } from "./MissionHeader.js";
+import { Bot } from "lucide-react";
+import type { Task, TaskComment } from "../../types/index.js";
 
 interface AgentReasoningTraceProps {
   tasks: Task[];
@@ -18,12 +18,9 @@ interface AgentComment {
 }
 
 export function AgentReasoningTrace({ tasks }: AgentReasoningTraceProps) {
-  const agents = useHabitatStore((s) => s.agents);
+  const { data: agents = [] } = useAgents();
 
-  const taskIds = React.useMemo(
-    () => tasks.map((t) => t.id),
-    [tasks]
-  );
+  const taskIds = React.useMemo(() => tasks.map((t) => t.id), [tasks]);
 
   const commentResults = useQueries({
     queries: taskIds.map((taskId) => ({
@@ -39,7 +36,7 @@ export function AgentReasoningTrace({ tasks }: AgentReasoningTraceProps) {
       const result = commentResults[i];
       if (result?.data?.comments) {
         for (const comment of result.data.comments) {
-          if (comment.authorType === 'agent') {
+          if (comment.authorType === "agent") {
             const agent = agents.find((a) => a.id === comment.authorId);
             comments.push({
               comment,
@@ -51,9 +48,7 @@ export function AgentReasoningTrace({ tasks }: AgentReasoningTraceProps) {
       }
     }
     return comments.toSorted(
-      (a, b) =>
-        new Date(b.comment.createdAt).getTime() -
-        new Date(a.comment.createdAt).getTime()
+      (a, b) => new Date(b.comment.createdAt).getTime() - new Date(a.comment.createdAt).getTime(),
     );
   }, [tasks, commentResults, agents]);
 
@@ -77,9 +72,7 @@ export function AgentReasoningTrace({ tasks }: AgentReasoningTraceProps) {
           ) : agentComments.length === 0 ? (
             <div className="p-6 text-center">
               <Bot className="h-8 w-8 text-[var(--outline-variant)] mx-auto mb-2" />
-              <p className="text-[11px] text-[var(--on-surface-variant)]">
-                No agent reasoning yet
-              </p>
+              <p className="text-[11px] text-[var(--on-surface-variant)]">No agent reasoning yet</p>
             </div>
           ) : (
             <div className="p-4 relative pl-6 border-l border-[var(--outline-variant)] space-y-6">

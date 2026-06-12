@@ -256,7 +256,6 @@ describe("AgentPanel", () => {
     await fireEvent.click(screen.getByTestId("confirm-btn"));
     await waitFor(() => {
       expect(mockApiDelete).toHaveBeenCalledWith("agent-1");
-      expect(mockRemoveAgent).toHaveBeenCalledWith("agent-1");
       expect(mockInvalidateQueries).toHaveBeenCalled();
     });
   });

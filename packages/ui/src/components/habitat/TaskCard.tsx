@@ -1,53 +1,57 @@
-import React, { useState, memo } from 'react';
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { useQuery } from '@tanstack/react-query';
-import { shallow } from 'zustand/shallow';
-import { Badge } from '../ui/Badge.js';
-import { Tooltip } from '../ui/Tooltip.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { useModalStore } from '../../store/modalStore.js';
-import { api } from '../../api/index.js';
-import { truncateId, PRIORITY_VARIANT, PRIORITY_BORDER_CLASS, TASK_STATUS_VARIANT } from '../../lib/formatting.js';
-import type { Task } from '../../types/index.js';
-import { GripVertical, Eye, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
+import React, { useState, memo } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useQuery } from "@tanstack/react-query";
+import { shallow } from "zustand/shallow";
+import { Badge } from "../ui/Badge.js";
+import { Tooltip } from "../ui/Tooltip.js";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { useAgents } from "../../lib/useHabitatData.js";
+import { useModalStore } from "../../store/modalStore.js";
+import { api } from "../../api/index.js";
+import {
+  truncateId,
+  PRIORITY_VARIANT,
+  PRIORITY_BORDER_CLASS,
+  TASK_STATUS_VARIANT,
+} from "../../lib/formatting.js";
+import type { Task } from "../../types/index.js";
+import { GripVertical, Eye, Lock, ShieldCheck, ShieldAlert } from "lucide-react";
 
 interface TaskCardProps {
   task: Task;
   isDragOverlay?: boolean;
   blockedByDeps?: boolean;
-  qualityStatus?: 'passed' | 'blocked' | null;
+  qualityStatus?: "passed" | "blocked" | null;
 }
 
 const priorityTooltip: Record<string, string> = {
-  critical: 'Critical priority - claim first',
-  high: 'High priority - claim after critical',
-  medium: 'Medium priority',
-  low: 'Low priority - claim last',
+  critical: "Critical priority - claim first",
+  high: "High priority - claim after critical",
+  medium: "Medium priority",
+  low: "Low priority - claim last",
 };
 
 const statusTooltip: Record<string, string> = {
-  claimed: 'Agent has claimed this task',
-  in_progress: 'Agent is actively working',
-  submitted: 'Awaiting human review',
-  approved: 'Human approved - moving forward',
-  rejected: 'Human rejected - needs rework',
+  claimed: "Agent has claimed this task",
+  in_progress: "Agent is actively working",
+  submitted: "Awaiting human review",
+  approved: "Human approved - moving forward",
+  rejected: "Human rejected - needs rework",
 };
 
 function AgentAvatar({ agentId }: { agentId: string }) {
-  const agent = useHabitatStore(
-    (s) => s.agents.find((a) => a.id === agentId) ?? null,
-    shallow
-  );
+  const { data: agents = [] } = useAgents();
+  const agent = agents.find((a) => a.id === agentId) ?? null;
   if (!agent) return null;
 
   const initials = agent.name.slice(0, 2).toUpperCase();
   const color =
-    agent.type === 'claude-code'
-      ? 'bg-[var(--agent-blue)]'
-      : agent.type === 'codex'
-      ? 'bg-[var(--agent-purple)]'
-      : 'bg-[var(--agent-green)]';
+    agent.type === "claude-code"
+      ? "bg-[var(--agent-blue)]"
+      : agent.type === "codex"
+        ? "bg-[var(--agent-purple)]"
+        : "bg-[var(--agent-green)]";
 
   return (
     <div
@@ -63,26 +67,32 @@ function AgentAvatar({ agentId }: { agentId: string }) {
  * Renders a single task card showing title, priority, status, assignee,
  * and live presence indicators. Click opens the detail panel.
  */
-export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByDeps: blockedByDepsProp, qualityStatus: qualityStatusProp }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({
+  task,
+  isDragOverlay,
+  blockedByDeps: blockedByDepsProp,
+  qualityStatus: qualityStatusProp,
+}: TaskCardProps) {
   const openModal = useModalStore((s) => s.openModal);
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const taskViewers = useHabitatStore(
     (s) => s.presence.filter((p) => p.viewingTaskId === task.id),
-    shallow
+    shallow,
   );
   const [animKey] = useState(0);
   const borderClass = PRIORITY_BORDER_CLASS[task.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   const { data: qualityReport } = useQuery({
-    queryKey: ['task-quality', task.id],
+    queryKey: ["task-quality", task.id],
     queryFn: () => api.qualityGates.getReport(task.id),
-    enabled: qualityStatusProp === undefined && task.status === 'submitted',
+    enabled: qualityStatusProp === undefined && task.status === "submitted",
   });
 
   const { data: blockedStatus } = useQuery({
-    queryKey: ['task-blocked', task.id],
+    queryKey: ["task-blocked", task.id],
     queryFn: () => api.dependencies.getBlockedStatus(task.id),
-    enabled: blockedByDepsProp === undefined && (task.status === 'pending' || task.status === 'claimed'),
+    enabled:
+      blockedByDepsProp === undefined && (task.status === "pending" || task.status === "claimed"),
   });
 
   const qualityStatus = qualityStatusProp ?? qualityReport?.overallStatus ?? null;
@@ -99,8 +109,8 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
       key={animKey}
       onClick={handleCardClick}
       className={`group glass-card ${borderClass} p-3 hover:-translate-y-0.5 transition-colors transition-shadow duration-200 ease-out ${
-        isDragOverlay ? 'shadow-lg ring-2 ring-primary' : 'animate-card-hover'
-      } ${!isDragOverlay && animKey > 0 ? 'animate-task-move' : ''} cursor-pointer`}
+        isDragOverlay ? "shadow-lg ring-2 ring-primary" : "animate-card-hover"
+      } ${!isDragOverlay && animKey > 0 ? "animate-task-move" : ""} cursor-pointer`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -108,13 +118,11 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-xs text-on-surface-variant font-label whitespace-nowrap">
-            {truncateId(task.id, 'TASK')}
+            {truncateId(task.id, "TASK")}
           </span>
           {!isBulkSelectMode && (
-            <Tooltip content={priorityTooltip[task.priority] ?? ''} position="top">
-              <Badge variant={PRIORITY_VARIANT[task.priority] ?? 'medium'}>
-                {task.priority}
-              </Badge>
+            <Tooltip content={priorityTooltip[task.priority] ?? ""} position="top">
+              <Badge variant={PRIORITY_VARIANT[task.priority] ?? "medium"}>{task.priority}</Badge>
             </Tooltip>
           )}
         </div>
@@ -122,13 +130,16 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Tooltip content={statusTooltip[task.status] ?? ''} position="top">
-            <Badge variant={TASK_STATUS_VARIANT[task.status] ?? 'default'}>
-              {task.status.replace('_', ' ')}
+          <Tooltip content={statusTooltip[task.status] ?? ""} position="top">
+            <Badge variant={TASK_STATUS_VARIANT[task.status] ?? "default"}>
+              {task.status.replace("_", " ")}
             </Badge>
           </Tooltip>
           {task.rejectedCount > 0 && (
-            <span className="text-xs text-[var(--badge-blocked-text)]" title={`Rejected ${task.rejectedCount}x`}>
+            <span
+              className="text-xs text-[var(--badge-blocked-text)]"
+              title={`Rejected ${task.rejectedCount}x`}
+            >
               ↩ {task.rejectedCount}
             </span>
           )}
@@ -137,8 +148,9 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
               <Lock className="h-3 w-3 text-[var(--badge-review-text)]" />
             </Tooltip>
           )}
-          {task.status === 'submitted' && qualityStatus && (
-            qualityStatus === 'passed' ? (
+          {task.status === "submitted" &&
+            qualityStatus &&
+            (qualityStatus === "passed" ? (
               <Tooltip content="Quality gates passed" position="top">
                 <ShieldCheck className="h-3.5 w-3.5 text-[var(--badge-done-text)]" />
               </Tooltip>
@@ -146,8 +158,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
               <Tooltip content="Quality gates blocked" position="top">
                 <ShieldAlert className="h-3.5 w-3.5 text-[var(--badge-review-text)]" />
               </Tooltip>
-            )
-          )}
+            ))}
         </div>
 
         <div className="flex items-center gap-1">
@@ -158,7 +169,7 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
           )}
           {taskViewers.length > 0 && (
             <Tooltip
-              content={taskViewers.map((v) => v.userName ?? v.agentName ?? 'Unknown').join(', ')}
+              content={taskViewers.map((v) => v.userName ?? v.agentName ?? "Unknown").join(", ")}
               position="top"
             >
               <div className="flex items-center gap-0.5 rounded border border-[var(--badge-active)] bg-[var(--badge-active-bg)] px-1 py-0.5 text-[10px] font-medium text-[var(--badge-active-text)]">
@@ -184,14 +195,9 @@ export const TaskCard = memo(function TaskCard({ task, isDragOverlay, blockedByD
 
 /** TaskCard wrapped with @dnd-kit sortable attributes for drag-and-drop. */
 export function SortableTaskCard({ task }: { task: Task }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),

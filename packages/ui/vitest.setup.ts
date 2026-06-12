@@ -1,1 +1,1 @@
-// no setup needed - using vitest globals
+import { vi } from "vitest";

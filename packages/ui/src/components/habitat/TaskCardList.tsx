@@ -1,10 +1,10 @@
-import React from 'react';
-import { Badge } from '../ui/Badge.js';
-import { useModalStore } from '../../store/modalStore.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { truncateId, PRIORITY_VARIANT, TASK_STATUS_VARIANT } from '../../lib/formatting.js';
-import type { Task } from '../../types/index.js';
-import { User } from 'lucide-react';
+import React from "react";
+import { Badge } from "../ui/Badge.js";
+import { useModalStore } from "../../store/modalStore.js";
+import { useAgents } from "../../lib/useHabitatData.js";
+import { truncateId, PRIORITY_VARIANT, TASK_STATUS_VARIANT } from "../../lib/formatting.js";
+import type { Task } from "../../types/index.js";
+import { User } from "lucide-react";
 
 interface TaskCardListProps {
   tasks: Task[];
@@ -12,13 +12,17 @@ interface TaskCardListProps {
   onSelectionChange: (ids: string[]) => void;
 }
 
-const TaskCardItem = React.memo(function TaskCardItem({ task, isSelected, onToggle }: {
+const TaskCardItem = React.memo(function TaskCardItem({
+  task,
+  isSelected,
+  onToggle,
+}: {
   task: Task;
   isSelected: boolean;
   onToggle: () => void;
 }) {
   const openModal = useModalStore((s) => s.openModal);
-  const agents = useHabitatStore((s) => s.agents);
+  const { data: agents = [] } = useAgents();
   const agent = agents.find((a) => a.id === task.assignedAgentId);
 
   return (
@@ -40,22 +44,25 @@ const TaskCardItem = React.memo(function TaskCardItem({ task, isSelected, onTogg
           onClick={() => openModal(task.id)}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(task.id); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openModal(task.id);
+            }
+          }}
           aria-label={`Open ${task.title}`}
         >
           <div className="flex items-center justify-between gap-2 mb-1">
             <span className="text-sm font-medium truncate">{task.title}</span>
             <span className="text-xs text-[var(--on-surface-variant)] flex-shrink-0">
-              {truncateId(task.id, 'TASK')}
+              {truncateId(task.id, "TASK")}
             </span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant={TASK_STATUS_VARIANT[task.status] ?? 'default'}>
-              {task.status.replace('_', ' ')}
+            <Badge variant={TASK_STATUS_VARIANT[task.status] ?? "default"}>
+              {task.status.replace("_", " ")}
             </Badge>
-            <Badge variant={PRIORITY_VARIANT[task.priority] ?? 'medium'}>
-              {task.priority}
-            </Badge>
+            <Badge variant={PRIORITY_VARIANT[task.priority] ?? "medium"}>{task.priority}</Badge>
             <div className="flex items-center gap-1 ml-auto text-xs text-[var(--on-surface-variant)]">
               {agent ? (
                 <>

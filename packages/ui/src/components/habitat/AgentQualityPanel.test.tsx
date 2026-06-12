@@ -3,7 +3,10 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentQualityResponse } from "../../types/index.js";
 
-const mocks = vi.hoisted(() => ({ useAgentQuality: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  useAgentQuality: vi.fn(),
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
+}));
 
 vi.mock("../../lib/useHabitatData.js", () => mocks);
 

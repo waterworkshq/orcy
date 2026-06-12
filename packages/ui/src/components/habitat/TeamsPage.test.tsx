@@ -10,6 +10,7 @@ const mockUseOrganizationTeams = vi.fn();
 const mockUseTeamMembers = vi.fn();
 
 vi.mock('../../lib/useHabitatData.js', () => ({
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useOrganizations: (...args: unknown[]) => mockUseOrganizations(...args),
   useOrganizationTeams: (...args: unknown[]) => mockUseOrganizationTeams(...args),
   useTeamMembers: (...args: unknown[]) => mockUseTeamMembers(...args),

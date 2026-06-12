@@ -150,6 +150,7 @@ const mockUseBoardTasks = vi.fn(() => ({
 }));
 
 vi.mock('../../lib/useHabitatData.js', () => ({
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useBoardTasks: () => mockUseBoardTasks(),
 }));
 

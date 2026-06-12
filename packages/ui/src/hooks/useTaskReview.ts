@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../lib/queryKeys.js';
-import { useHabitatStore } from '../store/habitatStore.js';
-import { api } from '../api/index.js';
-import { notify } from '../lib/toast.js';
-import type { Task, TaskReviewer, Agent } from '../types/index.js';
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys.js";
+import { useHabitatStore } from "../store/habitatStore.js";
+import { useAgents } from "../lib/useHabitatData.js";
+import { api } from "../api/index.js";
+import { notify } from "../lib/toast.js";
+import type { Task, TaskReviewer, Agent } from "../types/index.js";
 
 export interface UseTaskReviewResult {
   submitting: boolean;
@@ -19,16 +20,16 @@ export interface UseTaskReviewResult {
 
 export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
   const updateTask = useHabitatStore((s) => s.updateTask);
-  const agents = useHabitatStore((s) => s.agents);
+  const { data: agents = [] } = useAgents();
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
 
-  const taskId = task?.id ?? '';
+  const taskId = task?.id ?? "";
 
   const { data: reviewersData } = useQuery({
     queryKey: queryKeys.tasks.reviewers(taskId),
     queryFn: () => api.reviewers.list(taskId),
-    enabled: !!taskId && task?.status === 'submitted',
+    enabled: !!taskId && task?.status === "submitted",
     staleTime: 10_000,
   });
 
@@ -42,11 +43,11 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
   const currentUserId = userData?.user?.id;
 
   const currentUserIsReviewer = currentUserId
-    ? reviewers.some(r => r.reviewerId === currentUserId && r.status === 'pending')
+    ? reviewers.some((r) => r.reviewerId === currentUserId && r.status === "pending")
     : false;
 
   const reviewProgress = {
-    approved: reviewers.filter(r => r.status === 'approved').length,
+    approved: reviewers.filter((r) => r.status === "approved").length,
     total: reviewers.length,
   };
 
@@ -58,7 +59,7 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
       updateTask(result.task);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(task.id) });
-      notify.success('Task approved');
+      notify.success("Task approved");
     } catch (e) {
       notify.error((e as Error).message);
     } finally {
@@ -74,7 +75,7 @@ export function useTaskReview(task: Task | undefined): UseTaskReviewResult {
       updateTask(result.task);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(task.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(task.id) });
-      notify.success('Task rejected');
+      notify.success("Task rejected");
     } catch (e) {
       notify.error((e as Error).message);
     } finally {

@@ -163,6 +163,7 @@ const mockHabitat = {
 const mockArchivedFeaturesHook = vi.fn();
 
 vi.mock('../../lib/useHabitatData.js', () => ({
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useArchivedMissions: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
 }));
 

@@ -1,58 +1,49 @@
-import React from 'react';
-import { useModalStore } from '../../store/modalStore.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { Badge } from '../ui/Badge.js';
-import { formatStatus } from './MissionHeader.js';
-import {
-  Circle,
-  CheckCircle2,
-  XCircle,
-  Timer,
-  Clock,
-  AlertTriangle,
-} from 'lucide-react';
-import type { Task, MissionWithProgress } from '../../types/index.js';
+import React from "react";
+import { useModalStore } from "../../store/modalStore.js";
+import { useAgents } from "../../lib/useHabitatData.js";
+import { Badge } from "../ui/Badge.js";
+import { formatStatus } from "./MissionHeader.js";
+import { Circle, CheckCircle2, XCircle, Timer, Clock, AlertTriangle } from "lucide-react";
+import type { Task, MissionWithProgress } from "../../types/index.js";
 
 interface PipelineContextSidebarProps {
   feature: MissionWithProgress;
   tasks: Task[];
 }
 
-function statusDotColor(status: Task['status']): string {
+function statusDotColor(status: Task["status"]): string {
   switch (status) {
-    case 'done':
-      return 'bg-[var(--primary)]';
-    case 'failed':
-      return 'bg-[var(--error)]';
-    case 'in_progress':
-      return 'bg-[var(--primary-container)]';
-    case 'submitted':
-    case 'approved':
-    case 'rejected':
-      return 'bg-[var(--badge-review)]';
+    case "done":
+      return "bg-[var(--primary)]";
+    case "failed":
+      return "bg-[var(--error)]";
+    case "in_progress":
+      return "bg-[var(--primary-container)]";
+    case "submitted":
+    case "approved":
+    case "rejected":
+      return "bg-[var(--badge-review)]";
     default:
-      return 'bg-[var(--outline)]';
+      return "bg-[var(--outline)]";
   }
 }
 
 function TaskListItem({ task }: { task: Task }) {
   const openModal = useModalStore((s) => s.openModal);
-  const agents = useHabitatStore((s) => s.agents);
+  const { data: agents = [] } = useAgents();
 
-  const assignee = task.assignedAgentId
-    ? agents.find((a) => a.id === task.assignedAgentId)
-    : null;
+  const assignee = task.assignedAgentId ? agents.find((a) => a.id === task.assignedAgentId) : null;
 
   const statusIcon = (() => {
     switch (task.status) {
-      case 'done':
+      case "done":
         return <CheckCircle2 className="h-3 w-3 text-[var(--primary)]" />;
-      case 'failed':
+      case "failed":
         return <XCircle className="h-3 w-3 text-[var(--error)]" />;
-      case 'in_progress':
+      case "in_progress":
         return <Timer className="h-3 w-3 text-[var(--primary-container)]" />;
-      case 'submitted':
-      case 'approved':
+      case "submitted":
+      case "approved":
         return <Clock className="h-3 w-3 text-[var(--badge-review)]" />;
       default:
         return <Circle className="h-3 w-3 text-[var(--outline)]" />;
@@ -68,9 +59,7 @@ function TaskListItem({ task }: { task: Task }) {
         <span className="text-[10px] font-bold text-[var(--on-surface-variant)]">
           #{task.id.slice(0, 4)}
         </span>
-        <Badge
-          variant={task.priority as 'critical' | 'high' | 'medium' | 'low'}
-        >
+        <Badge variant={task.priority as "critical" | "high" | "medium" | "low"}>
           {task.priority}
         </Badge>
       </div>
@@ -94,10 +83,7 @@ function TaskListItem({ task }: { task: Task }) {
   );
 }
 
-export function PipelineContextSidebar({
-  feature: _feature,
-  tasks,
-}: PipelineContextSidebarProps) {
+export function PipelineContextSidebar({ feature: _feature, tasks }: PipelineContextSidebarProps) {
   const openModal = useModalStore((s) => s.openModal);
 
   const grouped = React.useMemo(() => {
@@ -108,15 +94,11 @@ export function PipelineContextSidebar({
       done: [],
     };
     for (const t of tasks) {
-      if (t.status === 'in_progress' || t.status === 'claimed') {
+      if (t.status === "in_progress" || t.status === "claimed") {
         groups.active.push(t);
-      } else if (
-        t.status === 'submitted' ||
-        t.status === 'approved' ||
-        t.status === 'rejected'
-      ) {
+      } else if (t.status === "submitted" || t.status === "approved" || t.status === "rejected") {
         groups.review.push(t);
-      } else if (t.status === 'pending') {
+      } else if (t.status === "pending") {
         groups.pending.push(t);
       } else {
         groups.done.push(t);
@@ -125,11 +107,8 @@ export function PipelineContextSidebar({
     return groups;
   }, [tasks]);
 
-  const completedCount = tasks.filter(
-    (t) => t.status === 'done' || t.status === 'failed'
-  ).length;
-  const healthPct =
-    tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+  const completedCount = tasks.filter((t) => t.status === "done" || t.status === "failed").length;
+  const healthPct = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
 
   return (
     <aside className="w-72 flex-shrink-0 flex flex-col h-full overflow-hidden">
@@ -149,16 +128,14 @@ export function PipelineContextSidebar({
                 className="flex items-center space-x-2 group cursor-pointer"
                 onClick={() => openModal(task.id)}
               >
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${statusDotColor(task.status)}`}
-                />
+                <div className={`w-1.5 h-1.5 rounded-full ${statusDotColor(task.status)}`} />
                 <div className="bg-[var(--surface-container)] border border-[var(--outline-variant)] p-1.5 rounded text-[10px] flex-1">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-[var(--on-surface)] truncate">
                       {task.title.slice(0, 16)}
-                      {task.title.length > 16 ? '...' : ''}
+                      {task.title.length > 16 ? "..." : ""}
                     </span>
-                    {task.status === 'failed' && (
+                    {task.status === "failed" && (
                       <AlertTriangle className="h-3 w-3 text-[var(--error)] flex-shrink-0" />
                     )}
                   </div>

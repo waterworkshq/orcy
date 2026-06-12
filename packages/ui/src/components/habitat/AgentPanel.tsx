@@ -48,7 +48,6 @@ interface AgentPanelProps {
 
 export function AgentPanel({ onClose }: AgentPanelProps) {
   const board = useHabitatStore((s) => s.board);
-  const removeAgent = useHabitatStore((s) => s.removeAgent);
   const qc = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -72,7 +71,6 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     if (!pendingAgentId) return;
     try {
       await api.agents.delete(pendingAgentId);
-      removeAgent(pendingAgentId);
       await qc.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
       await qc.invalidateQueries({ queryKey: queryKeys.agents.list() });
       notify.success("Agent deregistered");

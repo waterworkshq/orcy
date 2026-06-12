@@ -89,9 +89,8 @@ function getTaskId(event: SSEEvent): string | null {
   return null;
 }
 
-function getAgentName(state: SSEStoreState, agentId: string | null): string {
-  const agent = agentId ? state.agents.find((a) => a.id === agentId) : null;
-  return agent?.name ?? "Unknown agent";
+function getAgentName(agentId: string | null): string {
+  return agentId ? `Agent ${agentId.slice(0, 8)}` : "Unknown agent";
 }
 
 function getTaskTitle(state: SSEStoreState, taskId: string | null): string {
@@ -109,7 +108,7 @@ function taskNotification(
   if (!taskId) return null;
 
   const agentId = "agentId" in event.data ? event.data.agentId : null;
-  const agentName = getAgentName(state, agentId);
+  const agentName = getAgentName(agentId);
   const taskTitle = getTaskTitle(state, taskId);
 
   return {
@@ -208,7 +207,7 @@ export const SSE_EVENT_REGISTRY = {
     },
     cache: taskCacheHandler.cache,
     notification: ({ event, state }) => {
-      const agentName = getAgentName(state, event.data.agentId);
+      const agentName = getAgentName(event.data.agentId);
       const taskTitle = getTaskTitle(state, event.data.taskId);
       return taskNotification(event, state, "info", `Agent ${agentName} claimed "${taskTitle}"`);
     },
@@ -223,7 +222,7 @@ export const SSE_EVENT_REGISTRY = {
     },
     cache: taskCacheHandler.cache,
     notification: ({ event, state }) => {
-      const agentName = getAgentName(state, event.data.agentId);
+      const agentName = getAgentName(event.data.agentId);
       const taskTitle = getTaskTitle(state, event.data.taskId);
       return taskNotification(
         event,
@@ -385,36 +384,20 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "agent.status_changed": defineSSEHandler<"agent.status_changed">({
-    zustand: ({ event, state, set }) => {
-      set({
-        agents: state.agents.map((a) =>
-          a.id === event.data.agentId ? { ...a, status: event.data.status } : a,
-        ),
-      });
-    },
     cache: ({ event, queryClient }) => {
       if (!("agentId" in event.data)) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(event.data.agentId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.listWithTasks() });
     },
-    notification: ({ event, state }) => ({
+    notification: ({ event }) => ({
       toast: {
         level: "info",
-        message: `Agent ${getAgentName(state, event.data.agentId)} is now ${event.data.status}`,
+        message: `Agent ${getAgentName(event.data.agentId)} is now ${event.data.status}`,
       },
     }),
   }),
   "agent.heartbeat": defineSSEHandler<"agent.heartbeat">({
-    zustand: ({ event, state, set }) => {
-      set({
-        agents: state.agents.map((a) =>
-          a.id === event.data.agentId
-            ? { ...a, currentTaskId: event.data.taskId ?? a.currentTaskId }
-            : a,
-        ),
-      });
-    },
     cache: ({ event, queryClient }) => {
       if (!("agentId" in event.data)) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(event.data.agentId) });

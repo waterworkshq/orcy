@@ -11,6 +11,7 @@ const mockSuccess = vi.hoisted(() => vi.fn());
 const mockError = vi.hoisted(() => vi.fn());
 
 vi.mock("../../lib/useHabitatData.js", () => ({
+  useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useDaemons: mockUseDaemons,
 }));
 

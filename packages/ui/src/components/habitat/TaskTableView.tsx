@@ -1,32 +1,36 @@
-import * as React from 'react';
-import { type ColumnFiltersState, type RowSelectionState, type SortingState } from '@tanstack/react-table';
-import { shallow } from 'zustand/shallow';
-import { Search } from 'lucide-react';
-import { DataTable } from '../ui/DataTable.js';
-import { getTaskTableColumns } from './TaskTableColumns.js';
-import { TaskBulkActionBar } from './TaskBulkActionBar.js';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { useBoardTasks, type BoardTasksFilters } from '../../lib/useHabitatData.js';
-import { useDebounce } from '../../hooks/useDebounce.js';
-import { useIsMobile } from '../../hooks/useMediaQuery.js';
-import { TaskCardList } from './TaskCardList.js';
+import * as React from "react";
+import {
+  type ColumnFiltersState,
+  type RowSelectionState,
+  type SortingState,
+} from "@tanstack/react-table";
+import { shallow } from "zustand/shallow";
+import { Search } from "lucide-react";
+import { DataTable } from "../ui/DataTable.js";
+import { getTaskTableColumns } from "./TaskTableColumns.js";
+import { TaskBulkActionBar } from "./TaskBulkActionBar.js";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { useBoardTasks, useAgents, type BoardTasksFilters } from "../../lib/useHabitatData.js";
+import { useDebounce } from "../../hooks/useDebounce.js";
+import { useIsMobile } from "../../hooks/useMediaQuery.js";
+import { TaskCardList } from "./TaskCardList.js";
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: 'all', label: 'All Statuses' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'claimed', label: 'Claimed' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'submitted', label: 'Submitted' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
+  { value: "all", label: "All Statuses" },
+  { value: "pending", label: "Pending" },
+  { value: "claimed", label: "Claimed" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "submitted", label: "Submitted" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
 ];
 
 const PRIORITY_OPTIONS: { value: string; label: string }[] = [
-  { value: 'all', label: 'All Priorities' },
-  { value: 'critical', label: 'Critical' },
-  { value: 'high', label: 'High' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
+  { value: "all", label: "All Priorities" },
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
 ];
 
 interface TaskTableViewProps {
@@ -37,34 +41,36 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
   const isMobile = useIsMobile();
   const columns = React.useMemo(() => getTaskTableColumns(), []);
 
-  const [statusFilter, setStatusFilter] = React.useState<string>('all');
-  const [priorityFilter, setPriorityFilter] = React.useState<string>('all');
-  const [agentFilter, setAgentFilter] = React.useState<string>('all');
-  const [search, setSearch] = React.useState('');
+  const [statusFilter, setStatusFilter] = React.useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = React.useState<string>("all");
+  const [agentFilter, setAgentFilter] = React.useState<string>("all");
+  const [search, setSearch] = React.useState("");
   const debouncedSearch = useDebounce(search, 300);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>(() => {
     const ids = useHabitatStore.getState().selectedTaskIds;
     const mapping: RowSelectionState = {};
-    ids.forEach((id) => { mapping[id] = true; });
+    ids.forEach((id) => {
+      mapping[id] = true;
+    });
     return mapping;
   });
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
 
-  const agents = useHabitatStore((s) => s.agents, shallow);
+  const { data: agents = [] } = useAgents();
   const selectedTaskIds = useHabitatStore((s) => s.selectedTaskIds);
   const selectTaskIds = useHabitatStore((s) => s.selectTaskIds);
   const clearTaskSelection = useHabitatStore((s) => s.clearTaskSelection);
 
   const filters: BoardTasksFilters = React.useMemo(() => {
     const f: BoardTasksFilters = {};
-    if (statusFilter !== 'all') f.status = statusFilter;
-    if (priorityFilter !== 'all') f.priority = priorityFilter;
-    if (agentFilter !== 'all') f.assignedAgentId = agentFilter;
+    if (statusFilter !== "all") f.status = statusFilter;
+    if (priorityFilter !== "all") f.priority = priorityFilter;
+    if (agentFilter !== "all") f.assignedAgentId = agentFilter;
     if (debouncedSearch.trim()) f.search = debouncedSearch.trim();
     if (sorting.length > 0) {
       f.sortBy = sorting[0].id;
-      f.sortDir = sorting[0].desc ? 'desc' : 'asc';
+      f.sortDir = sorting[0].desc ? "desc" : "asc";
     }
     return f;
   }, [statusFilter, priorityFilter, agentFilter, debouncedSearch, sorting]);
@@ -79,9 +85,9 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
 
   React.useEffect(() => {
     const mapping: Record<string, string> = {};
-    if (statusFilter !== 'all') mapping.status = statusFilter;
-    if (priorityFilter !== 'all') mapping.priority = priorityFilter;
-    if (agentFilter !== 'all') mapping.assignedAgentId = agentFilter;
+    if (statusFilter !== "all") mapping.status = statusFilter;
+    if (priorityFilter !== "all") mapping.priority = priorityFilter;
+    if (agentFilter !== "all") mapping.assignedAgentId = agentFilter;
     const colFilters: ColumnFiltersState = Object.entries(mapping).map(([id, value]) => ({
       id,
       value,
@@ -90,20 +96,25 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
   }, [statusFilter, priorityFilter, agentFilter]);
 
   function handleRowSelectionChange(updaterOrValue: React.SetStateAction<RowSelectionState>) {
-    const next = typeof updaterOrValue === 'function' ? updaterOrValue(rowSelection) : updaterOrValue;
+    const next =
+      typeof updaterOrValue === "function" ? updaterOrValue(rowSelection) : updaterOrValue;
     setRowSelection(next);
   }
 
   function handleClearFilters() {
-    setStatusFilter('all');
-    setPriorityFilter('all');
-    setAgentFilter('all');
-    setSearch('');
+    setStatusFilter("all");
+    setPriorityFilter("all");
+    setAgentFilter("all");
+    setSearch("");
     setRowSelection({});
     clearTaskSelection();
   }
 
-  const hasActiveFilters = statusFilter !== 'all' || priorityFilter !== 'all' || agentFilter !== 'all' || search.trim() !== '';
+  const hasActiveFilters =
+    statusFilter !== "all" ||
+    priorityFilter !== "all" ||
+    agentFilter !== "all" ||
+    search.trim() !== "";
 
   return (
     <div className="flex flex-col gap-3">
@@ -126,7 +137,9 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
           data-testid="filter-status"
         >
           {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
 
@@ -137,7 +150,9 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
           data-testid="filter-priority"
         >
           {PRIORITY_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
 
@@ -149,7 +164,9 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
         >
           <option value="all">All Agents</option>
           {agents.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
           ))}
         </select>
 
@@ -178,7 +195,9 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
           selectedIds={selectedTaskIds}
           onSelectionChange={(ids) => {
             const mapping: RowSelectionState = {};
-            ids.forEach((id) => { mapping[id] = true; });
+            ids.forEach((id) => {
+              mapping[id] = true;
+            });
             setRowSelection(mapping);
           }}
         />
@@ -199,9 +218,7 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
         />
       )}
 
-      {selectedTaskIds.length > 0 && (
-        <TaskBulkActionBar habitatId={habitatId} />
-      )}
+      {selectedTaskIds.length > 0 && <TaskBulkActionBar habitatId={habitatId} />}
     </div>
   );
 }
