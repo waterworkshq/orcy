@@ -1,6 +1,3 @@
-import { getDb } from "../db/index.js";
-import { habitatHealthSnapshots } from "../db/schema/index.js";
-import { desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import * as capacityService from "./capacityService.js";
 import { daysAgoISO, utcNowISO } from "./analyticsDate.js";
@@ -9,6 +6,11 @@ import * as predictionService from "./predictionService.js";
 import * as trendService from "./trendService.js";
 import * as timeTrackingRepo from "../repositories/timeTracking.js";
 import * as eventDashboard from "../repositories/events/event-dashboard.js";
+import {
+  createHealthSnapshot,
+  getLatestHealthSnapshot,
+  getHealthSnapshotHistory,
+} from "../repositories/habitatHealth.js";
 import type { MetricTrend } from "./trendService.js";
 
 export interface HealthDimensions {
@@ -326,29 +328,25 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
   const recommendations = generateRecommendations(score, dimensions);
   const snapshotAt = utcNowISO();
 
-  const db = getDb();
   const id = uuid();
 
   try {
-    db.insert(habitatHealthSnapshots)
-      .values({
-        id,
-        habitatId,
-        score,
-        grade: grade as "A" | "B" | "C" | "D" | "F",
-        dimensions: JSON.stringify(dimensions),
-        metrics: JSON.stringify({
-          flow,
-          quality,
-          delivery,
-          capacity,
-          stability,
-        }),
-        recommendations: JSON.stringify(recommendations),
-        snapshotAt,
-        createdAt: snapshotAt,
-      })
-      .run();
+    createHealthSnapshot({
+      id,
+      habitatId,
+      score,
+      grade: grade as "A" | "B" | "C" | "D" | "F",
+      dimensions: JSON.stringify(dimensions),
+      metrics: JSON.stringify({
+        flow,
+        quality,
+        delivery,
+        capacity,
+        stability,
+      }),
+      recommendations: JSON.stringify(recommendations),
+      snapshotAt,
+    });
   } catch (err) {
     console.error("[boardHealth] failed to persist health snapshot:", err);
   }
@@ -357,14 +355,7 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
 }
 
 export function getCurrentHealth(habitatId: string): HabitatHealthReport | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(habitatHealthSnapshots)
-    .where(eq(habitatHealthSnapshots.habitatId, habitatId))
-    .orderBy(desc(habitatHealthSnapshots.snapshotAt))
-    .limit(1)
-    .get();
+  const row = getLatestHealthSnapshot(habitatId);
 
   if (!row) return null;
 
@@ -379,17 +370,9 @@ export function getCurrentHealth(habitatId: string): HabitatHealthReport | null 
 }
 
 export function getHealthHistory(habitatId: string, days = 30): HabitatHealthReport[] {
-  const db = getDb();
   const since = daysAgoISO(days);
 
-  const rows = db
-    .select()
-    .from(habitatHealthSnapshots)
-    .where(
-      sql`${habitatHealthSnapshots.habitatId} = ${habitatId} AND ${habitatHealthSnapshots.snapshotAt} >= ${since}`,
-    )
-    .orderBy(desc(habitatHealthSnapshots.snapshotAt))
-    .all();
+  const rows = getHealthSnapshotHistory(habitatId, since);
 
   return rows.map((row) => ({
     habitatId: row.habitatId,

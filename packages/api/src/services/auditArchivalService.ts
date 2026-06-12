@@ -1,12 +1,15 @@
 import type { AuditCompletenessSummary, AuditEvent } from "@orcy/shared/types";
-import { getDb } from "../db/index.js";
-import { habitats, missionEvents, taskEvents } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { daysAgoISO } from "./analyticsDate.js";
 import { dirname, join } from "path";
 import { logger } from "../lib/logger.js";
 import { queryAuditEvents, summarizeAuditCompleteness } from "./auditQueryService.js";
+import {
+  deleteArchivedMissionEvent,
+  deleteArchivedTaskEvent,
+  getHabitatEventRetention,
+  listHabitatIdsForArchival,
+} from "../repositories/auditArchival.js";
 
 function findWorkspaceRoot(start: string): string {
   let dir = start;
@@ -79,12 +82,7 @@ function buildArchiveFile(
 }
 
 export function getRetentionSettings(habitatId: string): { eventRetentionDays: number } {
-  const db = getDb();
-  const row = db
-    .select({ eventRetentionDays: habitats.eventRetentionDays })
-    .from(habitats)
-    .where(eq(habitats.id, habitatId))
-    .get();
+  const row = getHabitatEventRetention(habitatId);
   return { eventRetentionDays: row?.eventRetentionDays ?? 90 };
 }
 
@@ -124,23 +122,21 @@ export function archiveOldEvents(habitatId: string): ArchiveResult {
 
   writeFileSync(archivePath, JSON.stringify(archiveFile, null, 2));
 
-  const db = getDb();
   for (const event of events) {
     const taskEventId = extractProjectedSourceId(event.id, "task_event");
-    if (taskEventId) db.delete(taskEvents).where(eq(taskEvents.id, taskEventId)).run();
+    if (taskEventId) deleteArchivedTaskEvent(taskEventId);
     const missionEventId = extractProjectedSourceId(event.id, "mission_event");
-    if (missionEventId) db.delete(missionEvents).where(eq(missionEvents.id, missionEventId)).run();
+    if (missionEventId) deleteArchivedMissionEvent(missionEventId);
   }
 
   return { archivedCount: events.length, archivePath };
 }
 
 export function archiveAllHabitats(): ArchiveResult[] {
-  const db = getDb();
   const results: ArchiveResult[] = [];
-  const habitatRows = db.select({ id: habitats.id }).from(habitats).all();
-  for (const row of habitatRows) {
-    const result = archiveOldEvents(row.id);
+  const habitatIds = listHabitatIdsForArchival();
+  for (const habitatId of habitatIds) {
+    const result = archiveOldEvents(habitatId);
     if (result.archivedCount > 0) results.push(result);
   }
   return results;

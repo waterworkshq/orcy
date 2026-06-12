@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { sprints, missions } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
-import type { Sprint, SprintStatus } from "@orcy/shared";
+import type { CarryOverPolicy, Sprint, SprintStatus } from "@orcy/shared";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -220,4 +220,127 @@ export function getOverlappingForHabitat(
     )
     .get();
   return (row as Sprint) ?? null;
+}
+
+export function deleteSprintAndDetachMissions(sprintId: string, missionIds: string[]): void {
+  const db = getDb();
+  try {
+    db.transaction((tx) => {
+      for (const missionId of missionIds) {
+        tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+      }
+      tx.delete(sprints).where(eq(sprints.id, sprintId)).run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, sprintId);
+  }
+}
+
+export function cancelSprintAndDetachMissions(sprintId: string, missionIds: string[]): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  try {
+    db.transaction((tx) => {
+      for (const missionId of missionIds) {
+        tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+      }
+      tx.update(sprints)
+        .set({ status: "cancelled", updatedAt: now })
+        .where(eq(sprints.id, sprintId))
+        .run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, sprintId);
+  }
+}
+
+export interface CompleteSprintTransactionInput {
+  sprintId: string;
+  completedMissionIds: string[];
+  carryOver: {
+    policy: CarryOverPolicy;
+    habitatId: string;
+    currentSprintId: string;
+    nextSprintId: string | null;
+    incompleteMissionIds: string[];
+  };
+  now: string;
+}
+
+export function completeSprintTransaction(input: CompleteSprintTransactionInput): void {
+  const db = getDb();
+  const { sprintId, completedMissionIds, carryOver, now } = input;
+  const { policy, incompleteMissionIds, nextSprintId } = carryOver;
+
+  try {
+    db.transaction((tx) => {
+      const current = tx
+        .select({ status: sprints.status })
+        .from(sprints)
+        .where(eq(sprints.id, sprintId))
+        .get();
+      if (!current || current.status !== "active") {
+        throw new Error("SPRINT_NOT_ACTIVE");
+      }
+
+      if (incompleteMissionIds.length > 0) {
+        if (policy === "backlog") {
+          for (const missionId of incompleteMissionIds) {
+            tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+          }
+          const sprint = tx.select().from(sprints).where(eq(sprints.id, sprintId)).get() as
+            | Sprint
+            | undefined;
+          if (sprint) {
+            const remaining = sprint.committedMissionIds.filter(
+              (id) => !incompleteMissionIds.includes(id),
+            );
+            tx.update(sprints)
+              .set({ committedMissionIds: remaining })
+              .where(eq(sprints.id, sprintId))
+              .run();
+          }
+        } else if (policy === "next_sprint" && nextSprintId) {
+          for (const missionId of incompleteMissionIds) {
+            const sprint = tx.select().from(sprints).where(eq(sprints.id, nextSprintId)).get() as
+              | Sprint
+              | undefined;
+            if (!sprint) continue;
+            const committed = [...sprint.committedMissionIds];
+            if (!committed.includes(missionId)) committed.push(missionId);
+            tx.update(sprints)
+              .set({ committedMissionIds: committed })
+              .where(eq(sprints.id, nextSprintId))
+              .run();
+            tx.update(missions)
+              .set({ sprintId: nextSprintId })
+              .where(eq(missions.id, missionId))
+              .run();
+          }
+        } else if (policy === "next_sprint" && !nextSprintId) {
+          for (const missionId of incompleteMissionIds) {
+            tx.update(missions).set({ sprintId: null }).where(eq(missions.id, missionId)).run();
+          }
+        }
+      }
+
+      const sprint = tx.select().from(sprints).where(eq(sprints.id, sprintId)).get() as
+        | Sprint
+        | undefined;
+      if (sprint) {
+        const completed = [...new Set([...sprint.completedMissionIds, ...completedMissionIds])];
+        tx.update(sprints)
+          .set({ completedMissionIds: completed, updatedAt: now })
+          .where(eq(sprints.id, sprintId))
+          .run();
+      }
+
+      tx.update(sprints)
+        .set({ status: "completed", updatedAt: now })
+        .where(eq(sprints.id, sprintId))
+        .run();
+    });
+  } catch (err) {
+    throw repositoryTransactionError("sprint", err as Error, sprintId);
+  }
 }

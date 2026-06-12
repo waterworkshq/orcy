@@ -1,18 +1,22 @@
-import { getDb } from '../../db/index.js';
-import { webhookDeliveries, webhookSubscriptions } from '../../db/schema/index.js';
-import { eq, and, sql, desc } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
-import { signPayload } from '../../utils/webhookSigning.js';
-import { validateOutboundUrl, filterUnsafeHeaders } from '../../config/integrationSecurity.js';
-import { logger } from '../../lib/logger.js';
-import type { WebhookSubscription } from './webhook-subscriptions.js';
+import { v4 as uuid } from "uuid";
+import { signPayload } from "../../utils/webhookSigning.js";
+import { validateOutboundUrl, filterUnsafeHeaders } from "../../config/integrationSecurity.js";
+import { logger } from "../../lib/logger.js";
+import type { WebhookSubscription } from "./webhook-subscriptions.js";
+import {
+  createWebhookDeliveryRecord,
+  listPendingWebhookRetries,
+  listWebhookDeliveriesForSubscription,
+  updateWebhookDeliveryStatus,
+  type PendingWebhookRetryRecord,
+} from "../../repositories/webhookDelivery.js";
 
 export interface WebhookDelivery {
   id: string;
   subscriptionId: string;
   eventType: string;
   payload: string;
-  status: 'pending' | 'success' | 'failed';
+  status: "pending" | "success" | "failed";
   statusCode: number | null;
   responseBody: string | null;
   attempts: number;
@@ -25,7 +29,7 @@ const RETRY_DELAYS = [1000, 2000, 4000];
 export class OutboundUrlError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'OutboundUrlError';
+    this.name = "OutboundUrlError";
   }
 }
 
@@ -35,7 +39,7 @@ export async function executeHttpRequest(
   signature: string | null,
   headers: Record<string, string>,
   deliveryId: string,
-  eventType: string
+  eventType: string,
 ): Promise<{ success: boolean; statusCode: number; responseBody: string }> {
   const urlValidation = await validateOutboundUrl(url);
   if (!urlValidation.valid) {
@@ -48,7 +52,7 @@ export async function executeHttpRequest(
 
   const { headers: safeHeaders, blocked } = filterUnsafeHeaders(headers);
   if (blocked.length > 0) {
-    logger.warn({ deliveryId, blocked }, 'Blocked unsafe custom headers in delivery');
+    logger.warn({ deliveryId, blocked }, "Blocked unsafe custom headers in delivery");
   }
 
   const controller = new AbortController();
@@ -56,18 +60,18 @@ export async function executeHttpRequest(
 
   try {
     const requestHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...safeHeaders,
     };
 
     if (signature) {
-      requestHeaders['X-Kanban-Signature'] = signature;
+      requestHeaders["X-Kanban-Signature"] = signature;
     }
-    requestHeaders['X-Kanban-Event'] = eventType;
-    requestHeaders['X-Kanban-Delivery'] = deliveryId;
+    requestHeaders["X-Kanban-Event"] = eventType;
+    requestHeaders["X-Kanban-Delivery"] = deliveryId;
 
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: requestHeaders,
       body: payloadString,
       signal: controller.signal,
@@ -83,7 +87,7 @@ export async function executeHttpRequest(
     };
   } catch (err) {
     clearTimeout(timeout);
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const message = err instanceof Error ? err.message : "Unknown error";
     return {
       success: false,
       statusCode: 0,
@@ -94,70 +98,48 @@ export async function executeHttpRequest(
 
 export function updateDeliveryStatus(
   deliveryId: string,
-  status: 'pending' | 'success' | 'failed',
+  status: "pending" | "success" | "failed",
   statusCode?: number,
   responseBody?: string,
-  nextRetryAt?: string
+  nextRetryAt?: string,
 ): void {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  db.update(webhookDeliveries)
-    .set({
-      status,
-      statusCode: statusCode ?? null,
-      responseBody: responseBody ?? null,
-      attempts: sql`${webhookDeliveries.attempts} + 1`,
-      lastAttemptAt: now,
-      nextRetryAt: nextRetryAt ?? null,
-    })
-    .where(eq(webhookDeliveries.id, deliveryId))
-    .run();
+  updateWebhookDeliveryStatus(deliveryId, status, statusCode, responseBody, nextRetryAt);
 }
 
 export function handleDeliveryOutcome(
   deliveryId: string,
   result: { success: boolean; statusCode: number; responseBody: string },
-  attemptNumber: number
+  attemptNumber: number,
 ): void {
   if (result.success) {
-    updateDeliveryStatus(deliveryId, 'success', result.statusCode, result.responseBody);
+    updateDeliveryStatus(deliveryId, "success", result.statusCode, result.responseBody);
   } else if (attemptNumber >= 3) {
-    updateDeliveryStatus(deliveryId, 'failed', result.statusCode, result.responseBody);
+    updateDeliveryStatus(deliveryId, "failed", result.statusCode, result.responseBody);
   } else {
     const nextRetry = new Date(Date.now() + RETRY_DELAYS[attemptNumber - 1]).toISOString();
-    updateDeliveryStatus(deliveryId, 'pending', result.statusCode, result.responseBody, nextRetry);
+    updateDeliveryStatus(deliveryId, "pending", result.statusCode, result.responseBody, nextRetry);
   }
 }
 
-export function createDeliveryRecord(subscriptionId: string, eventType: string, payload: string, deliveryId: string): void {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  db.insert(webhookDeliveries).values({
-    id: deliveryId,
-    subscriptionId,
-    eventType,
-    payload,
-    status: 'pending',
-    attempts: 0,
-    createdAt: now,
-  }).run();
+export function createDeliveryRecord(
+  subscriptionId: string,
+  eventType: string,
+  payload: string,
+  deliveryId: string,
+): void {
+  createWebhookDeliveryRecord(subscriptionId, eventType, payload, deliveryId);
 }
 
-export function getDeliveriesForSubscription(subscriptionId: string, limit = 25): WebhookDelivery[] {
-  const db = getDb();
-  const rows = db.select()
-    .from(webhookDeliveries)
-    .where(eq(webhookDeliveries.subscriptionId, subscriptionId))
-    .orderBy(desc(webhookDeliveries.createdAt))
-    .limit(limit)
-    .all();
-
-  return rows;
+export function getDeliveriesForSubscription(
+  subscriptionId: string,
+  limit = 25,
+): WebhookDelivery[] {
+  return listWebhookDeliveriesForSubscription(subscriptionId, limit);
 }
 
-export async function sendTestWebhook(subscription: WebhookSubscription): Promise<{ success: boolean; statusCode: number; latencyMs: number }> {
+export async function sendTestWebhook(
+  subscription: WebhookSubscription,
+): Promise<{ success: boolean; statusCode: number; latencyMs: number }> {
   const urlValidation = await validateOutboundUrl(subscription.url);
   if (!urlValidation.valid) {
     return {
@@ -171,14 +153,14 @@ export async function sendTestWebhook(subscription: WebhookSubscription): Promis
   const testPayload = {
     id: deliveryId,
     timestamp: new Date().toISOString(),
-    event: 'test',
+    event: "test",
     data: {
-      habitatName: 'Test Habitat',
+      habitatName: "Test Habitat",
       task: {
-        id: 'test-task-id',
-        title: 'Test Task',
-        status: 'pending',
-        priority: 'medium',
+        id: "test-task-id",
+        title: "Test Task",
+        status: "pending",
+        priority: "medium",
         assignedAgentId: null,
         assignedAgentName: undefined,
         result: null,
@@ -192,7 +174,14 @@ export async function sendTestWebhook(subscription: WebhookSubscription): Promis
 
   const startTime = Date.now();
 
-  const result = await executeHttpRequest(subscription.url, payloadString, signature, subscription.headers, deliveryId, 'webhook.test');
+  const result = await executeHttpRequest(
+    subscription.url,
+    payloadString,
+    signature,
+    subscription.headers,
+    deliveryId,
+    "webhook.test",
+  );
 
   return {
     success: result.success,
@@ -201,57 +190,21 @@ export async function sendTestWebhook(subscription: WebhookSubscription): Promis
   };
 }
 
-interface RetryDelivery {
-  id: string;
-  subscriptionId: string;
-  payload: string;
-  url: string;
-  secret: string | null;
-  headers: string;
-  attempts: number;
-}
-
-function getPendingRetries(): RetryDelivery[] {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  const rows = db.select({
-    id: webhookDeliveries.id,
-    subscriptionId: webhookDeliveries.subscriptionId,
-    payload: webhookDeliveries.payload,
-    url: webhookSubscriptions.url,
-    secret: webhookSubscriptions.secret,
-    headers: sql<string>`${webhookSubscriptions.headers}`,
-    attempts: webhookDeliveries.attempts,
-  })
-  .from(webhookDeliveries)
-  .innerJoin(webhookSubscriptions, eq(webhookDeliveries.subscriptionId, webhookSubscriptions.id))
-  .where(and(
-    eq(webhookDeliveries.status, 'pending'),
-    sql`${webhookDeliveries.nextRetryAt} <= ${now}`
-  ))
-  .limit(50)
-  .all();
-
-  return rows.map(row => ({
-    id: row.id,
-    subscriptionId: row.subscriptionId,
-    payload: row.payload,
-    url: row.url,
-    secret: row.secret,
-    headers: typeof row.headers === 'string' ? row.headers : JSON.stringify(row.headers),
-    attempts: row.attempts,
-  }));
-}
-
 function processRetryQueue(): void {
-  const retries = getPendingRetries();
+  const retries: PendingWebhookRetryRecord[] = listPendingWebhookRetries();
 
   for (const retry of retries) {
     const signature = retry.secret ? signPayload(retry.payload, retry.secret) : null;
     const headers = JSON.parse(retry.headers) as Record<string, string>;
 
-    executeHttpRequest(retry.url, retry.payload, signature, headers, retry.id, 'webhook.delivery').then(result => {
+    executeHttpRequest(
+      retry.url,
+      retry.payload,
+      signature,
+      headers,
+      retry.id,
+      "webhook.delivery",
+    ).then((result) => {
       handleDeliveryOutcome(retry.id, result, retry.attempts + 1);
     });
   }
