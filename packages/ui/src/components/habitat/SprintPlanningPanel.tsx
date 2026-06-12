@@ -6,7 +6,7 @@ import { SprintDashboard } from "./SprintDashboard.js";
 import { SprintAnalyticsPanel } from "./SprintAnalyticsPanel.js";
 import { SprintBadge } from "./SprintBadge.js";
 import { queryKeys } from "../../lib/queryKeys.js";
-import { useHabitatStore } from "../../store/habitatStore.js";
+import { useMissions } from "../../lib/useHabitatData.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
 import { truncateId } from "../../lib/formatting.js";
@@ -28,7 +28,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelProps) {
   const queryClient = useQueryClient();
-  const features = useHabitatStore((s) => s.features);
+  const { data: missionsData } = useMissions(habitatId);
+  const features = missionsData?.features ?? [];
   const [showCreate, setShowCreate] = useState(false);
   const [expandedSprintId, setExpandedSprintId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

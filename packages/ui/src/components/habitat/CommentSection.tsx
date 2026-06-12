@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
-import { formatRelativeTime } from '../../lib/formatting.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
-import { Button } from '../ui/Button.js';
-import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
-import { MarkdownContent } from '../ui/MarkdownContent.js';
-import { injectMentionLinks } from '../../lib/commentMentions.js';
-import type { TaskComment } from '../../types/index.js';
+import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
+import { formatRelativeTime } from "../../lib/formatting.js";
+import { useAgents } from "../../lib/useHabitatData.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
+import { Button } from "../ui/Button.js";
+import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from "lucide-react";
+import { MarkdownContent } from "../ui/MarkdownContent.js";
+import { injectMentionLinks } from "../../lib/commentMentions.js";
+import type { TaskComment } from "../../types/index.js";
 
 interface CommentSectionProps {
   taskId: string;
@@ -20,13 +22,14 @@ function checkEdited(createdAt: string, updatedAt: string): boolean {
 }
 
 export function CommentSection({ taskId, initialComments = [] }: CommentSectionProps) {
-  const { setComments, addComment, removeComment, agents } = useHabitatStore();
+  const { data: agents = [] } = useAgents();
+  const qc = useQueryClient();
   const [taskComments, setTaskComments] = useState<TaskComment[]>(initialComments);
   const [loading] = useState(false);
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState('');
+  const [editContent, setEditContent] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string; authorName: string } | null>(null);
 
   async function handleSubmit() {
@@ -37,11 +40,11 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
         content: content.trim(),
         parentId: replyingTo?.id,
       });
-      addComment(result.comment);
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
       setTaskComments((prev) => [result.comment, ...prev]);
-      setContent('');
+      setContent("");
       setReplyingTo(null);
-      notify.success('Comment added');
+      notify.success("Comment added");
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -54,11 +57,11 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
     setSubmitting(true);
     try {
       const result = await api.comments.update(taskId, commentId, { content: editContent.trim() });
-      setComments(taskId, taskComments.map((c) => (c.id === commentId ? result.comment : c)));
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
       setTaskComments((prev) => prev.map((c) => (c.id === commentId ? result.comment : c)));
       setEditingId(null);
-      setEditContent('');
-      notify.success('Comment updated');
+      setEditContent("");
+      notify.success("Comment updated");
     } catch (err) {
       notify.error((err as Error).message);
     } finally {
@@ -67,23 +70,23 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
   }
 
   async function handleDelete(commentId: string) {
-    if (!confirm('Delete this comment?')) return;
+    if (!confirm("Delete this comment?")) return;
     try {
       await api.comments.delete(taskId, commentId);
-      removeComment(taskId, commentId);
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
       setTaskComments((prev) => prev.filter((c) => c.id !== commentId));
-      notify.success('Comment deleted');
+      notify.success("Comment deleted");
     } catch (err) {
       notify.error((err as Error).message);
     }
   }
 
   function getAuthorName(comment: TaskComment): string {
-    if (comment.authorType === 'agent') {
+    if (comment.authorType === "agent") {
       const agent = agents.find((a) => a.id === comment.authorId);
-      return agent?.name || 'Agent';
+      return agent?.name || "Agent";
     }
-    return 'Human';
+    return "Human";
   }
 
   function formatTime(dateStr: string): string {
@@ -100,7 +103,9 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
           <MessageSquare className="h-4 w-4" />
           Comments
           {taskComments.length > 0 && (
-            <span className="ml-1 rounded bg-secondary px-1.5 py-0.5 text-xs">{taskComments.length}</span>
+            <span className="ml-1 rounded bg-secondary px-1.5 py-0.5 text-xs">
+              {taskComments.length}
+            </span>
           )}
         </CardTitle>
       </CardHeader>
@@ -134,7 +139,7 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
               onSaveEdit={() => handleEdit(comment.id)}
               onCancelEdit={() => {
                 setEditingId(null);
-                setEditContent('');
+                setEditContent("");
               }}
               submitting={submitting}
             />
@@ -150,14 +155,16 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
                     setEditContent(reply.content);
                   }}
                   onDelete={() => handleDelete(reply.id)}
-                  onReply={() => setReplyingTo({ id: comment.id, authorName: getAuthorName(comment) })}
+                  onReply={() =>
+                    setReplyingTo({ id: comment.id, authorName: getAuthorName(comment) })
+                  }
                   editingId={editingId}
                   editContent={editContent}
                   setEditContent={setEditContent}
                   onSaveEdit={() => handleEdit(reply.id)}
                   onCancelEdit={() => {
                     setEditingId(null);
-                    setEditContent('');
+                    setEditContent("");
                   }}
                   submitting={submitting}
                   isReply
@@ -188,7 +195,7 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
               className="flex-1 rounded border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
               rows={2}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSubmit();
                 }
@@ -246,8 +253,10 @@ function CommentItem({
   return (
     <div className="group">
       <div className="flex items-start gap-2">
-        <div className={`mt-0.5 rounded-full p-1.5 ${comment.authorType === 'agent' ? 'bg-[var(--agent-purple)]/15' : 'bg-[var(--agent-blue)]/15'}`}>
-          {comment.authorType === 'agent' ? (
+        <div
+          className={`mt-0.5 rounded-full p-1.5 ${comment.authorType === "agent" ? "bg-[var(--agent-purple)]/15" : "bg-[var(--agent-blue)]/15"}`}
+        >
+          {comment.authorType === "agent" ? (
             <Bot className={`h-3 w-3 text-purple-600`} />
           ) : (
             <User className={`h-3 w-3 text-blue-600`} />
@@ -285,7 +294,10 @@ function CommentItem({
           ) : (
             <>
               <div className="mt-1">
-                <MarkdownContent content={injectMentionLinks(comment.content, comment.mentions ?? [])} className="text-sm" />
+                <MarkdownContent
+                  content={injectMentionLinks(comment.content, comment.mentions ?? [])}
+                  className="text-sm"
+                />
               </div>
               <div className="flex items-center gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button

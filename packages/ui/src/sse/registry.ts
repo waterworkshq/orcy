@@ -354,30 +354,12 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.commented": defineSSEHandler<"task.commented">({
-    zustand: ({ event, state, set }) => {
-      set({
-        comments: {
-          ...state.comments,
-          [event.data.taskId]: [event.data.comment, ...(state.comments[event.data.taskId] || [])],
-        },
-      });
-    },
     cache: ({ event, queryClient }) => {
       const taskId = getTaskId(event);
       if (taskId) queryClient.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
     },
   }),
   "task.comment_deleted": defineSSEHandler<"task.comment_deleted">({
-    zustand: ({ event, state, set }) => {
-      set({
-        comments: {
-          ...state.comments,
-          [event.data.taskId]: (state.comments[event.data.taskId] || []).filter(
-            (c) => c.id !== event.data.commentId,
-          ),
-        },
-      });
-    },
     cache: ({ event, queryClient }) => {
       const taskId = getTaskId(event);
       if (taskId) queryClient.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
@@ -509,23 +491,7 @@ export const SSE_EVENT_REGISTRY = {
   "mission.created": defineSSEHandler<"mission.created">({
     zustand: ({ event, state, set }) => {
       if (!state.features.some((f) => f.id === event.data.id)) {
-        const featureWithProgress: MissionWithProgress = {
-          ...event.data,
-          progress: {
-            total: 0,
-            pending: 0,
-            claimed: 0,
-            inProgress: 0,
-            submitted: 0,
-            approved: 0,
-            done: 0,
-            failed: 0,
-            rejected: 0,
-            percentage: 0,
-          },
-        };
         set({
-          features: [...state.features, featureWithProgress],
           columnPagination: { ...state.columnPagination, [event.data.columnId]: undefined },
         });
       }
@@ -535,9 +501,6 @@ export const SSE_EVENT_REGISTRY = {
   "mission.updated": defineSSEHandler<"mission.updated">({
     zustand: ({ event, state, set }) => {
       set({
-        features: state.features.map((f) =>
-          f.id === event.data.id ? { ...f, ...event.data, progress: f.progress } : f,
-        ),
         columnPagination: { ...state.columnPagination, [event.data.columnId]: undefined },
       });
     },
@@ -546,9 +509,6 @@ export const SSE_EVENT_REGISTRY = {
   "mission.moved": defineSSEHandler<"mission.moved">({
     zustand: ({ event, state, set }) => {
       set({
-        features: state.features.map((f) =>
-          f.id === event.data.missionId ? { ...f, columnId: event.data.toColumnId } : f,
-        ),
         columnPagination: {
           ...state.columnPagination,
           [event.data.fromColumnId]: undefined,
@@ -562,12 +522,9 @@ export const SSE_EVENT_REGISTRY = {
     zustand: ({ event, state, set }) => {
       const existing = state.features.find((f) => f.id === event.data.missionId);
       const colId = existing?.columnId;
-      set({
-        features: state.features.map((f) =>
-          f.id === event.data.missionId ? { ...f, status: event.data.toStatus } : f,
-        ),
-        ...(colId ? { columnPagination: { ...state.columnPagination, [colId]: undefined } } : {}),
-      });
+      if (colId) {
+        set({ columnPagination: { ...state.columnPagination, [colId]: undefined } });
+      }
     },
     cache: missionListCacheHandler.cache,
   }),
@@ -576,7 +533,6 @@ export const SSE_EVENT_REGISTRY = {
       const deleted = state.features.find((f) => f.id === event.data.missionId);
       const delColId = deleted?.columnId;
       set({
-        features: state.features.filter((f) => f.id !== event.data.missionId),
         selectedMissionIds: state.selectedMissionIds.filter((id) => id !== event.data.missionId),
         selectedMissionId:
           state.selectedMissionId === event.data.missionId ? null : state.selectedMissionId,
@@ -588,31 +544,6 @@ export const SSE_EVENT_REGISTRY = {
     cache: missionListCacheHandler.cache,
   }),
   "mission.progress": defineSSEHandler<"mission.progress">({
-    zustand: ({ event, state, set }) => {
-      const progressFeature = state.features.find((f) => f.id === event.data.missionId);
-      const progColId = progressFeature?.columnId;
-      set({
-        features: state.features.map((f) =>
-          f.id === event.data.missionId
-            ? {
-                ...f,
-                progress: {
-                  ...f.progress,
-                  total: event.data.total,
-                  done: event.data.completed,
-                  percentage:
-                    event.data.total > 0
-                      ? Math.round((event.data.completed / event.data.total) * 100)
-                      : 0,
-                },
-              }
-            : f,
-        ),
-        ...(progColId
-          ? { columnPagination: { ...state.columnPagination, [progColId]: undefined } }
-          : {}),
-      });
-    },
     cache: ({ event, queryClient }) => {
       if (!("missionId" in event.data) || typeof event.data.missionId !== "string") return;
       queryClient.invalidateQueries({ queryKey: queryKeys.missions.detail(event.data.missionId) });

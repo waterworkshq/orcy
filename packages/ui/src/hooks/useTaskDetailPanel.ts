@@ -1,15 +1,28 @@
-import { useModalStore } from '../store/modalStore.js';
-import { useHabitatStore } from '../store/habitatStore.js';
-import { useTaskDetails } from '../lib/useTaskData.js';
-import { useTaskEdit, type UseTaskEditResult } from './useTaskEdit.js';
-import { useTaskSubtasks } from './useTaskSubtasks.js';
-import { useTaskDelegate } from './useTaskDelegate.js';
-import { useTaskDecompose } from './useTaskDecompose.js';
-import { useTaskDependencies } from './useTaskDependencies.js';
-import { useTaskReview } from './useTaskReview.js';
-import { useTaskActions } from './useTaskActions.js';
-import { useTaskWatch } from './useTaskWatch.js';
-import type { Task, Subtask, SubtaskProposal, Agent, TaskEvent, PullRequest, PipelineEvent, TaskAttachment, TaskComment, CrossHabitatDependency, TaskReviewer } from '../types/index.js';
+import { useModalStore } from "../store/modalStore.js";
+import { useHabitatStore } from "../store/habitatStore.js";
+import { useTaskDetails } from "../lib/useTaskData.js";
+import { useMission } from "../lib/useHabitatData.js";
+import { useTaskEdit, type UseTaskEditResult } from "./useTaskEdit.js";
+import { useTaskSubtasks } from "./useTaskSubtasks.js";
+import { useTaskDelegate } from "./useTaskDelegate.js";
+import { useTaskDecompose } from "./useTaskDecompose.js";
+import { useTaskDependencies } from "./useTaskDependencies.js";
+import { useTaskReview } from "./useTaskReview.js";
+import { useTaskActions } from "./useTaskActions.js";
+import { useTaskWatch } from "./useTaskWatch.js";
+import type {
+  Task,
+  Subtask,
+  SubtaskProposal,
+  Agent,
+  TaskEvent,
+  PullRequest,
+  PipelineEvent,
+  TaskAttachment,
+  TaskComment,
+  CrossHabitatDependency,
+  TaskReviewer,
+} from "../types/index.js";
 
 export interface UseTaskDetailPanelOptions {
   editTaskId?: string | null;
@@ -21,11 +34,11 @@ export interface UseTaskDetailPanelResult {
   isEditing: boolean;
   watchLoading: boolean;
   deleteDialogOpen: boolean;
-  editForm: UseTaskEditResult['editForm'];
+  editForm: UseTaskEditResult["editForm"];
   editDueAt: string;
   editSlaMinutes: string;
   editEstimatedMinutes: string;
-  retryForm: UseTaskEditResult['retryForm'];
+  retryForm: UseTaskEditResult["retryForm"];
   newSubtaskTitle: string;
   addingSubtask: boolean;
   delegateAgentId: string;
@@ -38,11 +51,11 @@ export interface UseTaskDetailPanelResult {
   // Actions
   setIsEditing: (v: boolean) => void;
   setDeleteDialogOpen: (v: boolean) => void;
-  setEditForm: UseTaskEditResult['setEditForm'];
+  setEditForm: UseTaskEditResult["setEditForm"];
   setEditDueAt: (v: string) => void;
   setEditSlaMinutes: (v: string) => void;
   setEditEstimatedMinutes: (v: string) => void;
-  setRetryForm: UseTaskEditResult['setRetryForm'];
+  setRetryForm: UseTaskEditResult["setRetryForm"];
   setNewSubtaskTitle: (v: string) => void;
   setDelegateAgentId: (v: string) => void;
   setShowDelegate: (v: boolean) => void;
@@ -77,9 +90,18 @@ export interface UseTaskDetailPanelResult {
   selectedTaskId: string | null;
   agents: Agent[];
   task: Task | undefined;
-  feature: { id: string; title: string; description: string; acceptanceCriteria: string; priority: string; status: string } | null;
+  feature: {
+    id: string;
+    title: string;
+    description: string;
+    acceptanceCriteria: string;
+    priority: string;
+    status: string;
+  } | null;
   siblingTasks: { id: string; title: string; status: string; result: string | null }[];
-  column: { id: string; name: string; nextColumnId: string | null; autoAdvance: boolean; } | undefined;
+  column:
+    | { id: string; name: string; nextColumnId: string | null; autoAdvance: boolean }
+    | undefined;
   nextColumnName: string | undefined;
   contextLoading: boolean;
   events: TaskEvent[];
@@ -95,21 +117,20 @@ export interface UseTaskDetailPanelResult {
   comments: TaskComment[];
 }
 
-export function useTaskDetailPanel({ editTaskId }: UseTaskDetailPanelOptions = {}): UseTaskDetailPanelResult {
+export function useTaskDetailPanel({
+  editTaskId,
+}: UseTaskDetailPanelOptions = {}): UseTaskDetailPanelResult {
   const { tasks, agents } = useHabitatStore();
   const selectedTaskId = useModalStore((s) => s.selectedTaskId);
-  const { data: detailsData, isLoading: contextLoading } = useTaskDetails(selectedTaskId ?? undefined);
+  const { data: detailsData, isLoading: contextLoading } = useTaskDetails(
+    selectedTaskId ?? undefined,
+  );
 
   const task = detailsData?.task ?? tasks.find((t) => t.id === selectedTaskId);
   const columns = useHabitatStore((s) => s.columns);
-  const features = useHabitatStore((s) => s.features);
-  const column = task
-    ? (() => {
-        const feat = features.find((f) => f.id === task.missionId);
-        if (!feat) return undefined;
-        return columns.find((c) => c.id === feat.columnId);
-      })()
-    : undefined;
+  const { data: missionData } = useMission(task?.missionId);
+  const mission = missionData?.feature;
+  const column = mission ? columns.find((c) => c.id === mission.columnId) : undefined;
   const nextColumnName = column?.nextColumnId
     ? columns.find((c) => c.id === column.nextColumnId)?.name
     : undefined;
