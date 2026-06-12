@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.18.0 | **Updated:** 2026-06-11
+> **Version:** v0.18.3 | **Updated:** 2026-06-12
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -32,24 +32,13 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.17.2 | "Tighten: Effort and Notification Plumbing" — effort metrics recompute on complete/approve (FU-001 correctness fix), `NOTIFY_TASK_EVENT_ACTIONS` consumer audit constant, 13 MCP handler files narrowed to per-domain interfaces, `ORCY_TRANSITION_RECALC_DEBOUNCE` env documentation, 194 `@requires` JSDoc tags across 25 MCP tool files |
 | v0.17.3 | "Prep: Event Spine" — SSE Event Registry: centralized event handler pattern replacing the triple-switch (Zustand mutation, React Query invalidation, toast/dropdown notification) across all SSE event types. New events registered once and covered by completeness tests. Foundation that v0.18 automation and Notification V2 event types build on. |
 | v0.18.0 | "Rules That Act" — Workflow Automation Engine (12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, simulation, cooldown/fingerprint/rate-limit guards, scheduled scans), Notification System V2 (subscriptions, channel routing, in-app/webhook/Slack/Discord delivery, acknowledgment/snooze/mute, digests with hourly/daily/weekly cadence, retention-based clearance), MCP self-service surfaces (read-only automation, self-service notifications), UI automation settings tab, REST routes, audit projection |
+| v0.18.1 | "Deepen: Data Access" — 64 direct `getDb()` calls eliminated across 11 target services, 6 new repository files, `dependencyService`/`anomalyService`/`auditExportService`/`predictionService`/`notificationService`/`syncService`/`webhook-subscriptions`/`webhook-delivery`/`webhook-dispatch`/`auditArchivalService`/`sprintService`/`boardHealthService` all at zero `getDb()`, `task.ts` and `daemon.ts` repository splits, 4 v0.18 review fixes |
+| v0.18.2 | "Deepen: Route Extraction" — Pulse posting handlers (2×110 lines → 17 each), intake candidate promotion (55 lines → 14), daemon register + claim-next (2×65 lines → 12 each), Jira/Linear OAuth completion flows, auth register/me/setup extraction, mission progress deduplication |
+| v0.18.3 | "Deepen: Single Cache" — Zustand → React Query for all server data (agents, comments, missions, board/columns, tasks). 5 mutation hooks de-dual-written. 14 SSE zustand blocks removed. Zustand now holds only ephemeral UI state (modals, theme, presence, pagination) |
 
 ---
 
 ## Upcoming
-
-### v0.18.1 — "Deepen: Public Surface Prep"
-
-Enforce data access discipline and clean up route-layer coupling before the public API takes shape.
-
-| Architecture | What deepens |
-|--------------|--------------|
-| Data Access Discipline (#3) | Eliminate 64 direct `getDb()` calls across 24 services. Extract `dependencyRepository`, move `columnResolver` into a repo, add missing `userRepo` methods. Hard rule: services never import schema or call `getDb()`. |
-| Fat Route Extraction (#6) | Move business logic from route handlers into services (intake promotion, pulse posting, daemon registration). Eliminate 50 direct repository imports across 19 route files. Create `requireEntity()` middleware factory to replace 40+ duplicated existence checks. |
-| Dual-Write Consolidation (#5) | Move all server-derived data (tasks, missions, agents, comments) out of Zustand into React Query exclusively. Zustand keeps only ephemeral UI state (selections, modals, theme). Eliminates the `detailsData?.task ?? tasks.find()` fallback divergence and dual-write hooks. |
-
-**Why after v0.18:** v0.19 defines the public API surface. Clean repos and thin routes are prerequisites for versioned, scoped API boundaries. The Zustand → React Query migration removes the consistency risk before external consumers depend on it.
-
----
 
 ### v0.19.0 — "Public Surface"
 
