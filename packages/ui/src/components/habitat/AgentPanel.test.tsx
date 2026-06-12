@@ -27,6 +27,11 @@ vi.mock("../../lib/useHabitatData.js", () => ({
   useAgentsListWithTasks: (...args: unknown[]) => mockAgentsListWithTasks(...args),
   useAgentStats: (...args: unknown[]) => mockAgentStats(...args),
   useAgentQuality: (...args: unknown[]) => mockAgentQuality(...args),
+  useBoard: () => ({
+    data: { board: mockStoreState.board, columns: [] },
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 vi.mock("../../api/index.js", () => ({
@@ -190,37 +195,37 @@ describe("AgentPanel", () => {
   });
 
   it("renders agents from useAgentsListWithTasks", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByTestId("agent-card-agent-1")).toBeTruthy();
     expect(screen.getByTestId("agent-card-agent-2")).toBeTruthy();
   });
 
   it("renders agent names", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByText("Agent Alpha")).toBeTruthy();
     expect(screen.getByText("Agent Beta")).toBeTruthy();
   });
 
   it("shows per-agent stats from useAgentStats", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByTestId("stats-agent-1")).toBeTruthy();
     expect(screen.getByTestId("stats-agent-2")).toBeTruthy();
   });
 
   it("shows current task title from useAgentsListWithTasks", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByTestId("task-title-agent-1")).toBeTruthy();
     expect(screen.getByText("Build feature")).toBeTruthy();
   });
 
   it("calls useAgentsListWithTasks with board id", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(mockAgentsListWithTasks).toHaveBeenCalledWith("board-1");
     expect(mockAgentQuality).toHaveBeenCalledWith("board-1");
   });
 
   it("calls useAgentStats per agent", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(mockAgentStats).toHaveBeenCalledWith("agent-1");
     expect(mockAgentStats).toHaveBeenCalledWith("agent-2");
   });
@@ -230,7 +235,7 @@ describe("AgentPanel", () => {
       data: [],
       isLoading: false,
     });
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByText("No agents registered.")).toBeTruthy();
   });
 
@@ -239,19 +244,19 @@ describe("AgentPanel", () => {
       data: [],
       isLoading: false,
     });
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.getByText("Register Agent")).toBeTruthy();
   });
 
   it("opens confirm dialog on deregister click", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId("deregister-agent-1"));
     expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
     expect(screen.getByText("Deregister Agent")).toBeTruthy();
   });
 
   it("calls removeAgent dispatch and invalidates RQ cache on confirm", async () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId("deregister-agent-1"));
     await fireEvent.click(screen.getByTestId("confirm-btn"));
     await waitFor(() => {
@@ -261,7 +266,7 @@ describe("AgentPanel", () => {
   });
 
   it("closes confirm dialog on cancel", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId("deregister-agent-1"));
     expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
     fireEvent.click(screen.getByTestId("cancel-btn"));
@@ -271,7 +276,7 @@ describe("AgentPanel", () => {
   it("shows error notification on delete failure", async () => {
     const { notify } = await import("../../lib/toast.js");
     mockApiDelete.mockRejectedValue(new Error("Delete failed"));
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId("deregister-agent-1"));
     await fireEvent.click(screen.getByTestId("confirm-btn"));
     await waitFor(() => {
@@ -288,14 +293,14 @@ describe("AgentPanel", () => {
   });
 
   it("opens agent registration dialog on Add click", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.queryByTestId("agent-registration-dialog")).toBeNull();
     fireEvent.click(screen.getByText("Add"));
     expect(screen.getByTestId("agent-registration-dialog")).toBeTruthy();
   });
 
   it("toggles agent expansion", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(screen.queryByTestId("expanded-agent-1")).toBeNull();
     fireEvent.click(screen.getByTestId("toggle-agent-1"));
     expect(screen.getByTestId("expanded-agent-1")).toBeTruthy();
@@ -304,12 +309,12 @@ describe("AgentPanel", () => {
   });
 
   it("reads board from Zustand store (not agents/tasks)", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(mockAgentsListWithTasks).toHaveBeenCalledWith("board-1");
   });
 
   it("does not call api.agents.stats directly (uses RQ hook)", () => {
-    renderWithQC(<AgentPanel onClose={vi.fn()} />);
+    renderWithQC(<AgentPanel habitatId="board-1" onClose={vi.fn()} />);
     expect(mockAgentStats).toHaveBeenCalled();
   });
 });

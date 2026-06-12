@@ -12,9 +12,8 @@ import {
   Inbox,
 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useHabitatStore } from "../../store/habitatStore.js";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
-import { useAgents, useSavedFilters } from "../../lib/useHabitatData.js";
+import { useAgents, useSavedFilters, useBoard } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { api } from "../../api/index.js";
 
@@ -29,13 +28,16 @@ export interface SavedFilter {
 }
 
 export const FilterBar = React.memo(function FilterBar({
+  habitatId,
   focusSearchRef,
 }: {
+  habitatId?: string;
   focusSearchRef?: React.RefObject<HTMLInputElement | null>;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: agents = [] } = useAgents();
-  const board = useHabitatStore((s) => s.board);
+  const { data: boardData } = useBoard(habitatId);
+  const board = boardData?.board ?? null;
   const internalSearchRef = useRef<HTMLInputElement>(null);
   const searchRef = focusSearchRef ?? internalSearchRef;
   const [viewsOpen, setViewsOpen] = useState(false);
@@ -44,7 +46,6 @@ export const FilterBar = React.memo(function FilterBar({
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const viewsRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-  const habitatId = board?.id;
   const qc = useQueryClient();
 
   const { data: savedFilters = [] } = useSavedFilters(habitatId);

@@ -42,6 +42,11 @@ const mockUseSavedFilters = vi.fn();
 vi.mock("../../lib/useHabitatData.js", () => ({
   useSavedFilters: (...args: unknown[]) => mockUseSavedFilters(...args),
   useAgents: () => ({ data: mockStoreState.agents as any[], isLoading: false, isError: false }),
+  useBoard: () => ({
+    data: { board: mockStoreState.board, columns: [] },
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 vi.mock("../../lib/queryKeys.js", () => ({
@@ -115,17 +120,17 @@ describe("FilterBar", () => {
   });
 
   it("renders search input", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(screen.getByPlaceholderText("Search features...")).toBeTruthy();
   });
 
   it("renders agent filter dropdown", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(screen.getByText("All Agents")).toBeTruthy();
   });
 
   it("renders priority filter buttons", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(screen.getByText("critical")).toBeTruthy();
     expect(screen.getByText("high")).toBeTruthy();
     expect(screen.getByText("medium")).toBeTruthy();
@@ -133,7 +138,7 @@ describe("FilterBar", () => {
   });
 
   it("renders status filter buttons", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(screen.getByText("not started")).toBeTruthy();
     expect(screen.getByText("in progress")).toBeTruthy();
     expect(screen.getByText("review")).toBeTruthy();
@@ -142,35 +147,35 @@ describe("FilterBar", () => {
   });
 
   it("renders Views button", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(screen.getByText("Views")).toBeTruthy();
   });
 
   it("renders view toggle with Board and Table buttons", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(screen.getByTestId("view-toggle-board")).toBeTruthy();
     expect(screen.getByTestId("view-toggle-table")).toBeTruthy();
   });
 
   it("defaults to board view when no view param", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     const boardBtn = screen.getByTestId("view-toggle-board");
     expect(boardBtn.className).toContain("bg-primary");
   });
 
   it("highlights table toggle when ?view=table", () => {
-    renderWithProviders(<FilterBar />, ["/?view=table"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?view=table"]);
     const tableBtn = screen.getByTestId("view-toggle-table");
     expect(tableBtn.className).toContain("bg-primary");
   });
 
   it("does not show Clear button when only view param is set", () => {
-    renderWithProviders(<FilterBar />, ["/?view=table"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?view=table"]);
     expect(screen.queryByText("Clear")).toBeNull();
   });
 
   it("calls useSavedFilters with habitatId from store", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     expect(mockUseSavedFilters).toHaveBeenCalledWith("board-1");
   });
 
@@ -180,7 +185,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const viewsBtn = screen.getByText("Views");
     fireEvent.click(viewsBtn);
@@ -195,7 +200,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const viewsBtn = screen.getByText("Views");
     fireEvent.click(viewsBtn);
@@ -209,7 +214,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     fireEvent.click(screen.getByText("Views"));
     expect(await screen.findByText("built-in")).toBeTruthy();
@@ -221,7 +226,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FilterBar />, ["/?view=table"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?view=table"]);
 
     const viewsBtn = await screen.findByText("Views");
     fireEvent.click(viewsBtn);
@@ -241,7 +246,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FilterBar />, ["/?view=table"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?view=table"]);
 
     fireEvent.click(screen.getByText("Views"));
     const filterBtn = await screen.findByText("Full Filter");
@@ -260,7 +265,7 @@ describe("FilterBar", () => {
     });
     mockSavedFiltersCreate.mockResolvedValue({ id: "new-sf", name: "Test View", filterConfig: {} });
 
-    renderWithProviders(<FilterBar />, ["/?priority=high"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?priority=high"]);
 
     fireEvent.click(screen.getByText("Views"));
     fireEvent.click(await screen.findByText("+ Save Current View"));
@@ -284,7 +289,7 @@ describe("FilterBar", () => {
     });
     mockSavedFiltersCreate.mockResolvedValue({ id: "new-sf", name: "Test", filterConfig: {} });
 
-    renderWithProviders(<FilterBar />, ["/?status=done"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?status=done"]);
 
     fireEvent.click(screen.getByText("Views"));
     fireEvent.click(await screen.findByText("+ Save Current View"));
@@ -315,7 +320,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     fireEvent.click(screen.getByText("Views"));
     fireEvent.click(await screen.findByText("+ Save Current View"));
@@ -337,7 +342,7 @@ describe("FilterBar", () => {
     });
     mockSavedFiltersCreate.mockRejectedValue(new Error("Network error"));
 
-    renderWithProviders(<FilterBar />, ["/?priority=high"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?priority=high"]);
 
     fireEvent.click(screen.getByText("Views"));
     fireEvent.click(await screen.findByText("+ Save Current View"));
@@ -360,7 +365,7 @@ describe("FilterBar", () => {
     });
     mockSavedFiltersDelete.mockResolvedValue({ success: true });
 
-    const { container } = renderWithProviders(<FilterBar />);
+    const { container } = renderWithProviders(<FilterBar habitatId="board-1" />);
 
     fireEvent.click(screen.getByText("Views"));
     await screen.findByText("My Filter");
@@ -384,7 +389,7 @@ describe("FilterBar", () => {
     });
     mockSavedFiltersDelete.mockRejectedValue(new Error("Delete failed"));
 
-    const { container } = renderWithProviders(<FilterBar />);
+    const { container } = renderWithProviders(<FilterBar habitatId="board-1" />);
 
     fireEvent.click(screen.getByText("Views"));
     await screen.findByText("My Filter");
@@ -407,7 +412,7 @@ describe("FilterBar", () => {
       isLoading: false,
     });
 
-    const { container } = renderWithProviders(<FilterBar />);
+    const { container } = renderWithProviders(<FilterBar habitatId="board-1" />);
 
     fireEvent.click(screen.getByText("Views"));
     await screen.findByText("Built-in Filter");
@@ -419,19 +424,19 @@ describe("FilterBar", () => {
   });
 
   it("still reads agents and board from Zustand store", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     expect(screen.getByText("Agent-1")).toBeTruthy();
     expect(screen.getByText("Agent-2")).toBeTruthy();
   });
 
   it("shows Clear button when filters are active", () => {
-    renderWithProviders(<FilterBar />, ["/?priority=high"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?priority=high"]);
     expect(screen.getByText("Clear")).toBeTruthy();
   });
 
   it("clears all non-view filters when Clear is clicked", () => {
-    renderWithProviders(<FilterBar />, ["/?priority=high&view=table"]);
+    renderWithProviders(<FilterBar habitatId="board-1" />, ["/?priority=high&view=table"]);
 
     const clearBtn = screen.getByText("Clear");
     fireEvent.click(clearBtn);
@@ -441,7 +446,7 @@ describe("FilterBar", () => {
   });
 
   it("toggles priority filter on and off", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const highBtn = screen.getByText("high");
     fireEvent.click(highBtn);
@@ -452,7 +457,7 @@ describe("FilterBar", () => {
   });
 
   it("toggles status filter on and off", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const reviewBtn = screen.getByText("review");
     fireEvent.click(reviewBtn);
@@ -463,7 +468,7 @@ describe("FilterBar", () => {
   });
 
   it("toggles view between board and table", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const boardBtn = screen.getByTestId("view-toggle-board");
     const tableBtn = screen.getByTestId("view-toggle-table");
@@ -475,19 +480,19 @@ describe("FilterBar", () => {
   });
 
   it("uses default search input when no focusSearchRef provided", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
     const input = screen.getByPlaceholderText("Search features...");
     expect(input).toBeTruthy();
   });
 
   it("uses provided focusSearchRef when passed", () => {
     const ref = React.createRef<HTMLInputElement>();
-    renderWithProviders(<FilterBar focusSearchRef={ref} />);
+    renderWithProviders(<FilterBar habitatId="board-1" focusSearchRef={ref} />);
     expect(ref.current).toBeTruthy();
   });
 
   it("updates search filter on input change", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const input = screen.getByPlaceholderText("Search features...");
     fireEvent.change(input, { target: { value: "hello" } });
@@ -495,7 +500,7 @@ describe("FilterBar", () => {
   });
 
   it("selects agent filter", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const select = screen.getByDisplayValue("All Agents");
     fireEvent.change(select, { target: { value: "a1" } });
@@ -503,7 +508,7 @@ describe("FilterBar", () => {
   });
 
   it("selects unassigned filter", () => {
-    renderWithProviders(<FilterBar />);
+    renderWithProviders(<FilterBar habitatId="board-1" />);
 
     const select = screen.getByDisplayValue("All Agents");
     fireEvent.change(select, { target: { value: "unassigned" } });

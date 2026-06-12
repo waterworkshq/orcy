@@ -108,6 +108,16 @@ vi.mock("../lib/useHabitatData.js", () => ({
     isLoading: false,
     isError: false,
   }),
+  useBoard: () => ({
+    data: {
+      columns: [
+        { id: "col-1", name: "To Do", nextColumnId: "col-2", autoAdvance: false },
+        { id: "col-2", name: "In Progress", nextColumnId: null, autoAdvance: true },
+      ],
+    },
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 vi.mock("../lib/useTaskData.js", () => ({

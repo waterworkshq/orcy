@@ -1,7 +1,7 @@
 import { useModalStore } from "../store/modalStore.js";
 import { useHabitatStore } from "../store/habitatStore.js";
 import { useTaskDetails } from "../lib/useTaskData.js";
-import { useMission } from "../lib/useHabitatData.js";
+import { useMission, useBoard } from "../lib/useHabitatData.js";
 import { useTaskEdit, type UseTaskEditResult } from "./useTaskEdit.js";
 import { useTaskSubtasks } from "./useTaskSubtasks.js";
 import { useTaskDelegate } from "./useTaskDelegate.js";
@@ -127,9 +127,10 @@ export function useTaskDetailPanel({
   );
 
   const task = detailsData?.task ?? tasks.find((t) => t.id === selectedTaskId);
-  const columns = useHabitatStore((s) => s.columns);
   const { data: missionData } = useMission(task?.missionId);
   const mission = missionData?.feature;
+  const { data: boardData } = useBoard(mission?.habitatId);
+  const columns = boardData?.columns ?? [];
   const column = mission ? columns.find((c) => c.id === mission.columnId) : undefined;
   const nextColumnName = column?.nextColumnId
     ? columns.find((c) => c.id === column.nextColumnId)?.name

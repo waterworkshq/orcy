@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo, Suspense } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { HealthScoreWidget } from "./HealthScoreWidget.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
+import { useBoard } from "../../lib/useHabitatData.js";
+import { queryKeys } from "../../lib/queryKeys.js";
 import { useModalStore } from "../../store/modalStore.js";
 import { useSSE } from "../../hooks/useSSE.js";
 import { useSSENotifications } from "../../hooks/useSSENotifications.js";
@@ -60,17 +63,13 @@ export function HabitatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const view = searchParams.get("view") ?? "board";
+
+  const { data: boardData, isLoading, error: boardError } = useBoard(habitatId);
+  const board = boardData?.board ?? null;
+  const columns = boardData?.columns ?? [];
+  const qc = useQueryClient();
+
   const {
-    board,
-    setBoard,
-    isLoading,
-    setLoading,
-    setError,
-    updateColumn,
-    updateBoard,
-    addColumn,
-    removeColumn,
-    columns,
     setColumnPagination,
     clearColumnPagination,
     presence,
@@ -206,39 +205,19 @@ export function HabitatPage() {
     prevViewRef.current = view;
   }, [view, clearTaskSelection]);
 
-  const loadBoard = useCallback(async () => {
-    if (!habitatId) return;
-    setLoading(true);
-    setError(null);
-    clearColumnPagination();
-    try {
-      const [boardData, firstPage] = await Promise.all([
-        api.habitats.get(habitatId),
-        api.missions.list(habitatId, { limit: PAGE_SIZE, offset: 0 }),
-      ]);
-      setBoard(boardData.board, boardData.columns ?? [], boardData.features ?? []);
-
-      const firstPageFeatures = firstPage.features;
-
-      for (const col of boardData.columns ?? []) {
-        const colFeatures = firstPageFeatures.filter((f: any) => f.columnId === col.id);
+  useEffect(() => {
+    if (boardData?.columns) {
+      clearColumnPagination();
+      for (const col of boardData.columns) {
+        const colFeatures = (boardData.features ?? []).filter((f: any) => f.columnId === col.id);
         setColumnPagination(col.id, {
           features: colFeatures,
           total: undefined,
           offset: 0,
         });
       }
-
-      setLoading(false);
-    } catch (err) {
-      setError((err as Error).message);
-      setLoading(false);
     }
-  }, [habitatId, setBoard, setLoading, setError, clearColumnPagination, setColumnPagination]);
-
-  useEffect(() => {
-    loadBoard();
-  }, [loadBoard]);
+  }, [boardData, clearColumnPagination, setColumnPagination]);
 
   if (isLoading) {
     return (
@@ -446,7 +425,7 @@ export function HabitatPage() {
           </div>
         )}
 
-        <FilterBar focusSearchRef={searchRef} />
+        <FilterBar habitatId={habitatId} focusSearchRef={searchRef} />
 
         <div className="space-y-3 mb-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -487,7 +466,9 @@ export function HabitatPage() {
         />
       )}
 
-      {showAgentPanel && <AgentPanel onClose={() => setShowAgentPanel(false)} />}
+      {showAgentPanel && (
+        <AgentPanel habitatId={habitatId} onClose={() => setShowAgentPanel(false)} />
+      )}
       {showSprintPlanning && habitatId && (
         <SprintPlanningPanel habitatId={habitatId} onClose={() => setShowSprintPlanning(false)} />
       )}
@@ -530,11 +511,11 @@ export function HabitatPage() {
           open={!!settingsColumn}
           onClose={() => setSettingsColumn(null)}
           onUpdate={(col) => {
-            updateColumn(col);
+            qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setSettingsColumn(null);
           }}
           onDelete={(columnId) => {
-            removeColumn(columnId);
+            qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setSettingsColumn(null);
           }}
           columns={columns}
@@ -546,7 +527,7 @@ export function HabitatPage() {
           open={showBoardSettings}
           onClose={() => setShowBoardSettings(false)}
           onUpdate={(b) => {
-            updateBoard(b);
+            qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setShowBoardSettings(false);
           }}
           onDelete={() => {
@@ -564,7 +545,7 @@ export function HabitatPage() {
           open={showCreateColumn}
           onClose={() => setShowCreateColumn(false)}
           onAdd={(column) => {
-            addColumn(column);
+            qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId!) });
             setShowCreateColumn(false);
           }}
         />

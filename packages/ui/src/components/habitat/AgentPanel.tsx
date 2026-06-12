@@ -3,10 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/Button.js";
 import { AgentRegistrationDialog } from "../ui/AgentRegistrationDialog.js";
 import { ConfirmDialog } from "../ui/ConfirmDialog.js";
-import { useHabitatStore } from "../../store/habitatStore.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
-import { useAgentsListWithTasks, useAgentStats } from "../../lib/useHabitatData.js";
+import { useAgentsListWithTasks, useAgentStats, useBoard } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { X, Plus } from "lucide-react";
 import { Drawer } from "../ui/Drawer.js";
@@ -44,10 +43,12 @@ function AgentCardWithStats({
 
 interface AgentPanelProps {
   onClose: () => void;
+  habitatId?: string;
 }
 
-export function AgentPanel({ onClose }: AgentPanelProps) {
-  const board = useHabitatStore((s) => s.board);
+export function AgentPanel({ onClose, habitatId }: AgentPanelProps) {
+  const { data: boardData } = useBoard(habitatId);
+  const board = boardData?.board ?? null;
   const qc = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -55,7 +56,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
 
-  const agentsQuery = useAgentsListWithTasks(board?.id);
+  const agentsQuery = useAgentsListWithTasks(habitatId);
   const agents = agentsQuery.data ?? [];
 
   function toggleExpanded(agentId: string) {
