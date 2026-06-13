@@ -40,18 +40,19 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ## Upcoming
 
-### v0.19.0 — "Public Surface"
+### v0.19.0 — "Pod Bridge"
 
-Make Orcy safer to integrate with from outside its own UI and MCP server.
+Let local Orcy pods safely admit trusted external admins, pods, and orcys into shared habitats while preserving the local-only default path.
 
 | Feature | Problem it solves |
 |---------|-------------------|
-| SSO / Auth Providers | Adds external login, account linking, scope groundwork, and cleaner separation of human/agent/integration identities |
-| API Public Surface | Defines stable public API boundaries, versioning, scoped API keys, pagination, idempotency, webhooks, and SDK direction |
+| External Identity Providers | Adds optional GitHub/Google/OIDC login for easier onboarding, account linking, provider-backed identity checks, and first-admin/invite flows |
+| Pod Trust Model | Defines trusted remote pods/admins, remote orcy identity, credential rotation/revocation, and explicit habitat grants |
+| Shared Habitat API | Defines the minimal stable API boundary needed for cross-pod collaboration: versioning, scoped API keys, idempotency, events, and webhooks |
 
-**Why together:** External consumers need scoped identity before the API becomes a durable platform contract. Public API work without auth/scope foundations would bake in weak boundaries.
+**Why together:** v0.20 orchestration needs a safe way to fan work out to trusted participants outside the local daemon. Provider login proves identity; Orcy-owned scopes decide what that person, pod, or remote orcy can do inside a habitat.
 
-Planning seeds: `docs/plans/v3/07-sso-auth-providers.md`, `docs/plans/v3/08-api-public-surface.md`
+Planning seeds: `docs/plans/v3/07-sso-auth-providers.md`, `docs/plans/v3/08-api-public-surface.md`; release direction: `docs/plans/v19/README.md`
 
 ---
 
@@ -63,7 +64,7 @@ First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chai
 |---------|-------------------|
 | Agent Orchestration Platforms | Lets Orcy define and visualize multi-agent execution flows instead of relying on manual sequencing or prompt discipline |
 
-**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and public API stability. It should be built after those foundations exist.
+**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary.
 
 Planning seed: `docs/plans/v3/09-agent-orchestration-platforms.md`
 

@@ -20,6 +20,67 @@ _Avoid_: Ticket, issue
 A participant in the pod, human or AI agent, that can coordinate, execute, review, or supervise work.
 _Avoid_: User when the participant may be an agent
 
+**Pod Affiliation**:
+The relationship between a participant and the pod that owns or hosts their identity, such as local pod membership or remote pod participation. Affiliation explains where the participant comes from; it does not by itself grant habitat permissions.
+_Avoid_: Citizenship, tenant when the distinction is about pod relationship rather than legal/account ownership
+
+**Participant Standing**:
+The trust tier a host habitat grants to a participant or pod, such as local member, remote observer, or remote contributor. Standing shapes which action scopes can be granted, but explicit scopes still decide the exact allowed actions.
+_Avoid_: Role when the distinction is specifically local-vs-remote trust standing
+
+**Provider-Backed Identity**:
+An identity verified through an external auth provider such as GitHub, Google, or generic OIDC. Provider-backed identity improves onboarding and trust bootstrap, but does not by itself grant habitat, task, or repository permissions.
+_Avoid_: Treating provider login as authorization
+
+**Auth Provider Preset**:
+A preconfigured provider profile for external identity, such as GitHub OAuth or a generic OIDC provider. Presets improve onboarding without making the identity model provider-specific.
+_Avoid_: Hard-coding one auth provider into the domain model
+
+**Manual Invite Credential**:
+A non-provider fallback credential used to accept an invitation or establish trust when provider auth is unavailable or intentionally disabled. Manual invite credentials preserve local-first operation but should be presented as the advanced path for shared-habitat setup.
+_Avoid_: Default shared-habitat onboarding path
+
+**Remote Observer**:
+A remote participant or pod granted visibility and advisory feedback rights in a habitat without execution or approval authority. Remote observers can receive/read scoped context and may post comments or review feedback when explicitly granted, but they cannot claim, submit, approve, reject, or mutate execution state.
+_Example_: External code reviewers, security auditors, team leads, or org leads who need habitat visibility without task execution authority
+_Avoid_: Contributor, approver, lifecycle reviewer
+
+**Advisory Feedback**:
+Non-lifecycle feedback from a participant, such as comments or review guidance, that can influence direction without approving, rejecting, claiming, submitting, or completing work.
+_Avoid_: Approval, rejection, task transition
+
+**Remote Contributor**:
+A remote orcy or pod granted scoped execution authority in a host habitat, such as claiming and submitting existing eligible tasks. Remote contribution does not imply task creation, review, approval, or repository access.
+_Avoid_: Local member, remote reviewer
+
+**Remote Contributor Activity**:
+Work and feedback performed by remote observers or contributors in a host habitat. It should appear in task history, comments, evidence, notifications, and audit trails, but should not be blended into local agent quality metrics unless those metrics explicitly model pod affiliation and standing.
+_Avoid_: Treating remote activity as native local agent performance
+
+**Remote Evidence Link**:
+Code evidence supplied by a remote contributor as scoped metadata, such as a pull request URL, commit URL, fork branch URL, or summary. Remote evidence links support provenance without granting broad repository discovery, backfill, or mutation authority.
+_Avoid_: Repository access grant, repo scan permission
+
+**Lifecycle Approval**:
+The authority to approve, reject, or otherwise finalize submitted work in Orcy's task lifecycle. In the first shared-habitat model, lifecycle approval stays with local humans or local policy, not remote observers or contributors.
+_Avoid_: Advisory feedback, comment, review guidance
+
+**Remote Orcy Credential**:
+A per-orcy credential issued under a remote pod affiliation for scoped work in a host habitat. A pod-level trust relationship may bootstrap enrollment, but execution actions should be attributable to one remote orcy, not a shared pod token.
+_Avoid_: Shared pod credential for task execution
+
+**Host-Approved Capability**:
+A domain or capability claim for a remote orcy that the hosting pod has approved for task eligibility. Remote pods may propose capabilities, but the host habitat decides which ones count for assignment and claiming.
+_Avoid_: Trusting self-declared remote capabilities for task eligibility
+
+**Scoped Elevation Grant**:
+A temporary or bounded grant that raises a remote participant from baseline visibility into specific execution authority, limited by time, mission, task, or action scope. In the first shared-habitat model, only a local admin should create these grants.
+_Avoid_: Permanent trust when the grant is intended to expire or stay narrowly bounded
+
+**Permanent Remote Grant**:
+A long-lived remote grant that keeps execution authority until revoked. It should be explicit, visibly risky, and reserved for highly trusted pods that accept broader operational risk.
+_Avoid_: Default contributor access
+
 **Code Evidence**:
 A concrete code-related artifact produced or observed during work, such as a branch, pull request, merge request, commit, changed file, pipeline run, review status, or external code URL.
 _Avoid_: Artifact when the evidence needs to be queryable as provenance
