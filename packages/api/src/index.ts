@@ -55,6 +55,8 @@ import { integrationRoutes } from "./routes/integrations.js";
 import { githubIssueWebhookRoutes } from "./routes/githubIssueWebhooks.js";
 import { daemonRoutes, daemonAdminRoutes } from "./routes/daemon.js";
 import { habitatSkillRoutes } from "./routes/habitatSkill.js";
+import { remoteAccessRoutes } from "./routes/remoteAccess.js";
+import { sharedInviteRoutes } from "./routes/sharedInvite.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -203,6 +205,8 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(daemonRoutes);
   await f.register(daemonAdminRoutes);
   await f.register(habitatSkillRoutes);
+  await f.register(remoteAccessRoutes);
+  await f.register(sharedInviteRoutes);
 }
 
 await fastify.register(
