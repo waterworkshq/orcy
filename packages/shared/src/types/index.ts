@@ -251,3 +251,30 @@ export type {
 } from "./automation.js";
 
 export { buildFingerprint } from "./automation.js";
+
+export type {
+  PodAffiliation,
+  ParticipantStanding,
+  RemotePrincipalType,
+  RemoteParticipantType,
+  RemoteActorRef,
+  RemoteGrantType,
+  RemoteGrantStatus,
+  RemoteRevocationMode,
+  RemoteGrantEligibilityMode,
+  RemoteGrantTargetType,
+  RemoteActionScope,
+  RemoteCredentialType,
+  RemoteCredentialStatus,
+  RemoteInviteType,
+  RemoteInviteStatus,
+  RemotePodStatus,
+  RemoteParticipantStatus,
+  IdentityProviderKind,
+  IdentityProviderAuthStateStatus,
+  RemoteWebhookEndpointStatus,
+  RemoteIdempotencyStatus,
+  RemoteEvidenceKind,
+  RemoteActionKind,
+  RemoteAuditMetadata,
+} from "./pod-bridge.js";

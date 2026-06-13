@@ -46,6 +46,21 @@ import {
   notificationRetentionPolicies,
 } from "./notification.js";
 import { automationRules, automationRuleRuns } from "./automation.js";
+import {
+  identityProviders,
+  identityProviderAuthStates,
+  externalIdentities,
+  remoteInvites,
+  remotePods,
+  remoteParticipants,
+  remoteCredentials,
+  remoteGrants,
+  remoteGrantTargets,
+  remoteGrantRules,
+  remoteGrantTaskSnapshots,
+  remoteIdempotencyKeys,
+  remoteWebhookEndpoints,
+} from "./remote-pod.js";
 import { agents, agentMessages } from "./agent.js";
 import { users, notificationPreferences, organizations, teams, teamMembers } from "./user.js";
 import { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
@@ -852,6 +867,145 @@ export const automationRuleRunsRelations = relations(automationRuleRuns, ({ one 
   }),
   habitat: one(habitats, {
     fields: [automationRuleRuns.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Pod Bridge (v0.19)
+// ---------------------------------------------------------------------------
+
+export const identityProvidersRelations = relations(identityProviders, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [identityProviders.habitatId],
+    references: [habitats.id],
+  }),
+  authStates: many(identityProviderAuthStates),
+  externalIdentities: many(externalIdentities),
+}));
+
+export const identityProviderAuthStatesRelations = relations(
+  identityProviderAuthStates,
+  ({ one }) => ({
+    provider: one(identityProviders, {
+      fields: [identityProviderAuthStates.providerId],
+      references: [identityProviders.id],
+    }),
+    habitat: one(habitats, {
+      fields: [identityProviderAuthStates.habitatId],
+      references: [habitats.id],
+    }),
+  }),
+);
+
+export const externalIdentitiesRelations = relations(externalIdentities, ({ one }) => ({
+  provider: one(identityProviders, {
+    fields: [externalIdentities.providerId],
+    references: [identityProviders.id],
+  }),
+  habitat: one(habitats, {
+    fields: [externalIdentities.habitatId],
+    references: [habitats.id],
+  }),
+  localUser: one(users, {
+    fields: [externalIdentities.localUserId],
+    references: [users.id],
+  }),
+}));
+
+export const remoteInvitesRelations = relations(remoteInvites, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [remoteInvites.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const remotePodsRelations = relations(remotePods, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [remotePods.habitatId],
+    references: [habitats.id],
+  }),
+  participants: many(remoteParticipants),
+  grants: many(remoteGrants),
+  webhookEndpoints: many(remoteWebhookEndpoints),
+}));
+
+export const remoteParticipantsRelations = relations(remoteParticipants, ({ one, many }) => ({
+  remotePod: one(remotePods, {
+    fields: [remoteParticipants.remotePodId],
+    references: [remotePods.id],
+  }),
+  habitat: one(habitats, {
+    fields: [remoteParticipants.habitatId],
+    references: [habitats.id],
+  }),
+  credentials: many(remoteCredentials),
+}));
+
+export const remoteCredentialsRelations = relations(remoteCredentials, ({ one }) => ({
+  remoteParticipant: one(remoteParticipants, {
+    fields: [remoteCredentials.remoteParticipantId],
+    references: [remoteParticipants.id],
+  }),
+  habitat: one(habitats, {
+    fields: [remoteCredentials.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const remoteGrantsRelations = relations(remoteGrants, ({ one, many }) => ({
+  habitat: one(habitats, {
+    fields: [remoteGrants.habitatId],
+    references: [habitats.id],
+  }),
+  remotePod: one(remotePods, {
+    fields: [remoteGrants.remotePodId],
+    references: [remotePods.id],
+  }),
+  remoteParticipant: one(remoteParticipants, {
+    fields: [remoteGrants.remoteParticipantId],
+    references: [remoteParticipants.id],
+  }),
+  targets: many(remoteGrantTargets),
+  rules: many(remoteGrantRules),
+  taskSnapshots: many(remoteGrantTaskSnapshots),
+}));
+
+export const remoteGrantTargetsRelations = relations(remoteGrantTargets, ({ one }) => ({
+  grant: one(remoteGrants, {
+    fields: [remoteGrantTargets.grantId],
+    references: [remoteGrants.id],
+  }),
+}));
+
+export const remoteGrantRulesRelations = relations(remoteGrantRules, ({ one }) => ({
+  grant: one(remoteGrants, {
+    fields: [remoteGrantRules.grantId],
+    references: [remoteGrants.id],
+  }),
+}));
+
+export const remoteGrantTaskSnapshotsRelations = relations(remoteGrantTaskSnapshots, ({ one }) => ({
+  grant: one(remoteGrants, {
+    fields: [remoteGrantTaskSnapshots.grantId],
+    references: [remoteGrants.id],
+  }),
+}));
+
+export const remoteIdempotencyKeysRelations = relations(remoteIdempotencyKeys, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [remoteIdempotencyKeys.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const remoteWebhookEndpointsRelations = relations(remoteWebhookEndpoints, ({ one }) => ({
+  remotePod: one(remotePods, {
+    fields: [remoteWebhookEndpoints.remotePodId],
+    references: [remotePods.id],
+  }),
+  habitat: one(habitats, {
+    fields: [remoteWebhookEndpoints.habitatId],
     references: [habitats.id],
   }),
 }));

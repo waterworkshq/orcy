@@ -70,6 +70,21 @@ export {
 } from "./notification.js";
 export { automationRules, automationRuleRuns } from "./automation.js";
 export {
+  identityProviders,
+  identityProviderAuthStates,
+  externalIdentities,
+  remoteInvites,
+  remotePods,
+  remoteParticipants,
+  remoteCredentials,
+  remoteGrants,
+  remoteGrantTargets,
+  remoteGrantRules,
+  remoteGrantTaskSnapshots,
+  remoteIdempotencyKeys,
+  remoteWebhookEndpoints,
+} from "./remote-pod.js";
+export {
   habitatsRelations,
   columnsRelations,
   missionsRelations,
@@ -140,4 +155,17 @@ export {
   notificationRetentionPoliciesRelations,
   automationRulesRelations,
   automationRuleRunsRelations,
+  identityProvidersRelations,
+  identityProviderAuthStatesRelations,
+  externalIdentitiesRelations,
+  remoteInvitesRelations,
+  remotePodsRelations,
+  remoteParticipantsRelations,
+  remoteCredentialsRelations,
+  remoteGrantsRelations,
+  remoteGrantTargetsRelations,
+  remoteGrantRulesRelations,
+  remoteGrantTaskSnapshotsRelations,
+  remoteIdempotencyKeysRelations,
+  remoteWebhookEndpointsRelations,
 } from "./relations.js";

@@ -22,7 +22,7 @@ export interface AuditEntityRef {
 }
 
 export interface AuditActorRef {
-  type: "human" | "agent" | "system";
+  type: "human" | "agent" | "system" | "remote_pod" | "remote_orcy" | "remote_human";
   id: string | null;
   name?: string | null;
 }
