@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AuditSource } from "@orcy/shared/types";
+import type { AuditSource, AuditActorRef } from "@orcy/shared/types";
 import type { ActorType } from "../models/index.js";
 
 export interface AuditProvenanceContext {
@@ -9,7 +9,7 @@ export interface AuditProvenanceContext {
   method?: string;
   toolName?: string;
   mcpAction?: string;
-  actorType?: ActorType;
+  actorType?: ActorType | AuditActorRef["type"];
   actorId?: string;
 }
 
@@ -25,7 +25,7 @@ export function updateAuditProvenance(patch: Partial<AuditProvenanceContext>): v
   Object.assign(current, patch);
 }
 
-export function setAuditActor(actorType: ActorType, actorId: string): void {
+export function setAuditActor(actorType: ActorType | AuditActorRef["type"], actorId: string): void {
   updateAuditProvenance({ actorType, actorId });
 }
 
