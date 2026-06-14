@@ -58,16 +58,15 @@ function toConfigView(row: IdentityProviderRow): ProviderConfig {
   };
 }
 
-function maskSecret(secret: string): string {
-  // Store secrets with basic obfuscation — this is NOT a security boundary.
-  // The database itself is the security boundary. This just prevents casual
-  // plaintext exposure in config dumps. Real protection comes from DB access
-  // control and the credential never being returned by API responses.
-  return `enc:${secret}`;
+function obfuscateSecret(secret: string): string {
+  // Obfuscation, not encryption. DB access control is the real boundary.
+  return `obf:${secret}`;
 }
 
-function unmaskSecret(masked: string): string {
-  return masked.startsWith("enc:") ? masked.slice(4) : masked;
+function deobfuscateSecret(masked: string): string {
+  if (masked.startsWith("obf:")) return masked.slice(4);
+  if (masked.startsWith("enc:")) return masked.slice(4);
+  return masked;
 }
 
 export function configureProvider(input: ConfigureProviderInput): ProviderConfig {
@@ -87,7 +86,7 @@ export function configureProvider(input: ConfigureProviderInput): ProviderConfig
     issuer: input.issuer ?? null,
     config: {
       clientId: input.clientId.trim(),
-      clientSecret: maskSecret(input.clientSecret),
+      clientSecret: obfuscateSecret(input.clientSecret),
       callbackUrl,
       scopes: input.scopes ?? getDefaultScopes(input.kind),
     },
@@ -132,7 +131,8 @@ export function updateProvider(
   const newConfig: Record<string, unknown> = { ...existingConfig };
 
   if (patch.clientId !== undefined) newConfig.clientId = patch.clientId.trim();
-  if (patch.clientSecret !== undefined) newConfig.clientSecret = maskSecret(patch.clientSecret);
+  if (patch.clientSecret !== undefined)
+    newConfig.clientSecret = obfuscateSecret(patch.clientSecret);
   if (patch.callbackUrl !== undefined) newConfig.callbackUrl = patch.callbackUrl;
   if (patch.scopes !== undefined) newConfig.scopes = patch.scopes;
 
@@ -160,7 +160,7 @@ export function getClientSecret(habitatId: string, providerId: string): string |
   if (!row || row.habitatId !== habitatId) return null;
   const config = row.config as Record<string, unknown>;
   if (typeof config?.clientSecret !== "string") return null;
-  return unmaskSecret(config.clientSecret);
+  return deobfuscateSecret(config.clientSecret);
 }
 
 export function getDefaultScopes(kind: IdentityProviderKind): string[] {

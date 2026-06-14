@@ -2,6 +2,7 @@ import * as endpointRepo from "../repositories/remoteWebhookEndpoint.js";
 import * as deliveryRepo from "../repositories/remoteWebhookDelivery.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
+import { decryptSecret } from "./secretCrypto.js";
 import {
   buildCompactRemoteWebhookPayload,
   signCompactRemoteWebhookPayload,
@@ -82,7 +83,13 @@ export async function dispatchCompactRemoteEvent(
       continue;
     }
 
-    const secret = ENDPOINT_PLAINTEXT_CACHE.get(endpoint.id);
+    let secret: string | null | undefined = ENDPOINT_PLAINTEXT_CACHE.get(endpoint.id);
+    if (!secret && endpoint.encryptedSecret) {
+      secret = decryptSecret(endpoint.encryptedSecret);
+      if (secret) {
+        ENDPOINT_PLAINTEXT_CACHE.set(endpoint.id, secret);
+      }
+    }
     if (!secret) {
       // No secret registered (e.g., endpoint was re-enabled after disable
       // without re-registering). Skip with a delivery record so the host

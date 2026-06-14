@@ -182,7 +182,7 @@ export function acceptManualInvite(
   }
 
   // Create remote pod + admin participant after claiming
-  let pod: podRepo.RemotePodRow;
+  let pod: podRepo.RemotePodRow | undefined;
   let participant: participantRepo.RemoteParticipantRow;
   try {
     pod = podRepo.createRemotePod({
@@ -202,8 +202,13 @@ export function acceptManualInvite(
       standing: invite.baselineStanding as ParticipantStanding,
     });
   } catch (err) {
-    // If pod/participant creation fails after claiming, revoke the invite
-    // to allow retry — prevents orphaned "accepted" invite with no pod
+    try {
+      if (typeof pod !== "undefined" && pod) {
+        podRepo.revokeRemotePod(pod.id, "system", "Creation failed");
+      }
+    } catch {
+      // best effort cleanup
+    }
     inviteRepo.revokeRemoteInvite(invite.id, "system", "Pod/participant creation failed");
     throw err;
   }
@@ -254,7 +259,7 @@ export function acceptProviderInvite(
     throw conflict("Invite was already accepted by another request", "INVITE_ALREADY_ACCEPTED");
   }
 
-  let pod: podRepo.RemotePodRow;
+  let pod: podRepo.RemotePodRow | undefined;
   let participant: participantRepo.RemoteParticipantRow;
   try {
     pod = podRepo.createRemotePod({
@@ -276,6 +281,13 @@ export function acceptProviderInvite(
       externalIdentityId: details.providerIdentityId ?? null,
     });
   } catch (err) {
+    try {
+      if (typeof pod !== "undefined" && pod) {
+        podRepo.revokeRemotePod(pod.id, "system", "Creation failed");
+      }
+    } catch {
+      // best effort cleanup
+    }
     inviteRepo.revokeRemoteInvite(invite.id, "system", "Pod/participant creation failed");
     throw err;
   }

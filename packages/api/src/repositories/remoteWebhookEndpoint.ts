@@ -16,6 +16,7 @@ export interface CreateRemoteWebhookEndpointInput {
   description?: string;
   events?: string[];
   secretHash?: string | null;
+  encryptedSecret?: string | null;
 }
 
 export interface RemoteWebhookEndpointRow {
@@ -27,6 +28,7 @@ export interface RemoteWebhookEndpointRow {
   events: string[];
   status: string;
   secretHash: string | null;
+  encryptedSecret: string | null;
   lastTestAt: string | null;
   lastTestStatus: string | null;
   approvedBy: string | null;
@@ -49,6 +51,7 @@ const fields = {
   events: remoteWebhookEndpoints.events,
   status: remoteWebhookEndpoints.status,
   secretHash: remoteWebhookEndpoints.secretHash,
+  encryptedSecret: remoteWebhookEndpoints.encryptedSecret,
   lastTestAt: remoteWebhookEndpoints.lastTestAt,
   lastTestStatus: remoteWebhookEndpoints.lastTestStatus,
   approvedBy: remoteWebhookEndpoints.approvedBy,
@@ -80,6 +83,7 @@ export function createRemoteWebhookEndpoint(
         events: input.events ?? [],
         status: "pending",
         secretHash: input.secretHash ?? null,
+        encryptedSecret: input.encryptedSecret ?? null,
         createdAt: now,
         updatedAt: now,
       })

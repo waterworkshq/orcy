@@ -242,6 +242,12 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
   // Every route requires remote participant auth
   fastify.addHook("preHandler", remoteParticipantAuth);
 
+  fastify.addHook("onError", async (request, _reply) => {
+    if (request.remoteIdempotency) {
+      failRemoteIdempotency(request, "Route handler error");
+    }
+  });
+
   // -------------------------------------------------------------------------
   // Discovery
   // -------------------------------------------------------------------------
@@ -437,6 +443,13 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         reply.code(200).send(responseBody);
         return;
       } catch (err) {
+        const currentTask = taskRepo.getTaskById(request.params.id);
+        if (currentTask && currentTask.remoteAssignedParticipantId === ctx.participant.id) {
+          const responseBody = { task: currentTask };
+          completeRemoteIdempotency(request, 200, responseBody);
+          reply.code(200).send(responseBody);
+          return;
+        }
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
       }
@@ -461,6 +474,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
       if (task.remoteAssignedParticipantId !== ctx.participant.id) {
         throw forbidden("Task is not claimed by this participant", "TASK_NOT_OWNED");
       }
+      taskRepo.updateTask(task.id, {});
       const responseBody = {
         task: {
           id: task.id,
@@ -554,6 +568,20 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         reply.code(200).send(responseBody);
         return;
       } catch (err) {
+        const currentTask = taskRepo.getTaskById(request.params.id);
+        if (currentTask && currentTask.status === "submitted") {
+          const responseBody = {
+            success: true,
+            task: {
+              id: currentTask.id,
+              status: currentTask.status,
+              submittedAt: currentTask.submittedAt,
+            },
+          };
+          completeRemoteIdempotency(request, 200, responseBody);
+          reply.code(200).send(responseBody);
+          return;
+        }
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
       }
@@ -607,6 +635,17 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         reply.code(200).send(responseBody);
         return;
       } catch (err) {
+        const currentTask = taskRepo.getTaskById(request.params.id);
+        if (
+          currentTask &&
+          currentTask.remoteAssignedParticipantId === null &&
+          currentTask.status === "pending"
+        ) {
+          const responseBody = { task: currentTask };
+          completeRemoteIdempotency(request, 200, responseBody);
+          reply.code(200).send(responseBody);
+          return;
+        }
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
       }

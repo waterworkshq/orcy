@@ -50,18 +50,6 @@ export function isTargetVisibleToParticipant(
           return { visible: true, matchedGrant: grant };
         }
       }
-
-      // Mission-level rule_based: check if rule.domains matches
-      if (targetType === "mission" && rule.domains && rule.domains.length > 0) {
-        // Rule-based mission match is caller-provided metadata check
-        // For now, allow any rule with domains to match missions in the habitat
-        return { visible: true, matchedGrant: grant };
-      }
-
-      // For habitat-level scope, a rule_based grant with empty rule matches all
-      if (targetType === "habitat" && (!rule.domains || rule.domains.length === 0)) {
-        return { visible: true, matchedGrant: grant };
-      }
     }
   }
 

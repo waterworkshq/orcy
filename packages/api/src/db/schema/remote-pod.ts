@@ -420,6 +420,7 @@ export const remoteWebhookEndpoints = sqliteTable(
       .$defaultFn(() => []),
     status: text("status").notNull().default("pending"),
     secretHash: text("secret_hash"),
+    encryptedSecret: text("encrypted_secret"),
     lastTestAt: text("last_test_at"),
     lastTestStatus: text("last_test_status"),
     approvedBy: text("approved_by"),

@@ -11,6 +11,7 @@ import {
   registerEndpointPlaintextSecret,
   forgetEndpointPlaintextSecret,
 } from "../services/compactRemoteWebhookDispatcher.js";
+import { encryptSecret } from "../services/secretCrypto.js";
 
 /**
  * v0.19 Phase E — Remote webhook endpoint management routes.
@@ -53,6 +54,38 @@ const approveSchema = z.object({}).strict();
 const enableSchema = z.object({}).strict();
 const disableSchema = z.object({ reason: z.string().min(1).max(500) }).strict();
 const rejectSchema = z.object({ rejectReason: z.string().min(1).max(500) }).strict();
+
+function validateWebhookUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw badRequest("Invalid URL");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw badRequest("Webhook URL must use http or https");
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host.startsWith("127.") ||
+    host.startsWith("10.") ||
+    host.startsWith("172.16.") ||
+    host.startsWith("172.17.") ||
+    host.startsWith("172.18.") ||
+    host.startsWith("172.19.") ||
+    host.startsWith("172.2") ||
+    host.startsWith("172.3") ||
+    host.startsWith("192.168.") ||
+    host === "0.0.0.0" ||
+    host.startsWith("169.254.") ||
+    host === "::1" ||
+    host.startsWith("fc") ||
+    host.startsWith("fe80:")
+  ) {
+    throw badRequest("Webhook URL must not point to a private or link-local address");
+  }
+}
 
 function toView(row: endpointRepo.RemoteWebhookEndpointRow) {
   return {
@@ -117,6 +150,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
     "/habitats/:id/remote-access/webhook-endpoints",
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const body = parseBody(createEndpointSchema, request.body);
+      validateWebhookUrl(body.url);
 
       // The pod must belong to this habitat
       const pod = podRepo.getRemotePodById(body.remotePodId);
@@ -126,6 +160,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
 
       // Generate and hash a per-endpoint secret for HMAC signing
       const { plaintextSecret: secret, secretHash } = generateRemoteSecret();
+      const encryptedSecret = encryptSecret(secret);
 
       const row = endpointRepo.createRemoteWebhookEndpoint({
         remotePodId: body.remotePodId,
@@ -134,6 +169,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
         description: body.description,
         events: body.events,
         secretHash,
+        encryptedSecret,
       });
 
       // The plaintext secret is shown ONLY at creation time, just like
@@ -158,6 +194,7 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
       _reply: FastifyReply,
     ) => {
       const body = parseBody(updateEndpointSchema, request.body);
+      if (body.url) validateWebhookUrl(body.url);
       const existing = endpointRepo.getRemoteWebhookEndpointById(request.params.endpointId);
       if (!existing || existing.habitatId !== request.params.id) {
         throw notFound("Webhook endpoint not found");

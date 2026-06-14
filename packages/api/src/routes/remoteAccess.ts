@@ -16,7 +16,6 @@ import type {
   RemoteGrantType,
   RemoteGrantEligibilityMode,
   RemoteGrantTargetType,
-  RemoteRevocationMode,
   RemoteCredentialType,
 } from "@orcy/shared/types";
 
@@ -107,6 +106,13 @@ const createGrantSchema = z.object({
     })
     .optional(),
 });
+
+const revokeGrantSchema = z
+  .object({
+    mode: z.enum(["soft", "hard", "freeze"]),
+    reason: z.string().max(500).optional(),
+  })
+  .strict();
 
 const createCredentialSchema = z.object({
   credentialType: remoteCredentialTypeSchema.optional(),
@@ -515,10 +521,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; grantId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as { mode?: RemoteRevocationMode; reason?: string };
-      if (!body.mode) {
-        throw badRequest("mode (soft|hard|freeze) is required");
-      }
+      const body = parseBody(revokeGrantSchema, request.body);
       return {
         grant: adminService.revokeGrant(
           request.params.id,

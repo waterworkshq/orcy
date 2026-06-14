@@ -17,8 +17,6 @@ const acceptProviderInviteSchema = z.object({
   participantDisplayName: z.string().min(1).max(128),
   participantType: z.enum(["remote_human", "remote_orcy"]).optional(),
   podDescription: z.string().max(512).optional(),
-  providerPodIdentity: z.string().max(256).optional(),
-  providerIdentityId: z.string().max(256).optional(),
   acceptedBy: z.string().max(128).optional(),
 });
 
@@ -95,8 +93,6 @@ export async function sharedInviteRoutes(fastify: FastifyInstance): Promise<void
           participantDisplayName: body.participantDisplayName,
           participantType: body.participantType,
           podDescription: body.podDescription,
-          providerPodIdentity: body.providerPodIdentity,
-          providerIdentityId: body.providerIdentityId,
         },
       );
 
