@@ -1329,6 +1329,305 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 
 ---
 
+### Pod Bridge Tables (v0.19)
+
+The following 13 tables are added by the v0.19 "Pod Bridge" release for remote participant identity, access control, and cross-pod collaboration. They exist alongside the existing local-only tables and do not modify or extend the `agents` table.
+
+**Key design decisions:**
+
+- Remote participants are **not stored in `agents`** (techspec §2.2) — they have their own `remote_participants` table with separate identity, standing, and credential columns
+- Remote participant claims on tasks use a **separate column** (`tasks.remote_assigned_participant_id`) with no FK to `agents`, preserving the local-only analytics boundary
+- Credential hashing uses **SHA-256** for high-entropy API keys (bcrypt is unnecessary for random secrets of 32+ bytes)
+- The `remote_webhook_deliveries` table mirrors the existing `webhook_deliveries` shape but is FK-linked to `remote_webhook_endpoints` instead of `webhook_subscriptions`
+
+#### `identity_providers`
+
+Provider-backed identity configuration per habitat.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Provider identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `kind` | TEXT | NOT NULL CHECK (IN 'github','oidc') | Provider kind |
+| `name` | TEXT | NOT NULL | Display name |
+| `issuer` | TEXT | DEFAULT NULL | OIDC issuer URL |
+| `config` | TEXT | DEFAULT '{}' NOT NULL | Provider-specific config JSON |
+| `enabled` | INTEGER | DEFAULT 0 NOT NULL | Whether the provider is active |
+| `created_by` | TEXT | DEFAULT NULL | Admin who configured the provider |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_identity_providers_habitat(habitat_id, enabled)`, `idx_identity_providers_kind(habitat_id, kind)`
+
+#### `identity_provider_auth_states`
+
+OAuth/OIDC state records for PKCE flow safety.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | State identifier (UUID) |
+| `provider_id` | TEXT | NOT NULL FK → identity_providers(id) ON DELETE CASCADE | Parent provider |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `state` | TEXT | NOT NULL UNIQUE | OAuth state parameter |
+| `nonce` | TEXT | DEFAULT NULL | OIDC nonce |
+| `code_verifier` | TEXT | DEFAULT NULL | PKCE code verifier |
+| `invite_id` | TEXT | DEFAULT NULL | Linked invite for context |
+| `redirect_uri` | TEXT | DEFAULT NULL | Redirect URI |
+| `expires_at` | TEXT | NOT NULL | Expiry timestamp (10 min TTL) |
+| `consumed` | INTEGER | DEFAULT 0 NOT NULL | Whether state was consumed |
+| `consumed_at` | TEXT | DEFAULT NULL | Consumption timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+**Indexes:** `idx_ipas_provider(provider_id)`, `idx_ipas_habitat(habitat_id)`, `idx_ipas_state(state) UNIQUE`
+
+#### `remote_invites`
+
+Provider-first or manual invite records.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Invite identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `invite_type` | TEXT | NOT NULL CHECK (IN 'provider','manual') | Invite kind |
+| `provider_id` | TEXT | DEFAULT NULL FK → identity_providers(id) ON DELETE SET NULL | Linked provider for provider invites |
+| `baseline_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Participant standing at acceptance |
+| `baseline_scopes` | TEXT | DEFAULT '[]' NOT NULL | Baseline action scopes JSON |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','accepted','revoked','expired') | Invite lifecycle status |
+| `token_hash` | TEXT | DEFAULT NULL | SHA-256 hash of manual invite token |
+| `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
+| `accepted_by` | TEXT | DEFAULT NULL | Who accepted the invite |
+| `accepted_at` | TEXT | DEFAULT NULL | Acceptance timestamp |
+| `revoked_by` | TEXT | DEFAULT NULL | Who revoked the invite |
+| `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
+| `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
+| `invited_by` | TEXT | NOT NULL | Who created the invite |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_remote_invites_habitat(habitat_id)`, `idx_remote_invites_provider(provider_id)`, `idx_remote_invites_status(status)`, `idx_remote_invites_token_hash(token_hash)`
+
+#### `remote_pods`
+
+Trusted external pod/admin group records.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Pod identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `name` | TEXT | NOT NULL | Display name |
+| `description` | TEXT | DEFAULT '' NOT NULL | Description |
+| `default_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Default standing for participants |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','active','suspended','revoked') | Pod lifecycle status |
+| `invite_id` | TEXT | DEFAULT NULL FK → remote_invites(id) ON DELETE SET NULL | Invite that created the pod |
+| `provider_pod_identity` | TEXT | DEFAULT NULL | Provider-specific pod identifier |
+| `created_by` | TEXT | DEFAULT NULL | Who created the pod |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+| `suspended_at` | TEXT | DEFAULT NULL | Suspension timestamp |
+| `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
+| `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
+
+**Indexes:** `idx_remote_pods_habitat(habitat_id)`, `idx_remote_pods_status(status)`, `idx_remote_pods_invite(invite_id)`
+
+#### `remote_participants`
+
+Remote humans/orcys under a remote pod.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Participant identifier (UUID) |
+| `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Parent pod |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `participant_type` | TEXT | NOT NULL CHECK (IN 'remote_human','remote_orcy') | Participant type |
+| `display_name` | TEXT | NOT NULL | Display name |
+| `standing` | TEXT | NOT NULL DEFAULT 'remote_observer' CHECK (IN 'local_member','remote_observer','remote_contributor','remote_reviewer','trusted_remote_pod') | Current standing |
+| `proposed_capabilities` | TEXT | DEFAULT '[]' NOT NULL | Proposed capabilities JSON |
+| `proposed_domains` | TEXT | DEFAULT '[]' NOT NULL | Proposed domains JSON |
+| `approved_capabilities` | TEXT | DEFAULT '[]' NOT NULL | Host-approved capabilities JSON |
+| `approved_domains` | TEXT | DEFAULT '[]' NOT NULL | Host-approved domains JSON |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','active','suspended','revoked') | Lifecycle status |
+| `external_identity_id` | TEXT | DEFAULT NULL | Provider-specific identity ID |
+| `registered_by` | TEXT | DEFAULT NULL | Who registered the participant |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+| `suspended_at` | TEXT | DEFAULT NULL | Suspension timestamp |
+| `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
+
+**Indexes:** `idx_remote_participants_pod(remote_pod_id)`, `idx_remote_participants_habitat(habitat_id)`, `idx_remote_participants_status(status)`
+
+#### `remote_credentials`
+
+SHA-256 hashed credentials for remote participants.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Credential identifier (UUID) |
+| `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Owner participant |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `credential_type` | TEXT | NOT NULL CHECK (IN 'api','mcp') | Credential type |
+| `secret_hash` | TEXT | NOT NULL UNIQUE | SHA-256 hash of the credential secret |
+| `label` | TEXT | DEFAULT '' NOT NULL | Credential label |
+| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','rotated','revoked','expired') | Lifecycle status |
+| `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
+| `last_used_at` | TEXT | DEFAULT NULL | Last verification timestamp |
+| `revoked_by` | TEXT | DEFAULT NULL | Who revoked the credential |
+| `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
+| `created_by` | TEXT | DEFAULT NULL | Who created the credential |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_remote_credentials_participant(remote_participant_id)`, `idx_remote_credentials_habitat(habitat_id)`, `idx_remote_credentials_hash(secret_hash) UNIQUE`, `idx_remote_credentials_status(status)`
+
+#### `remote_grants`
+
+Scoped access grants for remote participants and pods.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Grant identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Target pod |
+| `remote_participant_id` | TEXT | DEFAULT NULL FK → remote_participants(id) ON DELETE CASCADE | Target participant (NULL = pod-wide) |
+| `grant_type` | TEXT | NOT NULL CHECK (IN 'baseline_observer','scoped_elevation','permanent_execution') | Grant type |
+| `standing` | TEXT | NOT NULL | Effective standing for this grant |
+| `action_scopes` | TEXT | DEFAULT '[]' NOT NULL | Allowed action scopes JSON |
+| `eligibility_mode` | TEXT | NOT NULL DEFAULT 'allowlist' CHECK (IN 'allowlist','rule_based') | Target eligibility mode |
+| `include_future_matches` | INTEGER | DEFAULT 0 NOT NULL | Whether rule-based grants match future tasks |
+| `grace_window_hours` | INTEGER | DEFAULT 24 NOT NULL | Grace window in hours after expiry |
+| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','expired','soft_revoked','hard_revoked','frozen','grace') | Grant lifecycle status |
+| `expires_at` | TEXT | DEFAULT NULL | Optional expiry timestamp |
+| `expired_at` | TEXT | DEFAULT NULL | When the grant expired |
+| `revocation_mode` | TEXT | DEFAULT NULL CHECK (IN 'soft','hard','freeze') | Revocation mode |
+| `revoked_at` | TEXT | DEFAULT NULL | Revocation timestamp |
+| `revoked_by` | TEXT | DEFAULT NULL | Who revoked the grant |
+| `revoke_reason` | TEXT | DEFAULT NULL | Reason for revocation |
+| `created_by` | TEXT | DEFAULT NULL | Who created the grant |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_remote_grants_habitat(habitat_id)`, `idx_remote_grants_pod(remote_pod_id)`, `idx_remote_grants_participant(remote_participant_id)`, `idx_remote_grants_status(status)`
+
+**Grant types:** `baseline_observer` (long-lived, read-only), `scoped_elevation` (time-boxed, action-scoped), `permanent_execution` (explicitly dangerous, high-trust pods only)
+
+**Revocation modes:** `soft` (blocks new claims, grace for claimed work), `hard` (immediate block, releases claimed tasks), `freeze` (blocks actions, keeps assignments for host review)
+
+#### `remote_grant_targets`
+
+Explicit allowlist targets for grant eligibility.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Target identifier (UUID) |
+| `grant_id` | TEXT | NOT NULL FK → remote_grants(id) ON DELETE CASCADE | Parent grant |
+| `target_type` | TEXT | NOT NULL CHECK (IN 'habitat','mission','task') | Target type |
+| `target_id` | TEXT | NOT NULL | Target entity UUID |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+**Indexes:** `idx_remote_grant_targets_grant(grant_id)`
+
+#### `remote_grant_rules`
+
+Rule-based eligibility filters for grants.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Rule identifier (UUID) |
+| `grant_id` | TEXT | NOT NULL UNIQUE FK → remote_grants(id) ON DELETE CASCADE | Parent grant (1:1) |
+| `domains` | TEXT | DEFAULT '[]' NOT NULL | Domain filters JSON |
+| `labels` | TEXT | DEFAULT '[]' NOT NULL | Label filters JSON |
+| `capabilities` | TEXT | DEFAULT '[]' NOT NULL | Capability filters JSON |
+| `time_window_start` | TEXT | DEFAULT NULL | Time window start |
+| `time_window_end` | TEXT | DEFAULT NULL | Time window end |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+#### `remote_grant_task_snapshots`
+
+Snapshot of tasks matched by rule-based grants at creation time.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Snapshot identifier (UUID) |
+| `grant_id` | TEXT | NOT NULL FK → remote_grants(id) ON DELETE CASCADE | Parent grant |
+| `task_id` | TEXT | NOT NULL | Matched task UUID |
+| `match_reason` | TEXT | DEFAULT NULL | Why the task matched |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+#### `remote_idempotency_keys`
+
+Idempotency records for remote write retries.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Key identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Acting participant |
+| `remote_credential_id` | TEXT | DEFAULT NULL FK → remote_credentials(id) ON DELETE SET NULL | Credential used |
+| `action` | TEXT | NOT NULL | Action being retried |
+| `idempotency_key` | TEXT | NOT NULL | Client-provided key |
+| `request_hash` | TEXT | NOT NULL | SHA-256 of request body+path |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','completed','failed') | Lifecycle status |
+| `response_status` | INTEGER | DEFAULT NULL | HTTP status of completed request |
+| `response_body` | TEXT | DEFAULT NULL | Response body JSON |
+| `error_message` | TEXT | DEFAULT NULL | Error message if failed |
+| `expires_at` | TEXT | NOT NULL | Expiry timestamp (24h default) |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `completed_at` | TEXT | DEFAULT NULL | Completion timestamp |
+
+**Indexes:** `idx_idempotency_keys_participant_action(remote_participant_id, action, idempotency_key) UNIQUE`, `idx_idempotency_keys_expires(expires_at)`
+
+#### `remote_webhook_endpoints`
+
+Host-approved remote pod webhook endpoints.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Endpoint identifier (UUID) |
+| `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Owner pod |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `url` | TEXT | NOT NULL | Webhook URL |
+| `description` | TEXT | DEFAULT '' NOT NULL | Description |
+| `events` | TEXT | DEFAULT '[]' NOT NULL | Subscribed event types JSON |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','approved','enabled','disabled','rejected') | Lifecycle status |
+| `secret_hash` | TEXT | DEFAULT NULL | SHA-256 hash of signing secret |
+| `last_test_at` | TEXT | DEFAULT NULL | Last test timestamp |
+| `last_test_status` | TEXT | DEFAULT NULL | Last test result |
+| `approved_by` | TEXT | DEFAULT NULL | Who approved the endpoint |
+| `approved_at` | TEXT | DEFAULT NULL | Approval timestamp |
+| `enabled_by` | TEXT | DEFAULT NULL | Who enabled the endpoint |
+| `enabled_at` | TEXT | DEFAULT NULL | Enablement timestamp |
+| `rejected_at` | TEXT | DEFAULT NULL | Rejection timestamp |
+| `rejected_by` | TEXT | DEFAULT NULL | Who rejected the endpoint |
+| `reject_reason` | TEXT | DEFAULT NULL | Reason for rejection |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_remote_webhook_endpoints_pod(remote_pod_id)`, `idx_remote_webhook_endpoints_habitat(habitat_id)`, `idx_remote_webhook_endpoints_status(status)`
+
+#### `remote_webhook_deliveries`
+
+Delivery records for compact remote webhook payloads.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Delivery identifier (UUID) |
+| `endpoint_id` | TEXT | NOT NULL FK → remote_webhook_endpoints(id) ON DELETE CASCADE | Target endpoint |
+| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `event_type` | TEXT | NOT NULL | Event type delivered |
+| `payload` | TEXT | NOT NULL | Compact payload JSON |
+| `signature` | TEXT | NOT NULL | HMAC-SHA256 signature |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' CHECK (IN 'pending','success','failed') | Delivery status |
+| `status_code` | INTEGER | DEFAULT NULL | HTTP status code |
+| `response_body` | TEXT | DEFAULT NULL | Response body |
+| `attempts` | INTEGER | DEFAULT 0 NOT NULL | Number of delivery attempts |
+| `last_attempt_at` | TEXT | DEFAULT NULL | Last attempt timestamp |
+| `next_retry_at` | TEXT | DEFAULT NULL | Next retry timestamp |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
+
+**Indexes:** `idx_remote_webhook_deliveries_endpoint(endpoint_id, created_at)`, `idx_remote_webhook_deliveries_status(status, next_retry_at)`
+
+---
+
 ## Dialect Helpers
 
 The `packages/api/src/db/dialect-helpers.ts` file provides cross-database compatibility:

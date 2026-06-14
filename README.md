@@ -155,7 +155,6 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.19** | Pod Bridge — optional provider login, trusted pod access, shared habitat API |
 | **v0.20** | Orchestrated — multi-agent handoffs, fan-out/fan-in, review chains |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**

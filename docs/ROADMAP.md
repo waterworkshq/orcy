@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.18.3 | **Updated:** 2026-06-12
+> **Version:** v0.19.0 | **Updated:** 2026-06-14
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -35,26 +35,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.18.1 | "Deepen: Data Access" — 64 direct `getDb()` calls eliminated across 11 target services, 6 new repository files, `dependencyService`/`anomalyService`/`auditExportService`/`predictionService`/`notificationService`/`syncService`/`webhook-subscriptions`/`webhook-delivery`/`webhook-dispatch`/`auditArchivalService`/`sprintService`/`boardHealthService` all at zero `getDb()`, `task.ts` and `daemon.ts` repository splits, 4 v0.18 review fixes |
 | v0.18.2 | "Deepen: Route Extraction" — Pulse posting handlers (2×110 lines → 17 each), intake candidate promotion (55 lines → 14), daemon register + claim-next (2×65 lines → 12 each), Jira/Linear OAuth completion flows, auth register/me/setup extraction, mission progress deduplication |
 | v0.18.3 | "Deepen: Single Cache" — Zustand → React Query for all server data (agents, comments, missions, board/columns, tasks). 5 mutation hooks de-dual-written. 14 SSE zustand blocks removed. Zustand now holds only ephemeral UI state (modals, theme, presence, pagination) |
+| v0.19.0 | "Pod Bridge" — Remote participant identity (external identity providers, pod trust model, participant standing), scoped habitat access (grants, credentials, invite flows), Shared Habitat API (`/api/shared/*` — discovery, missions, tasks, comments, pulse, evidence, notifications, trust metadata), remote MCP mode (action allowlist, `X-Orcy-Remote-Key` auth), idempotent write contracts, admin surface (readiness checks, provider config, grant management, webhook endpoints), audit provenance (remote actor labels, provenance block, export filters), UI management surface (Remote Pods page, inline attribution) |
 
 ---
 
 ## Upcoming
-
-### v0.19.0 — "Pod Bridge"
-
-Let local Orcy pods safely admit trusted external admins, pods, and orcys into shared habitats while preserving the local-only default path.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| External Identity Providers | Adds optional GitHub/Google/OIDC login for easier onboarding, account linking, provider-backed identity checks, and first-admin/invite flows |
-| Pod Trust Model | Defines trusted remote pods/admins, remote orcy identity, credential rotation/revocation, and explicit habitat grants |
-| Shared Habitat API | Defines the minimal stable API boundary needed for cross-pod collaboration: versioning, scoped API keys, idempotency, events, and webhooks |
-
-**Why together:** v0.20 orchestration needs a safe way to fan work out to trusted participants outside the local daemon. Provider login proves identity; Orcy-owned scopes decide what that person, pod, or remote orcy can do inside a habitat.
-
-Planning seeds: `docs/plans/v3/07-sso-auth-providers.md`, `docs/plans/v3/08-api-public-surface.md`; release direction: `docs/plans/v19/README.md`
-
----
 
 ### v0.20.0 — "Orchestrated"
 
@@ -63,10 +48,11 @@ First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chai
 | Feature | Problem it solves |
 |---------|-------------------|
 | Agent Orchestration Platforms | Lets Orcy define and visualize multi-agent execution flows instead of relying on manual sequencing or prompt discipline |
+| Agent Experience Self-Reporting | Agents post implicit experience signals (stuck, confused, backtracked, surprised, ambiguous) as classified pulse signals during autonomous work, enabling humans and automation to detect problems without reading every trace |
 
-**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary.
+**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary. Self-reporting is the observability half of orchestration — when agents fan out with less human oversight, they need to report what they experienced.
 
-Planning seed: `docs/plans/v3/09-agent-orchestration-platforms.md`
+Planning seeds: `docs/plans/v3/09-agent-orchestration-platforms.md`, `docs/plans/v3/13-agent-self-reporting.md`
 
 **Architecture prereq folded in:**
 
@@ -95,10 +81,11 @@ Add an authored, editable, searchable knowledge layer above Pulse signals, proje
 | Feature | Problem it solves |
 |---------|-------------------|
 | Knowledge Base / Habitat Wiki | Provides long-form pages, hierarchy, search, versioning, cross-links, mission outcome summaries, and an insights browser |
+| Implicit Signal Surfacing | Surfaces agent experience signals (stuck, confused, etc.) as a distinct knowledge category in the habitat wiki, with frequency and outcome correlation, so teams can identify systemic pain points |
 
-**Why here:** Pulse already captures signals and insights; v0.15 generates habitat skills from patterns. The wiki should come after provenance and audit links exist, so knowledge can connect to missions, tasks, code artifacts, and outcomes.
+**Why here:** Pulse already captures signals and insights; v0.15 generates habitat skills from patterns. The wiki should come after provenance and audit links exist, so knowledge can connect to missions, tasks, code artifacts, and outcomes. Self-reported experience signals from v0.20 need a surface beyond the raw pulse feed — the wiki is the natural home.
 
-Planning seed: `docs/plans/v3/10-knowledge-base-habitat-wiki.md`
+Planning seeds: `docs/plans/v3/10-knowledge-base-habitat-wiki.md`, `docs/plans/v3/14-implicit-signal-surfacing.md`
 
 ---
 
@@ -109,10 +96,27 @@ Turn Orcy's matured internal extension seams into a safe plugin platform.
 | Feature | Problem it solves |
 |---------|-------------------|
 | Plugin System V2 | Adds plugin manifests, configuration, safe context, lifecycle interceptors, dynamic MCP extension points, custom signals, conditions/actions, notification channels, integration adapters, and background jobs |
+| Custom Signal Detector Plugins | Lets teams build automated implicit signal detectors (regex, classifiers) as plugins that write into the pulse/skill pipeline, extending detection beyond agent self-reporting |
 
-**Why last:** Plugin surfaces should be extracted from mature internal patterns, not guessed early. By this point Orcy has integrations, automation, notifications, auth scopes, public APIs, knowledge, and audit trails worth exposing safely.
+**Why last:** Plugin surfaces should be extracted from mature internal patterns, not guessed early. By this point Orcy has integrations, automation, notifications, auth scopes, public APIs, knowledge, and audit trails worth exposing safely. Signal detectors are a natural plugin type — they extend the self-reporting convention from v0.20 with automated pattern matching.
 
-Planning seed: `docs/plans/v3/11-plugin-system-v2.md`
+Planning seeds: `docs/plans/v3/11-plugin-system-v2.md`, `docs/plans/v3/15-custom-signal-detectors.md`
+
+---
+
+### v0.23.0 — "Triage"
+
+Automate the detection and response to systemic agent pain points. When implicit signals cluster around a pattern, the system investigates, creates corrective work, and learns from resolutions.
+
+| Feature | Problem it solves |
+|---------|-------------------|
+| Reactive Triage | Automation trigger on clustered implicit signals that auto-creates investigation missions with signal context, affected tasks, and suggested investigation steps |
+| Proactive Triage | When a signal pattern matches a previously resolved triage, surface the historical resolution as a suggested fix before creating new investigation work |
+| Agent Quality Triggers | Wire computed agent quality metrics (approval rate, rejection rate, cycle time) as automation triggers for habitat admin notification or review mission creation |
+
+**Why here:** Triage needs the full signal pipeline: self-reported experiences (v0.20), surfaced patterns (v0.21), and detected signals (v0.22). It also needs the automation engine (v0.18) and knowledge base (v0.21) for historical resolution lookup. Building triage before these foundations exist would mean automating on incomplete signal data.
+
+Planning seed: `docs/plans/v3/16-reactive-proactive-triage.md`
 
 ---
 

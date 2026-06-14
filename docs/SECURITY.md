@@ -229,6 +229,64 @@ Board-scoped routes use `requireBoardAccess` middleware:
 
 ---
 
+## Remote Access Security (v0.19)
+
+v0.19 "Pod Bridge" adds optional cross-pod collaboration. Local-only is the **default path** — no remote access is possible unless the host admin explicitly configures identity providers, creates invites, approves grants, and generates credentials. Every remote security boundary is additive and revocable.
+
+### Provider Scopes
+
+- GitHub OAuth requests `read:user` and `user:email` by default — identity-only, no repository access
+- `read:org` is optional, requested only when the host wants org/team-based trust checks
+- OIDC providers use standard `openid profile email` scopes
+- Provider tokens are stored in the `identity_providers.config` column with `enc:` prefix obfuscation (the DB access control is the real boundary; obfuscation prevents casual plaintext exposure in config dumps)
+
+### Local-Only Default
+
+- No remote participant can access any habitat unless explicitly invited and approved
+- `remoteParticipantAuth` middleware rejects all requests without a valid `X-Orcy-Remote-Key` header
+- `remoteActionScope(action)` checks standing, grant type, action scopes, grace window, and expiry on **every request** — no session-level token that grants broad access
+- The `teamHabitatAccess` middleware ensures remote participants are scoped to their specific habitat — cross-habitat access is explicitly blocked
+
+### Credential Rotation/Revocation/Freeze
+
+- Remote credentials use SHA-256 hashing (high-entropy random secrets don't need bcrypt's cost)
+- Secret rotation changes only the hash — preserving identity, grants, task ownership, and audit history
+- Credential rotation is wrapped in `db.transaction()` — atomicity guaranteed
+- Revocation is immediate and propagates to all active SSE connections via `isRemoteConnectionValid()` checks
+- SSE connections are re-validated every 30 seconds via `setInterval` — a revoked credential mid-stream triggers a `disconnected` event and closes the connection
+
+### Grant Grace Behavior
+
+- Grant expiry blocks new claims immediately but allows a grace window for already-claimed tasks
+- Grace actions allowed: `heartbeat`, `submit`, `release` only
+- `graceWindowHours` (default 24) is enforced by elapsed-time check, not just status
+- Grace window is per-grant, configurable from 0 to 720 hours
+- Standing-based scope restrictions apply during grace (e.g., `submit` requires `remote_contributor`)
+
+### Git Provider Permission Separation
+
+- Remote contributors can claim and submit tasks in Orcy but **cannot** touch the shared repository unless they have their own GitHub/GitLab credentials
+- Evidence linking is URL/metadata-only — remote participants cannot trigger branch creation, commit scans, or provider-side mutations
+- `codeEvidenceLinkSource` for remote-linked evidence is `"remote"` (not `"human_manual"` or `"agent_reported"`)
+
+### Webhook Payload Minimization
+
+- Compact remote webhook payloads include: event type, timestamp, scoped IDs, actor summary with standing/affiliation, grant context, and a follow-up API URL
+- Full entity details require follow-up `GET` calls via `/api/shared/*` — a revoked credential blocks the follow-up
+- HMAC-SHA256 signing with per-endpoint secrets for payload authenticity
+- Secrets are stored as hashes only; plaintext is shown once at creation time
+- Webhook endpoints require host admin approval and explicit enablement — no self-enabled remote event delivery
+
+### Grant Isolation
+
+- `baseline_observer` grants are read-only and scoped to the habitat
+- `scoped_elevation` grants are time-boxed and action-scoped
+- `permanent_execution` grants are explicitly dangerous, visually marked, and revocable
+- Per-participant grants are the default; pod-wide grants are the higher-risk mode with explicit warnings
+- Rule-based grants snapshot the matched task set at creation time; future matching is an advanced, warned option
+
+---
+
 ## Integration Security
 
 ### Inbound Webhooks
