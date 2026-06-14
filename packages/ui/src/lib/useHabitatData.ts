@@ -506,3 +506,127 @@ export function useDaemon(id: string | undefined) {
     staleTime: 30 * 1000,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Phase E — Remote Access hooks
+// ---------------------------------------------------------------------------
+
+export function useRemoteAccessManagement(habitatId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.remoteAccess.management(habitatId ?? ""),
+    queryFn: () => api.remoteAccess.getManagement(habitatId!),
+    enabled: !!habitatId,
+    staleTime: 30 * 1000,
+  });
+}
+
+export function useRemoteAccessReadiness(habitatId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.remoteAccess.readiness(habitatId ?? ""),
+    queryFn: () => api.remoteAccess.getReadiness(habitatId!),
+    enabled: !!habitatId,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useInvalidateRemoteAccess() {
+  const qc = useQueryClient();
+  return (habitatId: string) => {
+    qc.invalidateQueries({ queryKey: queryKeys.remoteAccess.management(habitatId) });
+    qc.invalidateQueries({ queryKey: queryKeys.remoteAccess.pods(habitatId) });
+    qc.invalidateQueries({ queryKey: queryKeys.remoteAccess.grants(habitatId) });
+  };
+}
+
+export function useCreateGrant(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.remoteAccess.createGrant(habitatId, body),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useRevokeGrant(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({ grantId, mode, reason }: { grantId: string; mode: string; reason?: string }) =>
+      api.remoteAccess.revokeGrant(habitatId, grantId, { mode, reason }),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useCreateCredential(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({
+      participantId,
+      body,
+    }: {
+      participantId: string;
+      body: Record<string, unknown>;
+    }) => api.remoteAccess.createCredential(habitatId, participantId, body),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useRevokeCredential(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({ credentialId, reason }: { credentialId: string; reason?: string }) =>
+      api.remoteAccess.revokeCredential(habitatId, credentialId, reason ? { reason } : undefined),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useRotateCredential(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({ credentialId, clients }: { credentialId: string; clients?: string[] }) =>
+      api.remoteAccess.rotateCredential(habitatId, credentialId, clients ? { clients } : undefined),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useUpdateParticipant(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({
+      participantId,
+      body,
+    }: {
+      participantId: string;
+      body: Record<string, unknown>;
+    }) => api.remoteAccess.updateParticipant(habitatId, participantId, body),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useUpdatePod(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({ podId, body }: { podId: string; body: Record<string, unknown> }) =>
+      api.remoteAccess.updatePod(habitatId, podId, body),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useCreateInvite(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.remoteAccess.createInvite(habitatId, body),
+    onSuccess: () => invalidate(habitatId),
+  });
+}
+
+export function useRevokeInvite(habitatId: string) {
+  const invalidate = useInvalidateRemoteAccess();
+  return useMutation({
+    mutationFn: ({ inviteId, revokeReason }: { inviteId: string; revokeReason?: string }) =>
+      api.remoteAccess.revokeInvite(
+        habitatId,
+        inviteId,
+        revokeReason ? { revokeReason } : undefined,
+      ),
+    onSuccess: () => invalidate(habitatId),
+  });
+}

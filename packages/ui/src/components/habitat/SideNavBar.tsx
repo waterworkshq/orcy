@@ -1,5 +1,5 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React from "react";
+import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
@@ -8,8 +8,9 @@ import {
   Activity,
   GitBranch,
   CircleHelp,
-} from 'lucide-react';
-import { OrcyMark } from '../ui/icons/OrcyMark.js';
+  Globe,
+} from "lucide-react";
+import { OrcyMark } from "../ui/icons/OrcyMark.js";
 
 interface NavItem {
   label: string;
@@ -19,10 +20,36 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Pod Base', icon: <BarChart3 className="h-4 w-4" />, href: '/dashboard', activePattern: '/dashboard' },
-  { label: 'Echo Base', icon: <LayoutDashboard className="h-4 w-4" />, href: '/', activePattern: '/' },
-  { label: 'Orcy Pod', icon: <Users className="h-4 w-4" />, href: '/agents', activePattern: '/agents' },
-  { label: 'Wake', icon: <Activity className="h-4 w-4" />, href: '/activity', activePattern: '/activity' },
+  {
+    label: "Pod Base",
+    icon: <BarChart3 className="h-4 w-4" />,
+    href: "/dashboard",
+    activePattern: "/dashboard",
+  },
+  {
+    label: "Echo Base",
+    icon: <LayoutDashboard className="h-4 w-4" />,
+    href: "/",
+    activePattern: "/",
+  },
+  {
+    label: "Orcy Pod",
+    icon: <Users className="h-4 w-4" />,
+    href: "/agents",
+    activePattern: "/agents",
+  },
+  {
+    label: "Wake",
+    icon: <Activity className="h-4 w-4" />,
+    href: "/activity",
+    activePattern: "/activity",
+  },
+  {
+    label: "Remote Pods",
+    icon: <Globe className="h-4 w-4" />,
+    href: "/remote-pods",
+    activePattern: "/remote-pods",
+  },
 ];
 
 interface SideNavBarProps {
@@ -31,11 +58,15 @@ interface SideNavBarProps {
   onOpenDependencies?: () => void;
 }
 
-export const SideNavBar = React.memo(function SideNavBar({ onDeployAgent, onOpenStats, onOpenDependencies }: SideNavBarProps) {
+export const SideNavBar = React.memo(function SideNavBar({
+  onDeployAgent,
+  onOpenStats,
+  onOpenDependencies,
+}: SideNavBarProps) {
   const location = useLocation();
   const toolItems = [
-    { label: 'Stats', icon: <BarChart3 className="h-4 w-4" />, onClick: onOpenStats },
-    { label: 'Dependencies', icon: <GitBranch className="h-4 w-4" />, onClick: onOpenDependencies },
+    { label: "Stats", icon: <BarChart3 className="h-4 w-4" />, onClick: onOpenStats },
+    { label: "Dependencies", icon: <GitBranch className="h-4 w-4" />, onClick: onOpenDependencies },
   ];
 
   return (
@@ -59,20 +90,23 @@ export const SideNavBar = React.memo(function SideNavBar({ onDeployAgent, onOpen
 
       <div className="flex-1 flex flex-col gap-5 px-3 overflow-y-auto">
         <div className="space-y-1">
-          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">VIEWS</p>
+          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+            VIEWS
+          </p>
           {navItems.map((item) => {
-            const isActive = location.pathname === item.activePattern ||
-              (item.activePattern === '/' && location.pathname.startsWith('/boards'));
+            const isActive =
+              location.pathname === item.activePattern ||
+              (item.activePattern === "/" && location.pathname.startsWith("/boards"));
 
             return (
               <Link
                 key={item.label}
                 to={item.href}
-                data-testid={`nav-item-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                data-testid={`nav-item-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
                 className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                   isActive
-                    ? 'bg-primary-container text-on-surface font-medium'
-                    : 'text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface'
+                    ? "bg-primary-container text-on-surface font-medium"
+                    : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
                 }`}
               >
                 {item.icon}
@@ -83,7 +117,9 @@ export const SideNavBar = React.memo(function SideNavBar({ onDeployAgent, onOpen
         </div>
 
         <div className="space-y-1">
-          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">TOOLS</p>
+          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+            TOOLS
+          </p>
           {toolItems.map((item) => (
             <button
               key={item.label}
@@ -92,7 +128,7 @@ export const SideNavBar = React.memo(function SideNavBar({ onDeployAgent, onOpen
               disabled={!item.onClick}
               data-testid={`tool-item-${item.label.toLowerCase()}`}
               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
-              title={item.onClick ? item.label : 'Open a workspace board first'}
+              title={item.onClick ? item.label : "Open a workspace board first"}
             >
               {item.icon}
               <span>{item.label}</span>

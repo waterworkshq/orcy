@@ -1,10 +1,10 @@
-import React from 'react';
-import { useQueries } from '@tanstack/react-query';
-import { api } from '../../api/index.js';
-import { queryKeys } from '../../lib/queryKeys.js';
-import { formatRelativeTime } from './MissionHeader.js';
-import { Code, FileCode } from 'lucide-react';
-import type { Task, TaskComment } from '../../types/index.js';
+import React from "react";
+import { useQueries } from "@tanstack/react-query";
+import { api } from "../../api/index.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { formatRelativeTime } from "./MissionHeader.js";
+import { Code, FileCode } from "lucide-react";
+import type { Task, TaskComment } from "../../types/index.js";
 
 interface CodeReviewSectionProps {
   tasks: Task[];
@@ -20,10 +20,20 @@ function CommentItem({ comment }: { comment: TaskComment }) {
     <div className="py-2 border-b border-[var(--outline-variant)] last:border-b-0">
       <div className="flex items-center gap-2 mb-1">
         <div className="w-5 h-5 rounded-full bg-[var(--surface-container-high)] flex items-center justify-center text-[8px] font-bold text-[var(--on-surface-variant)]">
-          {comment.authorType === 'agent' ? '🤖' : comment.authorId.slice(0, 2).toUpperCase()}
+          {comment.authorType === "agent"
+            ? "🤖"
+            : comment.authorType === "remote_human" || comment.authorType === "remote_orcy"
+              ? "🌐"
+              : comment.authorId.slice(0, 2).toUpperCase()}
         </div>
         <span className="text-[10px] font-bold text-[var(--on-surface)]">
-          {comment.authorType === 'agent' ? 'Agent' : 'Reviewer'}
+          {comment.authorType === "agent"
+            ? "Agent"
+            : comment.authorType === "remote_human"
+              ? "Remote User"
+              : comment.authorType === "remote_orcy"
+                ? "Remote Or"
+                : "Reviewer"}
         </span>
         <span className="text-[9px] text-[var(--on-surface-variant)] uppercase">
           {formatRelativeTime(comment.createdAt)}
@@ -37,10 +47,7 @@ function CommentItem({ comment }: { comment: TaskComment }) {
 }
 
 export function CodeReviewSection({ tasks }: CodeReviewSectionProps) {
-  const taskIds = React.useMemo(
-    () => tasks.map((t) => t.id),
-    [tasks]
-  );
+  const taskIds = React.useMemo(() => tasks.map((t) => t.id), [tasks]);
 
   const commentResults = useQueries({
     queries: taskIds.map((taskId) => ({
@@ -74,7 +81,7 @@ export function CodeReviewSection({ tasks }: CodeReviewSectionProps) {
           Code Review
         </span>
         <span className="text-[10px] text-[var(--on-surface-variant)]">
-          {reviewGroups.length} {reviewGroups.length === 1 ? 'task' : 'tasks'} with reviews
+          {reviewGroups.length} {reviewGroups.length === 1 ? "task" : "tasks"} with reviews
         </span>
       </div>
       <div className="max-h-80 overflow-y-auto">
@@ -89,9 +96,7 @@ export function CodeReviewSection({ tasks }: CodeReviewSectionProps) {
         ) : reviewGroups.length === 0 ? (
           <div className="p-6 text-center">
             <FileCode className="h-8 w-8 text-[var(--outline-variant)] mx-auto mb-2" />
-            <p className="text-[11px] text-[var(--on-surface-variant)]">
-              No review comments yet
-            </p>
+            <p className="text-[11px] text-[var(--on-surface-variant)]">No review comments yet</p>
           </div>
         ) : (
           <div className="p-4 space-y-4">

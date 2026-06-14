@@ -7,7 +7,7 @@ import { useAgents } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
 import { Button } from "../ui/Button.js";
-import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from "lucide-react";
+import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send, Globe } from "lucide-react";
 import { MarkdownContent } from "../ui/MarkdownContent.js";
 import { injectMentionLinks } from "../../lib/commentMentions.js";
 import type { TaskComment } from "../../types/index.js";
@@ -86,7 +86,10 @@ export function CommentSection({ taskId, initialComments = [] }: CommentSectionP
       const agent = agents.find((a) => a.id === comment.authorId);
       return agent?.name || "Agent";
     }
-    return "Human";
+    if (comment.authorType === "remote_human") return "Remote User";
+    if (comment.authorType === "remote_orcy") return "Remote Or";
+    if (comment.authorType === "human") return "Human";
+    return "User";
   }
 
   function formatTime(dateStr: string): string {
@@ -254,10 +257,18 @@ function CommentItem({
     <div className="group">
       <div className="flex items-start gap-2">
         <div
-          className={`mt-0.5 rounded-full p-1.5 ${comment.authorType === "agent" ? "bg-[var(--agent-purple)]/15" : "bg-[var(--agent-blue)]/15"}`}
+          className={`mt-0.5 rounded-full p-1.5 ${
+            comment.authorType === "agent"
+              ? "bg-[var(--agent-purple)]/15"
+              : comment.authorType === "remote_human" || comment.authorType === "remote_orcy"
+                ? "bg-orange-500/15"
+                : "bg-[var(--agent-blue)]/15"
+          }`}
         >
           {comment.authorType === "agent" ? (
             <Bot className={`h-3 w-3 text-purple-600`} />
+          ) : comment.authorType === "remote_human" || comment.authorType === "remote_orcy" ? (
+            <Globe className={`h-3 w-3 text-orange-500`} />
           ) : (
             <User className={`h-3 w-3 text-blue-600`} />
           )}

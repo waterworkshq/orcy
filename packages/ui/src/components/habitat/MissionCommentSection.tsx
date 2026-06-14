@@ -1,36 +1,38 @@
-import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
-import { formatRelativeTime } from '../../lib/formatting.js';
-import { queryKeys } from '../../lib/queryKeys.js';
-import { Card, CardContent } from '../ui/Card.js';
-import { Button } from '../ui/Button.js';
-import { ConfirmDialog } from '../ui/ConfirmDialog.js';
-import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from 'lucide-react';
-import { MarkdownContent } from '../ui/MarkdownContent.js';
-import { useMissionComments } from '../../lib/useHabitatData.js';
-import type { MissionComment } from '../../types/index.js';
+import React, { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
+import { formatRelativeTime } from "../../lib/formatting.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { Card, CardContent } from "../ui/Card.js";
+import { Button } from "../ui/Button.js";
+import { ConfirmDialog } from "../ui/ConfirmDialog.js";
+import { MessageSquare, Bot, User, Pencil, Trash2, Reply, X, Send } from "lucide-react";
+import { MarkdownContent } from "../ui/MarkdownContent.js";
+import { useMissionComments } from "../../lib/useHabitatData.js";
+import type { MissionComment } from "../../types/index.js";
 
 interface MissionCommentSectionProps {
   missionId: string;
 }
 
 function getAuthorLabel(comment: MissionComment): string {
-  return comment.authorType === 'agent'
-    ? comment.authorId.slice(0, 8)
-    : 'Human';
+  if (comment.authorType === "agent") return comment.authorId.slice(0, 8);
+  if (comment.authorType === "remote_human") return `Remote: ${comment.authorId.slice(0, 8)}`;
+  if (comment.authorType === "remote_orcy") return `Remote Or: ${comment.authorId.slice(0, 8)}`;
+  return "Human";
 }
 
 export function MissionCommentSection({ missionId }: MissionCommentSectionProps) {
   const qc = useQueryClient();
-  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading } = useMissionComments(missionId);
+  const { data: commentsData = { comments: [], total: 0 }, isLoading: loading } =
+    useMissionComments(missionId);
   const [comments, setComments] = useState<MissionComment[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState('');
+  const [editContent, setEditContent] = useState("");
   const [replyingTo, setReplyingTo] = useState<{ id: string } | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
@@ -48,9 +50,9 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
         parentId: replyingTo?.id,
       });
       setComments((prev) => [result.comment, ...prev]);
-      setContent('');
+      setContent("");
       setReplyingTo(null);
-      notify.success('Comment added');
+      notify.success("Comment added");
       qc.invalidateQueries({ queryKey: queryKeys.missionComments.list(missionId) });
     } catch (err) {
       notify.error((err as Error).message);
@@ -63,11 +65,13 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
     if (!editContent.trim()) return;
     setSubmitting(true);
     try {
-      const result = await api.missionComments.update(missionId, commentId, { content: editContent.trim() });
+      const result = await api.missionComments.update(missionId, commentId, {
+        content: editContent.trim(),
+      });
       setComments((prev) => prev.map((c) => (c.id === commentId ? result.comment : c)));
       setEditingId(null);
-      setEditContent('');
-      notify.success('Comment updated');
+      setEditContent("");
+      notify.success("Comment updated");
       qc.invalidateQueries({ queryKey: queryKeys.missionComments.list(missionId) });
     } catch (err) {
       notify.error((err as Error).message);
@@ -80,7 +84,7 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
     try {
       await api.missionComments.delete(missionId, commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
-      notify.success('Comment deleted');
+      notify.success("Comment deleted");
       qc.invalidateQueries({ queryKey: queryKeys.missionComments.list(missionId) });
     } catch (err) {
       notify.error((err as Error).message);
@@ -123,7 +127,7 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
                   disabled={submitting || !content.trim()}
                 >
                   <Send className="h-3.5 w-3.5 mr-1.5" />
-                  {submitting ? 'Posting...' : 'Post'}
+                  {submitting ? "Posting..." : "Post"}
                 </Button>
               </div>
             </div>
@@ -142,7 +146,7 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
             <CardContent className="p-4">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  {comment.authorType === 'agent' ? (
+                  {comment.authorType === "agent" ? (
                     <Bot className="h-4 w-4 text-[var(--tertiary)]" />
                   ) : (
                     <User className="h-4 w-4 text-[var(--primary)]" />
@@ -154,7 +158,9 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
                     {formatRelativeTime(comment.createdAt, { fallbackToDate: true })}
                   </span>
                   {comment.createdAt !== comment.updatedAt && (
-                    <span className="text-[9px] italic text-[var(--on-surface-variant)]/60">(edited)</span>
+                    <span className="text-[9px] italic text-[var(--on-surface-variant)]/60">
+                      (edited)
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -210,7 +216,7 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
                       size="sm"
                       onClick={() => {
                         setEditingId(null);
-                        setEditContent('');
+                        setEditContent("");
                       }}
                     >
                       <X className="h-3.5 w-3.5 mr-1" />
@@ -233,18 +239,14 @@ export function MissionCommentSection({ missionId }: MissionCommentSectionProps)
                     placeholder="Write a reply..."
                     className="flex-1 bg-[var(--surface-container-high)] text-[var(--on-surface)] text-sm p-2 rounded border border-[var(--outline-variant)] focus:outline-none focus:border-[var(--primary)] placeholder:text-[var(--on-surface-variant)]/60"
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleSubmit();
                       }
                     }}
                     disabled={submitting}
                   />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setReplyingTo(null)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setReplyingTo(null)}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>

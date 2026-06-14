@@ -116,6 +116,30 @@ import type {
   EffortEntryWithActor,
   EffortReport,
   MissionEffortReport,
+  // Pod Bridge types
+  PodAffiliation,
+  ParticipantStanding,
+  RemotePrincipalType,
+  RemoteParticipantType,
+  RemoteActorRef,
+  RemoteGrantType,
+  RemoteGrantStatus,
+  RemoteRevocationMode,
+  RemoteGrantEligibilityMode,
+  RemoteGrantTargetType,
+  RemoteActionScope,
+  RemoteCredentialType,
+  RemoteCredentialStatus,
+  RemoteInviteType,
+  RemoteInviteStatus,
+  RemotePodStatus,
+  RemoteParticipantStatus,
+  IdentityProviderKind,
+  RemoteWebhookEndpointStatus,
+  RemoteIdempotencyStatus,
+  RemoteEvidenceKind,
+  RemoteActionKind,
+  RemoteAuditMetadata,
 } from "@orcy/shared";
 
 export type {
@@ -236,7 +260,116 @@ export type {
   EffortEntryWithActor,
   EffortReport,
   MissionEffortReport,
+  PodAffiliation,
+  ParticipantStanding,
+  RemotePrincipalType,
+  RemoteParticipantType,
+  RemoteActorRef,
+  RemoteGrantType,
+  RemoteGrantStatus,
+  RemoteRevocationMode,
+  RemoteGrantEligibilityMode,
+  RemoteGrantTargetType,
+  RemoteActionScope,
+  RemoteCredentialType,
+  RemoteCredentialStatus,
+  RemoteInviteType,
+  RemoteInviteStatus,
+  RemotePodStatus,
+  RemoteParticipantStatus,
+  IdentityProviderKind,
+  RemoteWebhookEndpointStatus,
+  RemoteIdempotencyStatus,
+  RemoteEvidenceKind,
+  RemoteActionKind,
+  RemoteAuditMetadata,
 };
+
+// ---------------------------------------------------------------------------
+// Pod Bridge view-model interfaces (mirrors backend remoteAccessAdminService)
+// ---------------------------------------------------------------------------
+
+export interface RemotePodView {
+  id: string;
+  habitatId: string;
+  name: string;
+  description: string;
+  status: string;
+  defaultStanding: string;
+  inviteId: string | null;
+  providerPodIdentity: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  revokedAt: string | null;
+  revokeReason: string | null;
+  participantCount: number;
+  activeGrantCount: number;
+}
+
+export interface RemoteParticipantView {
+  id: string;
+  remotePodId: string;
+  habitatId: string;
+  participantType: string;
+  displayName: string;
+  standing: string;
+  proposedCapabilities: string[];
+  proposedDomains: string[];
+  approvedCapabilities: string[];
+  approvedDomains: string[];
+  status: string;
+  externalIdentityId: string | null;
+  registeredBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  suspendedAt: string | null;
+  revokedAt: string | null;
+  hasActiveCredential: boolean;
+  activeGrantCount: number;
+}
+
+export interface RemoteGrantView {
+  id: string;
+  habitatId: string;
+  remotePodId: string;
+  remoteParticipantId: string | null;
+  grantType: string;
+  standing: string;
+  actionScopes: string[];
+  eligibilityMode: string;
+  includeFutureMatches: boolean;
+  graceWindowHours: number;
+  status: string;
+  expiresAt: string | null;
+  expiredAt: string | null;
+  revocationMode: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+  revokeReason: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  targets: { targetType: string; targetId: string }[];
+  rule: { domains?: string[]; labels?: string[]; capabilities?: string[] } | null;
+  taskSnapshotCount: number;
+  isPodWide: boolean;
+  isPermanent: boolean;
+}
+
+export interface RemoteAccessManagementView {
+  pods: RemotePodView[];
+  participants: RemoteParticipantView[];
+  grants: RemoteGrantView[];
+  summary: {
+    totalPods: number;
+    activePods: number;
+    totalParticipants: number;
+    activeParticipants: number;
+    totalGrants: number;
+    activeGrants: number;
+  };
+}
 
 export interface EnrichedHabitatEvent {
   id: string;
@@ -720,9 +853,9 @@ export interface Pulse {
   missionId: string | null;
   habitatId: string;
   scope: PulseScope;
-  fromType: "human" | "agent" | "system";
+  fromType: "human" | "agent" | "system" | "remote_human" | "remote_orcy";
   fromId: string;
-  toType: "human" | "agent" | null;
+  toType: "human" | "agent" | "remote_human" | "remote_orcy" | null;
   toId: string | null;
   signalType: SignalType;
   subject: string;

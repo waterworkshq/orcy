@@ -200,4 +200,17 @@ export const queryKeys = {
     runsForHabitat: (habitatId: string) =>
       [...queryKeys.automation.all, "runs", "habitat", habitatId] as const,
   },
+  remoteAccess: {
+    all: ["remoteAccess"] as const,
+    management: (habitatId: string) =>
+      [...queryKeys.remoteAccess.all, "management", habitatId] as const,
+    readiness: (habitatId: string) =>
+      [...queryKeys.remoteAccess.all, "readiness", habitatId] as const,
+    pods: (habitatId: string) => [...queryKeys.remoteAccess.all, "pods", habitatId] as const,
+    grants: (habitatId: string) => [...queryKeys.remoteAccess.all, "grants", habitatId] as const,
+    participants: (habitatId: string) =>
+      [...queryKeys.remoteAccess.all, "participants", habitatId] as const,
+    webhookEndpoints: (habitatId: string) =>
+      [...queryKeys.remoteAccess.all, "webhookEndpoints", habitatId] as const,
+  },
 };

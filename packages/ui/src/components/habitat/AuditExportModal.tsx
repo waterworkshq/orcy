@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/Dialog.js';
-import { Button } from '../ui/Button.js';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
-import { Download } from 'lucide-react';
+import React, { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/Dialog.js";
+import { Button } from "../ui/Button.js";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
+import { Download } from "lucide-react";
 
 interface AuditExportModalProps {
   habitatId: string;
@@ -12,11 +12,11 @@ interface AuditExportModalProps {
 }
 
 export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalProps) {
-  const [format, setFormat] = useState<'csv' | 'json' | 'jsonl'>('csv');
-  const [since, setSince] = useState('');
-  const [until, setUntil] = useState('');
-  const [actions, setActions] = useState('');
-  const [actorType, setActorType] = useState('');
+  const [format, setFormat] = useState<"csv" | "json" | "jsonl">("csv");
+  const [since, setSince] = useState("");
+  const [until, setUntil] = useState("");
+  const [actions, setActions] = useState("");
+  const [actorType, setActorType] = useState("");
   const [exporting, setExporting] = useState(false);
 
   const handleExport = async () => {
@@ -29,16 +29,16 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       if (actorType) params.actorType = actorType;
 
       const data = await api.audit.export(habitatId, params);
-      const blob = new Blob([data], { type: format === 'csv' ? 'text/csv' : 'application/json' });
+      const blob = new Blob([data], { type: format === "csv" ? "text/csv" : "application/json" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `audit-${habitatId.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.${format}`;
+      a.download = `audit-${habitatId.slice(0, 8)}-${new Date().toISOString().split("T")[0]}.${format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      notify.success('Audit log exported');
+      notify.success("Audit log exported");
       onClose();
     } catch (err) {
       notify.error((err as Error).message);
@@ -55,10 +55,12 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
       <DialogContent>
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">Format</label>
+            <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">
+              Format
+            </label>
             <select
               value={format}
-              onChange={(e) => setFormat(e.target.value as 'csv' | 'json' | 'jsonl')}
+              onChange={(e) => setFormat(e.target.value as "csv" | "json" | "jsonl")}
               className="w-full bg-[var(--surface-container-high)] text-[var(--on-surface)] text-sm px-3 py-2 rounded border border-[var(--outline-variant)]"
             >
               <option value="csv">CSV (spreadsheets)</option>
@@ -69,7 +71,9 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">From</label>
+              <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">
+                From
+              </label>
               <input
                 type="date"
                 value={since}
@@ -78,7 +82,9 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">To</label>
+              <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">
+                To
+              </label>
               <input
                 type="date"
                 value={until}
@@ -89,7 +95,9 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">Actions (comma-separated)</label>
+            <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">
+              Actions (comma-separated)
+            </label>
             <input
               type="text"
               value={actions}
@@ -100,7 +108,9 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">Actor Type</label>
+            <label className="block text-xs font-semibold text-[var(--on-surface)] mb-1">
+              Actor Type
+            </label>
             <select
               value={actorType}
               onChange={(e) => setActorType(e.target.value)}
@@ -110,15 +120,20 @@ export function AuditExportModal({ habitatId, open, onClose }: AuditExportModalP
               <option value="human">Human</option>
               <option value="agent">Agent</option>
               <option value="system">System</option>
+              <option value="remote_human">Remote Human</option>
+              <option value="remote_orcy">Remote Orcy</option>
+              <option value="remote_pod">Remote Pod</option>
             </select>
           </div>
         </div>
       </DialogContent>
       <DialogFooter>
-        <Button variant="ghost" onClick={onClose} disabled={exporting}>Cancel</Button>
+        <Button variant="ghost" onClick={onClose} disabled={exporting}>
+          Cancel
+        </Button>
         <Button variant="default" onClick={handleExport} disabled={exporting}>
           <Download className="h-3.5 w-3.5 mr-1.5" />
-          {exporting ? 'Exporting...' : 'Export'}
+          {exporting ? "Exporting..." : "Export"}
         </Button>
       </DialogFooter>
     </Dialog>
