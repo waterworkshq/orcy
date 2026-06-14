@@ -6,6 +6,7 @@ import {
   type SubscriptionResolutionInput,
   type ResolvedRecipient,
 } from "./notificationSubscriptionResolver.js";
+import { findRemoteRecipientsForEvent } from "./remoteNotificationResolver.js";
 import { renderNotification, type TemplateContext } from "./notificationTemplateService.js";
 import type {
   NotificationEvent,
@@ -85,7 +86,7 @@ export function enqueueNotification(
   const resolution = resolveRecipients({
     habitatId: command.habitatId,
     eventType: command.eventType,
-    explicitRecipients: command.explicitRecipients,
+    explicitRecipients: augmentWithRemoteRecipients(command),
   });
 
   const deliveries: NotificationDelivery[] = [];
@@ -161,5 +162,75 @@ export function getResolvedRecipients(
     recipientId: string;
   }>,
 ): ResolvedRecipient[] {
-  return resolveRecipients({ habitatId, eventType, explicitRecipients });
+  return resolveRecipients({
+    habitatId,
+    eventType,
+    explicitRecipients: augmentRecipientsWithRemote({
+      habitatId,
+      eventType,
+      targetType: explicitRecipients ? undefined : undefined,
+      targetId: explicitRecipients ? undefined : undefined,
+      explicit: explicitRecipients,
+    }),
+  });
+}
+
+/**
+ * Merge explicit recipients with any remote participants/pods whose
+ * grants cover the event's target. This is how remote participants get
+ * notifications — they are not in the explicitRecipients list normally,
+ * but their grant visibility makes them eligible.
+ */
+function augmentRecipientsWithRemote(input: {
+  habitatId: string;
+  eventType: NotificationEventType;
+  targetType?: NotificationTargetType;
+  targetId?: string;
+  explicit?: Array<{
+    recipientType: NotificationRecipientType;
+    recipientId: string;
+  }>;
+}): Array<{ recipientType: NotificationRecipientType; recipientId: string }> {
+  const result: Array<{ recipientType: NotificationRecipientType; recipientId: string }> = [
+    ...(input.explicit ?? []),
+  ];
+  const seen = new Set(result.map((r) => `${r.recipientType}:${r.recipientId}`));
+
+  // Translate the NotificationTargetType to the grant visibility target type
+  const targetType =
+    input.targetType === "mission" || input.targetType === "task" || input.targetType === "habitat"
+      ? input.targetType
+      : undefined;
+
+  const remote = findRemoteRecipientsForEvent({
+    habitatId: input.habitatId,
+    eventType: input.eventType,
+    targetType: targetType as "task" | "mission" | "habitat" | undefined,
+    targetId: input.targetId,
+  });
+
+  for (const r of remote) {
+    const key = `${r.recipientType}:${r.recipientId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(r);
+  }
+
+  return result;
+}
+
+/**
+ * Wrap the command's explicitRecipients to also include remote participants
+ * whose grants cover the command's target.
+ */
+function augmentWithRemoteRecipients(
+  command: EnqueueNotificationCommand,
+): Array<{ recipientType: NotificationRecipientType; recipientId: string }> {
+  return augmentRecipientsWithRemote({
+    habitatId: command.habitatId,
+    eventType: command.eventType,
+    targetType: command.targetType,
+    targetId: command.targetId,
+    explicit: command.explicitRecipients,
+  });
 }

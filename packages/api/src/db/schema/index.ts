@@ -84,6 +84,7 @@ export {
   remoteIdempotencyKeys,
   remoteWebhookEndpoints,
 } from "./remote-pod.js";
+export { remoteWebhookDeliveries } from "./remote-webhook.js";
 export {
   habitatsRelations,
   columnsRelations,

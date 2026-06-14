@@ -219,3 +219,39 @@ export function updateWebhookTestResult(
   }
   return getRemoteWebhookEndpointById(id);
 }
+
+export interface UpdateRemoteWebhookEndpointInput {
+  url?: string;
+  description?: string;
+  events?: string[];
+}
+
+export function updateRemoteWebhookEndpoint(
+  id: string,
+  input: UpdateRemoteWebhookEndpointInput,
+): RemoteWebhookEndpointRow | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const patch: Partial<typeof remoteWebhookEndpoints.$inferInsert> = {
+    updatedAt: now,
+  };
+  if (input.url !== undefined) patch.url = input.url;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.events !== undefined) patch.events = input.events;
+  try {
+    db.update(remoteWebhookEndpoints).set(patch).where(eq(remoteWebhookEndpoints.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("remoteWebhookEndpoint", err as Error, id);
+  }
+  return getRemoteWebhookEndpointById(id);
+}
+
+export function deleteRemoteWebhookEndpoint(id: string): boolean {
+  const db = getDb();
+  try {
+    db.delete(remoteWebhookEndpoints).where(eq(remoteWebhookEndpoints.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("remoteWebhookEndpoint", err as Error, id);
+  }
+  return true;
+}

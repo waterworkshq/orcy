@@ -51,7 +51,13 @@ export type NotificationSubscriptionScope = "habitat_default" | "recipient_overr
 
 export type NotificationCadence = "immediate" | "hourly" | "daily" | "weekly";
 
-export type NotificationActorType = "human" | "agent" | "automation" | "system";
+export type NotificationActorType =
+  | "human"
+  | "agent"
+  | "remote_human"
+  | "remote_orcy"
+  | "automation"
+  | "system";
 
 export interface NotificationEvent {
   id: string;

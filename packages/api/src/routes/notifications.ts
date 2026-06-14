@@ -18,7 +18,7 @@ import { requireHabitatAccess } from "../middleware/team.js";
 import { notFound, badRequest, forbidden } from "../errors.js";
 import type { NotificationChannel, NotificationRecipientType } from "@orcy/shared";
 
-const recipientTypeSchema = z.enum(["human", "agent"]);
+const recipientTypeSchema = z.enum(["human", "agent", "remote_human", "remote_orcy"]);
 
 const createSubscriptionSchema = z.object({
   habitatId: z.string().min(1),
