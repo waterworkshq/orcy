@@ -15,7 +15,7 @@ export const pulses = sqliteTable(
       .notNull()
       .default("mission"),
     fromType: text("from_type", {
-      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"],
     }).notNull(),
     fromId: text("from_id").notNull(),
     toType: text("to_type", { enum: ["human", "agent", "remote_human", "remote_orcy"] }),

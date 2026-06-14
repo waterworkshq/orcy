@@ -133,7 +133,7 @@ export const missionEvents = sqliteTable(
     id: text("id").primaryKey(),
     missionId: text("mission_id").notNull(),
     actorType: text("actor_type", {
-      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"],
     }).notNull(),
     actorId: text("actor_id").notNull(),
     action: text("action", {

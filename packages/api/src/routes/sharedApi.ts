@@ -29,10 +29,13 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as notificationCommandService from "../services/notificationCommandService.js";
+import * as taskEventRepo from "../repositories/events/event-crud.js";
+import * as missionEventRepo from "../repositories/events/event-feature.js";
 import {
   dispatchCompactRemoteEvent,
   buildDispatchInputFromRemoteAction,
 } from "../services/compactRemoteWebhookDispatcher.js";
+import { withAuditProvenanceMetadata } from "../services/auditProvenanceContext.js";
 import type { CodeEvidenceActor } from "../services/codeEvidence/types.js";
 
 // ---------------------------------------------------------------------------
@@ -396,6 +399,24 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         if (!result.success) {
           throw conflict(result.reason ?? "Cannot claim task", "TASK_CLAIM_FAILED");
         }
+        taskEventRepo.createEvent({
+          taskId: task.id,
+          actorType: mapParticipantToActorType(
+            ctx.participant.participantType as "remote_human" | "remote_orcy",
+          ),
+          actorId: ctx.participant.id,
+          action: "claimed",
+          fromStatus: "pending",
+          toStatus: "claimed",
+          metadata: withAuditProvenanceMetadata({
+            remote: {
+              podId: ctx.pod.id,
+              participantId: ctx.participant.id,
+              standing: ctx.participant.standing,
+              actionKind: "execution",
+            },
+          }),
+        });
         emitRemoteOriginatedNotification({
           habitatId: ctx.habitatId,
           eventType: "task.assigned",
@@ -487,6 +508,25 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         if (!submitted) {
           throw conflict("Cannot submit task in current state", "TASK_SUBMIT_FAILED");
         }
+        taskEventRepo.createEvent({
+          taskId: submitted.id,
+          actorType: mapParticipantToActorType(
+            ctx.participant.participantType as "remote_human" | "remote_orcy",
+          ),
+          actorId: ctx.participant.id,
+          action: "submitted",
+          fromStatus: "in_progress",
+          toStatus: "submitted",
+          metadata: withAuditProvenanceMetadata({
+            result: body.result,
+            remote: {
+              podId: ctx.pod.id,
+              participantId: ctx.participant.id,
+              standing: ctx.participant.standing,
+              actionKind: "execution",
+            },
+          }),
+        });
         emitRemoteOriginatedNotification({
           habitatId: ctx.habitatId,
           eventType: "task.review_requested",
@@ -543,6 +583,25 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         if (!released) {
           throw conflict("Cannot release task in current state", "TASK_RELEASE_FAILED");
         }
+        taskEventRepo.createEvent({
+          taskId: released.id,
+          actorType: mapParticipantToActorType(
+            ctx.participant.participantType as "remote_human" | "remote_orcy",
+          ),
+          actorId: ctx.participant.id,
+          action: "released",
+          fromStatus: task.status,
+          toStatus: "pending",
+          metadata: withAuditProvenanceMetadata({
+            reason: body.reason,
+            remote: {
+              podId: ctx.pod.id,
+              participantId: ctx.participant.id,
+              standing: ctx.participant.standing,
+              actionKind: "execution",
+            },
+          }),
+        });
         const responseBody = { task: released };
         completeRemoteIdempotency(request, 200, responseBody);
         reply.code(200).send(responseBody);
@@ -607,6 +666,22 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           body.content,
           body.parentId,
         );
+        taskEventRepo.createEvent({
+          taskId: task.id,
+          actorType: authorType,
+          actorId: ctx.participant.id,
+          action: "updated",
+          metadata: withAuditProvenanceMetadata({
+            commentId: comment.id,
+            action: "comment",
+            remote: {
+              podId: ctx.pod.id,
+              participantId: ctx.participant.id,
+              standing: ctx.participant.standing,
+              actionKind: "advisory",
+            },
+          }),
+        });
         emitRemoteOriginatedNotification({
           habitatId: ctx.habitatId,
           eventType: "pulse.signal_posted",

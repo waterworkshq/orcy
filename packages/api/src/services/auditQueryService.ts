@@ -22,6 +22,8 @@ import {
   missions,
   pipelineEvents,
   pullRequests,
+  remoteParticipants,
+  remotePods,
   taskEvents,
   tasks,
   users,
@@ -53,7 +55,7 @@ export interface AuditQueryInput {
   entityId?: string;
   taskId?: string;
   missionId?: string;
-  actorType?: "human" | "agent" | "system";
+  actorType?: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
   actorId?: string;
   source?: AuditSource;
   order?: "asc" | "desc";
@@ -75,7 +77,7 @@ interface TaskAuditRow {
   missionId: string;
   missionTitle: string;
   missionHabitatId: string;
-  actorType: "human" | "agent" | "system";
+  actorType: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
   actorId: string;
   actorName: string | null;
   action: string;
@@ -92,7 +94,7 @@ interface MissionAuditRow {
   missionId: string;
   missionTitle: string | null;
   missionHabitatId: string | null;
-  actorType: "human" | "agent" | "system";
+  actorType: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
   actorId: string;
   actorName: string | null;
   action: string;
@@ -111,7 +113,7 @@ interface EffortAuditRow {
   missionId: string;
   missionTitle: string;
   missionHabitatId: string;
-  actorType: "human" | "agent" | "system";
+  actorType: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
   actorId: string | null;
   actorName: string | null;
   minutes: number;
@@ -219,11 +221,28 @@ function evidenceLinkSourceToAuditSource(linkSource: string): AuditSource {
 }
 
 function codeEvidenceCompleteness(metadata: Record<string, unknown>) {
-  if (hasAuditMetadata(metadata)) return { status: "complete" as const, caveats: [] };
-  return {
-    status: "legacy_partial" as const,
-    caveats: ["Evidence row predates canonical provenance capture or lacks request metadata."],
-  };
+  if (!hasAuditMetadata(metadata)) {
+    return {
+      status: "legacy_partial" as const,
+      caveats: ["Evidence row predates canonical provenance capture or lacks request metadata."],
+    };
+  }
+  const audit = metadata.audit as Record<string, unknown>;
+  const actorType = audit.actorType;
+  const remoteMeta = audit.remote;
+  if (
+    (actorType === "remote_human" || actorType === "remote_orcy" || actorType === "remote_pod") &&
+    remoteMeta &&
+    typeof remoteMeta === "object"
+  ) {
+    return {
+      status: "complete" as const,
+      caveats: [
+        "Evidence was supplied by a remote participant. It is labeled remote-supplied until host/provider verification enriches it.",
+      ],
+    };
+  }
+  return { status: "complete" as const, caveats: [] };
 }
 
 function providerCompleteness(metadata: Record<string, unknown>) {
@@ -1320,6 +1339,41 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
     for (const event of events) {
       if (event.actor.type === "human" && event.actor.id && !event.actor.name) {
         event.actor.name = nameMap.get(event.actor.id) ?? null;
+      }
+    }
+  }
+
+  // Phase E — resolve remote actor display names from remote_participants table
+  const remoteActorIds = [
+    ...new Set(
+      events
+        .filter(
+          (e) =>
+            (e.actor.type === "remote_human" || e.actor.type === "remote_orcy") &&
+            e.actor.id &&
+            !e.actor.name,
+        )
+        .map((e) => e.actor.id!),
+    ),
+  ];
+  if (remoteActorIds.length > 0) {
+    const remoteRows = db
+      .select({
+        id: remoteParticipants.id,
+        displayName: remoteParticipants.displayName,
+        remotePodId: remoteParticipants.remotePodId,
+      })
+      .from(remoteParticipants)
+      .where(inArray(remoteParticipants.id, remoteActorIds))
+      .all();
+    const remoteNameMap = new Map(remoteRows.map((r) => [r.id, r.displayName]));
+    for (const event of events) {
+      if (
+        (event.actor.type === "remote_human" || event.actor.type === "remote_orcy") &&
+        event.actor.id &&
+        !event.actor.name
+      ) {
+        event.actor.name = remoteNameMap.get(event.actor.id) ?? null;
       }
     }
   }

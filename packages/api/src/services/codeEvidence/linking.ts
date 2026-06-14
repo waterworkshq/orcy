@@ -287,7 +287,12 @@ export function linkCommit(
   isRepoVerified: boolean | null,
   allowExternalRepo: boolean,
 ): LinkResult {
-  const source: CodeEvidenceLinkSource = actor.type === "agent" ? "agent_reported" : "human_manual";
+  const source: CodeEvidenceLinkSource =
+    actor.type === "agent"
+      ? "agent_reported"
+      : actor.type === "remote_human" || actor.type === "remote_orcy"
+        ? "remote"
+        : "human_manual";
   const verificationState = determineVerificationState(source, isRepoVerified, false);
   const confidence = inferInitialConfidence(source, false, verificationState);
 

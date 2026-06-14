@@ -5,7 +5,11 @@ import type {
   RemoteParticipantType,
 } from "@orcy/shared/types";
 import { unauthorized, forbidden } from "../errors.js";
-import { setAuditActor, updateAuditProvenance } from "../services/auditProvenanceContext.js";
+import {
+  setAuditActor,
+  updateAuditProvenance,
+  setRemoteAuditContext,
+} from "../services/auditProvenanceContext.js";
 import { extractAndVerifyJwt } from "./jwt-verification.js";
 import * as agentService from "../services/agentService.js";
 import * as credentialService from "../services/remoteCredentialService.js";
@@ -90,6 +94,26 @@ export async function remoteParticipantAuth(
 
   const actorType = mapParticipantToActorType(participant.participantType as RemoteParticipantType);
   setAuditActor(actorType, participant.id);
+
+  // Determine the most-relevant grant for the remote context. If multiple
+  // grants apply, pick the first one for attribution; downstream event
+  // creators can also include the full grants list.
+  const primaryGrant = grants[0];
+
+  setRemoteAuditContext({
+    podId: pod.id,
+    participantId: participant.id,
+    standing: participant.standing as
+      | "remote_observer"
+      | "remote_contributor"
+      | "remote_reviewer"
+      | "trusted_remote_pod"
+      | "local_member",
+    credentialId: credential.id,
+    grantId: primaryGrant?.id,
+    actionKind: "execution",
+    providerIdentity: participant.externalIdentityId,
+  });
 
   updateAuditProvenance({
     source: "rest_api",

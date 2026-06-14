@@ -6,7 +6,7 @@ export const pulseReactions = sqliteTable('pulse_reactions', {
   id: text('id').primaryKey(),
   pulseId: text('pulse_id').notNull()
     .references(() => pulses.id, { onDelete: 'cascade' }),
-  reactorType: text('reactor_type', { enum: ['human', 'agent'] }).notNull(),
+  reactorType: text('reactor_type', { enum: ['human', 'agent', 'remote_human', 'remote_orcy', 'remote_pod'] }).notNull(),
   reactorId: text('reactor_id').notNull(),
   reaction: text('reaction', { enum: ['seen', 'ack', 'question'] }).notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),

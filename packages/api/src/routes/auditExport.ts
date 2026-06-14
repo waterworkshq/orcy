@@ -12,7 +12,9 @@ const exportQuerySchema = z.object({
   since: z.string().optional(),
   until: z.string().optional(),
   actions: z.string().optional(),
-  actorType: z.string().optional(),
+  actorType: z
+    .enum(["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"])
+    .optional(),
   actorId: z.string().optional(),
   entityTypes: z.string().optional(),
   entityType: z.string().optional(),

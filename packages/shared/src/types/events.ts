@@ -6,7 +6,13 @@ import type { Mission, MissionStatus, MissionComment } from "./feature.js";
 import type { Column } from "./board.js";
 import type { Subtask } from "./task.js";
 
-export type ActorType = "human" | "agent" | "system" | "remote_human" | "remote_orcy";
+export type ActorType =
+  | "human"
+  | "agent"
+  | "system"
+  | "remote_human"
+  | "remote_orcy"
+  | "remote_pod";
 
 export type EventAction =
   | "created"

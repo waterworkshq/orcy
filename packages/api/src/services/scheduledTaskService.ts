@@ -278,6 +278,22 @@ function buildAuditExportQuery(
   for (const key of stringFilters) {
     const value = filters[key];
     if (typeof value === "string" && value.length > 0) {
+      // The actorType filter is narrowed to a fixed union; only assign
+      // if the value matches one of the allowed values.
+      if (key === "actorType") {
+        const allowed = [
+          "human",
+          "agent",
+          "system",
+          "remote_human",
+          "remote_orcy",
+          "remote_pod",
+        ] as const;
+        if ((allowed as readonly string[]).includes(value)) {
+          query.actorType = value as (typeof allowed)[number];
+        }
+        continue;
+      }
       query[key] = value;
     }
   }

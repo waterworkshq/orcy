@@ -85,6 +85,10 @@ export function normalizeAuditActorAndSource(
       ...(readString(audit.externalId) ? { externalId: readString(audit.externalId) } : {}),
       ...(readString(audit.reason) ? { reason: readString(audit.reason) } : {}),
       ...(readString(audit.note) ? { note: readString(audit.note) } : {}),
+      // Phase E — pass through remote context when present
+      ...(audit.remote && typeof audit.remote === "object" && !Array.isArray(audit.remote)
+        ? { remote: audit.remote as AuditProvenance["remote"] }
+        : {}),
     },
   };
 }

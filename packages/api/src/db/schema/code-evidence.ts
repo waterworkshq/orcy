@@ -231,7 +231,7 @@ export const codeEvidenceLinks = sqliteTable(
       .default(sql`'[]'`)
       .$defaultFn(() => []),
     linkedByType: text("linked_by_type", {
-      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"],
     }).notNull(),
     linkedById: text("linked_by_id").notNull(),
     linkedAt: text("linked_at")
@@ -279,7 +279,7 @@ export const codeEvidenceCompleteness = sqliteTable(
     }).notNull(),
     reasonCode: text("reason_code"),
     reasonNote: text("reason_note"),
-    markedByType: text("marked_by_type", { enum: ["human", "agent", "system", "remote_human", "remote_orcy"] }).notNull(),
+    markedByType: text("marked_by_type", { enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"] }).notNull(),
     markedById: text("marked_by_id").notNull(),
     updatedAt: text("updated_at")
       .notNull()
@@ -302,7 +302,7 @@ export const codeEvidenceGaps = sqliteTable(
     status: text("status", { enum: ["active", "resolved"] })
       .notNull()
       .default("active"),
-    reportedByType: text("reported_by_type", { enum: ["human", "agent", "system", "remote_human", "remote_orcy"] }).notNull(),
+    reportedByType: text("reported_by_type", { enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"] }).notNull(),
     reportedById: text("reported_by_id").notNull(),
     reportedAt: text("reported_at")
       .notNull()

@@ -95,7 +95,7 @@ export const taskEvents = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     actorType: text("actor_type", {
-      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"],
     }).notNull(),
     actorId: text("actor_id").notNull(),
     action: text("action", {
@@ -297,7 +297,7 @@ export const effortEntries = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     actorType: text("actor_type", {
-      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy", "remote_pod"],
     }).notNull(),
     actorId: text("actor_id"),
     minutes: integer("minutes").notNull(),

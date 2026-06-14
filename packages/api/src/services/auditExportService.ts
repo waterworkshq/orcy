@@ -17,7 +17,7 @@ export interface AuditExportQuery {
   since?: string;
   until?: string;
   actions?: string;
-  actorType?: string;
+  actorType?: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
   actorId?: string;
   entityTypes?: string;
   entityType?: string;
@@ -118,10 +118,7 @@ function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInpu
     entityId: query.entityId,
     taskId: query.taskId,
     missionId: query.missionId,
-    actorType:
-      query.actorType === "human" || query.actorType === "agent" || query.actorType === "system"
-        ? query.actorType
-        : undefined,
+    actorType: query.actorType,
     actorId: query.actorId,
     source,
     order: "asc",

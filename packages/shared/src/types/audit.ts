@@ -52,6 +52,16 @@ export interface AuditProvenance {
   integrationSyncRunId?: string;
   reason?: string;
   note?: string;
+  /** v0.19 Phase E — Remote-participant context when the event was created by a remote actor. */
+  remote?: {
+    podId: string;
+    participantId: string;
+    standing: string;
+    grantId?: string;
+    credentialId?: string;
+    actionKind: string;
+    providerIdentity?: string | null;
+  };
 }
 
 export interface AuditIntegrity {
