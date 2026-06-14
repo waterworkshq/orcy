@@ -382,7 +382,7 @@ export const remoteIdempotencyKeys = sqliteTable(
     requestHash: text("request_hash").notNull(),
     status: text("status").notNull().default("pending"),
     responseStatus: integer("response_status"),
-    responseBody: text("response_body", { mode: "json" }).$type<Record<string, unknown> | null>(),
+    responseBody: text("response_body"),
     errorMessage: text("error_message"),
     expiresAt: text("expires_at").notNull(),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),

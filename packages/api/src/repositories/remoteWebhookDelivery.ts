@@ -98,7 +98,7 @@ export function updateRemoteWebhookDeliveryStatus(
 export function listRemoteWebhookDeliveriesForEndpoint(
   endpointId: string,
   limit: number = 25,
-): RemoteWebhookDeliveryRow[] {
+): Omit<RemoteWebhookDeliveryRow, "signature">[] {
   const db = getDb();
   const rows = db
     .select()
@@ -107,5 +107,7 @@ export function listRemoteWebhookDeliveriesForEndpoint(
     .orderBy(desc(remoteWebhookDeliveries.createdAt))
     .limit(limit)
     .all();
-  return rows as unknown as RemoteWebhookDeliveryRow[];
+  return (rows as unknown as RemoteWebhookDeliveryRow[]).map(
+    ({ signature: _signature, ...rest }) => rest,
+  );
 }

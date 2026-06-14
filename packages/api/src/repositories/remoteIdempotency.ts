@@ -29,7 +29,7 @@ export interface RemoteIdempotencyKeyRow {
   requestHash: string;
   status: string;
   responseStatus: number | null;
-  responseBody: Record<string, unknown> | null;
+  responseBody: string | null;
   errorMessage: string | null;
   expiresAt: string;
   createdAt: string;
@@ -134,7 +134,7 @@ export function completeIdempotencyKey(
       .set({
         status: "completed",
         responseStatus,
-        responseBody: responseBody ?? null,
+        responseBody: responseBody !== undefined ? JSON.stringify(responseBody) : null,
         completedAt: now,
       })
       .where(eq(remoteIdempotencyKeys.id, id))

@@ -206,6 +206,10 @@ export async function remoteWebhookRoutes(fastify: FastifyInstance): Promise<voi
         events: body.events,
       });
       if (!row) throw notFound("Webhook endpoint not found");
+      if (body.url && body.url !== existing.url) {
+        endpointRepo.disableRemoteWebhookEndpoint(request.params.endpointId);
+        forgetEndpointPlaintextSecret(request.params.endpointId);
+      }
       return toView(row);
     },
   );

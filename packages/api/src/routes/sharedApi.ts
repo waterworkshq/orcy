@@ -96,12 +96,18 @@ const postPulseSchema = z
 
 const evidenceLinkSchema = z
   .object({
-    url: z.string().url(),
+    url: z
+      .string()
+      .url()
+      .refine(
+        (url) => url.startsWith("http://") || url.startsWith("https://"),
+        "Evidence URL must use http or https",
+      ),
     metadata: z.record(z.unknown()).optional(),
   })
   .strict();
 
-const snoozeSchema = z.object({ snoozedUntil: z.string().min(1) }).strict();
+const snoozeSchema = z.object({ snoozedUntil: z.string().datetime() }).strict();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -414,14 +420,7 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           action: "claimed",
           fromStatus: "pending",
           toStatus: "claimed",
-          metadata: withAuditProvenanceMetadata({
-            remote: {
-              podId: ctx.pod.id,
-              participantId: ctx.participant.id,
-              standing: ctx.participant.standing,
-              actionKind: "execution",
-            },
-          }),
+          metadata: withAuditProvenanceMetadata({}),
         });
         emitRemoteOriginatedNotification({
           habitatId: ctx.habitatId,
@@ -533,12 +532,6 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           toStatus: "submitted",
           metadata: withAuditProvenanceMetadata({
             result: body.result,
-            remote: {
-              podId: ctx.pod.id,
-              participantId: ctx.participant.id,
-              standing: ctx.participant.standing,
-              actionKind: "execution",
-            },
           }),
         });
         emitRemoteOriginatedNotification({
@@ -622,12 +615,6 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           toStatus: "pending",
           metadata: withAuditProvenanceMetadata({
             reason: body.reason,
-            remote: {
-              podId: ctx.pod.id,
-              participantId: ctx.participant.id,
-              standing: ctx.participant.standing,
-              actionKind: "execution",
-            },
           }),
         });
         const responseBody = { task: released };
@@ -713,12 +700,6 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
           metadata: withAuditProvenanceMetadata({
             commentId: comment.id,
             action: "comment",
-            remote: {
-              podId: ctx.pod.id,
-              participantId: ctx.participant.id,
-              standing: ctx.participant.standing,
-              actionKind: "advisory",
-            },
           }),
         });
         emitRemoteOriginatedNotification({

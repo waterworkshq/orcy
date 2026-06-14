@@ -84,6 +84,7 @@ export const tasks = sqliteTable(
     index("idx_tasks_required_domain").on(table.requiredDomain),
     index("idx_tasks_priority").on(table.priority),
     index("idx_tasks_delegated").on(table.delegatedToAgentId),
+    index("idx_tasks_remote_assigned_participant").on(table.remoteAssignedParticipantId),
   ],
 );
 

@@ -121,6 +121,88 @@ const createCredentialSchema = z.object({
   clients: z.array(mcpClientIdSchema).min(1).max(10).optional(),
 });
 
+const updateProviderSchema = z
+  .object({
+    name: z.string().min(1).max(128).optional(),
+    issuer: z.string().url().optional(),
+    clientId: z.string().min(1).max(256).optional(),
+    clientSecret: z.string().min(1).max(1024).optional(),
+    callbackUrl: z.string().url().optional(),
+    scopes: z.array(z.string().min(1).max(64)).max(32).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+const updatePodSchema = z
+  .object({
+    name: z.string().min(1).max(128).optional(),
+    description: z.string().max(500).optional(),
+    defaultStanding: participantStandingSchema.optional(),
+    action: z.enum(["activate", "suspend", "revoke"]).optional(),
+    revokeReason: z.string().max(500).optional(),
+  })
+  .strict();
+
+const updateParticipantSchema = z
+  .object({
+    approvedCapabilities: z.array(z.string().min(1).max(128)).max(50).optional(),
+    approvedDomains: z.array(z.string().min(1).max(128)).max(50).optional(),
+    standing: participantStandingSchema.optional(),
+    action: z.enum(["activate", "suspend", "revoke"]).optional(),
+  })
+  .strict();
+
+const previewGrantSchema = z
+  .object({
+    targets: z
+      .array(
+        z.object({
+          targetType: remoteGrantTargetTypeSchema,
+          targetId: z.string().min(1).max(256),
+        }),
+      )
+      .max(100)
+      .optional(),
+    rule: z
+      .object({
+        domains: z.array(z.string().min(1).max(256)).max(50).optional(),
+        labels: z.array(z.string().min(1).max(128)).max(50).optional(),
+        capabilities: z.array(z.string().min(1).max(128)).max(50).optional(),
+      })
+      .optional(),
+  })
+  .strict();
+
+const rotateCredentialSchema = z
+  .object({
+    clients: z.array(mcpClientIdSchema).min(1).max(10).optional(),
+  })
+  .strict();
+
+const revokeCredentialSchema = z
+  .object({
+    reason: z.string().max(500).optional(),
+  })
+  .strict();
+
+const mcpConfigBodySchema = z
+  .object({
+    clients: z.array(mcpClientIdSchema).min(1).max(10).optional(),
+  })
+  .strict();
+
+const revokeInviteSchema = z
+  .object({
+    revokeReason: z.string().max(500).optional(),
+  })
+  .strict();
+
+const initiateSchema = z
+  .object({
+    inviteId: z.string().uuid().optional(),
+  })
+  .strict();
+
 function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
   const result = schema.safeParse(raw);
   if (!result.success) {
@@ -192,15 +274,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; providerId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as Partial<{
-        name: string;
-        issuer: string;
-        clientId: string;
-        clientSecret: string;
-        callbackUrl: string;
-        scopes: string[];
-        enabled: boolean;
-      }>;
+      const body = parseBody(updateProviderSchema, request.body);
       return {
         provider: providerService.updateProvider(
           request.params.id,
@@ -230,11 +304,11 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; providerId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as { inviteId?: string } | null;
+      const body = parseBody(initiateSchema, request.body ?? {});
       return providerService.initiateAuthState(
         request.params.id,
         request.params.providerId,
-        body?.inviteId,
+        body.inviteId,
       );
     },
   );
@@ -287,13 +361,13 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; inviteId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as { revokeReason?: string } | null;
+      const body = parseBody(revokeInviteSchema, request.body ?? {});
       return {
         invite: inviteService.revokeInvite(
           request.params.id,
           request.params.inviteId,
           request.user!.id,
-          body?.revokeReason,
+          body.revokeReason,
         ),
       };
     },
@@ -335,13 +409,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; podId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as Partial<{
-        name: string;
-        description: string;
-        defaultStanding: ParticipantStanding;
-        action: "activate" | "suspend" | "revoke";
-        revokeReason: string;
-      }>;
+      const body = parseBody(updatePodSchema, request.body);
 
       if (body.action) {
         switch (body.action) {
@@ -412,12 +480,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; participantId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as Partial<{
-        approvedCapabilities: string[];
-        approvedDomains: string[];
-        standing: ParticipantStanding;
-        action: "activate" | "suspend" | "revoke";
-      }>;
+      const body = parseBody(updateParticipantSchema, request.body);
 
       if (body.action) {
         switch (body.action) {
@@ -538,14 +601,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/grants/preview",
     async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
-      const body = request.body as {
-        targets?: { targetType: RemoteGrantTargetType; targetId: string }[];
-        rule?: {
-          domains?: string[];
-          labels?: string[];
-          capabilities?: string[];
-        };
-      };
+      const body = parseBody(previewGrantSchema, request.body);
       return adminService.previewGrant({
         habitatId: request.params.id,
         targets: body.targets,
@@ -597,12 +653,12 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as { clients?: mcpConfigService.McpClientId[] } | null;
+      const body = parseBody(rotateCredentialSchema, request.body);
       return mcpConfigService.rotateCredentialWithConfig(
         request.params.id,
         request.params.credentialId,
         request.user!.id,
-        body?.clients,
+        body.clients,
       );
     },
   );
@@ -614,12 +670,12 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       reply: FastifyReply,
     ) => {
-      const body = request.body as { reason?: string } | null;
+      const body = parseBody(revokeCredentialSchema, request.body);
       const credential = mcpConfigService.revokeCredential(
         request.params.id,
         request.params.credentialId,
         request.user!.id,
-        body?.reason,
+        body.reason,
       );
       reply.code(200).send({ credential });
     },
@@ -648,11 +704,11 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; credentialId: string } }>,
       _reply: FastifyReply,
     ) => {
-      const body = request.body as { clients?: mcpConfigService.McpClientId[] } | null;
+      const body = parseBody(mcpConfigBodySchema, request.body);
       return mcpConfigService.regenerateConfigSnippets(
         request.params.id,
         request.params.credentialId,
-        body?.clients ?? ["claude_code", "codex", "opencode"],
+        body.clients ?? ["claude_code", "codex", "opencode"],
       );
     },
   );

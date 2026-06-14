@@ -695,7 +695,7 @@ describe("remoteIdempotencyKey repository", () => {
     const completed = idempotencyRepo.completeIdempotencyKey(row.id, 200, { ok: true });
     expect(completed?.status).toBe("completed");
     expect(completed?.responseStatus).toBe(200);
-    expect(completed?.responseBody).toEqual({ ok: true });
+    expect(completed?.responseBody).toEqual(JSON.stringify({ ok: true }));
 
     const { row: row2 } = idempotencyRepo.getOrCreateIdempotencyKey({
       habitatId: h.id,

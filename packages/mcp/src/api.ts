@@ -73,6 +73,7 @@ import type {
 } from "./api/interfaces.js";
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "crypto";
 import { logger } from "./logger.js";
 import {
   getOrcyConfig,
@@ -286,12 +287,13 @@ export class KanbanApiClient
       action?: string;
     },
   ): Promise<T> {
+    if (!path.startsWith("/api/shared/")) {
+      throw new Error("Remote requests must target /api/shared/* endpoints");
+    }
     const { remoteKey } = this.getRemoteCredentials();
     const idempotencyKey =
       options?.idempotencyKey ??
-      (method !== "GET" && method !== "HEAD"
-        ? `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-        : undefined);
+      (method !== "GET" && method !== "HEAD" ? `mcp-${randomUUID()}` : undefined);
     return this.withAuditToolContext(`remote_${path}`, options?.action, () =>
       this.transport.request<T>(method, path, {
         body: options?.body,

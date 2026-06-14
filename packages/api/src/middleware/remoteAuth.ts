@@ -377,7 +377,17 @@ export function isRemoteConnectionValid(ctx: RemoteParticipantContext): RemoteCo
   }
 
   const grants = loadRelevantGrants(participant, pod);
-  const hasUsableGrant = grants.some((g) => g.status !== "hard_revoked" && g.status !== "frozen");
+  const hasUsableGrant = grants.some((g) => {
+    if (g.status === "hard_revoked" || g.status === "frozen") return false;
+    const isGracePeriod =
+      g.status === "expired" || g.status === "soft_revoked" || g.status === "grace";
+    if (!isGracePeriod) return true;
+    const graceStartTime = g.expiredAt ?? g.revokedAt;
+    if (!graceStartTime) return true;
+    const elapsedMs = Date.now() - new Date(graceStartTime).getTime();
+    const graceMs = g.graceWindowHours * 3_600_000;
+    return elapsedMs <= graceMs;
+  });
   if (!hasUsableGrant) {
     return { valid: false, reason: "All grants are revoked or frozen", code: "ALL_GRANTS_BLOCKED" };
   }

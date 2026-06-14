@@ -25,8 +25,21 @@ declare module "fastify" {
   }
 }
 
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  return `{${keys
+    .map((k) => `${JSON.stringify(k)}:${stableStringify((value as Record<string, unknown>)[k])}`)
+    .join(",")}}`;
+}
+
 function hashRequest(method: string, url: string, body: unknown): string {
-  const canonical = `${method.toUpperCase()}\n${url}\n${JSON.stringify(body ?? null)}`;
+  const canonical = `${method.toUpperCase()}\n${url}\n${stableStringify(body ?? null)}`;
   return createHash("sha256").update(canonical).digest("hex");
 }
 
@@ -109,8 +122,17 @@ export function idempotentRemoteWrite(action: string) {
       }
 
       if (row.status === "completed" && row.responseStatus !== null) {
-        // Replay the stored response
-        const storedBody = row.responseBody ?? {};
+        const storedRaw = row.responseBody;
+        let storedBody: unknown;
+        if (storedRaw === null) {
+          storedBody = {};
+        } else {
+          try {
+            storedBody = JSON.parse(storedRaw);
+          } catch {
+            storedBody = storedRaw;
+          }
+        }
         const res = _reply;
         res.header("X-Orcy-Idempotent-Replay", "true");
         res.code(row.responseStatus).send(storedBody);
