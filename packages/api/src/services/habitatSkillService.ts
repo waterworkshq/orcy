@@ -156,7 +156,7 @@ export function ingestFromPulse(opts: {
   subject: string;
   body: string;
   pulseId: string;
-  fromType: "human" | "agent" | "system";
+  fromType: "human" | "agent" | "system" | "remote_human" | "remote_orcy";
   fromId: string;
 }): void {
   try {

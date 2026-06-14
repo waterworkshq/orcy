@@ -132,7 +132,9 @@ export const missionEvents = sqliteTable(
   {
     id: text("id").primaryKey(),
     missionId: text("mission_id").notNull(),
-    actorType: text("actor_type", { enum: ["human", "agent", "system"] }).notNull(),
+    actorType: text("actor_type", {
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+    }).notNull(),
     actorId: text("actor_id").notNull(),
     action: text("action", {
       enum: [
@@ -195,7 +197,9 @@ const missionCommentsColumns = {
     (): ReturnType<typeof text> => missionComments.id as ReturnType<typeof text>,
     { onDelete: "cascade" },
   ),
-  authorType: text("author_type", { enum: ["human", "agent"] }).notNull(),
+  authorType: text("author_type", {
+    enum: ["human", "agent", "remote_human", "remote_orcy"],
+  }).notNull(),
   authorId: text("author_id").notNull(),
   content: text("content").notNull(),
   createdAt: text("created_at")
@@ -218,7 +222,7 @@ export const missionCommentMentions = sqliteTable(
     commentId: text("comment_id")
       .notNull()
       .references(() => missionComments.id, { onDelete: "cascade" }),
-    mentionedType: text("mentioned_type", { enum: ["human", "agent"] }).notNull(),
+    mentionedType: text("mentioned_type", { enum: ["human", "agent", "remote_human", "remote_orcy"] }).notNull(),
     mentionedId: text("mentioned_id").notNull(),
     mentionText: text("mention_text").notNull(),
     createdAt: text("created_at")

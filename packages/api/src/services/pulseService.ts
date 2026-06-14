@@ -89,7 +89,7 @@ export interface PulsePostInput {
 }
 
 export interface PulsePostCaller {
-  type: "human" | "agent";
+  type: "human" | "agent" | "remote_human" | "remote_orcy";
   id: string;
 }
 

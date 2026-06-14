@@ -6,7 +6,7 @@ import type { Mission, MissionStatus, MissionComment } from "./feature.js";
 import type { Column } from "./board.js";
 import type { Subtask } from "./task.js";
 
-export type ActorType = "human" | "agent" | "system";
+export type ActorType = "human" | "agent" | "system" | "remote_human" | "remote_orcy";
 
 export type EventAction =
   | "created"
@@ -79,7 +79,7 @@ export type SSEEvent =
       data: {
         taskId: string;
         commentId: string;
-        mentionedType: "human" | "agent";
+        mentionedType: "human" | "agent" | "remote_human" | "remote_orcy";
         mentionedId: string;
         mentionedName: string;
         habitatId: string;
@@ -157,7 +157,7 @@ export type SSEEvent =
       data: {
         missionId: string;
         commentId: string;
-        mentionedType: "human" | "agent";
+        mentionedType: "human" | "agent" | "remote_human" | "remote_orcy";
         mentionedId: string;
         mentionedName: string;
         habitatId: string;

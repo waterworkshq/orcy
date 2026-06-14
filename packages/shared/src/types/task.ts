@@ -1,12 +1,17 @@
-import type { AgentDomain } from './agent.js';
-import type { ActorType, EventAction } from './events.js';
+import type { AgentDomain } from "./agent.js";
+import type { ActorType, EventAction } from "./events.js";
 
-export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TaskPriority = "low" | "medium" | "high" | "critical";
 
 export type TaskStatus =
-  | 'pending' | 'claimed' | 'in_progress'
-  | 'submitted' | 'approved' | 'rejected'
-  | 'done' | 'failed';
+  | "pending"
+  | "claimed"
+  | "in_progress"
+  | "submitted"
+  | "approved"
+  | "rejected"
+  | "done"
+  | "failed";
 
 export interface RetryPolicy {
   maxRetries?: number;
@@ -24,6 +29,7 @@ export interface Task {
   description: string;
   priority: TaskPriority;
   assignedAgentId: string | null;
+  remoteAssignedParticipantId?: string | null;
   delegatedToAgentId: string | null;
   requiredDomain: AgentDomain | null;
   requiredCapabilities: string[];
@@ -70,7 +76,7 @@ export interface TaskComment {
   id: string;
   taskId: string;
   parentId: string | null;
-  authorType: 'human' | 'agent';
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy";
   authorId: string;
   content: string;
   createdAt: string;
@@ -81,7 +87,7 @@ export interface TaskComment {
 export interface TaskCommentMention {
   id: string;
   commentId: string;
-  mentionedType: 'human' | 'agent';
+  mentionedType: "human" | "agent" | "remote_human" | "remote_orcy";
   mentionedId: string;
   mentionText: string;
   createdAt: string;
@@ -89,7 +95,7 @@ export interface TaskCommentMention {
 }
 
 export interface Artifact {
-  type: 'file' | 'pr' | 'commit' | 'log' | 'screenshot';
+  type: "file" | "pr" | "commit" | "log" | "screenshot";
   url: string;
   description: string;
   createdAt?: string;
@@ -123,14 +129,14 @@ export interface CrossHabitatDependency {
 export interface PullRequest {
   id: string;
   taskId: string;
-  provider: 'github' | 'gitlab';
+  provider: "github" | "gitlab";
   repo: string;
   prNumber: number;
   prTitle: string | null;
   prUrl: string;
   branchName: string | null;
-  state: 'open' | 'merged' | 'closed';
-  reviewStatus: 'pending' | 'approved' | 'changes_requested';
+  state: "open" | "merged" | "closed";
+  reviewStatus: "pending" | "approved" | "changes_requested";
   createdAt: string;
   updatedAt: string;
 }

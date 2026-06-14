@@ -25,7 +25,7 @@ export type NotificationTargetType =
   | "automation_rule"
   | "none";
 
-export type NotificationRecipientType = "human" | "agent";
+export type NotificationRecipientType = "human" | "agent" | "remote_human" | "remote_orcy";
 
 export type NotificationSeverity = "info" | "warning" | "critical";
 

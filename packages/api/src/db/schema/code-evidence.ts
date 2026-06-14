@@ -222,6 +222,7 @@ export const codeEvidenceLinks = sqliteTable(
         "migration",
         "api",
         "artifact_mirror",
+        "remote",
       ],
     }).notNull(),
     linkSources: text("link_sources", { mode: "json" })
@@ -229,7 +230,9 @@ export const codeEvidenceLinks = sqliteTable(
       .notNull()
       .default(sql`'[]'`)
       .$defaultFn(() => []),
-    linkedByType: text("linked_by_type", { enum: ["human", "agent", "system"] }).notNull(),
+    linkedByType: text("linked_by_type", {
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+    }).notNull(),
     linkedById: text("linked_by_id").notNull(),
     linkedAt: text("linked_at")
       .notNull()
@@ -276,7 +279,7 @@ export const codeEvidenceCompleteness = sqliteTable(
     }).notNull(),
     reasonCode: text("reason_code"),
     reasonNote: text("reason_note"),
-    markedByType: text("marked_by_type", { enum: ["human", "agent", "system"] }).notNull(),
+    markedByType: text("marked_by_type", { enum: ["human", "agent", "system", "remote_human", "remote_orcy"] }).notNull(),
     markedById: text("marked_by_id").notNull(),
     updatedAt: text("updated_at")
       .notNull()
@@ -299,7 +302,7 @@ export const codeEvidenceGaps = sqliteTable(
     status: text("status", { enum: ["active", "resolved"] })
       .notNull()
       .default("active"),
-    reportedByType: text("reported_by_type", { enum: ["human", "agent", "system"] }).notNull(),
+    reportedByType: text("reported_by_type", { enum: ["human", "agent", "system", "remote_human", "remote_orcy"] }).notNull(),
     reportedById: text("reported_by_id").notNull(),
     reportedAt: text("reported_at")
       .notNull()

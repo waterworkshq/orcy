@@ -48,6 +48,171 @@ export function claimTask(
   }
 }
 
+/**
+ * Phase D — claim a task by a remote participant. Writes to
+ * `remote_assigned_participant_id` (no FK) instead of `assigned_agent_id` so
+ * the FK to `agents(id)` is not violated. The remote participant model is
+ * intentionally separate from local agents (see techspec §2.2).
+ */
+export function claimTaskByRemoteParticipant(
+  taskId: string,
+  remoteParticipantId: string,
+): { success: true; task: Task } | { success: false; reason: string } {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  try {
+    return db.transaction((tx: any) => {
+      const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
+      if (!task) return { success: false as const, reason: "not_found" };
+
+      if (task.status !== "pending" || task.assignedAgentId || task.remoteAssignedParticipantId) {
+        return { success: false as const, reason: "already_claimed" };
+      }
+
+      if (!areAllDependenciesMet(taskId)) {
+        return { success: false as const, reason: "dependencies_unmet" };
+      }
+
+      tx.update(tasks)
+        .set({
+          remoteAssignedParticipantId: remoteParticipantId,
+          status: "claimed",
+          claimedAt: now,
+          updatedAt: now,
+          version: sql`${tasks.version} + 1`,
+        } as unknown as Partial<typeof tasks.$inferInsert>)
+        .where(
+          and(
+            eq(tasks.id, taskId),
+            eq(tasks.status, "pending"),
+            sql`${tasks.remoteAssignedParticipantId} IS NULL`,
+          ),
+        )
+        .run();
+
+      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
+      return { success: true as const, task: updated! };
+    });
+  } catch (err) {
+    logger.warn(
+      { err, taskId, remoteParticipantId },
+      "Transaction failed during claimTaskByRemoteParticipant",
+    );
+    return { success: false, reason: "already_claimed" };
+  }
+}
+
+/**
+ * Phase D — submit a task claimed by a remote participant. Mirrors
+ * `submitTask` but checks `remote_assigned_participant_id` instead of
+ * `assigned_agent_id`.
+ */
+export function submitTaskByRemoteParticipant(
+  taskId: string,
+  remoteParticipantId: string,
+  result: string,
+  artifacts: Artifact[],
+): Task | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const task = getTaskById(taskId);
+  if (!task) return null;
+  if (task.status !== "in_progress" || task.remoteAssignedParticipantId !== remoteParticipantId) {
+    return null;
+  }
+
+  db.update(tasks)
+    .set({
+      status: "submitted",
+      submittedAt: now,
+      result,
+      artifacts,
+      updatedAt: now,
+      version: sql`${tasks.version} + 1`,
+    })
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(tasks.remoteAssignedParticipantId, remoteParticipantId),
+        eq(tasks.status, "in_progress"),
+      ),
+    )
+    .run();
+
+  return getTaskById(taskId);
+}
+
+/**
+ * Phase D — start a task claimed by a remote participant. Mirrors `startTask`.
+ */
+export function startTaskByRemoteParticipant(
+  taskId: string,
+  remoteParticipantId: string,
+): Task | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const task = getTaskById(taskId);
+  if (!task) return null;
+  if (task.status !== "claimed" || task.remoteAssignedParticipantId !== remoteParticipantId) {
+    return null;
+  }
+
+  db.update(tasks)
+    .set({
+      status: "in_progress",
+      startedAt: now,
+      updatedAt: now,
+      version: sql`${tasks.version} + 1`,
+    })
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(tasks.remoteAssignedParticipantId, remoteParticipantId),
+        eq(tasks.status, "claimed"),
+      ),
+    )
+    .run();
+
+  return getTaskById(taskId);
+}
+
+/**
+ * Phase D — release a task claimed by a remote participant. Mirrors
+ * `releaseTask` but checks `remote_assigned_participant_id`.
+ */
+export function releaseTaskByRemoteParticipant(
+  taskId: string,
+  remoteParticipantId: string,
+): Task | null {
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  const task = getTaskById(taskId);
+  if (!task) return null;
+  if (
+    (task.status !== "claimed" && task.status !== "in_progress") ||
+    task.remoteAssignedParticipantId !== remoteParticipantId
+  ) {
+    return null;
+  }
+
+  db.update(tasks)
+    .set({
+      remoteAssignedParticipantId: null,
+      status: "pending",
+      claimedAt: null,
+      updatedAt: now,
+      version: sql`${tasks.version} + 1`,
+    })
+    .where(and(eq(tasks.id, taskId), eq(tasks.remoteAssignedParticipantId, remoteParticipantId)))
+    .run();
+
+  return getTaskById(taskId);
+}
+
 export function claimDelegatedTask(
   taskId: string,
   agentId: string,

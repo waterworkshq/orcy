@@ -108,7 +108,7 @@ function loadRelevantGrants(
   );
 }
 
-function mapParticipantToActorType(
+export function mapParticipantToActorType(
   participantType: RemoteParticipantType,
 ): "remote_orcy" | "remote_human" {
   return participantType === "remote_orcy" ? "remote_orcy" : "remote_human";

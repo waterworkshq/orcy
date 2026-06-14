@@ -30,6 +30,7 @@ export const tasks = sqliteTable(
       .notNull()
       .default("medium"),
     assignedAgentId: text("assigned_agent_id").references(() => agents.id),
+    remoteAssignedParticipantId: text("remote_assigned_participant_id"),
     requiredDomain: text("required_domain"),
     requiredCapabilities: text("required_capabilities", { mode: "json" })
       .$type<string[]>()
@@ -93,7 +94,9 @@ export const taskEvents = sqliteTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    actorType: text("actor_type", { enum: ["human", "agent", "system"] }).notNull(),
+    actorType: text("actor_type", {
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+    }).notNull(),
     actorId: text("actor_id").notNull(),
     action: text("action", {
       enum: [
@@ -174,7 +177,9 @@ const taskCommentsColumns = {
     (): ReturnType<typeof text> => taskComments.id as ReturnType<typeof text>,
     { onDelete: "cascade" },
   ),
-  authorType: text("author_type", { enum: ["human", "agent"] }).notNull(),
+  authorType: text("author_type", {
+    enum: ["human", "agent", "remote_human", "remote_orcy"],
+  }).notNull(),
   authorId: text("author_id").notNull(),
   content: text("content").notNull(),
   createdAt: text("created_at").notNull().default("(datetime('now'))"),
@@ -228,7 +233,9 @@ export const taskCommentMentions = sqliteTable(
     commentId: text("comment_id")
       .notNull()
       .references(() => taskComments.id, { onDelete: "cascade" }),
-    mentionedType: text("mentioned_type", { enum: ["human", "agent"] }).notNull(),
+    mentionedType: text("mentioned_type", {
+      enum: ["human", "agent", "remote_human", "remote_orcy"],
+    }).notNull(),
     mentionedId: text("mentioned_id").notNull(),
     mentionText: text("mention_text").notNull(),
     createdAt: text("created_at").notNull().default("(datetime('now'))"),
@@ -289,7 +296,9 @@ export const effortEntries = sqliteTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    actorType: text("actor_type", { enum: ["human", "agent", "system"] }).notNull(),
+    actorType: text("actor_type", {
+      enum: ["human", "agent", "system", "remote_human", "remote_orcy"],
+    }).notNull(),
     actorId: text("actor_id"),
     minutes: integer("minutes").notNull(),
     source: text("source").notNull(),

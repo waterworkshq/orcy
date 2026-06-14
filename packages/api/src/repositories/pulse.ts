@@ -28,9 +28,9 @@ export interface Pulse {
   missionId: string | null;
   habitatId: string;
   scope: PulseScope;
-  fromType: "human" | "agent" | "system";
+  fromType: "human" | "agent" | "system" | "remote_human" | "remote_orcy";
   fromId: string;
-  toType: "human" | "agent" | null;
+  toType: "human" | "agent" | "remote_human" | "remote_orcy" | null;
   toId: string | null;
   signalType: SignalType;
   subject: string;
@@ -48,9 +48,9 @@ export interface CreatePulseInput {
   missionId?: string;
   habitatId: string;
   scope?: PulseScope;
-  fromType: "human" | "agent" | "system";
+  fromType: "human" | "agent" | "system" | "remote_human" | "remote_orcy";
   fromId: string;
-  toType?: "human" | "agent";
+  toType?: "human" | "agent" | "remote_human" | "remote_orcy";
   toId?: string;
   signalType: SignalType;
   subject: string;
@@ -87,25 +87,36 @@ export interface PulseFilters {
 }
 
 function rowToPulse(row: Record<string, unknown>): Pulse {
+  // drizzle's RETURNING (INSERT) and select() can return different key
+  // casings — RETURNING uses camelCase (the schema property names) while
+  // select() uses snake_case (the column names). Read both.
+  const get = (snake: string, camel: string): unknown => row[snake] ?? row[camel];
   return {
-    id: row.id as string,
-    missionId: (row.mission_id as string | null) ?? null,
-    habitatId: row.habitat_id as string,
-    scope: (row.scope as PulseScope) ?? "mission",
-    fromType: row.from_type as "human" | "agent" | "system",
-    fromId: row.from_id as string,
-    toType: (row.to_type as "human" | "agent" | null) ?? null,
-    toId: (row.to_id as string | null) ?? null,
-    signalType: row.signal_type as SignalType,
-    subject: row.subject as string,
-    body: row.body as string,
-    taskId: (row.task_id as string | null) ?? null,
-    replyToId: (row.reply_to_id as string | null) ?? null,
-    linkedTaskId: (row.linked_task_id as string | null) ?? null,
-    metadata: (row.metadata as Record<string, unknown>) ?? {},
-    createdAt: row.created_at as string,
-    pinned: row.pinned as number,
-    isAuto: (row.is_auto as boolean) ?? false,
+    id: get("id", "id") as string,
+    missionId: (get("mission_id", "missionId") as string | null) ?? null,
+    habitatId: get("habitat_id", "habitatId") as string,
+    scope: (get("scope", "scope") as PulseScope) ?? "mission",
+    fromType: get("from_type", "fromType") as
+      | "human"
+      | "agent"
+      | "system"
+      | "remote_human"
+      | "remote_orcy",
+    fromId: get("from_id", "fromId") as string,
+    toType:
+      (get("to_type", "toType") as "human" | "agent" | "remote_human" | "remote_orcy" | null) ??
+      null,
+    toId: (get("to_id", "toId") as string | null) ?? null,
+    signalType: get("signal_type", "signalType") as SignalType,
+    subject: get("subject", "subject") as string,
+    body: get("body", "body") as string,
+    taskId: (get("task_id", "taskId") as string | null) ?? null,
+    replyToId: (get("reply_to_id", "replyToId") as string | null) ?? null,
+    linkedTaskId: (get("linked_task_id", "linkedTaskId") as string | null) ?? null,
+    metadata: (get("metadata", "metadata") as Record<string, unknown>) ?? {},
+    createdAt: get("created_at", "createdAt") as string,
+    pinned: get("pinned", "pinned") as number,
+    isAuto: (get("is_auto", "isAuto") as boolean) ?? false,
   };
 }
 

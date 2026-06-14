@@ -115,7 +115,7 @@ export interface MissionComment {
   id: string;
   missionId: string;
   parentId: string | null;
-  authorType: "human" | "agent";
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy";
   authorId: string;
   content: string;
   createdAt: string;
@@ -126,7 +126,7 @@ export interface MissionComment {
 export interface MissionCommentMention {
   id: string;
   commentId: string;
-  mentionedType: "human" | "agent";
+  mentionedType: "human" | "agent" | "remote_human" | "remote_orcy";
   mentionedId: string;
   mentionText: string;
   createdAt: string;

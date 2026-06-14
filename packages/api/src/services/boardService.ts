@@ -182,7 +182,7 @@ export interface HabitatExportData {
       taskTitle: string;
       parentTaskTitle: string | null;
       content: string;
-      authorType: "human" | "agent";
+      authorType: "human" | "agent" | "remote_human" | "remote_orcy";
       authorId: string;
     }>;
     templates: Array<{

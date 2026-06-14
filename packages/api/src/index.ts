@@ -57,6 +57,7 @@ import { daemonRoutes, daemonAdminRoutes } from "./routes/daemon.js";
 import { habitatSkillRoutes } from "./routes/habitatSkill.js";
 import { remoteAccessRoutes } from "./routes/remoteAccess.js";
 import { sharedInviteRoutes } from "./routes/sharedInvite.js";
+import { sharedApiRoutes } from "./routes/sharedApi.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -254,6 +255,17 @@ await fastify.register(
     await f.register(presenceRoutes);
   },
   { prefix: "/sse" },
+);
+
+// Phase D — Shared Habitat API for remote participants.
+// All routes here require X-Orcy-Remote-Key auth (set by sharedApiRoutes plugin).
+// Lives under its own prefix so it cannot accidentally pick up routes
+// mounted under /api/v1 or /api.
+await fastify.register(
+  async (f) => {
+    await f.register(sharedApiRoutes);
+  },
+  { prefix: "/api/shared" },
 );
 
 // Redirect root to /app/ so users hitting / (which returns a 404 JSON)

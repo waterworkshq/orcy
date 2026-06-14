@@ -15,7 +15,7 @@ export interface Comment {
   id: string;
   taskId: string;
   parentId: string | null;
-  authorType: "human" | "agent";
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy";
   authorId: string;
   content: string;
   createdAt: string;
@@ -36,7 +36,7 @@ function attachMentions(comments: Comment[]): Comment[] {
 
 export function createComment(input: {
   taskId: string;
-  authorType: "human" | "agent";
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy";
   authorId: string;
   content: string;
   parentId?: string | null;

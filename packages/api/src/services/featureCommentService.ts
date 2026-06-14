@@ -1,29 +1,29 @@
-import * as missionCommentRepo from '../repositories/featureComment.js';
-import * as missionCommentMentionRepo from '../repositories/featureCommentMention.js';
-import { resolveMentions } from './commentHelper.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import { getMissionById } from '../repositories/feature.js';
-import { notFound, forbidden, badRequest } from '../errors.js';
+import * as missionCommentRepo from "../repositories/featureComment.js";
+import * as missionCommentMentionRepo from "../repositories/featureCommentMention.js";
+import { resolveMentions } from "./commentHelper.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { getMissionById } from "../repositories/feature.js";
+import { notFound, forbidden, badRequest } from "../errors.js";
 
 export function addComment(
   missionId: string,
-  authorType: 'human' | 'agent',
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy",
   authorId: string,
   content: string,
-  parentId?: string | null
+  parentId?: string | null,
 ) {
   const mission = getMissionById(missionId);
   if (!mission) {
-    throw notFound('Mission not found');
+    throw notFound("Mission not found");
   }
 
   if (parentId) {
     const parent = missionCommentRepo.getCommentById(parentId);
     if (!parent) {
-      throw notFound('Parent comment not found');
+      throw notFound("Parent comment not found");
     }
     if (parent.missionId !== missionId) {
-      throw badRequest('Parent comment belongs to a different mission');
+      throw badRequest("Parent comment belongs to a different mission");
     }
   }
 
@@ -42,23 +42,25 @@ export function addComment(
       mentionedType: mention.mentionedType,
       mentionedId: mention.mentionedId,
       mentionText: mention.mentionText,
-    }))
+    })),
   );
   const mentions = createdMentions.map((created) => ({
     ...created,
-    mentionedName: resolvedMentions.find((m) => m.mentionedId === created.mentionedId && m.mentionedType === created.mentionedType)?.mentionedName,
+    mentionedName: resolvedMentions.find(
+      (m) => m.mentionedId === created.mentionedId && m.mentionedType === created.mentionedType,
+    )?.mentionedName,
   }));
 
   const enrichedComment = { ...comment, mentions };
 
   sseBroadcaster.publish(mission.habitatId, {
-    type: 'mission.commented',
+    type: "mission.commented",
     data: { missionId, comment: enrichedComment },
   });
 
   for (const mention of mentions) {
     sseBroadcaster.publish(mission.habitatId, {
-      type: 'mission.mentioned',
+      type: "mission.mentioned",
       data: {
         missionId,
         commentId: comment.id,
@@ -79,34 +81,30 @@ export function getComments(missionId: string, limit?: number, offset?: number) 
 
 export function editComment(
   commentId: string,
-  authorType: 'human' | 'agent',
+  authorType: "human" | "agent",
   authorId: string,
-  content: string
+  content: string,
 ) {
   const comment = missionCommentRepo.getCommentById(commentId);
   if (!comment) {
-    throw notFound('Comment not found');
+    throw notFound("Comment not found");
   }
 
   if (comment.authorType !== authorType || comment.authorId !== authorId) {
-    throw forbidden('Not authorized to edit this comment');
+    throw forbidden("Not authorized to edit this comment");
   }
 
   return missionCommentRepo.updateComment(commentId, content);
 }
 
-export function removeComment(
-  commentId: string,
-  authorType: 'human' | 'agent',
-  authorId: string
-) {
+export function removeComment(commentId: string, authorType: "human" | "agent", authorId: string) {
   const comment = missionCommentRepo.getCommentById(commentId);
   if (!comment) {
-    throw notFound('Comment not found');
+    throw notFound("Comment not found");
   }
 
   if (comment.authorType !== authorType || comment.authorId !== authorId) {
-    throw forbidden('Not authorized to delete this comment');
+    throw forbidden("Not authorized to delete this comment");
   }
 
   const mission = getMissionById(comment.missionId);
@@ -114,7 +112,7 @@ export function removeComment(
 
   if (mission) {
     sseBroadcaster.publish(mission.habitatId, {
-      type: 'mission.comment_deleted',
+      type: "mission.comment_deleted",
       data: { missionId: comment.missionId, commentId },
     });
   }

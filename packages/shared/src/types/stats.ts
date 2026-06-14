@@ -85,7 +85,7 @@ export interface HabitatMetrics {
 
 export type EffortSource = "human_manual" | "agent_reported" | "correction_adjustment";
 
-export type EffortActorType = "human" | "agent";
+export type EffortActorType = "human" | "agent" | "remote_human" | "remote_orcy";
 
 export interface EffortEntry {
   id: string;

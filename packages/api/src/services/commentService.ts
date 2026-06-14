@@ -28,7 +28,7 @@ export function onCommentCreated(hook: CommentCreatedHook): () => void {
  */
 export function addComment(
   taskId: string,
-  authorType: "human" | "agent",
+  authorType: "human" | "agent" | "remote_human" | "remote_orcy",
   authorId: string,
   content: string,
   parentId?: string | null,

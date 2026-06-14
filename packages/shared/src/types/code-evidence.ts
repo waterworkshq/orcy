@@ -15,7 +15,8 @@ export type CodeEvidenceLinkSource =
   | "human_manual"
   | "migration"
   | "api"
-  | "artifact_mirror";
+  | "artifact_mirror"
+  | "remote";
 
 export type CodeEvidenceVerificationState = "verified" | "unverified" | "stale" | "failed";
 export type CodeEvidenceLinkStatus = "active" | "superseded" | "incorrect" | "removed";
@@ -27,7 +28,7 @@ export type CodeEvidenceCompletenessStatus =
   | "unknown";
 export type CodeEvidenceGapStatus = "active" | "resolved";
 export type CodeEvidenceTargetType = "task" | "mission";
-export type CodeEvidenceActorType = "human" | "agent" | "system";
+export type CodeEvidenceActorType = "human" | "agent" | "system" | "remote_human" | "remote_orcy";
 export type CodeEvidenceReviewStatus =
   | "pending"
   | "approved"
@@ -136,6 +137,7 @@ export const DEFAULT_CONFIDENCE: Record<CodeEvidenceLinkSource, number> = {
   migration: 0.6,
   api: 0.8,
   artifact_mirror: 0.6,
+  remote: 0.5,
 };
 
 export const EXTERNAL_REPO_CONFIDENCE = 0.5;

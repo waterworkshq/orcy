@@ -76,6 +76,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "./logger.js";
 import {
   getOrcyConfig,
+  getRemoteConfig,
   normalizeTaskId,
   normalizeMissionId,
   createApiClient,
@@ -239,6 +240,15 @@ export class KanbanApiClient
     };
   }
 
+  /**
+   * v0.19 Phase D — return the remote-mode credentials (X-Orcy-Remote-Key).
+   * Used by remote-mode MCP clients configured with ORCY_REMOTE_KEY.
+   */
+  private getRemoteCredentials(): { remoteKey: string } {
+    const config = getRemoteConfig();
+    return { remoteKey: config.remoteKey };
+  }
+
   withAuditToolContext<T>(toolName: string, action: string | undefined, callback: () => T): T {
     return mcpAuditToolStorage.run({ toolName, action }, callback);
   }
@@ -259,6 +269,39 @@ export class KanbanApiClient
       body,
       headers: { "X-Agent-API-Key": apiKey, ...this.getAuditHeaders() },
     });
+  }
+
+  /**
+   * v0.19 Phase D — make a request as a remote participant using
+   * X-Orcy-Remote-Key instead of X-Agent-API-Key. Routes hit
+   * `/api/shared/*` endpoints. The Idempotency-Key header is auto-generated
+   * for write actions so retries are safe.
+   */
+  async requestRemote<T>(
+    method: string,
+    path: string,
+    options?: {
+      body?: unknown;
+      idempotencyKey?: string;
+      action?: string;
+    },
+  ): Promise<T> {
+    const { remoteKey } = this.getRemoteCredentials();
+    const idempotencyKey =
+      options?.idempotencyKey ??
+      (method !== "GET" && method !== "HEAD"
+        ? `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        : undefined);
+    return this.withAuditToolContext(`remote_${path}`, options?.action, () =>
+      this.transport.request<T>(method, path, {
+        body: options?.body,
+        headers: {
+          "X-Orcy-Remote-Key": remoteKey,
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+          ...this.getAuditHeaders(),
+        },
+      }),
+    );
   }
 
   async listMissions(
