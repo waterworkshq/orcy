@@ -155,9 +155,9 @@ export function deleteProvider(habitatId: string, providerId: string): void {
   providerRepo.deleteIdentityProvider(providerId);
 }
 
-export function getClientSecret(providerId: string): string | null {
+export function getClientSecret(habitatId: string, providerId: string): string | null {
   const row = providerRepo.getIdentityProviderById(providerId);
-  if (!row) return null;
+  if (!row || row.habitatId !== habitatId) return null;
   const config = row.config as Record<string, unknown>;
   if (typeof config?.clientSecret !== "string") return null;
   return unmaskSecret(config.clientSecret);

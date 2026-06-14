@@ -1,4 +1,4 @@
-import type { RemoteCredentialType, ParticipantStanding } from "@orcy/shared/types";
+import type { RemoteCredentialType } from "@orcy/shared/types";
 import * as credentialService from "./remoteCredentialService.js";
 import type { CredentialWithSecret } from "./remoteCredentialService.js";
 import * as credentialRepo from "../repositories/remoteCredential.js";
@@ -8,6 +8,31 @@ import * as grantRepo from "../repositories/remoteGrant.js";
 import type { RemoteCredentialRow } from "../repositories/remoteCredential.js";
 import { getBaseUrl } from "./shareHabitatReadinessService.js";
 import { notFound, badRequest } from "../errors.js";
+
+export interface CredentialPublicView {
+  id: string;
+  remoteParticipantId: string;
+  habitatId: string;
+  credentialType: string;
+  label: string;
+  status: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  rotatedFromId: string | null;
+  rotatedAt: string | null;
+  rotatedBy: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+  revokeReason: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function toCredentialView(row: RemoteCredentialRow): CredentialPublicView {
+  const { secretHash: _stripped, ...public_ } = row;
+  return public_;
+}
 
 export type McpClientId =
   | "claude_code"
@@ -26,7 +51,7 @@ export interface McpConfigSnippet {
 }
 
 export interface McpConfigResult {
-  credential: RemoteCredentialRow;
+  credential: CredentialPublicView;
   plaintextSecret: string | null;
   snippets: McpConfigSnippet[];
   standing: string;
@@ -223,7 +248,7 @@ export function createCredentialWithConfig(input: CreateCredentialInput): McpCon
       : null;
 
   return {
-    credential,
+    credential: toCredentialView(credential),
     plaintextSecret,
     snippets,
     standing: participant.standing,
@@ -237,7 +262,7 @@ export function getCredentialMetadata(
   habitatId: string,
   credentialId: string,
 ): {
-  credential: RemoteCredentialRow;
+  credential: CredentialPublicView;
   standing: string;
   grantSummary: {
     grantType: string;
@@ -255,7 +280,7 @@ export function getCredentialMetadata(
   const activeGrants = participant ? grantRepo.getActiveGrantsByParticipant(participant.id) : [];
 
   return {
-    credential,
+    credential: toCredentialView(credential),
     standing: participant?.standing ?? "unknown",
     grantSummary:
       activeGrants.length > 0
@@ -303,7 +328,7 @@ export function rotateCredentialWithConfig(
   const activeGrants = participant ? grantRepo.getActiveGrantsByParticipant(participant.id) : [];
 
   return {
-    credential: newCredential,
+    credential: toCredentialView(newCredential),
     plaintextSecret,
     snippets,
     standing: participant?.standing ?? "unknown",
@@ -325,25 +350,25 @@ export function revokeCredential(
   credentialId: string,
   revokedBy?: string | null,
   revokeReason?: string,
-): RemoteCredentialRow {
+): CredentialPublicView {
   const existing = credentialService.verifyRemoteKeyById(credentialId);
   if (!existing || existing.habitatId !== habitatId) {
     throw notFound("Credential not found");
   }
   const revoked = credentialService.revokeCredential(credentialId, revokedBy, revokeReason);
   if (!revoked) throw notFound("Credential not found");
-  return revoked;
+  return toCredentialView(revoked);
 }
 
 export function listCredentialsByParticipant(
   habitatId: string,
   participantId: string,
-): RemoteCredentialRow[] {
+): CredentialPublicView[] {
   const participant = participantRepo.getRemoteParticipantById(participantId);
   if (!participant || participant.habitatId !== habitatId) {
     throw notFound("Remote participant not found");
   }
-  return credentialRepo.getActiveCredentialsByParticipant(participantId);
+  return credentialRepo.getActiveCredentialsByParticipant(participantId).map(toCredentialView);
 }
 
 export function regenerateConfigSnippets(
@@ -351,7 +376,7 @@ export function regenerateConfigSnippets(
   credentialId: string,
   clients: McpClientId[],
 ): {
-  credential: RemoteCredentialRow;
+  credential: CredentialPublicView;
   snippets: McpConfigSnippet[];
   warning: string;
   baseUrl: string;
@@ -369,7 +394,7 @@ export function regenerateConfigSnippets(
   const snippets = generateSnippets(baseUrl, credential.id, null, clients);
 
   return {
-    credential,
+    credential: toCredentialView(credential),
     snippets,
     warning: buildWarning(false),
     baseUrl,

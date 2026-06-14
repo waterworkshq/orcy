@@ -122,10 +122,13 @@ export function acceptRemoteInvite(id: string, acceptedBy: string): RemoteInvite
   const db = getDb();
   const now = new Date().toISOString();
   try {
-    db.update(remoteInvites)
+    // Conditional update: only accept if currently pending — prevents race condition
+    const result = db
+      .update(remoteInvites)
       .set({ status: "accepted", acceptedAt: now, acceptedBy, updatedAt: now })
-      .where(eq(remoteInvites.id, id))
+      .where(and(eq(remoteInvites.id, id), eq(remoteInvites.status, "pending")))
       .run();
+    if (result.changes === 0) return null;
   } catch (err) {
     throw repositoryUpdateError("remoteInvite", err as Error, id);
   }
@@ -159,16 +162,18 @@ export function revokeRemoteInvite(
 export function expirePendingInvites(): number {
   const db = getDb();
   const now = new Date().toISOString();
-  const expired = db
+  const expiredRows = db
     .select({ id: remoteInvites.id })
     .from(remoteInvites)
     .where(and(eq(remoteInvites.status, "pending"), lt(remoteInvites.expiresAt, now)))
     .all();
-  for (const row of expired) {
+
+  for (const row of expiredRows) {
     db.update(remoteInvites)
       .set({ status: "expired", updatedAt: now })
       .where(eq(remoteInvites.id, row.id))
       .run();
   }
-  return expired.length;
+
+  return expiredRows.length;
 }

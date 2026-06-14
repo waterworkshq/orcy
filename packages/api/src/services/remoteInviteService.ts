@@ -174,33 +174,46 @@ export function acceptManualInvite(
     throw forbidden("Invite has expired", "INVITE_EXPIRED");
   }
 
-  // Create remote pod + admin participant
-  const pod = podRepo.createRemotePod({
-    habitatId: invite.habitatId,
-    name: details.podName,
-    description: details.podDescription,
-    defaultStanding: invite.baselineStanding as ParticipantStanding,
-    inviteId: invite.id,
-    createdBy: acceptedBy,
-  });
+  // Atomically claim the invite first — conditional UPDATE prevents race condition.
+  // acceptRemoteInvite only succeeds if status is still "pending".
+  const claimed = inviteRepo.acceptRemoteInvite(invite.id, acceptedBy);
+  if (!claimed) {
+    throw conflict("Invite was already accepted by another request", "INVITE_ALREADY_ACCEPTED");
+  }
 
+  // Create remote pod + admin participant after claiming
+  let pod: podRepo.RemotePodRow;
+  let participant: participantRepo.RemoteParticipantRow;
+  try {
+    pod = podRepo.createRemotePod({
+      habitatId: invite.habitatId,
+      name: details.podName,
+      description: details.podDescription,
+      defaultStanding: invite.baselineStanding as ParticipantStanding,
+      inviteId: invite.id,
+      createdBy: acceptedBy,
+    });
+
+    participant = participantRepo.createRemoteParticipant({
+      remotePodId: pod.id,
+      habitatId: invite.habitatId,
+      participantType: details.participantType ?? "remote_human",
+      displayName: details.participantDisplayName,
+      standing: invite.baselineStanding as ParticipantStanding,
+    });
+  } catch (err) {
+    // If pod/participant creation fails after claiming, revoke the invite
+    // to allow retry — prevents orphaned "accepted" invite with no pod
+    inviteRepo.revokeRemoteInvite(invite.id, "system", "Pod/participant creation failed");
+    throw err;
+  }
+
+  // Activate pod and participant
   const activatedPod = podRepo.activateRemotePod(pod.id);
-
-  const participant = participantRepo.createRemoteParticipant({
-    remotePodId: pod.id,
-    habitatId: invite.habitatId,
-    participantType: details.participantType ?? "remote_human",
-    displayName: details.participantDisplayName,
-    standing: invite.baselineStanding as ParticipantStanding,
-  });
-
   const activatedParticipant = participantRepo.activateRemoteParticipant(participant.id);
 
-  const accepted = inviteRepo.acceptRemoteInvite(invite.id, acceptedBy);
-  if (!accepted) throw notFound("Invite not found after acceptance");
-
   return {
-    invite: toView(accepted),
+    invite: toView(claimed),
     remotePod: activatedPod ?? pod,
     remoteParticipant: activatedParticipant ?? participant,
   };
@@ -236,34 +249,42 @@ export function acceptProviderInvite(
     throw forbidden("Invite has expired", "INVITE_EXPIRED");
   }
 
-  const pod = podRepo.createRemotePod({
-    habitatId: invite.habitatId,
-    name: details.podName,
-    description: details.podDescription,
-    defaultStanding: invite.baselineStanding as ParticipantStanding,
-    inviteId: invite.id,
-    providerPodIdentity: details.providerPodIdentity ?? null,
-    createdBy: acceptedBy,
-  });
+  const claimed = inviteRepo.acceptRemoteInvite(invite.id, acceptedBy);
+  if (!claimed) {
+    throw conflict("Invite was already accepted by another request", "INVITE_ALREADY_ACCEPTED");
+  }
+
+  let pod: podRepo.RemotePodRow;
+  let participant: participantRepo.RemoteParticipantRow;
+  try {
+    pod = podRepo.createRemotePod({
+      habitatId: invite.habitatId,
+      name: details.podName,
+      description: details.podDescription,
+      defaultStanding: invite.baselineStanding as ParticipantStanding,
+      inviteId: invite.id,
+      providerPodIdentity: details.providerPodIdentity ?? null,
+      createdBy: acceptedBy,
+    });
+
+    participant = participantRepo.createRemoteParticipant({
+      remotePodId: pod.id,
+      habitatId: invite.habitatId,
+      participantType: details.participantType ?? "remote_human",
+      displayName: details.participantDisplayName,
+      standing: invite.baselineStanding as ParticipantStanding,
+      externalIdentityId: details.providerIdentityId ?? null,
+    });
+  } catch (err) {
+    inviteRepo.revokeRemoteInvite(invite.id, "system", "Pod/participant creation failed");
+    throw err;
+  }
 
   const activatedPod = podRepo.activateRemotePod(pod.id);
-
-  const participant = participantRepo.createRemoteParticipant({
-    remotePodId: pod.id,
-    habitatId: invite.habitatId,
-    participantType: details.participantType ?? "remote_human",
-    displayName: details.participantDisplayName,
-    standing: invite.baselineStanding as ParticipantStanding,
-    externalIdentityId: details.providerIdentityId ?? null,
-  });
-
   const activatedParticipant = participantRepo.activateRemoteParticipant(participant.id);
 
-  const accepted = inviteRepo.acceptRemoteInvite(invite.id, acceptedBy);
-  if (!accepted) throw notFound("Invite not found after acceptance");
-
   return {
-    invite: toView(accepted),
+    invite: toView(claimed),
     remotePod: activatedPod ?? pod,
     remoteParticipant: activatedParticipant ?? participant,
   };
@@ -275,4 +296,36 @@ export function getInviteById(habitatId: string, inviteId: string): InviteView {
     throw notFound("Invite not found");
   }
   return toView(row);
+}
+
+export function previewInviteByToken(token: string): {
+  inviteType: string;
+  baselineStanding: string;
+  baselineScopes: string[];
+  expiresAt: string | null;
+  status: string;
+} {
+  if (!token || !token.startsWith(MANUAL_TOKEN_PREFIX)) {
+    throw badRequest("Invalid invite token format", "INVALID_INVITE_TOKEN");
+  }
+
+  const tokenHash = hashToken(token);
+  const invite = inviteRepo.getRemoteInviteByTokenHash(tokenHash);
+  if (!invite) {
+    throw badRequest("Invite token not recognized", "INVITE_NOT_FOUND");
+  }
+  if (invite.status !== "pending") {
+    throw badRequest(`Invite is ${invite.status}`, `INVITE_${invite.status.toUpperCase()}`);
+  }
+  if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
+    throw badRequest("Invite has expired", "INVITE_EXPIRED");
+  }
+
+  return {
+    inviteType: invite.inviteType,
+    baselineStanding: invite.baselineStanding,
+    baselineScopes: invite.baselineScopes,
+    expiresAt: invite.expiresAt,
+    status: invite.status,
+  };
 }

@@ -916,7 +916,7 @@ describe("Phase C — Share Habitat Admin Surface", () => {
       expect(body.ready).toBe(true);
     });
 
-    it("allows anonymous access to invite acceptance route", async () => {
+    it("allows anonymous access to invite preview route", async () => {
       const habitat = setupHabitat();
       const { oneTimeToken } = inviteService.createManualInvite({
         habitatId: habitat.id,
@@ -924,8 +924,9 @@ describe("Phase C — Share Habitat Admin Surface", () => {
         invitedBy: "admin-1",
       });
       const res = await app!.inject({
-        method: "GET",
-        url: `/api/shared/invites/${oneTimeToken}`,
+        method: "POST",
+        url: `/api/shared/invites/preview`,
+        headers: { "x-orcy-invite-token": oneTimeToken },
       });
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
@@ -941,7 +942,8 @@ describe("Phase C — Share Habitat Admin Surface", () => {
       });
       const res = await app!.inject({
         method: "POST",
-        url: `/api/shared/invites/${oneTimeToken}/accept`,
+        url: `/api/shared/invites/accept`,
+        headers: { "x-orcy-invite-token": oneTimeToken },
         payload: {
           podName: "HTTP Pod",
           participantDisplayName: "HTTP Admin",

@@ -57,6 +57,8 @@ export function verifyRemoteKey(rawKey: string): VerifiedRemoteCredential | null
   const credential = credentialRepo.getRemoteCredentialByHash(secretHash);
   if (!credential) return null;
   if (credential.status !== "active") return null;
+  // Inline expiry check — don't rely solely on batch sweep
+  if (credential.expiresAt && new Date(credential.expiresAt).getTime() < Date.now()) return null;
 
   return { credential };
 }
@@ -65,6 +67,8 @@ export function verifyRemoteKeyById(credentialId: string): RemoteCredentialRow |
   const credential = credentialRepo.getRemoteCredentialById(credentialId);
   if (!credential) return null;
   if (credential.status !== "active") return null;
+  // Inline expiry check — don't rely solely on batch sweep
+  if (credential.expiresAt && new Date(credential.expiresAt).getTime() < Date.now()) return null;
   return credential;
 }
 

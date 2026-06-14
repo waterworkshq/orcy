@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { z } from "zod";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
+import { teamHabitatAccess } from "../middleware/team.js";
 import { badRequest } from "../errors.js";
 import * as readinessService from "../services/shareHabitatReadinessService.js";
 import * as providerService from "../services/identityProviderService.js";
@@ -18,6 +20,110 @@ import type {
   RemoteCredentialType,
 } from "@orcy/shared/types";
 
+const participantStandingSchema = z.enum([
+  "local_member",
+  "remote_observer",
+  "remote_contributor",
+  "remote_reviewer",
+  "trusted_remote_pod",
+]);
+const remoteActionScopeSchema = z.enum([
+  "read",
+  "comment",
+  "pulse.post",
+  "claim",
+  "heartbeat",
+  "submit",
+  "release",
+  "evidence_link",
+]);
+const remoteGrantTypeSchema = z.enum([
+  "baseline_observer",
+  "scoped_elevation",
+  "permanent_execution",
+]);
+const remoteGrantEligibilityModeSchema = z.enum(["allowlist", "rule_based"]);
+const remoteGrantTargetTypeSchema = z.enum(["habitat", "mission", "task"]);
+const remoteRevocationModeSchema = z.enum(["soft", "hard", "freeze"]);
+const remoteCredentialTypeSchema = z.enum(["api", "mcp"]);
+const identityProviderKindSchema = z.enum(["github", "oidc"]);
+const mcpClientIdSchema = z.enum([
+  "claude_code",
+  "codex",
+  "opencode",
+  "cursor",
+  "gemini_cli",
+  "generic",
+]);
+
+const createProviderSchema = z.object({
+  kind: identityProviderKindSchema,
+  name: z.string().min(1).max(128),
+  issuer: z.string().url().optional(),
+  clientId: z.string().min(1).max(256),
+  clientSecret: z.string().min(1).max(1024),
+  callbackUrl: z.string().url().optional(),
+  scopes: z.array(z.string().min(1).max(64)).max(32).optional(),
+  enabled: z.boolean().optional(),
+});
+
+const createInviteSchema = z
+  .object({
+    inviteType: z.enum(["provider", "manual"]),
+    baselineStanding: participantStandingSchema,
+    baselineScopes: z.array(remoteActionScopeSchema).optional(),
+    providerId: z.string().uuid().optional(),
+    expiresAt: z.string().datetime().nullable().optional(),
+  })
+  .refine((data) => data.inviteType === "manual" || !!data.providerId, {
+    message: "providerId is required for provider invites",
+    path: ["providerId"],
+  });
+
+const createGrantSchema = z.object({
+  remotePodId: z.string().uuid(),
+  remoteParticipantId: z.string().uuid().nullable().optional(),
+  grantType: remoteGrantTypeSchema,
+  standing: participantStandingSchema,
+  actionScopes: z.array(remoteActionScopeSchema).min(1).max(20),
+  eligibilityMode: remoteGrantEligibilityModeSchema.optional(),
+  includeFutureMatches: z.boolean().optional(),
+  graceWindowHours: z.number().int().min(0).max(720).optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+  targets: z
+    .array(
+      z.object({
+        targetType: remoteGrantTargetTypeSchema,
+        targetId: z.string().min(1).max(256),
+      }),
+    )
+    .max(100)
+    .optional(),
+  rule: z
+    .object({
+      domains: z.array(z.string().min(1).max(256)).max(50).optional(),
+      labels: z.array(z.string().min(1).max(128)).max(50).optional(),
+      capabilities: z.array(z.string().min(1).max(128)).max(50).optional(),
+    })
+    .optional(),
+});
+
+const createCredentialSchema = z.object({
+  credentialType: remoteCredentialTypeSchema.optional(),
+  label: z.string().min(1).max(128).optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+  clients: z.array(mcpClientIdSchema).min(1).max(10).optional(),
+});
+
+function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw badRequest(`Invalid request body: ${issues}`);
+  }
+  return result.data;
+}
+
 /**
  * Phase C — Share Habitat admin surface routes.
  *
@@ -27,6 +133,7 @@ import type {
 export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", humanAuth);
   fastify.addHook("preHandler", adminOnly);
+  fastify.addHook("preHandler", teamHabitatAccess);
 
   // -----------------------------------------------------------------------
   // Readiness
@@ -59,29 +166,13 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/providers",
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const body = request.body as {
-        kind?: IdentityProviderKind;
-        name?: string;
-        issuer?: string;
-        clientId?: string;
-        clientSecret?: string;
-        callbackUrl?: string;
-        scopes?: string[];
-        enabled?: boolean;
-      };
-      if (!body.kind || !body.name || !body.clientId || !body.clientSecret) {
-        throw badRequest("kind, name, clientId, and clientSecret are required");
-      }
+      const body = parseBody(createProviderSchema, request.body);
       const provider = providerService.configureProvider({
         habitatId: request.params.id,
-        kind: body.kind,
-        name: body.name,
-        issuer: body.issuer,
-        clientId: body.clientId,
-        clientSecret: body.clientSecret,
-        callbackUrl: body.callbackUrl,
-        scopes: body.scopes,
-        enabled: body.enabled,
+        ...body,
+        issuer: body.issuer ?? null,
+        callbackUrl: body.callbackUrl ?? null,
+        enabled: body.enabled ?? true,
         createdBy: request.user!.id,
       });
       reply.code(201).send({ provider });
@@ -158,16 +249,7 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/invites",
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const body = request.body as {
-        inviteType?: "provider" | "manual";
-        baselineStanding?: ParticipantStanding;
-        baselineScopes?: RemoteActionScope[];
-        providerId?: string;
-        expiresAt?: string | null;
-      };
-      if (!body.inviteType || !body.baselineStanding) {
-        throw badRequest("inviteType and baselineStanding are required");
-      }
+      const body = parseBody(createInviteSchema, request.body);
 
       if (body.inviteType === "manual") {
         const result = inviteService.createManualInvite({
@@ -175,20 +257,17 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
           baselineStanding: body.baselineStanding,
           baselineScopes: body.baselineScopes,
           invitedBy: request.user!.id,
-          expiresAt: body.expiresAt,
+          expiresAt: body.expiresAt ?? null,
         });
         reply.code(201).send(result);
       } else {
-        if (!body.providerId) {
-          throw badRequest("providerId is required for provider invites");
-        }
         const invite = inviteService.createProviderInvite({
           habitatId: request.params.id,
-          providerId: body.providerId,
+          providerId: body.providerId!,
           baselineStanding: body.baselineStanding,
           baselineScopes: body.baselineScopes,
           invitedBy: request.user!.id,
-          expiresAt: body.expiresAt,
+          expiresAt: body.expiresAt ?? null,
         });
         reply.code(201).send({ invite });
       }
@@ -273,6 +352,8 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
                 body.revokeReason,
               ),
             };
+          default:
+            throw badRequest(`Invalid action: ${body.action}`);
         }
       }
 
@@ -355,6 +436,8 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
                 request.params.participantId,
               ),
             };
+          default:
+            throw badRequest(`Invalid action: ${body.action}`);
         }
       }
 
@@ -403,39 +486,19 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
   fastify.post<{ Params: { id: string } }>(
     "/habitats/:id/remote-access/grants",
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const body = request.body as {
-        remotePodId?: string;
-        remoteParticipantId?: string | null;
-        grantType?: RemoteGrantType;
-        standing?: ParticipantStanding;
-        actionScopes?: RemoteActionScope[];
-        eligibilityMode?: RemoteGrantEligibilityMode;
-        includeFutureMatches?: boolean;
-        graceWindowHours?: number;
-        expiresAt?: string | null;
-        targets?: { targetType: RemoteGrantTargetType; targetId: string }[];
-        rule?: {
-          domains?: string[];
-          labels?: string[];
-          capabilities?: string[];
-        };
-      };
-
-      if (!body.remotePodId || !body.grantType || !body.standing) {
-        throw badRequest("remotePodId, grantType, and standing are required");
-      }
+      const body = parseBody(createGrantSchema, request.body);
 
       const grant = adminService.createGrant({
         habitatId: request.params.id,
         remotePodId: body.remotePodId,
-        remoteParticipantId: body.remoteParticipantId,
+        remoteParticipantId: body.remoteParticipantId ?? null,
         grantType: body.grantType,
         standing: body.standing,
-        actionScopes: body.actionScopes ?? ["read"],
+        actionScopes: body.actionScopes,
         eligibilityMode: body.eligibilityMode,
         includeFutureMatches: body.includeFutureMatches,
         graceWindowHours: body.graceWindowHours,
-        expiresAt: body.expiresAt,
+        expiresAt: body.expiresAt ?? null,
         targets: body.targets,
         rule: body.rule,
         createdBy: request.user!.id,
@@ -499,18 +562,13 @@ export async function remoteAccessRoutes(fastify: FastifyInstance): Promise<void
       request: FastifyRequest<{ Params: { id: string; participantId: string } }>,
       reply: FastifyReply,
     ) => {
-      const body = request.body as {
-        credentialType?: RemoteCredentialType;
-        label?: string;
-        expiresAt?: string | null;
-        clients?: mcpConfigService.McpClientId[];
-      };
+      const body = parseBody(createCredentialSchema, request.body);
       const result = mcpConfigService.createCredentialWithConfig({
         habitatId: request.params.id,
         participantId: request.params.participantId,
         credentialType: body.credentialType ?? "mcp",
         label: body.label,
-        expiresAt: body.expiresAt,
+        expiresAt: body.expiresAt ?? null,
         createdBy: request.user!.id,
         clients: body.clients,
       });

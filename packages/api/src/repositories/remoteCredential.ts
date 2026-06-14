@@ -156,29 +156,31 @@ export function rotateRemoteCredential(
 
   const newId = uuid();
   try {
-    db.insert(remoteCredentials)
-      .values({
-        id: newId,
-        remoteParticipantId: old.remoteParticipantId,
-        habitatId: old.habitatId,
-        credentialType: old.credentialType,
-        secretHash: newSecretHash,
-        label: old.label,
-        status: "active",
-        expiresAt: old.expiresAt,
-        rotatedFromId: id,
-        rotatedAt: now,
-        rotatedBy: rotatedBy ?? null,
-        createdBy: old.createdBy,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    db.transaction((tx) => {
+      tx.insert(remoteCredentials)
+        .values({
+          id: newId,
+          remoteParticipantId: old.remoteParticipantId,
+          habitatId: old.habitatId,
+          credentialType: old.credentialType,
+          secretHash: newSecretHash,
+          label: old.label,
+          status: "active",
+          expiresAt: old.expiresAt,
+          rotatedFromId: id,
+          rotatedAt: now,
+          rotatedBy: rotatedBy ?? null,
+          createdBy: old.createdBy,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
 
-    db.update(remoteCredentials)
-      .set({ status: "rotated", updatedAt: now })
-      .where(eq(remoteCredentials.id, id))
-      .run();
+      tx.update(remoteCredentials)
+        .set({ status: "rotated", updatedAt: now })
+        .where(eq(remoteCredentials.id, id))
+        .run();
+    });
   } catch (err) {
     throw repositoryCreateError("remoteCredential", err as Error, newId);
   }
@@ -216,16 +218,18 @@ export function revokeRemoteCredential(
 export function expireCredentials(): number {
   const db = getDb();
   const now = new Date().toISOString();
-  const expired = db
+  const expiredRows = db
     .select({ id: remoteCredentials.id })
     .from(remoteCredentials)
     .where(and(eq(remoteCredentials.status, "active"), lt(remoteCredentials.expiresAt, now)))
     .all();
-  for (const row of expired) {
+
+  for (const row of expiredRows) {
     db.update(remoteCredentials)
       .set({ status: "expired", updatedAt: now })
       .where(eq(remoteCredentials.id, row.id))
       .run();
   }
-  return expired.length;
+
+  return expiredRows.length;
 }

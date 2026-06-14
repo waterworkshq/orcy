@@ -227,18 +227,20 @@ export function revokeRemoteGrant(
 export function expireActiveGrants(): number {
   const db = getDb();
   const now = new Date().toISOString();
-  const toExpire = db
+  const expiredRows = db
     .select({ id: remoteGrants.id })
     .from(remoteGrants)
     .where(and(eq(remoteGrants.status, "active"), lt(remoteGrants.expiresAt, now)))
     .all();
-  for (const row of toExpire) {
+
+  for (const row of expiredRows) {
     db.update(remoteGrants)
       .set({ status: "expired", expiredAt: now, updatedAt: now })
       .where(eq(remoteGrants.id, row.id))
       .run();
   }
-  return toExpire.length;
+
+  return expiredRows.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,11 +275,13 @@ export function addRemoteGrantTarget(
   } catch (err) {
     throw repositoryCreateError("remoteGrantTarget", err as Error, id);
   }
-  return db
+  const row = db
     .select(targetFields)
     .from(remoteGrantTargets)
     .where(eq(remoteGrantTargets.id, id))
-    .all()[0];
+    .get();
+  if (!row) throw repositoryNotFoundError("remoteGrantTarget", id);
+  return row;
 }
 
 export function getRemoteGrantTargets(grantId: string): RemoteGrantTargetRow[] {
@@ -336,51 +340,40 @@ export function setRemoteGrantRule(
 ): RemoteGrantRuleRow {
   const db = getDb();
   const now = new Date().toISOString();
-  const existing = db
-    .select(ruleFields)
-    .from(remoteGrantRules)
-    .where(eq(remoteGrantRules.grantId, grantId))
-    .all();
-
-  if (existing.length > 0) {
-    try {
-      db.update(remoteGrantRules)
-        .set({ ...rule, updatedAt: now })
-        .where(eq(remoteGrantRules.grantId, grantId))
-        .run();
-    } catch (err) {
-      throw repositoryUpdateError("remoteGrantRule", err as Error, grantId);
-    }
-    return db
-      .select(ruleFields)
-      .from(remoteGrantRules)
-      .where(eq(remoteGrantRules.grantId, grantId))
-      .all()[0];
-  }
-
   const id = uuid();
+
   try {
-    db.insert(remoteGrantRules)
-      .values({
-        id,
-        grantId,
-        domains: rule.domains ?? [],
-        labels: rule.labels ?? [],
-        capabilities: rule.capabilities ?? [],
-        timeWindowStart: rule.timeWindowStart ?? null,
-        timeWindowEnd: rule.timeWindowEnd ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    db.transaction((tx) => {
+      // Attempt insert; on unique(grantId) conflict, update the existing row
+      tx.insert(remoteGrantRules)
+        .values({
+          id,
+          grantId,
+          domains: rule.domains ?? [],
+          labels: rule.labels ?? [],
+          capabilities: rule.capabilities ?? [],
+          timeWindowStart: rule.timeWindowStart ?? null,
+          timeWindowEnd: rule.timeWindowEnd ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: remoteGrantRules.grantId,
+          set: { ...rule, updatedAt: now },
+        })
+        .run();
+    });
   } catch (err) {
     throw repositoryCreateError("remoteGrantRule", err as Error, id);
   }
-  return db
+
+  const row = db
     .select(ruleFields)
     .from(remoteGrantRules)
     .where(eq(remoteGrantRules.grantId, grantId))
-    .all()[0];
+    .get();
+  if (!row) throw repositoryNotFoundError("remoteGrantRule", grantId);
+  return row;
 }
 
 export function getRemoteGrantRule(grantId: string): RemoteGrantRuleRow | null {
@@ -436,11 +429,13 @@ export function addGrantTaskSnapshot(
   } catch (err) {
     throw repositoryCreateError("grantTaskSnapshot", err as Error, id);
   }
-  return db
+  const row = db
     .select(snapshotFields)
     .from(remoteGrantTaskSnapshots)
     .where(eq(remoteGrantTaskSnapshots.id, id))
-    .all()[0];
+    .get();
+  if (!row) throw repositoryNotFoundError("grantTaskSnapshot", id);
+  return row;
 }
 
 export function getGrantTaskSnapshots(grantId: string): RemoteGrantTaskSnapshotRow[] {

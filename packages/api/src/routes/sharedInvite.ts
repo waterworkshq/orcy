@@ -1,6 +1,35 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { z } from "zod";
 import * as inviteService from "../services/remoteInviteService.js";
 import { badRequest } from "../errors.js";
+
+const acceptInviteSchema = z.object({
+  podName: z.string().min(1).max(128),
+  participantDisplayName: z.string().min(1).max(128),
+  participantType: z.enum(["remote_human", "remote_orcy"]).optional(),
+  podDescription: z.string().max(512).optional(),
+  acceptedBy: z.string().max(128).optional(),
+});
+
+const acceptProviderInviteSchema = z.object({
+  inviteId: z.string().uuid(),
+  podName: z.string().min(1).max(128),
+  participantDisplayName: z.string().min(1).max(128),
+  participantType: z.enum(["remote_human", "remote_orcy"]).optional(),
+  podDescription: z.string().max(512).optional(),
+  providerPodIdentity: z.string().max(256).optional(),
+  providerIdentityId: z.string().max(256).optional(),
+  acceptedBy: z.string().max(128).optional(),
+});
+
+function parseBody<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw badRequest(`Invalid request body: ${issues}`);
+  }
+  return result.data;
+}
 
 /**
  * Phase C — Pre-remote-auth invite acceptance routes.
@@ -8,95 +37,58 @@ import { badRequest } from "../errors.js";
  * These routes do NOT require remoteParticipantAuth because no remote
  * credential exists yet. They are validated by manual invite token hash
  * or provider callback state, then create/link remote pod/admin records.
+ *
+ * Invite tokens are passed via the X-Orcy-Invite-Token header to avoid
+ * being logged in URL paths by proxies, CDNs, or browser history.
  */
 export async function sharedInviteRoutes(fastify: FastifyInstance): Promise<void> {
-  /** GET /shared/invites/:token — validate invite token and return invite details */
-  fastify.get<{ Params: { token: string } }>(
-    "/shared/invites/:token",
-    async (request: FastifyRequest<{ Params: { token: string } }>, _reply: FastifyReply) => {
-      // This is a read-only preview — just validate the token and return the invite
-      const { token } = request.params;
-      if (!token || !token.startsWith("orcy_invite_")) {
-        throw badRequest("Invalid invite token format", "INVALID_INVITE_TOKEN");
-      }
+  /** POST /shared/invites/preview — validate invite token and return invite details */
+  fastify.post("/shared/invites/preview", async (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header("Cache-Control", "no-store");
 
-      // We verify by hash without consuming the invite
-      const { createHash } = await import("crypto");
-      const { getRemoteInviteByTokenHash } = await import("../repositories/remoteInvite.js");
-      const tokenHash = createHash("sha256").update(token).digest("hex");
-      const invite = getRemoteInviteByTokenHash(tokenHash);
+    const token = request.headers["x-orcy-invite-token"] as string | undefined;
+    if (!token || !token.startsWith("orcy_invite_")) {
+      throw badRequest("Invalid invite token format", "INVALID_INVITE_TOKEN");
+    }
 
-      if (!invite) {
-        throw badRequest("Invite token not recognized", "INVITE_NOT_FOUND");
-      }
-      if (invite.status !== "pending") {
-        throw badRequest(`Invite is ${invite.status}`, `INVITE_${invite.status.toUpperCase()}`);
-      }
-      if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
-        throw badRequest("Invite has expired", "INVITE_EXPIRED");
-      }
+    const preview = inviteService.previewInviteByToken(token);
+    return preview;
+  });
 
-      return {
-        inviteType: invite.inviteType,
-        baselineStanding: invite.baselineStanding,
-        baselineScopes: invite.baselineScopes,
-        expiresAt: invite.expiresAt,
-        status: invite.status,
-      };
-    },
-  );
+  /** POST /shared/invites/accept — accept manual invite, create pod + participant */
+  fastify.post("/shared/invites/accept", async (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header("Cache-Control", "no-store");
 
-  /** POST /shared/invites/:token/accept — accept manual invite, create pod + participant */
-  fastify.post<{ Params: { token: string } }>(
-    "/shared/invites/:token/accept",
-    async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
-      const body = request.body as {
-        podName?: string;
-        participantDisplayName?: string;
-        participantType?: "remote_human" | "remote_orcy";
-        podDescription?: string;
-        acceptedBy?: string;
-      };
-
-      if (!body?.podName || !body?.participantDisplayName) {
-        throw badRequest("podName and participantDisplayName are required");
-      }
-
-      const result = inviteService.acceptManualInvite(
-        request.params.token,
-        body.acceptedBy ?? "remote-admin",
-        {
-          podName: body.podName,
-          participantDisplayName: body.participantDisplayName,
-          participantType: body.participantType,
-          podDescription: body.podDescription,
-        },
+    const token = request.headers["x-orcy-invite-token"] as string | undefined;
+    if (!token || !token.startsWith("orcy_invite_")) {
+      throw badRequest(
+        "Invite token required in X-Orcy-Invite-Token header",
+        "INVALID_INVITE_TOKEN",
       );
+    }
 
-      reply.code(201).send(result);
-    },
-  );
+    const body = parseBody(acceptInviteSchema, request.body);
 
-  /** POST /shared/invites/:inviteId/accept-provider — accept provider invite after OAuth callback */
-  fastify.post<{ Params: { inviteId: string } }>(
-    "/shared/invites/:inviteId/accept-provider",
-    async (request: FastifyRequest<{ Params: { inviteId: string } }>, reply: FastifyReply) => {
-      const body = request.body as {
-        podName?: string;
-        participantDisplayName?: string;
-        participantType?: "remote_human" | "remote_orcy";
-        podDescription?: string;
-        providerPodIdentity?: string;
-        providerIdentityId?: string;
-        acceptedBy?: string;
-      };
+    const result = inviteService.acceptManualInvite(token, body.acceptedBy ?? "remote-admin", {
+      podName: body.podName,
+      participantDisplayName: body.participantDisplayName,
+      participantType: body.participantType,
+      podDescription: body.podDescription,
+    });
 
-      if (!body?.podName || !body?.participantDisplayName) {
-        throw badRequest("podName and participantDisplayName are required");
-      }
+    reply.code(201).send(result);
+  });
+
+  /** POST /shared/invites/accept-provider — accept provider invite after OAuth callback */
+  fastify.post(
+    "/shared/invites/accept-provider",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      reply.header("Cache-Control", "no-store");
+
+      const body = parseBody(acceptProviderInviteSchema, request.body);
 
       const result = inviteService.acceptProviderInvite(
-        request.params.inviteId,
+        body.inviteId,
         body.acceptedBy ?? "remote-admin",
         {
           podName: body.podName,

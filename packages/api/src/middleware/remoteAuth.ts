@@ -6,6 +6,8 @@ import type {
 } from "@orcy/shared/types";
 import { unauthorized, forbidden } from "../errors.js";
 import { setAuditActor, updateAuditProvenance } from "../services/auditProvenanceContext.js";
+import { extractAndVerifyJwt } from "./jwt-verification.js";
+import * as agentService from "../services/agentService.js";
 import * as credentialService from "../services/remoteCredentialService.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import type { RemoteParticipantRow } from "../repositories/remoteParticipant.js";
@@ -50,7 +52,7 @@ export async function remoteParticipantAuth(
     throw unauthorized("Remote participant not found", "REMOTE_PARTICIPANT_NOT_FOUND");
   }
   if (participant.status !== "active") {
-    throw forbidden(`Remote participant is ${participant.status}`, "REMOTE_PARTICIPANT_INACTIVE");
+    throw forbidden("Remote participant is not active", "REMOTE_PARTICIPANT_INACTIVE");
   }
 
   const pod = podRepo.getRemotePodById(participant.remotePodId);
@@ -58,7 +60,20 @@ export async function remoteParticipantAuth(
     throw unauthorized("Remote pod not found", "REMOTE_POD_NOT_FOUND");
   }
   if (pod.status !== "active") {
-    throw forbidden(`Remote pod is ${pod.status}`, "REMOTE_POD_INACTIVE");
+    throw forbidden("Remote pod is not active", "REMOTE_POD_INACTIVE");
+  }
+
+  // Guard against habitat ID mismatch between participant, pod, and credential
+  if (participant.habitatId !== pod.habitatId || participant.habitatId !== credential.habitatId) {
+    throw forbidden(
+      "Habitat ID mismatch between credential, participant, and pod",
+      "HABITAT_MISMATCH",
+    );
+  }
+
+  // Reject local_member standing on remote participants — they must not bypass scope checks
+  if (participant.standing === "local_member") {
+    throw forbidden("Remote participant cannot have local_member standing", "INVALID_STANDING");
   }
 
   const grants = loadRelevantGrants(participant, pod);
@@ -85,13 +100,12 @@ function loadRelevantGrants(
   participant: RemoteParticipantRow,
   pod: RemotePodRow,
 ): RemoteGrantRow[] {
-  const allParticipant = grantRepo
-    .getGrantsByHabitat(participant.habitatId)
-    .filter((g) => g.remoteParticipantId === participant.id);
-  const allPod = grantRepo
-    .getGrantsByHabitat(pod.habitatId)
-    .filter((g) => g.remotePodId === pod.id && g.remoteParticipantId === null);
-  return [...allParticipant, ...allPod];
+  const allGrants = grantRepo.getGrantsByHabitat(participant.habitatId);
+  return allGrants.filter(
+    (g) =>
+      g.remoteParticipantId === participant.id ||
+      (g.remotePodId === pod.id && g.remoteParticipantId === null),
+  );
 }
 
 function mapParticipantToActorType(
@@ -114,7 +128,23 @@ export function remoteActionScope(action: RemoteActionScope) {
     const grantResult = evaluateGrantsForAction(ctx.grants, action, standing);
 
     if (!grantResult.allowed) {
-      throw forbidden(grantResult.reason, grantResult.code);
+      // Log the detailed reason server-side, but return a generic message
+      // to the caller. The code is safe to expose (non-sensitive identifier).
+      // The detailed reason would leak grant status, scopes, and standing to
+      // the remote actor, enabling probing attacks.
+      const logger = request.log ?? console;
+      logger.warn(
+        {
+          participantId: ctx.participant.id,
+          podId: ctx.pod.id,
+          habitatId: ctx.habitatId,
+          action,
+          code: grantResult.code,
+          internalReason: grantResult.reason,
+        },
+        "remote action denied",
+      );
+      throw forbidden("Remote action not permitted", grantResult.code);
     }
 
     updateAuditProvenance({
@@ -138,7 +168,7 @@ function evaluateGrantsForAction(
   if (grants.length === 0) {
     return {
       allowed: false,
-      reason: "No active grants for this remote participant",
+      reason: "No grants found for this remote participant",
       code: "NO_ACTIVE_GRANTS",
     };
   }
@@ -196,6 +226,22 @@ function evaluateGrant(
       reason: `Grant is in ${status} state — only heartbeat, submit, and release are allowed during grace`,
       code: "GRANT_GRACE_ACTION_BLOCKED",
     };
+  }
+
+  // Enforce grace window timeout — grace actions are blocked after graceWindowHours elapses
+  if (isGracePeriod) {
+    const graceStartTime = grant.expiredAt ?? grant.revokedAt;
+    if (graceStartTime) {
+      const elapsedMs = Date.now() - new Date(graceStartTime).getTime();
+      const graceMs = grant.graceWindowHours * 3_600_000;
+      if (elapsedMs > graceMs) {
+        return {
+          allowed: false,
+          reason: `Grant grace window (${grant.graceWindowHours}h) has elapsed`,
+          code: "GRACE_WINDOW_ELAPSED",
+        };
+      }
+    }
   }
 
   if (isGracePeriod && action === "submit" && standing !== "remote_contributor") {
@@ -264,9 +310,6 @@ export async function agentOrHumanOrRemoteAuth(
     await remoteParticipantAuth(request, _reply);
     return;
   }
-
-  const { extractAndVerifyJwt } = await import("./jwt-verification.js");
-  const agentService = await import("../services/agentService.js");
 
   const apiKey = request.headers["x-agent-api-key"] as string | undefined;
   if (apiKey) {

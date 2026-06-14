@@ -2,7 +2,11 @@ import { getDb } from "../db/index.js";
 import { remoteIdempotencyKeys } from "../db/schema/index.js";
 import { eq, and, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
+import {
+  repositoryCreateError,
+  repositoryUpdateError,
+  repositoryNotFoundError,
+} from "../errors/repository.js";
 import type { RemoteIdempotencyStatus } from "@orcy/shared/types";
 
 export interface CreateIdempotencyKeyInput {
@@ -54,23 +58,6 @@ export function getOrCreateIdempotencyKey(input: CreateIdempotencyKeyInput): {
   created: boolean;
 } {
   const db = getDb();
-
-  const existing = db
-    .select(fields)
-    .from(remoteIdempotencyKeys)
-    .where(
-      and(
-        eq(remoteIdempotencyKeys.remoteParticipantId, input.remoteParticipantId),
-        eq(remoteIdempotencyKeys.action, input.action),
-        eq(remoteIdempotencyKeys.idempotencyKey, input.idempotencyKey),
-      ),
-    )
-    .all();
-
-  if (existing.length > 0) {
-    return { row: existing[0], created: false };
-  }
-
   const id = uuid();
   try {
     db.insert(remoteIdempotencyKeys)
@@ -85,17 +72,34 @@ export function getOrCreateIdempotencyKey(input: CreateIdempotencyKeyInput): {
         status: "pending",
         expiresAt: input.expiresAt,
       })
+      .onConflictDoNothing({
+        target: [
+          remoteIdempotencyKeys.remoteParticipantId,
+          remoteIdempotencyKeys.action,
+          remoteIdempotencyKeys.idempotencyKey,
+        ],
+      })
       .run();
   } catch (err) {
     throw repositoryCreateError("remoteIdempotencyKey", err as Error, id);
   }
 
+  // Re-select after insert-or-skip — handles both first insert and concurrent race
   const row = db
     .select(fields)
     .from(remoteIdempotencyKeys)
-    .where(eq(remoteIdempotencyKeys.id, id))
-    .all()[0];
-  return { row, created: true };
+    .where(
+      and(
+        eq(remoteIdempotencyKeys.remoteParticipantId, input.remoteParticipantId),
+        eq(remoteIdempotencyKeys.action, input.action),
+        eq(remoteIdempotencyKeys.idempotencyKey, input.idempotencyKey),
+      ),
+    )
+    .get();
+  if (!row) throw repositoryNotFoundError("remoteIdempotencyKey", id);
+
+  // If the row's id matches our generated id, we created it; otherwise a concurrent caller did
+  return { row, created: row.id === id };
 }
 
 export function getIdempotencyKey(

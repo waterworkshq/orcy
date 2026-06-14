@@ -47,6 +47,8 @@ export function detectReachabilityProfile(baseUrl: string | null): ReachabilityP
   if (!baseUrl) return "local_only";
   if (isHttpsUrl(baseUrl)) return "tunnel";
   if (isPrivateNetworkUrl(baseUrl)) return "lan_vpn_tailscale";
+  // HTTP on a public address — likely a VPS behind a reverse proxy
+  if (baseUrl.startsWith("http://")) return "vps_reverse_proxy";
   return "local_only";
 }
 
