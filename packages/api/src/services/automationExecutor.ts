@@ -43,6 +43,7 @@ function isUrlSafe(url: string): { safe: boolean; reason?: string } {
   }
 }
 
+/** Runs every action on an automation rule in order and aggregates their results into an overall run status. */
 export async function executeActions(
   rule: AutomationRule,
   run: AutomationRuleRun,

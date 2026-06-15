@@ -11,8 +11,10 @@ import type {
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
 
+/** Maximum nesting depth allowed for recursive AND/OR/NOT condition trees before {@link ConditionDepthExceededError} is thrown. */
 export const MAX_CONDITION_DEPTH = 5;
 
+/** Error thrown when a condition tree is nested deeper than {@link MAX_CONDITION_DEPTH}. */
 export class ConditionDepthExceededError extends Error {
   constructor(public readonly depth: number) {
     super(`Condition nesting depth exceeds maximum of ${MAX_CONDITION_DEPTH}: ${depth}`);
@@ -20,6 +22,7 @@ export class ConditionDepthExceededError extends Error {
   }
 }
 
+/** Error thrown when an automation condition is structurally invalid or uses an unrecognized shape. */
 export class InvalidConditionError extends Error {
   constructor(message: string) {
     super(`INVALID_AUTOMATION_CONDITION: ${message}`);
@@ -34,6 +37,7 @@ const PRIORITY_RANK: Record<TaskPriority, number> = {
   critical: 4,
 };
 
+/** Recursively evaluates an automation condition tree against the evaluation context and returns whether it matched plus a human-readable reason. */
 export function evaluateCondition(
   condition: AutomationCondition,
   ctx: AutomationEvaluationContext,
@@ -364,12 +368,14 @@ function resolveFieldPath(path: string, ctx: AutomationEvaluationContext): unkno
   return acc;
 }
 
+/** Outcome of validating an automation rule's structure and action configuration. */
 export interface RuleValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
 }
 
+/** Validates an automation rule's actions for structural constraints such as action limits, template size, and disallowed webhook headers. */
 export function validateRule(rule: AutomationRule): RuleValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];

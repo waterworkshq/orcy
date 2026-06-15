@@ -7,6 +7,7 @@ import * as watcherRepo from "../repositories/watcher.js";
 import * as userRepo from "../repositories/user.js";
 import * as emailService from "./emailService.js";
 
+/** Discriminator for notification events emitted by the task and comment lifecycle. */
 export type NotificationEventType =
   | "task.assigned"
   | "task.submitted"
@@ -18,6 +19,7 @@ export type NotificationEventType =
   | "task.priority_changed"
   | "task.review_assigned";
 
+/** Context payload describing a single notification event: the actor, target task, and reason it was triggered. */
 export type NotificationEventData = {
   taskId?: string;
   missionId?: string;
@@ -109,6 +111,7 @@ function eventTypeToField(eventType: EventType): string | null {
   }
 }
 
+/** Resolves who should be notified for an event and sends preference-gated emails to each eligible recipient. */
 export async function processEvent(
   eventType: NotificationEventType,
   habitatId: string,

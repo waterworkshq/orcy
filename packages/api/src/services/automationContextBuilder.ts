@@ -13,6 +13,7 @@ import type {
   Sprint,
 } from "@orcy/shared";
 
+/** Resolved automation evaluation context holding the entities and diagnostics needed to evaluate rule conditions. */
 export interface AutomationEvaluationContext {
   habitat: Habitat | null;
   task: Task | null;
@@ -24,6 +25,7 @@ export interface AutomationEvaluationContext {
   raw: Record<string, unknown>;
 }
 
+/** Loads all entities referenced by an automation trigger into an evaluation context, recording missing references as warnings. */
 export function buildEvaluationContext(
   trigger: AutomationTriggerContext,
 ): AutomationEvaluationContext {
@@ -96,6 +98,7 @@ export function buildEvaluationContext(
   };
 }
 
+/** Constructs an automation trigger context from individual arguments, applying defaults for optional fields. */
 export function buildTriggerContext(args: {
   triggerType: string;
   triggerEventId: string | null;

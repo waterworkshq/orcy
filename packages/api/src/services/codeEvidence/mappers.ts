@@ -13,6 +13,7 @@ import type { GapReason } from "@orcy/shared";
 
 import { codeEvidenceGaps, codeEvidenceLinks } from "../../db/schema/index.js";
 
+/** Groups code evidence link rows by evidence type, mapping each row to its API-facing item shape. */
 export function groupByEvidenceType(
   links: (typeof codeEvidenceLinks.$inferSelect)[],
 ): Array<{ evidenceType: CodeEvidenceType; items: CodeEvidenceLinkItem[] }> {
@@ -28,6 +29,7 @@ export function groupByEvidenceType(
   }));
 }
 
+/** Maps a stored code evidence link row to its API-facing item shape. */
 export function mapLinkToItem(link: typeof codeEvidenceLinks.$inferSelect): CodeEvidenceLinkItem {
   return {
     linkId: link.id,
@@ -48,6 +50,7 @@ export function mapLinkToItem(link: typeof codeEvidenceLinks.$inferSelect): Code
   };
 }
 
+/** Maps a stored code evidence gap row to its API-facing item shape. */
 export function mapGapToItem(gap: typeof codeEvidenceGaps.$inferSelect): CodeEvidenceGapItem {
   return {
     id: gap.id,

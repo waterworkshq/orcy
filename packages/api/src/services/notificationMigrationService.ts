@@ -12,6 +12,7 @@ const CANDIDATE_V2_EVENTS: string[] = [
   "mission.risk_marked",
 ];
 
+/** Outcome of converting a user's legacy notification preferences into v2 subscriptions, with created/updated/skipped counts and any errors. */
 export interface MigrationResult {
   created: number;
   updated: number;
@@ -19,6 +20,7 @@ export interface MigrationResult {
   errors: string[];
 }
 
+/** Reads legacy boolean preference fields for a user and creates or updates v2 recipient-override subscriptions to match, persisting changes to the DB. */
 export function migrateLegacyPreferences(userId: string, habitatId: string): MigrationResult {
   const result: MigrationResult = { created: 0, updated: 0, skipped: 0, errors: [] };
   const prefs = prefRepo.getPreferences(userId, habitatId);
@@ -66,6 +68,7 @@ export function migrateLegacyPreferences(userId: string, habitatId: string): Mig
   return result;
 }
 
+/** Placeholder for scheduler-driven migration of all users in a habitat; currently a no-op returning an empty result. */
 export function migrateAllLegacyPreferencesForHabitat(habitatId: string): MigrationResult {
   const total: MigrationResult = { created: 0, updated: 0, skipped: 0, errors: [] };
   // Migration is exposed for test purposes; production deployment should
@@ -73,6 +76,7 @@ export function migrateAllLegacyPreferencesForHabitat(habitatId: string): Migrat
   return total;
 }
 
+/** Returns whether every legacy preference field for a user has a corresponding v2 subscription on record. */
 export function isLegacyMigrationComplete(userId: string, habitatId: string): boolean {
   const prefs = prefRepo.getPreferences(userId, habitatId);
   for (const legacyField of Object.keys(LEGACY_FIELD_TO_V2_EVENT)) {
@@ -85,6 +89,7 @@ export function isLegacyMigrationComplete(userId: string, habitatId: string): bo
   return true;
 }
 
+/** Returns the list of v2 event types that are candidates for legacy preference migration. */
 export function getMigrationTargetEvents(): string[] {
   return [...CANDIDATE_V2_EVENTS];
 }

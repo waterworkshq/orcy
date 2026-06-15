@@ -40,6 +40,7 @@ const ALLOWED_TOKENS = new Set([
   "raw",
 ]);
 
+/** Result of rendering a template: the substituted string plus warnings for unknown tokens. */
 export interface RenderedTemplate {
   rendered: string;
   warnings: string[];
@@ -54,6 +55,7 @@ function extractFields(src: object | null): Record<string, unknown> {
   return result;
 }
 
+/** Substitutes `{{token}}` placeholders in a template with values from the evaluation context, leaving unknown or null tokens in place and warning about them. */
 export function renderTemplate(
   template: string,
   ctx: AutomationEvaluationContext,

@@ -21,6 +21,7 @@ import { mapLinkToItem } from "./mappers.js";
 import type { CodeEvidenceActor, LinkResult, ParsedUrl } from "./types.js";
 import { normalizeUrl, parseUrl } from "./urlParsing.js";
 
+/** Persists branch, commit, changed-file, PR, pipeline, and external-URL evidence against a task, auto-resolving matching gaps, and returns the created links with any warnings and errors. */
 export function linkTaskCodeEvidence(
   taskId: string,
   input: CodeEvidenceLinkInput,
@@ -30,6 +31,7 @@ export function linkTaskCodeEvidence(
   return linkTargetCodeEvidence("task", taskId, input, actor, options?.habitatId);
 }
 
+/** Persists branch, commit, changed-file, PR, pipeline, and external-URL evidence against a mission and returns the created links with any warnings and errors. */
 export function linkMissionCodeEvidence(
   missionId: string,
   input: CodeEvidenceLinkInput,
@@ -271,6 +273,7 @@ function linkBranch(
   return { link: link ? mapLinkToItem(link) : undefined };
 }
 
+/** Upserts a commit record and links it as evidence to the target, deriving source and verification state from the actor. */
 export function linkCommit(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -408,6 +411,7 @@ function linkChangedFile(
   });
 }
 
+/** Links a recognized provider URL (such as a pull request or pipeline run) to the target using its parsed identifier. */
 export function linkParsedUrl(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -447,6 +451,7 @@ export function linkParsedUrl(
   return { link: mapLinkToItem(link) };
 }
 
+/** Links an arbitrary external URL that doesn't match a known provider pattern, marking it unverified with baseline confidence. */
 export function linkExternalUrl(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -482,6 +487,7 @@ export function linkExternalUrl(
   return { link: mapLinkToItem(link) };
 }
 
+/** Finds or creates an active evidence link, recording a corroborating source on an existing link instead of duplicating it. */
 export function ensureEvidenceLink(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -524,6 +530,7 @@ export function ensureEvidenceLink(
   return result.link;
 }
 
+/** Ensures a task's pull-request evidence link exists from a webhook or other source, marking it verified when the habitat repository is verified. */
 export function ensureEvidenceLinkForPullRequest(
   pr: {
     id: string;
@@ -561,6 +568,7 @@ export function ensureEvidenceLinkForPullRequest(
   );
 }
 
+/** Ensures a task's pipeline-run evidence link exists from a webhook or other source, marking it verified when the habitat repository is verified. */
 export function ensureEvidenceLinkForPipelineEvent(
   event: {
     id: string;

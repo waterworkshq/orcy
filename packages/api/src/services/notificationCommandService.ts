@@ -21,6 +21,7 @@ import type {
   NotificationCadence,
 } from "@orcy/shared";
 
+/** Command describing a notification to create: event type, source, severity, and optional explicit recipients. */
 export interface EnqueueNotificationCommand {
   habitatId: string;
   eventType: NotificationEventType;
@@ -40,6 +41,7 @@ export interface EnqueueNotificationCommand {
   }>;
 }
 
+/** Result of enqueueing a notification: the persisted event, created deliveries, and any recipients that were suppressed. */
 export interface EnqueueNotificationResult {
   event: NotificationEvent;
   deliveries: NotificationDelivery[];
@@ -50,6 +52,7 @@ export interface EnqueueNotificationResult {
   }>;
 }
 
+/** Creates a notification event, renders its template, and persists a delivery row for each resolved recipient (including remote participants). */
 export function enqueueNotification(
   command: EnqueueNotificationCommand,
 ): EnqueueNotificationResult {
@@ -117,6 +120,7 @@ export function enqueueNotification(
   return { event, deliveries, suppressed };
 }
 
+/** Convenience wrapper around `enqueueNotification` for the common case of notifying an explicit recipient list. */
 export function enqueueNotificationForRecipients(
   habitatId: string,
   eventType: NotificationEventType,
@@ -154,6 +158,7 @@ export function enqueueNotificationForRecipients(
   });
 }
 
+/** Returns the full resolved recipient list (including remote participants) for an event without persisting anything. */
 export function getResolvedRecipients(
   habitatId: string,
   eventType: NotificationEventType,

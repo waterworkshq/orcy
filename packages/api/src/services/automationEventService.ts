@@ -29,6 +29,7 @@ interface IncomingEvent {
   data?: Record<string, unknown>;
 }
 
+/** Outcome of matching a single incoming event against a habitat's enabled automation rules. */
 export interface IngestionResult {
   eventType: string;
   matched: number;
@@ -36,6 +37,7 @@ export interface IngestionResult {
   errors: string[];
 }
 
+/** Matches an incoming event against a habitat's enabled automation rules, applying cooldown, rate-limit, and self-loop guards before starting a run for each matched rule. */
 export function ingestEvent(habitatId: string, event: IncomingEvent): IngestionResult {
   const errors: string[] = [];
 

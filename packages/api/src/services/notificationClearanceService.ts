@@ -8,12 +8,14 @@ const STATUS_CLEARABLE_BY_ACKNOWLEDGED = ["acknowledged"] as NotificationDeliver
 const STATUS_CLEARABLE_BY_RESOLVED = ["acknowledged"];
 const STATUS_CLEARABLE_BY_FAILED = ["failed"] as NotificationDeliveryStatus[];
 
+/** Outcome of clearing deliveries for a habitat or admin scope, including the count cleared and any errors. */
 export interface ClearanceResult {
   habitatId: string;
   cleared: number;
   errors: string[];
 }
 
+/** Clears deliveries across all habitats that have aged past their retention policy thresholds, persisting `cleared` status to the DB. */
 export function runScheduledClearance(): ClearanceResult[] {
   const results: ClearanceResult[] = [];
   const habitats = habitatRepo.listHabitats();
@@ -83,6 +85,7 @@ function clearHabitat(habitatId: string): ClearanceResult {
   return { habitatId, cleared, errors };
 }
 
+/** Force-clears the given delivery IDs regardless of retention policy (admin override) and returns one aggregated result. */
 export function adminClearDeliveries(deliveryIds: string[]): ClearanceResult {
   const errors: string[] = [];
   let cleared = 0;

@@ -15,6 +15,7 @@ import * as codeEvidenceGapRepo from "../../repositories/codeEvidenceGapReposito
 import * as codeEvidenceLinkRepo from "../../repositories/codeEvidenceLinkRepository.js";
 import type { CodeEvidenceActor } from "./types.js";
 
+/** Marks an existing evidence link as corrected or superseded with an actor-supplied reason. */
 export function correctEvidenceLink(
   linkId: string,
   input: CodeEvidenceCorrectionInput,
@@ -33,6 +34,7 @@ export function correctEvidenceLink(
   );
 }
 
+/** Records that code evidence is not applicable for a target so completeness reports `not_applicable`. */
 export function markCodeEvidenceNotApplicable(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -49,6 +51,7 @@ export function markCodeEvidenceNotApplicable(
   });
 }
 
+/** Removes the not-applicable override for a target so completeness falls back to link and gap counts. */
 export function clearCodeEvidenceNotApplicable(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -56,6 +59,7 @@ export function clearCodeEvidenceNotApplicable(
   return codeEvidenceCompletenessRepo.clearNotApplicable(targetType, targetId);
 }
 
+/** Records a new code evidence gap describing why expected evidence is missing for a target. */
 export function reportCodeEvidenceGap(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -72,6 +76,7 @@ export function reportCodeEvidenceGap(
   });
 }
 
+/** Marks an existing evidence gap as resolved with a resolution reason. */
 export function resolveCodeEvidenceGap(
   gapId: string,
   input: CodeEvidenceGapResolveInput,
@@ -80,6 +85,7 @@ export function resolveCodeEvidenceGap(
   return codeEvidenceGapRepo.resolveGap(gapId, actor.type, actor.id, input.resolutionReason);
 }
 
+/** Computes the completeness status for a target, honoring a not-applicable override then counting active links and gaps. */
 export function deriveCompleteness(
   targetType: CodeEvidenceTargetType,
   targetId: string,
@@ -110,6 +116,7 @@ export function deriveCompleteness(
   return { status: "unknown" };
 }
 
+/** Aggregates link, gap, and verification counts for a target into the summary shown in the evidence response. */
 export function computeSummary(
   targetType: CodeEvidenceTargetType,
   targetId: string,

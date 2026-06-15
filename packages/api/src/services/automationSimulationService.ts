@@ -18,17 +18,20 @@ import type {
   AutomationSkipReason,
 } from "@orcy/shared";
 
+/** Input for simulating an automation rule against a trigger without executing its actions. */
 export interface SimulateRuleInput {
   rule: AutomationRule;
   trigger: AutomationTriggerContext;
   overrideCondition?: AutomationRule["condition"];
 }
 
+/** Outcome of a simulation: condition result, action previews, resolved context, and rule validation. */
 export interface SimulateRuleResult extends AutomationSimulationResult {
   context: AutomationEvaluationContext;
   validation: RuleValidationResult;
 }
 
+/** Simulates an automation rule against a trigger, reporting whether it would execute and previewing each action without side effects. */
 export function simulateRule(input: SimulateRuleInput): SimulateRuleResult {
   const context = buildEvaluationContext(input.trigger);
   const validation = validateRule(input.rule);
@@ -125,6 +128,7 @@ function previewAction(
   }
 }
 
+/** Convenience wrapper that assembles a trigger context for simulation from simplified arguments. */
 export function buildSimulationTrigger(args: {
   habitatId: string;
   triggerType: string;

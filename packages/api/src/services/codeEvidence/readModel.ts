@@ -6,6 +6,7 @@ import * as codeEvidenceLinkRepo from "../../repositories/codeEvidenceLinkReposi
 import { computeSummary, deriveCompleteness } from "./completeness.js";
 import { groupByEvidenceType, mapGapToItem, mapLinkToItem } from "./mappers.js";
 
+/** Assembles the full code evidence response — active links, gaps, completeness, summary, and optional history — for a task. */
 export function getTaskCodeEvidence(
   taskId: string,
   options?: { includeHistory?: boolean; habitatId?: string },
@@ -13,6 +14,7 @@ export function getTaskCodeEvidence(
   return getTargetCodeEvidence("task", taskId, options);
 }
 
+/** Assembles the full code evidence response for a mission by delegating to the shared target read model. */
 export function getMissionCodeEvidence(
   missionId: string,
   options?: { includeHistory?: boolean; habitatId?: string },

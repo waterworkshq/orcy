@@ -5,6 +5,7 @@ import * as digestRepo from "../repositories/notificationDigest.js";
 import * as habitatRepo from "../repositories/board.js";
 import type { NotificationSubscription, NotificationCadence } from "@orcy/shared";
 
+/** Outcome of grouping a recipient's pending deliveries into a single digest event for a given cadence. */
 export interface DigestGroupResult {
   cadence: NotificationCadence;
   habitatId: string;
@@ -15,18 +16,22 @@ export interface DigestGroupResult {
   errors: string[];
 }
 
+/** Generates digest events for all subscriptions on the hourly cadence and returns per-recipient results. */
 export function generateHourlyDigests(): DigestGroupResult[] {
   return generateDigestsForCadence("hourly");
 }
 
+/** Generates digest events for all subscriptions on the daily cadence and returns per-recipient results. */
 export function generateDailyDigests(): DigestGroupResult[] {
   return generateDigestsForCadence("daily");
 }
 
+/** Generates digest events for all subscriptions on the weekly cadence and returns per-recipient results. */
 export function generateWeeklyDigests(): DigestGroupResult[] {
   return generateDigestsForCadence("weekly");
 }
 
+/** Runs hourly, daily, and weekly digest generation and returns the combined per-recipient results. */
 export function generateAllDigests(): DigestGroupResult[] {
   return [...generateHourlyDigests(), ...generateDailyDigests(), ...generateWeeklyDigests()];
 }

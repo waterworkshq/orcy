@@ -6,6 +6,7 @@ import { deliverSlack } from "./notification-channels/slack.js";
 import { deliverDiscord } from "./notification-channels/discord.js";
 import type { NotificationDelivery, NotificationEvent, NotificationChannel } from "@orcy/shared";
 
+/** Outcome of attempting delivery through a single notification channel. */
 export interface ChannelDeliveryResult {
   channel: NotificationChannel;
   success: boolean;
@@ -14,11 +15,13 @@ export interface ChannelDeliveryResult {
   statusCode?: number;
 }
 
+/** Aggregated outcome of delivering a single notification delivery across all of its configured channels. */
 export interface DeliveryResult {
   deliveryId: string;
   results: ChannelDeliveryResult[];
 }
 
+/** Delivers a persisted notification through every channel on its delivery record and returns the per-channel results. */
 export async function deliverNotification(deliveryId: string): Promise<DeliveryResult> {
   const delivery = deliveryRepo.getNotificationDeliveryById(deliveryId);
   if (!delivery) {
