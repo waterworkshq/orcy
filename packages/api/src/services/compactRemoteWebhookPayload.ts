@@ -20,6 +20,9 @@ import { createHmac } from "crypto";
  * with anything but the host.
  */
 
+/**
+ * Compact remote webhook payload sent from a host to a remote pod, summarizing the event, actor, scope, and follow-up API path.
+ */
 export interface CompactRemoteWebhookPayload {
   schemaVersion: 1;
   eventType: string;
@@ -54,6 +57,9 @@ export interface CompactRemoteWebhookPayload {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Raw event fields used to build a {@link CompactRemoteWebhookPayload}.
+ */
 export interface CompactRemoteWebhookEventInput {
   eventType: string;
   occurredAt: string;
@@ -73,6 +79,9 @@ export interface CompactRemoteWebhookEventInput {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Converts a {@link CompactRemoteWebhookEventInput} into a {@link CompactRemoteWebhookPayload} with normalized scope and grant context.
+ */
 export function buildCompactRemoteWebhookPayload(
   input: CompactRemoteWebhookEventInput,
 ): CompactRemoteWebhookPayload {
@@ -106,9 +115,7 @@ export function buildCompactRemoteWebhookPayload(
 }
 
 /**
- * Compute the HMAC-SHA256 signature for a compact payload using the
- * endpoint's signing secret. The remote pod verifies with the same
- * algorithm. The signature is hex-encoded and included as a header.
+ * Computes the HMAC-SHA256 signature for a {@link CompactRemoteWebhookPayload} using the endpoint's signing secret.
  */
 export function signCompactRemoteWebhookPayload(
   payload: CompactRemoteWebhookPayload,

@@ -6,6 +6,7 @@ import { SessionManager } from "./session/manager.js";
 import { HttpClaimStrategy } from "./httpClaimStrategy.js";
 import { HttpHeartbeatStrategy } from "./httpHeartbeatStrategy.js";
 
+/** Dependencies required to construct a {@link PollLoop}. */
 export interface PollLoopDeps {
   config: DaemonConfig;
   apiClient: DaemonApiClient;
@@ -15,6 +16,7 @@ export interface PollLoopDeps {
   heartbeatStrategy?: IHeartbeatStrategy;
 }
 
+/** Drives the daemon's periodic claim-and-work tick loop plus agent heartbeats for a set of registered agents. */
 export class PollLoop {
   private config: DaemonConfig;
   private sessionManager: ISessionManager;

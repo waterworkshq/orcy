@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from "crypto";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -19,13 +19,18 @@ function cleanExpired(): void {
   }
 }
 
+/**
+ * Creates a new random OAuth state token bound to a habitat and stores it in memory,
+ * cleaning expired entries before doing so.
+ */
 export function generateState(habitatId: string): string {
   cleanExpired();
-  const state = crypto.randomBytes(24).toString('hex');
+  const state = crypto.randomBytes(24).toString("hex");
   pendingStates.set(state, { habitatId, createdAt: Date.now() });
   return state;
 }
 
+/** Associates a PKCE code verifier with an existing in-memory OAuth state token. */
 export function storeCodeVerifier(state: string, codeVerifier: string): void {
   const pending = pendingStates.get(state);
   if (pending) {
@@ -33,6 +38,10 @@ export function storeCodeVerifier(state: string, codeVerifier: string): void {
   }
 }
 
+/**
+ * Validates and removes an in-memory OAuth state token for the given habitat,
+ * returning any stored PKCE code verifier. State can only be used once.
+ */
 export function consumeState(state: string, habitatId: string): { codeVerifier?: string } | null {
   const pending = pendingStates.get(state);
   if (!pending) return null;
@@ -47,6 +56,7 @@ export function consumeState(state: string, habitatId: string): { codeVerifier?:
   return { codeVerifier: pending.codeVerifier };
 }
 
+/** Clears every in-memory OAuth state token, primarily for tests. */
 export function clearAllStates(): void {
   pendingStates.clear();
 }

@@ -1,12 +1,16 @@
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'http';
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from "http";
 
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
 let activeServer: Server | null = null;
 
+/**
+ * Starts a temporary local HTTP server that captures the OAuth authorization code or error
+ * from the redirect and returns the bound port plus a promise that resolves with the code.
+ */
 export function startCallbackServer(): Promise<{ port: number; code: Promise<string> }> {
   if (activeServer) {
-    throw new Error('OAuth callback server is already running');
+    throw new Error("OAuth callback server is already running");
   }
 
   let resolveCode: (code: string) => void;
@@ -18,13 +22,15 @@ export function startCallbackServer(): Promise<{ port: number; code: Promise<str
   });
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? '/', `http://127.0.0.1`);
-    const codeParam = url.searchParams.get('code');
-    const errorParam = url.searchParams.get('error');
+    const url = new URL(req.url ?? "/", `http://127.0.0.1`);
+    const codeParam = url.searchParams.get("code");
+    const errorParam = url.searchParams.get("error");
 
     if (errorParam) {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<html><body><h1>Authorization failed</h1><p>You can close this tab.</p></body></html>');
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(
+        "<html><body><h1>Authorization failed</h1><p>You can close this tab.</p></body></html>",
+      );
       setImmediate(() => {
         rejectCode!(new Error(`OAuth error: ${errorParam}`));
         shutdown();
@@ -33,8 +39,10 @@ export function startCallbackServer(): Promise<{ port: number; code: Promise<str
     }
 
     if (codeParam) {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<html><body><h1>Authorization successful</h1><p>You can close this tab and return to Orcy.</p></body></html>');
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(
+        "<html><body><h1>Authorization successful</h1><p>You can close this tab and return to Orcy.</p></body></html>",
+      );
       setImmediate(() => {
         resolveCode!(codeParam);
         shutdown();
@@ -42,22 +50,22 @@ export function startCallbackServer(): Promise<{ port: number; code: Promise<str
       return;
     }
 
-    res.writeHead(400, { 'Content-Type': 'text/html' });
-    res.end('<html><body><h1>Missing authorization code</h1></body></html>');
+    res.writeHead(400, { "Content-Type": "text/html" });
+    res.end("<html><body><h1>Missing authorization code</h1></body></html>");
   });
 
   activeServer = server;
 
   return new Promise((resolve, reject) => {
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        reject(new Error('Failed to get server address'));
+      if (!addr || typeof addr === "string") {
+        reject(new Error("Failed to get server address"));
         return;
       }
 
       const timeout = setTimeout(() => {
-        rejectCode!(new Error('OAuth callback timed out after 5 minutes'));
+        rejectCode!(new Error("OAuth callback timed out after 5 minutes"));
         shutdown();
       }, CALLBACK_TIMEOUT_MS);
 
@@ -66,13 +74,14 @@ export function startCallbackServer(): Promise<{ port: number; code: Promise<str
       resolve({ port: addr.port, code });
     });
 
-    server.on('error', (err) => {
+    server.on("error", (err) => {
       reject(err);
       shutdown();
     });
   });
 }
 
+/** Stops the running OAuth callback server, if any. */
 export function stopCallbackServer(): void {
   shutdown();
 }

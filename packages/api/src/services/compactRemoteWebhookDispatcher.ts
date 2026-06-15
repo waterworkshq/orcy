@@ -32,6 +32,9 @@ import {
  * AES-encrypted at rest.
  */
 
+/**
+ * Request shape for {@link dispatchCompactRemoteEvent}, carrying the habitat, event type, and {@link CompactRemoteWebhookEventInput} payload.
+ */
 export interface RemoteEventDispatchInput {
   habitatId: string;
   eventType: string;
@@ -39,6 +42,9 @@ export interface RemoteEventDispatchInput {
   payload: CompactRemoteWebhookEventInput;
 }
 
+/**
+ * Counts of successful, failed, and skipped deliveries produced by {@link dispatchCompactRemoteEvent}.
+ */
 export interface RemoteEventDispatchResult {
   dispatched: number;
   failed: number;
@@ -48,23 +54,22 @@ export interface RemoteEventDispatchResult {
 const ENDPOINT_PLAINTEXT_CACHE = new Map<string, string>();
 
 /**
- * Register the plaintext secret for an endpoint. Called by the route
- * layer immediately after creation (where the secret is shown).
- * Phase E.1 should replace this with encrypted-at-rest storage.
+ * Caches the plaintext signing secret for a remote webhook endpoint after creation or rotation.
  */
 export function registerEndpointPlaintextSecret(endpointId: string, secret: string): void {
   ENDPOINT_PLAINTEXT_CACHE.set(endpointId, secret);
 }
 
 /**
- * Forget the cached plaintext for an endpoint. Called on rotation
- * and on disable (so a disabled endpoint that gets re-enabled must
- * re-register its secret).
+ * Removes the cached plaintext signing secret for a remote webhook endpoint.
  */
 export function forgetEndpointPlaintextSecret(endpointId: string): void {
   ENDPOINT_PLAINTEXT_CACHE.delete(endpointId);
 }
 
+/**
+ * Dispatches a compact remote webhook event to enabled endpoints that subscribe to it, signing each payload and recording delivery outcomes.
+ */
 export async function dispatchCompactRemoteEvent(
   input: RemoteEventDispatchInput,
 ): Promise<RemoteEventDispatchResult> {
@@ -167,9 +172,7 @@ export async function dispatchCompactRemoteEvent(
 }
 
 /**
- * Build the dispatch input for a remote-originated event. This is the
- * producer-side helper called by routes when a remote participant
- * performs an action.
+ * Builds a {@link RemoteEventDispatchInput} from a remote participant action, including the follow-up API path.
  */
 export function buildDispatchInputFromRemoteAction(opts: {
   habitatId: string;

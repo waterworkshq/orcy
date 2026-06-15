@@ -7,20 +7,17 @@ type ToolResult = {
 };
 
 /**
- * Generic tool handler. Uses KanbanApiClient because dispatch handlers
- * route to domain-specific implementations at runtime.
+ * Domain action handler invoked by the dispatch router with a {@link KanbanApiClient} and the parsed tool arguments.
  */
 export type Handler<TResult = unknown> = (
   client: KanbanApiClient,
   args: any,
 ) => TResult | Promise<TResult>;
 
-/**
- * Generic tool handler. Uses KanbanApiClient because dispatch handlers
- * route to domain-specific implementations at runtime.
- */
+/** Top-level MCP tool handler returned by {@link createDispatchHandler}; routes an action to its {@link Handler}. */
 export type ToolHandler = (client: KanbanApiClient, args: any) => Promise<ToolResult>;
 
+/** Shape of the MCP tool descriptor passed to {@link createDispatchTool}. */
 export interface DispatchToolConfig {
   name: string;
   description: string;
@@ -29,6 +26,7 @@ export interface DispatchToolConfig {
   requiredFor?: Record<string, string[]>;
 }
 
+/** Builds the MCP {@link Tool} descriptor for a dispatch-backed `orcy_*` tool from its name, description, and action list. */
 export function createDispatchTool(config: DispatchToolConfig): Tool {
   return {
     name: config.name,
@@ -74,6 +72,9 @@ const formatError = (err: unknown): ToolResult => {
   };
 };
 
+/**
+ * Wraps an action-name → {@link Handler} map into a single MCP {@link ToolHandler} that validates required args and normalizes results.
+ */
 export function createDispatchHandler(
   actions: Record<string, Handler<any>>,
   requiredFor?: Record<string, string[]>,
