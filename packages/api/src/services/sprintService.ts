@@ -5,18 +5,31 @@ import * as missionRepo from "../repositories/feature.js";
 import * as habitatRepo from "../repositories/board.js";
 import type { Sprint, SprintCreateInput, SprintUpdateInput, CarryOverPolicy } from "@orcy/shared";
 
+/**
+ * Returns the {@link Sprint} with the given id, or null when none exists.
+ */
 export function getSprint(sprintId: string): Sprint | null {
   return sprintRepo.getById(sprintId);
 }
 
+/**
+ * Returns all {@link Sprint}s belonging to the given habitat.
+ */
 export function getSprintsForHabitat(habitatId: string): Sprint[] {
   return sprintRepo.getByHabitatId(habitatId);
 }
 
+/**
+ * Returns the active {@link Sprint} for the given habitat, or null when none is active.
+ */
 export function getActiveSprint(habitatId: string): Sprint | null {
   return sprintRepo.getActiveForHabitat(habitatId);
 }
 
+/**
+ * Creates a new {@link Sprint} after validating that the habitat has no active sprint
+ * and the date range is valid and non-overlapping; side effect: publishes a `sprint.created` SSE event for the habitat.
+ */
 export function createSprint(
   habitatId: string,
   input: SprintCreateInput,
@@ -59,6 +72,9 @@ export function createSprint(
   return sprint;
 }
 
+/**
+ * Applies a partial {@link SprintUpdateInput} to a planning {@link Sprint}, rejecting modifications once the sprint is active or completed.
+ */
 export function updateSprint(sprintId: string, input: SprintUpdateInput): Sprint {
   const existing = sprintRepo.getById(sprintId);
   if (!existing) throw new Error("SPRINT_NOT_FOUND");
@@ -72,6 +88,9 @@ export function updateSprint(sprintId: string, input: SprintUpdateInput): Sprint
   return updated;
 }
 
+/**
+ * Deletes a non-active {@link Sprint} and detaches its committed missions back to their habitat.
+ */
 export function deleteSprint(sprintId: string): void {
   const existing = sprintRepo.getById(sprintId);
   if (!existing) throw new Error("SPRINT_NOT_FOUND");
@@ -85,6 +104,9 @@ export function deleteSprint(sprintId: string): void {
   logger.info({ sprintId }, "Sprint deleted");
 }
 
+/**
+ * Transitions a planning {@link Sprint} to active; side effect: publishes a `sprint.started` SSE event for the habitat.
+ */
 export function startSprint(sprintId: string): Sprint {
   const existing = sprintRepo.getById(sprintId);
   if (!existing) throw new Error("SPRINT_NOT_FOUND");
@@ -102,6 +124,9 @@ export function startSprint(sprintId: string): Sprint {
   return updated;
 }
 
+/**
+ * Completes an active {@link Sprint}, partitioning missions into completed and carried-over sets per the habitat's {@link CarryOverPolicy}; side effect: publishes a `sprint.completed` SSE event for the habitat.
+ */
 export function completeSprint(sprintId: string): Sprint {
   const existing = sprintRepo.getById(sprintId);
   if (!existing) throw new Error("SPRINT_NOT_FOUND");
@@ -177,6 +202,9 @@ function findNextPlanningSprint(habitatId: string, excludeSprintId: string): Spr
   );
 }
 
+/**
+ * Cancels a planning or active {@link Sprint} and detaches its committed missions back to their habitat.
+ */
 export function cancelSprint(sprintId: string): Sprint {
   const existing = sprintRepo.getById(sprintId);
   if (!existing) throw new Error("SPRINT_NOT_FOUND");
@@ -193,6 +221,9 @@ export function cancelSprint(sprintId: string): Sprint {
   return updated;
 }
 
+/**
+ * Commits a mission from the same habitat to a planning {@link Sprint}.
+ */
 export function addMissionToSprint(sprintId: string, missionId: string): Sprint {
   const sprint = sprintRepo.getById(sprintId);
   if (!sprint) throw new Error("SPRINT_NOT_FOUND");
@@ -207,6 +238,9 @@ export function addMissionToSprint(sprintId: string, missionId: string): Sprint 
   return updated;
 }
 
+/**
+ * Detaches a mission from a planning {@link Sprint}.
+ */
 export function removeMissionFromSprint(sprintId: string, missionId: string): Sprint {
   const sprint = sprintRepo.getById(sprintId);
   if (!sprint) throw new Error("SPRINT_NOT_FOUND");
@@ -217,6 +251,9 @@ export function removeMissionFromSprint(sprintId: string, missionId: string): Sp
   return updated;
 }
 
+/**
+ * Scans for expired active {@link Sprint}s and completes each via {@link completeSprint}, returning the count successfully completed.
+ */
 export function autoCompleteSprints(): number {
   const expired = sprintRepo.getExpiredActiveSprints();
   let completed = 0;

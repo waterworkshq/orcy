@@ -28,6 +28,7 @@ export interface CreateHabitatInput {
   teamId?: string | null;
 }
 
+/** Creates a new {@link Habitat}, seeding builtin saved filters and the default skill and (optionally) a default column flow; side effects: publishes `habitat.created` SSE, fires a plugin `habitat.created` event, and rebuilds the board secret cache. */
 export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; columns: Column[] } {
   const habitat = habitatRepo.createHabitat({
     name: input.name,
@@ -49,6 +50,7 @@ export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; co
   return { habitat, columns };
 }
 
+/** Returns the {@link Habitat}, its {@link Column}s, and its non-archived missions joined with progress, or null when the habitat does not exist. */
 export function getHabitat(
   habitatId: string,
 ): { habitat: Habitat; columns: Column[]; missions: missionService.MissionWithProgress[] } | null {
@@ -60,10 +62,12 @@ export function getHabitat(
   return { habitat: result.habitat, columns: result.columns, missions: missionList };
 }
 
+/** Returns the list of {@link Habitat}s, optionally filtered by a case-insensitive name match and a set of team ids. */
 export function listHabitats(name?: string, teamIds?: string[]): Habitat[] {
   return habitatRepo.listHabitats(name, teamIds);
 }
 
+/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. */
 export function updateHabitat(
   habitatId: string,
   input: {
@@ -82,12 +86,14 @@ export function updateHabitat(
   return habitat;
 }
 
+/** Removes a {@link Habitat} and all of its dependents; side effect: rebuilds the board secret cache and publishes `habitat.deleted` SSE. */
 export function deleteHabitat(habitatId: string): void {
   habitatRepo.deleteHabitat(habitatId);
   rebuildHabitatSecretCache();
   sseBroadcaster.publish(habitatId, { type: "habitat.deleted", data: { habitatId } });
 }
 
+/** Returns event-based activity statistics for a {@link Habitat}, augmented with per-column WIP health (`ok` / `warning` / `exceeded`) for every column. */
 export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
   const stats = eventRepo.getHabitatStats(habitatId);
 
@@ -219,6 +225,7 @@ export interface ImportResult {
   warnings: string[];
 }
 
+/** Returns a versioned {@link HabitatExportData} snapshot of the habitat (columns, missions, tasks, comments, templates, and webhooks), or null when the habitat does not exist. */
 export function exportHabitat(habitatId: string): HabitatExportData | null {
   const result = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
   if (!result) return null;
@@ -332,6 +339,7 @@ interface ImportHabitatData extends HabitatExportData {
   };
 }
 
+/** Reconstructs a {@link Habitat} from an import payload (export versions 1 and 2 are supported), optionally replacing an existing habitat id; side effect: deletes the existing habitat, persists columns, missions, tasks, comments, templates, and webhooks, and publishes `habitat.created` SSE. */
 export function importHabitat(
   data: ImportHabitatData,
   existingHabitatId?: string,

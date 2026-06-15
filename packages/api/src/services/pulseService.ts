@@ -27,6 +27,9 @@ const MAX_METADATA_BYTES = 10_000;
 type PulseCreatedHook = (pulse: pulseRepo.Pulse) => void;
 const pulseCreatedHooks: PulseCreatedHook[] = [];
 
+/**
+ * Registers a hook invoked after every pulse creation and returns an unsubscribe function, mutating the internal hooks list for the process lifetime.
+ */
 export function onPulseCreated(hook: PulseCreatedHook): () => void {
   pulseCreatedHooks.push(hook);
   return () => {
@@ -35,6 +38,9 @@ export function onPulseCreated(hook: PulseCreatedHook): () => void {
   };
 }
 
+/**
+ * Persists a {@link pulseRepo.Pulse} and synchronously runs all registered `onPulseCreated` hooks, swallowing per-hook errors so one bad subscriber cannot block the others.
+ */
 export function createPulseAndNotify(input: pulseRepo.CreatePulseInput): pulseRepo.Pulse {
   const pulse = pulseRepo.createPulse(input);
   for (const hook of pulseCreatedHooks) {
@@ -47,6 +53,9 @@ export function createPulseAndNotify(input: pulseRepo.CreatePulseInput): pulseRe
   return pulse;
 }
 
+/**
+ * Inserts a system-authored `isAuto` pulse for the given mission, silently no-oping and logging on a missing mission or persistence failure.
+ */
 export function emitAutoSignal(opts: {
   missionId: string;
   signalType: string;
@@ -199,6 +208,9 @@ function validatePostBody(body: PulsePostInput): void {
   }
 }
 
+/**
+ * Validates and posts a mission-scoped {@link pulseRepo.Pulse}, auto-creating a linked blocker clearance task on `blocker` signals for non-archived missions, and broadcasts the result over SSE.
+ */
 export function postMissionPulseSignal(input: {
   missionId: string;
   caller: PulsePostCaller;
@@ -250,6 +262,9 @@ export function postMissionPulseSignal(input: {
   };
 }
 
+/**
+ * Validates and posts a habitat-scoped {@link pulseRepo.Pulse}, auto-creating a linked blocker clearance task on `blocker` signals, and broadcasts the result over SSE.
+ */
 export function postHabitatPulseSignal(input: {
   habitatId: string;
   caller: PulsePostCaller;

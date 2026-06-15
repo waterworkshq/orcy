@@ -20,10 +20,12 @@ const SKILL_CATEGORY_MAP: Record<string, SkillCategory> = {
   handoff: "agent_insight",
 };
 
+/** Maps a raw pulse `signalType` string to the corresponding {@link SkillCategory}, defaulting to `agent_insight` when the type is unknown; no side effects. */
 export function classifyPulseToCategory(signalType: string): SkillCategory {
   return SKILL_CATEGORY_MAP[signalType] ?? "agent_insight";
 }
 
+/** Returns a stable, lowercased cluster key for a free-text subject (truncated to 80 chars and suffixed with a hash) so semantically equivalent strings collapse to the same `clusterKey` on a {@link HabitatSkillSignal}; no side effects. */
 export function normalize(subject: string): string {
   const cleaned = subject
     .toLowerCase()
@@ -150,6 +152,7 @@ function ingestSignal(signal: {
   }
 }
 
+/** Upserts a {@link HabitatSkillSignal} for a pulse event keyed by the normalized subject (skipping system pulses and Q/A signal types); side effect: persists via the repository and logs but swallows errors. */
 export function ingestFromPulse(opts: {
   habitatId: string;
   signalType: string;
@@ -182,6 +185,7 @@ export function ingestFromPulse(opts: {
   }
 }
 
+/** Upserts a `pitfall` {@link HabitatSkillSignal} for a rejected or failed task event (tagged `warning` for rejection, `blocker` for failure); side effect: persists via the repository and logs but swallows errors. */
 export function ingestFromTaskEvent(opts: {
   habitatId: string;
   eventType: string;
@@ -207,6 +211,7 @@ export function ingestFromTaskEvent(opts: {
   }
 }
 
+/** Increments the `successfulTasks` counter of the matching {@link HabitatSkillSignal} (looked up by the normalized title or its `Rejection:`/`Failure:` variant); side effect: persists the update and logs but swallows errors. */
 export function ingestFromTaskSuccess(opts: {
   habitatId: string;
   taskTitle: string;
@@ -238,6 +243,7 @@ export function ingestFromTaskSuccess(opts: {
   }
 }
 
+/** Upserts a non-human comment as an `agent_insight` {@link HabitatSkillSignal} with a truncated subject; side effect: persists via the repository and logs but swallows errors. */
 export function ingestFromComment(opts: {
   habitatId: string;
   taskId: string;
@@ -265,6 +271,7 @@ export function ingestFromComment(opts: {
   }
 }
 
+/** Returns a weighted 0-1 strength score for a {@link HabitatSkillSignal} combining frequency (35%), recency over 30 days (25%), agent corroboration (25%), and task success ratio (15%); no side effects. */
 export function calculateStrength(signal: HabitatSkillSignal): number {
   const now = Date.now();
   const daysSinceLast = (now - new Date(signal.lastSeenAt).getTime()) / (1000 * 60 * 60 * 24);
@@ -281,6 +288,7 @@ export function calculateStrength(signal: HabitatSkillSignal): number {
   );
 }
 
+/** Returns an upgraded {@link SkillCategory} for a {@link HabitatSkillSignal} once frequency and corroboration thresholds are met, promoting `convention` to `domain_knowledge` or any category to `pattern`; no side effects. */
 export function reclassifyCategory(signal: HabitatSkillSignal): SkillCategory {
   if (
     signal.frequency >= 3 &&
@@ -295,6 +303,7 @@ export function reclassifyCategory(signal: HabitatSkillSignal): SkillCategory {
   return signal.skillCategory as SkillCategory;
 }
 
+/** Recomputes strength, reclassifies the category, and toggles `promotedToSkill` for every {@link HabitatSkillSignal} in the habitat; side effect: persists updates via the repository and recomputes cross-mission counts. */
 export function scoreAllSignals(habitatId: string): void {
   const signals = repo.getAllSignalsByHabitat(habitatId);
   for (const signal of signals) {
@@ -319,6 +328,7 @@ export function scoreAllSignals(habitatId: string): void {
   recalculateCrossMissionCounts(habitatId, signals);
 }
 
+/** Creates or increments a manually-contributed {@link HabitatSkillSignal} for a habitat, returning the resulting row (or `null` on failure); side effect: persists via the repository and logs but swallows errors. */
 export function contributeSignal(
   habitatId: string,
   opts: {
@@ -358,10 +368,12 @@ export function contributeSignal(
   }
 }
 
+/** Escapes Markdown special characters in `text` so the value renders literally inside list items of the generated skill document; no side effects. */
 export function escapeMarkdown(text: string): string {
   return text.replace(/([*_[\]`~#|>\\])/g, "\\$1");
 }
 
+/** Renders the promoted {@link HabitatSkillSignal} entries for a habitat into a grouped Markdown document (architecture, patterns, pitfalls, domain, insights) with a header summary and confidence label; no side effects (read-only). */
 export function generateSkillDocument(habitatId: string): string {
   const signals = repo.getPromotedSignals(habitatId);
   const habitat = habitatRepo.getHabitatById(habitatId);
@@ -401,6 +413,7 @@ export function generateSkillDocument(habitatId: string): string {
   return md;
 }
 
+/** Re-scores all signals, regenerates the Markdown document, and persists the resulting habitat skill content; side effect: writes the skill row (creating it if missing) and triggers cross-mission count updates. */
 export function regenerateSkill(habitatId: string): void {
   scoreAllSignals(habitatId);
   const content = generateSkillDocument(habitatId);
@@ -413,6 +426,7 @@ export function regenerateSkill(habitatId: string): void {
   repo.updateSkillContent(habitatId, content, signals.length, avgStrength);
 }
 
+/** Regenerates the skill document for every habitat with signals, yielding to the event loop between habitats; side effect: writes skill rows and aggregates per-habitat errors into the returned `{ regenerated, errors }` counts. */
 export async function regenerateAllSkills(): Promise<{ regenerated: number; errors: number }> {
   const habitatIds = repo.getAllSignalHabitatIds();
   let regenerated = 0;
@@ -430,6 +444,7 @@ export async function regenerateAllSkills(): Promise<{ regenerated: number; erro
   return { regenerated, errors };
 }
 
+/** Subscribes the pulse, task lifecycle, and comment creation events to their corresponding ingest functions; side effect: registers listeners on upstream services and must be called once at startup. */
 export function initSkillHooks(): void {
   pulseService.onPulseCreated((pulse) => {
     ingestFromPulse({

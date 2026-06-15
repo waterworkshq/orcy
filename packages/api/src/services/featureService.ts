@@ -35,6 +35,7 @@ export interface MissionWithProgress extends Mission {
   };
 }
 
+/** Derives the {@link MissionStatus} for a mission by inspecting the status of all its tasks, returning `"not_started"` when no tasks exist. */
 export function deriveMissionStatus(missionId: string): MissionStatus {
   const tasks = taskRepo.getTasksByMissionId(missionId);
 
@@ -76,6 +77,7 @@ export function deriveMissionStatus(missionId: string): MissionStatus {
   return "not_started";
 }
 
+/** Resolves the column id that should hold a mission in the given {@link MissionStatus} within a habitat's column layout, returning null when no suitable column exists. */
 export function resolveTargetColumn(habitatId: string, status: MissionStatus): string | null {
   const habitatColumns = columnRepo.getColumnsByHabitatId(habitatId);
   if (habitatColumns.length === 0) return null;
@@ -101,6 +103,7 @@ export function resolveTargetColumn(habitatId: string, status: MissionStatus): s
   }
 }
 
+/** Moves a {@link Mission} to the column matching `newStatus` when it differs, with side effects: persists the column move, emits a `moved` mission event, and broadcasts a `mission.moved` SSE event to the habitat. */
 export function autoAdvanceMissionColumn(
   mission: Mission,
   newStatus: MissionStatus,
@@ -132,6 +135,7 @@ export function autoAdvanceMissionColumn(
   return updated;
 }
 
+/** Recalculates a mission's {@link MissionStatus} from its tasks and auto-advances its column when the derived status changes; side effects: persists status updates, emits `status_changed` and SSE `mission.status_changed` / `mission.progress` broadcasts, and may move the column via {@link autoAdvanceMissionColumn}. */
 export function recalculateMissionStatus(
   missionId: string,
 ): { mission: Mission; statusChanged: boolean; columnChanged: boolean } | null {
@@ -182,6 +186,7 @@ export function recalculateMissionStatus(
   return { mission: finalMission, statusChanged, columnChanged };
 }
 
+/** Creates a mission from a {@link CreateMissionInput} and persists it; side effects: emits a `created` mission event and broadcasts a `mission.created` SSE event to the habitat. */
 export function createMission(input: CreateMissionInput): Mission {
   const mission = missionRepo.createMission(input);
 
@@ -198,6 +203,7 @@ export function createMission(input: CreateMissionInput): Mission {
   return mission;
 }
 
+/** Updates editable fields of a mission with optimistic-concurrency version checks; side effects: persists the change, emits an `updated` mission event listing changed fields, and broadcasts a `mission.updated` SSE event. */
 export function updateMission(
   missionId: string,
   input: Parameters<typeof missionRepo.updateMission>[1] & { version?: number },
@@ -235,6 +241,7 @@ export function updateMission(
   return result;
 }
 
+/** Deletes a mission when no other mission depends on it; side effects: emits a `deleted` audit event carrying the prior status and metadata, deletes the row, and broadcasts a `mission.deleted` SSE event to the habitat. */
 export function deleteMission(
   missionId: string,
   actorId = "system",
@@ -268,6 +275,7 @@ export function deleteMission(
   return { success: true };
 }
 
+/** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. */
 export function moveMissionToColumn(
   missionId: string,
   toColumnId: string,
@@ -299,6 +307,7 @@ export function moveMissionToColumn(
   return updated;
 }
 
+/** Returns the {@link Mission} with the given id, or null when it does not exist. */
 export function getMission(missionId: string): Mission | null {
   return missionRepo.getMissionById(missionId);
 }
@@ -317,6 +326,7 @@ function computeProgress(taskList: Task[]): MissionWithProgress["progress"] {
   };
 }
 
+/** Returns the {@link Mission} enriched with per-status task counts as a {@link MissionWithProgress}, or null when the mission does not exist. */
 export function getMissionWithProgress(missionId: string): MissionWithProgress | null {
   const mission = missionRepo.getMissionById(missionId);
   if (!mission) return null;
@@ -325,6 +335,7 @@ export function getMissionWithProgress(missionId: string): MissionWithProgress |
   return { ...mission, progress: computeProgress(tasks) };
 }
 
+/** Lists a paginated set of missions for a habitat, defaulting `isArchived` to `false` when unspecified, and decorates each result with aggregated progress to form {@link MissionWithProgress} entries. */
 export function listMissions(
   habitatId: string,
   filters?: Parameters<typeof missionRepo.getMissionsByHabitatId>[1],
@@ -356,6 +367,7 @@ export function listMissions(
   return { missions: missionsWithProgress, total };
 }
 
+/** Archives a mission that is already in the `done` status; side effects: flips `isArchived`, emits an `updated` mission event with `archived` reason metadata, and broadcasts a `mission.updated` SSE event. */
 export function archiveMission(
   missionId: string,
   actorId: string,
@@ -380,6 +392,7 @@ export function archiveMission(
   return { success: true, mission: result.mission };
 }
 
+/** Unarchives a previously archived mission; side effects: clears `isArchived`, emits an `updated` mission event with `unarchived` reason metadata, and broadcasts a `mission.updated` SSE event. */
 export function unarchiveMission(
   missionId: string,
   actorId: string,
@@ -410,6 +423,7 @@ export interface MissionProgress {
   byStatus: Record<string, number>;
 }
 
+/** Computes a {@link MissionProgress} snapshot for a mission containing completion counts, percentage, and per-status tallies, returning null when the mission does not exist. */
 export function getMissionProgress(missionId: string): MissionProgress | null {
   const mission = missionRepo.getMissionById(missionId);
   if (!mission) return null;

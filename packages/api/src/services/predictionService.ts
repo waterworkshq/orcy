@@ -248,6 +248,9 @@ function getConfidenceDetails(
   return { confidence: "low", confidenceScore: CONFIDENCE_SCORE.low, confidenceReasons, reasons };
 }
 
+/**
+ * Returns {@link VelocityMetrics} for the habitat — rolling 7/14/30-day completion totals plus per-agent breakdowns — by reading completion counts and agent-bucket rows from {@link predictionRepo}.
+ */
 export function calculateVelocity(
   habitatId: string,
   options?: { sprintId?: string },
@@ -294,6 +297,9 @@ export function calculateVelocity(
   return { days7, days14, days30, perAgent };
 }
 
+/**
+ * Returns {@link TaskEstimate} projections for every open task by combining priority boosts, agent-specific velocity, and queue position with reads from {@link predictionRepo}.
+ */
 export function estimateCompletionDates(
   habitatId: string,
   velocity: VelocityMetrics,
@@ -389,6 +395,9 @@ export function estimateCompletionDates(
   return estimates;
 }
 
+/**
+ * Returns {@link AtRiskTask} entries for overdue predictions, no recent activity, past-due tasks, and blocked dependencies by cross-checking the supplied {@link TaskEstimate} list against activity and dependency rows from {@link predictionRepo}.
+ */
 export function detectAtRiskTasks(habitatId: string, estimates: TaskEstimate[]): AtRiskTask[] {
   const now = Date.now();
   const msHour = 60 * 60 * 1000;
@@ -532,6 +541,9 @@ function aggregateForecast(
   };
 }
 
+/**
+ * Returns {@link ForecastEstimate} entries for each open task, mission, and sprint by aggregating the supplied {@link TaskEstimate} list and reading mission/sprint rows from {@link predictionRepo}.
+ */
 export function buildForecasts(
   habitatId: string,
   velocity: VelocityMetrics,
@@ -582,6 +594,9 @@ export function buildForecasts(
   return forecasts;
 }
 
+/**
+ * Returns a complete {@link PredictionResponse} by composing {@link calculateVelocity}, {@link estimateCompletionDates}, {@link buildForecasts}, and {@link detectAtRiskTasks}.
+ */
 export function getPredictions(habitatId: string): PredictionResponse {
   const velocity = calculateVelocity(habitatId);
   const estimates = estimateCompletionDates(habitatId, velocity);
@@ -590,6 +605,9 @@ export function getPredictions(habitatId: string): PredictionResponse {
   return { velocity, estimates, forecasts, atRiskTasks };
 }
 
+/**
+ * Returns a {@link BurndownResponse} — sprint-scoped when `sprintId` is provided — by reading task counts, daily completions, and prior completion totals from {@link predictionRepo}.
+ */
 export function getBurndown(
   habitatId: string,
   days: number,

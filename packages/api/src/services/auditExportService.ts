@@ -160,6 +160,7 @@ function collectCanonicalAuditEvents(habitatId: string, query: AuditEventQuery):
   return result.events.filter((event) => eventMatchesExportFilters(event, query));
 }
 
+/** Returns the canonical {@link CanonicalAuditEventResult} for a habitat after applying export filters, including the events, any warnings, and a completeness summary. */
 export function getCanonicalAuditEvents(
   habitatId: string,
   query: AuditEventQuery,
@@ -227,6 +228,7 @@ function canonicalEventsToJsonl(events: AuditEvent[]): string {
   return events.map((event) => JSON.stringify(event)).join("\n") + (events.length > 0 ? "\n" : "");
 }
 
+/** Renders the audit export payload (CSV, JSON, or JSONL) for the given {@link AuditExportQuery} by serializing the filtered canonical events. */
 export function generateAuditExportContent(habitatId: string, query: AuditExportQuery): string {
   const events = collectCanonicalAuditEvents(habitatId, query);
 
@@ -239,11 +241,13 @@ export function generateAuditExportContent(habitatId: string, query: AuditExport
   return canonicalEventsToJson(events);
 }
 
+/** Returns a date-stamped download filename of the form `audit-<habitatPrefix>-<YYYY-MM-DD>.<format>` for an audit export. */
 export function getExportFilename(habitatId: string, format: string): string {
   const date = new Date().toISOString().split("T")[0];
   return `audit-${habitatId.slice(0, 8)}-${date}.${format}`;
 }
 
+/** Returns the HTTP `Content-Type` header value for the given export format, falling back to `application/octet-stream` when the format is unknown. */
 export function getExportContentType(format: string): string {
   switch (format) {
     case "csv":
@@ -257,6 +261,7 @@ export function getExportContentType(format: string): string {
   }
 }
 
+/** Streams the requested audit export to a {@link FastifyReply}; side effects: sets the `Content-Type` and `Content-Disposition: attachment` response headers and writes the body, parsing JSON payloads back into objects so Fastify emits pretty-printed JSON. */
 export async function streamAuditExport(
   habitatId: string,
   query: AuditExportQuery,
@@ -273,6 +278,7 @@ export async function streamAuditExport(
   return reply.send(format === "json" ? JSON.parse(content) : content);
 }
 
+/** Aggregates audit events for a habitat within an optional time window into a {@link AuditSummary} containing total counts, per-action and per-actor-type tallies, a per-day series, and the top ten most active missions. */
 export function getAuditSummary(habitatId: string, since?: string, until?: string): AuditSummary {
   const allRows = auditExportRepo.getAuditSummaryRows(habitatId, since, until);
 
@@ -335,6 +341,7 @@ export interface AuditExportSchedule {
   createdAt: string;
 }
 
+/** Persists and returns a new {@link AuditExportSchedule} for the given habitat using the supplied name, format, filters, and cron expression; side effect: inserts a schedule row via the repository. */
 export function createSchedule(
   habitatId: string,
   input: {
@@ -347,14 +354,17 @@ export function createSchedule(
   return auditExportRepo.createScheduleRecord(habitatId, input);
 }
 
+/** Returns the {@link AuditExportSchedule} with the given id, or null when no row matches. */
 export function getScheduleById(id: string): AuditExportSchedule | null {
   return auditExportRepo.getScheduleById(id);
 }
 
+/** Returns every {@link AuditExportSchedule} belonging to the given habitat. */
 export function listSchedules(habitatId: string): AuditExportSchedule[] {
   return auditExportRepo.listSchedules(habitatId);
 }
 
+/** Deletes the audit export schedule with the given id and returns true; side effect: removes the underlying row via the repository. */
 export function deleteSchedule(id: string): boolean {
   auditExportRepo.deleteSchedule(id);
   return true;
