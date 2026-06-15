@@ -278,3 +278,14 @@ export type {
   RemoteActionKind,
   RemoteAuditMetadata,
 } from "./pod-bridge.js";
+
+export type {
+  CliType,
+  DetectedCli,
+  ClaimResult,
+  RegisteredAgent,
+  SessionStatus,
+  ActiveSession,
+  ISessionUpdater,
+} from "./daemon.js";
+export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";

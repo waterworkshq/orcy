@@ -41,6 +41,25 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ## Upcoming
 
+### v0.19.1 — "Deepen: API → Daemon Interface Seam"
+
+Patch release: ship the daemon seam as foundation work *before* v0.20 builds on it, instead of folding it into the orchestration PR.
+
+| Boundary | What it deepens |
+|----------|-----------------|
+| Consolidate shared types | Move `SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater` from `daemon/src/types.ts` to `shared/src/types/daemon.ts`. Add `AGENT_TYPES` / `SESSION_STATUSES` runtime arrays. Unify `CliType` with `AgentType`. |
+| Define interface contracts | `ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop` in `@orcy/shared`. Daemon's `SessionManager` annotated `implements ISessionManager`. |
+| Migrate API off concrete daemon | New `api/src/daemon-wiring.ts` calls `createSessionManager` from daemon at startup. API imports `ISessionManager` from shared, not the `SessionManager` class. `InProcessSessionUpdater` and `updateSessionStatus` propagate the shared `SessionStatus` type — eliminates the cast in `inProcessSessionUpdater.ts:10`. |
+| Consolidate tick loop | Extract `runPollTick` (shared pure async function taking `IClaimStrategy`) — replaces the duplicated `tick()` in `daemon/src/poll-loop.ts` and `api/src/services/daemonEngine.ts`. Add `httpClaimStrategy` and `inProcessClaimStrategy` strategy classes. |
+| Derive Zod schemas | Replace 3 hardcoded `z.enum(["claude-code", ...])` at `api/src/models/schemas.ts:329, 337, 468` with `z.enum(AGENT_TYPES)`. |
+| Remove runtime dep | Drop `"@orcy/daemon": "workspace:*"` from `api/package.json:33`. The API builds and runs without the daemon package as a runtime dep. |
+
+**Why now, not folded into v0.20:** v0.20 orchestration needs a swappable `ISessionManager` and a `IClaimStrategy` that can route to in-process or remote pods. Doing the seam work inside the v0.20 PR puts foundation + feature in one reviewable unit and re-introduces the "fixing this after would mean reworking orchestration's foundation" risk the original sketch warned about.
+
+**Designed at:** `docs/plans/v19.1/00-daemon-seam.md` (turns arch-review candidate #7 from "Worth Exploring" → "Ready to build"). 7 commit boundaries, ~4.5 days of work.
+
+---
+
 ### v0.20.0 — "Orchestrated"
 
 First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chains, deploy chains, and conditional branches.
@@ -50,15 +69,9 @@ First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chai
 | Agent Orchestration Platforms | Lets Orcy define and visualize multi-agent execution flows instead of relying on manual sequencing or prompt discipline |
 | Agent Experience Self-Reporting | Agents post implicit experience signals (stuck, confused, backtracked, surprised, ambiguous) as classified pulse signals during autonomous work, enabling humans and automation to detect problems without reading every trace |
 
-**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary. Self-reporting is the observability half of orchestration — when agents fan out with less human oversight, they need to report what they experienced.
+**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary. Self-reporting is the observability half of orchestration — when agents fan out with less human oversight, they need to report what they experienced. **Prereq:** v0.19.1 ships the daemon seam (swappable `ISessionManager` + `IClaimStrategy`); v0.20 builds on it.
 
 Planning seeds: `docs/plans/v3/09-agent-orchestration-platforms.md`, `docs/plans/v3/13-agent-self-reporting.md`
-
-**Architecture prereq folded in:**
-
-| Architecture | Why here, not a patch |
-|--------------|----------------------|
-| API → Daemon Interface Seam (#7) | Break the circular dependency (API imports daemon runtime classes directly). Consolidate shared types (`CliType`→`AgentType`, `SessionStatus`, `ClaimResult`) into `@orcy/shared`. Define `ISessionManager` interface so the daemon becomes a swappable adapter. Orchestration builds on a clean daemon seam — fixing this after would mean reworking orchestration's foundation. |
 
 ---
 

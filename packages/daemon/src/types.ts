@@ -1,8 +1,22 @@
-export interface DetectedCli {
-  type: "claude-code" | "codex" | "opencode" | "cursor" | "gemini";
-  version: string | null;
-  path: string;
-}
+import type {
+  CliType,
+  DetectedCli,
+  ClaimResult,
+  RegisteredAgent,
+  SessionStatus,
+  ActiveSession,
+  ISessionUpdater,
+} from "@orcy/shared/types";
+
+export type {
+  CliType,
+  DetectedCli,
+  ClaimResult,
+  RegisteredAgent,
+  SessionStatus,
+  ActiveSession,
+  ISessionUpdater,
+};
 
 export interface DaemonConfig {
   apiUrl: string;
@@ -21,33 +35,6 @@ export interface RegisteredDaemon {
   daemonToken: string;
   heartbeatIntervalSeconds: number;
   agents: RegisteredAgent[];
-}
-
-export interface RegisteredAgent {
-  id: string;
-  name: string;
-  type: string;
-  apiKey: string;
-  binPath?: string;
-}
-
-export interface ClaimResult {
-  daemonSessionId?: string;
-  task: {
-    id: string;
-    title: string;
-    description: string | null;
-    missionId: string;
-    habitatId: string;
-    priority: string;
-    requiredDomain: string | null;
-    requiredCapabilities: string[] | null;
-  };
-  worktreeSettings: {
-    repoPath: string;
-    branchPrefix: string;
-    autoCleanup: boolean;
-  } | null;
 }
 
 export interface StoredCredentials {
@@ -81,8 +68,6 @@ export interface WorkdirGcOptions {
   now?: number;
 }
 
-export type CliType = "claude-code" | "codex" | "opencode" | "cursor" | "gemini";
-
 export interface AdapterConfig {
   type: CliType;
   bin: string;
@@ -109,28 +94,4 @@ export interface SpawnOptions {
   onStdout: (data: string) => void;
   onStderr: (data: string) => void;
   onExit: (code: number | null, signal: NodeJS.Signals | null) => void;
-}
-
-export type SessionStatus = "starting" | "running" | "completed" | "failed" | "released" | "lost";
-
-export interface ActiveSession {
-  id: string;
-  daemonSessionId?: string;
-  taskId: string;
-  taskTitle: string;
-  agentId: string;
-  agentApiKey: string;
-  agentType: CliType;
-  agentBinPath: string;
-  habitatId: string;
-  workdir: string;
-  status: SessionStatus;
-  pid: number | null;
-  startedAt: number;
-  lastProgressAt: number;
-  lastProgress: string | null;
-}
-
-export interface ISessionUpdater {
-  updateSession(sessionId: string, updates: Record<string, unknown>): Promise<void>;
 }
