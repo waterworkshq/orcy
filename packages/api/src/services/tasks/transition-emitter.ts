@@ -256,7 +256,12 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
   },
 };
 
-/** Actions that trigger the task-event hook bus. */
+/**
+ * Actions currently firing via the task-event hook bus (notifyTaskEvent).
+ * Per the v0.17.1 plan's inconsistency #2, this list intentionally
+ * does not include all transition actions. If you add a new action
+ * here, audit every `onTaskEvent` consumer to confirm they handle it.
+ */
 export const NOTIFY_TASK_EVENT_ACTIONS: readonly TaskAction[] = [
   "completed",
   "approved",

@@ -45,6 +45,7 @@ export function getAnomalySettings(habitatId: string): AnomalySettings {
   return habitat.anomalySettings ?? getDefaultAnomalySettings();
 }
 
+/** Single anomaly finding emitted by a detector, carrying its type, severity, human-readable message, and structured detail payload. */
 export interface AnomalyResult {
   type: string;
   severity: "low" | "medium" | "high" | "critical";

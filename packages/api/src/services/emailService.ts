@@ -41,6 +41,7 @@ function getTransporter(): Transporter | null {
   return transporter;
 }
 
+/** Outbound email envelope consumed by {@link sendEmail}; `to` is left empty by template builders for the caller to populate. */
 export interface EmailPayload {
   to: string;
   subject: string;

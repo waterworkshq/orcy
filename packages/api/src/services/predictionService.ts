@@ -2,8 +2,10 @@ import type { TaskPriority, TaskStatus } from "../models/index.js";
 import * as predictionRepo from "../repositories/prediction.js";
 import { MS_PER_DAY, utcDateKey } from "./analyticsDate.js";
 
+/** Confidence tier assigned to a forecast, from `high` (stable completion history) to `insufficient_data` (no usable history). */
 export type ForecastConfidence = "high" | "medium" | "low" | "insufficient_data";
 
+/** Structured explanation attached to a forecast, describing a single factor that shaped its confidence. */
 export interface ForecastReason {
   code:
     | "small_sample"
@@ -18,6 +20,7 @@ export interface ForecastReason {
   severity: "info" | "warning" | "critical";
 }
 
+/** Completion projection for a task, mission, or sprint, including an earliest/latest date window and the basis for the estimate. */
 export interface ForecastEstimate {
   targetType: "task" | "mission" | "sprint";
   targetId: string;
@@ -31,6 +34,7 @@ export interface ForecastEstimate {
   basis: "throughput" | "logged_effort" | "inferred_presence" | "hybrid";
 }
 
+/** Rolling 7/14/30-day completed-task counts for a habitat, with a per-agent breakdown. */
 export interface VelocityMetrics {
   days7: number;
   days14: number;
@@ -38,6 +42,7 @@ export interface VelocityMetrics {
   perAgent: Record<string, { days7: number; days14: number; days30: number; agentName: string }>;
 }
 
+/** Completion projection for a single open task, blending queue position, agent velocity, confidence, and due-date context. */
 export interface TaskEstimate {
   targetType: "task";
   targetId: string;
@@ -62,6 +67,7 @@ export interface TaskEstimate {
   daysUntilEstimated: number | null;
 }
 
+/** Flag for a task predicted to miss its due date, stall, run past due, or sit blocked by unmet dependencies. */
 export interface AtRiskTask {
   taskId: string;
   taskTitle: string;
@@ -73,6 +79,7 @@ export interface AtRiskTask {
   lastActivityAt: string | null;
 }
 
+/** Full prediction payload for a habitat: velocity, per-task estimates, rolled-up forecasts, and at-risk flags. */
 export interface PredictionResponse {
   velocity: VelocityMetrics;
   estimates: TaskEstimate[];
@@ -80,6 +87,7 @@ export interface PredictionResponse {
   atRiskTasks: AtRiskTask[];
 }
 
+/** Single day in a burndown chart, pairing actual remaining work against the ideal burndown line. */
 export interface BurndownDataPoint {
   date: string;
   completed: number;
@@ -88,6 +96,7 @@ export interface BurndownDataPoint {
   totalTasks: number;
 }
 
+/** Sprint- or window-scoped burndown series with summary totals and an estimated completion date. */
 export interface BurndownResponse {
   data: BurndownDataPoint[];
   startDate: string;

@@ -1,3 +1,4 @@
+/** Connection and retry configuration consumed by {@link createApiClient}. */
 export interface ApiClientConfig {
   baseUrl: string;
   timeoutMs?: number;
@@ -6,13 +7,14 @@ export interface ApiClientConfig {
   maxDelay?: number;
 }
 
+/** Error thrown by {@link createApiClient} for non-2xx responses, request timeouts, and network failures. The `status` field is the HTTP status, or `0` for non-HTTP errors. */
 export class ApiClientError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
   ) {
     super(`API ${status}: ${message}`);
-    this.name = 'ApiClientError';
+    this.name = "ApiClientError";
   }
 }
 
@@ -22,8 +24,8 @@ const DEFAULT_BASE_DELAY = 1_000;
 const DEFAULT_MAX_DELAY = 30_000;
 
 function isRetryable(err: unknown): boolean {
-  if (err instanceof DOMException && err.name === 'AbortError') return false;
-  if (err instanceof TypeError && err.message.includes('fetch')) return true;
+  if (err instanceof DOMException && err.name === "AbortError") return false;
+  if (err instanceof TypeError && err.message.includes("fetch")) return true;
   if (err instanceof ApiClientError) {
     const status = err.status;
     if (status === 429 || status === 502 || status === 503) return true;
@@ -38,10 +40,10 @@ function getRetryDelay(
   attempt: number,
   baseDelay: number,
   maxDelay: number,
-  response?: Response
+  response?: Response,
 ): number {
   if (response) {
-    const retryAfter = response.headers.get('Retry-After');
+    const retryAfter = response.headers.get("Retry-After");
     if (retryAfter) {
       const seconds = Number(retryAfter);
       if (!isNaN(seconds) && seconds > 0) return Math.min(seconds * 1000, maxDelay);
@@ -57,11 +59,13 @@ function getRetryDelay(
   return Math.min(jitter, maxDelay);
 }
 
+/** Optional body and headers passed to a single {@link ApiClient} request. */
 export interface RequestOptions {
   body?: unknown;
   headers?: Record<string, string>;
 }
 
+/** HTTP client surface returned by {@link createApiClient}. Exposes typed convenience methods (get, post, put, patch, delete) that wrap a generic `request` call. */
 export interface ApiClient {
   request<T>(method: string, path: string, options?: RequestOptions): Promise<T>;
   get<T>(path: string, headers?: Record<string, string>): Promise<T>;
@@ -71,6 +75,7 @@ export interface ApiClient {
   delete<T>(path: string, headers?: Record<string, string>): Promise<T>;
 }
 
+/** Builds an {@link ApiClient} backed by `fetch` with automatic timeout, exponential backoff with jitter, and retry on transient failures (429, 5xx, network errors). */
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const {
     baseUrl,
@@ -80,13 +85,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     maxDelay = DEFAULT_MAX_DELAY,
   } = config;
 
-  const base = baseUrl.replace(/\/$/, '');
+  const base = baseUrl.replace(/\/$/, "");
 
-  async function request<T>(
-    method: string,
-    path: string,
-    options?: RequestOptions
-  ): Promise<T> {
+  async function request<T>(method: string, path: string, options?: RequestOptions): Promise<T> {
     const url = `${base}${path}`;
     let lastError: unknown;
 
@@ -95,7 +96,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         ...options?.headers,
       };
       if (options?.body !== undefined) {
-        headers['Content-Type'] = 'application/json';
+        headers["Content-Type"] = "application/json";
       }
 
       const controller = new AbortController();
@@ -110,29 +111,32 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         });
 
         if (!response.ok) {
-          const errorText = await response.text().catch(() => '');
+          const errorText = await response.text().catch(() => "");
           const error = new ApiClientError(response.status, errorText || response.statusText);
           if (attempt < maxRetries && isRetryable(error)) {
             const delay = getRetryDelay(attempt, baseDelay, maxDelay, response);
             clearTimeout(timeoutId);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await new Promise((resolve) => setTimeout(resolve, delay));
             lastError = error;
             continue;
           }
           throw error;
         }
 
-        if (response.status === 204 || response.headers.get('content-length') === '0') {
+        if (response.status === 204 || response.headers.get("content-length") === "0") {
           return undefined as T;
         }
         return response.json() as Promise<T>;
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          const timeoutError = new ApiClientError(408, `Request to ${path} timed out after ${timeoutMs}ms`);
+        if (err instanceof DOMException && err.name === "AbortError") {
+          const timeoutError = new ApiClientError(
+            408,
+            `Request to ${path} timed out after ${timeoutMs}ms`,
+          );
           if (attempt < maxRetries && isRetryable(timeoutError)) {
             const delay = getRetryDelay(attempt, baseDelay, maxDelay);
             clearTimeout(timeoutId);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await new Promise((resolve) => setTimeout(resolve, delay));
             lastError = timeoutError;
             continue;
           }
@@ -144,7 +148,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         if (attempt < maxRetries && isRetryable(err)) {
           const delay = getRetryDelay(attempt, baseDelay, maxDelay);
           clearTimeout(timeoutId);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise((resolve) => setTimeout(resolve, delay));
           lastError = err;
           continue;
         }
@@ -172,14 +176,14 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   return {
     request,
     get: <T>(path: string, headers?: Record<string, string>) =>
-      request<T>('GET', path, { headers }),
+      request<T>("GET", path, { headers }),
     post: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
-      request<T>('POST', path, { body, headers }),
+      request<T>("POST", path, { body, headers }),
     put: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
-      request<T>('PUT', path, { body, headers }),
+      request<T>("PUT", path, { body, headers }),
     patch: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
-      request<T>('PATCH', path, { body, headers }),
+      request<T>("PATCH", path, { body, headers }),
     delete: <T>(path: string, headers?: Record<string, string>) =>
-      request<T>('DELETE', path, { headers }),
+      request<T>("DELETE", path, { headers }),
   };
 }

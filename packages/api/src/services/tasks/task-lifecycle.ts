@@ -16,6 +16,7 @@ import * as pulseService from "../pulseService.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
 import { emitTransition } from "./transition-emitter.js";
 
+/** Arguments passed to every registered {@link TaskEventHook} when a task lifecycle event fires. */
 export interface TaskEventOpts {
   taskId: string;
   habitatId: string;
@@ -25,6 +26,7 @@ export interface TaskEventOpts {
   metadata?: Record<string, unknown>;
 }
 
+/** Subscriber callback fired by {@link onTaskEvent} for each task lifecycle event; receives a {@link TaskEventOpts}. */
 export type TaskEventHook = (opts: TaskEventOpts) => void;
 const taskEventHooks: TaskEventHook[] = [];
 

@@ -18,6 +18,7 @@ function loadDotEnv(): Record<string, string> {
   return env;
 }
 
+/** Resolved local-agent runtime configuration for the MCP client, read from `process.env` and the Orcy `.env` file on first access via {@link getOrcyConfig}. */
 export interface OrcyConfig {
   apiUrl: string;
   agentId: string;
@@ -38,11 +39,13 @@ export interface OrcyRemoteConfig {
   orcyHome: string;
 }
 
+/** Whether the MCP client authenticates as a local agent (`local_agent`) or a remote participant (`remote`). */
 export type AuthMode = "local_agent" | "remote";
 
 let _config: OrcyConfig | undefined;
 let _remoteConfig: OrcyRemoteConfig | undefined;
 
+/** Returns the cached {@link OrcyConfig}, lazily building it from `process.env` and the Orcy `.env` file on the first call. */
 export function getOrcyConfig(): OrcyConfig {
   if (_config) return _config;
   const dotEnv = loadDotEnv();
@@ -91,6 +94,7 @@ export function getAuthMode(): AuthMode {
   return "local_agent";
 }
 
+/** Clears the cached local-agent and remote configs so the next access re-reads from the environment. */
 export function resetConfig(): void {
   _config = undefined;
   _remoteConfig = undefined;

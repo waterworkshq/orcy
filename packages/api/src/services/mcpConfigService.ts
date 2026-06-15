@@ -9,6 +9,7 @@ import type { RemoteCredentialRow } from "../repositories/remoteCredential.js";
 import { getBaseUrl } from "./shareHabitatReadinessService.js";
 import { notFound, badRequest } from "../errors.js";
 
+/** Public projection of a remote credential with the secret hash stripped, safe to return to API consumers. */
 export interface CredentialPublicView {
   id: string;
   remoteParticipantId: string;
@@ -34,6 +35,7 @@ function toCredentialView(row: RemoteCredentialRow): CredentialPublicView {
   return public_;
 }
 
+/** Set of supported MCP client identifiers for which ready-to-paste config snippets can be generated. */
 export type McpClientId =
   | "claude_code"
   | "codex"
@@ -42,6 +44,7 @@ export type McpClientId =
   | "gemini_cli"
   | "generic";
 
+/** A ready-to-paste configuration snippet for a specific MCP client, including the config format, the snippet body, and where to place it. */
 export interface McpConfigSnippet {
   clientId: McpClientId;
   clientName: string;
@@ -50,6 +53,7 @@ export interface McpConfigSnippet {
   placementHint: string;
 }
 
+/** Full result of a credential creation or rotation: the public credential view, one-time plaintext secret, generated client snippets, participant standing, active grant summary, and a security warning. */
 export interface McpConfigResult {
   credential: CredentialPublicView;
   plaintextSecret: string | null;
@@ -64,6 +68,7 @@ export interface McpConfigResult {
   baseUrl: string;
 }
 
+/** Input for creating a new remote credential: the owning habitat and participant, the credential type and label, optional expiry/creator, and the client ids to generate snippets for. */
 export interface CreateCredentialInput {
   habitatId: string;
   participantId: string;

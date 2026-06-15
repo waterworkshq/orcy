@@ -6,6 +6,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { emitMissionAuditEvent } from "./auditEventEmitter.js";
 import type { Mission, MissionStatus, Task, TaskPriority } from "../models/index.js";
 
+/** Input payload accepted by {@link createMission} describing the initial fields of a new mission. */
 export interface CreateMissionInput {
   habitatId: string;
   columnId?: string;
@@ -21,6 +22,7 @@ export interface CreateMissionInput {
   createdBy: string;
 }
 
+/** {@link Mission} enriched with per-status task counts for UI progress display. */
 export interface MissionWithProgress extends Mission {
   progress: {
     total: number;
@@ -416,6 +418,7 @@ export function unarchiveMission(
   return { success: true, mission: result.mission };
 }
 
+/** Completion snapshot for a mission: completed/total counts, percentage, and per-status tallies. */
 export interface MissionProgress {
   completed: number;
   total: number;

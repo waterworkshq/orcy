@@ -96,7 +96,9 @@ export async function enrichMessagesWithFromAgentNames(
   }));
 }
 
-/** Returns a single {@link Task} with its assigned agent's display name resolved. */
+/**
+ * @requires AgentClient — the client passed in must have `getAgentById` available.
+ */
 export async function enrichTaskWithAgentName(
   client: KanbanApiClient,
   task: Task,

@@ -86,6 +86,7 @@ export function getPrioritizationRules(habitatId: string): PrioritizationSetting
   return habitat.prioritizationSettings ?? getDefaultPrioritizationSettings();
 }
 
+/** Pre-hydrated lookup tables built by {@link buildEvaluationContext} so rule conditions can evaluate tasks without per-task database reads. */
 export interface EvaluationContext {
   missionMap: Map<string, Mission | null>;
   agentHeartbeatMap: Map<string, string>;
@@ -330,6 +331,7 @@ function applyAction(taskId: string, action: PrioritizationRuleAction): string |
   }
 }
 
+/** Single task/rule match produced by {@link evaluateRules}, describing the rule that fired and the action it prescribes. */
 export interface RuleEvaluationResult {
   taskId: string;
   ruleId: string;
@@ -379,6 +381,7 @@ export function evaluateRules(habitatId: string): RuleEvaluationResult[] {
   return results;
 }
 
+/** Aggregate outcome of {@link applyPrioritization}: evaluation and change counts plus per-task action and score details. */
 export interface PrioritizationResult {
   habitatId: string;
   evaluatedTasks: number;

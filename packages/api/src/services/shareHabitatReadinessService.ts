@@ -1,6 +1,7 @@
 import type { IdentityProviderRow } from "../repositories/identityProvider.js";
 import { getEnabledIdentityProviders } from "../repositories/identityProvider.js";
 
+/** Classification of how a habitat is reachable from outside the local machine, derived from the configured base URL by {@link detectReachabilityProfile}. */
 export type ReachabilityProfile =
   | "local_only"
   | "lan_vpn_tailscale"
@@ -8,6 +9,7 @@ export type ReachabilityProfile =
   | "vps_reverse_proxy"
   | "git_provider_bridge";
 
+/** Single readiness gate in a {@link ReadinessReport}, carrying its pass state, human-readable detail, and severity. */
 export interface ReadinessCheck {
   key: string;
   label: string;
@@ -16,6 +18,7 @@ export interface ReadinessCheck {
   severity: "error" | "warning" | "info";
 }
 
+/** Full readiness verdict produced by {@link checkReadiness}: the reachability profile, overall ready/can-invite flags, and the individual {@link ReadinessCheck}s. */
 export interface ReadinessReport {
   profile: ReachabilityProfile;
   ready: boolean;

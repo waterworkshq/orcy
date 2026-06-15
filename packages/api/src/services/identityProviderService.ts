@@ -6,6 +6,7 @@ import type { IdentityProviderRow } from "../repositories/identityProvider.js";
 import { getBaseUrl } from "./shareHabitatReadinessService.js";
 import { badRequest, notFound } from "../errors.js";
 
+/** Input payload for {@link configureProvider} describing the new identity provider's kind, credentials, callback URL, and scopes. */
 export interface ConfigureProviderInput {
   habitatId: string;
   kind: IdentityProviderKind;
@@ -19,6 +20,7 @@ export interface ConfigureProviderInput {
   createdBy?: string | null;
 }
 
+/** Public, secret-free view of an identity provider row, projected by `toConfigView` for API responses. */
 export interface ProviderConfig {
   id: string;
   habitatId: string;
@@ -187,6 +189,7 @@ export function getDefaultScopes(kind: IdentityProviderKind): string[] {
 
 const STATE_TTL_MINUTES = 10;
 
+/** Result of {@link initiateAuthState}: the provider authorize URL plus the persisted PKCE/state/nonce values needed to complete the callback. */
 export interface AuthStateInitiateResult {
   authUrl: string;
   state: string;

@@ -20,6 +20,7 @@ import { notFound, badRequest, conflict } from "../errors.js";
 // View Models
 // ---------------------------------------------------------------------------
 
+/** Read model for a remote pod as exposed to the admin API, including derived participant and active-grant counts. */
 export interface RemotePodView {
   id: string;
   habitatId: string;
@@ -38,6 +39,7 @@ export interface RemotePodView {
   activeGrantCount: number;
 }
 
+/** Read model for a remote participant as exposed to the admin API, carrying proposed/approved capabilities and active-grant count. */
 export interface RemoteParticipantView {
   id: string;
   remotePodId: string;
@@ -60,6 +62,7 @@ export interface RemoteParticipantView {
   activeGrantCount: number;
 }
 
+/** Read model for a remote grant as exposed to the admin API, expanded with its targets, rule, and task-snapshot count. */
 export interface RemoteGrantView {
   id: string;
   habitatId: string;
@@ -88,6 +91,7 @@ export interface RemoteGrantView {
   isPermanent: boolean;
 }
 
+/** Aggregated remote-access dashboard payload for a habitat: all pods, participants, grants, and total/active summary counts. */
 export interface RemoteAccessManagementView {
   pods: RemotePodView[];
   participants: RemoteParticipantView[];
@@ -388,6 +392,7 @@ export function getGrant(habitatId: string, grantId: string): RemoteGrantView {
   return toGrantView(row);
 }
 
+/** Input payload accepted by {@link createGrant} to validate and persist a new remote grant with optional targets and rule. */
 export interface CreateGrantInput {
   habitatId: string;
   remotePodId: string;
@@ -492,6 +497,7 @@ export function revokeGrant(
 // Grant Preview
 // ---------------------------------------------------------------------------
 
+/** Input payload accepted by {@link previewGrant} describing the rule and/or targets to simulate matching against. */
 export interface GrantPreviewInput {
   habitatId: string;
   rule: {
@@ -502,6 +508,7 @@ export interface GrantPreviewInput {
   targets?: { targetType: RemoteGrantTargetType; targetId: string }[];
 }
 
+/** Preview result returned by {@link previewGrant}: matched task ids, match count, and a human-readable scope warning. */
 export interface GrantPreviewResult {
   matchedTaskIds: string[];
   matchCount: number;

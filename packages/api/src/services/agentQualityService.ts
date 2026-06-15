@@ -17,8 +17,10 @@ import {
   type AnalyticsConfidence,
 } from "./analyticsDate.js";
 
+/** Confidence band for an agent quality signal, reused from the shared analytics confidence model. */
 export type AgentQualityConfidence = AnalyticsConfidence;
 
+/** Raw per-agent metrics gathered from completed tasks, review events, effort totals, and code-evidence status, fed into the quality score calculation. */
 export interface AgentQualityInputs {
   agentId: string;
   agentName: string;
@@ -31,6 +33,7 @@ export interface AgentQualityInputs {
   evidenceCompletenessSamples: Array<0 | 0.5 | 1>;
 }
 
+/** Computed quality signal for a single agent: a normalized score, per-dimension sub-scores, and human-readable warnings. */
 export interface AgentQualitySignal {
   agentId: string;
   agentName: string;
@@ -48,6 +51,7 @@ export interface AgentQualitySignal {
   warnings: string[];
 }
 
+/** API response envelope for an agent quality query, scoped to a habitat and timestamped at generation. */
 export interface AgentQualityResponse {
   habitatId: string;
   generatedAt: string;
@@ -148,6 +152,7 @@ function evidenceSamplesForTasks(taskIds: string[]): Map<string, 0 | 0.5 | 1> {
   return result;
 }
 
+/** Collects raw quality metrics for one or all agents in a habitat over a trailing-day window by querying completed tasks, review events, effort totals, and code-evidence status. */
 export function getAgentQualityInputs(
   habitatId: string,
   agentId?: string,
@@ -238,6 +243,7 @@ export function getAgentQualityInputs(
   });
 }
 
+/** Derives a normalized quality signal (score, confidence, per-dimension sub-scores, warnings) from a single agent's raw inputs. */
 export function buildAgentQualitySignal(inputs: AgentQualityInputs): AgentQualitySignal {
   const sampleSize = inputs.completedTasks;
   const confidence = confidenceForSample(sampleSize);
@@ -295,6 +301,7 @@ export function buildAgentQualitySignal(inputs: AgentQualityInputs): AgentQualit
   };
 }
 
+/** Entry point for the agent quality endpoint: fetches inputs for all (or one) agents in a habitat and returns their computed signals sorted by agent name. */
 export function getAgentQualitySignals(habitatId: string, agentId?: string): AgentQualityResponse {
   const inputs = getAgentQualityInputs(habitatId, agentId);
   const signals = inputs

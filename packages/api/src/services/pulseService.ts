@@ -8,6 +8,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { badRequest, notFound, forbidden } from "../errors.js";
 
+/** Exhaustive list of recognised pulse signal categories, used to validate {@link PulsePostInput} before persistence. */
 export const VALID_SIGNAL_TYPES = [
   "finding",
   "blocker",
@@ -20,6 +21,7 @@ export const VALID_SIGNAL_TYPES = [
   "handoff",
 ] as const;
 
+/** Union of the members of {@link VALID_SIGNAL_TYPES}, representing a categorised inter-agent signal. */
 export type SignalType = (typeof VALID_SIGNAL_TYPES)[number];
 
 const MAX_METADATA_BYTES = 10_000;
@@ -86,6 +88,7 @@ export function emitAutoSignal(opts: {
   }
 }
 
+/** Request body accepted by {@link postMissionPulseSignal} and {@link postHabitatPulseSignal} when authoring a new pulse. */
 export interface PulsePostInput {
   signalType: string;
   subject: string;
@@ -97,11 +100,13 @@ export interface PulsePostInput {
   metadata?: Record<string, unknown>;
 }
 
+/** Identity of the actor posting a pulse, determining the `fromType`/`fromId` recorded on the persisted row. */
 export interface PulsePostCaller {
   type: "human" | "agent" | "remote_human" | "remote_orcy";
   id: string;
 }
 
+/** Outcome of posting a pulse: the persisted row, any auto-created blocker clearance task, and whether one was created. */
 export interface PulsePostResult {
   pulse: pulseRepo.Pulse;
   linkedTask?: Task;

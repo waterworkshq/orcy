@@ -35,6 +35,7 @@ interface RunningDaemon {
 const runningDaemons = new Map<string, RunningDaemon>();
 const inMemoryAgentCredentials = new Map<string, RegisteredAgent[]>();
 
+/** Result of registering an in-process daemon: the daemon id and the per-agent credentials (including one-time API keys) for each detected CLI. */
 export interface RegisterResult {
   daemonId: string;
   agents: Array<{ id: string; name: string; type: string; apiKey: string }>;
@@ -225,6 +226,7 @@ export function shutdownAll(): void {
   }
 }
 
+/** Input for HTTP-based daemon registration: daemon identity, concurrency limit, target habitats, and the CLIs detected on the remote host. */
 export interface RegisterHttpDaemonInput {
   name: string;
   hostname: string;
@@ -234,6 +236,7 @@ export interface RegisterHttpDaemonInput {
   detectedClis: Array<{ type: string; path: string; version?: string | null }>;
 }
 
+/** Result of HTTP-based daemon registration: the daemon id, the one-time daemon token, the heartbeat cadence, and per-agent credentials to deliver out-of-band. */
 export interface RegisterHttpDaemonResult {
   daemonId: string;
   daemonToken: string;
@@ -298,6 +301,7 @@ export function registerHttpDaemon(input: RegisterHttpDaemonInput): RegisterHttp
   };
 }
 
+/** Input for claiming the next daemon task: the daemon, agent, and habitat involved plus the concurrency ceiling to enforce. */
 export interface ClaimNextDaemonTaskInput {
   daemonId: string;
   agentId: string;
@@ -305,6 +309,7 @@ export interface ClaimNextDaemonTaskInput {
   maxConcurrent: number;
 }
 
+/** Discriminated result of a claim attempt: either a claimed task with its session id and worktree settings, or `{ claimed: false }` when the daemon is at capacity, the agent is busy, or no task is available. */
 export type ClaimNextDaemonTaskResult =
   | {
       claimed: true;

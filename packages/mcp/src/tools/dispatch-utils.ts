@@ -7,14 +7,18 @@ type ToolResult = {
 };
 
 /**
- * Domain action handler invoked by the dispatch router with a {@link KanbanApiClient} and the parsed tool arguments.
+ * Generic tool handler. Uses KanbanApiClient because dispatch handlers
+ * route to domain-specific implementations at runtime.
  */
 export type Handler<TResult = unknown> = (
   client: KanbanApiClient,
   args: any,
 ) => TResult | Promise<TResult>;
 
-/** Top-level MCP tool handler returned by {@link createDispatchHandler}; routes an action to its {@link Handler}. */
+/**
+ * Generic tool handler. Uses KanbanApiClient because dispatch handlers
+ * route to domain-specific implementations at runtime.
+ */
 export type ToolHandler = (client: KanbanApiClient, args: any) => Promise<ToolResult>;
 
 /** Shape of the MCP tool descriptor passed to {@link createDispatchTool}. */

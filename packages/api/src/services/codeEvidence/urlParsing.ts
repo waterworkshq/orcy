@@ -8,6 +8,7 @@ import {
 } from "@orcy/shared";
 import type { ParsedUrl } from "./types.js";
 
+/** Matches a URL against known GitHub and GitLab pull request, commit, and pipeline patterns and returns its evidence type, provider, repo slug, and identifier, or null if unrecognized. */
 export function parseUrl(url: string): ParsedUrl {
   let match: RegExpMatchArray | null;
 
@@ -69,6 +70,7 @@ export function parseUrl(url: string): ParsedUrl {
   return null;
 }
 
+/** Returns a lowercased, fragment-stripped canonical form of a URL for deduplication and comparison. */
 export function normalizeUrl(url: string): string {
   try {
     const parsed = new URL(url);

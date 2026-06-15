@@ -2,14 +2,25 @@ import * as grantRepo from "../repositories/remoteGrant.js";
 import type { RemoteGrantRow, RemoteGrantTargetRow } from "../repositories/remoteGrant.js";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 
-/** Outcome of a grant visibility check, carrying the matched grant when visible and a human-readable reason when not. */
+/**
+ * Result of a grant visibility check.
+ */
 export interface GrantVisibilityResult {
   visible: boolean;
   matchedGrant?: RemoteGrantRow;
   reason?: string;
 }
 
-/** Determines whether a remote participant may view a specific task, mission, or other target by evaluating pod-wide baseline, allowlist, and rule-based grants. */
+/**
+ * Check if a remote participant can see a given target. The target is a
+ * specific task, mission, or other entity. Visibility is determined by:
+ *
+ * 1. Allowlist: any active grant with an explicit target matching the entity
+ * 2. Rule-based: any active rule_based grant whose snapshot contains the task,
+ *    or whose rule matches the task's metadata (handled by the caller)
+ * 3. Pod-wide baseline: any active baseline_observer grant without a
+ *    specific participant (covers the whole pod)
+ */
 export function isTargetVisibleToParticipant(
   ctx: RemoteParticipantContext,
   targetType: "task" | "mission" | "habitat" | "label" | "domain" | "column",

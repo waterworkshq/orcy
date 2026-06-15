@@ -9,6 +9,7 @@ import { badRequest, notFound, conflict, forbidden } from "../errors.js";
 
 const MANUAL_TOKEN_PREFIX = "orcy_invite_";
 
+/** Input payload for {@link createManualInvite} describing the habitat, baseline standing/scopes, inviter, and optional pod display name and expiry. */
 export interface CreateManualInviteInput {
   habitatId: string;
   baselineStanding: ParticipantStanding;
@@ -18,6 +19,7 @@ export interface CreateManualInviteInput {
   expiresAt?: string | null;
 }
 
+/** Input payload for {@link createProviderInvite} binding the invite to a specific external identity provider. */
 export interface CreateProviderInviteInput {
   habitatId: string;
   providerId: string;
@@ -27,11 +29,13 @@ export interface CreateProviderInviteInput {
   expiresAt?: string | null;
 }
 
+/** Result of {@link createManualInvite}: the invite view and the one-time token the invitee must present to accept. */
 export interface ManualInviteWithToken {
   invite: InviteView;
   oneTimeToken: string;
 }
 
+/** Secret-free view of a {@link RemoteInviteRow}, projected by `toView` for API responses across all invite types. */
 export interface InviteView {
   id: string;
   habitatId: string;
@@ -148,6 +152,7 @@ export function revokeInvite(
   return toView(revoked);
 }
 
+/** Result of accepting an invite: the claimed invite, the provisioned remote pod, and its admin participant. */
 export interface InviteAcceptanceResult {
   invite: InviteView;
   remotePod: podRepo.RemotePodRow;

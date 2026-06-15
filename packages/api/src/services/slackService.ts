@@ -21,6 +21,7 @@ export function verifySlackRequestWithTimestamp(
   return verifySlackSignature(signature, timestamp, body, signingSecret);
 }
 
+/** Parsed result of {@link parseSlackCommand}: the resolved action keyword and its trailing arguments. */
 export interface ParsedCommand {
   action: string;
   args: string[];

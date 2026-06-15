@@ -10,10 +10,19 @@
 // Affiliation & Standing
 // ---------------------------------------------------------------------------
 
-/** The set of participant affiliations, distinguishing native pod members from trusted external pod members. */
+/**
+ * Discriminates local participants (native pod members) from remote
+ * participants (belonging to a trusted external pod).
+ */
 export type PodAffiliation = "local" | "remote";
 
-/** The set of trust tiers a hosting habitat can grant, from local membership to remote observer/contributor roles. */
+/**
+ * Trust tier the hosting habitat grants to a participant.
+ *
+ * `local_member` is existing behavior. v0.19 ships `remote_observer` and
+ * `remote_contributor`. `remote_reviewer` and `trusted_remote_pod` are modeled
+ * now but are future scope — not granted in v0.19.
+ */
 export type ParticipantStanding =
   | "local_member"
   | "remote_observer"
@@ -25,13 +34,23 @@ export type ParticipantStanding =
 // Remote principal model
 // ---------------------------------------------------------------------------
 
-/** The set of remote principal kinds extending the local principal model with pod-side, human-side, and orcy-side actors. */
+/**
+ * Canonical remote principal types. These extend the local principal model
+ * (human, local_agent, daemon_agent, integration_account) with remote-side
+ * actors that are persisted in dedicated Pod Bridge tables.
+ */
 export type RemotePrincipalType = "remote_pod" | "remote_human" | "remote_orcy";
 
-/** The set of in-pod remote participant kinds: remote human or remote orcy. */
+/**
+ * Distinguishes a remote human participant from a remote orcy participant
+ * within a remote pod.
+ */
 export type RemoteParticipantType = "remote_human" | "remote_orcy";
 
-/** Lightweight reference to a remote actor for audit context and UI display, carrying its {@link RemotePrincipalType} and {@link ParticipantStanding}. */
+/**
+ * Reference to a remote actor for audit context, notification attribution,
+ * and inline UI display.
+ */
 export interface RemoteActorRef {
   podId: string;
   participantId: string;
@@ -45,10 +64,21 @@ export interface RemoteActorRef {
 // Grants
 // ---------------------------------------------------------------------------
 
-/** The set of grant categories controlling the breadth of remote access. */
+/**
+ * Grant type controls what category of access a remote participant has.
+ *
+ * - `baseline_observer` — longer-lived visibility plus optional advisory feedback
+ * - `scoped_elevation` — bounded execution authority (time, mission, task, actions)
+ * - `permanent_execution` — long-lived execution; high-risk, must be explicitly marked
+ */
 export type RemoteGrantType = "baseline_observer" | "scoped_elevation" | "permanent_execution";
 
-/** The set of grant lifecycle states, including a grace window for expired grants. */
+/**
+ * Lifecycle status of a grant.
+ *
+ * `grace` means the grant has expired but already-claimed tasks may still be
+ * submitted/released during the configurable grace window (default 24h).
+ */
 export type RemoteGrantStatus =
   | "active"
   | "expired"
@@ -57,20 +87,41 @@ export type RemoteGrantStatus =
   | "hard_revoked"
   | "frozen";
 
-/** The set of host-chosen revocation strategies, from blocking new claims to immediate full shutdown. */
+/**
+ * Host-chosen revocation mode when actively revoking a grant (distinct from
+ * normal expiry).
+ *
+ * - `soft` — block new claims; claimed work can submit/release during grace
+ * - `hard` — block all remote actions immediately and release claimed tasks
+ * - `freeze` — block remote actions but keep claimed tasks assigned for host decision
+ */
 export type RemoteRevocationMode = "soft" | "hard" | "freeze";
 
-/** The set of strategies a scoped elevation grant uses to determine task eligibility. */
+/**
+ * How a scoped elevation grant determines which tasks/missions are eligible.
+ *
+ * - `allowlist` — explicit mission/task IDs selected by host (safe default)
+ * - `rule_based` — domain/label/capability/time filters (advanced)
+ */
 export type RemoteGrantEligibilityMode = "allowlist" | "rule_based";
 
-/** The set of boundary entities a grant target can reference within the habitat hierarchy. */
+/**
+ * Boundary entity a grant target references.
+ */
 export type RemoteGrantTargetType = "habitat" | "mission" | "task";
 
 // ---------------------------------------------------------------------------
 // Action scopes
 // ---------------------------------------------------------------------------
 
-/** The set of fine-grained actions a remote participant may perform within a habitat boundary. */
+/**
+ * Action scopes that can be granted to a remote participant. These control
+ * what the participant can do within a habitat boundary, independent of any
+ * Git provider repository permissions.
+ *
+ * Note: `pulse.post` is a dot-separated scope to distinguish posting from
+ * pulse read access.
+ */
 export type RemoteActionScope =
   | "read"
   | "comment"
@@ -85,39 +136,62 @@ export type RemoteActionScope =
 // Credentials & invites
 // ---------------------------------------------------------------------------
 
-/** The set of authentication paths for a remote orcy credential. */
+/**
+ * Remote orcy credential type — controls the authentication path used.
+ */
 export type RemoteCredentialType = "api" | "mcp";
 
-/** The set of lifecycle states for a remote credential. */
+/**
+ * Lifecycle status of a remote credential.
+ */
 export type RemoteCredentialStatus = "active" | "rotated" | "revoked" | "expired";
 
-/** The set of paths by which a remote invite is initiated — provider-backed or manual token. */
+/**
+ * How a remote invite was initiated.
+ *
+ * - `provider` — provider-backed identity (GitHub OAuth / OIDC)
+ * - `manual` — manual invite token (advanced local-first fallback)
+ */
 export type RemoteInviteType = "provider" | "manual";
 
-/** The set of lifecycle states for a remote invite. */
+/**
+ * Lifecycle status of a remote invite.
+ */
 export type RemoteInviteStatus = "pending" | "accepted" | "revoked" | "expired";
 
-/** The set of lifecycle states for a trusted remote pod relationship. */
+/**
+ * Lifecycle status of a trusted remote pod relationship.
+ */
 export type RemotePodStatus = "pending" | "active" | "suspended" | "revoked";
 
-/** The set of lifecycle states for a remote participant within a pod. */
+/**
+ * Lifecycle status of a remote participant within a remote pod.
+ */
 export type RemoteParticipantStatus = "pending" | "active" | "suspended" | "revoked";
 
 // ---------------------------------------------------------------------------
 // Identity providers
 // ---------------------------------------------------------------------------
 
-/** The set of identity provider presets, built on a generic OIDC core with GitHub OAuth as the first preset. */
+/**
+ * Identity provider preset. v0.19 ships a generic OIDC core with GitHub OAuth
+ * as the first polished preset.
+ */
 export type IdentityProviderKind = "github" | "oidc";
 
-/** The set of lifecycle states for a provider OAuth/OIDC auth-state record. */
+/**
+ * Lifecycle status of a provider OAuth/OIDC auth state (state/nonce/PKCE).
+ */
 export type IdentityProviderAuthStateStatus = "pending" | "consumed" | "expired";
 
 // ---------------------------------------------------------------------------
 // Webhooks
 // ---------------------------------------------------------------------------
 
-/** The set of lifecycle states for a remote-pod webhook endpoint, which requires host admin approval. */
+/**
+ * Lifecycle status of a remote-pod-provided webhook endpoint. Host admin
+ * approval is required before delivery is enabled.
+ */
 export type RemoteWebhookEndpointStatus =
   | "pending"
   | "approved"
@@ -129,24 +203,39 @@ export type RemoteWebhookEndpointStatus =
 // Idempotency
 // ---------------------------------------------------------------------------
 
-/** The set of lifecycle states for a remote idempotency-key record used in cross-pod write retries. */
+/**
+ * Status of a remote idempotency key record for cross-pod write retries.
+ */
 export type RemoteIdempotencyStatus = "pending" | "completed" | "failed";
 
 // ---------------------------------------------------------------------------
 // Evidence
 // ---------------------------------------------------------------------------
 
-/** The set of code-evidence kinds a remote contributor may attach — v0.19 is limited to URL and metadata evidence. */
+/**
+ * Kind of code evidence a remote contributor may attach. v0.19 allows URL and
+ * metadata evidence only — no broad repository discovery, backfill, scanning,
+ * or provider-side mutation.
+ */
 export type RemoteEvidenceKind = "url" | "metadata";
 
 // ---------------------------------------------------------------------------
 // Audit
 // ---------------------------------------------------------------------------
 
-/** The set of audit provenance classifications for a remote action. */
+/**
+ * Classification of a remote action for audit provenance.
+ *
+ * - `advisory` — observer feedback (comments, review notes)
+ * - `execution` — contributor execution (claim, submit, evidence link)
+ * - `administrative` — pod/grant/credential management
+ */
 export type RemoteActionKind = "advisory" | "execution" | "administrative";
 
-/** Remote-participation context attached to an audit event, capturing {@link ParticipantStanding} and {@link RemoteActionKind}. */
+/**
+ * Remote context attached to audit event metadata when a remote participant
+ * performs an action. See techspec §2.4.
+ */
 export interface RemoteAuditMetadata {
   podId: string;
   participantId: string;

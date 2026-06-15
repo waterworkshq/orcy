@@ -12,6 +12,7 @@ import {
 } from "./auditQueryService.js";
 import * as auditExportRepo from "../repositories/auditExport.js";
 
+/** Query parameters for an audit export: the serialization format plus an optional time window, CSV-style filters, presets, and structured-field inclusion flags. */
 export interface AuditExportQuery {
   format: "csv" | "json" | "jsonl";
   since?: string;
@@ -33,14 +34,17 @@ export interface AuditExportQuery {
   includeHealthSnapshots?: string;
 }
 
+/** Event-only query derived from {@link AuditExportQuery} without the serialization format, used when callers want the raw events rather than an export payload. */
 export type AuditEventQuery = Omit<AuditExportQuery, "format">;
 
+/** Canonical projection of audit events for a habitat: the filtered events, any warnings raised during projection, and a completeness summary computed from those events. */
 export interface CanonicalAuditEventResult {
   events: AuditEvent[];
   warnings: AuditWarning[];
   completenessSummary: AuditCompletenessSummary;
 }
 
+/** Aggregated audit activity for a habitat over an optional time window: total event count, per-action and per-actor-type tallies, a daily series, and the top ten most active missions. */
 export interface AuditSummary {
   totalEvents: number;
   byAction: Record<string, number>;
@@ -325,6 +329,7 @@ export function getAuditSummary(habitatId: string, since?: string, until?: strin
   };
 }
 
+/** A persisted recurring audit export job that serializes filtered events to a destination on a cron schedule. */
 export interface AuditExportSchedule {
   id: string;
   habitatId: string;

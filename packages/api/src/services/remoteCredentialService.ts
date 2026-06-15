@@ -4,6 +4,7 @@ import type { RemoteCredentialType } from "@orcy/shared/types";
 import * as credentialRepo from "../repositories/remoteCredential.js";
 import type { RemoteCredentialRow } from "../repositories/remoteCredential.js";
 
+/** Input payload for {@link createCredentialWithSecret} describing the participant, habitat, credential type, and optional expiry/label. */
 export interface CreateCredentialWithSecretInput {
   remoteParticipantId: string;
   habitatId: string;
@@ -13,11 +14,13 @@ export interface CreateCredentialWithSecretInput {
   createdBy?: string | null;
 }
 
+/** Result of {@link createCredentialWithSecret}: the persisted credential row and the one-time plaintext secret returned to the caller. */
 export interface CredentialWithSecret {
   credential: RemoteCredentialRow;
   plaintextSecret: string;
 }
 
+/** Wrapper returned by {@link verifyRemoteKey} when a presented secret matches an active, unexpired credential. */
 export interface VerifiedRemoteCredential {
   credential: RemoteCredentialRow;
 }

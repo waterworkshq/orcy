@@ -21,6 +21,7 @@ import type {
   TaskPriority,
 } from "../models/index.js";
 
+/** Input payload for {@link createHabitat} describing the new board's name, description, team binding, and whether the default column flow should be seeded. */
 export interface CreateHabitatInput {
   name: string;
   description?: string;
@@ -146,6 +147,7 @@ function createDefaultColumns(habitatId: string): Column[] {
   );
 }
 
+/** Versioned, serializable snapshot of a habitat's columns, missions, tasks, comments, templates, and webhooks, produced by {@link exportHabitat} and consumed by {@link importHabitat}. */
 export interface HabitatExportData {
   version: number;
   exportedAt: string;
@@ -212,6 +214,7 @@ export interface HabitatExportData {
   };
 }
 
+/** Outcome of {@link importHabitat}: the reconstructed habitat and columns, per-kind import counts, and any non-fatal warnings collected during reconstruction. */
 export interface ImportResult {
   habitat: Habitat;
   columns: Column[];

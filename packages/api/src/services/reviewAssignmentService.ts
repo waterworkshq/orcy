@@ -129,6 +129,7 @@ function selectReviewer(
   }
 }
 
+/** Outcome of {@link assignReviewers}: the reviewers created, or a skip flag with a machine-readable reason when none were assigned. */
 export interface AssignReviewersResult {
   assigned: Array<{ reviewerId: string; reviewerName: string }>;
   skipped: boolean;
