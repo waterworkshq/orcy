@@ -2,6 +2,58 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.19.1 — 2026-06-15
+
+### Documentation
+
+#### update roadmap for v0.19.1 release ([`76506f8`](https://github.com/waterworkshq/orcy/commit/76506f8e8ad47afb56b6e5e13673973efbe0e427))
+
+1. Add v0.19.1 release entry to ROADMAP.md with "Deepen: API → Daemon Interface Seam" theme. Update version number from v0.19.0 to v0.19.1. Include detailed description of daemon interface seam implementation including shared types migration, interface contracts definition, API migration, tick loop consolidation, and Zod schema derivation.
+
+
+
+### Refactors
+
+#### consolidate daemon types and interface contracts ([`f580bfe`](https://github.com/waterworkshq/orcy/commit/f580bfe8c3c5940fc89a7f623662cf812b05dd54))
+
+1. Move `SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater` from `daemon/src/types.ts` to `shared/src/types/daemon.ts`. Add `AGENT_TYPES` / `SESSION_STATUSES` runtime arrays. Unify `CliType` with `AgentType`.
+
+3. Define interface contracts `ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop` in `@orcy/shared`. Daemon's `SessionManager` annotated `implements ISessionManager`.
+
+5. Migrate API off concrete daemon by creating `api/src/daemon-wiring.ts` that calls `createSessionManager` from daemon at startup. API imports `ISessionManager` from shared, not the `SessionManager` class. `InProcessSessionUpdater` and `updateSessionStatus` propagate the shared `SessionStatus` type.
+
+7. Consolidate tick loop by extracting `runPollTick` (shared pure async function taking `IClaimStrategy`) to replace duplicated `tick()` in daemon and API. Add `httpClaimStrategy` and `inProcessClaimStrategy` strategy classes.
+
+9. Derive Zod schemas from `AGENT_TYPES` array to replace hardcoded enums in `api/src/models/schemas.ts`.
+
+11. Remove runtime dependency on `"@orcy/daemon": "workspace:*"` from `api/package.json`.
+
+
+#### implement interface contracts for session management and cli detection ([`60f1cb4`](https://github.com/waterworkshq/orcy/commit/60f1cb4683664542ccbd90ae70630ae0e502eb8f))
+
+1. Add interface implementations to align daemon components with shared contracts. Update `SessionManager` to implement `ISessionManager` interface and export new factory functions for dependency injection.
+
+3. The changes introduce proper interface contracts in `@orcy/shared` and implement them in the daemon package to improve type safety and consistency across the codebase.
+
+
+#### centralize daemon component lifecycle management ([`25c1ca1`](https://github.com/waterworkshq/orcy/commit/25c1ca15db483622cf7697f179cdec79180a3534))
+
+1. Introduce daemon-wiring module to manage session manager lifecycle and CLI detection with dependency injection. Replace direct daemon imports with type-safe interfaces from @orcy/shared/types to improve code consistency and maintainability.
+
+3. The changes centralize daemon component initialization, enhance type safety through shared interface contracts, and provide proper resource cleanup mechanisms.
+
+
+#### extract daemon polling logic to shared package ([`7b61add`](https://github.com/waterworkshq/orcy/commit/7b61add108d1f9f527dca02f62d10235596defc9))
+
+1. Move claim and heartbeat strategy interfaces to shared types with HTTP and in-process implementations. Centralize polling functionality in shared package with runPollTick function. Update daemon and API components to use extracted interfaces and polling logic.
+
+
+#### implement dynamic daemon module loading ([`af44041`](https://github.com/waterworkshq/orcy/commit/af44041ff2b5398370fcc6cda9411518427a57de))
+
+1. Move daemon dependency from runtime to devDependencies and implement lazy loading pattern. Add initialization function that dynamically imports daemon module when needed. Update daemon factory functions to export proper interfaces for dynamic loading. Add interface compliance tests to ensure proper contract implementation.
+
+
+
 ## 0.19.0 — 2026-06-14
 
 ### Documentation
@@ -196,18 +248,3 @@
 #### update habitat component tests for React Query integration ([`e7e9572`](https://github.com/waterworkshq/orcy/commit/e7e9572b9e7976b52b0ab4bbd6a493045d27e8a3))
 
 1. Update BulkActionBar and CreateMissionForm tests to work with React Query instead of Zustand. Replace store mocks with query client mocks and update test assertions to reflect new data fetching patterns. Remove direct store mutation calls and replace with cache invalidation patterns.
-
-
-
-## 0.18.2 — 2026-06-12
-
-### Refactors
-
-#### extract route logic to service layer ([`e6c231f`](https://github.com/waterworkshq/orcy/commit/e6c231fac3dc070ec186f8542224f7106a51648a))
-
-1. Move complex business logic from route handlers to dedicated service functions. The integrations route now uses promoteIntakeCandidate service function, while the pulse route delegates to postMissionPulseSignal service function. This separation improves code organization, reduces route handler complexity, and enhances testability by isolating business logic.
-
-
-#### extract route logic to service layer ([`ea1f67d`](https://github.com/waterworkshq/orcy/commit/ea1f67dcc29cbf5f36e27e43e4329962cb27480e))
-
-1. Extract authentication, daemon, integration, and mission route logic to dedicated service functions. This change improves code organization, separates concerns, and enhances maintainability of route handlers. The service layer now handles business logic while routes focus on HTTP concerns.
