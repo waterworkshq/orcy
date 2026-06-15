@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.19.1 | **Updated:** 2026-06-14
+> **Version:** v0.19.3 | **Updated:** 2026-06-15
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -38,18 +38,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.19.0 | "Pod Bridge" — Remote participant identity (external identity providers, pod trust model, participant standing), scoped habitat access (grants, credentials, invite flows), Shared Habitat API (`/api/shared/*` — discovery, missions, tasks, comments, pulse, evidence, notifications, trust metadata), remote MCP mode (action allowlist, `X-Orcy-Remote-Key` auth), idempotent write contracts, admin surface (readiness checks, provider config, grant management, webhook endpoints), audit provenance (remote actor labels, provenance block, export filters), UI management surface (Remote Pods page, inline attribution) |
 | v0.19.1 | "Deepen: API → Daemon Interface Seam" — Shared daemon types (`SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater`, `WorkdirError`) moved to `@orcy/shared`. Six seam interfaces (`ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop`) defined in shared. `runPollTick` consolidated pure async function replacing duplicated tick loops in daemon and API. `InProcessClaimStrategy` + `HttpClaimStrategy` strategy classes. API's `daemon-wiring.ts` DI module with dynamic import. Zod schemas derived from `AGENT_TYPES` runtime array. `@orcy/daemon` moved to devDependencies. 54 new tests (interface-compliance + seam + poll + factory + wiring) |
 | v0.19.2 | "Deepen: Documentation Pass" — CONFIGURATION.md updated with 17 missing env vars, 3 stale removed, JWT_SECRET security doc bug fixed. ARCHITECTURE.md gained Daemon Runtime Seam + Audit Trail V2 sections. DATABASE.md gained 8 automation/notification table entries. 28 JSDoc blocks added to daemon seam public APIs. TESTING.md gained 5 test pattern sections + UI test count fix. TROUBLESHOOTING.md gained 8 entries across security, remote pods, notifications, daemon. README/CAPABILITIES/SKILL refreshed: MCP count 15→16, Pod Bridge features added, dispatch tools completed |
+| v0.19.3 | "Deepen: Inline JSDoc Pass" — Comprehensive inline JSDoc coverage across all 6 packages. Shared types (245 symbols across 18 files), API services (~600 symbols across 130+ files including tasks/, webhooks/, integrations/, code evidence, notifications, automation, audit, and core services), MCP dispatch handlers and tools (~310 symbols), daemon runtime (~60 symbols), and CLI commands (16 symbols). Every exported symbol now has an IDE-visible description. Pod Bridge domain types restored with full design rationale and scope notes. |
 
 ---
 
 ## Upcoming
-
-### v0.19.3 — "Deepen: Inline JSDoc Pass"
-
-Patch release focused on widening inline JSDoc coverage across all packages. Currently only 9% of 2,991 exported symbols have JSDoc. This pass targets shared types (240 exports across 18 files), API service entry points (~250 exports across 25 files), MCP dispatch handlers (~70 exports), and daemon/CLI (~51 exports). IDE hover tooltips and IntelliSense suggestions will work for every public API surface.
-
-**Designed at:** `docs/plans/v19.3/00-jsdoc-pass.md`. 11 batches, ~4 days.
-
----
 
 ### v0.20.0 — "Orchestrated"
 
