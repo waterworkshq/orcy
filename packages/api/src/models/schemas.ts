@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGENT_TYPES } from "@orcy/shared";
 
 const artifactSchema = z.object({
   type: z.enum(["file", "pr", "commit", "log", "screenshot"]),
@@ -326,7 +327,7 @@ export const cloneTaskSchema = z.object({
 
 export const createAgentSchema = z.object({
   name: z.string().min(1).max(50),
-  type: z.enum(["claude-code", "codex", "opencode", "cursor", "gemini"]),
+  type: z.enum(AGENT_TYPES),
   domain: z.string().min(1).max(50),
   capabilities: z.array(z.string()).optional(),
   metadata: z.record(z.unknown()).optional(),
@@ -334,7 +335,7 @@ export const createAgentSchema = z.object({
 
 export const updateAgentSchema = z.object({
   name: z.string().min(1).max(50).optional(),
-  type: z.enum(["claude-code", "codex", "opencode", "cursor", "gemini"]).optional(),
+  type: z.enum(AGENT_TYPES).optional(),
   domain: z.string().min(1).max(50).optional(),
   capabilities: z.array(z.string()).optional(),
   metadata: z.record(z.unknown()).optional(),
@@ -465,7 +466,7 @@ export const daemonRegisterSchema = z.object({
   detectedClis: z
     .array(
       z.object({
-        type: z.enum(["claude-code", "codex", "opencode", "cursor", "gemini"]),
+        type: z.enum(AGENT_TYPES),
         version: z.string().optional(),
         path: z.string().min(1),
       }),

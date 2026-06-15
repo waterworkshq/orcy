@@ -1,14 +1,19 @@
-import { describe, it, expect, expectTypeOf, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, expectTypeOf, beforeAll, afterEach } from "vitest";
 import type { ISessionManager, DetectedCli } from "@orcy/shared/types";
 import {
   getSessionManager,
   releaseSessionManager,
   detectClisOnHost,
   shutdownAllWiring,
+  initDaemonWiring,
 } from "../daemon-wiring.js";
 
 describe("daemon-wiring", () => {
   const TEST_DAEMON_ID = "wiring-test-daemon";
+
+  beforeAll(async () => {
+    await initDaemonWiring();
+  });
 
   afterEach(() => {
     shutdownAllWiring();

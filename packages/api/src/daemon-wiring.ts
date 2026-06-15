@@ -1,22 +1,58 @@
-import { createSessionManager, createCliDetector } from "@orcy/daemon";
 import type {
   ISessionManager,
+  ISessionUpdater,
   ICliDetector,
   IClaimStrategy,
   DetectedCli,
+  ActiveSession,
 } from "@orcy/shared/types";
 import { InProcessSessionUpdater } from "./services/inProcessSessionUpdater.js";
 import { InProcessClaimStrategy } from "./services/inProcessClaimStrategy.js";
 import type { InProcessClaimDeps } from "./services/inProcessClaimStrategy.js";
 
+interface DaemonFactoryModule {
+  createSessionManager(deps: {
+    sessionUpdater: ISessionUpdater;
+    apiUrl: string;
+    dataDir: string;
+    sessionTimeoutSeconds: number;
+    onSessionComplete?: (session: ActiveSession) => void;
+  }): ISessionManager;
+  createCliDetector(): ICliDetector;
+}
+
+let factories: DaemonFactoryModule | null = null;
+let initPromise: Promise<void> | null = null;
+
 const sessionManagers = new Map<string, ISessionManager>();
 const claimStrategies = new Map<string, IClaimStrategy>();
 let cliDetector: ICliDetector | null = null;
 
+const DAEMON_MODULE = "@orcy/daemon";
+
+export async function initDaemonWiring(): Promise<void> {
+  if (factories) return;
+  if (!initPromise) {
+    initPromise = import(DAEMON_MODULE).then((mod: unknown) => {
+      factories = mod as DaemonFactoryModule;
+    });
+  }
+  await initPromise;
+}
+
+function requireFactories(): DaemonFactoryModule {
+  if (!factories) {
+    throw new Error(
+      "daemon-wiring not initialized. Call initDaemonWiring() during API startup before using daemon features.",
+    );
+  }
+  return factories;
+}
+
 export function getSessionManager(daemonId: string, dataDir: string): ISessionManager {
-  let sm = sessionManagers.get(daemonId);
-  if (sm) return sm;
-  sm = createSessionManager({
+  const cached = sessionManagers.get(daemonId);
+  if (cached) return cached;
+  const sm: ISessionManager = requireFactories().createSessionManager({
     sessionUpdater: new InProcessSessionUpdater(),
     apiUrl: "",
     dataDir,
@@ -40,7 +76,9 @@ export function releaseSessionManager(daemonId: string): void {
 }
 
 export function detectClisOnHost(): DetectedCli[] {
-  if (!cliDetector) cliDetector = createCliDetector();
+  if (!cliDetector) {
+    cliDetector = requireFactories().createCliDetector();
+  }
   return cliDetector.detectClis();
 }
 

@@ -30,7 +30,6 @@
     "@fastify/helmet": "^13.0.2",
     "@fastify/multipart": "^10.0.0",
     "@fastify/static": "^8.0.0",
-    "@orcy/daemon": "workspace:*",
     "@orcy/shared": "workspace:*",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
@@ -47,6 +46,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@orcy/daemon": "workspace:*",
     "@types/bcryptjs": "^3.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jsonwebtoken": "^9.0.10",

@@ -354,6 +354,9 @@ try {
   fastify.log.error({ err }, "Failed to load plugins - continuing without plugins");
 }
 
+const { initDaemonWiring } = await import("./daemon-wiring.js");
+await initDaemonWiring();
+
 fastify.get("/plugins", async () => ({ plugins: pluginManager.getLoadedPlugins() }));
 
 try {
