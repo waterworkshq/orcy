@@ -44,7 +44,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | Layer | Directory | Responsibility |
 |-------|-----------|---------------|
 | Routes | `src/routes/` | HTTP parsing, validation, response formatting. Includes daemon machine routes (`/daemon/*`), human/UI daemon controls (`/daemons/*`), and habitat skill routes (`/habitats/:id/skill/*`) |
-| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, `habitatSkillService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime |
+| Services | `src/services/` | Business logic, SSE broadcasting, webhook dispatch, AI features. Includes `featureService.ts`, `prioritizationService.ts`, `scheduledTaskService.ts`, `habitatSkillService.ts`, daemon nudges/digests, and `daemonEngine.ts` for the API in-process daemon runtime; `daemon-wiring.ts` provides lazy dynamic-import DI for the in-process daemon; `inProcessClaimStrategy.ts` implements the in-process claim path |
 | Repositories | `src/repositories/` | Drizzle-backed data access (habitat, mission, task, column, agent, daemon, comment, template, webhook, event-mission, habitatSkill) |
 | Models | `src/models/` | TypeScript types, Zod schemas. Includes `Mission`, `MissionWithProgress`, `MissionStatus` types |
 | Middleware | `src/middleware/` | Authentication (API key + JWT), RBAC, team-based access |
@@ -941,3 +941,116 @@ server event or scan → matching enabled rules → guards → start run →
 ```
 
 Notification V2 is the only notification path — Automation never calls legacy preferences, email service, or channel adapters directly.
+
+---
+
+## Audit Trail V2 (v0.17)
+
+Audit Trail V2 provides a canonical, provenance-aware audit projection over all lifecycle, effort, code-evidence, pipeline, integration, webhook, and health-snapshot sources. It uses virtual projection-on-read rather than a materialized audit table — every source row is transformed into the canonical `AuditEvent` shape at query time.
+
+### Architecture
+
+```
+Source tables (~16)                    Projection (query time)
+┌──────────────────────┐              ┌─────────────────────────┐
+│ taskEvents           │──┐           │                         │
+│ missionEvents        │  │           │  auditQueryService      │
+│ effortEntries        │  ├──► project*Row() ──►  AuditEvent    │
+│ codeEvidenceLinks    │  │    per-source         (canonical)   │
+│ codeCommits          │  │    functions          ├── id: prefix:PK
+│ pullRequests         │  │                       ├── completeness
+│ pipelineEvents       │  │                       ├── provenance
+│ integrationSyncRuns  │  │                       └── summary
+│ webhookDeliveries    │──┘              │         └─────────────┘
+│ habitatHealthSnapshots│                │
+└──────────────────────┘                ├──► auditExportService (CSV/JSON/JSONL)
+                                        └──► auditBundleService (task/mission bundles)
+```
+
+### Projection-on-Read
+
+The ~16 source tables are read on-demand, each projected via a dedicated `project*Row` function into the canonical `AuditEvent` shape. No materialized `audit_events` table exists. This trades read cost for write simplicity — every domain keeps a single source of truth, and audit never drifts from the systems it observes.
+
+### Provenance Flow
+
+Fastify hooks seed an `AsyncLocalStorage` context with source/request/route/MCP metadata. The `withAuditProvenanceMetadata` helper stamps this into `metadata.audit` on every event write. On read, `normalizeAuditActorAndSource` unpacks it into the structured `AuditEvent.provenance` field, so the query layer reconstructs *who* acted, *through which* surface (REST route, MCP tool, webhook, internal interval), and from *what* origin — without callers threading provenance explicitly.
+
+### Source-Prefix ID Scheme
+
+Every projected `AuditEvent.id` is `"prefix:<source-PK>"` (e.g. `task_event:<uuid>`, `commit:<sha>`). The prefix makes IDs deterministic, acts as a tagged-union discriminator and stable sort key, and lets archival reverse-lookup and delete the correct source row without a join table.
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `packages/api/src/services/auditQueryService.ts` | Canonical projection query layer — reads source tables, projects to AuditEvent |
+| `packages/api/src/services/auditExportService.ts` | CSV/JSON/JSONL streaming exports with filters, presets, and metadata sanitization |
+| `packages/api/src/services/auditBundleService.ts` | Scoped evidence bundles for individual tasks or missions |
+| `packages/api/src/services/auditProvenanceContext.ts` | AsyncLocalStorage-based provenance injection via Fastify hooks |
+| `packages/api/src/services/auditArchivalService.ts` | Retention-driven archival (task/mission events only, default 90 days) |
+| `packages/shared/src/types/audit.ts` | AuditEvent, AuditCompleteness, AuditProvenance, AuditWarning types |
+
+### Design Decisions
+
+- **Projection-on-read, no audit store** — all source tables projected at query time for a single source of truth per domain
+- **Deterministic prefixed IDs** — `prefix:<source-PK>` enables tagging, stable sorting, and reversible archival
+- **Completeness as first-class** — per-event status (complete/legacy_partial/source_unavailable) + caveats + query-level warnings
+- **Metadata sanitization** — raw provider payloads, diffs, and patches are scrubbed before projection (security boundary)
+
+### Deferred
+
+- **Hash-chain / tamper-evidence** — the `AuditIntegrity` type is declared but never populated; schema reserved for future work
+- **Physical `audit_events` table** — not implemented; projection-on-read is the current model
+
+---
+
+## Daemon Runtime Seam (v0.19.1)
+
+The daemon runtime (session management, task claiming, heartbeats) is decoupled from both the standalone CLI daemon and the API's in-process daemon through six interfaces in `@orcy/shared`. Both consumers program against the interfaces; concrete implementations are constructed by factory functions and injected at runtime.
+
+### Architecture
+
+```
+@orcy/shared (contracts)
+  ├── types/daemon.ts — 6 interfaces + DTOs
+  ├── daemon-poll.ts — runPollTick (the claim loop)
+  └── workdir-error.ts — sentinelerror class
+        │
+        ▼
+packages/daemon (concrete impls + factory)
+  ├── factory.ts — createSessionManager, createCliDetector, etc.
+  ├── session/manager.ts — SessionManager implements ISessionManager
+  ├── httpClaimStrategy.ts — HTTP claim path
+  └── httpHeartbeatStrategy.ts — HTTP heartbeat path
+        │
+        ▼
+packages/api (consumer via DI)
+  ├── daemon-wiring.ts — dynamic import("@orcy/daemon"), per-daemonId caching
+  ├── services/daemonEngine.ts — tick() → runPollTick, start() → getSessionManager
+  └── services/inProcessClaimStrategy.ts — direct-service claim path
+```
+
+### Flow
+
+The standalone daemon (`packages/daemon`) constructs its own `HttpClaimStrategy` and `HttpHeartbeatStrategy` and drives the loop through `PollLoop.tick()`, which delegates to the shared `runPollTick` in `@orcy/shared`. The HTTP strategies call the API's REST endpoints, so each claim and heartbeat traverses the network boundary exactly as an external agent would.
+
+The API's in-process daemon (`daemonEngine.tick()`) reuses the same `runPollTick` algorithm but injects an `InProcessClaimStrategy` that calls services directly instead of over HTTP. This eliminates the self-call round-trip while preserving identical claim semantics, ordering, and error handling.
+
+The dependency injection itself lives in `daemon-wiring.ts`, which lazy-imports `@orcy/daemon` via dynamic `import()` and caches the constructed `ISessionManager` per `daemonId`. `initDaemonWiring()` runs at API startup to populate the wiring once, keeping `@orcy/api` free of any static dependency on `@orcy/daemon`.
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `shared/src/types/daemon.ts` | Six seam interfaces (ISessionManager, IClaimStrategy, etc.) + DTOs |
+| `shared/src/daemon-poll.ts` | runPollTick — the single claim-loop algorithm shared by both consumers |
+| `daemon/src/factory.ts` | Factory functions — the only attachment point for concrete implementations |
+| `api/src/daemon-wiring.ts` | DI module with dynamic import; caches ISessionManager per daemonId |
+| `api/src/services/inProcessClaimStrategy.ts` | In-process claim path using direct service calls instead of HTTP |
+
+### Design Decisions
+
+- **Interface-seam pattern** — both consumers program against shared interfaces, never concrete classes
+- **Tick consolidation** — `runPollTick` replaces two 40+ line duplicated `tick()` implementations
+- **Dynamic import** — API loads `@orcy/daemon` lazily via `initDaemonWiring()` to avoid static coupling
+- **Strategy injection** — `IClaimStrategy` has two implementations (HTTP vs in-process) chosen by deployment mode

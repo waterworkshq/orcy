@@ -42,6 +42,26 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ## Upcoming
 
+### v0.19.2 — "Deepen: Documentation Pass"
+
+Patch release focused on contributor- and operator-facing docs that match the shipped code from v0.15 through v0.19.1. Each doc area gets an investigation-first read-understand-document cycle. No doc is written without tracing the actual code.
+
+| Area | What it covers |
+|------|----------------|
+| CONFIGURATION.md | Every env var actually read by the code across all packages (currently stale since v0.17) |
+| ARCHITECTURE.md | Daemon interface seam section + audit trail V2 section + update existing daemon references |
+| DATABASE.md | Automation + notification V2 table schemas (6 tables completely missing) |
+| Inline JSDoc | Public seam APIs: shared interfaces, `runPollTick`, `daemon-wiring.ts`, strategy classes |
+| TESTING.md | New test patterns: interface-compliance, factory, SSE registry, repository testing |
+| TROUBLESHOOTING.md | Troubleshooting entries for v0.17-v0.19 features |
+| README + CAPABILITIES + SKILL | Refresh feature counts and capability summaries |
+
+**Why a dedicated release:** 12 releases shipped features without corresponding documentation updates. Wrong docs are worse than missing docs — each domain module needs its callers/callees traced through actual code before documentation can be written accurately. Investigation-first methodology via subagents.
+
+**Designed at:** `docs/plans/v19.2/00-documentation-pass.md`. 8 boundaries, ~3.25 days.
+
+---
+
 ### v0.20.0 — "Orchestrated"
 
 First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chains, deploy chains, and conditional branches.

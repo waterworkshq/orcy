@@ -11,12 +11,15 @@ Complete reference for all environment variables and configuration options in Or
 | `PORT` | `3000` | HTTP server port |
 | `HOST` | `127.0.0.1` | Bind address. Use `0.0.0.0` to listen on all interfaces |
 | `ORCY_API_URL` | `http://localhost:3000` | Public API URL for webhooks and MCP server callbacks |
-| `JWT_SECRET` | `orcy-dev-secret-change-in-production` | Secret key for signing JWT tokens (HS256). **Change in production!** |
-| `JWT_EXPIRY` | `86400` | JWT token expiry in seconds (default: 24 hours) |
+| `JWT_SECRET` | `dev-secret-change-in-production` | Secret key for signing JWT tokens (HS256). **Change in production!** Also used as the AES-256-GCM key for encrypting stored secrets. |
 | `ORCY_REGISTRATION_TOKEN` | — | Bootstrap token for agent self-registration. **Required in remote posture** (crashes on startup if missing). In local-dev, registration is open without token. |
 | `ORCY_DEV_ALLOW_OPEN_REGISTRATION` | — | Set to `true` to allow agent registration without `ORCY_REGISTRATION_TOKEN` even in remote posture. **Development/staging only.** |
 | `NODE_ENV` | — | Controls logging and security posture: `production` triggers remote posture (fail-closed). Non-production uses pino-pretty transport. |
 | `ORCY_SSRF_ALLOWLIST` | — | Comma-separated hostnames to allow for outbound webhook delivery, bypassing SSRF private/loopback IP blocks. Use for trusted internal destinations only. |
+| `ORCY_BASE_URL` | — | Legacy fallback for `ORCY_PUBLIC_URL`. Optional. |
+| `ORCY_PUBLIC_URL` | — | Public base URL for shared-habitat reachability checks and webhook dispatch. Falls back to `ORCY_BASE_URL`. Read by `packages/api`. Optional for local-only deployments. |
+| `ORCY_TRANSITION_RECALC_DEBOUNCE` | unset | When set to `"true"`, debounces habitat-health recalculation after task transitions. Optional. |
+| `ORCY_UI_PATH` | `~/.orcy/ui` | Directory containing built UI static assets, served at `/app/` when present. Optional. |
 
 ### Security Posture
 
@@ -33,7 +36,7 @@ Remote posture requires `JWT_SECRET` (strong, not a known weak value) and `ORCY_
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DB_PATH` | `orcy.db` (workspace root) | SQLite database file path. For PostgreSQL, use `postgresql://user:pass@host/db` via `DATABASE_URL` and call `setDriver('postgres')` before init |
+| `DB_PATH` | `orcy.db` (workspace root) | SQLite database file path. PostgreSQL selection is code-level via `setDriver('postgres')`, not env-driven |
 
 ### File Storage & Uploads
 
@@ -59,12 +62,13 @@ Remote posture requires `JWT_SECRET` (strong, not a known weak value) and `ORCY_
 |----------|---------|-------------|
 | `SLACK_SIGNING_SECRET` | — | Slack signing secret for verifying slash command requests |
 | `DISCORD_PUBLIC_KEY` | — | Discord public key for verifying interaction requests |
-| `ORCY_DEFAULT_BOARD_ID` | — | Default board UUID for Slack/Discord slash commands |
+| `ORCY_DEFAULT_HABITAT_ID` | — | Default habitat UUID for Slack/Discord slash commands |
 
 ### External Tracker Integrations
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `ORCY_GITHUB_OAUTH_CLIENT_ID` | `Ov23liwIyGIgEaZetUN7` | OAuth client ID for GitHub integration. Optional. |
 | `ORCY_LINEAR_OAUTH_CLIENT_ID` | Orcy public Linear app client ID | Optional override for Linear OAuth PKCE. No Linear client secret is required for the public PKCE flow. |
 | `ORCY_JIRA_OAUTH_CLIENT_ID` | — | Atlassian OAuth app client ID for advanced Jira OAuth self-hosting. Not needed for recommended Jira API-token setup. |
 | `ORCY_JIRA_OAUTH_CLIENT_SECRET` | — | Atlassian OAuth app client secret for advanced Jira OAuth self-hosting. Never commit this value. |
@@ -84,14 +88,14 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 |----------|---------|-------------|
 | `LLM_API_KEY` | — | API key for LLM provider |
 | `LLM_PROVIDER` | `openai` | LLM provider (`openai` or `anthropic`) |
-| `LLM_MODEL` | — | Model name to use |
+| `LLM_MODEL` | `gpt-4o` | Model name to use |
 
 ### Plugin System
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PLUGINS_DIR` | `plugins/` | Directory for plugin files |
-| `PLUGINS_ENABLED` | `true` | Enable/disable plugin system |
+| `PLUGINS_ENABLED` | — | Comma-separated plugin names to load. When unset, all discovered plugins load. When set, only listed plugins load. |
 
 ### Realtime (SSE / WebSocket)
 
@@ -127,12 +131,12 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `ORCY_API_URL` | Auto-detected from `~/.orcy/.env`, falls back to `http://localhost:3000` | No | Kanban API base URL |
-| `ORCY_AGENT_ID` | — | Yes | Agent UUID from `POST /api/agents` |
-| `ORCY_API_KEY` | — | Yes | Plain API key from agent registration (shown once) |
+| `ORCY_AGENT_ID` | — | Conditional | Required for agent-scoped tool calls. Missing value surfaces as a per-tool error, not a startup crash. |
+| `ORCY_API_KEY` | — | Conditional | Required for agent-scoped tool calls. Missing value surfaces as a per-tool error, not a startup crash. |
 
 **Auto-detection:** When `ORCY_API_URL` is not set, the MCP server reads `~/.orcy/.env` (generated by `orcy-install`). It uses the `ORCY_API_URL` from that file, or constructs one from `HOST` and `PORT`. Falls back to `http://localhost:3000` if nothing is found.
 
-The MCP server exits immediately if `ORCY_AGENT_ID` or `ORCY_API_KEY` is not set.
+Missing `ORCY_AGENT_ID` or `ORCY_API_KEY` surfaces as a per-tool error rather than crashing at startup.
 
 ### Registering Agents
 
@@ -149,6 +153,35 @@ curl -X POST http://localhost:3000/api/agents \
 ```
 
 The API returns `{ "agent": {...}, "apiKey": "id-randomhex" }`. Save the `apiKey` — it won't be shown again.
+
+---
+
+## Daemon
+
+Daemon process configuration for standalone agent execution.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCY_DAEMON_DIR` | `~/.orcy/daemon` | Data directory for daemon credentials and state. Optional. |
+| `ORCY_DAEMON_NAME` | `os.hostname()` | Display name for this daemon. Optional. |
+| `ORCY_HABITAT_IDS` | — | Comma-separated habitat UUIDs the daemon serves. Required for standalone daemon. |
+| `ORCY_HEARTBEAT_INTERVAL` | `30` | Heartbeat interval in seconds. Optional. |
+| `ORCY_MAX_CONCURRENT` | `4` | Maximum concurrent agent sessions. Optional. |
+| `ORCY_POLL_INTERVAL` | `30` | Poll interval in seconds. Optional. |
+| `ORCY_SESSION_TIMEOUT` | `600` | Session inactivity timeout in seconds. Optional. |
+
+---
+
+## Remote Participant
+
+Remote-participant (remote MCP) configuration. Presence of `ORCY_REMOTE_KEY` switches MCP into remote mode using `X-Orcy-Remote-Key` auth.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCY_REMOTE_API_URL` | — | API URL override for remote-participant mode. Falls back to `ORCY_API_URL`. Optional. |
+| `ORCY_REMOTE_KEY` | — | Per-remote-participant credential. When set, switches MCP into remote mode using `X-Orcy-Remote-Key` auth. Optional (presence triggers remote mode). |
+| `ORCY_REMOTE_PARTICIPANT_ID` | — | Participant identifier for remote dispatch payloads. Optional. |
+| `ORCY_REMOTE_POD_ID` | — | Pod identifier for remote dispatch payloads. Optional. |
 
 ---
 
@@ -176,7 +209,7 @@ The proxy is configured in the Vite setup (not shown in source). Ensure:
 # .env (optional — defaults work out of the box for local-dev posture)
 PORT=3000
 HOST=127.0.0.1
-JWT_SECRET=orcy-dev-secret-change-in-production
+JWT_SECRET=dev-secret-change-in-production
 # ORCY_REGISTRATION_TOKEN=dev-bootstrap-token  # Optional: restrict agent registration
 ```
 

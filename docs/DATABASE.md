@@ -1329,6 +1329,191 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 
 ---
 
+### Workflow Automation (v0.18)
+
+The v0.18 workflow automation subsystem adds user-configurable trigger→condition→action rules and a full audit trail of their executions.
+
+#### `automation_rules`
+
+Defines a configured automation rule (trigger + condition + actions) scoped to a habitat.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Rule identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Owning habitat |
+| `name` | TEXT | NOT NULL | Human-readable rule name |
+| `description` | TEXT | NOT NULL DEFAULT '' | Rule description |
+| `enabled` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether the rule is active |
+| `priority` | INTEGER | NOT NULL DEFAULT 0 | Execution priority (higher = earlier) |
+| `trigger` | TEXT | NOT NULL (JSON) | Trigger definition |
+| `condition` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Condition predicate (defaults to `{ type: "always" }`) |
+| `actions` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Ordered action list |
+| `cooldown_seconds` | INTEGER | NOT NULL DEFAULT 300 | Minimum seconds between runs |
+| `max_runs_per_hour` | INTEGER | NOT NULL DEFAULT 30 | Rate cap per hour |
+| `created_by` | TEXT | NOT NULL | Creator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+| `last_run_at` | TEXT | DEFAULT NULL | Last execution timestamp |
+
+**Indexes:** `idx_automation_rules_habitat(habitat_id)`, `idx_automation_rules_enabled(habitat_id, enabled)`, `idx_automation_rules_priority(habitat_id, priority)`
+
+#### `automation_rule_runs`
+
+Audit trail of every automation rule execution attempt and its outcome.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Run identifier (UUID) |
+| `rule_id` | TEXT | NOT NULL FK → automation_rules(id) ON DELETE CASCADE | Executed rule |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat context |
+| `trigger_type` | TEXT | NOT NULL | What kind of trigger fired |
+| `trigger_event_id` | TEXT | DEFAULT NULL | Event that triggered the run |
+| `target_type` | TEXT | DEFAULT NULL | Type of target acted on |
+| `target_id` | TEXT | DEFAULT NULL | Target identifier |
+| `fingerprint` | TEXT | NOT NULL | Dedup key for the run |
+| `status` | TEXT | NOT NULL | Run outcome status |
+| `skip_reason` | TEXT | DEFAULT NULL | Why the run was skipped |
+| `condition_result` | TEXT | DEFAULT NULL (JSON) | Evaluated condition output |
+| `action_results` | TEXT | DEFAULT NULL (JSON) | Per-action result list |
+| `metadata` | TEXT | DEFAULT NULL (JSON) | Freeform metadata |
+| `started_at` | TEXT | NOT NULL | Run start timestamp |
+| `finished_at` | TEXT | DEFAULT NULL | Run finish timestamp |
+
+**Indexes:** `idx_automation_runs_rule(rule_id, started_at)`, `idx_automation_runs_habitat(habitat_id, started_at)`, `idx_automation_runs_fingerprint(fingerprint, started_at)`, `idx_automation_runs_status(habitat_id, status)`
+
+---
+
+### Notification System V2 (v0.18)
+
+The v0.18 notification system V2 introduces an event/delivery split with per-recipient subscriptions, channel-level delivery attempts, digests, and retention policies.
+
+#### `notification_events`
+
+Canonical record of a noteworthy event in a habitat that may need delivery.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Event identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Owning habitat |
+| `event_type` | TEXT | NOT NULL | Event category |
+| `source_type` | TEXT | NOT NULL | Type of emitting source |
+| `source_id` | TEXT | DEFAULT NULL | Identifier of the source |
+| `target_type` | TEXT | DEFAULT NULL | Type of target entity |
+| `target_id` | TEXT | DEFAULT NULL | Identifier of the target |
+| `severity` | TEXT | NOT NULL | Severity level |
+| `title` | TEXT | NOT NULL | Short event title |
+| `body` | TEXT | NOT NULL | Event body text |
+| `payload` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Structured event payload |
+| `created_by_type` | TEXT | NOT NULL | Originator type |
+| `created_by_id` | TEXT | DEFAULT NULL | Originator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `history_summary` | TEXT | DEFAULT NULL (JSON) | Cached history summary |
+
+**Indexes:** `idx_notification_events_habitat_created(habitat_id, created_at)`, `idx_notification_events_type(habitat_id, event_type)`, `idx_notification_events_source(source_type, source_id)`
+
+#### `notification_deliveries`
+
+Per-recipient trackable delivery of a notification event with lifecycle status.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Delivery identifier (UUID) |
+| `event_id` | TEXT | NOT NULL FK → notification_events(id) ON DELETE CASCADE | Event being delivered |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat context |
+| `recipient_type` | TEXT | NOT NULL | Type of recipient |
+| `recipient_id` | TEXT | NOT NULL | Recipient identifier |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Delivery status |
+| `required` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether delivery is mandatory |
+| `channels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Target channel list |
+| `delivered_at` | TEXT | DEFAULT NULL | When first delivered |
+| `acknowledged_at` | TEXT | DEFAULT NULL | When acknowledged |
+| `snoozed_until` | TEXT | DEFAULT NULL | Snooze expiry |
+| `muted_at` | TEXT | DEFAULT NULL | When muted |
+| `cleared_at` | TEXT | DEFAULT NULL | When cleared from inbox |
+| `clear_after` | TEXT | DEFAULT NULL | Scheduled auto-clear time |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_notification_deliveries_recipient_active(habitat_id, recipient_type, recipient_id, status, created_at)`, `idx_notification_deliveries_event(event_id)`, `idx_notification_deliveries_clearance(habitat_id, clear_after, status)`
+
+#### `notification_delivery_attempts`
+
+Low-level log of each physical delivery attempt on a channel, including retries.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Attempt identifier (UUID) |
+| `delivery_id` | TEXT | NOT NULL FK → notification_deliveries(id) ON DELETE CASCADE | Parent delivery |
+| `channel` | TEXT | NOT NULL | Channel used |
+| `status` | TEXT | NOT NULL DEFAULT 'pending' | Attempt status |
+| `attempt` | INTEGER | NOT NULL DEFAULT 1 | 1-based attempt number |
+| `status_code` | INTEGER | DEFAULT NULL | HTTP response status code |
+| `error` | TEXT | DEFAULT NULL | Error message on failure |
+| `response_body` | TEXT | DEFAULT NULL | Captured response body |
+| `next_retry_at` | TEXT | DEFAULT NULL | Scheduled next retry time |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Attempt creation timestamp |
+| `finished_at` | TEXT | DEFAULT NULL | Attempt completion timestamp |
+
+**Indexes:** `idx_notification_attempts_delivery(delivery_id)`, `idx_notification_attempts_retry(channel, status, next_retry_at)`
+
+#### `notification_subscriptions`
+
+Per-recipient subscription preferences for an event type within a habitat.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Subscription identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Owning habitat |
+| `scope` | TEXT | NOT NULL | Subscription scope key |
+| `recipient_type` | TEXT | DEFAULT NULL | Recipient type |
+| `recipient_id` | TEXT | DEFAULT NULL | Recipient identifier |
+| `event_type` | TEXT | NOT NULL | Subscribed event type |
+| `enabled` | INTEGER | NOT NULL DEFAULT 1 (boolean) | Whether subscription is active |
+| `required` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether subscription is mandatory |
+| `channels` | TEXT | NOT NULL DEFAULT '[]' (JSON) | Preferred channel list |
+| `cadence` | TEXT | NOT NULL DEFAULT 'immediate' | Delivery cadence |
+| `timezone` | TEXT | DEFAULT NULL | Recipient timezone |
+| `local_send_time` | TEXT | DEFAULT NULL | Local time-of-day for scheduled sends |
+| `mute_until` | TEXT | DEFAULT NULL | Mute expiry |
+| `created_by` | TEXT | DEFAULT NULL | Creator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Indexes:** `idx_notification_subscriptions_habitat(habitat_id, event_type)`, `idx_notification_subscriptions_recipient(habitat_id, recipient_type, recipient_id)`
+
+#### `notification_digest_items`
+
+Join table recording which events were rolled into a digest.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Row identifier (UUID) |
+| `digest_event_id` | TEXT | NOT NULL FK → notification_events(id) ON DELETE CASCADE | Parent digest event |
+| `included_event_id` | TEXT | NOT NULL FK → notification_events(id) ON DELETE CASCADE | Event rolled into the digest |
+| `included_delivery_id` | TEXT | FK → notification_deliveries(id) ON DELETE SET NULL | Associated delivery |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Row creation timestamp |
+
+**Indexes:** (none)
+
+#### `notification_retention_policies`
+
+Per-habitat retention policy for notification clearance.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Policy identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Owning habitat (unique) |
+| `acknowledged_clear_after_days` | INTEGER | NOT NULL DEFAULT 30 | Days to keep acknowledged events |
+| `resolved_clear_after_days` | INTEGER | NOT NULL DEFAULT 30 | Days to keep resolved events |
+| `failed_clear_after_days` | INTEGER | NOT NULL DEFAULT 90 | Days to keep failed events |
+| `history_summary_retention_days` | INTEGER | DEFAULT NULL | Days to retain history summaries |
+| `updated_by` | TEXT | DEFAULT NULL | Last updater |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
+
+**Unique index:** `idx_notification_retention_habitat(habitat_id)`
+
+---
+
 ### Pod Bridge Tables (v0.19)
 
 The following 13 tables are added by the v0.19 "Pod Bridge" release for remote participant identity, access control, and cross-pod collaboration. They exist alongside the existing local-only tables and do not modify or extend the `agents` table.

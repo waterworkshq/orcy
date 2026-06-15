@@ -30,6 +30,7 @@ let cliDetector: ICliDetector | null = null;
 
 const DAEMON_MODULE = "@orcy/daemon";
 
+/** Lazily imports `@orcy/daemon` and caches its factory functions. Must be awaited during API startup before calling any other function in this module. */
 export async function initDaemonWiring(): Promise<void> {
   if (factories) return;
   if (!initPromise) {
@@ -49,6 +50,7 @@ function requireFactories(): DaemonFactoryModule {
   return factories;
 }
 
+/** Returns the cached {@link ISessionManager} for a daemonId, constructing one via the daemon factory on first access. Requires `initDaemonWiring()` to have resolved. */
 export function getSessionManager(daemonId: string, dataDir: string): ISessionManager {
   const cached = sessionManagers.get(daemonId);
   if (cached) return cached;
@@ -62,6 +64,7 @@ export function getSessionManager(daemonId: string, dataDir: string): ISessionMa
   return sm;
 }
 
+/** Returns the cached `InProcessClaimStrategy` for a daemon, constructing one from the supplied deps on first access. */
 export function getClaimStrategy(deps: InProcessClaimDeps): IClaimStrategy {
   const existing = claimStrategies.get(deps.daemonId);
   if (existing) return existing;
@@ -70,11 +73,13 @@ export function getClaimStrategy(deps: InProcessClaimDeps): IClaimStrategy {
   return strategy;
 }
 
+/** Drops the cached session manager and claim strategy for a daemonId. Called when a daemon is stopped. */
 export function releaseSessionManager(daemonId: string): void {
   sessionManagers.delete(daemonId);
   claimStrategies.delete(daemonId);
 }
 
+/** Probes the host for installed CLIs via the daemon's {@link ICliDetector}. Requires `initDaemonWiring()` to have resolved. */
 export function detectClisOnHost(): DetectedCli[] {
   if (!cliDetector) {
     cliDetector = requireFactories().createCliDetector();
@@ -82,6 +87,7 @@ export function detectClisOnHost(): DetectedCli[] {
   return cliDetector.detectClis();
 }
 
+/** Tears down every cached session manager and claim strategy. Called on API shutdown. */
 export function shutdownAllWiring(): void {
   for (const sm of sessionManagers.values()) {
     sm.shutdownAll().catch(() => {});

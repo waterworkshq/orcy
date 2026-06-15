@@ -1,5 +1,6 @@
 import type { IClaimStrategy, ClaimResult } from "@orcy/shared/types";
 
+/** Function-handle dependencies for {@link InProcessClaimStrategy}: ownership checks, suggestion lookup, task claiming, and session creation — all executed in-process. */
 export interface InProcessClaimDeps {
   daemonId: string;
   isAgentOwnedByDaemon(agentId: string, daemonId: string): boolean;
@@ -28,6 +29,7 @@ export interface InProcessClaimDeps {
   }): { id: string };
 }
 
+/** {@link IClaimStrategy} implementation for the API's embedded daemon. Claims tasks via direct service calls instead of HTTP — the in-process counterpart to `HttpClaimStrategy`. */
 export class InProcessClaimStrategy implements IClaimStrategy {
   constructor(private deps: InProcessClaimDeps) {}
 

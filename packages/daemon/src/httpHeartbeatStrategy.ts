@@ -1,6 +1,7 @@
 import type { IHeartbeatStrategy, RegisteredAgent, ActiveSession } from "@orcy/shared/types";
 import type { DaemonApiClient } from "./api-client.js";
 
+/** {@link IHeartbeatStrategy} implementation that posts agent statuses and session progress to the daemon HTTP API. Used by the standalone daemon's `PollLoop`. */
 export class HttpHeartbeatStrategy implements IHeartbeatStrategy {
   constructor(private apiClient: DaemonApiClient) {}
 

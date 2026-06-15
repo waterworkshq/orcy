@@ -7,6 +7,7 @@ import type {
 } from "./types/daemon.js";
 import { WorkdirError } from "./workdir-error.js";
 
+/** Injected dependencies for a single poll tick: session manager, agents, habitats, concurrency cap, and claim strategy. */
 export interface PollTickDeps {
   sessionManager: ISessionManager;
   agents: ReadonlyArray<RegisteredAgent>;
@@ -15,6 +16,7 @@ export interface PollTickDeps {
   claim: IClaimStrategy;
 }
 
+/** Outcome of a single poll tick — idle agents, available slots, claimed/failed counts, and errors bucketed by kind. */
 export interface PollTickResult {
   idleAgentCount: number;
   availableSlots: number;
@@ -23,6 +25,7 @@ export interface PollTickResult {
   errorsByKind: { claim: number; workdir: number; other: number };
 }
 
+/** Performs one pass of the daemon claim loop: finds idle agents, claims tasks via the injected {@link IClaimStrategy}, and starts sessions up to the concurrency limit. */
 export async function runPollTick(deps: PollTickDeps): Promise<PollTickResult> {
   const activeAgentIds = new Set(deps.sessionManager.activeSessions.map((s) => s.agentId));
   const idleAgents = deps.agents.filter((a) => !activeAgentIds.has(a.id));
