@@ -2,6 +2,24 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.19.2 — 2026-06-15
+
+### Documentation
+
+#### update daemon interface types and documentation ([`9a202b2`](https://github.com/waterworkshq/orcy/commit/9a202b24ee5e6ad07548e1e7ed0f120836e311d4))
+
+1. Add comprehensive JSDoc documentation to daemon interface types and implement strategy pattern for daemon operations. Update architecture documentation to reflect the new daemon interface seam with lazy loading, lifecycle management, and claim/heartbeat strategies.
+
+
+#### expand documentation for automation, notifications, and shared habitat features ([`3865cfb`](https://github.com/waterworkshq/orcy/commit/3865cfb5c89da1fd861612acb5731baa187d23be))
+
+1. Update README.md, CAPABILITIES.md, SKILL.md, TESTING.md, and TROUBLESHOOTING.md with comprehensive documentation for new features including workflow automation with event-driven rules, notification system V2 with multi-channel routing, Pod Bridge for secure remote collaboration, and testing patterns.
+
+
+#### move v0.19.2 to Delivered, add v0.19.3 to Upcoming ([`cd20e76`](https://github.com/waterworkshq/orcy/commit/cd20e7689c5f3c0f49e60c9222aa14b8a8c0025c))
+
+
+
 ## 0.19.1 — 2026-06-15
 
 ### Documentation
@@ -215,36 +233,3 @@
 8. Add URL validation for evidence links in shared API
 9. Implement stricter schema validation for remote access routes
 10. Remove remote participant context from audit metadata in shared API routes
-
-
-
-## 0.18.3 — 2026-06-12
-
-### Refactors
-
-#### migrate agents data from Zustand to React Query ([`d28006f`](https://github.com/waterworkshq/orcy/commit/d28006f157970021d3fd7643dd01822484de4c0f))
-
-1. Replace direct Zustand agent state management with React Query's useAgents hook across all UI components. This change centralizes agent data fetching, caching, and synchronization, improving performance and consistency. The agent slice has been simplified to maintain only a placeholder array for backward compatibility.
-
-
-#### replace Zustand state management with React Query ([`60d6e56`](https://github.com/waterworkshq/orcy/commit/60d6e566d2d78fa737a7f830b62ba90f863dcd1a))
-
-1. Remove comment-related state management from task slice and update SSE handlers to use React Query cache invalidation instead of direct state updates. Components now fetch comments directly through React Query hooks, simplifying the store and improving data consistency.
-
-
-#### migrate habitat components to use React Query board data ([`ac5f23a`](https://github.com/waterworkshq/orcy/commit/ac5f23a7e5a19d0d09df1330d13f475ef1e022f7))
-
-1. Replace direct store access with React Query's useBoard hook across habitat components. Update AgentPanel, FilterBar, and HabitatPage to accept habitatId prop and fetch board data through React Query instead of Zustand store. This change centralizes data fetching and improves consistency with the new data management approach.
-
-
-#### remove Zustand dependencies from habitat components ([`42e833c`](https://github.com/waterworkshq/orcy/commit/42e833c3bd291229b75a239e347c69d61b56b776))
-
-1. Replace direct Zustand store access with React Query hooks across habitat components. Remove habitatStore imports and replace with useMissionTasks, useBoardTasks, and useAgents hooks. Update task actions, delegation, review, and detail panel hooks to work with React Query data instead of Zustand state. Remove store mutations from SSE handlers and rely on cache invalidation only.
-
-
-
-### Tests
-
-#### update habitat component tests for React Query integration ([`e7e9572`](https://github.com/waterworkshq/orcy/commit/e7e9572b9e7976b52b0ab4bbd6a493045d27e8a3))
-
-1. Update BulkActionBar and CreateMissionForm tests to work with React Query instead of Zustand. Replace store mocks with query client mocks and update test assertions to reflect new data fetching patterns. Remove direct store mutation calls and replace with cache invalidation patterns.
