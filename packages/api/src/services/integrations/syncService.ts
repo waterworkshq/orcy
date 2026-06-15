@@ -18,6 +18,7 @@ import { badRequest, notFound } from "../../errors.js";
 
 const TERMINAL_TASK_STATUSES = ["done", "approved", "failed"];
 
+/** Runs a full pull sync for an integration connection, importing or updating linked missions and intake candidates while recording sync run status. */
 export async function syncConnection(
   connectionId: string,
   trigger: IntegrationSyncTrigger,
@@ -112,6 +113,7 @@ export async function syncConnection(
   }
 }
 
+/** Syncs a single external issue into Orcy, updating an existing linked mission or creating a mission or intake candidate. */
 export function syncExternalIssue(
   connection: IntegrationConnection,
   issue: ExternalIssue,
@@ -377,18 +379,21 @@ function integrationAuditMetadata(
   };
 }
 
+/** Input shape for promoting an external intake candidate into a mission. */
 export interface PromoteIntakeCandidateInput {
   candidateId: string;
   createdBy: string;
   verifyAccess: (habitatId: string) => void;
 }
 
+/** Result of promoting an intake candidate into a mission. */
 export interface PromoteIntakeCandidateResult {
   mission: ReturnType<typeof missionRepo.createMission>;
   link: ReturnType<typeof linkRepo.create>;
   candidate: ReturnType<typeof candidateRepo.getById>;
 }
 
+/** Promotes an external intake candidate into a mission and links it to the external issue. */
 export function promoteIntakeCandidate(
   input: PromoteIntakeCandidateInput,
 ): PromoteIntakeCandidateResult {

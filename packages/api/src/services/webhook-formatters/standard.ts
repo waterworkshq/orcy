@@ -1,3 +1,4 @@
+/** Extra context fetched for a webhook event before building the standard payload. */
 export interface EventEnrichment {
   habitatName: string;
   task?: {
@@ -14,7 +15,12 @@ export interface EventEnrichment {
   columnName?: string;
 }
 
-export function formatStandardPayload(enrichment: EventEnrichment, eventType: string, deliveryId: string): object {
+/** Builds the standard JSON payload for a webhook delivery using the provided {@link EventEnrichment}. */
+export function formatStandardPayload(
+  enrichment: EventEnrichment,
+  eventType: string,
+  deliveryId: string,
+): object {
   return {
     id: deliveryId,
     timestamp: new Date().toISOString(),

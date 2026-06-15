@@ -1,26 +1,41 @@
-import { isRemotePosture, verifyGitHubHmac, verifyGitLabToken } from '../../config/integrationSecurity.js';
+import {
+  isRemotePosture,
+  verifyGitHubHmac,
+  verifyGitLabToken,
+} from "../../config/integrationSecurity.js";
 import {
   lookupHabitatIdBySecret,
   hasAnySecretsConfigured,
   findHabitatIdByGithubSignature,
   hasGithubSecretsConfigured,
-} from '../boardSecretCache.js';
-import * as habitatRepo from '../../repositories/board.js';
+} from "../boardSecretCache.js";
+import * as habitatRepo from "../../repositories/board.js";
 
+/** HTTP response shape returned by a webhook handler. */
 export interface WebhookResponse {
   statusCode: number;
   body: unknown;
 }
 
+/** Verifies GitHub signatures and GitLab tokens against configured secrets. */
 export interface WebhookSecretSource {
-  verifyGitHubSignature(rawBody: string, signature: string | undefined): { matched: boolean; secretsPresent: boolean };
-  verifyGitLabToken(providedToken: string | undefined): { matched: boolean; secretsPresent: boolean };
+  verifyGitHubSignature(
+    rawBody: string,
+    signature: string | undefined,
+  ): { matched: boolean; secretsPresent: boolean };
+  verifyGitLabToken(providedToken: string | undefined): {
+    matched: boolean;
+    secretsPresent: boolean;
+  };
 }
 
+/** Creates a verifier backed by board-level code review secrets. */
 export function createCodeReviewSecretSource(): WebhookSecretSource {
   return {
     verifyGitHubSignature(rawBody: string, signature: string | undefined) {
-      const matched = signature ? findHabitatIdByGithubSignature(rawBody, signature) !== null : false;
+      const matched = signature
+        ? findHabitatIdByGithubSignature(rawBody, signature) !== null
+        : false;
       return { matched, secretsPresent: hasGithubSecretsConfigured() };
     },
     verifyGitLabToken(providedToken: string | undefined) {
@@ -30,6 +45,7 @@ export function createCodeReviewSecretSource(): WebhookSecretSource {
   };
 }
 
+/** Creates a verifier backed by habitat CI/CD settings. */
 export function createCiCdSecretSource(): WebhookSecretSource {
   return {
     verifyGitHubSignature(rawBody: string, signature: string | undefined) {
@@ -38,7 +54,7 @@ export function createCiCdSecretSource(): WebhookSecretSource {
       let secretsPresent = false;
       for (const habitat of habitats) {
         const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
-        if (!raw || typeof raw !== 'string') continue;
+        if (!raw || typeof raw !== "string") continue;
         try {
           const settings = JSON.parse(raw) as { githubSecret?: string };
           if (settings.githubSecret) {
@@ -48,7 +64,9 @@ export function createCiCdSecretSource(): WebhookSecretSource {
               break;
             }
           }
-        } catch { /* continue */ }
+        } catch {
+          /* continue */
+        }
       }
       return { matched, secretsPresent };
     },
@@ -58,7 +76,7 @@ export function createCiCdSecretSource(): WebhookSecretSource {
       let secretsPresent = false;
       for (const habitat of habitats) {
         const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
-        if (!raw || typeof raw !== 'string') continue;
+        if (!raw || typeof raw !== "string") continue;
         try {
           const settings = JSON.parse(raw) as { gitlabSecret?: string };
           if (settings.gitlabSecret) {
@@ -68,7 +86,9 @@ export function createCiCdSecretSource(): WebhookSecretSource {
               break;
             }
           }
-        } catch { /* continue */ }
+        } catch {
+          /* continue */
+        }
       }
       return { matched, secretsPresent };
     },
@@ -77,6 +97,7 @@ export function createCiCdSecretSource(): WebhookSecretSource {
 
 type EventHandler = (body: unknown) => unknown;
 
+/** Validates a GitHub webhook signature and dispatches to the matching handler. */
 export function handleGitHubWebhook(
   source: WebhookSecretSource,
   params: {
@@ -91,17 +112,15 @@ export function handleGitHubWebhook(
   const { body, rawBody, event, signature } = params;
 
   if (!event) {
-    return { statusCode: 400, body: { error: 'Missing X-GitHub-Event header' } };
+    return { statusCode: 400, body: { error: "Missing X-GitHub-Event header" } };
   }
 
   const { matched, secretsPresent } = source.verifyGitHubSignature(rawBody, signature);
 
   if (!matched) {
-    const shouldReject = options?.failClosed
-      ? secretsPresent || isRemotePosture()
-      : secretsPresent;
+    const shouldReject = options?.failClosed ? secretsPresent || isRemotePosture() : secretsPresent;
     if (shouldReject) {
-      return { statusCode: 401, body: { error: 'Invalid or missing signature' } };
+      return { statusCode: 401, body: { error: "Invalid or missing signature" } };
     }
   }
 
@@ -110,9 +129,10 @@ export function handleGitHubWebhook(
     return { statusCode: 200, body: handler(body) };
   }
 
-  return { statusCode: 200, body: { status: 'ignored', event } };
+  return { statusCode: 200, body: { status: "ignored", event } };
 }
 
+/** Validates a GitLab webhook token and dispatches to the matching handler. */
 export function handleGitLabWebhook(
   source: WebhookSecretSource,
   params: {
@@ -126,17 +146,15 @@ export function handleGitLabWebhook(
   const { body, providedToken, objectKind } = params;
 
   if (!objectKind) {
-    return { statusCode: 400, body: { error: 'Missing object_kind' } };
+    return { statusCode: 400, body: { error: "Missing object_kind" } };
   }
 
   const { matched, secretsPresent } = source.verifyGitLabToken(providedToken);
 
   if (!matched) {
-    const shouldReject = options?.failClosed
-      ? secretsPresent || isRemotePosture()
-      : secretsPresent;
+    const shouldReject = options?.failClosed ? secretsPresent || isRemotePosture() : secretsPresent;
     if (shouldReject) {
-      return { statusCode: 401, body: { error: 'Invalid or missing token' } };
+      return { statusCode: 401, body: { error: "Invalid or missing token" } };
     }
   }
 
@@ -145,5 +163,5 @@ export function handleGitLabWebhook(
     return { statusCode: 200, body: handler(body) };
   }
 
-  return { statusCode: 200, body: { status: 'ignored', objectKind } };
+  return { statusCode: 200, body: { status: "ignored", objectKind } };
 }

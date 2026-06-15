@@ -1,11 +1,12 @@
-import type { IntegrationConnection, ExternalIssue } from '@orcy/shared';
-import type { IssueProviderAdapter } from './types.js';
-import { getLinearClientId, refreshLinearToken } from './linearOAuth.js';
-import * as connectionRepo from '../../repositories/integrationConnection.js';
-import { logger } from '../../lib/logger.js';
+import type { IntegrationConnection, ExternalIssue } from "@orcy/shared";
+import type { IssueProviderAdapter } from "./types.js";
+import { getLinearClientId, refreshLinearToken } from "./linearOAuth.js";
+import * as connectionRepo from "../../repositories/integrationConnection.js";
+import { logger } from "../../lib/logger.js";
 
 const MAX_PAGES = 100;
 
+/** Shape of a Linear issue node returned by the GraphQL API. */
 interface LinearIssueNode {
   id: string;
   identifier: string;
@@ -38,11 +39,11 @@ interface LinearIssuesResponse {
 }
 
 const LINEAR_PRIORITY_MAP: Record<number, string> = {
-  0: 'No priority',
-  1: 'Urgent',
-  2: 'High',
-  3: 'Medium',
-  4: 'Low',
+  0: "No priority",
+  1: "Urgent",
+  2: "High",
+  3: "Medium",
+  4: "Low",
 };
 
 function buildIssuesQuery(): string {
@@ -82,20 +83,22 @@ function buildIssuesQuery(): string {
   `;
 }
 
+/** Converts a raw Linear GraphQL issue node into the shared {@link ExternalIssue} shape. */
 export function normalizeLinearIssue(issue: LinearIssueNode): ExternalIssue {
-  const stateType = issue.state?.type ?? '';
-  const labels = issue.labels?.nodes.map(l => l.name) ?? [];
+  const stateType = issue.state?.type ?? "";
+  const labels = issue.labels?.nodes.map((l) => l.name) ?? [];
 
   return {
-    provider: 'linear',
+    provider: "linear",
     externalId: issue.id,
     externalKey: issue.identifier,
     title: issue.title,
-    body: issue.description ?? '',
-    status: stateType === 'completed' ? 'closed' : 'open',
+    body: issue.description ?? "",
+    status: stateType === "completed" ? "closed" : "open",
     labels,
     sourceKind: undefined,
-    priority: issue.priority !== null ? LINEAR_PRIORITY_MAP[issue.priority] ?? 'Medium' : undefined,
+    priority:
+      issue.priority !== null ? (LINEAR_PRIORITY_MAP[issue.priority] ?? "Medium") : undefined,
     assignees: issue.assignee ? [issue.assignee.name] : [],
     reporter: issue.creator?.name,
     url: issue.url,
@@ -106,7 +109,7 @@ export function normalizeLinearIssue(issue: LinearIssueNode): ExternalIssue {
 
 async function ensureFreshToken(connection: IntegrationConnection): Promise<string> {
   let token = connection.accessToken;
-  if (!token) throw new Error('Linear connection has no access token');
+  if (!token) throw new Error("Linear connection has no access token");
 
   if (connection.tokenExpiresAt && connection.refreshToken) {
     const expiresAt = new Date(connection.tokenExpiresAt).getTime();
@@ -116,11 +119,13 @@ async function ensureFreshToken(connection: IntegrationConnection): Promise<stri
         connectionRepo.update(connection.id, {
           accessToken: refreshed.access_token,
           refreshToken: refreshed.refresh_token ?? connection.refreshToken,
-          tokenExpiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : null,
+          tokenExpiresAt: refreshed.expires_in
+            ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
+            : null,
         });
         token = refreshed.access_token;
       } catch (err) {
-        logger.warn({ err, connectionId: connection.id }, 'Linear token refresh failed');
+        logger.warn({ err, connectionId: connection.id }, "Linear token refresh failed");
       }
     }
   }
@@ -128,14 +133,15 @@ async function ensureFreshToken(connection: IntegrationConnection): Promise<stri
   return token;
 }
 
+/** Adapter that lists and fetches Linear issues through the Linear GraphQL API. */
 export const linearAdapter: IssueProviderAdapter = {
-  provider: 'linear',
+  provider: "linear",
 
   async listIssues(connection: IntegrationConnection): Promise<ExternalIssue[]> {
     const token = await ensureFreshToken(connection);
 
     const teamId = connection.teamId;
-    if (!teamId) throw new Error('Linear connection has no team ID');
+    if (!teamId) throw new Error("Linear connection has no team ID");
 
     const query = buildIssuesQuery();
     const allIssues: ExternalIssue[] = [];
@@ -145,14 +151,17 @@ export const linearAdapter: IssueProviderAdapter = {
     do {
       pageCount++;
       if (pageCount > MAX_PAGES) {
-        logger.warn({ connectionId: connection.id, pageCount }, 'Linear pagination exceeded max pages, truncating');
+        logger.warn(
+          { connectionId: connection.id, pageCount },
+          "Linear pagination exceeded max pages, truncating",
+        );
         break;
       }
-      const response = await fetch('https://api.linear.app/graphql', {
-        method: 'POST',
+      const response = await fetch("https://api.linear.app/graphql", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({ query, variables: { teamId, after: cursor } }),
       });
@@ -161,14 +170,14 @@ export const linearAdapter: IssueProviderAdapter = {
         throw new Error(`Linear API error: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json() as LinearIssuesResponse;
+      const data = (await response.json()) as LinearIssuesResponse;
 
       if (data.errors?.length) {
         throw new Error(`Linear GraphQL error: ${data.errors[0].message}`);
       }
 
       if (!data.data.team) {
-        throw new Error('Linear team not found');
+        throw new Error("Linear team not found");
       }
 
       for (const issue of data.data.team.issues.nodes) {
@@ -182,7 +191,10 @@ export const linearAdapter: IssueProviderAdapter = {
     return allIssues;
   },
 
-  async getIssue(connection: IntegrationConnection, externalId: string): Promise<ExternalIssue | null> {
+  async getIssue(
+    connection: IntegrationConnection,
+    externalId: string,
+  ): Promise<ExternalIssue | null> {
     const token = await ensureFreshToken(connection);
 
     const query = `
@@ -207,11 +219,11 @@ export const linearAdapter: IssueProviderAdapter = {
       }
     `;
 
-    const response = await fetch('https://api.linear.app/graphql', {
-      method: 'POST',
+    const response = await fetch("https://api.linear.app/graphql", {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, variables: { id: externalId } }),
     });
@@ -220,7 +232,7 @@ export const linearAdapter: IssueProviderAdapter = {
       throw new Error(`Linear API error: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       data: { issue: LinearIssueNode | null };
       errors?: Array<{ message: string }>;
     };

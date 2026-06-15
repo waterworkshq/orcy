@@ -8,6 +8,7 @@ import type { CodeReviewSettings } from "../models/index.js";
 import { verifyGitLabToken as secureVerifyGitLabToken } from "../config/integrationSecurity.js";
 import * as codeEvidenceService from "./codeEvidenceService.js";
 
+/** Verifies a GitLab webhook token against the configured secret. */
 export function verifyGitLabToken(providedToken: string, secret: string): boolean {
   return secureVerifyGitLabToken(providedToken, secret);
 }
@@ -86,6 +87,7 @@ function findTaskAcrossHabitats(repo: string, branchName: string, mrTitle: strin
   return null;
 }
 
+/** Links an incoming GitLab merge request to an Orcy task, creating or updating the pull request record and broadcasting task changes via SSE. */
 export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): {
   status: string;
   taskId?: string;
@@ -203,6 +205,7 @@ export function handleMergeRequestEvent(body: GitLabMergeRequestEvent): {
   return { status: "ignored" };
 }
 
+/** Records a GitLab note event on a previously linked merge request and returns the associated task. */
 export function handleNoteEvent(body: GitLabNoteEvent): { status: string; taskId?: string } {
   if (body.noteable_type !== "MergeRequest") return { status: "ignored" };
 

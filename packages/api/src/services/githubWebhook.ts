@@ -8,6 +8,7 @@ import type { CodeReviewSettings } from "../models/index.js";
 import { verifyGitHubHmac } from "../config/integrationSecurity.js";
 import * as codeEvidenceService from "./codeEvidenceService.js";
 
+/** Verifies a GitHub webhook payload against its HMAC signature using the configured secret. */
 export function verifyGitHubSignature(payload: string, signature: string, secret: string): boolean {
   return verifyGitHubHmac(payload, signature, secret);
 }
@@ -97,6 +98,7 @@ function findTaskAcrossHabitats(repo: string, branchName: string, prTitle: strin
   return null;
 }
 
+/** Links an incoming GitHub pull request to the matching Orcy task, updating pull request records and emitting SSE updates. When a merged PR is configured for auto-approval, it also approves the linked submitted task. */
 export function handlePullRequestEvent(body: GitHubPREvent): { status: string; taskId?: string } {
   const pr = body.pull_request;
   const repo = pr.base.repo.full_name;
@@ -206,6 +208,7 @@ export function handlePullRequestEvent(body: GitHubPREvent): { status: string; t
   return { status: "ignored" };
 }
 
+/** Records the latest review state on a linked GitHub pull request and broadcasts a task update to the habitat's SSE channel. */
 export function handlePullRequestReviewEvent(body: GitHubReviewEvent): {
   status: string;
   taskId?: string;

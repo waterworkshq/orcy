@@ -1,6 +1,7 @@
 import * as connectionRepo from "../../repositories/integrationConnection.js";
 import { badRequest } from "../../errors.js";
 
+/** Returns the Jira OAuth client credentials from environment variables, throwing if either is missing. */
 export function getJiraCredentials(): { clientId: string; clientSecret: string } {
   const clientId = process.env.ORCY_JIRA_OAUTH_CLIENT_ID;
   const clientSecret = process.env.ORCY_JIRA_OAUTH_CLIENT_SECRET;
@@ -9,6 +10,7 @@ export function getJiraCredentials(): { clientId: string; clientSecret: string }
   return { clientId, clientSecret };
 }
 
+/** Builds the Atlassian authorization URL that starts the Jira OAuth flow. */
 export function getJiraAuthorizationUrl(
   clientId: string,
   redirectUri: string,
@@ -26,6 +28,7 @@ export function getJiraAuthorizationUrl(
   return `https://auth.atlassian.com/authorize?${params.toString()}`;
 }
 
+/** Token payload returned by Atlassian when exchanging or refreshing a Jira OAuth code. */
 export interface JiraTokenResponse {
   access_token: string;
   refresh_token: string;
@@ -34,6 +37,7 @@ export interface JiraTokenResponse {
   token_type: string;
 }
 
+/** Exchanges a Jira authorization code for access and refresh tokens. */
 export async function exchangeJiraCode(
   code: string,
   clientId: string,
@@ -62,6 +66,7 @@ export async function exchangeJiraCode(
   return res.json() as Promise<JiraTokenResponse>;
 }
 
+/** A Jira Cloud site the authenticated user can access. */
 export interface JiraCloudResource {
   id: string;
   name: string;
@@ -69,6 +74,7 @@ export interface JiraCloudResource {
   scopes: string[];
 }
 
+/** Fetches the Jira Cloud sites accessible to the bearer token. */
 export async function discoverJiraCloudIds(accessToken: string): Promise<JiraCloudResource[]> {
   const res = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
@@ -81,6 +87,7 @@ export async function discoverJiraCloudIds(accessToken: string): Promise<JiraClo
   return res.json() as Promise<JiraCloudResource[]>;
 }
 
+/** Exchanges a Jira refresh token for a new access token. */
 export async function refreshJiraToken(
   refreshToken: string,
   clientId: string,
@@ -107,6 +114,7 @@ export async function refreshJiraToken(
   return res.json() as Promise<JiraTokenResponse>;
 }
 
+/** Input required to finish the Jira OAuth callback and persist the connection. */
 export interface CompleteJiraOAuthInput {
   code: string;
   redirectPort: number;
@@ -114,10 +122,12 @@ export interface CompleteJiraOAuthInput {
   userId: string;
 }
 
+/** Result of completing Jira OAuth, containing the persisted integration connection. */
 export interface CompleteJiraOAuthResult {
   integration: ReturnType<typeof connectionRepo.toView>;
 }
 
+/** Completes the Jira OAuth flow, creates the integration connection, and returns its view. */
 export async function completeJiraOAuth(
   input: CompleteJiraOAuthInput,
 ): Promise<CompleteJiraOAuthResult> {

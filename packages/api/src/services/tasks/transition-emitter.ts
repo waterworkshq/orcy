@@ -11,6 +11,7 @@ import { logger } from "../../lib/logger.js";
 import type { Task } from "../../models/index.js";
 import type { EventAction } from "@orcy/shared";
 
+/** Union of task lifecycle actions that can be emitted as transitions. */
 export type TaskAction =
   | "claimed"
   | "started"
@@ -48,6 +49,7 @@ const EVENT_ACTION_FOR: Record<TaskAction, EventAction | null> = {
   escalated: "escalated",
 };
 
+/** Optional metadata carried alongside a task transition. */
 export interface TransitionContext {
   actorId?: string;
   actorType?: "agent" | "human" | "system";
@@ -73,11 +75,23 @@ interface ActionConfig {
   sseSpecific?: string;
   emitTaskUpdated: boolean;
   watchers?: string;
-  pluginHook?: "emitTaskCreated" | "emitTaskClaimed" | "emitTaskSubmitted" | "emitTaskApproved" | "emitTaskRejected";
+  pluginHook?:
+    | "emitTaskCreated"
+    | "emitTaskClaimed"
+    | "emitTaskSubmitted"
+    | "emitTaskApproved"
+    | "emitTaskRejected";
   pluginAgentRequired?: boolean;
   recalc: RecalcMode;
-  pulseSignal?: { type: "context" | "offer" | "warning"; subject: (ctx: TransitionContext) => string };
-  pulseExtra?: { type: "context"; subjectIf: (task: Task) => boolean; subject: (task: Task) => string };
+  pulseSignal?: {
+    type: "context" | "offer" | "warning";
+    subject: (ctx: TransitionContext) => string;
+  };
+  pulseExtra?: {
+    type: "context";
+    subjectIf: (task: Task) => boolean;
+    subject: (task: Task) => string;
+  };
   notifyTaskEvent?: string;
   triggerUnblock?: boolean;
   triggerRetry?: boolean;
@@ -242,12 +256,7 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
   },
 };
 
-/**
- * Actions currently firing via the task-event hook bus (notifyTaskEvent).
- * Per the v0.17.1 plan's inconsistency #2, this list intentionally
- * does not include all transition actions. If you add a new action
- * here, audit every `onTaskEvent` consumer to confirm they handle it.
- */
+/** Actions that trigger the task-event hook bus. */
 export const NOTIFY_TASK_EVENT_ACTIONS: readonly TaskAction[] = [
   "completed",
   "approved",
@@ -258,10 +267,12 @@ export const NOTIFY_TASK_EVENT_ACTIONS: readonly TaskAction[] = [
 let recalcDebounceEnabled = process.env.ORCY_TRANSITION_RECALC_DEBOUNCE === "true";
 const pendingRecalcs = new Map<string, NodeJS.Timeout>();
 
+/** Toggles debounced mission status recalculation. */
 export function setRecalcDebounceEnabled(enabled: boolean): void {
   recalcDebounceEnabled = enabled;
 }
 
+/** Returns whether debounced mission status recalculation is enabled. */
 export function isRecalcDebounceEnabled(): boolean {
   return recalcDebounceEnabled;
 }
@@ -337,7 +348,11 @@ function publishSseForAction(
       case "rejected":
         sseBroadcaster.publish(habitatId, {
           type: "task.rejected",
-          data: { taskId, reason: ctx.reason ?? "", reviewerId: ctx.reviewerId ?? ctx.actorId ?? "" },
+          data: {
+            taskId,
+            reason: ctx.reason ?? "",
+            reviewerId: ctx.reviewerId ?? ctx.actorId ?? "",
+          },
         });
         break;
       case "released":
@@ -406,9 +421,7 @@ function runPluginHook(cfg: ActionConfig, task: Task, ctx: TransitionContext): v
       return;
     case "emitTaskClaimed": {
       if (!cfg.pluginAgentRequired) {
-        pluginManager
-          .emitTaskClaimed(task, { id: ctx.actorId ?? "" } as never)
-          .catch(() => {});
+        pluginManager.emitTaskClaimed(task, { id: ctx.actorId ?? "" } as never).catch(() => {});
         return;
       }
       const agent = agentRepo.getAgentById(ctx.actorId ?? "");
@@ -456,6 +469,7 @@ type TaskEventHook = (opts: {
 }) => void;
 const taskEventHooks: TaskEventHook[] = [];
 
+/** Registers a hook invoked when a notify-worthy task event occurs. */
 export function onTaskEvent(hook: TaskEventHook): () => void {
   taskEventHooks.push(hook);
   return () => {
@@ -474,6 +488,7 @@ function notifyTaskEvent(opts: Parameters<TaskEventHook>[0]): void {
   }
 }
 
+/** Executes side effects for a task transition, including events, SSEs, watchers, plugins, retries, and mission recalculation. */
 export function emitTransition(
   taskId: string,
   action: TaskAction,
@@ -527,12 +542,7 @@ export function emitTransition(
 
   const missionId = task?.missionId ?? "";
   if (cfg.recalc === "conditional") {
-    if (
-      task &&
-      context.oldStatus &&
-      context.newStatus &&
-      context.oldStatus !== context.newStatus
-    ) {
+    if (task && context.oldStatus && context.newStatus && context.oldStatus !== context.newStatus) {
       try {
         missionService.recalculateMissionStatus(missionId);
       } catch (err) {

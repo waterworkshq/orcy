@@ -1,8 +1,8 @@
-import type { IntegrationConnection, ExternalIssue } from '@orcy/shared';
-import type { IssueProviderAdapter } from './types.js';
-import { refreshJiraToken, getJiraCredentials } from './jiraOAuth.js';
-import * as connectionRepo from '../../repositories/integrationConnection.js';
-import { logger } from '../../lib/logger.js';
+import type { IntegrationConnection, ExternalIssue } from "@orcy/shared";
+import type { IssueProviderAdapter } from "./types.js";
+import { refreshJiraToken, getJiraCredentials } from "./jiraOAuth.js";
+import * as connectionRepo from "../../repositories/integrationConnection.js";
+import { logger } from "../../lib/logger.js";
 
 const MAX_PAGES = 100;
 
@@ -12,11 +12,12 @@ interface AdfNode {
   content?: AdfNode[];
 }
 
+/** Extracts plain text from an Atlassian Document Format node tree. */
 export function extractAdfText(doc: AdfNode | null): string {
-  if (!doc) return '';
-  if (doc.type === 'text') return doc.text || '';
-  if (doc.content) return doc.content.map(extractAdfText).join('\n');
-  return '';
+  if (!doc) return "";
+  if (doc.type === "text") return doc.text || "";
+  if (doc.content) return doc.content.map(extractAdfText).join("\n");
+  return "";
 }
 
 interface JiraIssueFields {
@@ -50,35 +51,38 @@ interface JiraSearchResponse {
 }
 
 function trimTrailingSlash(value: string): string {
-  return value.replace(/\/+$/, '');
+  return value.replace(/\/+$/, "");
 }
 
-function getJiraRequestConfig(connection: IntegrationConnection, accessTokenOverride?: string): { baseUrl: string; headers: Record<string, string> } {
+function getJiraRequestConfig(
+  connection: IntegrationConnection,
+  accessTokenOverride?: string,
+): { baseUrl: string; headers: Record<string, string> } {
   const token = accessTokenOverride ?? connection.accessToken;
-  if (!token) throw new Error('Jira connection has no access token');
+  if (!token) throw new Error("Jira connection has no access token");
 
-  if (connection.authMethod === 'api_key') {
+  if (connection.authMethod === "api_key") {
     const email = connection.externalAccountName;
-    if (!email) throw new Error('Jira API token connection has no account email');
-    if (!connection.externalBaseUrl) throw new Error('Jira API token connection has no site URL');
+    if (!email) throw new Error("Jira API token connection has no account email");
+    if (!connection.externalBaseUrl) throw new Error("Jira API token connection has no site URL");
 
     return {
       baseUrl: `${trimTrailingSlash(connection.externalBaseUrl)}/rest/api/3`,
       headers: {
-        Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`,
-        Accept: 'application/json',
+        Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString("base64")}`,
+        Accept: "application/json",
       },
     };
   }
 
   const cloudId = connection.externalTenantId;
-  if (!cloudId) throw new Error('Jira connection has no cloud ID');
+  if (!cloudId) throw new Error("Jira connection has no cloud ID");
 
   return {
     baseUrl: `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3`,
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
+      Accept: "application/json",
     },
   };
 }
@@ -89,19 +93,23 @@ function buildJql(projectKey: string, providerConfig: Record<string, unknown>): 
   return `project = "${escapeJqlValue(projectKey)}" ORDER BY updated DESC`;
 }
 
-export function normalizeJiraIssue(issue: JiraIssue, connection: IntegrationConnection): ExternalIssue {
+/** Converts a raw Jira API issue into the normalized ExternalIssue shape. */
+export function normalizeJiraIssue(
+  issue: JiraIssue,
+  connection: IntegrationConnection,
+): ExternalIssue {
   const fields = issue.fields;
-  const baseUrl = connection.externalBaseUrl || '';
+  const baseUrl = connection.externalBaseUrl || "";
   const externalUrl = baseUrl ? `${baseUrl}/browse/${issue.key}` : issue.self;
 
   return {
-    provider: 'jira',
+    provider: "jira",
     externalId: issue.id,
     externalKey: issue.key,
     title: fields.summary,
     body: extractAdfText(fields.description),
-    status: fields.status?.statusCategory?.name === 'Done' ? 'closed' : 'open',
-    labels: [...fields.labels, ...fields.components.map(c => c.name)],
+    status: fields.status?.statusCategory?.name === "Done" ? "closed" : "open",
+    labels: [...fields.labels, ...fields.components.map((c) => c.name)],
     sourceKind: fields.issuetype?.name,
     priority: fields.priority?.name,
     assignees: fields.assignee ? [fields.assignee.displayName] : [],
@@ -118,7 +126,7 @@ function escapeJqlValue(value: string): string {
 
 async function ensureFreshToken(connection: IntegrationConnection): Promise<string> {
   let token = connection.accessToken;
-  if (!token) throw new Error('Jira connection has no access token');
+  if (!token) throw new Error("Jira connection has no access token");
 
   if (connection.tokenExpiresAt && connection.refreshToken) {
     const expiresAt = new Date(connection.tokenExpiresAt).getTime();
@@ -133,7 +141,7 @@ async function ensureFreshToken(connection: IntegrationConnection): Promise<stri
         });
         token = refreshed.access_token;
       } catch (err) {
-        logger.warn({ err, connectionId: connection.id }, 'Jira token refresh failed');
+        logger.warn({ err, connectionId: connection.id }, "Jira token refresh failed");
       }
     }
   }
@@ -141,17 +149,18 @@ async function ensureFreshToken(connection: IntegrationConnection): Promise<stri
   return token;
 }
 
+/** Jira issue provider adapter that lists and fetches project issues. */
 export const jiraAdapter: IssueProviderAdapter = {
-  provider: 'jira',
+  provider: "jira",
 
   async listIssues(connection: IntegrationConnection): Promise<ExternalIssue[]> {
     let token: string | undefined;
-    if (connection.authMethod !== 'api_key') {
+    if (connection.authMethod !== "api_key") {
       token = await ensureFreshToken(connection);
     }
 
     const projectKey = connection.projectKey;
-    if (!projectKey) throw new Error('Jira connection has no project key');
+    if (!projectKey) throw new Error("Jira connection has no project key");
 
     const jql = buildJql(projectKey, connection.providerConfig);
     const requestConfig = getJiraRequestConfig(connection, token);
@@ -164,28 +173,33 @@ export const jiraAdapter: IssueProviderAdapter = {
     do {
       pageCount++;
       if (pageCount > MAX_PAGES) {
-        logger.warn({ connectionId: connection.id, pageCount }, 'Jira pagination exceeded max pages, truncating');
+        logger.warn(
+          { connectionId: connection.id, pageCount },
+          "Jira pagination exceeded max pages, truncating",
+        );
         break;
       }
 
       const params = new URLSearchParams({
         jql,
-        fields: '*all',
-        maxResults: '50',
+        fields: "*all",
+        maxResults: "50",
       });
-      if (nextToken) params.set('nextPageToken', nextToken);
+      if (nextToken) params.set("nextPageToken", nextToken);
 
-      const response = await fetch(`${searchUrl}?${params.toString()}`, { headers: requestConfig.headers });
+      const response = await fetch(`${searchUrl}?${params.toString()}`, {
+        headers: requestConfig.headers,
+      });
 
       if (!response.ok) {
         const body = await response.text();
         throw new Error(`Jira API error: ${response.status} ${body}`);
       }
 
-      const data = await response.json() as JiraSearchResponse;
+      const data = (await response.json()) as JiraSearchResponse;
 
       if (data.errorMessages?.length) {
-        throw new Error(`Jira JQL error: ${data.errorMessages.join('; ')}`);
+        throw new Error(`Jira JQL error: ${data.errorMessages.join("; ")}`);
       }
 
       for (const issue of data.issues) {
@@ -198,9 +212,12 @@ export const jiraAdapter: IssueProviderAdapter = {
     return allIssues;
   },
 
-  async getIssue(connection: IntegrationConnection, externalId: string): Promise<ExternalIssue | null> {
+  async getIssue(
+    connection: IntegrationConnection,
+    externalId: string,
+  ): Promise<ExternalIssue | null> {
     let token: string | undefined;
-    if (connection.authMethod !== 'api_key') {
+    if (connection.authMethod !== "api_key") {
       token = await ensureFreshToken(connection);
     }
 
@@ -214,7 +231,7 @@ export const jiraAdapter: IssueProviderAdapter = {
       throw new Error(`Jira API error: ${response.status} ${response.statusText}`);
     }
 
-    const issue = await response.json() as JiraIssue;
+    const issue = (await response.json()) as JiraIssue;
     return normalizeJiraIssue(issue, connection);
   },
 };

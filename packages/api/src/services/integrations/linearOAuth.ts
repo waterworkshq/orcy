@@ -4,16 +4,19 @@ import { badRequest } from "../../errors.js";
 
 const DEFAULT_LINEAR_OAUTH_CLIENT_ID = "9c05e7d93694e1fd091a189331fa45bd";
 
+/** Returns the configured Linear OAuth client ID, falling back to the default public app ID. */
 export function getLinearClientId(): string {
   return process.env.ORCY_LINEAR_OAUTH_CLIENT_ID || DEFAULT_LINEAR_OAUTH_CLIENT_ID;
 }
 
+/** Generates a PKCE code verifier and challenge pair for the Linear OAuth flow. */
 export function generatePKCEPair(): { codeVerifier: string; codeChallenge: string } {
   const codeVerifier = crypto.randomBytes(32).toString("base64url");
   const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
   return { codeVerifier, codeChallenge };
 }
 
+/** Builds the Linear OAuth authorization URL with PKCE parameters. */
 export function getLinearAuthorizationUrl(
   clientId: string,
   redirectUri: string,
@@ -32,6 +35,7 @@ export function getLinearAuthorizationUrl(
   return `https://linear.app/oauth/authorize?${params.toString()}`;
 }
 
+/** Token payload returned by Linear when exchanging or refreshing an OAuth code. */
 export interface LinearTokenResponse {
   access_token: string;
   token_type: string;
@@ -40,6 +44,7 @@ export interface LinearTokenResponse {
   refresh_token?: string;
 }
 
+/** Exchanges a Linear authorization code and PKCE verifier for tokens. */
 export async function exchangeLinearCode(
   code: string,
   clientId: string,
@@ -72,6 +77,7 @@ export async function exchangeLinearCode(
   return res.json() as Promise<LinearTokenResponse>;
 }
 
+/** Exchanges a Linear refresh token for a new access token. */
 export async function refreshLinearToken(
   refreshToken: string,
   clientId: string,
@@ -100,12 +106,14 @@ export async function refreshLinearToken(
   return res.json() as Promise<LinearTokenResponse>;
 }
 
+/** A Linear team that can be selected during OAuth connection setup. */
 export interface LinearTeam {
   id: string;
   name: string;
   key: string;
 }
 
+/** Fetches the teams visible to the authenticated Linear user. */
 export async function getLinearTeams(accessToken: string): Promise<LinearTeam[]> {
   const query = `
     query {
@@ -143,6 +151,7 @@ export async function getLinearTeams(accessToken: string): Promise<LinearTeam[]>
   return data.data.teams.nodes;
 }
 
+/** Input required to finish the Linear OAuth callback and persist the connection. */
 export interface CompleteLinearOAuthInput {
   code: string;
   redirectPort: number;
@@ -151,11 +160,13 @@ export interface CompleteLinearOAuthInput {
   codeVerifier: string;
 }
 
+/** Result of completing Linear OAuth, containing the persisted integration and available teams. */
 export interface CompleteLinearOAuthResult {
   integration: ReturnType<typeof connectionRepo.toView>;
   teams: LinearTeam[];
 }
 
+/** Completes the Linear OAuth flow, creates the integration connection, and returns its view with teams. */
 export async function completeLinearOAuth(
   input: CompleteLinearOAuthInput,
 ): Promise<CompleteLinearOAuthResult> {

@@ -14,6 +14,7 @@ const COLOR_MAP: Record<string, number> = {
   'column.wip_limit_reached': 16776960,
 };
 
+/** Builds a Discord embed message payload from an event enrichment and event type. */
 export function formatDiscordPayload(enrichment: EventEnrichment, eventType: string): object {
   const emoji = EVENT_EMOJI_MAP[eventType] || '🐋';
   const title = formatEventTitle(eventType);

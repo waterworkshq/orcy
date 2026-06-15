@@ -1,6 +1,7 @@
 import { EVENT_EMOJI_MAP, formatEventTitle } from './shared.js';
 import type { EventEnrichment } from './standard.js';
 
+/** Builds a Slack Block Kit message payload from an event enrichment and event type. */
 export function formatSlackPayload(enrichment: EventEnrichment, eventType: string): object {
   const emoji = EVENT_EMOJI_MAP[eventType] || '🐋';
   const title = formatEventTitle(eventType);

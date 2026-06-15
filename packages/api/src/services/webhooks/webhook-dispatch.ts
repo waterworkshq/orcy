@@ -72,6 +72,7 @@ async function dispatchToSubscription(
   handleDeliveryOutcome(deliveryId, result, 1);
 }
 
+/** Dispatches an event to every enabled webhook subscription for a habitat. */
 export async function dispatchWebhooks(habitatId: string, event: SSEEvent): Promise<void> {
   const subscriptions = getSubscriptionsForEvent(habitatId, event.type);
 

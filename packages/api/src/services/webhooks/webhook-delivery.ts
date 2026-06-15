@@ -11,6 +11,7 @@ import {
   type PendingWebhookRetryRecord,
 } from "../../repositories/webhookDelivery.js";
 
+/** Represents a single webhook delivery attempt and its outcome. */
 export interface WebhookDelivery {
   id: string;
   subscriptionId: string;
@@ -26,6 +27,7 @@ export interface WebhookDelivery {
 
 const RETRY_DELAYS = [1000, 2000, 4000];
 
+/** Error indicating that a webhook URL was rejected by outbound URL validation. */
 export class OutboundUrlError extends Error {
   constructor(message: string) {
     super(message);
@@ -33,6 +35,7 @@ export class OutboundUrlError extends Error {
   }
 }
 
+/** Sends a signed webhook payload via POST and returns the response summary. */
 export async function executeHttpRequest(
   url: string,
   payloadString: string,
@@ -96,6 +99,7 @@ export async function executeHttpRequest(
   }
 }
 
+/** Updates the stored status for a webhook delivery attempt. */
 export function updateDeliveryStatus(
   deliveryId: string,
   status: "pending" | "success" | "failed",
@@ -106,6 +110,7 @@ export function updateDeliveryStatus(
   updateWebhookDeliveryStatus(deliveryId, status, statusCode, responseBody, nextRetryAt);
 }
 
+/** Marks a delivery as success, failed, or pending for the next retry. */
 export function handleDeliveryOutcome(
   deliveryId: string,
   result: { success: boolean; statusCode: number; responseBody: string },
@@ -121,6 +126,7 @@ export function handleDeliveryOutcome(
   }
 }
 
+/** Creates a pending delivery record for a webhook event. */
 export function createDeliveryRecord(
   subscriptionId: string,
   eventType: string,
@@ -130,6 +136,7 @@ export function createDeliveryRecord(
   createWebhookDeliveryRecord(subscriptionId, eventType, payload, deliveryId);
 }
 
+/** Returns recent webhook deliveries for a subscription. */
 export function getDeliveriesForSubscription(
   subscriptionId: string,
   limit = 25,
@@ -137,6 +144,7 @@ export function getDeliveriesForSubscription(
   return listWebhookDeliveriesForSubscription(subscriptionId, limit);
 }
 
+/** Sends a test payload to a subscription URL and reports the result. */
 export async function sendTestWebhook(
   subscription: WebhookSubscription,
 ): Promise<{ success: boolean; statusCode: number; latencyMs: number }> {
@@ -212,11 +220,13 @@ function processRetryQueue(): void {
 
 let retryInterval: ReturnType<typeof setInterval> | null = null;
 
+/** Starts the background interval that processes pending webhook retries. */
 export function startRetryProcessor(): void {
   if (retryInterval) return;
   retryInterval = setInterval(processRetryQueue, 60000);
 }
 
+/** Stops the background webhook retry processor. */
 export function stopRetryProcessor(): void {
   if (retryInterval) {
     clearInterval(retryInterval);

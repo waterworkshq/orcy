@@ -1,16 +1,17 @@
-import * as taskRepo from '../../repositories/task.js';
-import * as missionRepo from '../../repositories/feature.js';
-import * as habitatRepo from '../../repositories/board.js';
-import * as columnRepo from '../../repositories/column.js';
-import * as subtaskRepo from '../../repositories/subtask.js';
-import * as pullRequestRepo from '../../repositories/pullRequest.js';
-import * as pipelineEventRepo from '../../repositories/pipelineEvent.js';
-import * as eventRepo from '../../repositories/event.js';
-import * as commentRepo from '../../repositories/comment.js';
-import * as attachmentRepo from '../../repositories/attachment.js';
-import * as watcherService from '../watcherService.js';
-import type { Task } from '../../models/index.js';
+import * as taskRepo from "../../repositories/task.js";
+import * as missionRepo from "../../repositories/feature.js";
+import * as habitatRepo from "../../repositories/board.js";
+import * as columnRepo from "../../repositories/column.js";
+import * as subtaskRepo from "../../repositories/subtask.js";
+import * as pullRequestRepo from "../../repositories/pullRequest.js";
+import * as pipelineEventRepo from "../../repositories/pipelineEvent.js";
+import * as eventRepo from "../../repositories/event.js";
+import * as commentRepo from "../../repositories/comment.js";
+import * as attachmentRepo from "../../repositories/attachment.js";
+import * as watcherService from "../watcherService.js";
+import type { Task } from "../../models/index.js";
 
+/** Enriched task payload returned by getTaskDetails, including mission and habitat context. */
 export interface TaskWithMissionContext {
   task: Task;
   mission: {
@@ -44,7 +45,11 @@ export interface TaskWithMissionContext {
   };
 }
 
-export async function getTaskDetails(taskId: string, userId?: string): Promise<TaskWithMissionContext | null> {
+/** Loads a task and assembles its full mission and habitat context, including related entities and watcher state. */
+export async function getTaskDetails(
+  taskId: string,
+  userId?: string,
+): Promise<TaskWithMissionContext | null> {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return null;
 
@@ -52,19 +57,20 @@ export async function getTaskDetails(taskId: string, userId?: string): Promise<T
   const habitatId = mission?.habitatId;
   const habitat = habitatId ? habitatRepo.getHabitatById(habitatId) : null;
 
-  const [subtasks, pullRequests, pipelineEvents, taskEvents, commentsResult, attachments] = await Promise.all([
-    subtaskRepo.getSubtasksByTaskId(taskId),
-    pullRequestRepo.getByTaskId(taskId),
-    pipelineEventRepo.getByTaskId(taskId),
-    eventRepo.getEventsByTaskId(taskId, 50),
-    commentRepo.getCommentsByTaskId(taskId, 100),
-    attachmentRepo.getAttachmentsByTaskId(taskId),
-  ]);
+  const [subtasks, pullRequests, pipelineEvents, taskEvents, commentsResult, attachments] =
+    await Promise.all([
+      subtaskRepo.getSubtasksByTaskId(taskId),
+      pullRequestRepo.getByTaskId(taskId),
+      pipelineEventRepo.getByTaskId(taskId),
+      eventRepo.getEventsByTaskId(taskId, 50),
+      commentRepo.getCommentsByTaskId(taskId, 100),
+      attachmentRepo.getAttachmentsByTaskId(taskId),
+    ]);
 
   const watchers = watcherService.getWatchers(taskId);
   const isWatching = userId ? watcherService.isWatching(taskId, userId) : false;
 
-  let missionContext: TaskWithMissionContext['mission'] = null;
+  let missionContext: TaskWithMissionContext["mission"] = null;
   if (mission) {
     missionContext = {
       id: mission.id,
@@ -80,18 +86,22 @@ export async function getTaskDetails(taskId: string, userId?: string): Promise<T
 
   const allMissionTasks = mission ? taskRepo.getTasksByMissionId(mission.id) : [];
   const siblingTasks = allMissionTasks
-    .filter(t => t.id !== taskId)
-    .map(t => ({
+    .filter((t) => t.id !== taskId)
+    .map((t) => ({
       id: t.id,
       title: t.title,
       status: t.status,
       result: t.result,
     }));
 
-  const habitatColumns = habitat ? columnRepo.getColumnsByHabitatId(habitat.id).map(col => {
-    const missionCount = missionRepo.getMissionsByHabitatId(habitat.id, { columnId: col.id }).total;
-    return { name: col.name, missionCount };
-  }) : [];
+  const habitatColumns = habitat
+    ? columnRepo.getColumnsByHabitatId(habitat.id).map((col) => {
+        const missionCount = missionRepo.getMissionsByHabitatId(habitat.id, {
+          columnId: col.id,
+        }).total;
+        return { name: col.name, missionCount };
+      })
+    : [];
 
   return {
     task,
@@ -106,9 +116,13 @@ export async function getTaskDetails(taskId: string, userId?: string): Promise<T
     attachments,
     watchers,
     isWatching,
-    habitatContext: habitat ? { name: habitat.name, columns: habitatColumns } : { name: '', columns: [] },
+    habitatContext: habitat
+      ? { name: habitat.name, columns: habitatColumns }
+      : { name: "", columns: [] },
   };
 }
 
+/** Alias for {@link getTaskDetails} used when assembling habitat context. */
 export { getTaskDetails as assembleHabitatContext };
+/** Alias for {@link getTaskDetails} used when assembling cross-habitat dependencies. */
 export { getTaskDetails as assembleCrossHabitatDependencies };
