@@ -1,7 +1,10 @@
+/** Lifecycle states a {@link Sprint} moves through from initial planning to a terminal outcome. */
 export type SprintStatus = 'planning' | 'active' | 'completed' | 'cancelled';
 
+/** Strategy for handling missions still open when a {@link Sprint} ends. */
 export type CarryOverPolicy = 'backlog' | 'next_sprint' | 'none';
 
+/** A time-boxed iteration of committed missions within a habitat, tracked from planning to completion. */
 export interface Sprint {
   id: string;
   habitatId: string;
@@ -19,6 +22,7 @@ export interface Sprint {
   updatedAt: string;
 }
 
+/** Aggregate progress and velocity figures computed for a {@link Sprint}. */
 export interface SprintMetrics {
   sprintId: string;
   totalMissions: number;
@@ -31,6 +35,7 @@ export interface SprintMetrics {
   isOnTrack: boolean;
 }
 
+/** Payload accepted when creating a new {@link Sprint}; fields with defaults are optional. */
 export interface SprintCreateInput {
   name: string;
   goal?: string;
@@ -40,6 +45,7 @@ export interface SprintCreateInput {
   notes?: string;
 }
 
+/** Partial-update payload for an existing {@link Sprint}; only provided fields are changed. */
 export interface SprintUpdateInput {
   name?: string;
   goal?: string;

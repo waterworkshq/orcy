@@ -43,6 +43,7 @@ function isHttpsUrl(url: string): boolean {
   return url.startsWith("https://");
 }
 
+/** Classifies the configured base URL into a {@link ReachabilityProfile} indicating how a habitat is reachable from outside the local machine (HTTPS tunnel, LAN/VPN/Tailscale, VPS reverse proxy, or local-only). */
 export function detectReachabilityProfile(baseUrl: string | null): ReachabilityProfile {
   if (!baseUrl) return "local_only";
   if (isHttpsUrl(baseUrl)) return "tunnel";
@@ -52,12 +53,14 @@ export function detectReachabilityProfile(baseUrl: string | null): ReachabilityP
   return "local_only";
 }
 
+/** Returns the trimmed `ORCY_PUBLIC_URL` (or `ORCY_BASE_URL` fallback) value, or `null` when neither env var is set; reads from `process.env` on every call. */
 export function getBaseUrl(): string | null {
   const url = process.env.ORCY_PUBLIC_URL ?? process.env.ORCY_BASE_URL;
   if (!url || typeof url !== "string") return null;
   return url.trim() || null;
 }
 
+/** Inspects the habitat's base URL and enabled identity providers (via a {@link IdentityProviderRow} repository read) to produce a {@link ReadinessReport} indicating whether the habitat is ready to share and whether invites can be issued. */
 export function checkReadiness(
   habitatId: string,
   options?: { manualInviteSelected?: boolean },
@@ -166,6 +169,7 @@ export function checkReadiness(
   };
 }
 
+/** Projects an {@link IdentityProviderRow} into a summary shape with boolean flags for the presence of `clientId` and `clientSecret` (never their values), safe to return over the wire. */
 export function getProviderSummary(provider: IdentityProviderRow): {
   id: string;
   kind: string;

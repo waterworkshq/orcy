@@ -128,16 +128,25 @@ function toPodView(row: RemotePodRow): RemotePodView {
   };
 }
 
+/**
+ * Returns all remote pods in a habitat, optionally filtered by {@link RemotePodStatus}.
+ */
 export function listPods(habitatId: string, status?: RemotePodStatus): RemotePodView[] {
   return podRepo.getRemotePodsByHabitat(habitatId, status).map((row) => toPodView(row));
 }
 
+/**
+ * Returns a single remote pod by id, throwing {@link NotFoundError} if it does not exist or belongs to a different habitat.
+ */
 export function getPod(habitatId: string, podId: string): RemotePodView {
   const row = podRepo.getRemotePodById(podId);
   if (!row || row.habitatId !== habitatId) throw notFound("Remote pod not found");
   return toPodView(row);
 }
 
+/**
+ * Updates mutable fields (name, description, default {@link ParticipantStanding}) on a remote pod and persists the change.
+ */
 export function updatePod(
   habitatId: string,
   podId: string,
@@ -150,6 +159,9 @@ export function updatePod(
   return toPodView(updated);
 }
 
+/**
+ * Marks a remote pod as suspended in the database; refuses pods that are already suspended.
+ */
 export function suspendPod(habitatId: string, podId: string): RemotePodView {
   const row = podRepo.getRemotePodById(podId);
   if (!row || row.habitatId !== habitatId) throw notFound("Remote pod not found");
@@ -159,6 +171,9 @@ export function suspendPod(habitatId: string, podId: string): RemotePodView {
   return toPodView(updated);
 }
 
+/**
+ * Transitions a suspended or pending pod to active, refusing to activate a previously revoked pod.
+ */
 export function activatePod(habitatId: string, podId: string): RemotePodView {
   const row = podRepo.getRemotePodById(podId);
   if (!row || row.habitatId !== habitatId) throw notFound("Remote pod not found");
@@ -168,6 +183,9 @@ export function activatePod(habitatId: string, podId: string): RemotePodView {
   return toPodView(updated);
 }
 
+/**
+ * Permanently revokes a remote pod, recording the actor and optional reason; refuses already-revoked pods.
+ */
 export function revokePod(
   habitatId: string,
   podId: string,
@@ -211,6 +229,9 @@ function toParticipantView(row: RemoteParticipantRow): RemoteParticipantView {
   };
 }
 
+/**
+ * Returns remote participants in a habitat, optionally filtered by pod and {@link RemoteParticipantStatus}.
+ */
 export function listParticipants(
   habitatId: string,
   options?: { podId?: string; status?: RemoteParticipantStatus },
@@ -226,12 +247,18 @@ export function listParticipants(
   return rows.map((row) => toParticipantView(row));
 }
 
+/**
+ * Returns a single remote participant by id, throwing {@link NotFoundError} if it does not exist or belongs to a different habitat.
+ */
 export function getParticipant(habitatId: string, participantId: string): RemoteParticipantView {
   const row = participantRepo.getRemoteParticipantById(participantId);
   if (!row || row.habitatId !== habitatId) throw notFound("Remote participant not found");
   return toParticipantView(row);
 }
 
+/**
+ * Applies host-approved capabilities, domains, and/or {@link ParticipantStanding} to a participant and auto-activates it if still pending.
+ */
 export function approveParticipant(
   habitatId: string,
   participantId: string,
@@ -266,6 +293,9 @@ export function approveParticipant(
   return toParticipantView(updated);
 }
 
+/**
+ * Marks an active remote participant as suspended; refuses participants that are already suspended.
+ */
 export function suspendParticipant(
   habitatId: string,
   participantId: string,
@@ -278,6 +308,9 @@ export function suspendParticipant(
   return toParticipantView(updated);
 }
 
+/**
+ * Transitions a suspended or pending participant to active, refusing to activate a previously revoked participant.
+ */
 export function activateParticipant(
   habitatId: string,
   participantId: string,
@@ -290,6 +323,9 @@ export function activateParticipant(
   return toParticipantView(updated);
 }
 
+/**
+ * Permanently revokes a remote participant; refuses participants that are already revoked.
+ */
 export function revokeParticipant(habitatId: string, participantId: string): RemoteParticipantView {
   const row = participantRepo.getRemoteParticipantById(participantId);
   if (!row || row.habitatId !== habitatId) throw notFound("Remote participant not found");
@@ -336,10 +372,16 @@ function toGrantView(row: RemoteGrantRow): RemoteGrantView {
   };
 }
 
+/**
+ * Returns all remote grants within a habitat, expanded with targets, rule, and task-snapshot counts.
+ */
 export function listGrants(habitatId: string): RemoteGrantView[] {
   return grantRepo.getGrantsByHabitat(habitatId).map((row) => toGrantView(row));
 }
 
+/**
+ * Returns a single remote grant by id, throwing {@link NotFoundError} if it does not exist or belongs to a different habitat.
+ */
 export function getGrant(habitatId: string, grantId: string): RemoteGrantView {
   const row = grantRepo.getRemoteGrantById(grantId);
   if (!row || row.habitatId !== habitatId) throw notFound("Grant not found");
@@ -368,6 +410,9 @@ export interface CreateGrantInput {
   createdBy?: string | null;
 }
 
+/**
+ * Validates and persists a new remote grant (with optional targets and rule), enforcing that the participant belongs to the pod and that {@link RemoteGrantType} `permanent_execution` includes the `submit` {@link RemoteActionScope}.
+ */
 export function createGrant(input: CreateGrantInput): RemoteGrantView {
   const pod = podRepo.getRemotePodById(input.remotePodId);
   if (!pod || pod.habitatId !== input.habitatId) {
@@ -421,6 +466,9 @@ export function createGrant(input: CreateGrantInput): RemoteGrantView {
   return getGrant(input.habitatId, grant.id);
 }
 
+/**
+ * Applies a {@link RemoteRevocationMode} to an active grant, recording the actor and optional reason; refuses grants that are already revoked or frozen.
+ */
 export function revokeGrant(
   habitatId: string,
   grantId: string,
@@ -460,6 +508,9 @@ export interface GrantPreviewResult {
   warning: string | null;
 }
 
+/**
+ * Returns a UI-facing preview of which tasks a rule-based or target-scoped grant would match, plus a human-readable warning about the grant's scope.
+ */
 export function previewGrant(input: GrantPreviewInput): GrantPreviewResult {
   // For Phase C, preview uses task targets and rule domain/capability filters.
   // Actual task matching requires querying the task repository.
@@ -485,6 +536,9 @@ export function previewGrant(input: GrantPreviewInput): GrantPreviewResult {
 // Management View
 // ---------------------------------------------------------------------------
 
+/**
+ * Returns the aggregated remote access dashboard for a habitat — pods, participants, grants, and the total/active summary counts.
+ */
 export function getManagementView(habitatId: string): RemoteAccessManagementView {
   const pods = listPods(habitatId);
   const participants = listParticipants(habitatId);

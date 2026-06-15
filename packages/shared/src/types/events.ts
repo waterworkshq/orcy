@@ -6,6 +6,7 @@ import type { Mission, MissionStatus, MissionComment } from "./feature.js";
 import type { Column } from "./board.js";
 import type { Subtask } from "./task.js";
 
+/** Identity kind of an entity that performs {@link EventAction} verbs on tasks and missions. */
 export type ActorType =
   | "human"
   | "agent"
@@ -14,6 +15,7 @@ export type ActorType =
   | "remote_orcy"
   | "remote_pod";
 
+/** Closed set of verbs describing the state transitions recorded in the event log, executed by an {@link ActorType}. */
 export type EventAction =
   | "created"
   | "claimed"
@@ -41,8 +43,10 @@ export type EventAction =
   | "code_evidence_marked_not_applicable"
   | "code_evidence_cleared_not_applicable";
 
+/** Classification of a live session as a human or agent viewer, stored on {@link PresenceEntry}. */
 export type PresenceType = "human" | "agent";
 
+/** Snapshot of a single live session viewing a habitat, including identity and the task it is currently focused on. */
 export interface PresenceEntry {
   sessionId: string;
   type: PresenceType;
@@ -55,6 +59,7 @@ export interface PresenceEntry {
   lastSeen: number;
 }
 
+/** Discriminated union of every server-sent event payload streamed to subscribed clients, including task, agent, presence, and mission updates. */
 export type SSEEvent =
   | { type: "task.created"; data: Task }
   | { type: "task.updated"; data: Task }
@@ -218,6 +223,7 @@ export type SSEEvent =
       };
     };
 
+/** Subset of {@link SSEEvent} restricted to presence lifecycle updates such as join, leave, refresh, and summary. */
 export type PresenceEvent =
   | { type: "presence.joined"; data: { habitatId: string; presence: PresenceEntry } }
   | { type: "presence.left"; data: { habitatId: string; sessionId: string } }

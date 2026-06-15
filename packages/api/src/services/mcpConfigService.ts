@@ -83,6 +83,9 @@ const CLIENT_NAMES: Record<McpClientId, string> = {
   generic: "Generic MCP Client",
 };
 
+/**
+ * Builds ready-to-paste {@link McpConfigSnippet} blocks for the requested {@link McpClientId} values, embedding the supplied plaintext secret when present or a placeholder otherwise.
+ */
 export function generateSnippets(
   baseUrl: string,
   credentialId: string,
@@ -206,6 +209,9 @@ function buildWarning(hasSecret: boolean): string {
   return "This is the only time the credential secret will be shown. Store it securely — it cannot be retrieved later.";
 }
 
+/**
+ * Creates and persists a new remote credential for an active participant, returning a {@link McpConfigResult} that includes the one-time plaintext secret, generated client snippets, standing, and active grant summary.
+ */
 export function createCredentialWithConfig(input: CreateCredentialInput): McpConfigResult {
   const participant = participantRepo.getRemoteParticipantById(input.participantId);
   if (!participant || participant.habitatId !== input.habitatId) {
@@ -258,6 +264,9 @@ export function createCredentialWithConfig(input: CreateCredentialInput): McpCon
   };
 }
 
+/**
+ * Returns the {@link CredentialPublicView} for a credential along with the participant's standing and active grant summary, without exposing the plaintext secret.
+ */
 export function getCredentialMetadata(
   habitatId: string,
   credentialId: string,
@@ -294,6 +303,9 @@ export function getCredentialMetadata(
   };
 }
 
+/**
+ * Rotates an existing credential, persisting the revocation of the old key alongside a new plaintext secret, and returns a {@link McpConfigResult} with regenerated client snippets and grant context.
+ */
 export function rotateCredentialWithConfig(
   habitatId: string,
   credentialId: string,
@@ -345,6 +357,9 @@ export function rotateCredentialWithConfig(
   };
 }
 
+/**
+ * Revokes the named credential and returns its stripped {@link CredentialPublicView}.
+ */
 export function revokeCredential(
   habitatId: string,
   credentialId: string,
@@ -360,6 +375,9 @@ export function revokeCredential(
   return toCredentialView(revoked);
 }
 
+/**
+ * Returns the active {@link CredentialPublicView}s for the participant scoped to the given habitat.
+ */
 export function listCredentialsByParticipant(
   habitatId: string,
   participantId: string,
@@ -371,6 +389,9 @@ export function listCredentialsByParticipant(
   return credentialRepo.getActiveCredentialsByParticipant(participantId).map(toCredentialView);
 }
 
+/**
+ * Regenerates {@link McpConfigSnippet} blocks for an existing credential without exposing the plaintext secret.
+ */
 export function regenerateConfigSnippets(
   habitatId: string,
   credentialId: string,

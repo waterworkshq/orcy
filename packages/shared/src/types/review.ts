@@ -1,9 +1,18 @@
-export type ReviewRuleStrategy = 'domain_expert' | 'round_robin' | 'least_loaded' | 'random' | 'fixed';
+/** Exhaustive set of strategies for assigning reviewers to tasks under a {@link ReviewRule}. */
+export type ReviewRuleStrategy =
+  | "domain_expert"
+  | "round_robin"
+  | "least_loaded"
+  | "random"
+  | "fixed";
 
-export type ReviewerStatus = 'pending' | 'approved' | 'rejected' | 'skipped';
+/** Lifecycle states of a {@link TaskReviewer} assignment from creation through resolution. */
+export type ReviewerStatus = "pending" | "approved" | "rejected" | "skipped";
 
-export type ReviewerType = 'human' | 'agent';
+/** Kinds of entities that can be assigned as a {@link TaskReviewer}. */
+export type ReviewerType = "human" | "agent";
 
+/** A persisted rule that defines how reviewers are matched and assigned to tasks within a habitat. */
 export interface ReviewRule {
   id: string;
   habitatId: string;
@@ -21,6 +30,7 @@ export interface ReviewRule {
   updatedAt: string;
 }
 
+/** A reviewer assignment record for a specific task, tracked from initial claim through final review. */
 export interface TaskReviewer {
   id: string;
   taskId: string;
@@ -32,6 +42,7 @@ export interface TaskReviewer {
   reviewNote: string | null;
 }
 
+/** Input payload for creating a new {@link ReviewRule}; only the rule name is required. */
 export interface ReviewRuleCreateInput {
   name: string;
   enabled?: number;
@@ -45,6 +56,7 @@ export interface ReviewRuleCreateInput {
   fixedReviewerIds?: string[];
 }
 
+/** Partial input payload for updating an existing {@link ReviewRule}; every field is optional. */
 export interface ReviewRuleUpdateInput {
   name?: string;
   enabled?: number;

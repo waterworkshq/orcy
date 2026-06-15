@@ -1,3 +1,4 @@
+/** Reusable template definition that groups a category of {@link QualityChecklistItem} entries applied to tasks. */
 export interface QualityChecklistTemplate {
   id: string;
   name: string;
@@ -8,6 +9,7 @@ export interface QualityChecklistTemplate {
   updatedAt: string;
 }
 
+/** A single checkable item belonging to a {@link QualityChecklistTemplate}. */
 export interface QualityChecklistItem {
   id: string;
   templateId: string;
@@ -18,6 +20,7 @@ export interface QualityChecklistItem {
   createdAt: string;
 }
 
+/** A checklist instance derived from a {@link QualityChecklistTemplate} and attached to a specific task. */
 export interface TaskQualityChecklist {
   id: string;
   taskId: string;
@@ -29,6 +32,7 @@ export interface TaskQualityChecklist {
   createdAt: string;
 }
 
+/** Per-item completion state of a {@link QualityChecklistItem} within a {@link TaskQualityChecklist}. */
 export interface TaskQualityChecklistItem {
   id: string;
   checklistId: string;
@@ -40,6 +44,7 @@ export interface TaskQualityChecklistItem {
   notes: string;
 }
 
+/** Aggregated progress and approval-readiness view of all {@link TaskQualityChecklist} instances for a task. */
 export interface TaskQualityReport {
   taskId: string;
   overallStatus: string;
@@ -69,6 +74,7 @@ export interface TaskQualityReport {
   }[];
 }
 
+/** Outcome of validating that a task's upstream task dependencies are satisfied. */
 export interface DependencyValidationResult {
   canComplete: boolean;
   reason?: string;
@@ -84,6 +90,7 @@ export interface DependencyValidationResult {
   }[];
 }
 
+/** Composite approval-readiness state of a task, summarizing its {@link TaskQualityReport} and gating signals. */
 export interface ApprovalStatus {
   canBeApproved: boolean;
   reasons: string[];

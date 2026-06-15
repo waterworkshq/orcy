@@ -78,6 +78,10 @@ function generateInviteToken(): { plaintextToken: string; tokenHash: string } {
   return { plaintextToken, tokenHash };
 }
 
+/**
+ * Creates a pending manual invite and returns it together with the plaintext
+ * one-time token that the invitee must present to accept.
+ */
 export function createManualInvite(input: CreateManualInviteInput): ManualInviteWithToken {
   const { plaintextToken, tokenHash } = generateInviteToken();
 
@@ -95,6 +99,9 @@ export function createManualInvite(input: CreateManualInviteInput): ManualInvite
   return { invite: toView(row), oneTimeToken: plaintextToken };
 }
 
+/**
+ * Creates a pending provider invite bound to a specific external {@link RemoteInviteType provider}.
+ */
 export function createProviderInvite(input: CreateProviderInviteInput): InviteView {
   const row = inviteRepo.createRemoteInvite({
     habitatId: input.habitatId,
@@ -110,10 +117,16 @@ export function createProviderInvite(input: CreateProviderInviteInput): InviteVi
   return toView(row);
 }
 
+/**
+ * Returns all invites belonging to the given habitat.
+ */
 export function listInvites(habitatId: string): InviteView[] {
   return inviteRepo.getRemoteInvitesByHabitat(habitatId).map((row) => toView(row));
 }
 
+/**
+ * Marks a pending invite as revoked, preventing it from ever being accepted.
+ */
 export function revokeInvite(
   habitatId: string,
   inviteId: string,
@@ -141,6 +154,11 @@ export interface InviteAcceptanceResult {
   remoteParticipant: participantRepo.RemoteParticipantRow;
 }
 
+/**
+ * Redeems a manual one-time token by atomically claiming the invite and then
+ * provisioning the corresponding remote pod and admin participant with the
+ * invite's baseline {@link ParticipantStanding}.
+ */
 export function acceptManualInvite(
   token: string,
   acceptedBy: string,
@@ -224,6 +242,11 @@ export function acceptManualInvite(
   };
 }
 
+/**
+ * Accepts a provider invite by id, atomically claiming it and provisioning the
+ * corresponding remote pod and admin participant with the invite's baseline
+ * {@link ParticipantStanding} and provider identity bindings.
+ */
 export function acceptProviderInvite(
   inviteId: string,
   acceptedBy: string,
@@ -302,6 +325,9 @@ export function acceptProviderInvite(
   };
 }
 
+/**
+ * Returns the invite with the given id if it belongs to the specified habitat.
+ */
 export function getInviteById(habitatId: string, inviteId: string): InviteView {
   const row = inviteRepo.getRemoteInviteById(inviteId);
   if (!row || row.habitatId !== habitatId) {
@@ -310,6 +336,10 @@ export function getInviteById(habitatId: string, inviteId: string): InviteView {
   return toView(row);
 }
 
+/**
+ * Returns a non-sensitive preview of a pending manual invite looked up by its
+ * one-time token.
+ */
 export function previewInviteByToken(token: string): {
   inviteType: string;
   baselineStanding: string;

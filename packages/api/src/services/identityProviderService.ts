@@ -69,6 +69,7 @@ function deobfuscateSecret(masked: string): string {
   return masked;
 }
 
+/** Creates a new identity provider for the habitat, obfuscating the supplied client secret before persisting it via {@link ConfigureProviderInput}. */
 export function configureProvider(input: ConfigureProviderInput): ProviderConfig {
   if (!input.clientId?.trim()) {
     throw badRequest("clientId is required");
@@ -97,6 +98,7 @@ export function configureProvider(input: ConfigureProviderInput): ProviderConfig
   return toConfigView(row);
 }
 
+/** Returns the public {@link ProviderConfig} view of an identity provider that belongs to the given habitat, or throws notFound when it does not exist. */
 export function getProviderConfig(habitatId: string, providerId: string): ProviderConfig {
   const row = providerRepo.getIdentityProviderById(providerId);
   if (!row || row.habitatId !== habitatId) {
@@ -105,10 +107,12 @@ export function getProviderConfig(habitatId: string, providerId: string): Provid
   return toConfigView(row);
 }
 
+/** Returns every identity provider in a habitat mapped to public {@link ProviderConfig} views, omitting secrets. */
 export function listProviders(habitatId: string): ProviderConfig[] {
   return providerRepo.getIdentityProvidersByHabitat(habitatId).map((row) => toConfigView(row));
 }
 
+/** Applies a partial update to an identity provider's editable fields, re-obfuscating the client secret when one is supplied; side effect: persists the updated row or throws notFound. */
 export function updateProvider(
   habitatId: string,
   providerId: string,
@@ -147,6 +151,7 @@ export function updateProvider(
   return toConfigView(updated);
 }
 
+/** Permanently removes an identity provider from a habitat; side effect: deletes the underlying row (and cascades to any dependent auth states) or throws notFound. */
 export function deleteProvider(habitatId: string, providerId: string): void {
   const row = providerRepo.getIdentityProviderById(providerId);
   if (!row || row.habitatId !== habitatId) {
@@ -155,6 +160,7 @@ export function deleteProvider(habitatId: string, providerId: string): void {
   providerRepo.deleteIdentityProvider(providerId);
 }
 
+/** Returns the deobfuscated client secret for a habitat-scoped provider, or null when the provider is missing, lives in a different habitat, or has no secret on file. */
 export function getClientSecret(habitatId: string, providerId: string): string | null {
   const row = providerRepo.getIdentityProviderById(providerId);
   if (!row || row.habitatId !== habitatId) return null;
@@ -163,6 +169,7 @@ export function getClientSecret(habitatId: string, providerId: string): string |
   return deobfuscateSecret(config.clientSecret);
 }
 
+/** Returns the conventional OAuth/OIDC scope set for a given {@link IdentityProviderKind} (GitHub user scopes, OIDC openid/profile/email, or an empty list). */
 export function getDefaultScopes(kind: IdentityProviderKind): string[] {
   switch (kind) {
     case "github":
@@ -196,6 +203,7 @@ function generatePkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
+/** Generates a fresh PKCE/nonce/state auth-state row plus a provider-specific authorize URL for an enabled {@link IdentityProviderKind}, persisting the state with a 10-minute TTL. */
 export function initiateAuthState(
   habitatId: string,
   providerId: string,
@@ -269,6 +277,7 @@ export function initiateAuthState(
   };
 }
 
+/** Returns a pending, unexpired auth-state row whose `state` matches the supplied value and belongs to the given provider, or throws badRequest with a specific code for invalid, consumed, mismatched, or expired states. */
 export function verifyCallbackState(state: string, providerId: string): providerRepo.AuthStateRow {
   const authState = providerRepo.getAuthStateByState(state);
   if (!authState) {
@@ -287,6 +296,7 @@ export function verifyCallbackState(state: string, providerId: string): provider
   return authState;
 }
 
+/** Atomically marks a verified auth-state row as consumed (one-time use) and returns it, or throws notFound when the state does not exist. */
 export function consumeAuthState(stateId: string): providerRepo.AuthStateRow {
   const consumed = providerRepo.consumeAuthState(stateId);
   if (!consumed) throw notFound("Auth state not found");

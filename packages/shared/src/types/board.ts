@@ -1,9 +1,17 @@
-import type { RetryPolicy } from './task.js';
-import type { AnomalySettings, AutoAssignSettings, CodeReviewSettings, CiCdSettings, GitWorktreeSettings, PrioritizationSettings } from './settings.js';
-import type { TaskPriority } from './task.js';
-import type { MissionStatus } from './feature.js';
-import type { Artifact } from './task.js';
+import type { RetryPolicy } from "./task.js";
+import type {
+  AnomalySettings,
+  AutoAssignSettings,
+  CodeReviewSettings,
+  CiCdSettings,
+  GitWorktreeSettings,
+  PrioritizationSettings,
+} from "./settings.js";
+import type { TaskPriority } from "./task.js";
+import type { MissionStatus } from "./feature.js";
+import type { Artifact } from "./task.js";
 
+/** A single kanban-style column belonging to a {@link Habitat}, with WIP controls and optional auto-advance/claim semantics. */
 export interface Column {
   id: string;
   habitatId: string;
@@ -16,6 +24,7 @@ export interface Column {
   isTerminal: boolean;
 }
 
+/** A team-scoped board that owns ordered {@link Column}s and bundles per-board automation, retention, and review policies. */
 export interface Habitat {
   id: string;
   name: string;
@@ -34,6 +43,7 @@ export interface Habitat {
   updatedAt: string;
 }
 
+/** Rollup of cycle time, throughput, and per-column WIP health derived from activity across a {@link Habitat}. */
 export interface HabitatStats {
   cycleTime: {
     averageMinutes: number;
@@ -50,10 +60,11 @@ export interface HabitatStats {
     columnName: string;
     current: number;
     limit: number | null;
-    health: 'ok' | 'warning' | 'exceeded';
+    health: "ok" | "warning" | "exceeded";
   }[];
 }
 
+/** Versioned, name-anchored snapshot of a {@link Habitat} (columns, features, comments, templates, webhooks) used for portable import/export. */
 export interface HabitatExport {
   version: number;
   exportedAt: string;
@@ -84,7 +95,7 @@ export interface HabitatExport {
         title: string;
         description: string;
         priority: TaskPriority;
-        status: import('./task.js').TaskStatus;
+        status: import("./task.js").TaskStatus;
         requiredDomain: string | null;
         requiredCapabilities: string[];
         result: string | null;
@@ -96,7 +107,7 @@ export interface HabitatExport {
       taskTitle: string;
       parentTaskTitle: string | null;
       content: string;
-      authorType: 'human' | 'agent';
+      authorType: "human" | "agent";
       authorId: string;
     }>;
     templates: Array<{
@@ -114,7 +125,7 @@ export interface HabitatExport {
       url: string;
       events: string[];
       headers: Record<string, string>;
-      format: 'standard' | 'slack' | 'discord';
+      format: "standard" | "slack" | "discord";
       enabled: boolean;
     }>;
   };
