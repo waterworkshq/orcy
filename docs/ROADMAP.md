@@ -37,28 +37,17 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.18.3 | "Deepen: Single Cache" — Zustand → React Query for all server data (agents, comments, missions, board/columns, tasks). 5 mutation hooks de-dual-written. 14 SSE zustand blocks removed. Zustand now holds only ephemeral UI state (modals, theme, presence, pagination) |
 | v0.19.0 | "Pod Bridge" — Remote participant identity (external identity providers, pod trust model, participant standing), scoped habitat access (grants, credentials, invite flows), Shared Habitat API (`/api/shared/*` — discovery, missions, tasks, comments, pulse, evidence, notifications, trust metadata), remote MCP mode (action allowlist, `X-Orcy-Remote-Key` auth), idempotent write contracts, admin surface (readiness checks, provider config, grant management, webhook endpoints), audit provenance (remote actor labels, provenance block, export filters), UI management surface (Remote Pods page, inline attribution) |
 | v0.19.1 | "Deepen: API → Daemon Interface Seam" — Shared daemon types (`SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater`, `WorkdirError`) moved to `@orcy/shared`. Six seam interfaces (`ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop`) defined in shared. `runPollTick` consolidated pure async function replacing duplicated tick loops in daemon and API. `InProcessClaimStrategy` + `HttpClaimStrategy` strategy classes. API's `daemon-wiring.ts` DI module with dynamic import. Zod schemas derived from `AGENT_TYPES` runtime array. `@orcy/daemon` moved to devDependencies. 54 new tests (interface-compliance + seam + poll + factory + wiring) |
+| v0.19.2 | "Deepen: Documentation Pass" — CONFIGURATION.md updated with 17 missing env vars, 3 stale removed, JWT_SECRET security doc bug fixed. ARCHITECTURE.md gained Daemon Runtime Seam + Audit Trail V2 sections. DATABASE.md gained 8 automation/notification table entries. 28 JSDoc blocks added to daemon seam public APIs. TESTING.md gained 5 test pattern sections + UI test count fix. TROUBLESHOOTING.md gained 8 entries across security, remote pods, notifications, daemon. README/CAPABILITIES/SKILL refreshed: MCP count 15→16, Pod Bridge features added, dispatch tools completed |
 
 ---
 
 ## Upcoming
 
-### v0.19.2 — "Deepen: Documentation Pass"
+### v0.19.3 — "Deepen: Inline JSDoc Pass"
 
-Patch release focused on contributor- and operator-facing docs that match the shipped code from v0.15 through v0.19.1. Each doc area gets an investigation-first read-understand-document cycle. No doc is written without tracing the actual code.
+Patch release focused on widening inline JSDoc coverage across all packages. Currently only 9% of 2,991 exported symbols have JSDoc. This pass targets shared types (240 exports across 18 files), API service entry points (~250 exports across 25 files), MCP dispatch handlers (~70 exports), and daemon/CLI (~51 exports). IDE hover tooltips and IntelliSense suggestions will work for every public API surface.
 
-| Area | What it covers |
-|------|----------------|
-| CONFIGURATION.md | Every env var actually read by the code across all packages (currently stale since v0.17) |
-| ARCHITECTURE.md | Daemon interface seam section + audit trail V2 section + update existing daemon references |
-| DATABASE.md | Automation + notification V2 table schemas (6 tables completely missing) |
-| Inline JSDoc | Public seam APIs: shared interfaces, `runPollTick`, `daemon-wiring.ts`, strategy classes |
-| TESTING.md | New test patterns: interface-compliance, factory, SSE registry, repository testing |
-| TROUBLESHOOTING.md | Troubleshooting entries for v0.17-v0.19 features |
-| README + CAPABILITIES + SKILL | Refresh feature counts and capability summaries |
-
-**Why a dedicated release:** 12 releases shipped features without corresponding documentation updates. Wrong docs are worse than missing docs — each domain module needs its callers/callees traced through actual code before documentation can be written accurately. Investigation-first methodology via subagents.
-
-**Designed at:** `docs/plans/v19.2/00-documentation-pass.md`. 8 boundaries, ~3.25 days.
+**Designed at:** `docs/plans/v19.3/00-jsdoc-pass.md`. 11 batches, ~4 days.
 
 ---
 
