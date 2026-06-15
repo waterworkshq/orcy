@@ -1,96 +1,109 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { createDispatchTool, createDispatchHandler, type Handler } from './dispatch-utils.js';
-import { pulsePost, pulseCheck } from './pulse.js';
-import { pulsePromote } from './pulse-promote.js';
-import { pulseReact } from './pulse-react.js';
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { createDispatchTool, createDispatchHandler, type Handler } from "./dispatch-utils.js";
+import { pulsePost, pulseCheck } from "./pulse.js";
+import { pulsePromote } from "./pulse-promote.js";
+import { pulseReact } from "./pulse-react.js";
 
+/** MCP {@link Tool} descriptor registering the `orcy_pulse` tool surface. */
 export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
-  name: 'orcy_pulse',
+  name: "orcy_pulse",
   description:
-    'Mission Pulse operations: post structured signals (finding, blocker, offer, warning, ' +
-    'question, answer, directive, context, handoff) to the mission or habitat pulse board, ' +
-    'or check the pulse board for signals from mission partners. ' +
+    "Mission Pulse operations: post structured signals (finding, blocker, offer, warning, " +
+    "question, answer, directive, context, handoff) to the mission or habitat pulse board, " +
+    "or check the pulse board for signals from mission partners. " +
     'Use action="post" to share discoveries, report blockers (auto-creates clearance tasks), ' +
     'offer results, ask questions, or issue directives. Use action="check" to read signals ' +
-    'filtered by mission or signal type. When no missionId is provided, returns your cross-mission inbox. ' +
+    "filtered by mission or signal type. When no missionId is provided, returns your cross-mission inbox. " +
     'Use scope="habitat" with boardId to post or read habitat-level signals visible across all missions. ' +
     'Use action="promote" to promote a valuable signal to a persistent project insight. ' +
-    'Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.',
-  actions: ['post', 'check', 'promote', 'react'],
+    "Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.",
+  actions: ["post", "check", "promote", "react"],
   sharedParams: {
     missionId: {
-      type: 'string',
-      description: 'Mission ID (required for post with mission scope, optional for check)',
+      type: "string",
+      description: "Mission ID (required for post with mission scope, optional for check)",
     },
     boardId: {
-      type: 'string',
+      type: "string",
       description: 'Board/habitat ID (required when scope="habitat")',
     },
     scope: {
-      type: 'string',
-      enum: ['mission', 'habitat'],
+      type: "string",
+      enum: ["mission", "habitat"],
       description: 'Signal scope: "mission" (default) or "habitat" for board-wide signals',
     },
     signalType: {
-      type: 'string',
-      enum: ['finding', 'blocker', 'offer', 'warning',
-             'question', 'answer', 'directive', 'context', 'handoff'],
-      description: 'Signal type (required for post, optional filter for check)',
+      type: "string",
+      enum: [
+        "finding",
+        "blocker",
+        "offer",
+        "warning",
+        "question",
+        "answer",
+        "directive",
+        "context",
+        "handoff",
+      ],
+      description: "Signal type (required for post, optional filter for check)",
     },
     subject: {
-      type: 'string',
-      description: 'Brief signal subject (action=post, required)',
+      type: "string",
+      description: "Brief signal subject (action=post, required)",
     },
     body: {
-      type: 'string',
-      description: 'Full signal body with details (action=post)',
+      type: "string",
+      description: "Full signal body with details (action=post)",
     },
     taskId: {
-      type: 'string',
-      description: 'Task this signal relates to (action=post)',
+      type: "string",
+      description: "Task this signal relates to (action=post)",
     },
     toAgentName: {
-      type: 'string',
-      description: 'Target agent name for directed signal (action=post)',
+      type: "string",
+      description: "Target agent name for directed signal (action=post)",
     },
     replyToId: {
-      type: 'string',
-      description: 'Pulse ID to reply to (action=post, for ANSWER signals)',
+      type: "string",
+      description: "Pulse ID to reply to (action=post, for ANSWER signals)",
     },
     metadata: {
-      type: 'object',
-      description: 'Freeform metadata JSON (action=post)',
+      type: "object",
+      description: "Freeform metadata JSON (action=post)",
     },
     limit: {
-      type: 'number',
-      description: 'Max signals to return (action=check, default 20)',
+      type: "number",
+      description: "Max signals to return (action=check, default 20)",
     },
     offset: {
-      type: 'number',
-      description: 'Pagination offset (action=check)',
+      type: "number",
+      description: "Pagination offset (action=check)",
     },
     pulseId: {
-      type: 'string',
-      description: 'Pulse ID to promote to insight (action=promote)',
+      type: "string",
+      description: "Pulse ID to promote to insight (action=promote)",
     },
     relevanceTags: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'Tags for insight relevance matching, e.g. ["domain:backend", "label:auth"] (action=promote)',
+      type: "array",
+      items: { type: "string" },
+      description:
+        'Tags for insight relevance matching, e.g. ["domain:backend", "label:auth"] (action=promote)',
     },
     reaction: {
-      type: 'string',
-      enum: ['seen', 'ack', 'question'],
-      description: 'Reaction type to toggle (action=react)',
+      type: "string",
+      enum: ["seen", "ack", "question"],
+      description: "Reaction type to toggle (action=react)",
     },
   },
 });
 
+/** Map of MCP action name (e.g. `post`, `check`, `promote`, `react`) to the corresponding {@link Handler}. */
 export const PULSE_ACTIONS: Record<string, Handler> = {
-  'post': pulsePost,
-  'check': pulseCheck,
-  'promote': pulsePromote,
-  'react': pulseReact,
+  post: pulsePost,
+  check: pulseCheck,
+  promote: pulsePromote,
+  react: pulseReact,
 };
 
+/** Top-level {@link ToolHandler} that resolves incoming `orcy_pulse` calls to their action handler. */
 export const PULSE_DISPATCH_HANDLER = createDispatchHandler(PULSE_ACTIONS);

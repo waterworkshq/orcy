@@ -1,5 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
+/** Multi-line Markdown skill guide embedded as an MCP tool response. */
 export const ORCY_INSTRUCTIONS_TEXT = `# Orcy Agent Skill Guide
 
 You are connected to an Orcy task management system. This guide defines how you should interact with it.
@@ -153,6 +154,7 @@ so you only need to drill into individual tasks when you are about to claim or w
 
 You have hereby read the Orcy Agent Skill Guide and do not need to call orcy_instructions again.`;
 
+/** MCP tool descriptor for the `orcy_instructions` startup tool. */
 export const ORCY_INITIAL_INSTRUCTIONS_TOOL: Tool = {
   name: "orcy_instructions",
   description:
@@ -165,6 +167,7 @@ export const ORCY_INITIAL_INSTRUCTIONS_TOOL: Tool = {
   },
 };
 
+/** Tool handler that returns the rendered {@link ORCY_INSTRUCTIONS_TEXT}. */
 export function orcyInstructions(): string {
   return ORCY_INSTRUCTIONS_TEXT;
 }

@@ -1,5 +1,6 @@
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
+/** Markdown skill guide for the Pulse mission signal protocol — covers when to post signals, how to interpret the pulse digest, signal etiquette, and habitat/project signal extensions. */
 export const PULSE_SKILL_TEXT = `# Pulse Skill Guide — Mission Signal Protocol
 
 ## What is Pulse?
@@ -177,16 +178,18 @@ orcy_pulse({ action: "react", pulseId: "signal-uuid", reaction: "ack" })
 - Do NOT react to your own signals
 `;
 
+/** MCP `Tool` registration for `orcy_pulse_instructions`; on call, returns the rendered Pulse skill guide. */
 export const PULSE_SKILL_TOOL: Tool = {
-  name: 'orcy_pulse_instructions',
+  name: "orcy_pulse_instructions",
   description:
-    'Teaches the Pulse mission signal protocol: when to post signals, how to interpret the pulse digest, and signal etiquette for multi-agent missions. ' +
-    'Use when you see pulse data in mission get-context responses, when you need to share a finding or blocker with mission partners, ' +
-    'when you encounter a BLOCKER signal and need to understand the clearance-task flow, ' +
-    'or when you want to learn the difference between auto-signals and intentional signals.',
-  inputSchema: { type: 'object', properties: {} },
+    "Teaches the Pulse mission signal protocol: when to post signals, how to interpret the pulse digest, and signal etiquette for multi-agent missions. " +
+    "Use when you see pulse data in mission get-context responses, when you need to share a finding or blocker with mission partners, " +
+    "when you encounter a BLOCKER signal and need to understand the clearance-task flow, " +
+    "or when you want to learn the difference between auto-signals and intentional signals.",
+  inputSchema: { type: "object", properties: {} },
 };
 
+/** Returns the rendered Pulse skill guide text for the `orcy_pulse_instructions` MCP tool. */
 export function orcyPulseInstructions(): string {
   return PULSE_SKILL_TEXT;
 }

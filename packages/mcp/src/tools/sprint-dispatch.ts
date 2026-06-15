@@ -17,6 +17,7 @@ import {
   removeMissionFromSprint,
 } from "./sprint.js";
 
+/** MCP {@link Tool} descriptor registering the `orcy_sprint` tool surface. */
 export const SPRINT_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_sprint",
   description:
@@ -60,6 +61,7 @@ export const SPRINT_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/** Map of MCP action name (e.g. `list`, `get`, `create`) to the corresponding {@link Handler}. */
 export const SPRINT_ACTIONS: Record<string, Handler> = {
   list: listSprints,
   get: getSprint,
@@ -77,4 +79,5 @@ export const SPRINT_ACTIONS: Record<string, Handler> = {
   remove_mission: removeMissionFromSprint,
 };
 
+/** Top-level {@link ToolHandler} that resolves incoming `orcy_sprint` calls to their action handler. */
 export const SPRINT_DISPATCH_HANDLER = createDispatchHandler(SPRINT_ACTIONS);
