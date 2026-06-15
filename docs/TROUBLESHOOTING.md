@@ -13,6 +13,10 @@ Common issues, error messages, and debugging procedures for Orcy.
 - [UI Issues](#ui-issues)
 - [Agent Issues](#agent-issues)
 - [Pulse / Mission Signals](#pulse--mission-signals)
+- [Security & Startup](#security--startup)
+- [Remote Pods & Shared Habitat](#remote-pods--shared-habitat)
+- [Notifications](#notifications)
+- [Daemon Engine](#daemon-engine)
 - [Error Code Reference](#error-code-reference)
 - [FAQ](#faq)
 
@@ -332,6 +336,110 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 **Check:**
 1. Update the CLI: `npm install -g @orcy/cli@latest` or re-run the installer
 2. The pulse CLI commands were added in a recent version — older CLI builds don't have them
+
+---
+
+## Security & Startup
+
+### API exits with code 1 on startup in production
+
+**Problem:** API process exits with code 1 immediately on startup when deployed to a server or run with `NODE_ENV=production`.
+
+**Cause:** `assertSecurityConfigOrExit()` in `packages/api/src/config/security.ts` calls `process.exit(1)` if the security validation finds errors. In "remote" posture (any non-localhost host or `NODE_ENV=production`), a weak or missing `JWT_SECRET` or a missing `ORCY_REGISTRATION_TOKEN` is fatal.
+
+**Fix:**
+
+- Set a strong `JWT_SECRET` and an `ORCY_REGISTRATION_TOKEN` before starting the API
+- For non-localhost dev, set `ORCY_DEV_ALLOW_OPEN_REGISTRATION=true` to bypass the registration token requirement
+
+---
+
+## Remote Pods & Shared Habitat
+
+### Remote pod requests fail with 401 MISSING_REMOTE_KEY / INVALID_REMOTE_KEY
+
+**Problem:** Remote pod REST requests fail with 401 `MISSING_REMOTE_KEY` or `INVALID_REMOTE_KEY`.
+
+**Cause:** The `remoteParticipantAuth` middleware requires an `X-Orcy-Remote-Key` header with the plaintext `orcy_remote_`-prefixed credential on every request. A wrong/empty header or the hashed form fails verification.
+
+**Fix:**
+
+- Pass the participant's full plaintext credential in the `X-Orcy-Remote-Key` header
+- If the key was lost, mint a new remote credential — the stored value is hashed and cannot be recovered
+
+### Authenticated remote participant gets 403 with no reason (GRANT_SCOPE_DENIED)
+
+**Problem:** An authenticated remote participant gets 403 "Remote action not permitted" with a short code like `GRANT_SCOPE_DENIED` and cannot tell why from the response.
+
+**Cause:** The middleware deliberately returns a generic error message and logs the detailed grant reason server-side to prevent probing attacks.
+
+**Fix:**
+
+- Check the API server logs for the "remote action denied" entry, which includes participantId, podId, action, and internalReason
+- Adjust the participant's grants or standing accordingly
+
+### Remote pod requests fail with 403 REMOTE_PARTICIPANT_INACTIVE / REMOTE_POD_INACTIVE
+
+**Problem:** Remote pod requests fail with 403 `REMOTE_PARTICIPANT_INACTIVE` or `REMOTE_POD_INACTIVE` despite a valid credential key.
+
+**Cause:** After credential verification, the middleware requires both `participant.status === "active"` and `pod.status === "active"`. A suspended/disabled participant or pod is rejected before scope checks run.
+
+**Fix:**
+
+- Re-activate the participant and pod via the admin routes
+- If activation was never completed after invite acceptance, complete the activation step in the pod bridge onboarding flow
+
+### Remote pod requests fail with 403 HABITAT_MISMATCH
+
+**Problem:** Remote pod requests fail with 403 `HABITAT_MISMATCH`.
+
+**Cause:** The middleware cross-checks that `participant.habitatId`, `pod.habitatId`, and `credential.habitatId` all match. A credential issued for habitat A used against a participant in habitat B is rejected.
+
+**Fix:**
+
+- Re-issue the remote credential against the correct habitat
+- Credentials are habitat-scoped and cannot be reused across habitats
+
+---
+
+## Notifications
+
+### Subscribing/posting a notification throws INVALID_NOTIFICATION_EVENT_TYPE
+
+**Problem:** Subscribing to a notification event or posting one throws `INVALID_NOTIFICATION_EVENT_TYPE`.
+
+**Cause:** The V2 notification system only accepts 8 canonical event types: `task.blocked`, `task.review_requested`, `task.assigned`, `mission.risk_marked`, `automation.rule_matched`, `automation.action_failed`, `digest.ready`, and `pulse.signal_posted`. Legacy names like `taskAssigned` are rejected.
+
+**Fix:**
+
+- Use one of the 8 canonical event types
+- Legacy preference names are migrated automatically (`taskAssigned` → `task.assigned`, `taskReviewAssigned` → `task.review_requested`)
+
+### Webhook delivery fails with "No webhook URL configured"
+
+**Problem:** A notification delivery to the "webhook" channel fails with "No webhook URL configured".
+
+**Cause:** The notification delivery service has no stored webhook URL for a habitat and reads ad-hoc from `delivery.channels[].webhookUrl` or `event.payload.webhookUrl`. If neither is present, the delivery fails.
+
+**Fix:**
+
+- Until habitat-level webhook subscription is wired, supply the webhook URL in the event payload (`payload.webhookUrl`)
+- For reliable delivery, prefer Slack/Discord/in-app channels
+
+---
+
+## Daemon Engine
+
+### Starting an in-process daemon fails after API restart
+
+**Problem:** Starting an in-process daemon that was registered in a previous API session throws "In-process daemon credentials are only available immediately after UI registration".
+
+**Cause:** In-process daemon agent API keys are held only in memory (`inMemoryAgentCredentials` Map) and are lost on API restart. The `start()` function rejects agents whose apiKey resolves to empty string.
+
+**Fix:**
+
+- Register a fresh UI daemon after every API restart (credentials are returned once and held in memory only)
+- Or use the standalone CLI daemon, which persists credentials to disk
 
 ---
 

@@ -35,11 +35,13 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_review` | `list_rules`, `create_rule`, `update_rule`, `delete_rule`, `list_reviewers`, `add_reviewer`, `remove_reviewer` | Review assignment rules and task reviewer management |
 | `orcy_suggest` | `suggest-next-task` | `board_suggest_next_task` |
 | `orcy_habitat_message` | `send`, `get-messages` | `board_send_message`, `board_get_messages` |
-| `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signal habitat, insights, reactions) |
+| `orcy_pulse` | `post`, `check`, `promote`, `react` | (mission + habitat signals, insights, reactions) |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | `board_subscribe`, `board_unsubscribe` |
 | `orcy_admin` | `list-webhooks`, `create-webhook`, `delete-webhook`, `list-templates`, `create-template`, `delete-template`, `batch-assign-tasks`, `batch-set-priority`, `batch-delete-tasks`, `export-audit-log`, `get-audit-summary`, `list-scheduled-tasks`, `create-scheduled-task`, `run-scheduled-task` | `board_list_webhooks`, `board_create_webhook`, `board_delete_webhook`, `board_list_templates`, `board_create_template`, `board_delete_template` |
 | `orcy_worktree` | `get-worktree` | `board_get_worktree` |
 | `orcy_habitat_skill` | `get`, `refresh`, `contribute` | Dynamic habitat skills — living knowledge document |
+| `orcy_automation` | `list`, `get`, `simulate`, `list_runs`, `get_rule_runs` | Automation rule inspection and simulation (read-only) |
+| `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Self-service notification inbox, acknowledgment, and snooze |
 
 ---
 

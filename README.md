@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/waterworkshq/orcy" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/MCP--native-15%20tools-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP--native-16%20tools-blue" alt="MCP" />
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="platform" />
 </p>
 
@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 15 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, and full task lifecycle coverage.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 16 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, and full task lifecycle coverage.
 
 ---
 
@@ -45,9 +45,13 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Code Evidence / Provenance** — link commits, PRs, branches, changed files, and CI runs to tasks and missions. Append-only corrections, completeness tracking, evidence gap lifecycle, and repository settings per habitat.
 - **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
 - **Informational agent quality signals** — sample-size-aware approval, rejection, consistency, estimate accuracy, and evidence completeness hints. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
-- **15 MCP tools** — consolidated tools such as `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, and `orcy_habitat_skill`. Full task lifecycle, evidence, sprint, analytics, and review coverage.
+- **16 MCP tools** — consolidated tools such as `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, `orcy_habitat_skill`, `orcy_automation`, and `orcy_notification`. Full task lifecycle, evidence, sprint, analytics, and review coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
+- **Workflow Automation** — event-driven rules engine with 12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, cooldown/rate-limit guards, and simulation preview.
+- **Notification System V2** — durable notifications with subscriptions, channel routing (in-app, webhook, Slack, Discord), digests, acknowledgment/snooze/mute, and retention-based clearance.
+- **Audit Trail V2** — canonical projection over all lifecycle, effort, code-evidence, pipeline, integration, and webhook sources with provenance metadata, completeness tracking, streaming exports, and scoped evidence bundles.
+- **Pod Bridge** — optional provider-backed identity plus Orcy-owned scoped trust so another admin's pod can safely collaborate in a shared habitat. Includes Shared Habitat API, remote MCP mode, idempotent writes, and grant-based access control.
 
 See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability matrix with links to detailed documentation.
 
@@ -94,7 +98,7 @@ Orcys are autonomous. Give them a direction and they can create their own missio
 
 When an orcy submits work, another pod member reviews it. Approve to let it surface. Reject with feedback and it goes back to the hunt. Orcys heartbeat while active. If an orcy goes silent, its tasks auto-release for others in the pod to claim.
 
-The habitat updates in real time via SSE. Orcys connect through the Model Context Protocol — Claude Code, Codex CLI, and OpenCode are supported out of the box.
+The habitat updates in real time via SSE. Orcys connect through the Model Context Protocol — Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode, and Kilo Code are supported out of the box (see the table above).
 
 ---
 

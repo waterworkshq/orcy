@@ -10,7 +10,7 @@ This document covers the testing strategy, how to run tests, and how to write ne
 |-------|-----------|----------|-------|
 | API unit tests | Vitest | `packages/api/src/test/` | 44+ |
 | MCP unit tests | Vitest | `packages/mcp/src/tools.test.ts` | 17+ |
-| UI unit tests | Vitest | `packages/ui/src/` | 0 (passWithNoTests) |
+| UI unit tests | Vitest | `packages/ui/src/` | 107 (91 `.test.tsx` + 16 `.test.ts`) |
 | E2E tests | Playwright | `packages/ui/e2e/` | 1 spec |
 
 ### Test Pyramid
@@ -271,6 +271,116 @@ npx playwright test --debug
 # Generate trace for failed tests (already configured)
 npx playwright test --trace on
 ```
+
+---
+
+## Test Patterns
+
+Battle-tested idioms used across the codebase. Each snippet is pulled from a real test file.
+
+### Module-Level Mocking with `vi.hoisted()`
+
+**When to use:** You need a mock accessible inside a `vi.mock()` factory (factories run at hoist time, before imports).
+
+**How:** `vi.hoisted()` runs its callback at hoist time so the returned object is visible inside `vi.mock()` factories.
+
+```typescript
+const mocks = vi.hoisted(() => ({
+  agentService: { createAgent: vi.fn() },
+  taskService: { claimTask: vi.fn() },
+  daemonRepo: { createDaemon: vi.fn(), updateDaemonHeartbeat: vi.fn() },
+}));
+vi.mock("../services/agentService.js", () => mocks.agentService);
+vi.mock("../services/tasks/index.js", () => mocks.taskService);
+vi.mock("../repositories/daemon.js", () => mocks.daemonRepo);
+```
+
+Used by: [`packages/api/src/test/daemonRoutes.test.ts`](../packages/api/src/test/daemonRoutes.test.ts), [`packages/api/src/test/boardService.test.ts`](../packages/api/src/test/boardService.test.ts), [`packages/daemon/test/poll-loop.test.ts`](../packages/daemon/test/poll-loop.test.ts) — 50+ files use this.
+
+### React Component Testing (jsdom + Testing Library)
+
+**When to use:** Testing React components without a browser.
+
+**How:** A `// @vitest-environment jsdom` pragma enables the DOM, then `@testing-library/react` drives the component through `render` / `screen` / `fireEvent` / `waitFor`.
+
+```tsx
+// @vitest-environment jsdom
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import '@testing-library/jest-dom/vitest';
+
+it('renders username and password input fields', () => {
+  render(<LoginForm onSubmit={vi.fn()} error={null} />, { wrapper: MemoryRouter });
+  expect(screen.getByLabelText('Username')).toBeInTheDocument();
+  expect(screen.getByLabelText('Password')).toBeInTheDocument();
+});
+```
+
+Used by 107 test files under `packages/ui/src/`, e.g. [`LoginForm.test.tsx`](../packages/ui/src/components/auth/LoginForm.test.tsx).
+
+### Mock Builder with Partial Overrides
+
+**When to use:** Testing pure functions that take complex collaborator objects (managers, strategies, clients).
+
+**How:** A `makeX(overrides?: Partial<IX>)` helper returns a fully-populated mock with sensible defaults; spread `...overrides` on top to mutate only the fields under test.
+
+```typescript
+function makeManager(overrides?: Partial<ISessionManager>): ISessionManager {
+  return {
+    activeCount: 0,
+    activeSessions: [],
+    getSession: () => undefined,
+    startSession: vi.fn().mockResolvedValue({} as never),
+    terminateSession: vi.fn(),
+    shutdownAll: vi.fn(),
+    ...overrides,
+  };
+}
+```
+
+Used by: [`daemon-poll.test.ts`](../packages/shared/src/__tests__/daemon-poll.test.ts), [`poll-loop.test.ts`](../packages/daemon/test/poll-loop.test.ts), [`taskSuggestion.test.ts`](../packages/api/src/test/taskSuggestion.test.ts) — 20+ files.
+
+### Interface Compliance Testing
+
+**When to use:** Verifying that a class genuinely conforms to a shared interface contract (catches drift between implementation and `@orcy/shared` types).
+
+**How:** Compile-time `expectTypeOf<Impl>().toMatchTypeOf<IInterface>()` plus runtime method-surface checks (`typeof instance.method === 'function'`).
+
+```typescript
+it("satisfies ISessionManager at compile time", () => {
+  expectTypeOf<SessionManager>().toMatchTypeOf<ISessionManager>();
+});
+
+it("exposes all ISessionManager methods", () => {
+  const sm = new SessionManager({ sessionUpdater: mockUpdater, apiUrl: "", dataDir: "/tmp", sessionTimeoutSeconds: 60 });
+  expect(typeof sm.getSession).toBe("function");
+  expect(typeof sm.terminateSession).toBe("function");
+  expect(typeof sm.shutdownAll).toBe("function");
+});
+```
+
+Used by: [`interface-compliance.test.ts`](../packages/daemon/test/interface-compliance.test.ts), [`factory.test.ts`](../packages/daemon/test/factory.test.ts), [`daemon-seam.test.ts`](../packages/daemon/test/daemon-seam.test.ts).
+
+### Route Capture / Handler Isolation
+
+**When to use:** Testing Fastify route handlers without spinning up an HTTP server.
+
+**How:** A `captureRoutes()` helper builds a fake `FastifyInstance` whose `.post()` / `.patch()` methods record `{ handler, preHandler }` pairs by path. Tests then extract a handler by path and invoke it directly.
+
+```typescript
+function captureRoutes(): Map<string, { handler: Function; preHandler?: any[] }> {
+  const routes = new Map<string, { handler: Function; preHandler?: any[] }>();
+  const fake = {
+    post: vi.fn((path, opts, handler?) => routes.set(`POST ${path}`, { handler: handler ?? opts, preHandler: opts?.preHandler })),
+    patch: vi.fn((path, opts, handler?) => routes.set(`PATCH ${path}`, { handler: handler ?? opts })),
+    get: vi.fn(), delete: vi.fn(), put: vi.fn(),
+  } as unknown as FastifyInstance;
+  daemonRoutes(fake);
+  return routes;
+}
+```
+
+Used by: [`daemonRoutes.test.ts`](../packages/api/src/test/daemonRoutes.test.ts), [`effortRoutes.test.ts`](../packages/api/src/test/effortRoutes.test.ts), [`codeEvidenceRoutes.test.ts`](../packages/api/src/test/codeEvidenceRoutes.test.ts), [`auditBundleRoutes.test.ts`](../packages/api/src/test/auditBundleRoutes.test.ts) — 6+ route test files.
 
 ---
 
