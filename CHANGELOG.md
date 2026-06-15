@@ -2,6 +2,72 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.19.3 — 2026-06-15
+
+### Documentation
+
+#### add comprehensive JSDoc documentation to type definitions ([`9427b86`](https://github.com/waterworkshq/orcy/commit/9427b86684d4f76d15ffd9c56b28f2267ab4f602))
+
+1. Add detailed JSDoc comments to all type definitions in the shared package, providing clear descriptions of each interface, type, and enum. The documentation explains the purpose, usage, and relationships between types to improve developer understanding and IDE support.
+
+
+#### add inline documentation to API services and type definitions ([`49dcfce`](https://github.com/waterworkshq/orcy/commit/49dcfcec491762fa005ec7f7e3711dc9306d4fb5))
+
+1. Add detailed JSDoc comments to service functions and type definitions across the shared package and API services, improving code readability and developer understanding. The documentation explains function purposes, parameters, return values, and type semantics to enhance maintainability and IDE support.
+
+
+#### add comprehensive JSDoc documentation to service functions ([`619d723`](https://github.com/waterworkshq/orcy/commit/619d723b979bc5c74d6c7ac9e3cbc0ccbcbcb865))
+
+1. Add detailed inline documentation to all service functions across the API package, including clear descriptions of function purposes, parameters, return values, and side effects. The documentation follows JSDoc standards with proper type annotations and explains complex business logic to improve code maintainability and developer experience.
+
+
+#### enhance service function documentation with detailed JSDoc ([`7ccd9c4`](https://github.com/waterworkshq/orcy/commit/7ccd9c46fa52a5bcf9069ba3033f0256cfef7260))
+
+1. Add comprehensive inline documentation to all service functions across the API package, including clear descriptions of function purposes, parameters, return values, and side effects. The documentation follows JSDoc standards with proper type annotations and explains complex business logic to improve code maintainability and developer experience.
+
+
+#### enhance tool documentation with comprehensive JSDoc ([`965bf32`](https://github.com/waterworkshq/orcy/commit/965bf32322993ddb59e5dd2cf533b2d2b579375d))
+
+1. Add detailed JSDoc comments to MCP dispatch tools and handlers across the mcp package, describing their purpose, functionality, and relationship to underlying implementations. The documentation improves code maintainability and clarifies the architecture of the dispatch system for developers working with MCP tool integration.
+
+
+#### add JSDoc to remaining dispatch files and utility modules ([`f0d0a9c`](https://github.com/waterworkshq/orcy/commit/f0d0a9cbb4f4f3983d876ead1117770bcca16edb))
+
+
+#### add comprehensive JSDoc documentation to CLI commands and daemon modules ([`5c36a66`](https://github.com/waterworkshq/orcy/commit/5c36a66c67bbe7bb418e59cf2037ae5b9c7cbac6))
+
+1. Add detailed JSDoc comments to CLI command registration functions and daemon modules, explaining their purpose, functionality, and relationships to underlying implementations. The documentation improves code maintainability and clarifies the architecture of the CLI and daemon systems for developers working with Orcy integration.
+
+
+#### enhance service interfaces and function documentation ([`661a5a3`](https://github.com/waterworkshq/orcy/commit/661a5a3a7535f425a32cf753b39116db195bc90d))
+
+1. Add detailed JSDoc comments to service interfaces and function implementations across API services, improving code readability and maintainability. The documentation clarifies the purpose, parameters, and return values of key functions in webhook dispatching, OAuth handling, task management, and integration services.
+
+
+#### add JSDoc documentation to integration services and webhook handlers ([`567d9cc`](https://github.com/waterworkshq/orcy/commit/567d9cc255d461e888c613cb4023646611501b84))
+
+1. Add detailed JSDoc documentation to integration adapters (GitHub, Jira, Linear), OAuth services, task management services, and webhook handlers, clarifying function purposes, parameters, and return values. The documentation improves code readability and maintainability across core API functionality.
+
+
+#### add comprehensive JSDoc documentation to automation and notification services ([`b45f63d`](https://github.com/waterworkshq/orcy/commit/b45f63d54d094714b5f6eae73ec50e1df9bf949c))
+
+1. Add detailed JSDoc documentation to automation services (context builder, evaluator, executor, simulation, template renderer) and notification services (delivery, clearance, command, digest, migration), clarifying function purposes, parameters, and return values. The documentation improves code readability and maintainability across core API functionality.
+
+
+#### add comprehensive JSDoc documentation to core services ([`5bd40be`](https://github.com/waterworkshq/orcy/commit/5bd40beb9d65ac62a349e4c8ec5f089ecd7777c9))
+
+1. Add detailed JSDoc documentation to core API services including analytics, audit, authentication, automation, board management, capacity planning, chat integrations, CI/CD, code evidence, comments, dependency tracking, Discord integration, effort tracking, event enrichment, feature comments, file storage, Git worktrees, habitat digests, session management, notification channels, quality gates, remote notifications, retry logic, scheduled tasks, secret management, shared grants, sprint analytics, subtasks, task scoring, suggestions, time tracking, trend analysis, and task watching. The documentation clarifies function purposes, parameters, return types, and behavior across the entire service layer.
+
+
+#### enhance type documentation across shared and API packages ([`d814ad6`](https://github.com/waterworkshq/orcy/commit/d814ad6c8affd589420c3a890e5ecf6e94aa4b73))
+
+1. Add detailed JSDoc documentation to type definitions and interfaces across shared and API packages, clarifying purpose, usage, and relationships between complex types including AgentQualitySignal, ForecastEstimate, RemoteGrantType, ParticipantStanding, and PodAffiliation. The documentation improves type discoverability and provides clear context for API consumers and developers working with these shared contracts.
+
+
+#### mark v0.19.3 as released and remove from upcoming ([`8a136b5`](https://github.com/waterworkshq/orcy/commit/8a136b5d5b097fed72cccd1a508c2e9ef89688bb))
+
+
+
 ## 0.19.2 — 2026-06-15
 
 ### Documentation
@@ -69,167 +135,3 @@
 #### implement dynamic daemon module loading ([`af44041`](https://github.com/waterworkshq/orcy/commit/af44041ff2b5398370fcc6cda9411518427a57de))
 
 1. Move daemon dependency from runtime to devDependencies and implement lazy loading pattern. Add initialization function that dynamically imports daemon module when needed. Update daemon factory functions to export proper interfaces for dynamic loading. Add interface compliance tests to ensure proper contract implementation.
-
-
-
-## 0.19.0 — 2026-06-14
-
-### Documentation
-
-#### update roadmap with v0.18.1-0.18.3 releases ([`6501ecb`](https://github.com/waterworkshq/orcy/commit/6501ecb1a8cc01fb109ea5cd802dbe2433cdcf4a))
-
-
-#### update documentation for v0.19 "Pod Bridge" and v0.20 "Orchestrated" releases ([`9c86669`](https://github.com/waterworkshq/orcy/commit/9c8666905b358f3cce28b60dc4be738a7ed9c470))
-
-1. This update reflects the refined product direction for upcoming releases:
-2. v0.19 "Pod Bridge" focuses on optional provider login, trusted pod access, and shared habitat API
-3. v0.20 "Orchestrated" emphasizes multi-agent handoffs, fan-out/fan-in, and review chains
-
-5. The changes include:
-6. Updated CONTEXT.md with new definitions for pod affiliation, participant standing, and remote contributor concepts
-7. Revised README.md release themes to match the new direction
-8. Updated docs/ROADMAP.md with refined feature descriptions and rationale
-
-
-#### add Pod Bridge documentation for v0.19 release ([`7961393`](https://github.com/waterworkshq/orcy/commit/7961393534da5ec8e7cea7fd43c491643eb55b41))
-
-1. Update README.md to reflect v0.19 release theme and remove v0.19 from future releases
-2. Add comprehensive Shared Habitat API documentation with authentication, authorization, and idempotency details
-3. Document Pod Bridge database schema including identity providers, remote participants, and grants
-4. Update roadmap to include completed v0.19.0 "Pod Bridge" release
-5. Add remote access security documentation covering provider scopes, credential management, and grant isolation
-
-
-
-### Features
-
-#### implement pod bridge schema and repositories ([`9dcd869`](https://github.com/waterworkshq/orcy/commit/9dcd8694f46917f5ca3d113a72f8695f045bb644))
-
-1. add comprehensive database schema and repository layer for pod bridge functionality including:
-2. identity providers and external identities
-3. remote pods, participants, and credentials
-4. remote grants, invites, and idempotency keys
-5. webhook endpoints for remote pod interactions
-
-7. update audit types to support remote pod actors and actions
-8. export new pod bridge types from shared package
-
-
-#### implement remote participant authentication ([`c812c04`](https://github.com/waterworkshq/orcy/commit/c812c040dd8f27fdbb5ab7f2e8b2cefc06d2fe42))
-
-1. add remote authentication middleware and service for pod bridge functionality:
-2. remote participant authentication with x-orcy-remote-key header
-3. remote credential validation and connection verification
-4. habitat access authorization for remote participants
-5. audit provenance context updates for remote actor types
-
-7. update audit provenance to support remote actor references
-8. add comprehensive tests for remote authentication flow
-
-
-#### add remote access and shared invite functionality ([`2cef7a0`](https://github.com/waterworkshq/orcy/commit/2cef7a063bed251e909dc8690895676d08f8db20))
-
-1. implement new remote access routes and services for pod bridge:
-2. add remote access routes for authentication and authorization
-3. implement shared invite routes for habitat access
-4. create identity provider service for remote participant validation
-5. add remote invite service for generating and managing access tokens
-6. implement mcp config service for remote participant configuration
-7. add remote access admin service for managing remote participants
-8. create share habitat readiness service for access verification
-9. include comprehensive tests for remote access functionality
-
-
-#### enhance remote access and shared invite functionality ([`364c03f`](https://github.com/waterworkshq/orcy/commit/364c03f0768800cc11808e8c4a6bd0642e3b6962))
-
-1. Add habitat ID validation in remote authentication middleware
-2. Prevent local_member standing for remote participants
-3. Improve error handling with generic messages for security
-4. Add periodic re-validation for remote SSE connections
-5. Implement atomic invite acceptance to prevent race conditions
-6. Add transaction safety for credential rotation and grant operations
-7. Improve idempotency key handling with conflict resolution
-8. Add inline expiry checks for credentials
-9. Enhance invite preview endpoint with proper token handling
-10. Add reachability profile detection for VPS reverse proxy scenarios
-11. Improve error handling and logging throughout remote access components
-12. Add comprehensive input validation with Zod schemas
-13. Enhance security by masking sensitive data in credential responses
-
-
-#### extend schema and services to support remote participants ([`8a3ef9b`](https://github.com/waterworkshq/orcy/commit/8a3ef9b559ce35c197e910fa9904d57767e8a6fa))
-
-1. Add "remote_human" and "remote_orcy" actor types across all schemas
-2. Introduce remote participant assignment for tasks
-3. Create shared API routes for remote participant access
-4. Implement remote-specific task operations (claim, start, submit)
-5. Add idempotency middleware for safe remote operations
-6. Extend comment services to support remote authors
-7. Add remote configuration support for MCP clients
-8. Create remote client implementation for external participants
-9. Add comprehensive tests for remote functionality
-10. Update type definitions to include remote participant types
-
-
-#### implement remote webhook delivery system ([`1d1bce4`](https://github.com/waterworkshq/orcy/commit/1d1bce4bb0f6f91c435b30c54b1c6156be5b639f))
-
-1. Add remote webhook delivery schema and repository
-2. Create remote webhook routes for endpoint management
-3. Implement compact webhook dispatcher for remote events
-4. Add remote notification resolver for recipient discovery
-5. Extend notification service to support remote participants
-6. Add webhook delivery tracking and retry mechanisms
-7. Include comprehensive tests for webhook functionality
-8. Update notification types to include remote actor types
-
-
-#### enhance audit provenance with remote participant context ([`0564d12`](https://github.com/waterworkshq/orcy/commit/0564d1270cfeacefe837ef875752b1687983d07a))
-
-1. Add 'remote_pod' actor type to all relevant schema enums
-2. Implement remote audit context tracking in authentication middleware
-3. Extend audit export and query services to support remote actor types
-4. Add remote metadata to audit provenance for complete attribution
-5. Create comprehensive test suite for remote audit functionality
-6. Update event types and services to handle remote participant actions
-7. Enhance code evidence linking to support remote sources
-8. Add remote actor display name resolution in audit queries
-
-
-#### add remote access management interface and functionality ([`4bcf60a`](https://github.com/waterworkshq/orcy/commit/4bcf60a954c5cf3f290548cec88a5a249c753ffc))
-
-1. Add new RemotePodsPage component for managing remote pod connections
-2. Implement remote access API endpoints for pods, grants, and participants
-3. Add remote participant types and actor references to UI components
-4. Update comment sections to display remote user indicators
-5. Add remote access query keys and data fetching hooks
-6. Enhance audit export modal to filter by remote actor types
-7. Update navigation to include remote pods section
-8. Add comprehensive test suite for remote access functionality
-
-
-#### enhance webhook security with encrypted secrets ([`48e147d`](https://github.com/waterworkshq/orcy/commit/48e147d25e1d187e1fcf71fa0ece087f365c4910))
-
-1. Add encrypted secret storage for webhook endpoints to improve security
-2. Implement secret encryption and decryption utilities for sensitive data
-3. Add webhook URL validation to prevent private network access
-4. Update remote access grant revocation with more flexible modes
-5. Improve error handling for remote idempotency in shared API routes
-6. Enhance cleanup logic in remote invite services when pod creation fails
-7. Remove outdated grant visibility rules for mission-level access
-
-
-
-### Refactors
-
-#### improve idempotency handling and remote access management ([`9afb191`](https://github.com/waterworkshq/orcy/commit/9afb191fba373d9e8c18fd2b5235dd210d066b30))
-
-1. Replace JSON response body storage with raw text in remote idempotency keys
-2. Implement stable stringify function for consistent request hashing
-3. Add grace period logic for remote access grants
-4. Improve error handling in remote idempotency middleware
-5. Add index for remote assigned participant in task schema
-6. Enhance team middleware with better error messages
-7. Update remote webhook delivery to exclude signature from list results
-8. Add URL validation for evidence links in shared API
-9. Implement stricter schema validation for remote access routes
-10. Remove remote participant context from audit metadata in shared API routes
