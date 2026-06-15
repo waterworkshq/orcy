@@ -4,6 +4,7 @@ import type { ActorType } from "./events.js";
 export { TaskPriority };
 export { ActorType };
 
+/** Represents one task definition embedded inside a mission template. */
 export interface TaskTemplateEntry {
   title: string;
   description?: string;
@@ -14,8 +15,10 @@ export interface TaskTemplateEntry {
   order?: number;
 }
 
+/** Lifecycle states a {@link Mission} can occupy across its board. */
 export type MissionStatus = "not_started" | "in_progress" | "review" | "done" | "failed";
 
+/** Discrete actions recordable in a {@link MissionEvent} audit entry. */
 export type MissionEventAction =
   | "created"
   | "updated"
@@ -31,6 +34,7 @@ export type MissionEventAction =
   | "code_evidence_marked_not_applicable"
   | "code_evidence_cleared_not_applicable";
 
+/** A single unit of tracked work within a habitat, including dependencies, SLA, and effort accounting. */
 export interface Mission {
   id: string;
   habitatId: string;
@@ -59,6 +63,7 @@ export interface Mission {
   sprintId: string | null;
 }
 
+/** A {@link Mission} enriched with an aggregated progress rollup of its tasks. */
 export interface MissionWithProgress extends Mission {
   progress: {
     total: number;
@@ -74,6 +79,7 @@ export interface MissionWithProgress extends Mission {
   };
 }
 
+/** One immutable audit entry in a mission's event history. */
 export interface MissionEvent {
   id: string;
   missionId: string;
@@ -88,6 +94,7 @@ export interface MissionEvent {
   timestamp: string;
 }
 
+/** Reusable blueprint for spawning new {@link Mission} instances with preset fields and tasks. */
 export interface MissionTemplate {
   id: string;
   habitatId: string | null;
@@ -105,12 +112,14 @@ export interface MissionTemplate {
   tasksTemplate: TaskTemplateEntry[];
 }
 
+/** A user's subscription to receive notifications for a specific {@link Mission}. */
 export interface MissionWatcher {
   missionId: string;
   userId: string;
   createdAt: string;
 }
 
+/** Threaded discussion comment authored by a human, agent, or remote participant on a {@link Mission}. */
 export interface MissionComment {
   id: string;
   missionId: string;
@@ -123,6 +132,7 @@ export interface MissionComment {
   mentions?: MissionCommentMention[];
 }
 
+/** A single @-mention within a {@link MissionComment}. */
 export interface MissionCommentMention {
   id: string;
   commentId: string;
@@ -133,8 +143,10 @@ export interface MissionCommentMention {
   mentionedName?: string;
 }
 
+/** Recurrence strategies for a {@link ScheduledTask}: one-shot, interval, or cron. */
 export type ScheduleType = "once" | "interval" | "cron";
 
+/** Automation rule that periodically spawns {@link Mission} instances according to a {@link ScheduleType}. */
 export interface ScheduledTask {
   id: string;
   habitatId: string;

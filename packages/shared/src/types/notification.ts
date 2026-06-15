@@ -1,3 +1,4 @@
+/** Canonical event kinds the notification system can emit across task, mission, automation, pulse, and digest sources. */
 export type NotificationEventType =
   | "task.blocked"
   | "task.review_requested"
@@ -8,6 +9,7 @@ export type NotificationEventType =
   | "digest.ready"
   | "pulse.signal_posted";
 
+/** Identifies the originating domain of a notification. */
 export type NotificationSourceType =
   | "task"
   | "mission"
@@ -16,6 +18,7 @@ export type NotificationSourceType =
   | "digest"
   | "system";
 
+/** Describes the kind of entity a notification is about. */
 export type NotificationTargetType =
   | "task"
   | "mission"
@@ -25,12 +28,16 @@ export type NotificationTargetType =
   | "automation_rule"
   | "none";
 
+/** Classifies who a notification is delivered to: a local human, agent, or remote participant. */
 export type NotificationRecipientType = "human" | "agent" | "remote_human" | "remote_orcy";
 
+/** Urgency tier for a notification event: informational, warning, or critical. */
 export type NotificationSeverity = "info" | "warning" | "critical";
 
+/** Transport over which a notification may be delivered: in-app, webhook, Slack, or Discord. */
 export type NotificationChannel = "in_app" | "webhook" | "slack" | "discord";
 
+/** Lifecycle state of a {@link NotificationDelivery}, from pending through delivered, acknowledged, or cleared. */
 export type NotificationDeliveryStatus =
   | "pending"
   | "delivered"
@@ -40,6 +47,7 @@ export type NotificationDeliveryStatus =
   | "failed"
   | "cleared";
 
+/** Outcome state of an individual delivery attempt. */
 export type NotificationAttemptStatus =
   | "pending"
   | "sent"
@@ -47,10 +55,13 @@ export type NotificationAttemptStatus =
   | "retry_scheduled"
   | "skipped";
 
+/** Distinguishes a habitat-wide default subscription from a per-recipient override. */
 export type NotificationSubscriptionScope = "habitat_default" | "recipient_override";
 
+/** Frequency at which a subscription batches notifications: immediate, hourly, daily, or weekly. */
 export type NotificationCadence = "immediate" | "hourly" | "daily" | "weekly";
 
+/** Identifies the kind of actor that created a notification event. */
 export type NotificationActorType =
   | "human"
   | "agent"
@@ -59,6 +70,7 @@ export type NotificationActorType =
   | "automation"
   | "system";
 
+/** A single notification event emitted within a habitat, carrying its type, source, target, severity, and payload. */
 export interface NotificationEvent {
   id: string;
   habitatId: string;
@@ -77,6 +89,7 @@ export interface NotificationEvent {
   historySummary: Record<string, unknown> | null;
 }
 
+/** A single recipient's delivery obligation for a {@link NotificationEvent}. */
 export interface NotificationDelivery {
   id: string;
   eventId: string;
@@ -96,6 +109,7 @@ export interface NotificationDelivery {
   updatedAt: string;
 }
 
+/** A single send attempt for a {@link NotificationDelivery} over one channel. */
 export interface NotificationDeliveryAttempt {
   id: string;
   deliveryId: string;
@@ -110,6 +124,7 @@ export interface NotificationDeliveryAttempt {
   finishedAt: string | null;
 }
 
+/** A subscription rule governing which events a recipient receives, on which channels, and at what cadence. */
 export interface NotificationSubscription {
   id: string;
   habitatId: string;
@@ -129,6 +144,7 @@ export interface NotificationSubscription {
   updatedAt: string;
 }
 
+/** Join record linking one included event into a digest. */
 export interface NotificationDigestItem {
   id: string;
   digestEventId: string;
@@ -137,6 +153,7 @@ export interface NotificationDigestItem {
   createdAt: string;
 }
 
+/** Per-habitat policy controlling how long notifications are retained before clearance. */
 export interface NotificationRetentionPolicy {
   id: string;
   habitatId: string;
@@ -148,6 +165,7 @@ export interface NotificationRetentionPolicy {
   updatedAt: string;
 }
 
+/** Input payload for enqueuing a new {@link NotificationEvent}. */
 export interface EnqueueNotificationInput {
   habitatId: string;
   eventType: NotificationEventType;
@@ -163,6 +181,7 @@ export interface EnqueueNotificationInput {
   createdById?: string;
 }
 
+/** Aggregated read model for a notifications dashboard with active, unread, and recent counts. */
 export interface NotificationDashboardView {
   activeCount: number;
   unreadCount: number;

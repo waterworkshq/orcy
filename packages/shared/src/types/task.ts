@@ -1,8 +1,10 @@
 import type { AgentDomain } from "./agent.js";
 import type { ActorType, EventAction } from "./events.js";
 
+/** The four priority levels used to rank a {@link Task}. */
 export type TaskPriority = "low" | "medium" | "high" | "critical";
 
+/** Lifecycle states a {@link Task} can occupy, from pending through claimed, review, and terminal done/failed. */
 export type TaskStatus =
   | "pending"
   | "claimed"
@@ -13,6 +15,7 @@ export type TaskStatus =
   | "done"
   | "failed";
 
+/** Configuration describing how a failed {@link Task} is retried: max attempts, backoff, and escalation. */
 export interface RetryPolicy {
   maxRetries?: number;
   backoffBase?: number;
@@ -22,6 +25,7 @@ export interface RetryPolicy {
   retryOnStatuses?: string[];
 }
 
+/** The central task entity — a unit of work in a mission carrying assignment, lifecycle, results, and metrics. */
 export interface Task {
   id: string;
   missionId: string;
@@ -58,6 +62,7 @@ export interface Task {
   estimationAccuracy: number | null;
 }
 
+/** An immutable audit entry recording one transition on a {@link Task}. */
 export interface TaskEvent {
   id: string;
   taskId: string;
@@ -72,6 +77,7 @@ export interface TaskEvent {
   timestamp: string;
 }
 
+/** A threaded comment on a {@link Task} authored by a human, agent, or remote participant. */
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -84,6 +90,7 @@ export interface TaskComment {
   mentions?: TaskCommentMention[];
 }
 
+/** A single mention of a participant embedded in a {@link TaskComment}. */
 export interface TaskCommentMention {
   id: string;
   commentId: string;
@@ -94,6 +101,7 @@ export interface TaskCommentMention {
   mentionedName?: string;
 }
 
+/** A deliverable produced for a {@link Task} — a file, PR, commit, log, or screenshot. */
 export interface Artifact {
   type: "file" | "pr" | "commit" | "log" | "screenshot";
   url: string;
@@ -101,12 +109,14 @@ export interface Artifact {
   createdAt?: string;
 }
 
+/** A subscription record indicating a user is watching a {@link Task} for updates. */
 export interface TaskWatcher {
   taskId: string;
   userId: string;
   createdAt: string;
 }
 
+/** An ordered, checkable child item of a {@link Task} used to break work into smaller steps. */
 export interface Subtask {
   id: string;
   taskId: string;
@@ -118,6 +128,7 @@ export interface Subtask {
   updatedAt: string;
 }
 
+/** A reference to a {@link Task} in another habitat that the local task depends on. */
 export interface CrossHabitatDependency {
   taskId: string;
   habitatId: string;
@@ -126,6 +137,7 @@ export interface CrossHabitatDependency {
   status: TaskStatus;
 }
 
+/** A synchronized record of an external GitHub/GitLab pull request linked to a {@link Task}. */
 export interface PullRequest {
   id: string;
   taskId: string;

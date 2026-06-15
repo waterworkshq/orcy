@@ -1,3 +1,4 @@
+/** Discriminator for real-time events that can fire an automation rule. */
 export type AutomationEventType =
   | "task.rejected"
   | "task.overdue"
@@ -13,20 +14,25 @@ export type AutomationEventType =
   | "sprint.started"
   | "sprint.completed";
 
+/** Discriminator for periodic scans that can fire an automation rule. */
 export type AutomationScanType =
   | "mission_blocked"
   | "sprint_ending"
   | "agent_silent"
   | "evidence_gap_open";
 
+/** Union of all trigger discriminators, combining events and scans. */
 export type AutomationTriggerType = AutomationEventType | AutomationScanType;
 
+/** A rule's trigger source: either an instantaneous event or a scheduled scan. */
 export type AutomationTrigger =
   | { type: "event"; eventType: AutomationEventType }
   | { type: "scan"; scanType: AutomationScanType };
 
+/** Boolean combinator for grouping child conditions in a compound {@link AutomationCondition}. */
 export type AutomationConditionOperator = "and" | "or";
 
+/** Comparison operators for field-level condition predicates. */
 export type AutomationConditionComparison =
   | "equals"
   | "not_equals"
@@ -38,6 +44,7 @@ export type AutomationConditionComparison =
   | "exists"
   | "not_exists";
 
+/** Recursive predicate tree evaluated against a trigger payload; supports boolean composition and field comparisons. */
 export type AutomationCondition =
   | { type: "always" }
   | { type: "and"; children: AutomationCondition[] }
@@ -58,6 +65,7 @@ export type AutomationCondition =
   | { type: "label_contains"; label: string }
   | { type: "domain_is"; domain: string };
 
+/** Discriminator for the concrete action a rule executes when its condition matches. */
 export type AutomationActionType =
   | "notify"
   | "create_signal"
@@ -69,6 +77,7 @@ export type AutomationActionType =
   | "call_webhook"
   | "mark_risk";
 
+/** Resolvable destination for an automation notification — a role-based group or an explicit agent/human reference. */
 export type AutomationRecipient =
   | { type: "assignee" }
   | { type: "reporter" }
@@ -79,6 +88,7 @@ export type AutomationRecipient =
   | { type: "human"; userId: string }
   | { type: "channel"; channelId: string };
 
+/** Automation action that delivers a templated notification to one or more {@link AutomationRecipient}s. */
 export interface AutomationActionNotify {
   type: "notify";
   recipients: AutomationRecipient[];
@@ -87,11 +97,13 @@ export interface AutomationActionNotify {
   severity?: string;
 }
 
+/** Automation action that posts a new Pulse signal. */
 export interface AutomationActionCreateSignal {
   type: "create_signal";
   content: string;
 }
 
+/** Automation action that creates a new task, optionally within a mission. */
 export interface AutomationActionCreateTask {
   type: "create_task";
   title: string;
@@ -100,27 +112,32 @@ export interface AutomationActionCreateTask {
   assignedTo?: { recipientType: string; recipientId: string };
 }
 
+/** Automation action that re-prioritizes the trigger target. */
 export interface AutomationActionChangePriority {
   type: "change_priority";
   priority: string;
 }
 
+/** Automation action that assigns the trigger target to a specific recipient. */
 export interface AutomationActionAssign {
   type: "assign";
   recipientType: string;
   recipientId: string;
 }
 
+/** Automation action that un-assigns the trigger target. */
 export interface AutomationActionReleaseAssignment {
   type: "release_assignment";
 }
 
+/** Automation action that requests a review on the trigger target. */
 export interface AutomationActionRequestReview {
   type: "request_review";
   reviewerType?: string;
   reviewerId?: string;
 }
 
+/** Automation action that performs an outbound HTTP request with optional headers and body template. */
 export interface AutomationActionCallWebhook {
   type: "call_webhook";
   url: string;
@@ -128,12 +145,14 @@ export interface AutomationActionCallWebhook {
   bodyTemplate?: string;
 }
 
+/** Automation action that flags the trigger target with a named risk level. */
 export interface AutomationActionMarkRisk {
   type: "mark_risk";
   level: string;
   reason?: string;
 }
 
+/** Discriminated union of every action a rule can perform, keyed by {@link AutomationActionType}. */
 export type AutomationAction =
   | AutomationActionNotify
   | AutomationActionCreateSignal
@@ -145,8 +164,10 @@ export type AutomationAction =
   | AutomationActionCallWebhook
   | AutomationActionMarkRisk;
 
+/** Runtime enablement state of a rule. */
 export type AutomationRuleStatus = "enabled" | "disabled";
 
+/** Lifecycle state of a single rule execution attempt. */
 export type AutomationRunStatus =
   | "matched"
   | "skipped"
@@ -156,6 +177,7 @@ export type AutomationRunStatus =
   | "failed"
   | "simulated";
 
+/** Reason a rule run did not execute — disabled, false condition, cooldown, loop guard, or rate limit. */
 export type AutomationSkipReason =
   | "disabled"
   | "condition_false"
@@ -164,6 +186,7 @@ export type AutomationSkipReason =
   | "rate_limited"
   | "missing_target";
 
+/** Kind of domain object an automation operated on. */
 export type AutomationTargetType =
   | "task"
   | "mission"
@@ -174,6 +197,7 @@ export type AutomationTargetType =
   | "integration"
   | "none";
 
+/** A persisted automation rule: trigger, condition tree, and actions, scoped to a habitat with cooldown/rate limits. */
 export interface AutomationRule {
   id: string;
   habitatId: string;
@@ -192,6 +216,7 @@ export interface AutomationRule {
   lastRunAt: string | null;
 }
 
+/** Auditable record of one execution attempt of an {@link AutomationRule}. */
 export interface AutomationRuleRun {
   id: string;
   ruleId: string;
@@ -210,6 +235,7 @@ export interface AutomationRuleRun {
   finishedAt: string | null;
 }
 
+/** Evaluated outcome of an {@link AutomationCondition} node. */
 export interface AutomationConditionResult {
   matched: boolean;
   conditionType: string;
@@ -217,6 +243,7 @@ export interface AutomationConditionResult {
   children?: AutomationConditionResult[];
 }
 
+/** Outcome of executing a single action within a rule run. */
 export interface AutomationActionResult {
   actionType: AutomationActionType;
   actionIndex: number;
@@ -225,6 +252,7 @@ export interface AutomationActionResult {
   result?: Record<string, unknown>;
 }
 
+/** Dry-run preview of what a rule would do given a trigger. */
 export interface AutomationSimulationResult {
   ruleId: string;
   ruleName: string;
@@ -238,6 +266,7 @@ export interface AutomationSimulationResult {
   }>;
 }
 
+/** Runtime bundle passed into rule evaluation: trigger type, target, habitat, and payload. */
 export interface AutomationTriggerContext {
   triggerType: AutomationTriggerType;
   triggerEventId: string | null;
@@ -252,6 +281,7 @@ export interface AutomationTriggerContext {
   };
 }
 
+/** Payload for creating a new {@link AutomationRule}. */
 export interface CreateAutomationRuleInput {
   habitatId: string;
   name: string;
@@ -266,6 +296,7 @@ export interface CreateAutomationRuleInput {
   createdBy: string;
 }
 
+/** Partial payload for patching an existing {@link AutomationRule}. */
 export interface UpdateAutomationRuleInput {
   name?: string;
   description?: string;
@@ -278,6 +309,7 @@ export interface UpdateAutomationRuleInput {
   maxRunsPerHour?: number;
 }
 
+/** Builds a stable identity string for a rule run, used by cooldown/dedup/loop-guard logic. */
 export function buildFingerprint(
   habitatId: string,
   ruleId: string,

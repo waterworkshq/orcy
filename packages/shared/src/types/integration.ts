@@ -1,12 +1,32 @@
-export type IntegrationProvider = 'github' | 'jira' | 'linear';
-export type IntegrationAuthMethod = 'oauth_device' | 'oauth_code' | 'oauth_pkce' | 'gh_cli' | 'pat' | 'api_key';
-export type IntegrationSyncStatus = 'never' | 'running' | 'success' | 'partial' | 'failed';
-export type IntegrationSyncRunStatus = 'running' | 'success' | 'partial' | 'failed';
-export type IntegrationSyncTrigger = 'manual' | 'webhook' | 'scheduled' | 'oauth_complete';
-export type ExternalIssueStatus = 'open' | 'closed';
-export type ExternalIssueLinkSyncStatus = 'synced' | 'warning' | 'failed';
-export type ExternalIntakeReviewStatus = 'new' | 'needs_clarification' | 'ready' | 'promoted' | 'ignored';
+/** Identifiers for the external providers supported by the integration layer. */
+export type IntegrationProvider = "github" | "jira" | "linear";
+/** The credential strategy used to authenticate an {@link IntegrationConnection}. */
+export type IntegrationAuthMethod =
+  | "oauth_device"
+  | "oauth_code"
+  | "oauth_pkce"
+  | "gh_cli"
+  | "pat"
+  | "api_key";
+/** Rolling health of the most recent sync on an {@link IntegrationConnection}, including the "never run" case. */
+export type IntegrationSyncStatus = "never" | "running" | "success" | "partial" | "failed";
+/** Terminal-or-active outcome of a single {@link IntegrationSyncRun}. */
+export type IntegrationSyncRunStatus = "running" | "success" | "partial" | "failed";
+/** The event that initiated an {@link IntegrationSyncRun}. */
+export type IntegrationSyncTrigger = "manual" | "webhook" | "scheduled" | "oauth_complete";
+/** The open/closed lifecycle of an issue as reported by the external provider. */
+export type ExternalIssueStatus = "open" | "closed";
+/** Per-link sync health for an {@link ExternalIssueLink}. */
+export type ExternalIssueLinkSyncStatus = "synced" | "warning" | "failed";
+/** Human-review state of an {@link ExternalIntakeCandidate} as it moves toward promotion. */
+export type ExternalIntakeReviewStatus =
+  | "new"
+  | "needs_clarification"
+  | "ready"
+  | "promoted"
+  | "ignored";
 
+/** A persisted link between a habitat and one {@link IntegrationProvider}, including credentials and sync settings. */
 export interface IntegrationConnection {
   id: string;
   habitatId: string;
@@ -39,12 +59,17 @@ export interface IntegrationConnection {
   updatedAt: string;
 }
 
-export interface IntegrationConnectionView extends Omit<IntegrationConnection, 'accessToken' | 'refreshToken' | 'webhookSecret'> {
+/** A redacted, UI-safe projection of an {@link IntegrationConnection} with secrets replaced by presence flags. */
+export interface IntegrationConnectionView extends Omit<
+  IntegrationConnection,
+  "accessToken" | "refreshToken" | "webhookSecret"
+> {
   hasAccessToken: boolean;
   hasRefreshToken: boolean;
   hasWebhookSecret: boolean;
 }
 
+/** A normalized, provider-agnostic snapshot of an issue fetched from an external provider. */
 export interface ExternalIssue {
   provider: IntegrationProvider;
   externalId: string;
@@ -62,6 +87,7 @@ export interface ExternalIssue {
   rawProviderPayload?: Record<string, unknown>;
 }
 
+/** A persisted external item awaiting human review in the intake queue. */
 export interface ExternalIntakeCandidate {
   id: string;
   connectionId: string;
@@ -89,6 +115,7 @@ export interface ExternalIntakeCandidate {
   updatedAt: string;
 }
 
+/** A persisted two-way link between a local mission and an external issue, tracked for ongoing sync. */
 export interface ExternalIssueLink {
   id: string;
   connectionId: string;
@@ -108,6 +135,7 @@ export interface ExternalIssueLink {
   updatedAt: string;
 }
 
+/** Record of a single sync execution against an {@link IntegrationConnection}. */
 export interface IntegrationSyncRun {
   id: string;
   connectionId: string;
