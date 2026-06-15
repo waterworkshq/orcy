@@ -25,6 +25,9 @@ const DEFAULT_SETTINGS: AnomalySettings = {
   },
 };
 
+/**
+ * Returns a deep-cloned copy of the baseline {@link AnomalySettings} so callers can safely mutate the result without affecting the shared default.
+ */
 export function getDefaultAnomalySettings(): AnomalySettings {
   return {
     ...DEFAULT_SETTINGS,
@@ -33,6 +36,9 @@ export function getDefaultAnomalySettings(): AnomalySettings {
   };
 }
 
+/**
+ * Returns the {@link AnomalySettings} configured on the given habitat, falling back to {@link getDefaultAnomalySettings} when the habitat is missing or has no overrides.
+ */
 export function getAnomalySettings(habitatId: string): AnomalySettings {
   const habitat = habitatRepo.getHabitatById(habitatId);
   if (!habitat) return getDefaultAnomalySettings();
@@ -46,6 +52,9 @@ export interface AnomalyResult {
   data: Record<string, unknown>;
 }
 
+/**
+ * Returns {@link AnomalyResult}s for tasks whose `startedAt` is older than the `staleInProgressMinutes` threshold, with severity escalating as elapsed time grows.
+ */
 export function detectStaleInProgress(
   habitatId: string,
   settings: AnomalySettings,
@@ -84,6 +93,9 @@ export function detectStaleInProgress(
   return anomalies;
 }
 
+/**
+ * Returns at most one {@link AnomalyResult} when the rejection rate over the most recent `rejectionWindowTasks` tasks exceeds the configured percentage, ignoring samples smaller than three tasks.
+ */
 export function detectRejectionSpike(
   habitatId: string,
   settings: AnomalySettings,
@@ -120,6 +132,9 @@ export function detectRejectionSpike(
   return [];
 }
 
+/**
+ * Returns an {@link AnomalyResult} when the average cycle time over the last seven days grew by more than the configured percentage compared to the preceding seven-day window.
+ */
 export function detectCycleTimeDegradation(
   habitatId: string,
   settings: AnomalySettings,
@@ -164,6 +179,9 @@ export function detectCycleTimeDegradation(
   return [];
 }
 
+/**
+ * Returns an {@link AnomalyResult} when the ratio of pending tasks to active agents exceeds the configured `backlogToAgentRatio` threshold, skipping habitats with no currently active agents.
+ */
 export function detectBacklogGrowth(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const habitatMissionIds = anomalyRepo.getMissionIdsForHabitat(habitatId);
 
@@ -193,6 +211,9 @@ export function detectBacklogGrowth(habitatId: string, settings: AnomalySettings
   return [];
 }
 
+/**
+ * Returns {@link AnomalyResult}s for agents whose `lastHeartbeat` is older than the `agentOfflineMinutes` threshold, with severity escalating as downtime grows.
+ */
 export function detectAgentOffline(habitatId: string, settings: AnomalySettings): AnomalyResult[] {
   const thresholdMs = settings.thresholds.agentOfflineMinutes * 60 * 1000;
   const now = Date.now();
@@ -228,6 +249,9 @@ export function detectAgentOffline(habitatId: string, settings: AnomalySettings)
   return anomalies;
 }
 
+/**
+ * Runs every detector and returns the combined {@link AnomalyResult}s, returning an empty list when anomaly detection is disabled in the habitat's settings.
+ */
 export function detectAnomalies(habitatId: string): AnomalyResult[] {
   const settings = getAnomalySettings(habitatId);
   if (!settings.enabled) return [];
@@ -241,6 +265,9 @@ export function detectAnomalies(habitatId: string): AnomalyResult[] {
   ];
 }
 
+/**
+ * Runs anomaly detection for a habitat and dispatches per-channel notifications — SSE broadcasts to subscribers, emails admins for high/critical severity, and posts chat alerts — returning the {@link AnomalyResult}s that were reported.
+ */
 export function scanHabitat(habitatId: string): AnomalyResult[] {
   const settings = getAnomalySettings(habitatId);
   if (!settings.enabled) return [];
@@ -298,6 +325,9 @@ function sendAnomalyEmails(habitatId: string, habitatName: string, anomaly: Anom
   }
 }
 
+/**
+ * Scans every habitat via {@link scanHabitat} and returns only the entries that produced at least one {@link AnomalyResult}, skipping habitats with no anomalies or with detection disabled.
+ */
 export function scanAllHabitats(): { habitatId: string; anomalies: AnomalyResult[] }[] {
   const habitats = habitatRepo.listHabitats();
   const results: { habitatId: string; anomalies: AnomalyResult[] }[] = [];

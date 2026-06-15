@@ -28,6 +28,7 @@ export interface TaskEventOpts {
 export type TaskEventHook = (opts: TaskEventOpts) => void;
 const taskEventHooks: TaskEventHook[] = [];
 
+/** Registers a {@link TaskEventHook} to fire on task lifecycle events and returns an unsubscribe function; side effect: mutates the internal hook list. */
 export function onTaskEvent(hook: TaskEventHook): () => void {
   taskEventHooks.push(hook);
   return () => {
@@ -55,6 +56,7 @@ function getHabitatId(task: Task): string {
   return habitatId;
 }
 
+/** Runs `fn` and logs+swallows any error it throws, returning its value on success or `undefined` on failure; side effect: writes an error log entry on failure. */
 export function withMissionRecalc<T>(
   taskId: string,
   missionId: string,
@@ -67,6 +69,7 @@ export function withMissionRecalc<T>(
   }
 }
 
+/** Atomically claims the {@link Task} for the given agent when capability requirements are met; side effect: emits a `claimed` transition via {@link emitTransition} on success. */
 export function claimTask(
   taskId: string,
   agentId: string,
@@ -113,6 +116,7 @@ export function claimTask(
   return result;
 }
 
+/** Transitions a claimed {@link Task} to `in_progress` for its assigned agent; side effect: ensures quality checklists and emits a `started` transition. */
 export function startTask(taskId: string, agentId: string): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
@@ -143,6 +147,7 @@ export function startTask(taskId: string, agentId: string): Task | null {
   return task;
 }
 
+/** Submits an in-progress {@link Task} for review after validating quality gates; side effect: recalculates effort metrics, emits a `submitted` transition, and triggers reviewer assignment with `task.review_assigned` SSE events. */
 export function submitTask(
   taskId: string,
   agentId: string,
@@ -211,6 +216,7 @@ export function submitTask(
   return { task };
 }
 
+/** Marks a submitted or approved {@link Task} as `done` after dependency and quality-gate checks; side effect: merges supplied {@link Artifact}s, persists any review note, recalculates time/effort metrics, emits a `completed` transition, and notifies the task-event hook bus. */
 export function completeTask(
   taskId: string,
   agentId: string,
@@ -303,6 +309,7 @@ export function completeTask(
   return { task };
 }
 
+/** Approves a submitted {@link Task}, recording each assigned reviewer's approval until all required approvals are gathered; side effect: broadcasts `task.review_completed` over SSE, recalculates time/effort metrics, emits an `approved` transition, and notifies the task-event hook bus. */
 export function approveTask(
   taskId: string,
   reviewerId: string,
@@ -374,6 +381,7 @@ export function approveTask(
   return task;
 }
 
+/** Rejects a submitted {@link Task} with the supplied reason from an assigned reviewer; side effect: persists the reason, emits a `rejected` transition, and notifies the task-event hook bus. */
 export function rejectTask(
   taskId: string,
   reviewerId: string,
@@ -421,6 +429,7 @@ export function rejectTask(
   return task;
 }
 
+/** Releases a claimed or in-progress {@link Task} back to `pending` for the given actor; side effect: emits a `released` transition with the supplied reason. */
 export function releaseTask(taskId: string, actorId: string, reason: string): Task | null {
   const current = taskRepo.getTaskById(taskId);
   if (!current) return null;
@@ -447,6 +456,7 @@ export function releaseTask(taskId: string, actorId: string, reason: string): Ta
   return task;
 }
 
+/** Transitions a {@link Task} to `failed` for the given actor with a reason; side effect: emits a `failed` transition and notifies the task-event hook bus. */
 export function failTask(
   taskId: string,
   actorId: string,

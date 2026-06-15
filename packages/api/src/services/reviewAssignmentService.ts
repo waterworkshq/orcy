@@ -1,11 +1,11 @@
-import { getDb } from '../db/index.js';
-import { users, teamMembers, habitats } from '../db/schema/index.js';
-import { eq, inArray } from 'drizzle-orm';
-import * as reviewRuleRepo from '../repositories/reviewRule.js';
-import * as taskReviewerRepo from '../repositories/taskReviewer.js';
-import * as taskRepo from '../repositories/task.js';
-import type { ReviewRule, Task, ReviewRuleStrategy } from '@orcy/shared';
-import { logger } from '../lib/logger.js';
+import { getDb } from "../db/index.js";
+import { users, teamMembers, habitats } from "../db/schema/index.js";
+import { eq, inArray } from "drizzle-orm";
+import * as reviewRuleRepo from "../repositories/reviewRule.js";
+import * as taskReviewerRepo from "../repositories/taskReviewer.js";
+import * as taskRepo from "../repositories/task.js";
+import type { ReviewRule, Task, ReviewRuleStrategy } from "@orcy/shared";
+import { logger } from "../lib/logger.js";
 
 interface EligibleReviewer {
   id: string;
@@ -14,6 +14,9 @@ interface EligibleReviewer {
   pendingReviewCount: number;
 }
 
+/**
+ * Returns the {@link ReviewRule}s enabled for the habitat whose domain, label, and priority predicates all match the {@link Task}; returns an empty list when the task is missing or no rules are enabled.
+ */
 export function matchRules(taskId: string, habitatId: string): ReviewRule[] {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return [];
@@ -21,7 +24,7 @@ export function matchRules(taskId: string, habitatId: string): ReviewRule[] {
   const rules = reviewRuleRepo.getEnabledRulesForHabitat(habitatId);
   if (rules.length === 0) return [];
 
-  return rules.filter(rule => doesRuleMatch(rule, task));
+  return rules.filter((rule) => doesRuleMatch(rule, task));
 }
 
 function doesRuleMatch(rule: ReviewRule, task: Task): boolean {
@@ -29,7 +32,7 @@ function doesRuleMatch(rule: ReviewRule, task: Task): boolean {
 
   if (rule.matchLabels && rule.matchLabels.length > 0) {
     const taskLabels = new Set(task.labels ?? []);
-    const hasMatch = rule.matchLabels.some(label => taskLabels.has(label));
+    const hasMatch = rule.matchLabels.some((label) => taskLabels.has(label));
     if (!hasMatch) return false;
   }
 
@@ -38,9 +41,19 @@ function doesRuleMatch(rule: ReviewRule, task: Task): boolean {
   return true;
 }
 
-export function getEligibleReviewers(habitatId: string, excludeUserId?: string): EligibleReviewer[] {
+/**
+ * Returns habitat team members annotated with their current pending review count, optionally excluding a single user; returns an empty list when the habitat or its team is missing.
+ */
+export function getEligibleReviewers(
+  habitatId: string,
+  excludeUserId?: string,
+): EligibleReviewer[] {
   const db = getDb();
-  const habitat = db.select({ teamId: habitats.teamId }).from(habitats).where(eq(habitats.id, habitatId)).get();
+  const habitat = db
+    .select({ teamId: habitats.teamId })
+    .from(habitats)
+    .where(eq(habitats.id, habitatId))
+    .get();
   if (!habitat?.teamId) return [];
 
   const memberRows = db
@@ -49,7 +62,7 @@ export function getEligibleReviewers(habitatId: string, excludeUserId?: string):
     .where(eq(teamMembers.teamId, habitat.teamId))
     .all();
 
-  const userIds = memberRows.map(m => m.userId);
+  const userIds = memberRows.map((m) => m.userId);
   if (userIds.length === 0) return [];
 
   const userRows = db
@@ -59,8 +72,8 @@ export function getEligibleReviewers(habitatId: string, excludeUserId?: string):
     .all();
 
   return userRows
-    .filter(u => u.id !== excludeUserId)
-    .map(u => ({
+    .filter((u) => u.id !== excludeUserId)
+    .map((u) => ({
       id: u.id,
       username: u.username,
       displayName: u.displayName,
@@ -72,36 +85,44 @@ export function getEligibleReviewers(habitatId: string, excludeUserId?: string):
 // For multi-instance deployments, use 'least_loaded' or 'random' instead.
 const roundRobinCounters = new Map<string, number>();
 
+/**
+ * Clears the in-memory round-robin counter for a single habitat, or for all habitats when none is given; intended primarily for tests since the counters are not persisted.
+ */
 export function resetRoundRobinCounter(habitatId?: string): void {
   if (habitatId) roundRobinCounters.delete(habitatId);
   else roundRobinCounters.clear();
 }
 
-function selectReviewer(reviewers: EligibleReviewer[], strategy: ReviewRuleStrategy, habitatId: string, fixedReviewerIds: string[]): EligibleReviewer | null {
+function selectReviewer(
+  reviewers: EligibleReviewer[],
+  strategy: ReviewRuleStrategy,
+  habitatId: string,
+  fixedReviewerIds: string[],
+): EligibleReviewer | null {
   if (reviewers.length === 0) return null;
 
   switch (strategy) {
-    case 'fixed': {
+    case "fixed": {
       if (fixedReviewerIds.length === 0) return null;
       const fixedSet = new Set(fixedReviewerIds);
-      const matched = reviewers.find(r => fixedSet.has(r.id));
+      const matched = reviewers.find((r) => fixedSet.has(r.id));
       return matched ?? null;
     }
-    case 'round_robin': {
+    case "round_robin": {
       const index = roundRobinCounters.get(habitatId) ?? 0;
       const selected = reviewers[index % reviewers.length];
       roundRobinCounters.set(habitatId, (index + 1) % reviewers.length);
       return selected;
     }
-    case 'least_loaded': {
+    case "least_loaded": {
       return reviewers.reduce((best, r) =>
-        r.pendingReviewCount < best.pendingReviewCount ? r : best
+        r.pendingReviewCount < best.pendingReviewCount ? r : best,
       );
     }
-    case 'random': {
+    case "random": {
       return reviewers[Math.floor(Math.random() * reviewers.length)];
     }
-    case 'domain_expert':
+    case "domain_expert":
     default: {
       return reviewers[0];
     }
@@ -114,10 +135,17 @@ export interface AssignReviewersResult {
   reason?: string;
 }
 
-export function assignReviewers(taskId: string, habitatId: string, excludeReviewerId?: string): AssignReviewersResult {
+/**
+ * Assigns reviewers to a task by applying the first matching {@link ReviewRule}'s {@link ReviewRuleStrategy} while honoring `antiSelfReview` and the supplied exclusion; side effect: creates taskReviewer rows and logs the assignment count.
+ */
+export function assignReviewers(
+  taskId: string,
+  habitatId: string,
+  excludeReviewerId?: string,
+): AssignReviewersResult {
   const matchedRules = matchRules(taskId, habitatId);
   if (matchedRules.length === 0) {
-    return { assigned: [], skipped: true, reason: 'no_matching_rules' };
+    return { assigned: [], skipped: true, reason: "no_matching_rules" };
   }
 
   const primaryRule = matchedRules[0];
@@ -131,58 +159,88 @@ export function assignReviewers(taskId: string, habitatId: string, excludeReview
     }
   }
 
-  const eligible = getEligibleReviewers(habitatId, excludeReviewerId)
-    .filter(r => !excludeIds.includes(r.id));
+  const eligible = getEligibleReviewers(habitatId, excludeReviewerId).filter(
+    (r) => !excludeIds.includes(r.id),
+  );
   if (eligible.length === 0) {
-    return { assigned: [], skipped: true, reason: 'no_eligible_reviewers' };
+    return { assigned: [], skipped: true, reason: "no_eligible_reviewers" };
   }
 
   const assigned: Array<{ reviewerId: string; reviewerName: string }> = [];
   const reviewsNeeded = primaryRule.requiredReviews;
 
   for (let i = 0; i < reviewsNeeded; i++) {
-    const remaining = eligible.filter(e => !assigned.some(a => a.reviewerId === e.id));
+    const remaining = eligible.filter((e) => !assigned.some((a) => a.reviewerId === e.id));
     if (remaining.length === 0) break;
 
-    const selected = selectReviewer(remaining, primaryRule.assignmentStrategy, habitatId, primaryRule.fixedReviewerIds);
-      if (!selected) break;
+    const selected = selectReviewer(
+      remaining,
+      primaryRule.assignmentStrategy,
+      habitatId,
+      primaryRule.fixedReviewerIds,
+    );
+    if (!selected) break;
 
-      if (taskReviewerRepo.findByTaskAndReviewer(taskId, selected.id)) continue;
-      taskReviewerRepo.create(taskId, 'human', selected.id);
-      assigned.push({ reviewerId: selected.id, reviewerName: selected.displayName || selected.username });
+    if (taskReviewerRepo.findByTaskAndReviewer(taskId, selected.id)) continue;
+    taskReviewerRepo.create(taskId, "human", selected.id);
+    assigned.push({
+      reviewerId: selected.id,
+      reviewerName: selected.displayName || selected.username,
+    });
   }
 
   if (assigned.length === 0) {
-    return { assigned: [], skipped: true, reason: 'no_reviewer_selected' };
+    return { assigned: [], skipped: true, reason: "no_reviewer_selected" };
   }
 
-  logger.info({ taskId, habitatId, assignedCount: assigned.length, ruleName: primaryRule.name, antiSelfReview: primaryRule.antiSelfReview }, 'Reviewers assigned');
+  logger.info(
+    {
+      taskId,
+      habitatId,
+      assignedCount: assigned.length,
+      ruleName: primaryRule.name,
+      antiSelfReview: primaryRule.antiSelfReview,
+    },
+    "Reviewers assigned",
+  );
   return { assigned, skipped: false };
 }
 
+/**
+ * Returns whether the task has at least one reviewer row, regardless of status.
+ */
 export function hasAssignedReviewers(taskId: string): boolean {
   const reviewers = taskReviewerRepo.getByTaskId(taskId);
   return reviewers.length > 0;
 }
 
+/**
+ * Returns whether the given user is registered as a reviewer on the task.
+ */
 export function isAssignedReviewer(taskId: string, reviewerId: string): boolean {
   return taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId) !== null;
 }
 
+/**
+ * Marks the reviewer's taskReviewer row as approved (idempotent when already approved); side effect: persists the status update and returns false when the reviewer row does not exist.
+ */
 export function recordApproval(taskId: string, reviewerId: string): boolean {
   const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId);
   if (!reviewer) return false;
-  if (reviewer.status === 'approved') return true; // already approved, idempotent
-  taskReviewerRepo.updateStatus(reviewer.id, 'approved');
+  if (reviewer.status === "approved") return true; // already approved, idempotent
+  taskReviewerRepo.updateStatus(reviewer.id, "approved");
   return true;
 }
 
+/**
+ * Returns whether the task's reviewers have met the required approval count (using the supplied threshold or the current reviewer count as a fallback) and no approvals are still pending.
+ */
 export function hasAllRequiredApprovals(taskId: string, requiredCount?: number): boolean {
   const reviewers = taskReviewerRepo.getByTaskId(taskId);
   if (reviewers.length === 0) return true;
 
-  const approvedCount = reviewers.filter(r => r.status === 'approved').length;
-  const pendingCount = reviewers.filter(r => r.status === 'pending').length;
+  const approvedCount = reviewers.filter((r) => r.status === "approved").length;
+  const pendingCount = reviewers.filter((r) => r.status === "pending").length;
 
   if (pendingCount > 0) return false;
   const threshold = requiredCount ?? reviewers.length;

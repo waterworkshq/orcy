@@ -40,6 +40,9 @@ export interface RegisterResult {
   agents: Array<{ id: string; name: string; type: string; apiKey: string }>;
 }
 
+/**
+ * Registers a new in-process UI daemon and creates one agent per detected CLI, returning a {@link RegisterResult} whose `apiKey` values are kept in memory and are only retrievable immediately after registration.
+ */
 export function register(
   name: string,
   habitatIds: string[],
@@ -101,6 +104,9 @@ export function register(
   return { daemonId: daemon.id, agents };
 }
 
+/**
+ * Starts the in-process poll loop and heartbeat timer for a previously-registered daemon, flipping its status to "online" and handing work to the configured {@link IClaimStrategy}; no-op if the daemon is already running.
+ */
 export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): void {
   const existing = runningDaemons.get(daemonId);
   if (existing) return;
@@ -174,6 +180,9 @@ async function tick(running: RunningDaemon): Promise<void> {
   });
 }
 
+/**
+ * Stops a running in-process daemon by clearing its poll/heartbeat timers, shutting down every active session, releasing its {@link ISessionManager}, and marking it "offline"; no-op if the daemon is not running.
+ */
 export async function stop(daemonId: string): Promise<void> {
   const running = runningDaemons.get(daemonId);
   if (!running) return;
@@ -193,14 +202,23 @@ export async function stop(daemonId: string): Promise<void> {
 
 export { detectClisOnHost };
 
+/**
+ * Returns the in-memory running record for `daemonId`, or `undefined` if it has not been started.
+ */
 export function getRunningDaemon(daemonId: string): RunningDaemon | undefined {
   return runningDaemons.get(daemonId);
 }
 
+/**
+ * Returns whether a daemon currently has an active in-process poll loop.
+ */
 export function isRunning(daemonId: string): boolean {
   return runningDaemons.has(daemonId);
 }
 
+/**
+ * Stops every running in-process daemon concurrently (fire-and-forget), intended as a process-exit hook to release all held sessions.
+ */
 export function shutdownAll(): void {
   for (const [daemonId] of runningDaemons) {
     stop(daemonId).catch(() => {});
@@ -223,6 +241,9 @@ export interface RegisterHttpDaemonResult {
   agents: Array<{ id: string; name: string; type: string; apiKey: string }>;
 }
 
+/**
+ * Registers a daemon via the HTTP API with one agent per supplied CLI in `detectedClis`, returning a {@link RegisterHttpDaemonResult} that includes the daemon token and per-agent API keys for the caller to deliver out-of-band.
+ */
 export function registerHttpDaemon(input: RegisterHttpDaemonInput): RegisterHttpDaemonResult {
   for (const hid of input.habitatIds) {
     const h = habitatRepo.getHabitatById(hid);
@@ -302,6 +323,9 @@ export type ClaimNextDaemonTaskResult =
     }
   | { claimed: false };
 
+/**
+ * Claims the next available task for an agent on a given daemon and habitat, returning a {@link ClaimNextDaemonTaskResult} that is `{ claimed: false }` when the daemon is at capacity, the agent is already busy, or no suggestion can be claimed, and throwing `forbidden`/`badRequest` if the agent or habitat is invalid.
+ */
 export function claimNextDaemonTask(input: ClaimNextDaemonTaskInput): ClaimNextDaemonTaskResult {
   if (!daemonRepo.isAgentOwnedByDaemon(input.agentId, input.daemonId)) {
     throw forbidden("Agent does not belong to this daemon");
