@@ -2,6 +2,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { createDispatchTool, createDispatchHandler, type Handler } from "./dispatch-utils.js";
 import { listRules, getRule, simulateRule, listRuns, getRuleRuns } from "./automation.js";
 
+/** MCP `Tool` schema for the read-only `orcy_automation` dispatch (list, get, simulate, list_runs, get_rule_runs). */
 export const AUTOMATION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_automation",
   description:
@@ -21,6 +22,7 @@ export const AUTOMATION_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/** Maps each `orcy_automation` action name to its handler function. */
 export const AUTOMATION_ACTIONS: Record<string, Handler> = {
   list: listRules,
   get: getRule,
@@ -29,4 +31,5 @@ export const AUTOMATION_ACTIONS: Record<string, Handler> = {
   get_rule_runs: getRuleRuns,
 };
 
+/** {@link ToolHandler} registered as the `orcy_automation` MCP tool; routes calls to the matching entry in {@link AUTOMATION_ACTIONS}. */
 export const AUTOMATION_DISPATCH_HANDLER = createDispatchHandler(AUTOMATION_ACTIONS);

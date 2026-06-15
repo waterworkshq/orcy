@@ -19,6 +19,10 @@ import {
 } from "./scheduled-task.js";
 import { PRIORITY_LEVELS, WEBHOOK_FORMATS } from "./constants.js";
 
+/**
+ * MCP `Tool` registration for `orcy_admin` covering webhooks, templates, batch
+ * operations, audit export/summary, and scheduled task actions.
+ */
 export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_admin",
   description:
@@ -248,6 +252,9 @@ export const ADMIN_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/**
+ * Maps each `orcy_admin` action string to the {@link Handler} that implements it.
+ */
 export const ADMIN_ACTIONS: Record<string, Handler> = {
   "list-webhooks": habitatListWebhooks,
   "create-webhook": habitatCreateWebhook,
@@ -269,4 +276,8 @@ export const ADMIN_ACTIONS: Record<string, Handler> = {
   "toggle-scheduled-task": adminToggleScheduledTask,
 };
 
+/**
+ * Resolves an incoming `orcy_admin` action to the corresponding entry in `ADMIN_ACTIONS`
+ * and executes it.
+ */
 export const ADMIN_DISPATCH_HANDLER = createDispatchHandler(ADMIN_ACTIONS);

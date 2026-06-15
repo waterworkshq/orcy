@@ -52,6 +52,7 @@ import {
 } from "./task-batch.js";
 import { PRIORITY_LEVELS, ARTIFACT_TYPES } from "./constants.js";
 
+/** MCP `Tool` schema for task-domain operations: lifecycle (claim/submit/complete/release/retry), CRUD, comments, subtasks, code evidence, effort tracking, audit bundles, and batch operations. */
 export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_task",
   description:
@@ -316,6 +317,7 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/** Maps each `orcy_habitat_task` action name to its handler function. */
 export const TASK_ACTIONS: Record<string, Handler> = {
   "list-in-mission": missionListTasks,
   "create-in-mission": missionCreateTask,
@@ -391,4 +393,5 @@ const TASK_REQUIRED_PARAMS: Record<string, string[]> = {
   "batch-delete": ["boardId", "taskIds"],
 };
 
+/** {@link ToolHandler} registered as the `orcy_habitat_task` MCP tool; routes calls to the matching entry in {@link TASK_ACTIONS} and validates required parameters per action. */
 export const TASK_DISPATCH_HANDLER = createDispatchHandler(TASK_ACTIONS, TASK_REQUIRED_PARAMS);

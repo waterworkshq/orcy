@@ -22,6 +22,10 @@ import {
 import { habitatGetMissionAuditBundle } from "./audit.js";
 import { PRIORITY_LEVELS } from "./constants.js";
 
+/**
+ * MCP {@link Tool} descriptor for the `orcy_habitat_mission` dispatch, exposing
+ * mission CRUD, comments, code-evidence linking, gap reporting, and audit-bundle retrieval.
+ */
 export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_mission",
   description:
@@ -180,6 +184,7 @@ export const MISSION_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/** Action-to-handler map for {@link MISSION_DISPATCH_TOOL}, wiring each mission action to its implementation in `./mission.js`, `./code-evidence.js`, and `./audit.js`. */
 export const MISSION_ACTIONS: Record<string, Handler> = {
   list: habitatListMissions,
   create: habitatCreateMission,
@@ -217,6 +222,7 @@ const MISSION_REQUIRED_PARAMS: Record<string, string[]> = {
   "get-audit-bundle": ["missionId"],
 };
 
+/** {@link ToolHandler} registered as the `orcy_habitat_mission` MCP tool; routes calls to the matching entry in {@link MISSION_ACTIONS} after validating required params. */
 export const MISSION_DISPATCH_HANDLER = createDispatchHandler(
   MISSION_ACTIONS,
   MISSION_REQUIRED_PARAMS,

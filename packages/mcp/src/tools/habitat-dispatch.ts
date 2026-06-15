@@ -17,6 +17,11 @@ import {
 } from "./habitat.js";
 import { habitatGetMetrics } from "./lifecycle-gaps.js";
 
+/**
+ * MCP tool descriptor for the `orcy_habitat` dispatch tool, exposing
+ * habitat-level operations such as listing, settings, summary, metrics,
+ * health, predictions, bottlenecks, agent-quality, and rules.
+ */
 export const HABITAT_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat",
   description:
@@ -71,6 +76,11 @@ export const HABITAT_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/**
+ * Action-to-handler map for {@link HABITAT_DISPATCH_TOOL}, wiring each
+ * supported action to its implementation in `./habitat.js` and
+ * `./lifecycle-gaps.js`.
+ */
 export const HABITAT_ACTIONS: Record<string, Handler> = {
   list: habitatListHabitats,
   find: habitatFind,
@@ -88,4 +98,8 @@ export const HABITAT_ACTIONS: Record<string, Handler> = {
   "evaluate-rules": habitatEvaluateRules,
 };
 
+/**
+ * Dispatch handler built from {@link HABITAT_ACTIONS} that routes incoming
+ * `orcy_habitat` tool calls to the corresponding action implementation.
+ */
 export const HABITAT_DISPATCH_HANDLER = createDispatchHandler(HABITAT_ACTIONS);

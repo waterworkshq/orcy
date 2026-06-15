@@ -10,6 +10,7 @@ import {
   getSubscriptions,
 } from "./notifications.js";
 
+/** MCP {@link Tool} descriptor for self-service notification operations: inbox, history, delivery, ack, snooze, clear, and subscriptions. */
 export const NOTIFICATION_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_notification",
   description:
@@ -32,6 +33,7 @@ export const NOTIFICATION_DISPATCH_TOOL: Tool = createDispatchTool({
   },
 });
 
+/** Dispatch map from MCP action name (e.g. `get_inbox`, `ack`) to the {@link Handler} that implements it. */
 export const NOTIFICATION_ACTIONS: Record<string, Handler> = {
   get_inbox: getInbox,
   get_history: getHistory,
@@ -42,4 +44,5 @@ export const NOTIFICATION_ACTIONS: Record<string, Handler> = {
   get_subscriptions: getSubscriptions,
 };
 
+/** Top-level handler that routes incoming `orcy_notification` MCP calls into {@link NOTIFICATION_ACTIONS}. */
 export const NOTIFICATION_DISPATCH_HANDLER = createDispatchHandler(NOTIFICATION_ACTIONS);
