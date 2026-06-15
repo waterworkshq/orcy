@@ -52,6 +52,7 @@ function getDataDir(): string {
   return process.env.ORCY_DAEMON_DIR ?? path.join(ORCY_PATHS.home, "daemon");
 }
 
+/** Registers the `orcy daemon` subcommands (detect, register, start, stop, status) on the given {@link Command}. */
 export function registerDaemonCommands(program: any) {
   const daemon = program
     .command("daemon")

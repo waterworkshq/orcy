@@ -1,12 +1,14 @@
 import type { DaemonApiClient } from "./api-client.js";
 import type { RegisteredAgent } from "./types.js";
 
+/** One session that {@link recoverSessions} acted on at startup, with the action taken and the reason. */
 export interface RecoveredSession {
   sessionId: string;
   action: "released" | "failed";
   reason: string;
 }
 
+/** Reconciles active sessions with the daemon API on startup — releases orphaned or pending ones and fails sessions left running across a restart. */
 export async function recoverSessions(
   apiClient: DaemonApiClient,
   agents: RegisteredAgent[],

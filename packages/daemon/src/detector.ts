@@ -9,6 +9,7 @@ const SUPPORTED_CLIS = [
   { type: "gemini" as const, bin: "gemini", versionArgs: ["--version"] },
 ];
 
+/** Probes the host for installed CLIs from {@link SUPPORTED_CLIS} and returns a {@link DetectedCli} entry for each one found. */
 export function detectClis(): DetectedCli[] {
   const found: DetectedCli[] = [];
 
@@ -47,4 +48,5 @@ function resolveBinPath(bin: string): string {
   }
 }
 
+/** Exhaustive list of every supported agent/CLI type and the binary used to probe its installation. */
 export { SUPPORTED_CLIS };

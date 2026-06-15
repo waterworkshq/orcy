@@ -1,5 +1,6 @@
 import { api } from "../client.js";
 
+/** Registers the `orcy skill` subcommands (get, refresh, contribute, signals) on the given {@link Command}. */
 export function registerSkillCommands(program: any) {
   // Note: CLI uses "habitatId" for user-facing clarity.
   // MCP/API layers use "boardId" for the same field — they map to the same UUID.

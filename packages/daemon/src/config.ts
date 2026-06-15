@@ -10,6 +10,7 @@ const DEFAULTS = {
   sessionTimeoutSeconds: 600,
 } as const;
 
+/** Builds a {@link DaemonConfig} from explicit overrides, `ORCY_*` env vars, and built-in {@link DEFAULTS}. Throws if no habitat IDs are configured. */
 export function loadConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
   const name = overrides?.name ?? process.env.ORCY_DAEMON_NAME ?? hostname();
   const apiUrl = overrides?.apiUrl ?? process.env.ORCY_API_URL ?? DEFAULTS.apiUrl;
@@ -64,4 +65,5 @@ export function loadConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
   };
 }
 
+/** Built-in fallback values used by {@link loadConfig} when no override or env var is provided. */
 export { DEFAULTS };

@@ -136,6 +136,7 @@ register({
   },
 });
 
+/** Returns the {@link AdapterConfig} registered for `type`; throws if no adapter is registered. */
 export function getAdapter(type: CliType): AdapterConfig {
   const adapter = adapters.get(type);
   if (!adapter) {
@@ -144,6 +145,7 @@ export function getAdapter(type: CliType): AdapterConfig {
   return adapter;
 }
 
+/** Returns a shallow copy of the {@link AdapterConfig} registry keyed by {@link CliType}. */
 export function getAllAdapters(): Map<CliType, AdapterConfig> {
   return new Map(adapters);
 }

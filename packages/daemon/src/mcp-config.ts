@@ -12,6 +12,7 @@ interface McpConfigOptions {
   mcpServerPath?: string;
 }
 
+/** Builds an MCP server config object pointing at the orcy MCP server with agent-scoped env vars. */
 export function generateMcpConfig(options: McpConfigOptions): McpConfig {
   const serverPath =
     options.mcpServerPath ?? join(process.cwd(), "packages", "mcp", "dist", "index.js");
@@ -31,6 +32,7 @@ export function generateMcpConfig(options: McpConfigOptions): McpConfig {
   };
 }
 
+/** Builds the `ORCY_*` env vars an agent process needs to talk to the daemon API. */
 export function generateEnv(options: McpConfigOptions): Record<string, string> {
   return {
     ORCY_API_URL: options.apiUrl,
@@ -41,6 +43,7 @@ export function generateEnv(options: McpConfigOptions): Record<string, string> {
   };
 }
 
+/** Writes a redacted {@link generateMcpConfig} payload to `<dir>/.mcp.json`, creating `<dir>` if missing. */
 export function writeMcpConfig(options: McpConfigOptions, targetDir?: string): string {
   const dir = targetDir ?? options.workdir;
   const config = generateMcpConfig(options);
@@ -61,4 +64,5 @@ export function writeMcpConfig(options: McpConfigOptions, targetDir?: string): s
   return configPath;
 }
 
+/** Canonical MCP server name used as the key inside `.mcp.json` `mcpServers`. */
 export { MCP_SERVER_NAME };

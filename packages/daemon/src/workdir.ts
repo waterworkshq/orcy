@@ -67,6 +67,7 @@ function getWorkspacesBase(dataDir?: string): string {
   return join(base, "workspaces");
 }
 
+/** Materialises a git worktree for a claimed task — validates settings, creates the worktree + branch, and drops a workspace link. */
 export function createWorkdir(claim: ClaimResult, dataDir?: string): WorkdirResult {
   const settings = claim.worktreeSettings;
   if (!settings) {
@@ -127,6 +128,7 @@ export function createWorkdir(claim: ClaimResult, dataDir?: string): WorkdirResu
   };
 }
 
+/** Pure validator for the worktree settings on a {@link ClaimResult}; returns the first error message or `null` if usable. */
 export function validateWorktreeConfig(claim: ClaimResult): string | null {
   if (!claim.worktreeSettings) {
     return `Habitat ${claim.task.habitatId} has no gitWorktreeSettings configured`;
@@ -145,6 +147,7 @@ export function validateWorktreeConfig(claim: ClaimResult): string | null {
   return null;
 }
 
+/** Tears down a worktree (and its branch) for a completed or released session; returns `true` on best-effort success. */
 export function removeWorkdir(workdirPath: string, repoPath: string): boolean {
   try {
     try {
@@ -172,6 +175,7 @@ export function removeWorkdir(workdirPath: string, repoPath: string): boolean {
   }
 }
 
+/** Sweeps stale workspace link files under `<dataDir>/workspaces` whose mtime is older than `options.retentionMs`. */
 export function gcWorkdirs(
   dataDir: string,
   options: WorkdirGcOptions = { retentionMs: 24 * 60 * 60 * 1000 },

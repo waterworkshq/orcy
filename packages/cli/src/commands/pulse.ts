@@ -1,26 +1,35 @@
-import { api } from '../client.js';
+import { api } from "../client.js";
 
 const VALID_SIGNAL_TYPES = [
-  'finding', 'blocker', 'offer', 'warning',
-  'question', 'answer', 'directive', 'context', 'handoff',
+  "finding",
+  "blocker",
+  "offer",
+  "warning",
+  "question",
+  "answer",
+  "directive",
+  "context",
+  "handoff",
 ];
 
+/** Registers the `orcy pulse` subcommands (post, list, inbox, insights) on the given {@link Command}. */
 export function registerPulseCommands(program: any) {
-  const pulse = program.command('pulse').description('Mission Pulse signal operations');
+  const pulse = program.command("pulse").description("Mission Pulse signal operations");
 
-  pulse.command('post')
-    .description('Post a signal to a mission or habitat pulse board')
-    .argument('[missionId]', 'Mission UUID (omit when using --habitat)')
-    .requiredOption('--type <type>', `Signal type: ${VALID_SIGNAL_TYPES.join(', ')}`)
-    .requiredOption('--subject <subject>', 'Signal subject line')
-    .option('--body <body>', 'Signal body/details')
-    .option('--to <agentName>', 'Target agent name')
-    .option('--reply-to <pulseId>', 'Reply to a signal')
-    .option('--task-id <taskId>', 'Related task UUID')
-    .option('--habitat <habitatId>', 'Post to habitat board instead of mission')
+  pulse
+    .command("post")
+    .description("Post a signal to a mission or habitat pulse board")
+    .argument("[missionId]", "Mission UUID (omit when using --habitat)")
+    .requiredOption("--type <type>", `Signal type: ${VALID_SIGNAL_TYPES.join(", ")}`)
+    .requiredOption("--subject <subject>", "Signal subject line")
+    .option("--body <body>", "Signal body/details")
+    .option("--to <agentName>", "Target agent name")
+    .option("--reply-to <pulseId>", "Reply to a signal")
+    .option("--task-id <taskId>", "Related task UUID")
+    .option("--habitat <habitatId>", "Post to habitat board instead of mission")
     .action(async (missionId: string | undefined, options: any) => {
       if (!VALID_SIGNAL_TYPES.includes(options.type)) {
-        console.error(`Invalid signal type. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
+        console.error(`Invalid signal type. Must be one of: ${VALID_SIGNAL_TYPES.join(", ")}`);
         process.exit(1);
       }
 
@@ -41,7 +50,7 @@ export function registerPulseCommands(program: any) {
           const result = await api.post<any>(`/api/missions/${missionId}/pulse`, body);
           console.log(JSON.stringify(result, null, 2));
         } else {
-          console.error('Provide a missionId or use --habitat <habitatId>');
+          console.error("Provide a missionId or use --habitat <habitatId>");
           process.exit(1);
         }
       } catch (err: any) {
@@ -50,33 +59,38 @@ export function registerPulseCommands(program: any) {
       }
     });
 
-  pulse.command('list')
-    .description('List signals on a mission or habitat pulse board')
-    .argument('[missionId]', 'Mission UUID (omit when using --habitat)')
-    .option('--type <type>', 'Filter by signal type')
-    .option('--habitat <habitatId>', 'List habitat board signals')
-    .option('--limit <n>', 'Max signals', '20')
+  pulse
+    .command("list")
+    .description("List signals on a mission or habitat pulse board")
+    .argument("[missionId]", "Mission UUID (omit when using --habitat)")
+    .option("--type <type>", "Filter by signal type")
+    .option("--habitat <habitatId>", "List habitat board signals")
+    .option("--limit <n>", "Max signals", "20")
     .action(async (missionId: string | undefined, options: any) => {
       if (options.type && !VALID_SIGNAL_TYPES.includes(options.type)) {
-        console.error(`Invalid signal type. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
+        console.error(`Invalid signal type. Must be one of: ${VALID_SIGNAL_TYPES.join(", ")}`);
         process.exit(1);
       }
       const params = new URLSearchParams();
-      if (options.type) params.set('signalType', options.type);
-      if (options.limit) params.set('limit', options.limit);
+      if (options.type) params.set("signalType", options.type);
+      if (options.limit) params.set("limit", options.limit);
       const query = params.toString();
 
       try {
         if (options.habitat) {
-          params.set('scope', 'habitat');
+          params.set("scope", "habitat");
           const fullQuery = params.toString();
-          const result = await api.get<any>(`/api/habitats/${options.habitat}/pulse${fullQuery ? `?${fullQuery}` : ''}`);
+          const result = await api.get<any>(
+            `/api/habitats/${options.habitat}/pulse${fullQuery ? `?${fullQuery}` : ""}`,
+          );
           console.log(JSON.stringify(result, null, 2));
         } else if (missionId) {
-          const result = await api.get<any>(`/api/missions/${missionId}/pulse${query ? `?${query}` : ''}`);
+          const result = await api.get<any>(
+            `/api/missions/${missionId}/pulse${query ? `?${query}` : ""}`,
+          );
           console.log(JSON.stringify(result, null, 2));
         } else {
-          console.error('Provide a missionId or use --habitat <habitatId>');
+          console.error("Provide a missionId or use --habitat <habitatId>");
           process.exit(1);
         }
       } catch (err: any) {
@@ -85,22 +99,23 @@ export function registerPulseCommands(program: any) {
       }
     });
 
-  pulse.command('inbox')
-    .description('List signals across all missions targeted at you')
-    .option('--type <type>', 'Filter by signal type')
-    .option('--limit <n>', 'Max signals', '20')
+  pulse
+    .command("inbox")
+    .description("List signals across all missions targeted at you")
+    .option("--type <type>", "Filter by signal type")
+    .option("--limit <n>", "Max signals", "20")
     .action(async (options: any) => {
       if (options.type && !VALID_SIGNAL_TYPES.includes(options.type)) {
-        console.error(`Invalid signal type. Must be one of: ${VALID_SIGNAL_TYPES.join(', ')}`);
+        console.error(`Invalid signal type. Must be one of: ${VALID_SIGNAL_TYPES.join(", ")}`);
         process.exit(1);
       }
       const params = new URLSearchParams();
-      if (options.type) params.set('signalType', options.type);
-      if (options.limit) params.set('limit', options.limit);
+      if (options.type) params.set("signalType", options.type);
+      if (options.limit) params.set("limit", options.limit);
       const query = params.toString();
 
       try {
-        const result = await api.get<any>(`/api/pulse/inbox${query ? `?${query}` : ''}`);
+        const result = await api.get<any>(`/api/pulse/inbox${query ? `?${query}` : ""}`);
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Failed to fetch inbox: ${err.message}`);
@@ -108,21 +123,24 @@ export function registerPulseCommands(program: any) {
       }
     });
 
-  const insights = pulse.command('insights').description('Project insights management');
+  const insights = pulse.command("insights").description("Project insights management");
 
-  insights.command('list')
-    .description('List project insights for a habitat')
-    .argument('<habitatId>', 'Habitat UUID')
-    .option('--type <type>', 'Filter by signal type')
-    .option('--limit <n>', 'Max insights', '20')
+  insights
+    .command("list")
+    .description("List project insights for a habitat")
+    .argument("<habitatId>", "Habitat UUID")
+    .option("--type <type>", "Filter by signal type")
+    .option("--limit <n>", "Max insights", "20")
     .action(async (habitatId: string, options: any) => {
       const params = new URLSearchParams();
-      if (options.type) params.set('signalType', options.type);
-      if (options.limit) params.set('limit', options.limit);
+      if (options.type) params.set("signalType", options.type);
+      if (options.limit) params.set("limit", options.limit);
       const query = params.toString();
 
       try {
-        const result = await api.get<any>(`/api/habitats/${habitatId}/insights${query ? `?${query}` : ''}`);
+        const result = await api.get<any>(
+          `/api/habitats/${habitatId}/insights${query ? `?${query}` : ""}`,
+        );
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Failed to list insights: ${err.message}`);
@@ -130,16 +148,17 @@ export function registerPulseCommands(program: any) {
       }
     });
 
-  insights.command('promote')
-    .description('Promote a signal to a persistent project insight')
-    .argument('<pulseId>', 'Pulse signal UUID to promote')
-    .requiredOption('--board <habitatId>', 'Habitat UUID')
-    .option('--tags <tags>', 'Comma-separated relevance tags')
-    .option('--subject <subject>', 'Override subject (defaults to source pulse)')
-    .option('--body <body>', 'Override body (defaults to source pulse)')
+  insights
+    .command("promote")
+    .description("Promote a signal to a persistent project insight")
+    .argument("<pulseId>", "Pulse signal UUID to promote")
+    .requiredOption("--board <habitatId>", "Habitat UUID")
+    .option("--tags <tags>", "Comma-separated relevance tags")
+    .option("--subject <subject>", "Override subject (defaults to source pulse)")
+    .option("--body <body>", "Override body (defaults to source pulse)")
     .action(async (pulseId: string, options: any) => {
       const body: Record<string, any> = { sourcePulseId: pulseId };
-      if (options.tags) body.relevanceTags = options.tags.split(',');
+      if (options.tags) body.relevanceTags = options.tags.split(",");
       if (options.subject) body.subject = options.subject;
       if (options.body) body.body = options.body;
 
@@ -152,13 +171,16 @@ export function registerPulseCommands(program: any) {
       }
     });
 
-  insights.command('deactivate')
-    .description('Deactivate a project insight')
-    .argument('<insightId>', 'Insight UUID')
-    .requiredOption('--board <habitatId>', 'Habitat UUID')
+  insights
+    .command("deactivate")
+    .description("Deactivate a project insight")
+    .argument("<insightId>", "Insight UUID")
+    .requiredOption("--board <habitatId>", "Habitat UUID")
     .action(async (insightId: string, options: any) => {
       try {
-        const result = await api.delete<any>(`/api/habitats/${options.board}/insights/${insightId}`);
+        const result = await api.delete<any>(
+          `/api/habitats/${options.board}/insights/${insightId}`,
+        );
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Failed to deactivate insight: ${err.message}`);

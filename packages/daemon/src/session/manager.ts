@@ -22,6 +22,7 @@ interface ManagerDeps {
   onSessionComplete?: (session: ActiveSession) => void;
 }
 
+/** {@link ISessionManager} implementation that owns the live session map, spawns CLIs via {@link spawnCli}, and reconciles state through {@link ISessionUpdater}. */
 export class SessionManager implements ISessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private children: Map<string, ChildProcess> = new Map();

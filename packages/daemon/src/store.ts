@@ -4,6 +4,7 @@ import type { StoredCredentials } from "./types.js";
 
 const CREDENTIALS_FILE = "credentials.json";
 
+/** Persists daemon credentials under `<dataDir>/credentials.json` with `0o600` permissions. */
 export class Store {
   private dir: string;
 
@@ -49,4 +50,5 @@ export class Store {
   }
 }
 
+/** Filename used by {@link Store} to persist credentials. */
 export { CREDENTIALS_FILE };

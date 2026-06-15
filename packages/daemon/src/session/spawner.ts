@@ -2,11 +2,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { getAdapter } from "./adapters.js";
 import type { CliType } from "../types.js";
 
+/** Result of {@link spawnCli}: the OS pid and the live `ChildProcess` handle for a spawned CLI. */
 export interface SpawnedProcess {
   pid: number;
   child: ChildProcess;
 }
 
+/** Streaming callbacks wired to the spawned CLI's stdout, stderr, exit, and spawn-error events. */
 export interface SpawnCallbacks {
   onStdout: (data: string) => void;
   onStderr: (data: string) => void;
@@ -14,6 +16,7 @@ export interface SpawnCallbacks {
   onError: (error: Error) => void;
 }
 
+/** Spawns a CLI in `workdir` with the adapter-derived args/env, returning the live process and wiring output/exit callbacks. */
 export function spawnCli(
   type: CliType,
   taskId: string,
@@ -63,6 +66,7 @@ export function spawnCli(
   return { pid: child.pid, child };
 }
 
+/** Sends a signal (default `SIGTERM`) to a spawned CLI; returns `true` if the signal was delivered. */
 export function terminateProcess(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): boolean {
   try {
     if (child.killed) return false;

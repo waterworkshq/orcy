@@ -1,5 +1,6 @@
 import type { DaemonConfig, RegisteredDaemon, ClaimResult, DetectedCli } from "./types.js";
 
+/** HTTP client for the daemon's own internal control API (register, heartbeat, claim-next, session update). */
 export class DaemonApiClient {
   private baseUrl: string;
   private daemonToken: string | null = null;
