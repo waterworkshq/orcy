@@ -286,6 +286,8 @@ export type {
   RegisteredAgent,
   SessionStatus,
   ActiveSession,
+  ISessionManager,
   ISessionUpdater,
+  ICliDetector,
 } from "./daemon.js";
 export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";

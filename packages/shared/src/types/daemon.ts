@@ -71,3 +71,26 @@ export interface ActiveSession {
 export interface ISessionUpdater {
   updateSession(sessionId: string, updates: Record<string, unknown>): Promise<void>;
 }
+
+export interface ISessionManager {
+  readonly activeCount: number;
+  readonly activeSessions: ReadonlyArray<ActiveSession>;
+  getSession(id: string): ActiveSession | undefined;
+  startSession(
+    claim: ClaimResult,
+    agentId: string,
+    agentApiKey: string,
+    agentType: CliType,
+    agentBinPath: string,
+    daemonSessionId?: string,
+  ): Promise<ActiveSession>;
+  terminateSession(sessionId: string): Promise<boolean>;
+  releaseSession(sessionId: string): Promise<void>;
+  shutdownAll(): Promise<void>;
+  startTimeoutCheck(): void;
+  stopTimeoutCheck(): void;
+}
+
+export interface ICliDetector {
+  detectClis(): DetectedCli[];
+}

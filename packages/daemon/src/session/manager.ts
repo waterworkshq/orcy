@@ -5,6 +5,7 @@ import type {
   SessionStatus,
   ClaimResult,
   CliType,
+  ISessionManager,
   ISessionUpdater,
 } from "../types.js";
 import { spawnCli, terminateProcess } from "./spawner.js";
@@ -21,7 +22,7 @@ interface ManagerDeps {
   onSessionComplete?: (session: ActiveSession) => void;
 }
 
-export class SessionManager {
+export class SessionManager implements ISessionManager {
   private sessions: Map<string, ActiveSession> = new Map();
   private children: Map<string, ChildProcess> = new Map();
   private sessionUpdater: ISessionUpdater;

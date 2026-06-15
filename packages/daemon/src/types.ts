@@ -5,7 +5,9 @@ import type {
   RegisteredAgent,
   SessionStatus,
   ActiveSession,
+  ISessionManager,
   ISessionUpdater,
+  ICliDetector,
 } from "@orcy/shared/types";
 
 export type {
@@ -15,7 +17,9 @@ export type {
   RegisteredAgent,
   SessionStatus,
   ActiveSession,
+  ISessionManager,
   ISessionUpdater,
+  ICliDetector,
 };
 
 export interface DaemonConfig {
