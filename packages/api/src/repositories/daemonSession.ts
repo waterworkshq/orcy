@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { daemonSessions } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import type { SessionStatus } from "@orcy/shared/types";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -128,7 +129,7 @@ export function getActiveSessionByTaskId(taskId: string): DaemonSessionRow | nul
 
 export function updateSessionStatus(
   id: string,
-  status: "starting" | "running" | "completed" | "failed" | "released" | "lost",
+  status: SessionStatus,
   lastProgress?: string,
 ): DaemonSessionRow | null {
   const db = getDb();

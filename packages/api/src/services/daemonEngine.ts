@@ -1,7 +1,11 @@
 import { hostname } from "node:os";
-import { SessionManager } from "@orcy/daemon";
-import { detectClis } from "@orcy/daemon";
-import type { DetectedCli, RegisteredAgent, ClaimResult } from "@orcy/daemon";
+import type {
+  DetectedCli,
+  RegisteredAgent,
+  ClaimResult,
+  ISessionManager,
+  CliType,
+} from "@orcy/shared/types";
 import * as daemonRepo from "../repositories/daemon.js";
 import * as agentService from "../services/agentService.js";
 import * as taskService from "../services/tasks/index.js";
@@ -9,12 +13,12 @@ import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/board.js";
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import { generateDaemonToken } from "../lib/daemonToken.js";
-import { InProcessSessionUpdater } from "./inProcessSessionUpdater.js";
+import { getSessionManager, releaseSessionManager, detectClisOnHost } from "../daemon-wiring.js";
 import { badRequest, forbidden } from "../errors.js";
 
 interface RunningDaemon {
   daemonId: string;
-  sessionManager: SessionManager;
+  sessionManager: ISessionManager;
   agents: RegisteredAgent[];
   pollTimer: ReturnType<typeof setInterval> | null;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -43,8 +47,10 @@ export function register(
     }
   }
 
-  const detected = detectClis();
-  const clis = cliPreferences ? detected.filter((c) => cliPreferences.includes(c.type)) : detected;
+  const detected = detectClisOnHost();
+  const clis = cliPreferences
+    ? detected.filter((c: DetectedCli) => cliPreferences.includes(c.type))
+    : detected;
 
   const plainToken = generateDaemonToken();
   const daemon = daemonRepo.createDaemon({
@@ -114,14 +120,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
     );
   }
 
-  const sessionUpdater = new InProcessSessionUpdater();
-
-  const sessionManager = new SessionManager({
-    sessionUpdater,
-    apiUrl: "",
-    dataDir,
-    sessionTimeoutSeconds: 600,
-  });
+  const sessionManager = getSessionManager(daemonId, dataDir);
 
   const running: RunningDaemon = {
     daemonId,
@@ -182,7 +181,7 @@ async function tryClaimAndStart(running: RunningDaemon, agent: RegisteredAgent):
         claim,
         agent.id,
         agent.apiKey,
-        agent.type as any,
+        agent.type as CliType,
         agent.binPath ?? "",
         claim.daemonSessionId,
       );
@@ -251,12 +250,11 @@ export async function stop(daemonId: string): Promise<void> {
 
   await running.sessionManager.shutdownAll();
   daemonRepo.setDaemonStatus(daemonId, "offline");
+  releaseSessionManager(daemonId);
   runningDaemons.delete(daemonId);
 }
 
-export function detectClisOnHost(): DetectedCli[] {
-  return detectClis();
-}
+export { detectClisOnHost };
 
 export function getRunningDaemon(daemonId: string): RunningDaemon | undefined {
   return runningDaemons.get(daemonId);

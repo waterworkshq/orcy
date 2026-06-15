@@ -1,5 +1,5 @@
 import * as daemonRepo from "../repositories/daemon.js";
-import type { ISessionUpdater } from "@orcy/daemon";
+import type { ISessionUpdater, SessionStatus } from "@orcy/shared/types";
 
 export class InProcessSessionUpdater implements ISessionUpdater {
   async updateSession(sessionId: string, updates: Record<string, unknown>): Promise<void> {
@@ -7,7 +7,7 @@ export class InProcessSessionUpdater implements ISessionUpdater {
     if (updates.status) {
       session = daemonRepo.updateSessionStatus(
         sessionId,
-        updates.status as Parameters<typeof daemonRepo.updateSessionStatus>[1],
+        updates.status as SessionStatus,
         updates.lastProgress as string | undefined,
       );
     }
