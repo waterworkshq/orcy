@@ -4,7 +4,12 @@ export { loadConfig, DEFAULTS } from "./config.js";
 export { detectClis, SUPPORTED_CLIS } from "./detector.js";
 export { Store } from "./store.js";
 export { redact, redactObject } from "./redact.js";
-export { createSessionManager, createCliDetector } from "./factory.js";
+export {
+  createSessionManager,
+  createCliDetector,
+  createHttpClaimStrategy,
+  createHttpHeartbeatStrategy,
+} from "./factory.js";
 export {
   createWorkdir,
   validateWorktreeConfig,

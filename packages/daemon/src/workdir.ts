@@ -3,15 +3,10 @@ import { existsSync, mkdirSync, readdirSync, statSync, rmSync, writeFileSync } f
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import type { ClaimResult, WorkdirResult, WorkdirGcOptions } from "./types.js";
+import { WorkdirError } from "@orcy/shared";
+export { WorkdirError } from "@orcy/shared";
 
 const SAFE_BRANCH_RE = /^[a-zA-Z0-9._/-]+$/;
-
-export class WorkdirError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "WorkdirError";
-  }
-}
 
 function validateRepoPath(repoPath: string): string {
   if (!repoPath || typeof repoPath !== "string") {

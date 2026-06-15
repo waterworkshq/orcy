@@ -94,3 +94,21 @@ export interface ISessionManager {
 export interface ICliDetector {
   detectClis(): DetectedCli[];
 }
+
+export interface IClaimStrategy {
+  claimNext(agentId: string, habitatId: string, daemonId: string): Promise<ClaimResult | null>;
+}
+
+export interface IHeartbeatStrategy {
+  sendHeartbeat(
+    daemonId: string,
+    agents: ReadonlyArray<RegisteredAgent>,
+    activeSessions: ReadonlyArray<ActiveSession>,
+  ): Promise<void>;
+}
+
+export interface IPollLoop {
+  start(): void;
+  stop(): void;
+  readonly isRunning: boolean;
+}

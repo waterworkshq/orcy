@@ -5,3 +5,6 @@ export { normalizeTaskId, normalizeMissionId } from "./id.js";
 export * from "./types/index.js";
 export { ApiClientError, createApiClient } from "./api-client.js";
 export type { ApiClientConfig, ApiClient, RequestOptions } from "./api-client.js";
+export { WorkdirError } from "./workdir-error.js";
+export { runPollTick } from "./daemon-poll.js";
+export type { PollTickDeps, PollTickResult } from "./daemon-poll.js";

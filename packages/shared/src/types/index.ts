@@ -289,5 +289,8 @@ export type {
   ISessionManager,
   ISessionUpdater,
   ICliDetector,
+  IClaimStrategy,
+  IHeartbeatStrategy,
+  IPollLoop,
 } from "./daemon.js";
 export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";

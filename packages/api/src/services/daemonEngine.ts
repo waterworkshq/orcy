@@ -2,10 +2,10 @@ import { hostname } from "node:os";
 import type {
   DetectedCli,
   RegisteredAgent,
-  ClaimResult,
   ISessionManager,
-  CliType,
+  IClaimStrategy,
 } from "@orcy/shared/types";
+import { runPollTick } from "@orcy/shared";
 import * as daemonRepo from "../repositories/daemon.js";
 import * as agentService from "../services/agentService.js";
 import * as taskService from "../services/tasks/index.js";
@@ -13,12 +13,18 @@ import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/board.js";
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import { generateDaemonToken } from "../lib/daemonToken.js";
-import { getSessionManager, releaseSessionManager, detectClisOnHost } from "../daemon-wiring.js";
+import {
+  getSessionManager,
+  getClaimStrategy,
+  releaseSessionManager,
+  detectClisOnHost,
+} from "../daemon-wiring.js";
 import { badRequest, forbidden } from "../errors.js";
 
 interface RunningDaemon {
   daemonId: string;
   sessionManager: ISessionManager;
+  claimStrategy: IClaimStrategy;
   agents: RegisteredAgent[];
   pollTimer: ReturnType<typeof setInterval> | null;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -121,10 +127,20 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   }
 
   const sessionManager = getSessionManager(daemonId, dataDir);
+  const claimStrategy = getClaimStrategy({
+    daemonId,
+    isAgentOwnedByDaemon: (agentId, did) => daemonRepo.isAgentOwnedByDaemon(agentId, did),
+    getHabitatById: (habitatId) => habitatRepo.getHabitatById(habitatId),
+    getSuggestionsForAgent,
+    claimTask: (taskId, agentId) => taskService.claimTask(taskId, agentId),
+    getTaskById: (taskId) => taskRepo.getTaskById(taskId),
+    createDaemonSession: (input) => daemonRepo.createDaemonSession(input),
+  });
 
   const running: RunningDaemon = {
     daemonId,
     sessionManager,
+    claimStrategy,
     agents,
     pollTimer: null,
     heartbeatTimer: null,
@@ -149,92 +165,13 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
 }
 
 async function tick(running: RunningDaemon): Promise<void> {
-  const idleAgents = getIdleAgents(running);
-  if (idleAgents.length === 0) return;
-
-  const availableSlots = running.maxConcurrent - running.sessionManager.activeCount;
-  if (availableSlots <= 0) return;
-
-  const toClaim = Math.min(idleAgents.length, availableSlots);
-
-  for (let i = 0; i < toClaim; i++) {
-    try {
-      await tryClaimAndStart(running, idleAgents[i]);
-    } catch {
-      continue;
-    }
-  }
-}
-
-function getIdleAgents(running: RunningDaemon): RegisteredAgent[] {
-  const activeAgentIds = new Set(running.sessionManager.activeSessions.map((s) => s.agentId));
-  return running.agents.filter((a) => !activeAgentIds.has(a.id));
-}
-
-async function tryClaimAndStart(running: RunningDaemon, agent: RegisteredAgent): Promise<void> {
-  for (const habitatId of running.habitatIds) {
-    const claim = claimNextForAgent(agent.id, habitatId, running.daemonId);
-    if (!claim) continue;
-
-    try {
-      await running.sessionManager.startSession(
-        claim,
-        agent.id,
-        agent.apiKey,
-        agent.type as CliType,
-        agent.binPath ?? "",
-        claim.daemonSessionId,
-      );
-      return;
-    } catch {
-      continue;
-    }
-  }
-}
-
-function claimNextForAgent(
-  agentId: string,
-  habitatId: string,
-  daemonId: string,
-): ClaimResult | null {
-  if (!daemonRepo.isAgentOwnedByDaemon(agentId, daemonId)) return null;
-
-  const habitat = habitatRepo.getHabitatById(habitatId);
-  if (!habitat) return null;
-
-  const { suggestions } = getSuggestionsForAgent(habitatId, agentId, 10);
-
-  for (const suggestion of suggestions) {
-    const result = taskService.claimTask(suggestion.taskId, agentId);
-    if (result.success) {
-      const task = taskRepo.getTaskById(suggestion.taskId)!;
-
-      const session = daemonRepo.createDaemonSession({
-        daemonId,
-        agentId,
-        taskId: task.id,
-        habitatId,
-        workdir: "pending",
-      });
-
-      return {
-        daemonSessionId: session.id,
-        task: {
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          missionId: task.missionId,
-          habitatId,
-          priority: task.priority,
-          requiredDomain: task.requiredDomain,
-          requiredCapabilities: task.requiredCapabilities,
-        },
-        worktreeSettings: habitat.gitWorktreeSettings,
-      };
-    }
-  }
-
-  return null;
+  await runPollTick({
+    sessionManager: running.sessionManager,
+    agents: running.agents,
+    habitatIds: running.habitatIds,
+    maxConcurrent: running.maxConcurrent,
+    claim: running.claimStrategy,
+  });
 }
 
 export async function stop(daemonId: string): Promise<void> {
