@@ -2,6 +2,7 @@ import * as attemptRepo from "../../repositories/notificationDeliveryAttempt.js"
 import * as deliveryRepo from "../../repositories/notificationDelivery.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 
+/** Marks an in-app notification delivery as delivered and records the attempt outcome. */
 export async function deliverInApp(
   delivery: NotificationDelivery,
   event: NotificationEvent,

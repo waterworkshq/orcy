@@ -6,12 +6,14 @@ import * as habitatRepo from "../repositories/board.js";
 const NUDGE_DEBOUNCE_MS = 5 * 60 * 1000;
 const lastNudgeByHabitat = new Map<string, number>();
 
+/** Outcome of a single nudge attempt for a habitat: whether a pulse was created and why. */
 export interface NudgeResult {
   habitatId: string;
   pulseId: string | null;
   reason: string;
 }
 
+/** Creates pulses nudging idle daemon agents toward pending tasks, debounced per habitat by 5 minutes. Side effects: writes pulses and mutates the in-memory debounce map. */
 export function nudgeAllDaemons(): NudgeResult[] {
   const results: NudgeResult[] = [];
   const now = Date.now();
@@ -78,6 +80,7 @@ export function nudgeAllDaemons(): NudgeResult[] {
   return results;
 }
 
+/** Clears the nudge debounce timestamp for one habitat, or all habitats when no id is given. */
 export function resetDebounce(habitatId?: string): void {
   if (habitatId) {
     lastNudgeByHabitat.delete(habitatId);
@@ -86,6 +89,7 @@ export function resetDebounce(habitatId?: string): void {
   }
 }
 
+/** Returns the read-only map of habitat id to last nudge timestamp used for debounce tracking. */
 export function getLastNudgeTimes(): ReadonlyMap<string, number> {
   return lastNudgeByHabitat;
 }

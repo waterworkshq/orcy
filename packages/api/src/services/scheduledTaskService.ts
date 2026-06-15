@@ -15,6 +15,7 @@ import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { sanitizeFilename } from "./fileStorage.js";
 
+/** Replaces `{{date}}` and `{{counter}}` tokens in a template string using the schedule's timezone and run count. */
 export function substituteTokens(
   template: string,
   context: { runCount: number; timezone: string },
@@ -25,6 +26,7 @@ export function substituteTokens(
   return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
 }
 
+/** Computes the next run timestamp for a schedule based on its type (cron, interval, or once). */
 export function calculateNextRun(
   scheduleType: string,
   cronExpression: string | null,
@@ -86,6 +88,7 @@ function createMissionFromSchedule(schedule: ScheduledTask): {
   return { missionId: mission.id, missionTitle: resolvedTitle };
 }
 
+/** Atomically claims and runs a scheduled task, creating a mission (and its tasks) from the stored template, then publishes an SSE event. Returns `skipped` when another worker already claimed the run. */
 export function executeScheduledTask(id: string): {
   success: boolean;
   missionId?: string;
@@ -170,6 +173,7 @@ export function executeScheduledTask(id: string): {
   }
 }
 
+/** Runs every due scheduled task in a single pass and returns the count of executed and failed runs. */
 export function processDueTasks(): { executed: number; failed: number } {
   const dueTasks = scheduledTaskRepo.getDueScheduledTasks();
   let executed = 0;
@@ -188,6 +192,7 @@ export function processDueTasks(): { executed: number; failed: number } {
   return { executed, failed };
 }
 
+/** Generates and writes audit export files for every due audit export schedule, debounced to at most once per minute per schedule. */
 export function processDueAuditExports(): { executed: number; failed: number } {
   const db = getDb();
   const now = new Date().toISOString();
@@ -301,6 +306,7 @@ function buildAuditExportQuery(
   return query;
 }
 
+/** Convenience wrapper that runs both due scheduled tasks and due audit exports in a single pass. */
 export function processDueScheduledTasks(): {
   tasks: { executed: number; failed: number };
   audit: { executed: number; failed: number };
@@ -310,6 +316,7 @@ export function processDueScheduledTasks(): {
   return { tasks, audit };
 }
 
+/** Starts a recurring interval that polls for and executes due scheduled tasks and audit exports. Returns the handle so the caller can stop it. */
 export function startScheduledTaskProcessor(intervalMs: number = 60_000): NodeJS.Timeout {
   return setInterval(() => {
     try {

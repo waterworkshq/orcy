@@ -5,6 +5,7 @@ import * as snapshotRepo from "../repositories/cumulativeFlowSnapshot.js";
 import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js";
 import { utcDateKey, dateRange as buildDateRange, utcNowISO } from "./analyticsDate.js";
 
+/** Cumulative flow diagram payload for a habitat: per-day column/status counts over a window, plus data-quality warnings. */
 export interface CumulativeFlowResponse {
   habitatId: string;
   days: number;
@@ -14,6 +15,7 @@ export interface CumulativeFlowResponse {
   warnings: AnalyticsWarning[];
 }
 
+/** A single day's snapshot in the cumulative flow diagram, broken down by board column and task status. */
 export interface CumulativeFlowPoint {
   date: string;
   countsByColumn: Record<string, number>;
@@ -85,6 +87,7 @@ function addWarning(warnings: AnalyticsWarning[], warning: AnalyticsWarning): vo
   warnings.push(warning);
 }
 
+/** Builds a cumulative flow diagram for a habitat over the requested days (clamped 7–90), interpolating gaps between stored snapshots and projecting the current day from live board state. */
 export function getCumulativeFlow(habitatId: string, requestedDays = 30): CumulativeFlowResponse {
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));
   const generatedAt = utcNowISO();

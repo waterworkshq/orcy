@@ -1,9 +1,10 @@
-import * as habitatRepo from '../repositories/board.js';
-import { verifyGitHubHmac } from '../config/integrationSecurity.js';
+import * as habitatRepo from "../repositories/board.js";
+import { verifyGitHubHmac } from "../config/integrationSecurity.js";
 
 const secretToHabitatId = new Map<string, string>();
 const githubSecretToHabitatId = new Map<string, string>();
 
+/** Rebuilds the in-memory webhook secret to habitat ID lookup maps from current habitat settings. Must be called after habitat settings change. */
 export function rebuildCache(): void {
   secretToHabitatId.clear();
   githubSecretToHabitatId.clear();
@@ -20,10 +21,12 @@ export function rebuildCache(): void {
   }
 }
 
+/** Resolves a habitat ID from a GitLab webhook secret, or `null` if the secret is unknown. */
 export function lookupHabitatIdBySecret(secret: string): string | null {
   return secretToHabitatId.get(secret) ?? null;
 }
 
+/** Resolves a habitat ID by HMAC-verifying a GitHub webhook signature against all configured secrets, or `null` if none match. */
 export function findHabitatIdByGithubSignature(rawBody: string, signature: string): string | null {
   for (const [secret, habitatId] of githubSecretToHabitatId) {
     if (verifyGitHubHmac(rawBody, signature, secret)) {
@@ -33,10 +36,12 @@ export function findHabitatIdByGithubSignature(rawBody: string, signature: strin
   return null;
 }
 
+/** Returns whether any habitat has a GitHub webhook secret configured. */
 export function hasGithubSecretsConfigured(): boolean {
   return githubSecretToHabitatId.size > 0;
 }
 
+/** Returns whether any habitat has a GitLab or GitHub webhook secret configured. */
 export function hasAnySecretsConfigured(): boolean {
   return secretToHabitatId.size > 0 || githubSecretToHabitatId.size > 0;
 }

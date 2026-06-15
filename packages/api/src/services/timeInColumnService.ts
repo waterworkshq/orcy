@@ -12,6 +12,7 @@ import {
 
 export type { AnalyticsConfidence };
 
+/** Time-in-column statistics for a habitat's columns over a lookback window, with per-column dwell-time percentiles and data-quality warnings. */
 export interface TimeInColumnSummary {
   habitatId: string;
   days: number;
@@ -20,6 +21,7 @@ export interface TimeInColumnSummary {
   warnings: AnalyticsWarning[];
 }
 
+/** Dwell-time statistics for a single board column, including average, median, p90, and a confidence rating derived from sample size. */
 export interface TimeInColumnColumnSummary {
   columnId: string;
   columnName: string;
@@ -91,6 +93,7 @@ function computeSamples(rows: TransitionEventRow[]): Map<string, number[]> {
   return samples;
 }
 
+/** Computes per-column dwell-time statistics for a habitat over the requested days (clamped 7–90) by replaying task transition events. */
 export function getTimeInColumnSummary(habitatId: string, requestedDays = 30): TimeInColumnSummary {
   const db = getDb();
   const days = Math.max(7, Math.min(90, Math.round(requestedDays)));

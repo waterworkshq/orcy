@@ -3,6 +3,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as effortRepo from "../repositories/effortEntry.js";
 import type { TaskTimeReport, TaskTimeRecord, HabitatMetrics } from "../models/index.js";
 
+/** Records a block of work against a task and refreshes the task and parent mission time metrics. */
 export function recordWork(
   taskId: string,
   agentId: string | undefined,
@@ -26,6 +27,7 @@ export function recordWork(
   return record;
 }
 
+/** Assembles a time-tracking report for a task, including estimate vs. actual, cycle/lead times, and the full heartbeat history. */
 export function getTaskTimeReport(taskId: string): TaskTimeReport | null {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return null;
@@ -43,10 +45,12 @@ export function getTaskTimeReport(taskId: string): TaskTimeReport | null {
   };
 }
 
+/** Returns aggregated time-tracking metrics for all tasks in a habitat. */
 export function getHabitatMetrics(habitatId: string): HabitatMetrics {
   return timeRepo.getHabitatMetrics(habitatId);
 }
 
+/** Computes cycle and lead time for a completing task, persists final effort metrics, and refreshes the parent mission rollups. */
 export function calculateAndSetCompletionMetrics(taskId: string): void {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return;

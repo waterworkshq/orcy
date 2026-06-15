@@ -5,6 +5,7 @@ import {
   FAILED_VERIFICATION_CONFIDENCE,
 } from "@orcy/shared";
 
+/** Computes the initial confidence score for a newly created code evidence link based on its source, repository scope, and verification state. */
 export function inferInitialConfidence(
   source: CodeEvidenceLinkSource,
   isExternalRepo: boolean,
@@ -15,6 +16,7 @@ export function inferInitialConfidence(
   return DEFAULT_CONFIDENCE[source] ?? 0.5;
 }
 
+/** Resolves the initial verification state for a code evidence link based on its source and whether the originating repository is verified. */
 export function determineVerificationState(
   source: CodeEvidenceLinkSource,
   repositoryVerified: boolean | null,

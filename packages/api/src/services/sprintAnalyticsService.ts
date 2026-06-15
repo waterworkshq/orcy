@@ -13,6 +13,7 @@ import {
   type AnalyticsWarning,
 } from "./analyticsDate.js";
 
+/** Aggregated health snapshot for a sprint, combining mission/task completion, effort, forecast, and carry-over indicators. */
 export interface SprintMetricsV2 {
   sprintId: string;
   totalMissions: number;
@@ -31,6 +32,7 @@ export interface SprintMetricsV2 {
   warnings: AnalyticsWarning[];
 }
 
+/** Single categorized explanation for why a mission is a carry-over candidate, with an associated severity. */
 export interface SprintCarryOverReason {
   code:
     | "incomplete_tasks"
@@ -44,6 +46,7 @@ export interface SprintCarryOverReason {
   severity: "info" | "warning" | "critical";
 }
 
+/** A mission flagged as a carry-over candidate together with its underlying reasons. */
 export interface SprintCarryOverMission {
   missionId: string;
   title: string;
@@ -51,6 +54,7 @@ export interface SprintCarryOverMission {
   reasons: SprintCarryOverReason[];
 }
 
+/** Report of missions likely to carry over at sprint end, including the habitat's carry-over policy and per-mission reasons. */
 export interface SprintCarryOverReport {
   sprintId: string;
   generatedAt: string;
@@ -84,6 +88,7 @@ function countCompleted(
   return rows.filter((row) => completeStatuses.includes(row.status)).length;
 }
 
+/** Computes the {@link SprintMetricsV2} for a sprint — completion, effort, forecast, and warnings — returning `null` if the sprint is missing. */
 export function getSprintMetrics(sprintId: string): SprintMetricsV2 | null {
   const sprint = sprintRepo.getById(sprintId);
   if (!sprint) return null;
@@ -173,6 +178,7 @@ export function getSprintMetrics(sprintId: string): SprintMetricsV2 | null {
   };
 }
 
+/** Returns the ideal-vs-actual burndown for a sprint, delegating to the prediction service with the sprint's date span. Returns `null` if the sprint is missing. */
 export function getSprintBurndown(sprintId: string): predictionService.BurndownResponse | null {
   const sprint = sprintRepo.getById(sprintId);
   if (!sprint) return null;
@@ -312,6 +318,7 @@ function buildCarryOverReasons(
   return reasons;
 }
 
+/** Generates a {@link SprintCarryOverReport} enumerating incomplete missions and their carry-over reasons. Returns `null` if the sprint is missing. */
 export function getSprintCarryOver(sprintId: string): SprintCarryOverReport | null {
   const sprint = sprintRepo.getById(sprintId);
   if (!sprint) return null;

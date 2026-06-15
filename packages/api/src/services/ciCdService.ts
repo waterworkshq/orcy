@@ -22,10 +22,12 @@ function publishTaskUpdated(habitatId: string, taskId: string): void {
   sseBroadcaster.publish(habitatId, { type: "task.updated", data: task });
 }
 
+/** Verifies an inbound GitHub webhook payload's HMAC signature against the shared secret. */
 export function verifyGitHubSignature(payload: string, signature: string, secret: string): boolean {
   return verifyGitHubHmac(payload, signature, secret);
 }
 
+/** Verifies an inbound GitLab webhook's `X-Gitlab-Token` header against the shared secret. */
 export function verifyGitLabToken(providedToken: string, secret: string): boolean {
   return secureVerifyGitLabToken(providedToken, secret);
 }
@@ -231,6 +233,7 @@ function handlePipelineEvent(args: PipelineEventArgs): { status: string; taskId?
   return { status: "processed", taskId };
 }
 
+/** Processes a GitHub `workflow_run` webhook by persisting the pipeline status for the matching task and emitting a `task.updated` SSE event to its habitat. */
 export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent) {
   const run = body.workflow_run;
   return handlePipelineEvent({
@@ -248,6 +251,7 @@ export function handleGitHubWorkflowRunEvent(body: GitHubWorkflowRunEvent) {
   });
 }
 
+/** Processes a GitHub `workflow_job` webhook by persisting the pipeline status for the matching task and emitting a `task.updated` SSE event to its habitat. */
 export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent) {
   const job = body.workflow_job;
   return handlePipelineEvent({
@@ -261,6 +265,7 @@ export function handleGitHubWorkflowJobEvent(body: GitHubWorkflowJobEvent) {
   });
 }
 
+/** Processes a GitLab `pipeline` webhook by persisting the pipeline status for the matching task and emitting a `task.updated` SSE event to its habitat. */
 export function handleGitLabPipelineEvent(body: GitLabPipelineEvent) {
   const attrs = body.object_attributes;
   return handlePipelineEvent({
@@ -278,6 +283,7 @@ export function handleGitLabPipelineEvent(body: GitLabPipelineEvent) {
   });
 }
 
+/** Processes a GitLab `build` (job) webhook by persisting the pipeline status for the matching task and emitting a `task.updated` SSE event to its habitat. */
 export function handleGitLabJobEvent(body: GitLabJobEvent) {
   return handlePipelineEvent({
     provider: "gitlab",

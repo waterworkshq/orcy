@@ -22,6 +22,7 @@ const SYSTEM_ACTOR_MAP: Record<string, { id: string; source: AuditSource }> = {
   "integration-sync": { id: "system:integration-sync", source: "integration_sync" },
 };
 
+/** Raw actor and metadata fields lifted from a source row, used to derive the canonical audit actor, source, and provenance. */
 export interface AuditProjectionActorSourceInput {
   actorType: ActorType;
   actorId: string | null;
@@ -29,6 +30,7 @@ export interface AuditProjectionActorSourceInput {
   metadata?: Record<string, unknown> | null;
 }
 
+/** Normalized actor reference, {@link AuditSource}, and {@link AuditProvenance} produced by {@link normalizeAuditActorAndSource}. */
 export interface AuditProjectionActorSource {
   actor: AuditActorRef;
   source: AuditSource;
@@ -54,6 +56,7 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** Derives the canonical {@link AuditActorRef}, {@link AuditSource}, and {@link AuditProvenance} from a source row's actor fields and audit metadata, applying system-actor mapping where applicable. */
 export function normalizeAuditActorAndSource(
   input: AuditProjectionActorSourceInput,
 ): AuditProjectionActorSource {

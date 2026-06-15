@@ -6,6 +6,7 @@ import * as missionRepo from "../repositories/feature.js";
 import { buildFingerprint } from "@orcy/shared";
 import type { AutomationScanType, AutomationRule } from "@orcy/shared";
 
+/** Result summary of one automation scan pass over a habitat's automation rules. */
 export interface ScanReport {
   scanType: AutomationScanType;
   habitatId: string;
@@ -14,6 +15,7 @@ export interface ScanReport {
   errors: string[];
 }
 
+/** Runs every automation scan type across all habitats, starting and recording rule runs as matches fire. Returns a {@link ScanReport} per habitat-scan that matched any rules. */
 export function runAllScans(): ScanReport[] {
   const reports: ScanReport[] = [];
   const habitats = habitatRepo.listHabitats();

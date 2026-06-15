@@ -1,8 +1,8 @@
-import * as taskRepo from '../repositories/task.js';
-import * as habitatRepo from '../repositories/board.js';
-import { logger } from '../lib/logger.js';
-import type { Task, RetryPolicy } from '../models/index.js';
-import { emitTransition } from './tasks/transition-emitter.js';
+import * as taskRepo from "../repositories/task.js";
+import * as habitatRepo from "../repositories/board.js";
+import { logger } from "../lib/logger.js";
+import type { Task, RetryPolicy } from "../models/index.js";
+import { emitTransition } from "./tasks/transition-emitter.js";
 
 const DEFAULT_POLICY: RetryPolicy = {
   maxRetries: 3,
@@ -10,13 +10,15 @@ const DEFAULT_POLICY: RetryPolicy = {
   backoffMultiplier: 2,
   maxBackoff: 3600,
   escalateToHuman: true,
-  retryOnStatuses: ['all'],
+  retryOnStatuses: ["all"],
 };
 
+/** Returns a copy of the built-in default retry policy used when none is configured. */
 export function getDefaultPolicy(): RetryPolicy {
   return { ...DEFAULT_POLICY };
 }
 
+/** Resolves the retry policy for a task by checking the task first, then falling back to its habitat. */
 export function getEffectivePolicy(task: Task): RetryPolicy | null {
   if (task.retryPolicy) return task.retryPolicy;
   const habitatId = taskRepo.getHabitatIdForTask(task.id);
@@ -26,17 +28,19 @@ export function getEffectivePolicy(task: Task): RetryPolicy | null {
   return null;
 }
 
+/** Returns whether a task is still eligible for another retry under its policy. */
 export function shouldRetry(task: Task, explicitPolicy?: RetryPolicy | null): boolean {
   const policy = explicitPolicy !== undefined ? explicitPolicy : getEffectivePolicy(task);
   if (!policy) return false;
   if ((task.retryCount ?? 0) >= (policy.maxRetries ?? 3)) return false;
-  const statuses = policy.retryOnStatuses ?? ['all'];
-  if (task.rejectionReason && statuses.length > 0 && !statuses.includes('all')) {
+  const statuses = policy.retryOnStatuses ?? ["all"];
+  if (task.rejectionReason && statuses.length > 0 && !statuses.includes("all")) {
     return statuses.includes(task.rejectionReason);
   }
   return true;
 }
 
+/** Computes the exponential backoff delay in seconds for a retry attempt, capped at the policy maximum. */
 export function calculateBackoff(policy: RetryPolicy, retryCount: number): number {
   const base = policy.backoffBase ?? 60;
   const multiplier = policy.backoffMultiplier ?? 2;
@@ -45,6 +49,7 @@ export function calculateBackoff(policy: RetryPolicy, retryCount: number): numbe
   return Math.min(delay, max);
 }
 
+/** Schedules a task for a future retry by applying backoff, updates the task, and emits a transition. */
 export function scheduleRetry(task: Task): Task | null {
   const policy = getEffectivePolicy(task);
   if (!policy) return null;
@@ -55,11 +60,11 @@ export function scheduleRetry(task: Task): Task | null {
   const result = taskRepo.updateTask(task.id, { nextRetryAt });
   if (!result.success) return null;
 
-  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
 
-  emitTransition(task.id, 'retry_scheduled', habitatId, {
-    actorType: 'system',
-    actorId: 'retry-service',
+  emitTransition(task.id, "retry_scheduled", habitatId, {
+    actorType: "system",
+    actorId: "retry-service",
     retryCount: task.retryCount,
     nextRetryAt,
     backoffSeconds,
@@ -70,11 +75,12 @@ export function scheduleRetry(task: Task): Task | null {
   return result.task;
 }
 
+/** Resets a task back to pending for the next attempt, increments its retry count, and emits a transition. */
 export function executeRetry(task: Task): Task | null {
   const newRetryCount = task.retryCount + 1;
 
   const result = taskRepo.updateTask(task.id, {
-    status: 'pending',
+    status: "pending",
     assignedAgentId: null,
     rejectionReason: null,
     retryCount: newRetryCount,
@@ -83,13 +89,13 @@ export function executeRetry(task: Task): Task | null {
 
   if (!result.success) return null;
 
-  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
 
-  emitTransition(task.id, 'retry_executed', habitatId, {
-    actorType: 'system',
-    actorId: 'retry-service',
+  emitTransition(task.id, "retry_executed", habitatId, {
+    actorType: "system",
+    actorId: "retry-service",
     oldStatus: task.status,
-    newStatus: 'pending',
+    newStatus: "pending",
     retryCount: newRetryCount,
     metadata: { retryCount: newRetryCount },
     task: result.task,
@@ -98,6 +104,7 @@ export function executeRetry(task: Task): Task | null {
   return result.task;
 }
 
+/** Moves an exhausted task out of the retry loop for human attention and emits an escalation transition. */
 export function escalateToHuman(task: Task): Task | null {
   const policy = getEffectivePolicy(task);
 
@@ -108,12 +115,12 @@ export function escalateToHuman(task: Task): Task | null {
 
   if (!result.success) return null;
 
-  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? '';
+  const habitatId = taskRepo.getHabitatIdForTask(task.id) ?? "";
 
-  emitTransition(task.id, 'escalated', habitatId, {
-    actorType: 'system',
-    actorId: 'retry-service',
-    reason: task.rejectionReason ?? 'max retries exceeded',
+  emitTransition(task.id, "escalated", habitatId, {
+    actorType: "system",
+    actorId: "retry-service",
+    reason: task.rejectionReason ?? "max retries exceeded",
     retryCount: task.retryCount,
     metadata: {
       retryCount: task.retryCount,
@@ -126,6 +133,7 @@ export function escalateToHuman(task: Task): Task | null {
   return result.task;
 }
 
+/** Advances all due retry tasks, either executing the next attempt or escalating once the limit is reached. */
 export function processPendingRetries(): void {
   const pendingTasks = taskRepo.getTasksPendingRetry();
   for (const task of pendingTasks) {
@@ -140,12 +148,13 @@ export function processPendingRetries(): void {
   }
 }
 
+/** Starts an interval timer that periodically runs {@link processPendingRetries} and returns the handle. */
 export function startRetryProcessor(intervalMs: number = 30_000): NodeJS.Timeout {
   return setInterval(() => {
     try {
       processPendingRetries();
     } catch (err) {
-      logger.error({ err }, 'Error processing pending retries');
+      logger.error({ err }, "Error processing pending retries");
     }
   }, intervalMs);
 }

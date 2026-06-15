@@ -6,10 +6,12 @@ import { taskDependencies, tasks } from "../db/schema/index.js";
 import { eq, and, notInArray, count } from "drizzle-orm";
 import type { TaskQualityReport, ApprovalStatus } from "../models/index.js";
 
+/** Loads the aggregated quality checklist report for a task. */
 export function getQualityReport(taskId: string): TaskQualityReport {
   return qualityRepo.getQualityReport(taskId);
 }
 
+/** Updates a single checklist item and recomputes the parent checklist's completion status. */
 export function updateChecklistItem(
   taskId: string,
   checklistId: string,
@@ -28,6 +30,7 @@ export function updateChecklistItem(
   return result;
 }
 
+/** Evaluates the quality gates for a task and returns the list of failing categories. */
 export function validateQualityGates(taskId: string): {
   passed: boolean;
   failures: { category: string; missingItems: string[] }[];
@@ -35,6 +38,7 @@ export function validateQualityGates(taskId: string): {
   return qualityRepo.validateQualityGates(taskId);
 }
 
+/** Computes whether a task meets all approval requirements, detailing any blockers when it does not. */
 export function getApprovalStatus(taskId: string): ApprovalStatus {
   const task = taskRepo.getTaskById(taskId);
   if (!task) {
@@ -106,6 +110,7 @@ export function getApprovalStatus(taskId: string): ApprovalStatus {
   };
 }
 
+/** Ensures the expected quality checklists exist for a task, creating any that are missing. */
 export function ensureTaskChecklists(taskId: string): void {
   qualityRepo.ensureTaskChecklists(taskId);
 }

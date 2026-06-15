@@ -1,7 +1,7 @@
-import * as subtaskRepo from '../repositories/subtask.js';
-import { getTaskById, getHabitatIdForTask } from '../repositories/task.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import type { SSEEvent } from '../models/index.js';
+import * as subtaskRepo from "../repositories/subtask.js";
+import { getTaskById, getHabitatIdForTask } from "../repositories/task.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import type { SSEEvent } from "../models/index.js";
 
 /**
  * Get all subtasks for a task with completion stats.
@@ -11,7 +11,7 @@ import type { SSEEvent } from '../models/index.js';
 export function getSubtasks(taskId: string) {
   const subtasks = subtaskRepo.getSubtasksByTaskId(taskId);
   const total = subtasks.length;
-  const completedCount = subtasks.filter(s => s.completed).length;
+  const completedCount = subtasks.filter((s) => s.completed).length;
   return { subtasks, total, completedCount };
 }
 
@@ -26,11 +26,11 @@ export function createSubtask(taskId: string, input: { title: string; order?: nu
   if (!task) return null;
 
   const subtask = subtaskRepo.createSubtask({ taskId, ...input });
-  
+
   const habitatId = getHabitatIdForTask(taskId);
   if (habitatId) {
     sseBroadcaster.publish(habitatId, {
-      type: 'subtask.created',
+      type: "subtask.created",
       data: { taskId, subtask },
     } as SSEEvent);
   }
@@ -56,7 +56,7 @@ export function updateSubtask(subtaskId: string, data: { title?: string; complet
     const habitatId = getHabitatIdForTask(existing.taskId);
     if (habitatId) {
       sseBroadcaster.publish(habitatId, {
-        type: 'subtask.updated',
+        type: "subtask.updated",
         data: { taskId: existing.taskId, subtask: updated },
       } as SSEEvent);
     }
@@ -81,7 +81,7 @@ export function deleteSubtask(subtaskId: string) {
     const habitatId = getHabitatIdForTask(existing.taskId);
     if (habitatId) {
       sseBroadcaster.publish(habitatId, {
-        type: 'subtask.deleted',
+        type: "subtask.deleted",
         data: { taskId: existing.taskId, subtaskId },
       } as SSEEvent);
     }

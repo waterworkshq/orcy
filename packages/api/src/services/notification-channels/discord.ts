@@ -3,6 +3,7 @@ import * as chatIntegrationRepo from "../../repositories/chatIntegration.js";
 import { sendToDiscord, formatDiscordMessage } from "../discordService.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 
+/** Delivers a notification to the habitat's configured Discord webhook and records the delivery attempt outcome. */
 export async function deliverDiscord(
   delivery: NotificationDelivery,
   event: NotificationEvent,

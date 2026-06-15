@@ -2,6 +2,7 @@ import type { DependencyValidationResult } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 import * as dependencyRepo from "../repositories/dependency.js";
 
+/** Records that one task depends on another, rejecting self-references, cycles, and duplicates. */
 export function addTaskDependency(
   taskId: string,
   dependsOnId: string,
@@ -26,6 +27,7 @@ export function addTaskDependency(
   }
 }
 
+/** Removes a task-to-task dependency edge, returning false on failure rather than throwing. */
 export function removeTaskDependency(taskId: string, dependsOnId: string): boolean {
   try {
     dependencyRepo.removeTaskDependency(taskId, dependsOnId);
@@ -36,6 +38,7 @@ export function removeTaskDependency(taskId: string, dependsOnId: string): boole
   }
 }
 
+/** Returns the tasks a given task depends on and the tasks currently blocking it. */
 export function getTaskDependencies(taskId: string): {
   dependsOn: { taskId: string; title: string; status: string; completedAt: string | null }[];
   blocking: { taskId: string; title: string; status: string }[];
@@ -43,6 +46,7 @@ export function getTaskDependencies(taskId: string): {
   return dependencyRepo.getTaskDependencies(taskId);
 }
 
+/** Checks whether a task's dependencies are all complete before allowing the task itself to be marked done. */
 export function validateTaskCompletion(taskId: string): DependencyValidationResult {
   const deps = dependencyRepo.getTaskDependencyStatuses(taskId);
 
@@ -63,6 +67,7 @@ export function validateTaskCompletion(taskId: string): DependencyValidationResu
   return { canComplete: true };
 }
 
+/** Records that one mission depends on another, rejecting self-references, cycles, and duplicates. */
 export function addMissionDependency(
   missionId: string,
   dependsOnId: string,
@@ -87,6 +92,7 @@ export function addMissionDependency(
   }
 }
 
+/** Removes a mission-to-mission dependency edge, returning false on failure rather than throwing. */
 export function removeMissionDependency(missionId: string, dependsOnId: string): boolean {
   try {
     dependencyRepo.removeMissionDependency(missionId, dependsOnId);
@@ -97,6 +103,7 @@ export function removeMissionDependency(missionId: string, dependsOnId: string):
   }
 }
 
+/** Returns the missions a given mission depends on and the missions currently blocking it. */
 export function getMissionDependencies(missionId: string): {
   dependsOn: { missionId: string; title: string; status: string }[];
   blocking: { missionId: string; title: string; status: string }[];
@@ -104,6 +111,7 @@ export function getMissionDependencies(missionId: string): {
   return dependencyRepo.getMissionDependencies(missionId);
 }
 
+/** Checks whether all of a mission's tasks and dependencies are complete before allowing the mission to be marked done. */
 export function validateMissionCompletion(missionId: string): DependencyValidationResult {
   const missionTasks = dependencyRepo.getMissionTasks(missionId);
 
@@ -140,6 +148,7 @@ export function validateMissionCompletion(missionId: string): DependencyValidati
   return { canComplete: true };
 }
 
+/** Returns the full node and edge set of the dependency graph rooted at a mission. */
 export function getDependencyGraph(missionId: string): {
   nodes: { id: string; title: string; status: string }[];
   edges: { from: string; to: string }[];

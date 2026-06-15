@@ -1,6 +1,7 @@
 import * as daemonRepo from "../repositories/daemon.js";
 import type { ISessionUpdater, SessionStatus } from "@orcy/shared/types";
 
+/** {@link ISessionUpdater} implementation for the API's embedded daemon. Routes status and progress updates to the daemon repository in-process. */
 export class InProcessSessionUpdater implements ISessionUpdater {
   async updateSession(sessionId: string, updates: Record<string, unknown>): Promise<void> {
     let session = null;

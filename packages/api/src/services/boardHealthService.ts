@@ -13,6 +13,7 @@ import {
 } from "../repositories/habitatHealth.js";
 import type { MetricTrend } from "./trendService.js";
 
+/** Multi-dimensional habitat health scores broken down by flow, quality, delivery, capacity, and stability. */
 export interface HealthDimensions {
   flow: {
     score: number;
@@ -46,6 +47,7 @@ export interface HealthDimensions {
   };
 }
 
+/** Computed health report for a habitat. Persisted as a snapshot by {@link calculateHealth}. */
 export interface HabitatHealthReport {
   habitatId: string;
   score: number;
@@ -308,6 +310,7 @@ function generateRecommendations(score: number, dimensions: HealthDimensions): s
   return recs;
 }
 
+/** Computes a weighted health report across five dimensions for a habitat and persists a new snapshot. */
 export function calculateHealth(habitatId: string): HabitatHealthReport {
   const flow = computeFlowScore(habitatId);
   const quality = computeQualityScore(habitatId);
@@ -354,6 +357,7 @@ export function calculateHealth(habitatId: string): HabitatHealthReport {
   return { habitatId, score, grade, dimensions, recommendations, snapshotAt };
 }
 
+/** Returns the most recently persisted health snapshot for a habitat, or `null` if none exists. */
 export function getCurrentHealth(habitatId: string): HabitatHealthReport | null {
   const row = getLatestHealthSnapshot(habitatId);
 
@@ -369,6 +373,7 @@ export function getCurrentHealth(habitatId: string): HabitatHealthReport | null 
   };
 }
 
+/** Returns persisted health snapshots for a habitat within the last N days, oldest first. */
 export function getHealthHistory(habitatId: string, days = 30): HabitatHealthReport[] {
   const since = daysAgoISO(days);
 

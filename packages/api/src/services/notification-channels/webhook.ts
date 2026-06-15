@@ -9,6 +9,7 @@ function redactResponseBody(body: string, maxLen = 1000): string {
   return body.length > maxLen ? body.slice(0, maxLen) + "..." : body;
 }
 
+/** POSTs a notification payload to a custom webhook URL with a 10-second timeout and records the HTTP response on the delivery attempt. */
 export async function deliverWebhook(
   delivery: NotificationDelivery,
   event: NotificationEvent,

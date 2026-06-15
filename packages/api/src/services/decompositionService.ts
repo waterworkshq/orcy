@@ -1,17 +1,19 @@
-import { getLLMConfig, callLLM, LLMMessage } from '../lib/llm.js';
-import * as taskRepo from '../repositories/task.js';
-import * as missionRepo from '../repositories/feature.js';
-import { badRequest, notFound, serviceUnavailable } from '../errors.js';
+import { getLLMConfig, callLLM, LLMMessage } from "../lib/llm.js";
+import * as taskRepo from "../repositories/task.js";
+import * as missionRepo from "../repositories/feature.js";
+import { badRequest, notFound, serviceUnavailable } from "../errors.js";
 
+/** A single task proposed by AI decomposition of a mission or task. */
 export interface TaskProposal {
   id: string;
   title: string;
   description?: string;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
+  priority?: "low" | "medium" | "high" | "critical";
   order: number;
   estimatedMinutes?: number;
 }
 
+/** Output of an AI decomposition run containing the generated proposals and the parent item they were derived from. */
 export interface DecompositionResult {
   proposals: TaskProposal[];
   parentMission: { id: string; title: string };
@@ -38,71 +40,84 @@ Output ONLY valid JSON in this exact format:
 
 priority must be one of: low, medium, high, critical`;
 
-function buildUserMessage(missionTitle: string, missionDescription: string, acceptanceCriteria: string): string {
-  let message = `Break down this feature into tasks:\n\nTitle: ${missionTitle}\n\nDescription: ${missionDescription || '(no description)'}`;
+function buildUserMessage(
+  missionTitle: string,
+  missionDescription: string,
+  acceptanceCriteria: string,
+): string {
+  let message = `Break down this feature into tasks:\n\nTitle: ${missionTitle}\n\nDescription: ${missionDescription || "(no description)"}`;
 
   if (acceptanceCriteria) {
     message += `\n\nAcceptance Criteria:\n${acceptanceCriteria}`;
   }
 
   if (missionDescription.length < 20) {
-    message += '\n\nNote: The description is very short, so results may be limited.';
+    message += "\n\nNote: The description is very short, so results may be limited.";
   }
 
   return message;
 }
 
+/** Generates task proposals for a mission by calling the configured LLM, requiring a non-empty mission description. */
 export async function decomposeMission(missionId: string): Promise<DecompositionResult> {
   const config = getLLMConfig();
   if (!config) {
-    throw serviceUnavailable('AI decomposition not configured. Set LLM_API_KEY environment variable.');
+    throw serviceUnavailable(
+      "AI decomposition not configured. Set LLM_API_KEY environment variable.",
+    );
   }
 
   const mission = missionRepo.getMissionById(missionId);
   if (!mission) {
-    throw notFound('Mission not found');
+    throw notFound("Mission not found");
   }
 
   if (!mission.description || mission.description.trim().length === 0) {
-    throw badRequest('Add a description before decomposing');
+    throw badRequest("Add a description before decomposing");
   }
 
   const messages: LLMMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    { role: 'user', content: buildUserMessage(mission.title, mission.description, mission.acceptanceCriteria) },
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: buildUserMessage(mission.title, mission.description, mission.acceptanceCriteria),
+    },
   ];
 
   const llmResponse = await callLLM(messages, config);
 
-  const result: DecompositionResult = { proposals: [], parentMission: { id: mission.id, title: mission.title } };
+  const result: DecompositionResult = {
+    proposals: [],
+    parentMission: { id: mission.id, title: mission.title },
+  };
 
   try {
     const text = llmResponse.content;
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw badRequest('Could not understand AI response. Try again.');
+      throw badRequest("Could not understand AI response. Try again.");
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
     const taskList = parsed.tasks || [];
 
     if (!Array.isArray(taskList) || taskList.length === 0) {
-      throw badRequest('AI did not return any tasks. Try again with a more detailed description.');
+      throw badRequest("AI did not return any tasks. Try again with a more detailed description.");
     }
 
-    const validPriorities = ['low', 'medium', 'high', 'critical'];
+    const validPriorities = ["low", "medium", "high", "critical"];
 
     result.proposals = taskList.slice(0, 20).map((task: any, index: number) => ({
       id: `prop-${Date.now()}-${index}`,
-      title: task.title || 'Untitled task',
+      title: task.title || "Untitled task",
       description: task.description,
-      priority: validPriorities.includes(task.priority) ? task.priority : 'medium',
+      priority: validPriorities.includes(task.priority) ? task.priority : "medium",
       order: index,
       estimatedMinutes: task.estimatedMinutes || null,
     }));
   } catch (error) {
     if (error instanceof SyntaxError) {
-      throw badRequest('Could not understand AI response. Try again.');
+      throw badRequest("Could not understand AI response. Try again.");
     }
     throw error;
   }
@@ -110,46 +125,58 @@ export async function decomposeMission(missionId: string): Promise<Decomposition
   return result;
 }
 
+/** Generates subtask proposals for an existing task by calling the configured LLM, requiring a non-empty task description. */
 export async function decomposeTask(taskId: string): Promise<DecompositionResult> {
   const config = getLLMConfig();
   if (!config) {
-    throw serviceUnavailable('AI decomposition not configured. Set LLM_API_KEY environment variable.');
+    throw serviceUnavailable(
+      "AI decomposition not configured. Set LLM_API_KEY environment variable.",
+    );
   }
 
   const task = taskRepo.getTaskById(taskId);
   if (!task) {
-    throw notFound('Task not found');
+    throw notFound("Task not found");
   }
 
   if (!task.description || task.description.trim().length === 0) {
-    throw badRequest('Add a description before decomposing');
+    throw badRequest("Add a description before decomposing");
   }
 
   const messages: LLMMessage[] = [
-    { role: 'system', content: `You are a task decomposition assistant. Break down tasks into subtasks. Output JSON with a "tasks" array containing {title, description, priority, estimatedMinutes}.` },
-    { role: 'user', content: `Break down this task:\n\nTitle: ${task.title}\n\nDescription: ${task.description}` },
+    {
+      role: "system",
+      content: `You are a task decomposition assistant. Break down tasks into subtasks. Output JSON with a "tasks" array containing {title, description, priority, estimatedMinutes}.`,
+    },
+    {
+      role: "user",
+      content: `Break down this task:\n\nTitle: ${task.title}\n\nDescription: ${task.description}`,
+    },
   ];
 
   const llmResponse = await callLLM(messages, config);
-  const result: DecompositionResult = { proposals: [], parentMission: { id: task.missionId, title: task.title } };
+  const result: DecompositionResult = {
+    proposals: [],
+    parentMission: { id: task.missionId, title: task.title },
+  };
 
   try {
     const text = llmResponse.content;
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw badRequest('Could not understand AI response.');
+    if (!jsonMatch) throw badRequest("Could not understand AI response.");
     const parsed = JSON.parse(jsonMatch[0]);
     const taskList = parsed.tasks || [];
-    const validPriorities = ['low', 'medium', 'high', 'critical'];
+    const validPriorities = ["low", "medium", "high", "critical"];
     result.proposals = taskList.slice(0, 20).map((t: any, index: number) => ({
       id: `prop-${Date.now()}-${index}`,
-      title: t.title || 'Untitled',
+      title: t.title || "Untitled",
       description: t.description,
-      priority: validPriorities.includes(t.priority) ? t.priority : 'medium',
+      priority: validPriorities.includes(t.priority) ? t.priority : "medium",
       order: index,
       estimatedMinutes: t.estimatedMinutes || null,
     }));
   } catch (error) {
-    if (error instanceof SyntaxError) throw badRequest('Could not understand AI response.');
+    if (error instanceof SyntaxError) throw badRequest("Could not understand AI response.");
     throw error;
   }
 

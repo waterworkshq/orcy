@@ -36,6 +36,7 @@ interface AuditArchiveFile {
   events: AuditEvent[];
 }
 
+/** Outcome of an archival run: how many events were archived and the file path they were written to. */
 export interface ArchiveResult {
   archivedCount: number;
   archivePath: string;
@@ -81,11 +82,13 @@ function buildArchiveFile(
   };
 }
 
+/** Returns the per-habitat event retention window in days, defaulting to 90 when unset. */
 export function getRetentionSettings(habitatId: string): { eventRetentionDays: number } {
   const row = getHabitatEventRetention(habitatId);
   return { eventRetentionDays: row?.eventRetentionDays ?? 90 };
 }
 
+/** Archives audit events older than the habitat's retention window to a dated JSON file, then deletes them from the source tables. */
 export function archiveOldEvents(habitatId: string): ArchiveResult {
   const { eventRetentionDays } = getRetentionSettings(habitatId);
   const cutoff = daysAgoISO(eventRetentionDays);
@@ -132,6 +135,7 @@ export function archiveOldEvents(habitatId: string): ArchiveResult {
   return { archivedCount: events.length, archivePath };
 }
 
+/** Runs archival across every habitat flagged for archival and returns the non-empty results. */
 export function archiveAllHabitats(): ArchiveResult[] {
   const results: ArchiveResult[] = [];
   const habitatIds = listHabitatIdsForArchival();

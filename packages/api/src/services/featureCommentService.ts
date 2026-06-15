@@ -5,6 +5,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { getMissionById } from "../repositories/feature.js";
 import { notFound, forbidden, badRequest } from "../errors.js";
 
+/** Creates a comment on a mission, resolves `@mentions`, and emits `mission.commented` plus per-mention `mission.mentioned` SSE events to the habitat. */
 export function addComment(
   missionId: string,
   authorType: "human" | "agent" | "remote_human" | "remote_orcy",
@@ -75,10 +76,12 @@ export function addComment(
   return enrichedComment;
 }
 
+/** Returns a paginated list of comments for a mission. */
 export function getComments(missionId: string, limit?: number, offset?: number) {
   return missionCommentRepo.getCommentsByMissionId(missionId, limit, offset);
 }
 
+/** Updates a comment's content, enforcing that only the original author may edit. */
 export function editComment(
   commentId: string,
   authorType: "human" | "agent",
@@ -97,6 +100,7 @@ export function editComment(
   return missionCommentRepo.updateComment(commentId, content);
 }
 
+/** Deletes a comment, enforcing that only the original author may remove it, and emits a `mission.comment_deleted` SSE event to the habitat. */
 export function removeComment(commentId: string, authorType: "human" | "agent", authorId: string) {
   const comment = missionCommentRepo.getCommentById(commentId);
   if (!comment) {

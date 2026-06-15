@@ -9,6 +9,7 @@ import { logger } from "../lib/logger.js";
 type CommentCreatedHook = (comment: any, habitatId: string) => void;
 const commentCreatedHooks: CommentCreatedHook[] = [];
 
+/** Registers a hook invoked whenever a comment is created. Returns an unsubscribe function. */
 export function onCommentCreated(hook: CommentCreatedHook): () => void {
   commentCreatedHooks.push(hook);
   return () => {

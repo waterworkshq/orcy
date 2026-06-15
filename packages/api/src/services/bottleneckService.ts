@@ -6,6 +6,7 @@ import type { AnalyticsWarning } from "../repositories/cumulativeFlowSnapshot.js
 import { getTimeInColumnSummary, type AnalyticsConfidence } from "./timeInColumnService.js";
 import { utcNowISO } from "./analyticsDate.js";
 
+/** Aggregated bottleneck report for a habitat, combining dwell-time, WIP-limit, and dependency-blocking findings over a lookback window. */
 export interface BottleneckReport {
   habitatId: string;
   days: number;
@@ -14,6 +15,7 @@ export interface BottleneckReport {
   warnings: AnalyticsWarning[];
 }
 
+/** Single detected bottleneck signal with severity, supporting evidence, and a remediation recommendation. */
 export interface BottleneckFinding {
   columnId?: string;
   columnName?: string;
@@ -39,6 +41,7 @@ function wipSeverity(current: number, limit: number): BottleneckFinding["severit
   return "low";
 }
 
+/** Detects flow bottlenecks for a habitat over the given lookback window by analyzing column dwell time, WIP-limit breaches, and unfinished dependency chains. */
 export function getBottlenecks(habitatId: string, requestedDays = 30): BottleneckReport {
   const db = getDb();
   const dependencyTask = alias(tasks, "dependency_task");

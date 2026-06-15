@@ -34,6 +34,7 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import { badRequest } from "../errors.js";
 import { normalizeAuditActorAndSource } from "./auditProjectionNormalizer.js";
 
+/** Filter and pagination parameters for querying the canonical audit projection across task, mission, effort, code evidence, and system sources. */
 export interface AuditQueryInput {
   habitatId: string;
   since?: string;
@@ -64,6 +65,7 @@ export interface AuditQueryInput {
   offset?: number;
 }
 
+/** Result envelope for an audit query containing projected {@link AuditEvent} records, data-quality warnings, and a completeness summary. */
 export interface AuditQueryResult {
   events: AuditEvent[];
   warnings: AuditWarning[];
@@ -902,6 +904,7 @@ function sortEvents(events: AuditEvent[], order: "asc" | "desc"): AuditEvent[] {
   });
 }
 
+/** Aggregates per-event completeness statuses into counts by status and a deduplicated list of caveats. */
 export function summarizeAuditCompleteness(events: AuditEvent[]): AuditCompletenessSummary {
   const caveats = new Set<string>();
   const byStatus: AuditCompletenessSummary["byStatus"] = {
@@ -925,6 +928,7 @@ export function summarizeAuditCompleteness(events: AuditEvent[]): AuditCompleten
 const DEFAULT_AUDIT_LIMIT = 1000;
 const MAX_AUDIT_LIMIT = 10000;
 
+/** Projects source tables (task events, mission events, effort entries, code evidence, integrations, webhooks, health snapshots) into a unified, filtered, and paginated {@link AuditEvent} stream for a habitat. Emits data-quality warnings when rows lack provenance or cannot be tied to a habitat. */
 export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
   const query = normalizeFilters(input);
   const db = getDb();

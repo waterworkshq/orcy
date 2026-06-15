@@ -1,6 +1,7 @@
-import type { Task, TaskPriority } from '../models/index.js';
-import * as missionRepo from '../repositories/feature.js';
+import type { Task, TaskPriority } from "../models/index.js";
+import * as missionRepo from "../repositories/feature.js";
 
+/** Weight multipliers per priority level used by the smart scoring algorithm. */
 export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
   critical: 40,
   high: 30,
@@ -13,21 +14,14 @@ const MAX_AGE_WEIGHT = 10;
 const AGE_WEIGHT_PER_DAY = 0.5;
 const SLA_URGENCY_WEIGHT_MAX = 35;
 
-export function scoreTask(
-  task: Task,
-  agentDomain?: string,
-  agentCapabilities?: string[]
-): number {
+/** Compute the composite smart-priority score for a task, factoring priority, urgency, age, SLA deadline, and agent capability match. */
+export function scoreTask(task: Task, agentDomain?: string, agentCapabilities?: string[]): number {
   const priorityWeight = PRIORITY_WEIGHTS[task.priority] ?? 20;
   const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
   const urgencyWeight = computeUrgencyWeight(mission?.dueAt ?? null);
   const slaUrgencyWeight = computeSlaUrgencyWeight(mission?.slaDeadlineAt ?? null);
   const ageWeight = computeAgeWeight(task.createdAt);
-  const capabilityWeight = computeCapabilityWeight(
-    task,
-    agentDomain,
-    agentCapabilities
-  );
+  const capabilityWeight = computeCapabilityWeight(task, agentDomain, agentCapabilities);
   return priorityWeight + urgencyWeight + slaUrgencyWeight + ageWeight + capabilityWeight;
 }
 
@@ -41,6 +35,7 @@ function computeUrgencyWeight(dueAt: string | null): number {
   return 0;
 }
 
+/** Return a 0-35 urgency weight based on how close an SLA deadline is to (or past) now. */
 export function computeSlaUrgencyWeight(slaDeadlineAt: string | null): number {
   if (!slaDeadlineAt) return 0;
   const ms = new Date(slaDeadlineAt).getTime() - Date.now();
@@ -56,10 +51,11 @@ function computeAgeWeight(createdAt: string): number {
   return Math.min(days * AGE_WEIGHT_PER_DAY, MAX_AGE_WEIGHT);
 }
 
+/** Return a bonus weight when an agent's domain and capabilities match a task's requirements. */
 export function computeCapabilityWeight(
   task: Task,
   agentDomain?: string,
-  agentCapabilities?: string[]
+  agentCapabilities?: string[],
 ): number {
   if (!agentDomain && !agentCapabilities) return 0;
   let weight = 0;
@@ -67,17 +63,20 @@ export function computeCapabilityWeight(
     weight += 10;
   }
   if (agentCapabilities && task.requiredCapabilities && task.requiredCapabilities.length > 0) {
-    const agentCapSet = new Set(agentCapabilities.map(c => c.toLowerCase()));
-    const matched = (task.requiredCapabilities as string[]).filter(c => agentCapSet.has(c.toLowerCase()));
+    const agentCapSet = new Set(agentCapabilities.map((c) => c.toLowerCase()));
+    const matched = (task.requiredCapabilities as string[]).filter((c) =>
+      agentCapSet.has(c.toLowerCase()),
+    );
     weight += Math.min(matched.length * 5, 10);
   }
   return weight;
 }
 
+/** Return a new array of tasks sorted by descending {@link scoreTask} score. */
 export function sortTasksBySmartScore(
   tasks: Task[],
   agentDomain?: string,
-  agentCapabilities?: string[]
+  agentCapabilities?: string[],
 ): Task[] {
   return [...tasks].toSorted((a, b) => {
     const scoreA = scoreTask(a, agentDomain, agentCapabilities);

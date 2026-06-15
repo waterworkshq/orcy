@@ -5,12 +5,14 @@ import * as eventRepo from "../repositories/event.js";
 import * as agentRepo from "../repositories/agent.js";
 import { MS_PER_DAY } from "./analyticsDate.js";
 
+/** Options controlling the time window, mission cap, and digest inclusion for a generated habitat summary. */
 export interface HabitatSummaryOptions {
   since?: "24h" | "7d" | "30d" | "all";
   maxMissions?: number;
   includeDigest?: boolean;
 }
 
+/** Human-readable narrative for a single mission: status, progress, and a timeline of notable events. */
 export interface MissionNarrative {
   missionTitle: string;
   missionId: string;
@@ -25,6 +27,7 @@ export interface MissionNarrative {
   }[];
 }
 
+/** Aggregated activity and metrics for a single time bucket within a habitat summary's lookback window. */
 export interface ActivityPeriod {
   period: string;
   from: string;
@@ -40,6 +43,7 @@ export interface ActivityPeriod {
   };
 }
 
+/** Top-level habitat summary combining current snapshot, recent activity, and an optional digest. Produced by {@link generateHabitatSummary}. */
 export interface HabitatSummary {
   habitat: {
     name: string;
@@ -84,6 +88,7 @@ const NARRATIVE_TASK_ACTIONS = new Set([
   "escalated",
 ]);
 
+/** Generates a full habitat summary (snapshot, activity periods, optional digest) from repository data. Returns `null` if the habitat does not exist. */
 export function generateHabitatSummary(
   habitatId: string,
   options: HabitatSummaryOptions = {},

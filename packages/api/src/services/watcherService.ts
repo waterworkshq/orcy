@@ -1,8 +1,8 @@
-import * as watcherRepo from '../repositories/watcher.js';
-import * as taskRepo from '../repositories/task.js';
-import { sseBroadcaster } from '../sse/broadcaster.js';
-import type { TaskWatcher } from '../models/index.js';
-import { notFound } from '../errors.js';
+import * as watcherRepo from "../repositories/watcher.js";
+import * as taskRepo from "../repositories/task.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import type { TaskWatcher } from "../models/index.js";
+import { notFound } from "../errors.js";
 
 /**
  * Subscribe a user to task notifications.
@@ -12,7 +12,7 @@ import { notFound } from '../errors.js';
  */
 export function watchTask(taskId: string, userId: string): TaskWatcher {
   const task = taskRepo.getTaskById(taskId);
-  if (!task) throw notFound('Task not found');
+  if (!task) throw notFound("Task not found");
 
   return watcherRepo.addWatcher(taskId, userId);
 }
@@ -57,10 +57,10 @@ export function notifyWatchers(taskId: string, habitatId: string, eventType: str
   if (watcherUserIds.length === 0) return;
 
   const task = taskRepo.getTaskById(taskId);
-  const taskTitle = task?.title ?? 'Unknown task';
+  const taskTitle = task?.title ?? "Unknown task";
 
   sseBroadcaster.publish(habitatId, {
-    type: 'task.watcher_notify',
+    type: "task.watcher_notify",
     data: {
       taskId,
       taskTitle,

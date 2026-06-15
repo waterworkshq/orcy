@@ -9,10 +9,12 @@ import * as taskRepo from "../repositories/task.js";
 import { notFound } from "../errors.js";
 import { queryAuditEvents, summarizeAuditCompleteness } from "./auditQueryService.js";
 
+/** Options controlling what an audit bundle query includes. */
 export interface AuditBundleOptions {
   includeHealthSnapshots?: boolean;
 }
 
+/** Aggregated audit evidence for a single task: its chronologically sorted events, warnings, and completeness summary. */
 export interface TaskAuditBundle {
   target: { type: "task"; id: string; title: string; missionId: string; habitatId: string };
   events: AuditEvent[];
@@ -20,6 +22,7 @@ export interface TaskAuditBundle {
   completenessSummary: AuditCompletenessSummary;
 }
 
+/** Aggregated audit evidence for a mission, split into direct mission events and rolled-up child-task evidence. */
 export interface MissionAuditBundle {
   target: { type: "mission"; id: string; title: string; habitatId: string };
   directMissionEvidence: AuditEvent[];
@@ -45,6 +48,7 @@ function sortChronologically(events: AuditEvent[]): AuditEvent[] {
   });
 }
 
+/** Builds the complete audit bundle for a task by filtering habitat events down to those referencing it. */
 export function getTaskAuditBundle(
   taskId: string,
   options: AuditBundleOptions = {},
@@ -77,6 +81,7 @@ export function getTaskAuditBundle(
   };
 }
 
+/** Builds the complete audit bundle for a mission, separating direct mission evidence from rolled-up child-task evidence. */
 export function getMissionAuditBundle(
   missionId: string,
   options: AuditBundleOptions = {},

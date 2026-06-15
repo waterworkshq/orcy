@@ -4,12 +4,14 @@ import type {
   NotificationSeverity,
 } from "@orcy/shared";
 
+/** The rendered output of a notification: a human-readable title, body, and structured payload. */
 export interface RenderedNotification {
   title: string;
   body: string;
   payload: Record<string, unknown>;
 }
 
+/** Context describing the event being rendered into a notification, including source, target, severity, and arbitrary payload. */
 export interface TemplateContext {
   eventType: NotificationEventType;
   sourceType: string;
@@ -80,6 +82,7 @@ const EVENT_BODIES: Record<string, (ctx: TemplateContext) => string> = {
   },
 };
 
+/** Renders a notification's title and body from per-event-type templates, falling back to generic strings for unknown event types. */
 export function renderNotification(ctx: TemplateContext): RenderedNotification {
   const titleFn = EVENT_TITLES[ctx.eventType];
   const bodyFn = EVENT_BODIES[ctx.eventType];

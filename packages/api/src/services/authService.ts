@@ -5,10 +5,12 @@ import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
+/** Returns whether the instance still needs initial setup, which is true while no users exist. */
 export function getSetupStatus(): { needsSetup: boolean } {
   return { needsSetup: userRepo.countUsers() === 0 };
 }
 
+/** Creates the first admin user during initial setup and returns a 24h JWT session token. Throws if setup was already completed. */
 export function registerInitialAdmin(input: {
   username: string;
   password: string;
@@ -43,6 +45,7 @@ export function registerInitialAdmin(input: {
   };
 }
 
+/** Returns the current user's profile from the database, falling back to the JWT claims when the row is missing. */
 export function getCurrentUserProfile(user: { id: string; username: string; role: string }): {
   user: { id: string; username: string; role: string; displayName: string };
 } {

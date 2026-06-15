@@ -8,6 +8,7 @@ import { linkCommit, linkExternalUrl, linkParsedUrl } from "./linking.js";
 import type { CodeEvidenceActor, LinkResult } from "./types.js";
 import { parseUrl } from "./urlParsing.js";
 
+/** Creates code evidence links on a task for a batch of mirrored artifacts (pull requests, commits, and pipeline logs), classifying each by type and aggregating per-artifact warnings and errors. */
 export function mirrorArtifactsToCodeEvidence(
   taskId: string,
   artifacts: Array<{ type: string; url: string; description: string }>,

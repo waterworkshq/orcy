@@ -15,6 +15,7 @@ import type {
   CorrectEffortRequest,
 } from "../models/index.js";
 
+/** Record an effort entry for a task, recalculate its effort metrics, emit an audit event, and broadcast an `effort.updated` SSE event. */
 export function logEffort(
   taskId: string,
   actorType: EffortActorType,
@@ -71,6 +72,7 @@ export function logEffort(
   return entry;
 }
 
+/** Return effort entries for a task with joined actor details, optionally including corrections. */
 export function listEffortEntries(
   taskId: string,
   options?: { includeCorrections?: boolean; limit?: number; offset?: number },
@@ -78,6 +80,7 @@ export function listEffortEntries(
   return effortRepo.getEffortEntriesWithActorByTask(taskId, options);
 }
 
+/** Return the number of effort entries for a task, optionally including corrections. */
 export function countEffortEntries(
   taskId: string,
   options?: { includeCorrections?: boolean },
@@ -85,6 +88,7 @@ export function countEffortEntries(
   return effortRepo.countEffortEntriesByTask(taskId, options);
 }
 
+/** Apply a delta correction to an existing effort entry by writing an offsetting correction entry, then recalculates metrics, emits an audit event, and broadcasts `effort.updated`. */
 export function correctEffortEntry(
   taskId: string,
   entryId: string,
@@ -155,6 +159,7 @@ export function correctEffortEntry(
   return correction;
 }
 
+/** Build an {@link EffortReport} aggregating a task's logged, inferred, and corrected effort with estimation accuracy and overlap warnings. */
 export function getTaskEffortReport(taskId: string): EffortReport | null {
   const task = taskRepo.getTaskById(taskId);
   if (!task) return null;
@@ -188,6 +193,7 @@ export function getTaskEffortReport(taskId: string): EffortReport | null {
   };
 }
 
+/** Build a {@link MissionEffortReport} by aggregating per-task effort totals across all tasks in a mission. */
 export function getMissionEffortReport(missionId: string): MissionEffortReport | null {
   const missionTasks = taskRepo.getTasksByMissionId(missionId);
   if (!missionTasks || missionTasks.length === 0) return null;

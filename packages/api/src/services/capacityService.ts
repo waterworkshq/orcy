@@ -7,6 +7,7 @@ import * as habitatRepo from "../repositories/board.js";
 import { getAutoAssignSettings } from "./autoAssignService.js";
 import { daysAgoISO } from "./analyticsDate.js";
 
+/** Per-agent workload snapshot used by the auto-assigner and capacity dashboard. */
 export interface AgentCapacity {
   agentId: string;
   agentName: string;
@@ -21,6 +22,7 @@ export interface AgentCapacity {
   overCapacity: boolean;
 }
 
+/** Habitat-level capacity rollup: per-agent rows, aggregate summary, and rebalancing suggestions. */
 export interface CapacityReport {
   agents: AgentCapacity[];
   summary: {
@@ -33,6 +35,7 @@ export interface CapacityReport {
   suggestions: string[];
 }
 
+/** Compute the {@link CapacityReport} for a habitat, querying active tasks, 7-day completions, and average cycle time per agent. */
 export function getCapacityReport(habitatId: string): CapacityReport | null {
   const habitat = habitatRepo.getHabitatById(habitatId);
   if (!habitat) return null;

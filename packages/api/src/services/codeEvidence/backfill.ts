@@ -3,6 +3,7 @@ import * as prRepo from "../../repositories/pullRequest.js";
 import * as taskRepo from "../../repositories/task.js";
 import { ensureEvidenceLinkForPipelineEvent, ensureEvidenceLinkForPullRequest } from "./linking.js";
 
+/** Creates code evidence links for all pre-existing pull requests and pipeline events, tagging them as migrated. Returns per-source counts and any warnings encountered during the sweep. */
 export function backfillExistingCodeEvidence(): {
   prCount: number;
   pipelineCount: number;

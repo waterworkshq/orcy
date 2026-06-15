@@ -8,6 +8,7 @@ import type {
   AuditProvenance,
 } from "@orcy/shared";
 
+/** Projects an {@link AutomationRuleRun} and its owning rule into a canonical {@link AuditEvent} for the audit read model. */
 export function projectAutomationRunToAudit(
   run: AutomationRuleRun,
   rule: AutomationRule | null,
@@ -53,6 +54,7 @@ export function projectAutomationRunToAudit(
   } as unknown as AuditEvent;
 }
 
+/** Projects a {@link NotificationEvent} with its optional deliveries into a canonical {@link AuditEvent} for the audit read model. */
 export function projectNotificationEventToAudit(
   event: NotificationEvent,
   deliveries?: NotificationDelivery[],
@@ -99,6 +101,7 @@ export function projectNotificationEventToAudit(
   } as unknown as AuditEvent;
 }
 
+/** Projects a single {@link NotificationDelivery} and its parent event into a canonical {@link AuditEvent} for the audit read model. */
 export function projectNotificationDeliveryToAudit(
   delivery: NotificationDelivery,
   event: NotificationEvent | null,

@@ -18,16 +18,19 @@ const V18_EVENT_CATALOG: Set<string> = new Set([
   "pulse.signal_posted",
 ]);
 
+/** Returns whether the given event type is part of the supported notification event catalog. */
 export function isValidEventType(eventType: string): boolean {
   return V18_EVENT_CATALOG.has(eventType);
 }
 
+/** Throws if the given event type is not part of the supported notification event catalog. */
 export function validateEventType(eventType: string): void {
   if (!V18_EVENT_CATALOG.has(eventType)) {
     throw new Error(`INVALID_NOTIFICATION_EVENT_TYPE:${eventType}`);
   }
 }
 
+/** A single recipient after subscription resolution, carrying its resolved channels, cadence, and any suppression state. */
 export interface ResolvedRecipient {
   recipientType: NotificationRecipientType;
   recipientId: string;
@@ -38,6 +41,7 @@ export interface ResolvedRecipient {
   suppressReason?: "muted" | "disabled" | "no_default";
 }
 
+/** Input for resolving which recipients should receive a notification for a given habitat event. */
 export interface SubscriptionResolutionInput {
   habitatId: string;
   eventType: NotificationEventType;
@@ -47,6 +51,7 @@ export interface SubscriptionResolutionInput {
   }>;
 }
 
+/** Resolves the final set of recipients for a habitat event, applying per-recipient overrides on top of habitat defaults and flagging suppressed or muted recipients. */
 export function resolveRecipients(input: SubscriptionResolutionInput): ResolvedRecipient[] {
   const defaults = subscriptionRepo.getHabitatDefaults(input.habitatId, input.eventType);
 
@@ -163,6 +168,7 @@ function isMuted(muteUntil: string | null): boolean {
   return new Date(muteUntil) > new Date();
 }
 
+/** Returns the habitat-level default subscription for an event type, or null if none is configured. */
 export function getDefaultSubscription(
   habitatId: string,
   eventType: string,
@@ -171,6 +177,7 @@ export function getDefaultSubscription(
   return defaults.length > 0 ? defaults[0] : null;
 }
 
+/** Returns the per-recipient subscription override for an event type, or null if the recipient has no override. */
 export function getRecipientOverride(
   habitatId: string,
   recipientType: NotificationRecipientType,

@@ -1,14 +1,20 @@
-import { scoreTask, computeSlaUrgencyWeight, PRIORITY_WEIGHTS, computeCapabilityWeight } from './taskScoring.js';
-import * as taskRepo from '../repositories/task.js';
-import * as missionRepo from '../repositories/feature.js';
-import * as agentRepo from '../repositories/agent.js';
-import { getDb } from '../db/index.js';
-import { tasks } from '../db/schema/index.js';
-import { eq, and, sql } from 'drizzle-orm';
-import type { Task, Agent } from '../models/index.js';
+import {
+  scoreTask,
+  computeSlaUrgencyWeight,
+  PRIORITY_WEIGHTS,
+  computeCapabilityWeight,
+} from "./taskScoring.js";
+import * as taskRepo from "../repositories/task.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as agentRepo from "../repositories/agent.js";
+import { getDb } from "../db/index.js";
+import { tasks } from "../db/schema/index.js";
+import { eq, and, sql } from "drizzle-orm";
+import type { Task, Agent } from "../models/index.js";
 
 const MS_PER_DAY = 86_400_000;
 
+/** Weighted components contributing to a task suggestion score, exposed for transparency and debugging. */
 export interface SuggestionFactors {
   priorityWeight: number;
   urgencyWeight: number;
@@ -20,6 +26,7 @@ export interface SuggestionFactors {
   stalePickupBonus: number;
 }
 
+/** A single ranked task recommendation for an agent, including the computed score and human-readable reasons. */
 export interface TaskSuggestion {
   taskId: string;
   taskTitle: string;
@@ -30,32 +37,33 @@ export interface TaskSuggestion {
   factors: SuggestionFactors;
 }
 
+/** An agent's current task load, used to penalize over-assigned agents and cap recommendations. */
 export interface AgentWorkload {
   claimed: number;
   inProgress: number;
   maxRecommended: number;
 }
 
+/** Ranked task suggestions for an agent alongside the agent's current workload snapshot. */
 export interface SuggestionResult {
   suggestions: TaskSuggestion[];
   agentWorkload: AgentWorkload;
 }
 
+/** Scores pending tasks in a habitat for a specific agent and returns the top-ranked suggestions with workload-aware penalties applied. */
 export function getSuggestionsForAgent(
   habitatId: string,
   agentId: string,
-  limit: number = 5
+  limit: number = 5,
 ): SuggestionResult {
   const agent = agentRepo.getAgentById(agentId);
   if (!agent) {
     return { suggestions: [], agentWorkload: { claimed: 0, inProgress: 0, maxRecommended: 3 } };
   }
 
-  const availableTasks = taskRepo.getAvailableTasksForAgent(
-    habitatId,
-    agent.domain,
-    { status: 'pending' }
-  );
+  const availableTasks = taskRepo.getAvailableTasksForAgent(habitatId, agent.domain, {
+    status: "pending",
+  });
 
   const { claimed, inProgress } = getAgentWorkload(agentId);
   const missionMap = new Map<string, string>();
@@ -68,7 +76,7 @@ export function getSuggestionsForAgent(
   }
 
   const suggestions: TaskSuggestion[] = availableTasks
-    .map(task => scoreWithFactors(task, agent, claimed, inProgress, missionMap))
+    .map((task) => scoreWithFactors(task, agent, claimed, inProgress, missionMap))
     .toSorted((a, b) => b.score - a.score)
     .slice(0, limit);
 
@@ -80,10 +88,10 @@ export function getSuggestionsForAgent(
 
 function scoreWithFactors(
   task: Task,
-  agent: Omit<Agent, 'apiKeyHash'>,
+  agent: Omit<Agent, "apiKeyHash">,
   claimedCount: number,
   inProgressCount: number,
-  missionMap: Map<string, string>
+  missionMap: Map<string, string>,
 ): TaskSuggestion {
   const reasons: string[] = [];
   const baseScore = scoreTask(task, undefined, agent.capabilities);
@@ -108,13 +116,13 @@ function scoreWithFactors(
     factors.slaUrgencyWeight = slaWeight;
     const ms = slaDeadline ? new Date(slaDeadline).getTime() - Date.now() : 0;
     if (ms < 0) {
-      reasons.push('SLA breached');
+      reasons.push("SLA breached");
     } else if (ms < MS_PER_DAY) {
-      reasons.push('SLA deadline within 24h');
+      reasons.push("SLA deadline within 24h");
     } else if (ms < 3 * MS_PER_DAY) {
-      reasons.push('SLA deadline within 3 days');
+      reasons.push("SLA deadline within 3 days");
     } else {
-      reasons.push('SLA deadline within 7 days');
+      reasons.push("SLA deadline within 7 days");
     }
   }
 
@@ -136,19 +144,19 @@ function scoreWithFactors(
   if (staleBonus > 0) {
     factors.stalePickupBonus = staleBonus;
     totalScore += staleBonus;
-    reasons.push('Task pending >24h without claims');
+    reasons.push("Task pending >24h without claims");
   }
 
-  if (task.priority === 'critical') reasons.push('Critical priority');
-  else if (task.priority === 'high') reasons.push('High priority');
+  if (task.priority === "critical") reasons.push("Critical priority");
+  else if (task.priority === "high") reasons.push("High priority");
 
-  if (reasons.length === 0) reasons.push('Available task matching criteria');
+  if (reasons.length === 0) reasons.push("Available task matching criteria");
 
   return {
     taskId: task.id,
     taskTitle: task.title,
     missionId: task.missionId,
-    missionTitle: missionMap.get(task.missionId) ?? 'Unknown mission',
+    missionTitle: missionMap.get(task.missionId) ?? "Unknown mission",
     score: Math.round(totalScore),
     reasons,
     factors,
@@ -157,20 +165,22 @@ function scoreWithFactors(
 
 function computeStalePickupBonus(task: Task): number {
   const ageMs = Date.now() - new Date(task.createdAt).getTime();
-  if (ageMs > MS_PER_DAY && !task.assignedAgentId && task.status === 'pending') return 5;
+  if (ageMs > MS_PER_DAY && !task.assignedAgentId && task.status === "pending") return 5;
   return 0;
 }
 
 function getAgentWorkload(agentId: string): { claimed: number; inProgress: number } {
   const db = getDb();
-  const claimedRow = db.select({ count: sql<number>`count(*)` })
+  const claimedRow = db
+    .select({ count: sql<number>`count(*)` })
     .from(tasks)
-    .where(and(eq(tasks.assignedAgentId, agentId), eq(tasks.status, 'claimed')))
+    .where(and(eq(tasks.assignedAgentId, agentId), eq(tasks.status, "claimed")))
     .get();
 
-  const inProgressRow = db.select({ count: sql<number>`count(*)` })
+  const inProgressRow = db
+    .select({ count: sql<number>`count(*)` })
     .from(tasks)
-    .where(and(eq(tasks.assignedAgentId, agentId), eq(tasks.status, 'in_progress')))
+    .where(and(eq(tasks.assignedAgentId, agentId), eq(tasks.status, "in_progress")))
     .get();
 
   return { claimed: claimedRow?.count ?? 0, inProgress: inProgressRow?.count ?? 0 };

@@ -8,9 +8,12 @@ import {
   type AnalyticsConfidence,
 } from "./analyticsDate.js";
 
+/** Confidence level for trend metrics, mirroring the analytics sample-size confidence. */
 export type TrendConfidence = AnalyticsConfidence;
+/** Directional classification of how a metric changed between the current and previous window. */
 export type TrendDirection = "improving" | "worsening" | "stable" | "unknown";
 
+/** Comparison of a single metric between the current and previous window, including the delta, direction, and confidence. */
 export interface MetricTrend {
   metric: "throughput" | "cycle_time";
   current: number;
@@ -22,6 +25,7 @@ export interface MetricTrend {
   confidence: TrendConfidence;
 }
 
+/** Trend report for a habitat comparing throughput and cycle time across two consecutive windows. */
 export interface HabitatTrends {
   habitatId: string;
   periodDays: number;
@@ -138,6 +142,7 @@ function medianCycleMinutes(
   };
 }
 
+/** Compares throughput and median cycle time between the current and previous window for a habitat to surface improving or worsening trends. */
 export function getHabitatTrends(habitatId: string, periodDays = 7): HabitatTrends {
   const days = Math.max(1, Math.min(90, Math.round(periodDays)));
   const { currentStart, previousStart, currentEnd } = windowBounds(days);

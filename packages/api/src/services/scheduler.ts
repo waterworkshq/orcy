@@ -21,6 +21,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 
 const overdueNotifiedIds = new Set<string>();
 
+/** Publishes `task.overdue` SSE events for tasks newly detected as overdue, tracking already-notified IDs in the supplied set to avoid duplicate notifications. */
 export function checkOverdueTasks(
   notifiedIds: Set<string>,
   onError: (err: unknown) => void,
@@ -70,6 +71,7 @@ export function checkOverdueTasks(
   }
 }
 
+/** Registers every background scheduler (stale-task release, anomaly scans, archival, prioritization, automation, digests, etc.) and returns a handle that stops them all. */
 export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void } {
   const intervals: NodeJS.Timeout[] = [];
 

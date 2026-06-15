@@ -5,9 +5,7 @@ import { isTargetVisibleToParticipant } from "./sharedGrantVisibilityService.js"
 import type { NotificationEventType } from "@orcy/shared";
 import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
 
-/**
- * v0.19 Phase E — Remote notification resolver.
- *
+/*
  * Discovers which remote participants should receive a notification for a
  * given habitat event. The dispatch logic is:
  *
@@ -24,6 +22,7 @@ import type { RemoteParticipantContext } from "../middleware/remoteAuth.js";
  * `resolveRecipients`.
  */
 
+/** Describes a habitat event for which remote recipients should be discovered, including the optional target it concerns. */
 export interface RemoteEventContext {
   habitatId: string;
   eventType: NotificationEventType;
@@ -31,6 +30,7 @@ export interface RemoteEventContext {
   targetId?: string;
 }
 
+/** A deduplicated remote recipient descriptor produced by recipient discovery. */
 export interface DiscoveredRemoteRecipient {
   recipientType: "remote_human" | "remote_orcy";
   recipientId: string;

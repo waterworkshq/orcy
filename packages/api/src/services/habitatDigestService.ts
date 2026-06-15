@@ -2,6 +2,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/board.js";
 
+/** Result of building a daily digest for one habitat: the rendered summary and the pulse it was posted as, or null when skipped or failed. */
 export interface DigestResult {
   habitatId: string;
   pulseId: string | null;
@@ -34,6 +35,7 @@ function buildDigestText(
   return lines.join("\n");
 }
 
+/** Builds a per-habitat daily task-count digest for every habitat, posting each as an automatic system pulse when there is activity. */
 export function generateAllDigests(): DigestResult[] {
   const results: DigestResult[] = [];
   const habitats = habitatRepo.listHabitats();

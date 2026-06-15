@@ -1,22 +1,41 @@
-import { getEnabledIntegrationsByHabitat } from '../repositories/chatIntegration.js';
-import { getTaskById, getTasksByHabitatId, getHabitatIdForTask } from '../repositories/task.js';
-import { getAgentById } from '../repositories/agent.js';
-import { approveTask, rejectTask } from '../repositories/task.js';
-import { formatSlackMessage, formatSlackTaskList, formatSlackTaskInfo, formatSlackHelp, formatSlackResponse, sendToSlack } from './slackService.js';
-import { formatDiscordMessage, formatDiscordTaskList, formatDiscordTaskInfo, formatDiscordHelp, formatDiscordResponse, sendToDiscord } from './discordService.js';
-import { validateOutboundUrl } from '../config/integrationSecurity.js';
-import { logger } from '../lib/logger.js';
+import { getEnabledIntegrationsByHabitat } from "../repositories/chatIntegration.js";
+import { getTaskById, getTasksByHabitatId, getHabitatIdForTask } from "../repositories/task.js";
+import { getAgentById } from "../repositories/agent.js";
+import { approveTask, rejectTask } from "../repositories/task.js";
+import {
+  formatSlackMessage,
+  formatSlackTaskList,
+  formatSlackTaskInfo,
+  formatSlackHelp,
+  formatSlackResponse,
+  sendToSlack,
+} from "./slackService.js";
+import {
+  formatDiscordMessage,
+  formatDiscordTaskList,
+  formatDiscordTaskInfo,
+  formatDiscordHelp,
+  formatDiscordResponse,
+  sendToDiscord,
+} from "./discordService.js";
+import { validateOutboundUrl } from "../config/integrationSecurity.js";
+import { logger } from "../lib/logger.js";
 
 const EVENT_TYPE_MAP: Record<string, string> = {
-  'task.created': 'task_created',
-  'task.claimed': 'task_claimed',
-  'task.submitted': 'task_submitted',
-  'task.approved': 'task_approved',
-  'task.rejected': 'task_rejected',
-  'task.overdue': 'task_overdue',
+  "task.created": "task_created",
+  "task.claimed": "task_claimed",
+  "task.submitted": "task_submitted",
+  "task.approved": "task_approved",
+  "task.rejected": "task_rejected",
+  "task.overdue": "task_overdue",
 };
 
-export async function processEvent(eventType: string, habitatId: string, data: Record<string, unknown>): Promise<void> {
+/** Pushes a task lifecycle event to all enabled chat integrations for the habitat. Maps internal event names to integration events and dispatches Slack or Discord messages. */
+export async function processEvent(
+  eventType: string,
+  habitatId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
   const mappedEvent = EVENT_TYPE_MAP[eventType];
   if (!mappedEvent) return;
 
@@ -24,8 +43,8 @@ export async function processEvent(eventType: string, habitatId: string, data: R
   if (integrations.length === 0) return;
 
   let taskId: string | undefined;
-  if ('taskId' in data) taskId = data.taskId as string;
-  if ('id' in data) taskId = data.id as string;
+  if ("taskId" in data) taskId = data.taskId as string;
+  if ("id" in data) taskId = data.id as string;
 
   const task = taskId ? getTaskById(taskId) : undefined;
   let assignedAgentName: string | undefined;
@@ -34,19 +53,21 @@ export async function processEvent(eventType: string, habitatId: string, data: R
     assignedAgentName = agent?.name;
   }
 
-  const taskData = task ? {
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    priority: task.priority,
-    assignedAgentName,
-  } : undefined;
+  const taskData = task
+    ? {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        assignedAgentName,
+      }
+    : undefined;
 
   for (const integration of integrations) {
     if (integration.events.length > 0 && !integration.events.includes(mappedEvent)) continue;
 
     try {
-      if (integration.provider === 'slack') {
+      if (integration.provider === "slack") {
         const message = formatSlackMessage(mappedEvent, taskData);
         await sendToSlack(integration.webhookUrl, message);
       } else {
@@ -54,36 +75,37 @@ export async function processEvent(eventType: string, habitatId: string, data: R
         await sendToDiscord(integration.webhookUrl, message);
       }
     } catch (err) {
-      logger.error({ err, integrationId: integration.id }, 'Chat push error');
+      logger.error({ err, integrationId: integration.id }, "Chat push error");
     }
   }
 }
 
+/** Runs a slash-command action (`list`, `info`, `approve`, `reject`, `help`) against tasks in the habitat and returns formatted payloads for both Slack and Discord. */
 export async function executeCommand(
   habitatId: string,
   action: string,
   args: string[],
-  _userId?: string
-): Promise<{ response: object; provider: 'slack' | 'discord' }> {
+  _userId?: string,
+): Promise<{ response: object; provider: "slack" | "discord" }> {
   switch (action) {
-    case 'list':
-    case 'tasks': {
-      const { tasks } = getTasksByHabitatId(habitatId, { status: 'pending', limit: 10 });
+    case "list":
+    case "tasks": {
+      const { tasks } = getTasksByHabitatId(habitatId, { status: "pending", limit: 10 });
       return {
         response: { slack: formatSlackTaskList(tasks), discord: formatDiscordTaskList(tasks) },
-        provider: 'slack',
+        provider: "slack",
       };
     }
 
-    case 'info': {
+    case "info": {
       const taskId = args[0];
       if (!taskId) {
         return {
           response: {
-            slack: formatSlackResponse('Usage: /orcy info <task-id>', false),
-            discord: formatDiscordResponse('Usage: /orcy info <task-id>', false),
+            slack: formatSlackResponse("Usage: /orcy info <task-id>", false),
+            discord: formatDiscordResponse("Usage: /orcy info <task-id>", false),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       const task = findTask(habitatId, taskId);
@@ -93,7 +115,7 @@ export async function executeCommand(
             slack: formatSlackResponse(`Task not found: ${taskId}`, false),
             discord: formatDiscordResponse(`Task not found: ${taskId}`, false),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       let assignedAgentName: string | undefined;
@@ -101,22 +123,32 @@ export async function executeCommand(
         const agent = getAgentById(task.assignedAgentId);
         assignedAgentName = agent?.name;
       }
-      const taskInfo = { id: task.id, title: task.title, status: task.status, priority: task.priority, description: task.description, assignedAgentName };
+      const taskInfo = {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        description: task.description,
+        assignedAgentName,
+      };
       return {
-        response: { slack: formatSlackTaskInfo(taskInfo), discord: formatDiscordTaskInfo(taskInfo) },
-        provider: 'slack',
+        response: {
+          slack: formatSlackTaskInfo(taskInfo),
+          discord: formatDiscordTaskInfo(taskInfo),
+        },
+        provider: "slack",
       };
     }
 
-    case 'approve': {
+    case "approve": {
       const taskId = args[0];
       if (!taskId) {
         return {
           response: {
-            slack: formatSlackResponse('Usage: /orcy approve <task-id>', false),
-            discord: formatDiscordResponse('Usage: /orcy approve <task-id>', false),
+            slack: formatSlackResponse("Usage: /orcy approve <task-id>", false),
+            discord: formatDiscordResponse("Usage: /orcy approve <task-id>", false),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       const task = findTask(habitatId, taskId);
@@ -126,7 +158,7 @@ export async function executeCommand(
             slack: formatSlackResponse(`Task not found: ${taskId}`, false),
             discord: formatDiscordResponse(`Task not found: ${taskId}`, false),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       const result = approveTask(task.id);
@@ -134,9 +166,12 @@ export async function executeCommand(
         return {
           response: {
             slack: formatSlackResponse(`Task "${task.title}" is not in submitted status`, false),
-            discord: formatDiscordResponse(`Task "${task.title}" is not in submitted status`, false),
+            discord: formatDiscordResponse(
+              `Task "${task.title}" is not in submitted status`,
+              false,
+            ),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       return {
@@ -144,20 +179,20 @@ export async function executeCommand(
           slack: formatSlackResponse(`Task "${task.title}" approved`, true),
           discord: formatDiscordResponse(`Task "${task.title}" approved`, true),
         },
-        provider: 'slack',
+        provider: "slack",
       };
     }
 
-    case 'reject': {
+    case "reject": {
       const taskId = args[0];
-      const reason = args.slice(1).join(' ') || 'Rejected via chat command';
+      const reason = args.slice(1).join(" ") || "Rejected via chat command";
       if (!taskId) {
         return {
           response: {
-            slack: formatSlackResponse('Usage: /orcy reject <task-id> [reason]', false),
-            discord: formatDiscordResponse('Usage: /orcy reject <task-id> [reason]', false),
+            slack: formatSlackResponse("Usage: /orcy reject <task-id> [reason]", false),
+            discord: formatDiscordResponse("Usage: /orcy reject <task-id> [reason]", false),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       const task = findTask(habitatId, taskId);
@@ -167,7 +202,7 @@ export async function executeCommand(
             slack: formatSlackResponse(`Task not found: ${taskId}`, false),
             discord: formatDiscordResponse(`Task not found: ${taskId}`, false),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       const result = rejectTask(task.id, reason);
@@ -175,9 +210,12 @@ export async function executeCommand(
         return {
           response: {
             slack: formatSlackResponse(`Task "${task.title}" is not in submitted status`, false),
-            discord: formatDiscordResponse(`Task "${task.title}" is not in submitted status`, false),
+            discord: formatDiscordResponse(
+              `Task "${task.title}" is not in submitted status`,
+              false,
+            ),
           },
-          provider: 'slack',
+          provider: "slack",
         };
       }
       return {
@@ -185,24 +223,30 @@ export async function executeCommand(
           slack: formatSlackResponse(`Task "${task.title}" rejected: ${reason}`, true),
           discord: formatDiscordResponse(`Task "${task.title}" rejected: ${reason}`, true),
         },
-        provider: 'slack',
+        provider: "slack",
       };
     }
 
-    case 'help': {
+    case "help": {
       return {
         response: { slack: formatSlackHelp(), discord: formatDiscordHelp() },
-        provider: 'slack',
+        provider: "slack",
       };
     }
 
     default:
       return {
         response: {
-          slack: formatSlackResponse(`Unknown command: ${action}. Type /orcy help for available commands.`, false),
-          discord: formatDiscordResponse(`Unknown command: ${action}. Type /orcy help for available commands.`, false),
+          slack: formatSlackResponse(
+            `Unknown command: ${action}. Type /orcy help for available commands.`,
+            false,
+          ),
+          discord: formatDiscordResponse(
+            `Unknown command: ${action}. Type /orcy help for available commands.`,
+            false,
+          ),
         },
-        provider: 'slack',
+        provider: "slack",
       };
   }
 }
@@ -215,9 +259,10 @@ function findTask(habitatId: string, taskIdOrShort: string): ReturnType<typeof g
   }
 
   const { tasks } = getTasksByHabitatId(habitatId);
-  return tasks.find(t => t.id.startsWith(taskIdOrShort)) ?? null;
+  return tasks.find((t) => t.id.startsWith(taskIdOrShort)) ?? null;
 }
 
+/** Pushes an anomaly alert to all enabled chat integrations for the habitat, formatted with severity-based emoji and color. */
 export async function sendAnomalyAlert(
   habitatId: string,
   anomaly: { type: string; severity: string; message: string; data: Record<string, unknown> },
@@ -226,41 +271,41 @@ export async function sendAnomalyAlert(
   if (integrations.length === 0) return;
 
   const severityEmoji: Record<string, string> = {
-    low: '\u2139\uFE0F',
-    medium: '\u26A0\uFE0F',
-    high: '\uD83D\uDD34',
-    critical: '\uD83D\uDEA8',
+    low: "\u2139\uFE0F",
+    medium: "\u26A0\uFE0F",
+    high: "\uD83D\uDD34",
+    critical: "\uD83D\uDEA8",
   };
-  const emoji = severityEmoji[anomaly.severity] || '🐋';
-  const title = anomaly.type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const emoji = severityEmoji[anomaly.severity] || "🐋";
+  const title = anomaly.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   for (const integration of integrations) {
     try {
-      if (integration.provider === 'slack') {
+      if (integration.provider === "slack") {
         const message = {
           text: `[Orcy] ${emoji} ${title}: ${anomaly.message}`,
           blocks: [
             {
-              type: 'header',
+              type: "header",
               text: {
-                type: 'plain_text',
+                type: "plain_text",
                 text: `${emoji} ${title} (${anomaly.severity.toUpperCase()})`,
               },
             },
             {
-              type: 'section',
-              text: { type: 'mrkdwn', text: anomaly.message },
+              type: "section",
+              text: { type: "mrkdwn", text: anomaly.message },
             },
           ],
         };
         await sendToSlack(integration.webhookUrl, message);
       } else {
         const color =
-          anomaly.severity === 'critical'
+          anomaly.severity === "critical"
             ? 15548997
-            : anomaly.severity === 'high'
+            : anomaly.severity === "high"
               ? 16711680
-              : anomaly.severity === 'medium'
+              : anomaly.severity === "medium"
                 ? 16776960
                 : 3447003;
         const message = {
@@ -277,14 +322,15 @@ export async function sendAnomalyAlert(
         await sendToDiscord(integration.webhookUrl, message);
       }
     } catch (err) {
-      logger.error({ err, integrationId: integration.id }, 'Anomaly chat push error');
+      logger.error({ err, integrationId: integration.id }, "Anomaly chat push error");
     }
   }
 }
 
+/** Sends a test message to a chat integration webhook and reports success, HTTP status code, and latency. Rejects URLs that fail outbound validation. */
 export async function sendTestMessage(
   webhookUrl: string,
-  provider: 'slack' | 'discord'
+  provider: "slack" | "discord",
 ): Promise<{ success: boolean; statusCode: number; latencyMs: number }> {
   const urlValidation = await validateOutboundUrl(webhookUrl);
   if (!urlValidation.valid) {
@@ -294,20 +340,20 @@ export async function sendTestMessage(
   const startTime = Date.now();
   let success: boolean;
 
-  if (provider === 'slack') {
-    const message = formatSlackMessage('task_created', {
-      id: 'test-task',
-      title: 'Test Task (Chat Integration)',
-      status: 'pending',
-      priority: 'medium',
+  if (provider === "slack") {
+    const message = formatSlackMessage("task_created", {
+      id: "test-task",
+      title: "Test Task (Chat Integration)",
+      status: "pending",
+      priority: "medium",
     });
     success = await sendToSlack(webhookUrl, message);
   } else {
-    const message = formatDiscordMessage('task_created', {
-      id: 'test-task',
-      title: 'Test Task (Chat Integration)',
-      status: 'pending',
-      priority: 'medium',
+    const message = formatDiscordMessage("task_created", {
+      id: "test-task",
+      title: "Test Task (Chat Integration)",
+      status: "pending",
+      priority: "medium",
     });
     success = await sendToDiscord(webhookUrl, message);
   }

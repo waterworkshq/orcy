@@ -3,6 +3,7 @@ import * as chatIntegrationRepo from "../../repositories/chatIntegration.js";
 import { sendToSlack, formatSlackMessage } from "../slackService.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 
+/** Delivers a notification to the habitat's configured Slack webhook and records the delivery attempt outcome. */
 export async function deliverSlack(
   delivery: NotificationDelivery,
   event: NotificationEvent,
