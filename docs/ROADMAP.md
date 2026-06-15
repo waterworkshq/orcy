@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.19.0 | **Updated:** 2026-06-14
+> **Version:** v0.19.1 | **Updated:** 2026-06-14
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -36,29 +36,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.18.2 | "Deepen: Route Extraction" — Pulse posting handlers (2×110 lines → 17 each), intake candidate promotion (55 lines → 14), daemon register + claim-next (2×65 lines → 12 each), Jira/Linear OAuth completion flows, auth register/me/setup extraction, mission progress deduplication |
 | v0.18.3 | "Deepen: Single Cache" — Zustand → React Query for all server data (agents, comments, missions, board/columns, tasks). 5 mutation hooks de-dual-written. 14 SSE zustand blocks removed. Zustand now holds only ephemeral UI state (modals, theme, presence, pagination) |
 | v0.19.0 | "Pod Bridge" — Remote participant identity (external identity providers, pod trust model, participant standing), scoped habitat access (grants, credentials, invite flows), Shared Habitat API (`/api/shared/*` — discovery, missions, tasks, comments, pulse, evidence, notifications, trust metadata), remote MCP mode (action allowlist, `X-Orcy-Remote-Key` auth), idempotent write contracts, admin surface (readiness checks, provider config, grant management, webhook endpoints), audit provenance (remote actor labels, provenance block, export filters), UI management surface (Remote Pods page, inline attribution) |
+| v0.19.1 | "Deepen: API → Daemon Interface Seam" — Shared daemon types (`SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater`, `WorkdirError`) moved to `@orcy/shared`. Six seam interfaces (`ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop`) defined in shared. `runPollTick` consolidated pure async function replacing duplicated tick loops in daemon and API. `InProcessClaimStrategy` + `HttpClaimStrategy` strategy classes. API's `daemon-wiring.ts` DI module with dynamic import. Zod schemas derived from `AGENT_TYPES` runtime array. `@orcy/daemon` moved to devDependencies. 54 new tests (interface-compliance + seam + poll + factory + wiring) |
 
 ---
 
 ## Upcoming
-
-### v0.19.1 — "Deepen: API → Daemon Interface Seam"
-
-Patch release: ship the daemon seam as foundation work *before* v0.20 builds on it, instead of folding it into the orchestration PR.
-
-| Boundary | What it deepens |
-|----------|-----------------|
-| Consolidate shared types | Move `SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater` from `daemon/src/types.ts` to `shared/src/types/daemon.ts`. Add `AGENT_TYPES` / `SESSION_STATUSES` runtime arrays. Unify `CliType` with `AgentType`. |
-| Define interface contracts | `ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop` in `@orcy/shared`. Daemon's `SessionManager` annotated `implements ISessionManager`. |
-| Migrate API off concrete daemon | New `api/src/daemon-wiring.ts` calls `createSessionManager` from daemon at startup. API imports `ISessionManager` from shared, not the `SessionManager` class. `InProcessSessionUpdater` and `updateSessionStatus` propagate the shared `SessionStatus` type — eliminates the cast in `inProcessSessionUpdater.ts:10`. |
-| Consolidate tick loop | Extract `runPollTick` (shared pure async function taking `IClaimStrategy`) — replaces the duplicated `tick()` in `daemon/src/poll-loop.ts` and `api/src/services/daemonEngine.ts`. Add `httpClaimStrategy` and `inProcessClaimStrategy` strategy classes. |
-| Derive Zod schemas | Replace 3 hardcoded `z.enum(["claude-code", ...])` at `api/src/models/schemas.ts:329, 337, 468` with `z.enum(AGENT_TYPES)`. |
-| Remove runtime dep | Drop `"@orcy/daemon": "workspace:*"` from `api/package.json:33`. The API builds and runs without the daemon package as a runtime dep. |
-
-**Why now, not folded into v0.20:** v0.20 orchestration needs a swappable `ISessionManager` and a `IClaimStrategy` that can route to in-process or remote pods. Doing the seam work inside the v0.20 PR puts foundation + feature in one reviewable unit and re-introduces the "fixing this after would mean reworking orchestration's foundation" risk the original sketch warned about.
-
-**Designed at:** `docs/plans/v19.1/00-daemon-seam.md` (turns arch-review candidate #7 from "Worth Exploring" → "Ready to build"). 7 commit boundaries, ~4.5 days of work.
-
----
 
 ### v0.20.0 — "Orchestrated"
 
@@ -69,7 +51,7 @@ First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chai
 | Agent Orchestration Platforms | Lets Orcy define and visualize multi-agent execution flows instead of relying on manual sequencing or prompt discipline |
 | Agent Experience Self-Reporting | Agents post implicit experience signals (stuck, confused, backtracked, surprised, ambiguous) as classified pulse signals during autonomous work, enabling humans and automation to detect problems without reading every trace |
 
-**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary. Self-reporting is the observability half of orchestration — when agents fan out with less human oversight, they need to report what they experienced. **Prereq:** v0.19.1 ships the daemon seam (swappable `ISessionManager` + `IClaimStrategy`); v0.20 builds on it.
+**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary. Self-reporting is the observability half of orchestration — when agents fan out with less human oversight, they need to report what they experienced. **Prereq shipped:** v0.19.1 delivered the daemon seam (swappable `ISessionManager` + `IClaimStrategy` + `runPollTick`); v0.20 builds on it.
 
 Planning seeds: `docs/plans/v3/09-agent-orchestration-platforms.md`, `docs/plans/v3/13-agent-self-reporting.md`
 
@@ -142,8 +124,8 @@ Patch releases dedicated to deepening shallow modules into deep ones — better 
 | v0.17.1 | TransitionEmitter (#1), API Client Split (#2) | Task lifecycle side-effects, MCP+UI client surface area |
 | v0.17.3 | SSE Event Registry (#4) | Event handling — prereq for automation + notification events |
 | v0.18.1 | Data Access Discipline (#3), Fat Route Extraction (#6), Dual-Write Consolidation (#5) | Repo layer, route→service boundary, Zustand vs React Query |
-| v0.20.0 (folded) | API → Daemon Interface Seam (#7) | Cross-package dependency — prereq for multi-agent orchestration |
-| v0.20.1 | Pass-Through Elimination (#8) | Dead indirection cleanup |
+| v0.19.1 | API → Daemon Interface Seam (#7) | Cross-package dependency — prereq for multi-agent orchestration |
+| v0.20.1 (upcoming) | Pass-Through Elimination (#8) | Dead indirection cleanup |
 
 Full report: `/tmp/architecture-review-20260604.html`
 
