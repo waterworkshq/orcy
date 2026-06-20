@@ -69,6 +69,7 @@ import { archiveOldEvents } from "./services/auditArchivalService.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
 import { startAllSchedulers } from "./services/scheduler.js";
 import { initSkillHooks } from "./services/habitatSkillService.js";
+import { initWorkflowService } from "./services/workflowService.js";
 import { initDb } from "./db/index.js";
 
 import { registerErrorHandler } from "./errors/plugin.js";
@@ -312,6 +313,12 @@ try {
   initSkillHooks();
 } catch (err) {
   fastify.log.error({ err }, "Failed to initialize skill hooks");
+}
+
+try {
+  initWorkflowService();
+} catch (err) {
+  fastify.log.error({ err }, "Failed to initialize workflow service");
 }
 
 const healthSnapshotInterval = setInterval(async () => {
