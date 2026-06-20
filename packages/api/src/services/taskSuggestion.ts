@@ -7,6 +7,7 @@ import {
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as agentRepo from "../repositories/agent.js";
+import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 import { getDb } from "../db/index.js";
 import { tasks } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
@@ -61,9 +62,11 @@ export function getSuggestionsForAgent(
     return { suggestions: [], agentWorkload: { claimed: 0, inProgress: 0, maxRecommended: 3 } };
   }
 
-  const availableTasks = taskRepo.getAvailableTasksForAgent(habitatId, agent.domain, {
-    status: "pending",
-  });
+  const availableTasks = taskRepo
+    .getAvailableTasksForAgent(habitatId, agent.domain, {
+      status: "pending",
+    })
+    .filter((task) => areAllWorkflowGatesSatisfied(task.id));
 
   const { claimed, inProgress } = getAgentWorkload(agentId);
   const missionMap = new Map<string, string>();
