@@ -241,6 +241,50 @@ _Avoid_: Agent ranking, punishment score
 The origin of an evidence link, such as webhook inference, branch pattern matching, commit trailer matching, agent reporting, or human manual linking.
 _Avoid_: Type, provider
 
+**Workflow**:
+An optional orchestration plan attached to a mission that declares dependency and gate relationships between the mission's tasks. A mission without a workflow behaves as today (any agent can claim any task); a mission with a workflow restricts which tasks are claimable based on gate state. Workflow nodes are tasks — there is no separate "step" entity.
+_Avoid_: Pipeline, runbook, playbook, DAG, workflow step
+
+**Workflow Gate**:
+A typed condition on a dependency from one task to another that determines when the downstream task becomes claimable. Gate types include completion of the upstream task, lifecycle approval of the upstream task, a matching pulse signal, a named automation outcome, or an explicit manual unblock.
+_Avoid_: Trigger, transition, lifecycle event when describing the gate itself
+
+**Workflow Join**:
+The fan-in semantics declared on a task with multiple upstream workflow gates — whether all gates must fire (`all_of`), any gate (`any_of`), or a quorum (`n_of`) before the task becomes claimable.
+_Avoid_: Merge, sync point
+
+**Failure Context**:
+A structured bundle of evidence about why a task failed, captured when the task transitions to `failed`, `rejected`, or `released`. Includes the failure reason, failure kind, artifacts produced before failure, recent lifecycle events, agent experience signals, and retry history. Failure context is the input to recovery.
+_Avoid_: Error log, stack trace, debugging state
+
+**Recovery Task**:
+A task gated by an `on_fail` workflow gate from a failed task, whose job is to ingest the failure context, diagnose the cause, and either fix the underlying issue, retry with adjustments, or escalate as unrecoverable. Recovery tasks participate in the workflow like any other task — they can be claimed, submitted, approved, or failed.
+_Avoid_: Retry task (when the work involves diagnosis rather than blind re-execution), error handler (when describing the work, not the code)
+
+**Recovery Redemption**:
+A successful recovery outcome where the recovery task's success causes the originally failed task's downstream `on_complete` or `on_approve` gates to fire as if the original had succeeded. The failed task stays failed in history; redemption is a forward-flowing unblock, not a rewrite of history.
+_Avoid_: Retry success, rollback
+
+**Template**:
+A reusable scaffold stored at the habitat level (or globally when habitat-scoped is null) that instantiates a mission with predefined tasks and an optional workflow definition at creation time. Templates do not execute; they spawn. Existing instantiated missions are detached from their template — later template edits do not propagate.
+_Avoid_: Blueprint, recipe, pattern, workflow definition (a template can contain a workflow definition but is not the same thing)
+
+**Template Variable**:
+A named placeholder inside a template (such as `{{feature_name}}`) that the human fills in at instantiation time. Variable values are substituted into task titles, descriptions, and acceptance criteria when the mission is created from the template.
+_Avoid_: Parameter, argument, macro
+
+**Experience Signal**:
+A self-reported agent-experience pulse with `signalType: "experience"` and a category in `metadata.experience` (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`). Experience signals are implicit — they capture what the agent noticed during work, distinct from intentional pulse communications like findings or blockers.
+_Avoid_: Mood, sentiment, error log
+
+**Recovery Depth**:
+The recursion level of a recovery chain within a workflow. Original workflow gates are at depth 0; recovery-task gates spawned from `on_fail` are at depth 1; recovery-of-recovery gates are at depth 2. Deeper escalation is not auto-spawned — it surfaces as `workflow_recovery_unrecoverable` for human intervention.
+_Avoid_: Retry count, failure level
+
+**Failure Handler**:
+A workflow-level or per-task configuration that declares what recovery task template to spawn and which agent selector to use when an `on_fail` gate fires. A workflow may declare one default failure handler; individual tasks may override it (including setting `null` to disable recovery for that task specifically).
+_Avoid_: Exception handler, error callback
+
 ## Example Dialogue
 
 Dev: "This mission shipped through three tasks. Where is the code evidence?"

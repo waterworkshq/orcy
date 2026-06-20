@@ -59,6 +59,20 @@ Planning seeds: `docs/plans/v3/09-agent-orchestration-platforms.md`, `docs/plans
 
 ---
 
+### v0.20.1 — "Orchestration Patch"
+
+Strict-scope patch wiring the v0.18 automation executor's `executeActions` into production paths (currently called only from tests). Restores the `on_automation` gate type that was deferred from v0.20.0 due to this pre-existing bug.
+
+| Item | Why it waits for a patch |
+|------|--------------------------|
+| Wire `executeActions` into `automationEventService.ingestEvent` + `automationScanService` scan functions | Pre-existing v0.18 bug; not part of the v0.20 "Orchestrated" story; needs focused testing across all action types (notify, create_signal, create_task, priority_change, assignment, review_request, risk_mark, webhook_call) |
+| Add `on_automation` gate type + `onAutomationRunCompleted` subscriber hook | Depends on executor wiring; once rules actually execute in production, gates can subscribe to their completion |
+| Workflow service subscription to automation runs | Final piece of the gate-type set (brings v0.20 to the originally-planned 6 gate types) |
+
+**Why a patch, not part of v0.20.0:** Wiring `executeActions` is a behavior change for all existing v0.18 automation rule consumers — every rule that "matched but didn't fire" will now actually fire. That deserves its own release boundary and release notes, not coupling to the larger v0.20 feature set.
+
+---
+
 ### v0.20.1 — "Deepen: Trim Pass-Throughs"
 
 Remove modules that fail the deletion test — complexity would vanish, not reappear in callers.
