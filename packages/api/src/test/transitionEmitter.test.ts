@@ -71,6 +71,7 @@ import {
   setRecalcDebounceEnabled,
   isRecalcDebounceEnabled,
   onTaskEvent,
+  onTransition,
   type TaskAction,
   type TransitionContext,
 } from "../services/tasks/transition-emitter.js";
@@ -269,21 +270,13 @@ describe("TransitionEmitter", () => {
   describe("watcher notifications", () => {
     it("notifies watchers with the per-action event name", () => {
       emitTransition("task-1", "claimed", "hab-1", baseCtx({ newStatus: "claimed" }));
-      expect(watcherService.notifyWatchers).toHaveBeenCalledWith(
-        "task-1",
-        "hab-1",
-        "task.claimed",
-      );
+      expect(watcherService.notifyWatchers).toHaveBeenCalledWith("task-1", "hab-1", "task.claimed");
     });
 
     it("does not call watchers for updated action with no watchers config", () => {
       const task = makeTask();
       emitTransition("task-1", "updated", "hab-1", baseCtx({ task }));
-      expect(watcherService.notifyWatchers).toHaveBeenCalledWith(
-        "task-1",
-        "hab-1",
-        "task.updated",
-      );
+      expect(watcherService.notifyWatchers).toHaveBeenCalledWith("task-1", "hab-1", "task.updated");
     });
   });
 
@@ -322,7 +315,12 @@ describe("TransitionEmitter", () => {
 
     it("fires emitTaskRejected for rejected action with reason", () => {
       const task = makeTask();
-      emitTransition("task-1", "rejected", "hab-1", baseCtx({ task, newStatus: "rejected", reason: "bad" }));
+      emitTransition(
+        "task-1",
+        "rejected",
+        "hab-1",
+        baseCtx({ task, newStatus: "rejected", reason: "bad" }),
+      );
       expect(pluginManager.emitTaskRejected).toHaveBeenCalledWith(task, "bad");
     });
 
@@ -363,9 +361,11 @@ describe("TransitionEmitter", () => {
 
     it("logs error when wrapped recalc throws (does not propagate)", () => {
       setRecalcDebounceEnabled(false);
-      (missionService.recalculateMissionStatus as ReturnType<typeof vi.fn>).mockImplementation(() => {
-        throw new Error("recalc boom");
-      });
+      (missionService.recalculateMissionStatus as ReturnType<typeof vi.fn>).mockImplementation(
+        () => {
+          throw new Error("recalc boom");
+        },
+      );
       emitTransition("task-1", "started", "hab-1", baseCtx({ newStatus: "in_progress" }));
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({ err: expect.any(Error) }),
@@ -393,14 +393,23 @@ describe("TransitionEmitter", () => {
 
     it("emits a 'warning' pulse for failed action", () => {
       const task = makeTask();
-      emitTransition("task-1", "failed", "hab-1", baseCtx({ task, newStatus: "failed", reason: "oops" }));
+      emitTransition(
+        "task-1",
+        "failed",
+        "hab-1",
+        baseCtx({ task, newStatus: "failed", reason: "oops" }),
+      );
       expect(pulseService.emitAutoSignal).toHaveBeenCalledWith(
         expect.objectContaining({ signalType: "warning" }),
       );
     });
 
     it("emits blocker-clearance extra pulse for completed with blocker-clearance label", () => {
-      const task = makeTask({ status: "done", labels: ["blocker-clearance"], title: "Clear Blocker: foo" });
+      const task = makeTask({
+        status: "done",
+        labels: ["blocker-clearance"],
+        title: "Clear Blocker: foo",
+      });
       emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
       expect(pulseService.emitAutoSignal).toHaveBeenCalledWith(
         expect.objectContaining({ subject: expect.stringContaining("Blocker cleared:") }),
@@ -481,9 +490,7 @@ describe("TransitionEmitter", () => {
       onTaskEvent(hook);
       const task = makeTask();
       emitTransition("task-1", "approved", "hab-1", baseCtx({ task, newStatus: "approved" }));
-      expect(hook).toHaveBeenCalledWith(
-        expect.objectContaining({ event: "approved" }),
-      );
+      expect(hook).toHaveBeenCalledWith(expect.objectContaining({ event: "approved" }));
     });
 
     it("does NOT fire task event for claimed (per inventory #2)", () => {
@@ -522,6 +529,147 @@ describe("TransitionEmitter", () => {
       emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
       expect(hook1).toHaveBeenCalled();
       expect(hook2).toHaveBeenCalled();
+    });
+  });
+
+  describe("onTransition (parallel channel, fires for all actions)", () => {
+    beforeEach(() => {
+      (missionService.recalculateMissionStatus as ReturnType<typeof vi.fn>).mockReset();
+    });
+
+    const allTransitionActions: TaskAction[] = [
+      "claimed",
+      "started",
+      "submitted",
+      "approved",
+      "rejected",
+      "completed",
+      "released",
+      "failed",
+      "created",
+      "updated",
+      "deleted",
+      "delegated",
+      "claimed_delegated",
+      "retry_scheduled",
+      "retry_executed",
+      "escalated",
+    ];
+
+    it.each(allTransitionActions)("fires for %s action", (action) => {
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+      const task = makeTask();
+      emitTransition("task-1", action, "hab-1", baseCtx({ task }));
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(hook).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task-1", action }));
+      unsub();
+    });
+
+    it("fires for submitted and released (the actions onTaskEvent skips)", () => {
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+      const task = makeTask();
+      emitTransition("task-1", "submitted", "hab-1", baseCtx({ task, newStatus: "submitted" }));
+      emitTransition("task-1", "released", "hab-1", baseCtx({ task, newStatus: "pending" }));
+      expect(hook).toHaveBeenCalledTimes(2);
+      expect(hook).toHaveBeenNthCalledWith(1, expect.objectContaining({ action: "submitted" }));
+      expect(hook).toHaveBeenNthCalledWith(2, expect.objectContaining({ action: "released" }));
+      unsub();
+    });
+
+    it("passes resolved newStatus from action config when context omits it", () => {
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+      const task = makeTask();
+      emitTransition("task-1", "claimed", "hab-1", baseCtx({ task }));
+      expect(hook).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "claimed", newStatus: "claimed" }),
+      );
+      unsub();
+    });
+
+    it("passes task, actorType, actorId, habitatId, metadata, and reason through", () => {
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+      const task = makeTask({ status: "failed" });
+      emitTransition("task-1", "failed", "hab-1", {
+        actorType: "system",
+        actorId: "cron",
+        task,
+        newStatus: "failed",
+        reason: "timeout",
+        metadata: { retry: 3 },
+      });
+      expect(hook).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: "task-1",
+          action: "failed",
+          habitatId: "hab-1",
+          actorType: "system",
+          actorId: "cron",
+          newStatus: "failed",
+          reason: "timeout",
+          metadata: { retry: 3 },
+          task,
+        }),
+      );
+      unsub();
+    });
+
+    it("does NOT affect onTaskEvent firing set (channels are independent)", () => {
+      const transitionHook = vi.fn();
+      const eventHook = vi.fn();
+      const unsubT = onTransition(transitionHook);
+      const unsubE = onTaskEvent(eventHook);
+      const task = makeTask({ status: "done" });
+
+      emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
+
+      expect(transitionHook).toHaveBeenCalledTimes(1);
+      expect(eventHook).toHaveBeenCalledTimes(1);
+
+      emitTransition("task-1", "submitted", "hab-1", baseCtx({ task, newStatus: "submitted" }));
+
+      expect(transitionHook).toHaveBeenCalledTimes(2);
+      expect(eventHook).toHaveBeenCalledTimes(1);
+
+      unsubT();
+      unsubE();
+    });
+
+    it("unsubscribes via the returned disposer", () => {
+      const hook = vi.fn();
+      const unsub = onTransition(hook);
+      const task = makeTask();
+
+      emitTransition("task-1", "claimed", "hab-1", baseCtx({ task }));
+      expect(hook).toHaveBeenCalledTimes(1);
+
+      unsub();
+      emitTransition("task-1", "started", "hab-1", baseCtx({ task }));
+      expect(hook).toHaveBeenCalledTimes(1);
+    });
+
+    it("continues to call other hooks even if one throws", () => {
+      const hook1 = vi.fn(() => {
+        throw new Error("transition hook1 boom");
+      });
+      const hook2 = vi.fn();
+      const unsub1 = onTransition(hook1);
+      const unsub2 = onTransition(hook2);
+
+      const task = makeTask({ status: "done" });
+      emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
+
+      expect(hook1).toHaveBeenCalled();
+      expect(hook2).toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        "Transition hook failed",
+      );
+      unsub1();
+      unsub2();
     });
   });
 

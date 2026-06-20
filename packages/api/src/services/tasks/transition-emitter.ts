@@ -493,6 +493,40 @@ function notifyTaskEvent(opts: Parameters<TaskEventHook>[0]): void {
   }
 }
 
+type TransitionHook = (opts: {
+  taskId: string;
+  action: TaskAction;
+  habitatId: string;
+  actorType: string;
+  actorId: string;
+  oldStatus?: string;
+  newStatus?: string;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+  task?: Task;
+}) => void;
+
+const transitionHooks: TransitionHook[] = [];
+
+/** Registers a hook invoked on every task transition (all action types), parallel to `onTaskEvent` which only fires for lifecycle-completing actions. */
+export function onTransition(hook: TransitionHook): () => void {
+  transitionHooks.push(hook);
+  return () => {
+    const idx = transitionHooks.indexOf(hook);
+    if (idx >= 0) transitionHooks.splice(idx, 1);
+  };
+}
+
+function notifyTransition(opts: Parameters<TransitionHook>[0]): void {
+  for (const hook of transitionHooks) {
+    try {
+      hook(opts);
+    } catch (err) {
+      logger.error({ err }, "Transition hook failed");
+    }
+  }
+}
+
 /** Executes side effects for a task transition, including events, SSEs, watchers, plugins, retries, and mission recalculation. */
 export function emitTransition(
   taskId: string,
@@ -586,4 +620,17 @@ export function emitTransition(
       metadata: context.metadata,
     });
   }
+
+  notifyTransition({
+    taskId,
+    action,
+    habitatId,
+    actorType: context.actorType ?? "agent",
+    actorId: context.actorId ?? "",
+    oldStatus: context.oldStatus,
+    newStatus: cfg.eventToStatus ?? context.newStatus,
+    reason: context.reason,
+    metadata: context.metadata,
+    task,
+  });
 }
