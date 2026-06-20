@@ -7,6 +7,7 @@ import { isSqliteError } from "../errors/sqlite.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { getTaskById } from "./taskCrud.js";
 import { areAllDependenciesMet } from "./taskQueries.js";
+import { areAllWorkflowGatesSatisfied } from "./workflow.js";
 
 export function claimTask(
   taskId: string,
@@ -26,6 +27,10 @@ export function claimTask(
 
       if (!areAllDependenciesMet(taskId)) {
         return { success: false as const, reason: "dependencies_unmet" };
+      }
+
+      if (!areAllWorkflowGatesSatisfied(taskId)) {
+        return { success: false as const, reason: "workflow_gates_unmet" };
       }
 
       tx.update(tasks)
@@ -72,6 +77,10 @@ export function claimTaskByRemoteParticipant(
 
       if (!areAllDependenciesMet(taskId)) {
         return { success: false as const, reason: "dependencies_unmet" };
+      }
+
+      if (!areAllWorkflowGatesSatisfied(taskId)) {
+        return { success: false as const, reason: "workflow_gates_unmet" };
       }
 
       tx.update(tasks)
