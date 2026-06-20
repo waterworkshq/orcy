@@ -297,3 +297,19 @@ export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";
 
 export type { SignalType } from "./signal.js";
 export { SIGNAL_TYPES } from "./signal.js";
+
+export type {
+  GateType,
+  JoinMode,
+  SignalMatch,
+  AutomationMatch,
+  ExperienceCategory,
+  WorkflowFailureHandlerConfig,
+  WorkflowTemplateGate,
+  WorkflowTemplateVariable,
+  WorkflowTemplateDefinition,
+  TaskEventSnapshot,
+  ExperienceSignalSnapshot,
+  RetryAttemptSnapshot,
+  FailureBundle,
+} from "./workflow.js";
