@@ -140,6 +140,7 @@ import type {
   RemoteEvidenceKind,
   RemoteActionKind,
   RemoteAuditMetadata,
+  SignalType,
 } from "@orcy/shared";
 
 export type {
@@ -283,6 +284,7 @@ export type {
   RemoteEvidenceKind,
   RemoteActionKind,
   RemoteAuditMetadata,
+  SignalType,
 };
 
 // ---------------------------------------------------------------------------
@@ -834,17 +836,6 @@ export interface Notification {
   timestamp: string;
   read: boolean;
 }
-
-export type SignalType =
-  | "finding"
-  | "blocker"
-  | "offer"
-  | "warning"
-  | "question"
-  | "answer"
-  | "directive"
-  | "context"
-  | "handoff";
 
 export type PulseScope = "mission" | "habitat";
 

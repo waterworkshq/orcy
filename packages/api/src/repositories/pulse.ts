@@ -9,17 +9,9 @@ import {
   repositoryDeleteError,
   repositoryUpsertError,
 } from "../errors/repository.js";
+import { SIGNAL_TYPES, type SignalType } from "@orcy/shared";
 
-export type SignalType =
-  | "finding"
-  | "blocker"
-  | "offer"
-  | "warning"
-  | "question"
-  | "answer"
-  | "directive"
-  | "context"
-  | "handoff";
+export { type SignalType };
 
 export type PulseScope = "mission" | "habitat";
 
@@ -120,17 +112,7 @@ function rowToPulse(row: Record<string, unknown>): Pulse {
   };
 }
 
-const ALL_SIGNAL_TYPES: SignalType[] = [
-  "finding",
-  "blocker",
-  "offer",
-  "warning",
-  "question",
-  "answer",
-  "directive",
-  "context",
-  "handoff",
-];
+const ALL_SIGNAL_TYPES = SIGNAL_TYPES;
 
 export function createPulse(input: CreatePulseInput): Pulse {
   const scope = input.scope ?? "mission";

@@ -1,11 +1,7 @@
 import type { PulseClient } from "../api/interfaces.js";
-import type { KanbanApiClient } from '../api.js';
-import type { Agent } from '@orcy/shared';
-
-const SIGNAL_TYPES = [
-  'finding', 'blocker', 'offer', 'warning',
-  'question', 'answer', 'directive', 'context', 'handoff',
-] as const;
+import type { KanbanApiClient } from "../api.js";
+import type { Agent } from "@orcy/shared";
+import { SIGNAL_TYPES } from "@orcy/shared";
 
 /**
  * @requires PulseClient
@@ -16,35 +12,35 @@ export async function pulsePost(
   args: {
     missionId?: string;
     boardId?: string;
-    scope?: 'mission' | 'habitat';
-    signalType: typeof SIGNAL_TYPES[number];
+    scope?: "mission" | "habitat";
+    signalType: (typeof SIGNAL_TYPES)[number];
     subject: string;
     body?: string;
     taskId?: string;
     toAgentName?: string;
     replyToId?: string;
     metadata?: Record<string, unknown>;
-  }
+  },
 ) {
   let toAgentId: string | undefined;
 
   if (args.toAgentName) {
     const agentsResp = await client.listAgents();
     const agents = Array.isArray(agentsResp.agents)
-      ? agentsResp.agents as Agent[]
-      : (agentsResp.agents as { agent: Agent }[]).map(a => a.agent);
-    const found = agents.find(a => a.name === args.toAgentName);
+      ? (agentsResp.agents as Agent[])
+      : (agentsResp.agents as { agent: Agent }[]).map((a) => a.agent);
+    const found = agents.find((a) => a.name === args.toAgentName);
     if (!found) {
       throw new Error(`Agent with name "${args.toAgentName}" not found`);
     }
     toAgentId = found.id;
   }
 
-  const isHabitat = args.scope === 'habitat';
+  const isHabitat = args.scope === "habitat";
 
   if (isHabitat) {
     if (!args.boardId) {
-      throw new Error('boardId is required for habitat-scoped signals');
+      throw new Error("boardId is required for habitat-scoped signals");
     }
     return client.postHabitatPulse(args.boardId, {
       signalType: args.signalType,
@@ -59,7 +55,9 @@ export async function pulsePost(
   }
 
   if (!args.missionId) {
-    throw new Error('missionId is required for mission-scoped signals (or use scope="habitat" with boardId)');
+    throw new Error(
+      'missionId is required for mission-scoped signals (or use scope="habitat" with boardId)',
+    );
   }
 
   return client.postPulse(args.missionId, {
@@ -83,16 +81,16 @@ export async function pulseCheck(
   args: {
     missionId?: string;
     boardId?: string;
-    scope?: 'mission' | 'habitat';
-    signalType?: typeof SIGNAL_TYPES[number];
+    scope?: "mission" | "habitat";
+    signalType?: (typeof SIGNAL_TYPES)[number];
     limit?: number;
     offset?: number;
-  }
+  },
 ) {
-  if (args.scope === 'habitat' && args.boardId) {
+  if (args.scope === "habitat" && args.boardId) {
     return client.getHabitatPulses(args.boardId, {
       signalType: args.signalType,
-      scope: 'habitat',
+      scope: "habitat",
       limit: args.limit,
       offset: args.offset,
     });

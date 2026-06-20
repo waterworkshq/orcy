@@ -15,6 +15,7 @@ import type {
   Subtask,
   ActorType,
   MissionEventAction,
+  SignalType,
 } from "@orcy/shared";
 
 export type {
@@ -34,6 +35,7 @@ export type {
   Subtask,
   ActorType,
   MissionEventAction,
+  SignalType,
 };
 
 export interface ListSubtasksResponse {
@@ -146,17 +148,6 @@ export interface HabitatContext {
   name: string;
   columns: { name: string; taskCount: number }[];
 }
-
-export type SignalType =
-  | "finding"
-  | "blocker"
-  | "offer"
-  | "warning"
-  | "question"
-  | "answer"
-  | "directive"
-  | "context"
-  | "handoff";
 
 export type PulseScope = "mission" | "habitat";
 

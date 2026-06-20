@@ -203,6 +203,19 @@ describe("pulse repository", () => {
       expect(_insertRun).toHaveBeenCalled();
     });
 
+    it("creates mission-scoped pulse with v0.20 experience signalType", () => {
+      _insertReturnAll = [
+        makeRow({ signal_type: "experience", metadata: '{"implicit":true,"experience":"stuck"}' }),
+      ];
+      const r = createPulse({
+        ...validMissionInput,
+        signalType: "experience",
+        metadata: { implicit: true, experience: "stuck" },
+      });
+      expect(r.signalType).toBe("experience");
+      expect(_insertValues).toEqual(expect.objectContaining({ signalType: "experience" }));
+    });
+
     it("throws when mission scope missing missionId", () => {
       expect(() =>
         createPulse({
@@ -274,6 +287,12 @@ describe("pulse repository", () => {
       const r = getPulsesByMission("m1", { signalType: "question" });
       expect(r.pulses[0].signalType).toBe("question");
     });
+    it("returns experience-signal pulses (v0.20 widening)", () => {
+      _selectAllResult = [makeRow({ signal_type: "experience" })];
+      _selectGetResult = { total: 1 };
+      const r = getPulsesByMission("m1", { signalType: "experience" });
+      expect(r.pulses[0].signalType).toBe("experience");
+    });
     it("returns empty when no pulses", () => {
       _selectAllResult = [];
       _selectGetResult = { total: 0 };
@@ -299,15 +318,18 @@ describe("pulse repository", () => {
       expect(r.finding).toBe(0);
       expect(r.blocker).toBe(0);
       expect(r.question).toBe(0);
+      expect(r.experience).toBe(0);
     });
     it("returns correct counts", () => {
       _selectAllResult = [
         { signalType: "blocker", total: 3 },
         { signalType: "question", total: 1 },
+        { signalType: "experience", total: 2 },
       ];
       const r = getPulseCountsByMission("m1");
       expect(r.blocker).toBe(3);
       expect(r.question).toBe(1);
+      expect(r.experience).toBe(2);
       expect(r.finding).toBe(0);
     });
   });

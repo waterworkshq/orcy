@@ -1,16 +1,8 @@
 import { api } from "../client.js";
+import { SIGNAL_TYPES } from "@orcy/shared";
 
-const VALID_SIGNAL_TYPES = [
-  "finding",
-  "blocker",
-  "offer",
-  "warning",
-  "question",
-  "answer",
-  "directive",
-  "context",
-  "handoff",
-];
+/** Alias of {@link SIGNAL_TYPES} typed as a readonly string array for CLI validation use. */
+const VALID_SIGNAL_TYPES: readonly string[] = SIGNAL_TYPES;
 
 /** Registers the `orcy pulse` subcommands (post, list, inbox, insights) on the given {@link Command}. */
 export function registerPulseCommands(program: any) {

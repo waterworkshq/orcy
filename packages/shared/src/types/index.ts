@@ -294,3 +294,6 @@ export type {
   IPollLoop,
 } from "./daemon.js";
 export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";
+
+export type { SignalType } from "./signal.js";
+export { SIGNAL_TYPES } from "./signal.js";

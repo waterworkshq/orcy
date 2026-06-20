@@ -2,6 +2,7 @@ import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlit
 import { sql } from "drizzle-orm";
 import { habitats, missions } from "./board.js";
 import { tasks } from "./task.js";
+import { SIGNAL_TYPES } from "@orcy/shared";
 
 export const pulses = sqliteTable(
   "pulses",
@@ -21,17 +22,7 @@ export const pulses = sqliteTable(
     toType: text("to_type", { enum: ["human", "agent", "remote_human", "remote_orcy"] }),
     toId: text("to_id"),
     signalType: text("signal_type", {
-      enum: [
-        "finding",
-        "blocker",
-        "offer",
-        "warning",
-        "question",
-        "answer",
-        "directive",
-        "context",
-        "handoff",
-      ],
+      enum: SIGNAL_TYPES,
     }).notNull(),
     subject: text("subject").notNull(),
     body: text("body").notNull().default(""),

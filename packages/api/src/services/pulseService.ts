@@ -7,22 +7,11 @@ import * as taskService from "./tasks/index.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { badRequest, notFound, forbidden } from "../errors.js";
+import { SIGNAL_TYPES, type SignalType } from "@orcy/shared";
 
-/** Exhaustive list of recognised pulse signal categories, used to validate {@link PulsePostInput} before persistence. */
-export const VALID_SIGNAL_TYPES = [
-  "finding",
-  "blocker",
-  "offer",
-  "warning",
-  "question",
-  "answer",
-  "directive",
-  "context",
-  "handoff",
-] as const;
-
-/** Union of the members of {@link VALID_SIGNAL_TYPES}, representing a categorised inter-agent signal. */
-export type SignalType = (typeof VALID_SIGNAL_TYPES)[number];
+export { type SignalType };
+/** Alias of {@link SIGNAL_TYPES} from @orcy/shared, retained for backward compatibility with existing importers. */
+export const VALID_SIGNAL_TYPES = SIGNAL_TYPES;
 
 const MAX_METADATA_BYTES = 10_000;
 

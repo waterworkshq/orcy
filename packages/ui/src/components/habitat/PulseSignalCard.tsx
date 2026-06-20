@@ -9,6 +9,7 @@ import {
   Command,
   Info,
   ArrowRightLeft,
+  Lightbulb,
   ExternalLink,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const SIGNAL_CONFIG: Record<SignalType, { icon: LucideIcon; label: string; color
   directive: { icon: Command, label: "Directive", color: "hsl(280,70%,60%)" },
   context: { icon: Info, label: "Context", color: "var(--on-surface-variant)" },
   handoff: { icon: ArrowRightLeft, label: "Handoff", color: "hsl(200,70%,60%)" },
+  experience: { icon: Lightbulb, label: "Experience", color: "var(--on-surface-variant)" },
 };
 
 interface PulseSignalCardProps {
