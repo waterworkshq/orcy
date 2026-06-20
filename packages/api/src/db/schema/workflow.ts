@@ -6,6 +6,7 @@ import type {
   WorkflowFailureHandlerConfig,
   FailureBundle,
   AutomationCondition,
+  JoinMode,
 } from "../../models/index.js";
 
 /** Mission-scoped workflow definition; gates live in `taskWorkflowGates` and enforce claim constraints when status is active. */
@@ -26,6 +27,9 @@ export const workflows = sqliteTable(
     failureHandler: text("failure_handler", {
       mode: "json",
     }).$type<WorkflowFailureHandlerConfig | null>(),
+    joinSpecs: text("join_specs", {
+      mode: "json",
+    }).$type<Record<string, { mode: JoinMode; n?: number }> | null>(),
     status: text("status", { enum: ["active", "detached"] })
       .notNull()
       .default("active"),
