@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { pulses, pulseCursors } from "../db/schema/index.js";
-import { eq, and, or, gt, count, desc, inArray } from "drizzle-orm";
+import { eq, and, or, gt, count, desc, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -72,6 +72,7 @@ export interface PulseFilters {
   signalType?: SignalType;
   signalTypes?: SignalType[];
   scope?: PulseScope;
+  taskId?: string;
   isAuto?: boolean;
   since?: string;
   limit?: number;
@@ -113,6 +114,28 @@ function rowToPulse(row: Record<string, unknown>): Pulse {
 }
 
 const ALL_SIGNAL_TYPES = SIGNAL_TYPES;
+
+function pluralSignalLabel(type: SignalType): string {
+  if (type === "experience") return "experiences";
+  if (type === "context") return "context";
+  return `${type}s`;
+}
+
+function formatPulseCountSummary(counts: Record<SignalType, number>, emptyText: string): string {
+  const totalSignals = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (totalSignals === 0) return emptyText;
+  const parts = ALL_SIGNAL_TYPES.filter((type) => counts[type] > 0).map(
+    (type) => `${counts[type]} ${pluralSignalLabel(type)}`,
+  );
+  return `${totalSignals} ${totalSignals === 1 ? "signal" : "signals"}: ${parts.join(", ")}.`;
+}
+
+function stuckExperienceCondition() {
+  return and(
+    eq(pulses.signalType, "experience"),
+    sql`json_extract(${pulses.metadata}, '$.experience') = 'stuck'`,
+  );
+}
 
 export function createPulse(input: CreatePulseInput): Pulse {
   const scope = input.scope ?? "mission";
@@ -188,6 +211,9 @@ export function getPulsesByMission(
   if (filters?.isAuto !== undefined) {
     conditions.push(eq(pulses.isAuto, filters.isAuto));
   }
+  if (filters?.taskId) {
+    conditions.push(eq(pulses.taskId, filters.taskId));
+  }
   if (filters?.since) {
     conditions.push(gt(pulses.createdAt, filters.since));
   }
@@ -229,6 +255,9 @@ export function getPulsesByHabitat(
   }
   if (filters?.isAuto !== undefined) {
     conditions.push(eq(pulses.isAuto, filters.isAuto));
+  }
+  if (filters?.taskId) {
+    conditions.push(eq(pulses.taskId, filters.taskId));
   }
   if (filters?.since) {
     conditions.push(gt(pulses.createdAt, filters.since));
@@ -339,7 +368,11 @@ export function getHighlightPulses(
   const db = getDb();
   const missionEq = and(eq(pulses.missionId, missionId), eq(pulses.scope, "mission"));
 
-  const highlightTypes = or(eq(pulses.signalType, "directive"), eq(pulses.signalType, "blocker"));
+  const highlightTypes = or(
+    eq(pulses.signalType, "directive"),
+    eq(pulses.signalType, "blocker"),
+    stuckExperienceCondition(),
+  );
 
   if (readerType && readerId) {
     const targeting = and(
@@ -473,15 +506,7 @@ export function getPulseDigest(
   const newSinceLastCheck = getNewPulseCount(missionId, sinceEpoch);
   const counts = getPulseCountsByMission(missionId);
   const highlightPulses = getHighlightPulses(missionId, readerType, readerId);
-  const latestPulse = getLatestSummaryPulse(missionId);
-
-  const totalSignals = Object.values(counts).reduce((a, b) => a + b, 0);
-  const otherCount = latestPulse
-    ? Math.max(0, totalSignals - (counts[latestPulse.signalType] ?? 0))
-    : 0;
-  const summary = latestPulse
-    ? `${latestPulse.subject}${otherCount > 0 ? `. ${otherCount} more signals.` : "."}`
-    : "No signals yet.";
+  const summary = formatPulseCountSummary(counts, "No signals yet.");
 
   const highlights = highlightPulses.map((p) => ({
     id: p.id,
@@ -537,7 +562,11 @@ export function getHabitatPulseDigest(
     .all();
   for (const row of typeRows) counts[row.signalType] = row.total;
 
-  const highlightTypes = or(eq(pulses.signalType, "directive"), eq(pulses.signalType, "blocker"));
+  const highlightTypes = or(
+    eq(pulses.signalType, "directive"),
+    eq(pulses.signalType, "blocker"),
+    stuckExperienceCondition(),
+  );
 
   let highlightRows;
   if (readerType && readerId) {
@@ -569,16 +598,6 @@ export function getHabitatPulseDigest(
       .all();
   }
 
-  const latestRows = db
-    .select()
-    .from(pulses)
-    .where(
-      and(eq(pulses.habitatId, habitatId), eq(pulses.scope, "habitat"), eq(pulses.isAuto, false)),
-    )
-    .orderBy(desc(pulses.createdAt))
-    .limit(1)
-    .all();
-
   const highlights = highlightRows
     .map((p) => rowToPulse(p))
     .map((p) => ({
@@ -590,14 +609,10 @@ export function getHabitatPulseDigest(
       createdAt: p.createdAt,
     }));
 
-  const totalSignals = Object.values(counts).reduce((a, b) => a + b, 0);
-  const latestPulse = latestRows.length > 0 ? rowToPulse(latestRows[0]) : null;
-  const otherCount = latestPulse
-    ? Math.max(0, totalSignals - (counts[latestPulse.signalType] ?? 0))
-    : 0;
-  const summary = latestPulse
-    ? `${latestPulse.subject}${otherCount > 0 ? `. ${otherCount} more signals.` : "."}`
-    : "No habitat signals yet.";
+  const summary = formatPulseCountSummary(
+    counts as Record<SignalType, number>,
+    "No habitat signals yet.",
+  );
 
   updateCursor(habitatId, readerType, readerId, "habitat");
 

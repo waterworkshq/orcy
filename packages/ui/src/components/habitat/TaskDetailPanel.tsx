@@ -26,6 +26,7 @@ import { TaskTimeConstraints } from "./TaskTimeConstraints.js";
 import { TaskEffortSection } from "./TaskEffortSection.js";
 import { FeatureContextSection } from "./MissionContextSection.js";
 import { SiblingTasksSection } from "./SiblingTasksSection.js";
+import { ExperienceSummaryCard } from "../task/ExperienceSummaryCard.js";
 import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
@@ -248,6 +249,11 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
             />
           )}
 
+          <ExperienceSummaryCard
+            taskId={p.task.id}
+            missionId={p.task.missionId ?? p.feature?.id}
+            agents={p.agents}
+          />
           <TaskActivity events={p.events} agents={p.agents} />
           <AttachmentSection taskId={p.task.id} attachments={p.attachments} />
           <TaskCodeEvidence taskId={p.task.id} />

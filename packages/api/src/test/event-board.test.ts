@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getDb, closeDb, initTestDb } from '../db/index.js';
-import * as agentRepo from '../repositories/agent.js';
-import * as columnRepo from '../repositories/column.js';
-import * as habitatRepo from '../repositories/board.js';
-import * as missionRepo from '../repositories/feature.js';
-import * as taskRepo from '../repositories/task.js';
-import { getEventsByHabitatId, getHabitatStats } from '../repositories/events/event-board.js';
-import { agents, columns, habitats, missions, taskEvents, tasks } from '../db/schema/index.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getDb, closeDb, initTestDb } from "../db/index.js";
+import * as agentRepo from "../repositories/agent.js";
+import * as columnRepo from "../repositories/column.js";
+import * as habitatRepo from "../repositories/board.js";
+import * as missionRepo from "../repositories/feature.js";
+import * as taskRepo from "../repositories/task.js";
+import { getEventsByHabitatId, getHabitatStats } from "../repositories/events/event-board.js";
+import { agents, columns, habitats, missions, taskEvents, tasks } from "../db/schema/index.js";
 
 function minutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60_000).toISOString();
@@ -31,12 +31,12 @@ function createHabitatFixture(name: string) {
     habitatId: habitat.id,
     columnId: todo.id,
     title: `${name} Mission`,
-    createdBy: 'test-user',
+    createdBy: "test-user",
   });
   const task = taskRepo.createTask({
     missionId: mission.id,
     title: `${name} Task`,
-    createdBy: 'test-user',
+    createdBy: "test-user",
   });
 
   return { habitat, todo, done, mission, task };
@@ -45,9 +45,9 @@ function createHabitatFixture(name: string) {
 function insertEvent(input: {
   id: string;
   taskId: string;
-  actorType?: 'human' | 'agent' | 'system';
+  actorType?: "human" | "agent" | "system";
   actorId?: string;
-  action: 'created' | 'claimed' | 'started' | 'completed' | 'moved' | 'updated';
+  action: "created" | "claimed" | "started" | "completed" | "moved" | "updated";
   timestamp: string;
   fromColumnId?: string | null;
   toColumnId?: string | null;
@@ -60,8 +60,8 @@ function insertEvent(input: {
     .values({
       id: input.id,
       taskId: input.taskId,
-      actorType: input.actorType ?? 'human',
-      actorId: input.actorId ?? 'user-1',
+      actorType: input.actorType ?? "human",
+      actorId: input.actorId ?? "user-1",
       action: input.action,
       fromColumnId: input.fromColumnId ?? null,
       toColumnId: input.toColumnId ?? null,
@@ -88,43 +88,43 @@ afterEach(() => {
   closeDb();
 });
 
-describe('event-board repository', () => {
-  describe('getEventsByHabitatId', () => {
-    it('returns an empty page when the habitat has no missions', () => {
-      const habitat = habitatRepo.createHabitat({ name: 'Empty Habitat' });
+describe("event-board repository", () => {
+  describe("getEventsByHabitatId", () => {
+    it("returns an empty page when the habitat has no missions", () => {
+      const habitat = habitatRepo.createHabitat({ name: "Empty Habitat" });
 
       const result = getEventsByHabitatId(habitat.id, 10, 0);
 
       expect(result).toEqual({ events: [], total: 0 });
     });
 
-    it('returns enriched events scoped to the requested habitat', () => {
+    it("returns enriched events scoped to the requested habitat", () => {
       const { agent } = agentRepo.createAgent({
-        name: 'event-agent',
-        type: 'claude-code',
-        domain: 'backend',
+        name: "event-agent",
+        type: "claude-code",
+        domain: "backend",
       });
-      const target = createHabitatFixture('Target');
-      const other = createHabitatFixture('Other');
+      const target = createHabitatFixture("Target");
+      const other = createHabitatFixture("Other");
 
       insertEvent({
-        id: 'target-event',
+        id: "target-event",
         taskId: target.task.id,
-        actorType: 'agent',
+        actorType: "agent",
         actorId: agent.id,
-        action: 'moved',
+        action: "moved",
         fromColumnId: target.todo.id,
         toColumnId: target.done.id,
-        fromStatus: 'pending',
-        toStatus: 'done',
-        metadata: { reason: 'finished' },
-        timestamp: '2026-01-02T00:00:00.000Z',
+        fromStatus: "pending",
+        toStatus: "done",
+        metadata: { reason: "finished" },
+        timestamp: "2026-01-02T00:00:00.000Z",
       });
       insertEvent({
-        id: 'other-event',
+        id: "other-event",
         taskId: other.task.id,
-        action: 'updated',
-        timestamp: '2026-01-03T00:00:00.000Z',
+        action: "updated",
+        timestamp: "2026-01-03T00:00:00.000Z",
       });
 
       const result = getEventsByHabitatId(target.habitat.id, 10, 0);
@@ -132,103 +132,112 @@ describe('event-board repository', () => {
       expect(result.total).toBe(1);
       expect(result.events).toHaveLength(1);
       expect(result.events[0]).toMatchObject({
-        id: 'target-event',
+        id: "target-event",
         taskId: target.task.id,
         taskTitle: target.task.title,
         habitatId: target.habitat.id,
-        actorType: 'agent',
+        actorType: "agent",
         actorId: agent.id,
-        actorName: 'event-agent',
-        action: 'moved',
+        actorName: "event-agent",
+        action: "moved",
         fromColumnId: target.todo.id,
         toColumnId: target.done.id,
-        fromColumnName: 'Target Todo',
-        toColumnName: 'Target Done',
-        fromStatus: 'pending',
-        toStatus: 'done',
-        metadata: { reason: 'finished' },
-        timestamp: '2026-01-02T00:00:00.000Z',
+        fromColumnName: "Target Todo",
+        toColumnName: "Target Done",
+        fromStatus: "pending",
+        toStatus: "done",
+        metadata: { reason: "finished" },
+        timestamp: "2026-01-02T00:00:00.000Z",
       });
     });
 
-    it('applies action and actor filters while preserving the total across pagination', () => {
+    it("applies action and actor filters while preserving the total across pagination", () => {
       const { agent } = agentRepo.createAgent({
-        name: 'filter-agent',
-        type: 'codex',
-        domain: 'backend',
+        name: "filter-agent",
+        type: "codex",
+        domain: "backend",
       });
-      const fixture = createHabitatFixture('Filtered');
+      const fixture = createHabitatFixture("Filtered");
 
       insertEvent({
-        id: 'match-newer',
+        id: "match-newer",
         taskId: fixture.task.id,
-        actorType: 'agent',
+        actorType: "agent",
         actorId: agent.id,
-        action: 'completed',
-        timestamp: '2026-01-04T00:00:00.000Z',
+        action: "completed",
+        timestamp: "2026-01-04T00:00:00.000Z",
       });
       insertEvent({
-        id: 'match-older',
+        id: "match-older",
         taskId: fixture.task.id,
-        actorType: 'agent',
+        actorType: "agent",
         actorId: agent.id,
-        action: 'claimed',
-        timestamp: '2026-01-03T00:00:00.000Z',
+        action: "claimed",
+        timestamp: "2026-01-03T00:00:00.000Z",
       });
       insertEvent({
-        id: 'wrong-action',
+        id: "wrong-action",
         taskId: fixture.task.id,
-        actorType: 'agent',
+        actorType: "agent",
         actorId: agent.id,
-        action: 'updated',
-        timestamp: '2026-01-02T00:00:00.000Z',
+        action: "updated",
+        timestamp: "2026-01-02T00:00:00.000Z",
       });
       insertEvent({
-        id: 'wrong-actor',
+        id: "wrong-actor",
         taskId: fixture.task.id,
-        actorType: 'human',
-        actorId: 'user-1',
-        action: 'completed',
-        timestamp: '2026-01-01T00:00:00.000Z',
+        actorType: "human",
+        actorId: "user-1",
+        action: "completed",
+        timestamp: "2026-01-01T00:00:00.000Z",
       });
 
       const result = getEventsByHabitatId(fixture.habitat.id, 1, 1, {
-        action: ['claimed', 'completed'],
-        actorType: 'agent',
+        action: ["claimed", "completed"],
+        actorType: "agent",
         actorId: agent.id,
       });
 
       expect(result.total).toBe(2);
-      expect(result.events.map(event => event.id)).toEqual(['match-older']);
+      expect(result.events.map((event) => event.id)).toEqual(["match-older"]);
     });
 
-    it('applies the since filter', () => {
-      const fixture = createHabitatFixture('Since');
+    it("applies the since filter", () => {
+      const fixture = createHabitatFixture("Since");
       insertEvent({
-        id: 'old-event',
+        id: "old-event",
         taskId: fixture.task.id,
-        action: 'created',
-        timestamp: '2026-01-01T00:00:00.000Z',
+        action: "created",
+        timestamp: "2026-01-01T00:00:00.000Z",
       });
       insertEvent({
-        id: 'new-event',
+        id: "new-event",
         taskId: fixture.task.id,
-        action: 'updated',
-        timestamp: '2026-01-03T00:00:00.000Z',
+        action: "updated",
+        timestamp: "2026-01-03T00:00:00.000Z",
       });
 
       const result = getEventsByHabitatId(fixture.habitat.id, 10, 0, {
-        since: '2026-01-02T00:00:00.000Z',
+        since: "2026-01-02T00:00:00.000Z",
       });
 
       expect(result.total).toBe(1);
-      expect(result.events.map(event => event.id)).toEqual(['new-event']);
+      expect(result.events.map((event) => event.id)).toEqual(["new-event"]);
     });
   });
 
-  describe('getHabitatStats', () => {
-    it('returns zero stats when the habitat has no missions', () => {
-      const habitat = habitatRepo.createHabitat({ name: 'Stats Empty' });
+  describe("getHabitatStats", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("returns zero stats when the habitat has no missions", () => {
+      const habitat = habitatRepo.createHabitat({ name: "Stats Empty" });
 
       const result = getHabitatStats(habitat.id);
 
@@ -239,18 +248,18 @@ describe('event-board repository', () => {
       });
     });
 
-    it('computes cycle time and throughput for completed task events', () => {
-      const fixture = createHabitatFixture('Stats');
+    it("computes cycle time and throughput for completed task events", () => {
+      const fixture = createHabitatFixture("Stats");
       insertEvent({
-        id: 'claimed-event',
+        id: "claimed-event",
         taskId: fixture.task.id,
-        action: 'claimed',
+        action: "claimed",
         timestamp: minutesAgo(90),
       });
       insertEvent({
-        id: 'completed-event',
+        id: "completed-event",
         taskId: fixture.task.id,
-        action: 'completed',
+        action: "completed",
         timestamp: minutesAgo(30),
       });
 

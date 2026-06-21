@@ -1,13 +1,15 @@
-import React from 'react';
-import { X, Eye, EyeOff } from 'lucide-react';
-import type { SignalType } from '../../types/index.js';
-import { SIGNAL_TYPES, SIGNAL_LABELS, SIGNAL_COLORS } from '../../lib/signalConfig.js';
+import React from "react";
+import { X, Eye, EyeOff } from "lucide-react";
+import type { SignalType } from "../../types/index.js";
+import { SIGNAL_TYPES, SIGNAL_LABELS, SIGNAL_COLORS } from "../../lib/signalConfig.js";
 
 interface PulseFilterBarProps {
   activeTypes: SignalType[];
   onToggleType: (type: SignalType) => void;
   hideAuto: boolean;
   onToggleHideAuto: () => void;
+  showExperience: boolean;
+  onToggleShowExperience: () => void;
   resultCount: number;
   onClearAll: () => void;
 }
@@ -17,15 +19,18 @@ export function PulseFilterBar({
   onToggleType,
   hideAuto,
   onToggleHideAuto,
+  showExperience,
+  onToggleShowExperience,
   resultCount,
   onClearAll,
 }: PulseFilterBarProps) {
-  const hasFilters = activeTypes.length > 0 || hideAuto;
+  const hasFilters = activeTypes.length > 0 || hideAuto || !showExperience;
+  const visibleSignalTypes = SIGNAL_TYPES.filter((type) => type !== "experience");
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/30 flex-wrap">
       <div className="flex items-center gap-1 flex-wrap flex-1">
-        {SIGNAL_TYPES.map((type) => {
+        {visibleSignalTypes.map((type) => {
           const isActive = activeTypes.includes(type);
           return (
             <button
@@ -33,14 +38,18 @@ export function PulseFilterBar({
               onClick={() => onToggleType(type)}
               className={`inline-flex items-center px-2 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all ${
                 isActive
-                  ? 'ring-1'
-                  : 'bg-[var(--surface-container-high)] text-[var(--on-surface-variant)] opacity-50 hover:opacity-80'
+                  ? "ring-1"
+                  : "bg-[var(--surface-container-high)] text-[var(--on-surface-variant)] opacity-50 hover:opacity-80"
               }`}
-              style={isActive ? {
-                backgroundColor: `color-mix(in srgb, ${SIGNAL_COLORS[type]} 15%, transparent)`,
-                color: SIGNAL_COLORS[type],
-                borderColor: SIGNAL_COLORS[type],
-              } : undefined}
+              style={
+                isActive
+                  ? {
+                      backgroundColor: `color-mix(in srgb, ${SIGNAL_COLORS[type]} 15%, transparent)`,
+                      color: SIGNAL_COLORS[type],
+                      borderColor: SIGNAL_COLORS[type],
+                    }
+                  : undefined
+              }
             >
               {SIGNAL_LABELS[type]}
             </button>
@@ -51,18 +60,30 @@ export function PulseFilterBar({
           onClick={onToggleHideAuto}
           className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all ${
             hideAuto
-              ? 'bg-[var(--surface-container-high)] text-[var(--on-surface)]'
-              : 'bg-[var(--surface-container-high)] text-[var(--on-surface-variant)] opacity-50 hover:opacity-80'
+              ? "bg-[var(--surface-container-high)] text-[var(--on-surface)]"
+              : "bg-[var(--surface-container-high)] text-[var(--on-surface-variant)] opacity-50 hover:opacity-80"
           }`}
         >
           {hideAuto ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
           Hide Auto
         </button>
+
+        <button
+          onClick={onToggleShowExperience}
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all ${
+            showExperience
+              ? "bg-[var(--surface-container-high)] text-[var(--on-surface)]"
+              : "bg-[var(--surface-container-high)] text-[var(--on-surface-variant)] opacity-50 hover:opacity-80"
+          }`}
+        >
+          {showExperience ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+          {showExperience ? "Hide experience signals" : "Show experience signals"}
+        </button>
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
         <span className="text-[10px] text-[var(--on-surface-variant)]">
-          {resultCount} {resultCount === 1 ? 'signal' : 'signals'}
+          {resultCount} {resultCount === 1 ? "signal" : "signals"}
         </span>
         {hasFilters && (
           <button

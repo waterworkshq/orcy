@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { formatRelativeTime } from "./MissionHeader.js";
 import { PulseReactions } from "./PulseReactions.js";
+import {
+  EXPERIENCE_CATEGORY_BADGES,
+  EXPERIENCE_CATEGORY_LABELS,
+  getExperienceCategory,
+} from "../../lib/experienceSignals.js";
 import type { Pulse, SignalType, PulseReactionCounts } from "../../types/index.js";
 
 const SIGNAL_CONFIG: Record<SignalType, { icon: LucideIcon; label: string; color: string }> = {
@@ -45,15 +50,20 @@ export function PulseSignalCard({
 }: PulseSignalCardProps) {
   const config = SIGNAL_CONFIG[pulse.signalType];
   const Icon = config.icon;
+  const experienceCategory =
+    pulse.signalType === "experience" ? getExperienceCategory(pulse) : null;
+  const isExperience = pulse.signalType === "experience";
 
   return (
     <div
-      className={`rounded-lg border border-[var(--outline-variant)] bg-[var(--surface-container)]/60 overflow-hidden transition-colors hover:bg-[var(--surface-container)] ${
-        pulse.isAuto ? "opacity-70" : ""
-      }`}
+      className={`rounded-lg border border-[var(--outline-variant)] overflow-hidden transition-colors ${
+        isExperience
+          ? "bg-[var(--surface-container-low)]/35 hover:bg-[var(--surface-container-low)]/55"
+          : "bg-[var(--surface-container)]/60 hover:bg-[var(--surface-container)]"
+      } ${pulse.isAuto ? "opacity-70" : ""}`}
       style={{ borderLeftWidth: "3px", borderLeftColor: config.color }}
     >
-      <div className="p-3 space-y-2">
+      <div className={`${isExperience ? "p-2.5 space-y-1.5" : "p-3 space-y-2"}`}>
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
@@ -65,6 +75,13 @@ export function PulseSignalCard({
             <Icon className="h-3 w-3" />
             {config.label}
           </span>
+          {experienceCategory && (
+            <span
+              className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${EXPERIENCE_CATEGORY_BADGES[experienceCategory]}`}
+            >
+              {EXPERIENCE_CATEGORY_LABELS[experienceCategory]}
+            </span>
+          )}
           <span
             className={`text-[11px] font-medium text-[var(--on-surface)] ${pulse.isAuto ? "text-[11px]" : "text-xs"}`}
           >
@@ -88,13 +105,13 @@ export function PulseSignalCard({
 
         <div className="space-y-1">
           <p
-            className={`font-semibold text-[var(--on-surface)] ${pulse.isAuto ? "text-xs" : "text-sm"}`}
+            className={`font-semibold text-[var(--on-surface)] ${pulse.isAuto || isExperience ? "text-xs" : "text-sm"}`}
           >
             {pulse.subject}
           </p>
           {pulse.body && (
             <p
-              className={`text-[var(--on-surface-variant)] whitespace-pre-wrap ${pulse.isAuto ? "text-[11px] leading-relaxed" : "text-xs leading-relaxed"}`}
+              className={`text-[var(--on-surface-variant)] whitespace-pre-wrap ${pulse.isAuto || isExperience ? "text-[11px] leading-relaxed" : "text-xs leading-relaxed"}`}
             >
               {pulse.body.length > 300 ? `${pulse.body.slice(0, 300)}...` : pulse.body}
             </p>

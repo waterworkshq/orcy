@@ -81,6 +81,8 @@ export const queryKeys = {
   pulse: {
     all: ["pulses"] as const,
     byMission: (missionId: string) => [...queryKeys.pulse.all, missionId] as const,
+    byTask: (missionId: string, taskId: string) =>
+      [...queryKeys.pulse.all, "byTask", missionId, taskId] as const,
     byBoard: (boardId: string) => [...queryKeys.pulse.all, "byBoard", boardId] as const,
     replies: (pulseId: string) => [...queryKeys.pulse.all, "replies", pulseId] as const,
   },

@@ -293,6 +293,12 @@ describe("pulse repository", () => {
       const r = getPulsesByMission("m1", { signalType: "experience" });
       expect(r.pulses[0].signalType).toBe("experience");
     });
+    it("filters by taskId for task-scoped timeline summaries", () => {
+      _selectAllResult = [makeRow({ signal_type: "experience", task_id: "task-42" })];
+      _selectGetResult = { total: 1 };
+      const r = getPulsesByMission("m1", { signalType: "experience", taskId: "task-42" });
+      expect(r.pulses[0].taskId).toBe("task-42");
+    });
     it("returns empty when no pulses", () => {
       _selectAllResult = [];
       _selectGetResult = { total: 0 };
@@ -428,16 +434,55 @@ describe("pulse repository", () => {
     it("builds digest with signals present", () => {
       _selectAllQueue = [
         [],
-        [{ total: 3 }],
-        [{ signalType: "blocker", total: 3 }],
-        [makeRow({ signal_type: "blocker", id: "highlight-pulse" })],
-        [makeRow({ signal_type: "context", subject: "Summary item" })],
+        [{ total: 4 }],
+        [
+          { signalType: "blocker", total: 3 },
+          { signalType: "experience", total: 1 },
+        ],
+        [
+          makeRow({ signal_type: "blocker", id: "highlight-pulse" }),
+          makeRow({
+            signal_type: "experience",
+            id: "stuck-pulse",
+            subject: "Agent got stuck",
+            metadata: JSON.stringify({ experience: "stuck" }),
+          }),
+        ],
       ];
       const digest = getPulseDigest("m1", "human", "u1");
-      expect(digest.newSinceLastCheck).toBe(3);
+      expect(digest.newSinceLastCheck).toBe(4);
       expect(digest.counts.blocker).toBe(3);
+      expect(digest.counts.experience).toBe(1);
       expect(digest.highlights[0].id).toBe("highlight-pulse");
-      expect(digest.summary).toBe("Summary item. 3 more signals.");
+      expect(digest.highlights[1].id).toBe("stuck-pulse");
+      expect(digest.summary).toBe("4 signals: 3 blockers, 1 experiences.");
+    });
+
+    it("builds habitat digest with experience counts", () => {
+      _selectAllQueue = [
+        [],
+        [{ total: 2 }],
+        [
+          { signalType: "experience", total: 1 },
+          { signalType: "question", total: 1 },
+        ],
+        [
+          makeRow({
+            scope: "habitat",
+            signal_type: "experience",
+            id: "stuck-habitat-pulse",
+            metadata: JSON.stringify({ experience: "stuck" }),
+          }),
+        ],
+      ];
+
+      const digest = getHabitatPulseDigest("h1", "human", "u1");
+
+      expect(digest.newSinceLastCheck).toBe(2);
+      expect(digest.counts.experience).toBe(1);
+      expect(digest.counts.question).toBe(1);
+      expect(digest.highlights[0].id).toBe("stuck-habitat-pulse");
+      expect(digest.summary).toBe("2 signals: 1 questions, 1 experiences.");
     });
   });
 });

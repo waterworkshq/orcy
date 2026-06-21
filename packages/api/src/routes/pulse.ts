@@ -59,6 +59,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       const query = request.query as {
         signalType?: string;
         signalTypes?: string;
+        taskId?: string;
         isAuto?: string;
         since?: string;
         limit?: string;
@@ -79,6 +80,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
       const result = pulseRepo.getPulsesByMission(missionId, {
         signalTypes,
         signalType: query.signalType as pulseRepo.SignalType | undefined,
+        taskId: query.taskId,
         isAuto: query.isAuto !== undefined ? query.isAuto === "true" : undefined,
         since: validateIso8601(query.since),
         limit,
@@ -192,6 +194,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         signalType?: string;
         signalTypes?: string;
         scope?: string;
+        taskId?: string;
         limit?: string;
         offset?: string;
       };
@@ -204,6 +207,7 @@ export async function pulseRoutes(fastify: FastifyInstance): Promise<void> {
         signalTypes,
         signalType: query.signalType as pulseRepo.SignalType | undefined,
         scope: query.scope as pulseRepo.PulseScope | undefined,
+        taskId: query.taskId,
         limit,
         offset,
       });

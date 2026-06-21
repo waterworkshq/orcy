@@ -121,6 +121,13 @@ vi.mock("./ReviewPanel.js", () => ({
 vi.mock("./TaskActivity.js", () => ({
   TaskActivity: () => null,
 }));
+vi.mock("../task/ExperienceSummaryCard.js", () => ({
+  ExperienceSummaryCard: ({ taskId, missionId }: any) => (
+    <div data-testid="experience-summary-card">
+      {taskId}:{missionId}
+    </div>
+  ),
+}));
 vi.mock("./CommentSection.js", () => ({
   CommentSection: () => null,
 }));
@@ -337,5 +344,11 @@ describe("TaskDetailPanel", () => {
 
     const badge = screen.getByTestId("badge");
     expect(badge).toHaveClass("text-[10px]");
+  });
+
+  it("renders experience summary before activity", () => {
+    render(<TaskDetailPanel />);
+
+    expect(screen.getByTestId("experience-summary-card")).toHaveTextContent("task-1:feat-1");
   });
 });
