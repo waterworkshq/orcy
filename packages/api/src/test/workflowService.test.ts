@@ -167,15 +167,9 @@ describe("workflowService gate evaluation", () => {
     const { initWorkflowService } = await import("../services/workflowService.js");
     initWorkflowService();
 
-    for (const action of [
-      "started",
-      "submitted",
-      "claimed",
-      "rejected",
-      "released",
-      "failed",
-      "created",
-    ]) {
+    // Note: 'failed', 'rejected', and 'released' ARE relevant — they trigger on_fail
+    // gate evaluation since F2 landed. Only mid-lifecycle actions are non-relevant.
+    for (const action of ["started", "submitted", "claimed", "created", "updated", "delegated"]) {
       transitionHook!({ taskId: "task-x", action, habitatId: "h1" });
     }
 

@@ -7,9 +7,13 @@ import * as pulseService from "./pulseService.js";
 import { evaluateCondition } from "./automationEvaluator.js";
 import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
+import * as taskCrudRepo from "../repositories/taskCrud.js";
+import * as agentRepo from "../repositories/agent.js";
+import * as failureContextService from "./failureContextService.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
+  WorkflowFailureHandlerConfig,
   SignalMatch,
   AutomationCondition,
 } from "../models/index.js";
@@ -85,7 +89,14 @@ function handleTransition(opts: {
   const gates = db
     .select({
       id: taskWorkflowGates.id,
+      workflowId: taskWorkflowGates.workflowId,
+      missionId: taskWorkflowGates.missionId,
+      habitatId: taskWorkflowGates.habitatId,
+      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
       satisfied: taskWorkflowGates.satisfied,
+      recoveryDepth: taskWorkflowGates.recoveryDepth,
+      recoveryTaskId: taskWorkflowGates.recoveryTaskId,
+      matchConfig: taskWorkflowGates.matchConfig,
       condition: taskWorkflowGates.condition,
     })
     .from(taskWorkflowGates)
@@ -102,6 +113,7 @@ function handleTransition(opts: {
   if (gates.length === 0) return;
 
   const now = new Date().toISOString();
+  const newlySatisfied: (typeof gates)[number][] = [];
   for (const gate of gates) {
     if (gate.satisfied) continue;
     try {
@@ -126,22 +138,249 @@ function handleTransition(opts: {
         .set({ satisfied: true, satisfiedAt: now })
         .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
         .run();
+      newlySatisfied.push(gate);
     } catch (err) {
       logger.error({ err, gateId: gate.id }, "Failed to satisfy workflow gate");
     }
   }
+
+  if (newlySatisfied.length === 0) return;
+
+  if (gateType === "on_fail") {
+    handleFailureCapture(opts);
+    for (const gate of newlySatisfied) {
+      try {
+        spawnRecoveryForGate(gate, opts);
+      } catch (err) {
+        logger.error({ err, gateId: gate.id }, "Failed to spawn recovery task");
+      }
+    }
+  }
 }
 
-function actionToGateType(action: string): "on_complete" | "on_approve" | null {
+function handleFailureCapture(opts: {
+  taskId: string;
+  action: string;
+  metadata?: Record<string, unknown>;
+}): void {
+  const failureKind = failureContextService.actionToFailureKind(opts.action);
+  if (!failureKind) return;
+  try {
+    const failureReason =
+      (opts.metadata?.["reason"] as string | undefined) ??
+      (opts.metadata?.["rejectionReason"] as string | undefined) ??
+      "";
+    failureContextService.buildFailureContext(opts.taskId, failureKind, { failureReason });
+  } catch (err) {
+    logger.error({ err, taskId: opts.taskId }, "Failed to build failure context");
+  }
+}
+
+function spawnRecoveryForGate(
+  gate: {
+    id: string;
+    workflowId: string;
+    missionId: string;
+    habitatId: string;
+    downstreamTaskId: string;
+    recoveryDepth: number;
+    recoveryTaskId: string | null;
+    matchConfig: Record<string, unknown> | null;
+  },
+  opts: { taskId: string; action: string; metadata?: Record<string, unknown> },
+): void {
+  if (gate.recoveryTaskId) {
+    // Recovery already spawned for this gate — idempotent skip.
+    return;
+  }
+
+  const effectiveHandler = resolveEffectiveFailureHandler(gate);
+  if (effectiveHandler === null) return;
+
+  if (gate.recoveryDepth >= MAX_RECOVERY_DEPTH) {
+    logger.warn(
+      { gateId: gate.id, recoveryDepth: gate.recoveryDepth, taskId: opts.taskId },
+      "Recovery depth cap reached; not spawning a deeper recovery task (audit + notification wiring lands in F5)",
+    );
+    return;
+  }
+
+  const failedTask = taskCrudRepo.getTaskById(opts.taskId);
+  if (!failedTask) {
+    logger.warn(
+      { gateId: gate.id, taskId: opts.taskId },
+      "Failed task missing during recovery spawn",
+    );
+    return;
+  }
+
+  const recoveryTask = createRecoveryTask(failedTask, effectiveHandler, opts);
+  if (!recoveryTask) return;
+
+  const db = getDb();
+  try {
+    // Create the next-depth on_fail gate. The new gate's upstream is the RECOVERY task
+    // (so it only fires if the recovery itself fails, enabling recovery-of-recovery chains
+    // rather than re-firing on every repeat of the original failure event). The downstream
+    // mirrors the original gate's downstream so a successful recovery also unblocks the same
+    // downstream task (consistent with F4 redemption semantics).
+    db.insert(taskWorkflowGates)
+      .values({
+        id: crypto.randomUUID(),
+        workflowId: gate.workflowId,
+        missionId: gate.missionId,
+        habitatId: gate.habitatId,
+        upstreamTaskId: recoveryTask.id,
+        downstreamTaskId: gate.downstreamTaskId,
+        gateType: "on_fail",
+        matchConfig: null,
+        condition: null,
+        satisfied: false,
+        recoveryDepth: gate.recoveryDepth + 1,
+      })
+      .run();
+
+    // Link the original gate back to the spawned recovery task (idempotency marker).
+    db.update(taskWorkflowGates)
+      .set({ recoveryTaskId: recoveryTask.id })
+      .where(eq(taskWorkflowGates.id, gate.id))
+      .run();
+
+    // Link the failure context (if one was just built) to the recovery task.
+    const ctx = failureContextService.getFailureContext(failedTask.id);
+    if (ctx) {
+      failureContextService.linkRecoveryTask(ctx.id, recoveryTask.id);
+    }
+  } catch (err) {
+    logger.error(
+      { err, gateId: gate.id, recoveryTaskId: recoveryTask.id },
+      "Failed to wire recovery task gate linkage",
+    );
+  }
+}
+
+/** Maximum `recoveryDepth` allowed before recovery spawning is suppressed; gates at this depth fire but do not spawn deeper recoveries (two-attempts cap). */
+export const MAX_RECOVERY_DEPTH = 2;
+
+function resolveEffectiveFailureHandler(gate: {
+  matchConfig: Record<string, unknown> | null;
+  workflowId: string;
+}): WorkflowFailureHandlerConfig | null {
+  // Per-gate override lives in matchConfig.{failureHandlerOverride}:
+  //   - present and null -> explicit disable (returns null)
+  //   - present and an object -> use that handler
+  //   - absent (no key) -> fall back to workflow-level failureHandler
+  const matchConfig = gate.matchConfig as {
+    failureHandlerOverride?: WorkflowFailureHandlerConfig | null;
+  } | null;
+  if (matchConfig && Object.prototype.hasOwnProperty.call(matchConfig, "failureHandlerOverride")) {
+    return matchConfig.failureHandlerOverride ?? null;
+  }
+
+  const db = getDb();
+  const workflow = db
+    .select({ failureHandler: workflows.failureHandler })
+    .from(workflows)
+    .where(eq(workflows.id, gate.workflowId))
+    .get();
+  return (workflow?.failureHandler as WorkflowFailureHandlerConfig | null) ?? null;
+}
+
+function createRecoveryTask(
+  failedTask: {
+    id: string;
+    missionId: string;
+    title: string;
+    rejectionReason: string | null;
+    assignedAgentId: string | null;
+  },
+  handler: WorkflowFailureHandlerConfig,
+  opts: { action: string; metadata?: Record<string, unknown> },
+): { id: string } | null {
+  const variables = collectSubstitutionVariables(failedTask, opts);
+
+  const template = handler.recoveryTaskTemplate;
+  const title = substituteTemplate(template.title, variables);
+  const description = template.description
+    ? substituteTemplate(template.description, variables)
+    : "";
+
+  try {
+    const recoveryTask = taskCrudRepo.createTask({
+      missionId: failedTask.missionId,
+      title,
+      description,
+      requiredCapabilities: handler.agentSelector?.requiredCapabilities,
+      requiredDomain: handler.agentSelector?.requiredDomain ?? null,
+      createdBy: "workflow-recovery",
+    });
+
+    // Apply explicit agent assignment after creation (createTask has no assignedAgentId param).
+    if (handler.agentSelector?.assignedAgentId) {
+      taskCrudRepo.updateTask(recoveryTask.id, {
+        assignedAgentId: handler.agentSelector.assignedAgentId,
+      });
+    }
+
+    return recoveryTask;
+  } catch (err) {
+    logger.error({ err, failedTaskId: failedTask.id }, "Failed to create recovery task row");
+    return null;
+  }
+}
+
+function collectSubstitutionVariables(
+  failedTask: {
+    id: string;
+    title: string;
+    rejectionReason: string | null;
+    assignedAgentId: string | null;
+  },
+  opts: { action: string; metadata?: Record<string, unknown> },
+): Record<string, string> {
+  const failedAgentId = failedTask.assignedAgentId ?? "";
+  let failedAgentName = "";
+  if (failedAgentId) {
+    const agent = agentRepo.getAgentById(failedAgentId);
+    failedAgentName = agent?.name ?? "";
+  }
+
+  const failureReason =
+    (opts.metadata?.["reason"] as string | undefined) ??
+    (opts.metadata?.["rejectionReason"] as string | undefined) ??
+    failedTask.rejectionReason ??
+    "";
+
+  return {
+    failedTaskId: failedTask.id,
+    failedTaskTitle: failedTask.title,
+    failureReason,
+    failedAgentId,
+    failedAgentName,
+  };
+}
+
+/** Substitutes `{{key}}` placeholders in `text` with values from `vars`, leaving unknown keys intact as empty strings. */
+export function substituteTemplate(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
+}
+
+function actionToGateType(action: string): GateType | null {
   switch (action) {
     case "completed":
       return "on_complete";
     case "approved":
       return "on_approve";
+    case "failed":
+    case "rejected":
+    case "released":
+      return "on_fail";
     default:
       return null;
   }
 }
+
+type GateType = "on_complete" | "on_approve" | "on_fail";
 
 function handlePulseCreated(pulse: Pulse): void {
   const db = getDb();
