@@ -15,6 +15,7 @@ const createTemplateSchema = z.object({
   labels: z.array(z.string()).optional(),
   requiredDomain: z.string().nullable().optional(),
   requiredCapabilities: z.array(z.string()).optional(),
+  tasksTemplate: z.array(z.any()).optional(),
   workflowTemplate: z.any().optional().nullable(),
 });
 
@@ -27,6 +28,7 @@ const updateTemplateSchema = z.object({
   labels: z.array(z.string()).optional(),
   requiredDomain: z.string().nullable().optional(),
   requiredCapabilities: z.array(z.string()).optional(),
+  tasksTemplate: z.array(z.any()).optional(),
   workflowTemplate: z.any().optional().nullable(),
 });
 
@@ -79,6 +81,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         labels: parsed.data.labels,
         requiredDomain: parsed.data.requiredDomain,
         requiredCapabilities: parsed.data.requiredCapabilities,
+        tasksTemplate: parsed.data.tasksTemplate,
         workflowTemplate: parsed.data.workflowTemplate,
         createdBy: userId,
       });
@@ -111,6 +114,7 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         labels: parsed.data.labels,
         requiredDomain: parsed.data.requiredDomain,
         requiredCapabilities: parsed.data.requiredCapabilities,
+        tasksTemplate: parsed.data.tasksTemplate,
         workflowTemplate: parsed.data.workflowTemplate,
       });
 

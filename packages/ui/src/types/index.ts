@@ -141,6 +141,17 @@ import type {
   RemoteActionKind,
   RemoteAuditMetadata,
   SignalType,
+  // Workflow types
+  GateType,
+  JoinMode,
+  SignalMatch,
+  AutomationMatch,
+  ExperienceCategory,
+  WorkflowFailureHandlerConfig,
+  WorkflowTemplateGate,
+  WorkflowTemplateVariable,
+  WorkflowTemplateDefinition,
+  AutomationCondition,
 } from "@orcy/shared";
 
 export type {
@@ -285,6 +296,16 @@ export type {
   RemoteActionKind,
   RemoteAuditMetadata,
   SignalType,
+  GateType,
+  JoinMode,
+  SignalMatch,
+  AutomationMatch,
+  ExperienceCategory,
+  WorkflowFailureHandlerConfig,
+  WorkflowTemplateGate,
+  WorkflowTemplateVariable,
+  WorkflowTemplateDefinition,
+  AutomationCondition,
 };
 
 // ---------------------------------------------------------------------------

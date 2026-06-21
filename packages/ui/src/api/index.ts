@@ -737,6 +737,8 @@ export const api = {
         labels?: string[];
         requiredDomain?: string | null;
         requiredCapabilities?: string[];
+        tasksTemplate?: TaskTemplateEntry[];
+        workflowTemplate?: unknown;
       },
     ) =>
       request<{ template: MissionTemplate }>(`/habitats/${boardId}/templates`, {
@@ -753,6 +755,8 @@ export const api = {
         labels?: string[];
         requiredDomain?: string | null;
         requiredCapabilities?: string[];
+        tasksTemplate?: TaskTemplateEntry[];
+        workflowTemplate?: unknown;
       },
     ) =>
       request<{ template: MissionTemplate }>(`/templates/${id}`, {
@@ -1758,7 +1762,10 @@ export const api = {
     listInvites: (habitatId: string) =>
       request<{ invites: unknown[] }>(`/habitats/${habitatId}/remote-access/invites`),
     createInvite: (habitatId: string, body: Record<string, unknown>) =>
-      request(`/habitats/${habitatId}/remote-access/invites`, { method: "POST", body: JSON.stringify(body) }),
+      request(`/habitats/${habitatId}/remote-access/invites`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     revokeInvite: (habitatId: string, inviteId: string, body?: Record<string, unknown>) =>
       request(`/habitats/${habitatId}/remote-access/invites/${inviteId}/revoke`, {
         method: "POST",
@@ -1809,7 +1816,10 @@ export const api = {
         body: JSON.stringify(body),
       }),
     previewGrant: (habitatId: string, body: Record<string, unknown>) =>
-      request(`/habitats/${habitatId}/remote-access/grants/preview`, { method: "POST", body: JSON.stringify(body) }),
+      request(`/habitats/${habitatId}/remote-access/grants/preview`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
 
     // Credentials
     createCredential: (habitatId: string, participantId: string, body: Record<string, unknown>) =>
@@ -1851,7 +1861,10 @@ export const api = {
     listWebhookEndpoints: (habitatId: string) =>
       request<{ endpoints: unknown[] }>(`/habitats/${habitatId}/remote-access/webhook-endpoints`),
     createWebhookEndpoint: (habitatId: string, body: Record<string, unknown>) =>
-      request(`/habitats/${habitatId}/remote-access/webhook-endpoints`, { method: "POST", body: JSON.stringify(body) }),
+      request(`/habitats/${habitatId}/remote-access/webhook-endpoints`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
     approveWebhookEndpoint: (habitatId: string, endpointId: string) =>
       request(`/habitats/${habitatId}/remote-access/webhook-endpoints/${endpointId}/approve`, {
         method: "POST",
