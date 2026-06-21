@@ -4,6 +4,7 @@ import type {
   SkillCategory,
   CreateSignalInput,
 } from "../repositories/habitatSkill.js";
+import type { ExperienceCategory } from "@orcy/shared";
 import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as pulseService from "./pulseService.js";
@@ -20,9 +21,32 @@ const SKILL_CATEGORY_MAP: Record<string, SkillCategory> = {
   handoff: "agent_insight",
 };
 
+/**
+ * Maps an agent self-reporting {@link ExperienceCategory} to the {@link SkillCategory} used for habitat skill ingestion.
+ * Per the locked v0.20 decision: `stuck`/`confused`/`backtrack` → pitfall, `surprised`/`ambiguous` → domain_knowledge,
+ * `sidetracked` → pitfall (the codebase has no `anti_patterns` enum value; `pitfall` is the closest semantic fit and
+ * preserves the "thing to avoid" intent), `smooth` → pattern.
+ */
+export const EXPERIENCE_CATEGORY_TO_SKILL: Record<ExperienceCategory, SkillCategory> = {
+  stuck: "pitfall",
+  confused: "pitfall",
+  backtrack: "pitfall",
+  surprised: "domain_knowledge",
+  ambiguous: "domain_knowledge",
+  sidetracked: "pitfall",
+  smooth: "pattern",
+};
+
 /** Maps a raw pulse `signalType` string to the corresponding {@link SkillCategory}, defaulting to `agent_insight` when the type is unknown; no side effects. */
 export function classifyPulseToCategory(signalType: string): SkillCategory {
   return SKILL_CATEGORY_MAP[signalType] ?? "agent_insight";
+}
+
+/** Maps an agent self-reporting {@link ExperienceCategory} to its target {@link SkillCategory}, defaulting to `agent_insight` for unknown values; no side effects. */
+export function classifyExperienceToCategory(category: string): SkillCategory {
+  return (
+    (EXPERIENCE_CATEGORY_TO_SKILL as Record<string, SkillCategory>)[category] ?? "agent_insight"
+  );
 }
 
 /** Returns a stable, lowercased cluster key for a free-text subject (truncated to 80 chars and suffixed with a hash) so semantically equivalent strings collapse to the same `clusterKey` on a {@link HabitatSkillSignal}; no side effects. */
@@ -182,6 +206,39 @@ export function ingestFromPulse(opts: {
     });
   } catch (err) {
     logger.error({ err }, "Habitat skill signal ingestion failed (pulse)");
+  }
+}
+
+/**
+ * Upserts a {@link HabitatSkillSignal} for an experience self-report, mapping the agent's `experience` category to a
+ * skill category (pitfall for stuck/confused/backtrack/sidetracked, domain_knowledge for surprised/ambiguous, pattern
+ * for smooth) and recording `sourceSignalType: "experience"` so downstream filters can recover the implicit provenance;
+ * side effect: persists via the repository, logs and swallows errors, and skips system-originated signals.
+ */
+export function ingestExperienceSignal(opts: {
+  habitatId: string;
+  subject: string;
+  body: string;
+  pulseId: string;
+  fromType: "human" | "agent" | "system" | "remote_human" | "remote_orcy";
+  fromId: string;
+  experience: ExperienceCategory;
+}): void {
+  try {
+    if (opts.fromType === "system") return;
+    const skillCategory = classifyExperienceToCategory(opts.experience);
+    ingestSignal({
+      habitatId: opts.habitatId,
+      skillCategory,
+      sourceSignalType: "experience",
+      subject: opts.subject,
+      content: opts.body,
+      sourceType: "pulse",
+      sourceId: opts.pulseId,
+      agentId: opts.fromId,
+    });
+  } catch (err) {
+    logger.error({ err }, "Habitat skill signal ingestion failed (experience)");
   }
 }
 
@@ -447,6 +504,21 @@ export async function regenerateAllSkills(): Promise<{ regenerated: number; erro
 /** Subscribes the pulse, task lifecycle, and comment creation events to their corresponding ingest functions; side effect: registers listeners on upstream services and must be called once at startup. */
 export function initSkillHooks(): void {
   pulseService.onPulseCreated((pulse) => {
+    if (pulse.signalType === "experience") {
+      const experience = pulse.metadata?.experience as ExperienceCategory | undefined;
+      if (!experience) return;
+      ingestExperienceSignal({
+        habitatId: pulse.habitatId,
+        subject: pulse.subject,
+        body: pulse.body,
+        pulseId: pulse.id,
+        fromType: pulse.fromType,
+        fromId: pulse.fromId,
+        experience,
+      });
+      return;
+    }
+
     ingestFromPulse({
       habitatId: pulse.habitatId,
       signalType: pulse.signalType,
