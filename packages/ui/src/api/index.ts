@@ -308,6 +308,7 @@ export const api = {
         search?: string;
         assignedAgentId?: string;
         isArchived?: boolean;
+        hasUnmetWorkflowGates?: boolean;
         limit?: number;
         offset?: number;
         sortBy?: string;
@@ -320,6 +321,8 @@ export const api = {
       if (filters?.search) params.set("search", filters.search);
       if (filters?.assignedAgentId) params.set("assignedAgentId", filters.assignedAgentId);
       if (filters?.isArchived !== undefined) params.set("isArchived", String(filters.isArchived));
+      if (filters?.hasUnmetWorkflowGates !== undefined)
+        params.set("hasUnmetWorkflowGates", String(filters.hasUnmetWorkflowGates));
       if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
       if (filters?.offset !== undefined) params.set("offset", String(filters.offset));
       if (filters?.sortBy) params.set("sortBy", filters.sortBy);

@@ -1,5 +1,11 @@
 import { getDb } from "../db/index.js";
-import { tasks, taskDependencies, missions, missionDependencies } from "../db/schema/index.js";
+import {
+  tasks,
+  taskDependencies,
+  missions,
+  missionDependencies,
+  taskWorkflowGates,
+} from "../db/schema/index.js";
 import {
   eq,
   and,
@@ -11,6 +17,7 @@ import {
   count,
   notInArray,
   notExists,
+  exists,
   inArray,
   asc,
   desc,
@@ -38,6 +45,7 @@ export interface TaskListFilters {
   isArchived?: boolean;
   sortBy?: TaskSortField;
   sortDirection?: "asc" | "desc";
+  hasUnmetWorkflowGates?: boolean;
 }
 
 export function getTasksByMissionId(
@@ -146,19 +154,19 @@ export function getAvailableTasksForAgent(
   const priorityOrder = priorityOrderExpr(outerTasks.priority);
 
   return filters?.limit
-    ? (db
+    ? db
         .select()
         .from(outerTasks)
         .where(and(...conditions))
         .orderBy(priorityOrder, asc(outerTasks.createdAt))
         .limit(filters.limit)
-        .all())
-    : (db
+        .all()
+    : db
         .select()
         .from(outerTasks)
         .where(and(...conditions))
         .orderBy(priorityOrder, asc(outerTasks.createdAt))
-        .all());
+        .all();
 }
 
 export function getTasksByDependency(dependsOnId: string): Task[] {
@@ -237,6 +245,21 @@ export function getTasksByHabitatId(
   } else if (filters?.assignedAgentId) {
     conditions.push(eq(tasks.assignedAgentId, filters.assignedAgentId));
   }
+  if (filters?.hasUnmetWorkflowGates === true) {
+    conditions.push(
+      exists(
+        db
+          .select({ id: taskWorkflowGates.id })
+          .from(taskWorkflowGates)
+          .where(
+            and(
+              eq(taskWorkflowGates.downstreamTaskId, tasks.id),
+              eq(taskWorkflowGates.satisfied, false),
+            ),
+          ),
+      ),
+    );
+  }
 
   const where = and(...conditions);
 
@@ -279,5 +302,5 @@ export function getTasksByHabitatId(
           .orderBy(...(orderByClauses as any))
           .all();
 
-  return { tasks: results , total };
+  return { tasks: results, total };
 }

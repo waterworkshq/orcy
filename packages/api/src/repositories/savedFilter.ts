@@ -105,6 +105,7 @@ export function seedBuiltinFilters(habitatId: string): void {
   const builtins: Array<{ name: string; config: Record<string, unknown> }> = [
     { name: "High Priority", config: { priority: "critical" } },
     { name: "Blocked", config: { status: "pending", hasUnmetDeps: true } },
+    { name: "Blocked by Workflow", config: { status: "pending", hasUnmetWorkflowGates: true } },
   ];
 
   for (const builtin of builtins) {

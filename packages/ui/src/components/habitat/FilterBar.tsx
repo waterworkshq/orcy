@@ -103,6 +103,7 @@ export const FilterBar = React.memo(function FilterBar({
     if (config.status) next.set("status", config.status as string);
     if (config.assignedAgentId) next.set("assignedAgentId", config.assignedAgentId as string);
     if (config.columnId) next.set("columnId", config.columnId as string);
+    if (config.hasUnmetWorkflowGates) next.set("hasUnmetWorkflowGates", "true");
     setSearchParams(next);
     setViewsOpen(false);
   }
@@ -116,6 +117,8 @@ export const FilterBar = React.memo(function FilterBar({
     if (searchParams.get("assignedAgentId"))
       config.assignedAgentId = searchParams.get("assignedAgentId");
     if (searchParams.get("columnId")) config.columnId = searchParams.get("columnId");
+    if (searchParams.get("hasUnmetWorkflowGates"))
+      config.hasUnmetWorkflowGates = searchParams.get("hasUnmetWorkflowGates") === "true";
 
     createMutation.mutate(
       { name: saveName.trim(), filterConfig: config },
