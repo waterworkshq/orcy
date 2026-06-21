@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
-import { workflows, taskWorkflowGates } from "../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { workflows, taskWorkflowGates, failureContexts } from "../db/schema/index.js";
+import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { onTransition } from "./tasks/transition-emitter.js";
 import * as pulseService from "./pulseService.js";
@@ -85,6 +85,18 @@ function handleTransition(opts: {
   const gateType = actionToGateType(opts.action);
   if (!gateType) return;
 
+  // F4 redemption runs BEFORE the gate-satisfaction loop because a recovery task
+  // typically has no on_approve/on_complete gates of its own — the early return
+  // when no gates match would otherwise skip redemption entirely. Redemption is
+  // independent of this task's own gate satisfaction.
+  if (gateType === "on_complete" || gateType === "on_approve") {
+    try {
+      handleRedemptionIfNeeded(opts);
+    } catch (err) {
+      logger.error({ err, taskId: opts.taskId, action: opts.action }, "Redemption hook error");
+    }
+  }
+
   const db = getDb();
   const gates = db
     .select({
@@ -144,9 +156,7 @@ function handleTransition(opts: {
     }
   }
 
-  if (newlySatisfied.length === 0) return;
-
-  if (gateType === "on_fail") {
+  if (newlySatisfied.length > 0 && gateType === "on_fail") {
     handleFailureCapture(opts);
     for (const gate of newlySatisfied) {
       try {
@@ -156,6 +166,81 @@ function handleTransition(opts: {
       }
     }
   }
+}
+
+function handleRedemptionIfNeeded(opts: {
+  taskId: string;
+  action: string;
+  habitatId: string;
+}): void {
+  const db = getDb();
+  // Find unresolved failure contexts where THIS task is the spawned recovery task.
+  // Per the F2+F3 gate-orientation deviation, redemption linkage is via
+  // failureContexts.recoveryTaskId (direct reference), NOT via gate edges.
+  const contexts = db
+    .select({
+      id: failureContexts.id,
+      failedTaskId: failureContexts.failedTaskId,
+      habitatId: failureContexts.habitatId,
+    })
+    .from(failureContexts)
+    .where(and(eq(failureContexts.recoveryTaskId, opts.taskId), isNull(failureContexts.resolvedAt)))
+    .all();
+
+  if (contexts.length === 0) return;
+
+  const now = new Date().toISOString();
+  for (const ctx of contexts) {
+    try {
+      redeemOneContext(ctx, now);
+    } catch (err) {
+      logger.error(
+        { err, contextId: ctx.id, failedTaskId: ctx.failedTaskId },
+        "Failed to redeem failure context",
+      );
+    }
+  }
+}
+
+function redeemOneContext(
+  ctx: { id: string; failedTaskId: string; habitatId: string },
+  now: string,
+): void {
+  const db = getDb();
+  // Satisfy every unsatisfied on_complete / on_approve gate upstream of the
+  // original failed task. Idempotent at SQL level via WHERE satisfied = false.
+  const gates = db
+    .select({ id: taskWorkflowGates.id })
+    .from(taskWorkflowGates)
+    .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
+    .where(
+      and(
+        eq(taskWorkflowGates.upstreamTaskId, ctx.failedTaskId),
+        inArray(taskWorkflowGates.gateType, ["on_complete", "on_approve"]),
+        eq(taskWorkflowGates.satisfied, false),
+        eq(workflows.status, "active"),
+      ),
+    )
+    .all();
+
+  for (const gate of gates) {
+    db.update(taskWorkflowGates)
+      .set({ satisfied: true, satisfiedAt: now })
+      .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
+      .run();
+  }
+
+  // Resolve the failure context so re-firing approved/completed is a no-op.
+  failureContextService.resolveFailureContext(ctx.id, "redeemed");
+
+  logger.info(
+    {
+      contextId: ctx.id,
+      failedTaskId: ctx.failedTaskId,
+      gatesSatisfied: gates.length,
+    },
+    "Recovery redeemed original failure (workflow_recovery_succeeded emission lands in F5)",
+  );
 }
 
 function handleFailureCapture(opts: {
