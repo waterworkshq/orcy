@@ -3,8 +3,10 @@ import { workflows, taskWorkflowGates } from "../db/schema/index.js";
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { onTransition } from "./tasks/transition-emitter.js";
+import * as pulseService from "./pulseService.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
-import type { WorkflowTemplateDefinition } from "../models/index.js";
+import type { Pulse } from "../repositories/pulse.js";
+import type { WorkflowTemplateDefinition, SignalMatch } from "../models/index.js";
 
 export { areAllWorkflowGatesSatisfied };
 
@@ -22,6 +24,17 @@ export function initWorkflowService(): void {
       logger.error(
         { err, taskId: opts.taskId, action: opts.action },
         "Workflow service subscriber error",
+      );
+    }
+  });
+
+  pulseService.onPulseCreated((pulse) => {
+    try {
+      handlePulseCreated(pulse);
+    } catch (err) {
+      logger.error(
+        { err, pulseId: pulse.id, signalType: pulse.signalType },
+        "Workflow service pulse subscriber error",
       );
     }
   });
@@ -69,6 +82,101 @@ function actionToGateType(action: string): "on_complete" | "on_approve" | null {
       return "on_approve";
     default:
       return null;
+  }
+}
+
+function handlePulseCreated(pulse: Pulse): void {
+  const db = getDb();
+  const gates = db
+    .select({
+      id: taskWorkflowGates.id,
+      satisfied: taskWorkflowGates.satisfied,
+      upstreamTaskId: taskWorkflowGates.upstreamTaskId,
+      missionId: taskWorkflowGates.missionId,
+      matchConfig: taskWorkflowGates.matchConfig,
+    })
+    .from(taskWorkflowGates)
+    .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
+    .where(
+      and(
+        eq(taskWorkflowGates.gateType, "on_signal"),
+        eq(taskWorkflowGates.habitatId, pulse.habitatId),
+        eq(taskWorkflowGates.satisfied, false),
+        eq(workflows.status, "active"),
+      ),
+    )
+    .all();
+
+  if (gates.length === 0) return;
+
+  const now = new Date().toISOString();
+  for (const gate of gates) {
+    if (gate.satisfied) continue;
+    try {
+      const match = readSignalMatch(gate.matchConfig);
+      if (!match) continue;
+      if (!signalMatchEqualsPulse(match, pulse, gate)) continue;
+      db.update(taskWorkflowGates)
+        .set({
+          satisfied: true,
+          satisfiedAt: now,
+          satisfiedByEventId: pulse.id,
+        })
+        .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
+        .run();
+    } catch (err) {
+      logger.error({ err, gateId: gate.id }, "Failed to evaluate on_signal gate");
+    }
+  }
+}
+
+function readSignalMatch(raw: Record<string, unknown> | null | undefined): SignalMatch | null {
+  if (!raw) return null;
+  if (typeof raw["signalType"] !== "string") return null;
+  return {
+    signalType: raw["signalType"] as SignalMatch["signalType"],
+    experience: raw["experience"] as SignalMatch["experience"],
+    subjectContains: raw["subjectContains"] as SignalMatch["subjectContains"],
+    matchScope: raw["matchScope"] as SignalMatch["matchScope"],
+  };
+}
+
+function signalMatchEqualsPulse(
+  match: SignalMatch,
+  pulse: Pulse,
+  gate: { upstreamTaskId: string; missionId: string },
+): boolean {
+  if (match.signalType !== pulse.signalType) return false;
+
+  if (match.experience !== undefined) {
+    if (pulse.metadata?.["experience"] !== match.experience) return false;
+  }
+
+  if (match.subjectContains !== undefined) {
+    const subject = pulse.subject.toLowerCase();
+    const needle = match.subjectContains.toLowerCase();
+    if (!subject.includes(needle)) return false;
+  }
+
+  const scope = match.matchScope ?? "task";
+  return pulseMatchesScope(pulse, gate, scope);
+}
+
+function pulseMatchesScope(
+  pulse: Pulse,
+  gate: { upstreamTaskId: string; missionId: string },
+  scope: "task" | "mission" | "either",
+): boolean {
+  switch (scope) {
+    case "task":
+      return pulse.taskId === gate.upstreamTaskId;
+    case "mission":
+      return pulse.missionId !== null && pulse.missionId === gate.missionId;
+    case "either":
+      return (
+        pulse.taskId === gate.upstreamTaskId ||
+        (pulse.missionId !== null && pulse.missionId === gate.missionId)
+      );
   }
 }
 
