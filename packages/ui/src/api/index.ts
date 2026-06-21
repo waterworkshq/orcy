@@ -81,6 +81,8 @@ import type {
   SprintCarryOverReport,
   SprintMetricsV2,
   AgentQualityResponse,
+  ExperienceMetricsResult,
+  WorkflowMetricsResult,
 } from "../types/index.js";
 
 const BASE = "/api";
@@ -806,6 +808,14 @@ export const api = {
       request<{ satisfied: boolean }>(`/workflows/${workflowId}/gates/${gateId}/unblock`, {
         method: "POST",
       }),
+  },
+
+  /** Admin metrics — read-only dashboard aggregations for workflow health and experience signals. */
+  metrics: {
+    experience: (habitatId: string, days = 30) =>
+      request<ExperienceMetricsResult>(`/habitats/${habitatId}/experience-metrics?days=${days}`),
+    workflow: (habitatId: string, days = 30) =>
+      request<WorkflowMetricsResult>(`/habitats/${habitatId}/workflow-metrics?days=${days}`),
   },
 
   dashboard: {

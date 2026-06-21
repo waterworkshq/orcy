@@ -215,4 +215,11 @@ export const queryKeys = {
     webhookEndpoints: (habitatId: string) =>
       [...queryKeys.remoteAccess.all, "webhookEndpoints", habitatId] as const,
   },
+  metrics: {
+    all: ["metrics"] as const,
+    experience: (habitatId: string, days: number) =>
+      [...queryKeys.metrics.all, "experience", habitatId, days] as const,
+    workflow: (habitatId: string, days: number) =>
+      [...queryKeys.metrics.all, "workflow", habitatId, days] as const,
+  },
 };

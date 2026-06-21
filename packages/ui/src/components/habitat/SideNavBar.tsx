@@ -9,6 +9,7 @@ import {
   GitBranch,
   CircleHelp,
   Globe,
+  ShieldCheck,
 } from "lucide-react";
 import { OrcyMark } from "../ui/icons/OrcyMark.js";
 
@@ -64,6 +65,8 @@ export const SideNavBar = React.memo(function SideNavBar({
   onOpenDependencies,
 }: SideNavBarProps) {
   const location = useLocation();
+  const habitatMatch = location.pathname.match(/\/habitats\/([^/]+)/);
+  const currentHabitatId = habitatMatch?.[1];
   const toolItems = [
     { label: "Stats", icon: <BarChart3 className="h-4 w-4" />, onClick: onOpenStats },
     { label: "Dependencies", icon: <GitBranch className="h-4 w-4" />, onClick: onOpenDependencies },
@@ -135,6 +138,26 @@ export const SideNavBar = React.memo(function SideNavBar({
             </button>
           ))}
         </div>
+
+        {currentHabitatId && (
+          <div className="space-y-1">
+            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+              ADMIN
+            </p>
+            <Link
+              to={`/habitats/${currentHabitatId}/admin/workflows`}
+              data-testid="nav-item-workflow-metrics"
+              className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                location.pathname.includes("/admin/workflows")
+                  ? "bg-primary-container text-on-surface font-medium"
+                  : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+              }`}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span>Workflow Metrics</span>
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-outline-variant/40 p-3 space-y-1">

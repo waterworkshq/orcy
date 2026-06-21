@@ -309,6 +309,48 @@ export type {
 };
 
 // ---------------------------------------------------------------------------
+// Admin metrics view-model interfaces (mirrors backend metrics services)
+// ---------------------------------------------------------------------------
+
+/** Per-agent experience signal metrics row for the admin dashboard. */
+export interface AgentExperienceMetrics {
+  agentId: string;
+  agentName: string;
+  agentType: string;
+  agentDomain: string;
+  signalCount: number;
+  tasksWorked: number;
+  signalsTaskRatio: number;
+  categoryDistribution: Partial<Record<ExperienceCategory, number>>;
+  midTaskCount: number;
+  completionCount: number;
+  midTaskCompletionRatio: number;
+  outlierFlag: "high_reporter" | "low_reporter" | null;
+}
+
+/** Full experience metrics response from the admin route. */
+export interface ExperienceMetricsResult {
+  agents: AgentExperienceMetrics[];
+  medianSignalsTaskRatio: number;
+  generatedAt: string;
+}
+
+/** Recovery attempt count grouped by recovery depth. */
+export interface RecoveryAttemptByDepth {
+  recoveryDepth: number;
+  total: number;
+}
+
+/** Workflow health metrics response from the admin route. */
+export interface WorkflowMetricsResult {
+  activeWorkflowsCount: number;
+  failureRate: number;
+  recoverySuccessRate: number;
+  recoveryAttemptsByDepth: RecoveryAttemptByDepth[];
+  generatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // Pod Bridge view-model interfaces (mirrors backend remoteAccessAdminService)
 // ---------------------------------------------------------------------------
 

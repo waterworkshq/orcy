@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { getExperienceMetrics } from "../services/experienceMetricsService.js";
+import { getWorkflowMetrics } from "../services/workflowMetricsService.js";
 import { badRequest } from "../errors.js";
 
 const metricsDaysSchema = (raw: unknown): number => {
@@ -27,6 +28,22 @@ export async function metricsRoutes(fastify: FastifyInstance): Promise<void> {
     ) => {
       const days = request.query.days !== undefined ? metricsDaysSchema(request.query.days) : 30;
       return getExperienceMetrics(request.params.id, days);
+    },
+  );
+
+  /** GET /habitats/:id/workflow-metrics - Workflow health metrics (active count, failure rate, recovery success rate). Auth: humanAuth + adminOnly. */
+  fastify.get<{ Params: { id: string }; Querystring: { days?: string } }>(
+    "/habitats/:id/workflow-metrics",
+    { preHandler: [humanAuth, adminOnly] },
+    async (
+      request: FastifyRequest<{
+        Params: { id: string };
+        Querystring: { days?: string };
+      }>,
+      _reply: FastifyReply,
+    ) => {
+      const days = request.query.days !== undefined ? metricsDaysSchema(request.query.days) : 30;
+      return getWorkflowMetrics(request.params.id, days);
     },
   );
 }

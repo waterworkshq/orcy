@@ -12,6 +12,7 @@ import { MissionDetailPage } from "./pages/MissionDetailPage.js";
 import { AgentsPage } from "./pages/AgentsPage.js";
 import { RemotePodsPage } from "./pages/RemotePodsPage.js";
 import { ActivityPage } from "./pages/ActivityPage.js";
+import { AdminWorkflowsPage } from "./pages/AdminWorkflowsPage.js";
 import { AppShell } from "./components/layout/AppShell.js";
 import { useHabitatStore } from "./store/habitatStore.js";
 
@@ -84,6 +85,7 @@ export default function App() {
               <Route path="/teams" element={<TeamsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/habitats/:habitatId/remote-pods" element={<RemotePodsPage />} />
+              <Route path="/habitats/:habitatId/admin/workflows" element={<AdminWorkflowsPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/missions/:id" element={<MissionDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
