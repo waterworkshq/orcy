@@ -29,6 +29,7 @@ import * as habitatRepo from "./repositories/board.js";
 import * as habitatHealthService from "./services/boardHealthService.js";
 import { templateRoutes } from "./routes/templates.js";
 import { workflowRoutes } from "./routes/workflow.js";
+import { metricsRoutes } from "./routes/metrics.js";
 import { subtaskRoutes } from "./routes/subtasks.js";
 import { presenceRoutes } from "./routes/presence.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
@@ -180,6 +181,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(subtaskRoutes);
   await f.register(templateRoutes);
   await f.register(workflowRoutes);
+  await f.register(metricsRoutes);
   await f.register(webhookRoutes);
   await f.register(dashboardRoutes);
   await f.register(savedFilterRoutes);
