@@ -33,6 +33,30 @@ describe("Remote MCP allowlist", () => {
     expect(actions).toContain("missions.postPulse");
   });
 
+  it("includes the workflow context read actions", () => {
+    expect(REMOTE_MCP_ACTIONS).toHaveProperty("missions.getWorkflow");
+    expect(REMOTE_MCP_ACTIONS).toHaveProperty("tasks.getWorkflowContext");
+  });
+
+  it("workflow actions are GET with read scope and /api/shared/ paths", () => {
+    const wf = REMOTE_MCP_ACTIONS["missions.getWorkflow"];
+    expect(wf.method).toBe("GET");
+    expect(wf.requiredScope).toBe("read");
+    expect(wf.path({ missionId: "m-1" })).toBe("/api/shared/missions/m-1/workflow");
+
+    const ctx = REMOTE_MCP_ACTIONS["tasks.getWorkflowContext"];
+    expect(ctx.method).toBe("GET");
+    expect(ctx.requiredScope).toBe("read");
+    expect(ctx.path({ taskId: "t-1" })).toBe("/api/shared/tasks/t-1/workflow-context");
+  });
+
+  it("isRemoteMcpAction accepts the new workflow actions", () => {
+    expect(isRemoteMcpAction("missions.getWorkflow")).toBe(true);
+    expect(isRemoteMcpAction("tasks.getWorkflowContext")).toBe(true);
+    expect(isRemoteMcpAction("missions.getWorkflowShape")).toBe(false);
+    expect(isRemoteMcpAction("tasks.getFailureContext")).toBe(false);
+  });
+
   it("isRemoteMcpAction narrows correctly", () => {
     expect(isRemoteMcpAction("tasks.claim")).toBe(true);
     expect(isRemoteMcpAction("tasks.create")).toBe(false);

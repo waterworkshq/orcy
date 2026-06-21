@@ -31,6 +31,7 @@ import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as notificationCommandService from "../services/notificationCommandService.js";
 import * as taskEventRepo from "../repositories/events/event-crud.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
+import * as workflowService from "../services/workflowService.js";
 import {
   dispatchCompactRemoteEvent,
   buildDispatchInputFromRemoteAction,
@@ -938,6 +939,62 @@ export async function sharedApiRoutes(fastify: FastifyInstance): Promise<void> {
         failRemoteIdempotency(request, (err as Error).message);
         throw err;
       }
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Workflow context (read-only — requires "read" scope)
+  // -------------------------------------------------------------------------
+
+  /** GET /api/shared/missions/:id/workflow — mission workflow shape (requires "read") */
+  fastify.get<{ Params: { id: string } }>(
+    "/missions/:id/workflow",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      const ctx = requireRemoteContext(request);
+      const mission = missionRepo.getMissionById(request.params.id);
+      if (!mission) throw notFound("Mission not found");
+      if (mission.habitatId !== ctx.habitatId) {
+        throw forbidden("Cannot read workflow in other habitats", "HABITAT_MISMATCH");
+      }
+      const visibility = isTargetVisibleToParticipant(ctx, "mission", mission.id);
+      if (!visibility.visible) {
+        throw forbidden("Mission not visible to this remote participant", "TARGET_NOT_VISIBLE");
+      }
+      const workflow = workflowService.getWorkflowForMission(mission.id);
+      if (!workflow) {
+        throw notFound("No active workflow attached to this mission");
+      }
+      const gates = workflowService.getWorkflowShape(workflow.id);
+      return { workflow, gates };
+    },
+  );
+
+  /** GET /api/shared/tasks/:id/workflow-context — upstream/downstream gates for one task (requires "read") */
+  fastify.get<{ Params: { id: string } }>(
+    "/tasks/:id/workflow-context",
+    {
+      preHandler: [remoteActionScope("read")],
+    },
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      const ctx = requireRemoteContext(request);
+      const task = taskRepo.getTaskById(request.params.id);
+      if (!task) throw notFound("Task not found");
+      const taskHabitatId = taskRepo.getHabitatIdForTask(request.params.id);
+      if (!taskHabitatId || taskHabitatId !== ctx.habitatId) {
+        throw forbidden("Cannot read workflow context in other habitats", "HABITAT_MISMATCH");
+      }
+      const visibility = isTargetVisibleToParticipant(ctx, "task", task.id);
+      if (!visibility.visible) {
+        throw forbidden("Task not visible to this remote participant", "TARGET_NOT_VISIBLE");
+      }
+      const context = workflowService.getTaskWorkflowContext(request.params.id);
+      if (context.upstream.length === 0 && context.downstream.length === 0) {
+        throw notFound("Task is not part of any workflow");
+      }
+      return context;
     },
   );
 

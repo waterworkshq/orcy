@@ -94,4 +94,28 @@ describe("RemoteMcpClient — request shape", () => {
     await expect(remote.execute("nonexistent.action")).rejects.toThrow(/Unknown remote MCP action/);
     expect(captured).toHaveLength(0);
   });
+
+  it("routes missions.getWorkflow to the correct /api/shared/ path", async () => {
+    await remote.executeAllowed("missions.getWorkflow", { missionId: "m-wf" });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].method).toBe("GET");
+    expect(captured[0].path).toBe("/api/shared/missions/m-wf/workflow");
+    const opts = captured[0].options as { headers?: Record<string, string> } | undefined;
+    expect(opts?.headers?.["X-Orcy-Remote-Key"]).toBe("orcy_remote_test_abc");
+    // GET must not include Idempotency-Key
+    expect(opts?.headers?.["Idempotency-Key"]).toBeUndefined();
+  });
+
+  it("routes tasks.getWorkflowContext to the correct /api/shared/ path", async () => {
+    await remote.executeAllowed("tasks.getWorkflowContext", { taskId: "t-wf" });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].method).toBe("GET");
+    expect(captured[0].path).toBe("/api/shared/tasks/t-wf/workflow-context");
+  });
+
+  it("accepts the new workflow actions via execute() (not just executeAllowed)", async () => {
+    await remote.execute("missions.getWorkflow", { missionId: "m-2" });
+    expect(captured).toHaveLength(1);
+    expect(captured[0].path).toBe("/api/shared/missions/m-2/workflow");
+  });
 });

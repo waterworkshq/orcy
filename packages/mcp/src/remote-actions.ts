@@ -15,7 +15,9 @@ export type RemoteMcpAction =
   | "habitats.get"
   | "habitats.listMissions"
   | "missions.get"
+  | "missions.getWorkflow"
   | "tasks.get"
+  | "tasks.getWorkflowContext"
   | "tasks.listComments"
   | "missions.listComments"
   | "missions.listPulse"
@@ -79,9 +81,19 @@ export const REMOTE_MCP_ACTIONS: Record<RemoteMcpAction, RemoteActionDescriptor>
     path: (p) => `/api/shared/missions/${p.missionId}`,
     requiredScope: "read",
   },
+  "missions.getWorkflow": {
+    method: "GET",
+    path: (p) => `/api/shared/missions/${p.missionId}/workflow`,
+    requiredScope: "read",
+  },
   "tasks.get": {
     method: "GET",
     path: (p) => `/api/shared/tasks/${p.taskId}`,
+    requiredScope: "read",
+  },
+  "tasks.getWorkflowContext": {
+    method: "GET",
+    path: (p) => `/api/shared/tasks/${p.taskId}/workflow-context`,
     requiredScope: "read",
   },
   "tasks.listComments": {

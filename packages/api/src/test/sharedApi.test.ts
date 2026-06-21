@@ -15,6 +15,7 @@ import * as grantRepo from "../repositories/remoteGrant.js";
 import * as credentialService from "../services/remoteCredentialService.js";
 import * as idempotencyRepo from "../repositories/remoteIdempotency.js";
 import * as codeEvidenceLinking from "../services/codeEvidence/linking.js";
+import * as workflowService from "../services/workflowService.js";
 import type { RemoteActionScope, ParticipantStanding } from "@orcy/shared/types";
 import { isAppError } from "../errors.js";
 import { randomUUID } from "crypto";
@@ -870,6 +871,172 @@ describe("Phase D — Shared Habitat API", () => {
       expect(record).not.toBeNull();
       expect(record!.status).toBe("completed");
       expect(record!.responseStatus).toBe(200);
+    });
+  });
+
+  describe("Workflow context routes", () => {
+    function setupWorkflowFixture(setup: RemoteSetup) {
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Workflow Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const taskA = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Upstream Task",
+        description: "",
+        priority: "medium",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      const taskB = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Downstream Task",
+        description: "",
+        priority: "medium",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "mission", mission.id);
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", taskA.id);
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", taskB.id);
+
+      const workflowId = workflowService.attachWorkflow(
+        mission.id,
+        setup.habitat.id,
+        {
+          gates: [
+            {
+              upstreamTaskKey: taskA.id,
+              downstreamTaskKey: taskB.id,
+              gateType: "on_complete" as const,
+            },
+          ],
+        },
+        {},
+        "test",
+      );
+      return { mission, taskA, taskB, workflowId };
+    }
+
+    it("GET /missions/:id/workflow returns workflow shape when attached", async () => {
+      const setup = setupRemoteFixture();
+      const { mission, workflowId } = setupWorkflowFixture(setup);
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/missions/${mission.id}/workflow`,
+        headers: remoteHeaders(setup),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.workflow.id).toBe(workflowId);
+      expect(body.workflow.status).toBe("active");
+      expect(body.gates).toHaveLength(1);
+      expect(body.gates[0].gateType).toBe("on_complete");
+    });
+
+    it("GET /missions/:id/workflow returns 404 when no workflow attached", async () => {
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "No-Workflow Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "mission", mission.id);
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/missions/${mission.id}/workflow`,
+        headers: remoteHeaders(setup),
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("GET /missions/:id/workflow rejects when read scope missing", async () => {
+      const setup = setupRemoteFixture(["comment", "claim"]);
+      const { mission } = setupWorkflowFixture(setup);
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/missions/${mission.id}/workflow`,
+        headers: remoteHeaders(setup),
+      });
+
+      expect(res.statusCode).toBe(403);
+    });
+
+    it("GET /tasks/:id/workflow-context returns upstream and downstream gates", async () => {
+      const setup = setupRemoteFixture();
+      const { taskA, taskB } = setupWorkflowFixture(setup);
+
+      // Downstream task has upstream gate
+      const resDown = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${taskB.id}/workflow-context`,
+        headers: remoteHeaders(setup),
+      });
+      expect(resDown.statusCode).toBe(200);
+      const bodyDown = JSON.parse(resDown.body);
+      expect(bodyDown.upstream).toHaveLength(1);
+      expect(bodyDown.downstream).toHaveLength(0);
+
+      // Upstream task has downstream gate
+      const resUp = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${taskA.id}/workflow-context`,
+        headers: remoteHeaders(setup),
+      });
+      expect(resUp.statusCode).toBe(200);
+      const bodyUp = JSON.parse(resUp.body);
+      expect(bodyUp.upstream).toHaveLength(0);
+      expect(bodyUp.downstream).toHaveLength(1);
+    });
+
+    it("GET /tasks/:id/workflow-context returns 404 when task not in any workflow", async () => {
+      const setup = setupRemoteFixture();
+      const mission = missionRepo.createMission({
+        habitatId: setup.habitat.id,
+        title: "Lone Mission",
+        priority: "medium",
+        createdBy: "test",
+      });
+      const task = taskRepo.createTask({
+        missionId: mission.id,
+        title: "Lone Task",
+        description: "",
+        priority: "medium",
+        requiredCapabilities: [],
+        labels: [],
+        createdBy: "test",
+      });
+      grantRepo.addRemoteGrantTarget(setup.grant.id, "task", task.id);
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${task.id}/workflow-context`,
+        headers: remoteHeaders(setup),
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("GET /tasks/:id/workflow-context rejects without authentication", async () => {
+      const setup = setupRemoteFixture();
+      const { taskA } = setupWorkflowFixture(setup);
+
+      const res = await app!.inject({
+        method: "GET",
+        url: `/api/shared/tasks/${taskA.id}/workflow-context`,
+      });
+
+      expect(res.statusCode).toBe(401);
     });
   });
 });
