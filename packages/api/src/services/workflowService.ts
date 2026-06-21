@@ -751,3 +751,58 @@ export function manualUnblockGate(gateId: string, _unblockerId: string): boolean
     .run();
   return true;
 }
+
+/** Returns the workflow row by id (any status), or null when missing. */
+export function getWorkflowById(workflowId: string): typeof workflows.$inferSelect | null {
+  const db = getDb();
+  return db.select().from(workflows).where(eq(workflows.id, workflowId)).get() ?? null;
+}
+
+/** Outcome of an OCC-protected update; `mismatch` carries the current version for the 409 response body. */
+export type UpdateWorkflowOutcome =
+  | { ok: true; workflow: typeof workflows.$inferSelect }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "version_mismatch"; currentVersion: number };
+
+/**
+ * Applies an OCC-protected update to a workflow's mutable config fields (`failureHandler`, `joinSpecs`).
+ * Gate-row changes are NOT supported in v0.20 — detach and re-attach to restructure the DAG. Returns
+ * `version_mismatch` when `expectedVersion` does not match the persisted `workflows.version`.
+ */
+export function updateWorkflow(
+  workflowId: string,
+  updates: {
+    failureHandler?: WorkflowFailureHandlerConfig | null;
+    joinSpecs?: Record<string, { mode: "all_of" | "any_of" | "n_of"; n?: number }> | null;
+  },
+  expectedVersion: number,
+): UpdateWorkflowOutcome {
+  const db = getDb();
+  const existing = db.select().from(workflows).where(eq(workflows.id, workflowId)).get();
+  if (!existing) return { ok: false, reason: "not_found" };
+  if (existing.version !== expectedVersion) {
+    return { ok: false, reason: "version_mismatch", currentVersion: existing.version };
+  }
+
+  const set: Record<string, unknown> = { version: sql`${workflows.version} + 1` };
+  if (updates.failureHandler !== undefined) set.failureHandler = updates.failureHandler;
+  if (updates.joinSpecs !== undefined) set.joinSpecs = updates.joinSpecs;
+
+  db.update(workflows).set(set).where(eq(workflows.id, workflowId)).run();
+
+  const updated = db.select().from(workflows).where(eq(workflows.id, workflowId)).get();
+  return { ok: true, workflow: updated! };
+}
+
+/** Returns every failure-context row attached to a workflow (resolved or not), newest first. */
+export function getFailureContextsForWorkflow(
+  workflowId: string,
+): Array<typeof failureContexts.$inferSelect> {
+  const db = getDb();
+  return db
+    .select()
+    .from(failureContexts)
+    .where(eq(failureContexts.workflowId, workflowId))
+    .orderBy(sql`${failureContexts.failedAt} DESC`)
+    .all();
+}

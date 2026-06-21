@@ -2,6 +2,7 @@ import type { FastifyError, FastifyInstance } from "fastify";
 import { isAppError, ErrorCodes } from "../errors.js";
 import { isSqliteError, mapSqliteErrorToHttp } from "./sqlite.js";
 import { RepositoryError } from "./repository.js";
+import { TemplateValidationError } from "../repositories/template.js";
 
 /**
  * Registers Fastify error and 404 handlers that convert exceptions and validation
@@ -10,6 +11,25 @@ import { RepositoryError } from "./repository.js";
 export async function registerErrorHandler(fastify: FastifyInstance): Promise<void> {
   fastify.setErrorHandler((error: FastifyError, request, reply) => {
     const requestId = request.id as string;
+
+    // Workflow template validation errors — map to 400 with the validation message.
+    if (error instanceof TemplateValidationError) {
+      fastify.log.warn(
+        {
+          requestId,
+          err: error,
+          code: ErrorCodes.VALIDATION_ERROR,
+          path: request.url,
+          method: request.method,
+        },
+        "Template validation error",
+      );
+      reply.status(400).send({
+        error: error.message,
+        code: ErrorCodes.VALIDATION_ERROR,
+      });
+      return;
+    }
 
     // Application errors (AppError subclass) — log as warning and return structured response
     if (isAppError(error)) {

@@ -126,6 +126,18 @@ export function getFailureContextsByTaskId(taskId: string): FailureContextRow[] 
     .map(rowToFailureContext);
 }
 
+/** Returns every `failureContexts` row attached to a workflow (resolved or not), newest first. */
+export function getFailureContextsByWorkflowId(workflowId: string): FailureContextRow[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(failureContexts)
+    .where(eq(failureContexts.workflowId, workflowId))
+    .orderBy(desc(failureContexts.failedAt))
+    .all()
+    .map(rowToFailureContext);
+}
+
 export interface UpdateFailureContextInput {
   workflowId?: string | null;
   failureReason?: string;

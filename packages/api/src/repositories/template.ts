@@ -198,7 +198,7 @@ type DbHandle = ReturnType<typeof getDb>;
 const TERMINAL_TASK_STATUSES = ["done", "approved", "failed", "rejected"] as const;
 
 /** Error thrown when workflow template validation fails during applyTemplate; surfaces with a clear message instead of being wrapped as a transaction error. */
-class TemplateValidationError extends Error {
+export class TemplateValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "TemplateValidationError";
