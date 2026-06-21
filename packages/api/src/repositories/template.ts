@@ -7,7 +7,7 @@ import {
   workflows,
   taskWorkflowGates,
 } from "../db/schema/index.js";
-import { eq, or, isNull, sql, desc, asc, max } from "drizzle-orm";
+import { eq, or, and, isNull, sql, desc, asc, max } from "drizzle-orm";
 import type {
   MissionTemplate,
   TaskPriority,
@@ -518,49 +518,51 @@ export function applyTemplate(
 
 export function seedGlobalTemplates(): void {
   const db = getDb();
-  const existing = db
-    .select({ count: sql<number>`COUNT(*)` })
-    .from(missionTemplates)
-    .where(isNull(missionTemplates.habitatId))
-    .get();
-  if ((existing?.count ?? 0) > 0) return;
-
   const now = new Date().toISOString();
-  const templates = [
+
+  const templates: Array<{
+    name: string;
+    titlePattern: string;
+    descriptionPattern: string;
+    priority: TaskPriority;
+    labels: string[];
+    tasksTemplate?: TaskTemplateEntry[];
+    workflowTemplate?: WorkflowTemplateDefinition;
+  }> = [
     {
       name: "Bug Fix",
       titlePattern: "Fix: ",
       descriptionPattern:
         "## Steps to Reproduce\n...\n## Expected Behavior\n...\n## Actual Behavior\n...\n## Environment\n...",
-      priority: "high" as TaskPriority,
+      priority: "high",
       labels: ["bug"],
     },
     {
       name: "Feature",
       titlePattern: "Add ",
       descriptionPattern: "## Summary\n...\n## Acceptance Criteria\n...\n## Technical Notes\n...",
-      priority: "medium" as TaskPriority,
+      priority: "medium",
       labels: ["feature"],
     },
     {
       name: "Refactor",
       titlePattern: "Refactor ",
       descriptionPattern: "## Current State\n...\n## Proposed Changes\n...\n## Impact\n...",
-      priority: "medium" as TaskPriority,
+      priority: "medium",
       labels: ["refactor"],
     },
     {
       name: "Documentation",
       titlePattern: "Document ",
       descriptionPattern: "## What\n...\n## Where\n...\n## Audience\n...",
-      priority: "low" as TaskPriority,
+      priority: "low",
       labels: ["docs"],
     },
     {
       name: "Test",
       titlePattern: "Test ",
       descriptionPattern: "## What to Test\n...\n## Test Cases\n...\n## Edge Cases\n...",
-      priority: "medium" as TaskPriority,
+      priority: "medium",
       labels: ["test"],
     },
     {
@@ -568,12 +570,138 @@ export function seedGlobalTemplates(): void {
       titlePattern: "Security: ",
       descriptionPattern:
         "## Vulnerability\n...\n## CVE\n...\n## Fix Plan\n...\n## Verification\n...",
-      priority: "critical" as TaskPriority,
+      priority: "critical",
       labels: ["security"],
+    },
+    {
+      name: "Build-Test-Review-Deploy",
+      titlePattern: "Deliver: {{feature_name}}",
+      descriptionPattern:
+        "## Feature\n{{feature_name}}\n## Pipeline\nSequential build → test → review → deploy.",
+      priority: "medium",
+      labels: ["workflow", "pipeline"],
+      tasksTemplate: [
+        {
+          key: "build",
+          title: "Build: {{feature_name}}",
+          description: "Implement the {{feature_name}} feature.",
+          order: 0,
+          requiredDomain: "backend",
+          requiredCapabilities: ["implementation"],
+        },
+        {
+          key: "test",
+          title: "Test: {{feature_name}}",
+          description: "Write and run tests for {{feature_name}}.",
+          order: 1,
+          requiredDomain: "qa",
+          requiredCapabilities: ["testing"],
+        },
+        {
+          key: "review",
+          title: "Review: {{feature_name}}",
+          description: "Code review of the {{feature_name}} implementation.",
+          order: 2,
+          requiredDomain: "review",
+          requiredCapabilities: ["code-review"],
+        },
+        {
+          key: "deploy",
+          title: "Deploy: {{feature_name}}",
+          description: "Deploy {{feature_name}} to production.",
+          order: 3,
+          requiredDomain: "deploy",
+          requiredCapabilities: ["deployment"],
+        },
+      ],
+      workflowTemplate: {
+        gates: [
+          { upstreamTaskKey: "build", downstreamTaskKey: "test", gateType: "on_approve" },
+          { upstreamTaskKey: "test", downstreamTaskKey: "review", gateType: "on_approve" },
+          { upstreamTaskKey: "review", downstreamTaskKey: "deploy", gateType: "on_approve" },
+        ],
+        failureHandler: {
+          recoveryTaskTemplate: {
+            title: "Investigate {{failedTaskTitle}} failure",
+            description: "Diagnose and fix the failure in the build-test-review-deploy pipeline.",
+          },
+        },
+        variables: [
+          { key: "feature_name", description: "Name of the feature being built", required: true },
+        ],
+      },
+    },
+    {
+      name: "Parallel Investigation",
+      titlePattern: "Investigate: {{area}}",
+      descriptionPattern:
+        "## Area\n{{area}}\n## Approach\nFan-out investigation across options, fan-in to a recommendation.",
+      priority: "medium",
+      labels: ["workflow", "investigation"],
+      tasksTemplate: [
+        {
+          key: "scout",
+          title: "Scout: {{area}} architecture",
+          description: "Survey the {{area}} landscape and identify options.",
+          order: 0,
+          requiredCapabilities: ["investigation"],
+        },
+        {
+          key: "inv1",
+          title: "Investigate option A for {{area}}",
+          description: "Deep-dive into option A for {{area}}.",
+          order: 1,
+          requiredCapabilities: ["investigation"],
+        },
+        {
+          key: "inv2",
+          title: "Investigate option B for {{area}}",
+          description: "Deep-dive into option B for {{area}}.",
+          order: 2,
+          requiredCapabilities: ["investigation"],
+        },
+        {
+          key: "inv3",
+          title: "Investigate option C for {{area}}",
+          description: "Deep-dive into option C for {{area}}.",
+          order: 3,
+          requiredCapabilities: ["investigation"],
+        },
+        {
+          key: "report",
+          title: "Report: Recommend approach for {{area}}",
+          description: "Synthesize findings and recommend an approach for {{area}}.",
+          order: 4,
+          requiredCapabilities: ["synthesis"],
+        },
+      ],
+      workflowTemplate: {
+        gates: [
+          { upstreamTaskKey: "scout", downstreamTaskKey: "inv1", gateType: "on_complete" },
+          { upstreamTaskKey: "scout", downstreamTaskKey: "inv2", gateType: "on_complete" },
+          { upstreamTaskKey: "scout", downstreamTaskKey: "inv3", gateType: "on_complete" },
+          { upstreamTaskKey: "inv1", downstreamTaskKey: "report", gateType: "on_complete" },
+          { upstreamTaskKey: "inv2", downstreamTaskKey: "report", gateType: "on_complete" },
+          { upstreamTaskKey: "inv3", downstreamTaskKey: "report", gateType: "on_complete" },
+        ],
+        joinSpecs: {
+          report: { mode: "any_of" },
+        },
+        variables: [
+          { key: "area", description: "Architecture area to investigate", required: true },
+        ],
+      },
     },
   ];
 
   for (const tmpl of templates) {
+    const existing = db
+      .select({ id: missionTemplates.id })
+      .from(missionTemplates)
+      .where(and(isNull(missionTemplates.habitatId), eq(missionTemplates.name, tmpl.name)))
+      .get();
+    if (existing) continue;
+
     const id = uuid();
     try {
       db.insert(missionTemplates)
@@ -587,8 +715,8 @@ export function seedGlobalTemplates(): void {
           labels: tmpl.labels,
           requiredDomain: null,
           requiredCapabilities: [],
-          tasksTemplate: [],
-          workflowTemplate: null,
+          tasksTemplate: tmpl.tasksTemplate ?? [],
+          workflowTemplate: tmpl.workflowTemplate ?? null,
           isDefault: true,
           usageCount: 0,
           createdBy: "system",
