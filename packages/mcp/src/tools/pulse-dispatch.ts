@@ -9,14 +9,16 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_pulse",
   description:
     "Mission Pulse operations: post structured signals (finding, blocker, offer, warning, " +
-    "question, answer, directive, context, handoff) to the mission or habitat pulse board, " +
+    "question, answer, directive, context, handoff, experience) to the mission or habitat pulse board, " +
     "or check the pulse board for signals from mission partners. " +
     'Use action="post" to share discoveries, report blockers (auto-creates clearance tasks), ' +
     'offer results, ask questions, or issue directives. Use action="check" to read signals ' +
     "filtered by mission or signal type. When no missionId is provided, returns your cross-mission inbox. " +
     'Use scope="habitat" with boardId to post or read habitat-level signals visible across all missions. ' +
     'Use action="promote" to promote a valuable signal to a persistent project insight. ' +
-    "Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.",
+    "Use signalType='experience' with the 'experience' param to self-report internal state " +
+    "(stuck, confused, surprised, etc.) during autonomous work — these feed habitat skills and " +
+    "failure context. Read the Pulse Skill Guide (orcy_pulse_instructions) for the full communication protocol.",
   actions: ["post", "check", "promote", "react"],
   sharedParams: {
     missionId: {
@@ -44,8 +46,18 @@ export const PULSE_DISPATCH_TOOL: Tool = createDispatchTool({
         "directive",
         "context",
         "handoff",
+        "experience",
       ],
-      description: "Signal type (required for post, optional filter for check)",
+      description:
+        "Signal type (required for post, optional filter for check). Use 'experience' for " +
+        "agent self-reporting of internal state during a task (paired with the 'experience' param).",
+    },
+    experience: {
+      type: "string",
+      enum: ["stuck", "confused", "backtrack", "surprised", "ambiguous", "sidetracked", "smooth"],
+      description:
+        "Experience category — required when signalType='experience', ignored otherwise. " +
+        "See the Pulse Skill Guide (Self-Reporting section) for when to use each category.",
     },
     subject: {
       type: "string",

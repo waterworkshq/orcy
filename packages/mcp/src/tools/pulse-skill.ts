@@ -176,6 +176,68 @@ orcy_pulse({ action: "react", pulseId: "signal-uuid", reaction: "ack" })
 - Use "question" when you need clarification — the original author should follow up
 - Reactions are toggles — reacting again with the same type removes the reaction
 - Do NOT react to your own signals
+
+## Self-Reporting (Experience Signals)
+
+Experience signals (signalType='experience') let you report your own internal state during
+autonomous work. They are skill inputs — they shape habitat knowledge and failure context —
+not performance reviews. The system auto-tags them with metadata.implicit=true.
+
+### When to post
+
+Post an experience signal when something significant happens that future agents (or recovery
+agents picking up after a failure) would benefit from knowing about:
+
+- Mid-task: hit a wall after several retries, surprised by API or data behavior, requirements
+  are ambiguous, you had to backtrack and restart, you got sidetracked by something unrelated.
+- At completion: post one 'smooth' (or final category) summary signal when the task is submitted,
+  describing the overall shape of the work.
+
+### The seven categories
+
+Pick the single best fit. Each signal takes one category via the 'experience' param.
+
+| Category | Use for | Example subject |
+|----------|---------|-----------------|
+| stuck | Hit a wall, no progress after real effort | "Hit unexpected API rate limit after 5 retries, switched approach" |
+| confused | Requirements or environment don't add up | "Requirements mention 'deploy' but no deploy environment is configured" |
+| backtrack | Started down a path that turned out wrong | "Started with REST approach, discovered GraphQL is required, restarted" |
+| surprised | Reality contradicted expectations (but you recovered) | "Test suite passed locally but failed in CI due to env variable" |
+| ambiguous | Task is underspecified, you made an interpretation call | "Task says 'improve performance' but no metric specified" |
+| sidetracked | Found something unrelated, refocused on the task | "Found unrelated bug while investigating; recorded it as separate task and refocused" |
+| smooth | Work proceeded cleanly, nothing notable went wrong | "Feature implemented in one pass, all tests green" |
+
+### How to post
+
+orcy_pulse({
+  action: "post",
+  missionId: "mission-uuid",
+  taskId: "task-uuid",
+  signalType: "experience",
+  experience: "stuck",
+  subject: "Hit unexpected API rate limit after 5 retries, switched approach"
+})
+
+The tool auto-stamps metadata.implicit=true, metadata.experience=<category>, and
+metadata.timing ("mid_task" while the task is in_progress, "completion" once submitted).
+You do not need to pass these metadata fields yourself.
+
+### What NOT to post as experience signals
+
+- Lifecycle events that auto-emit (claimed, submitted, completed, etc.) — already covered.
+- Hard blocks requiring intervention — use signalType='blocker' instead (it auto-creates a
+  clearance task). 'stuck' is for "I worked through it" or "I noticed I was stuck";
+  'blocker' is for "I cannot proceed without help."
+- Routine progress updates ("halfway done", "tests running") — no signal value.
+- Quality judgments about other agents — experience signals are self-reports only.
+
+### Etiquette
+
+- One signal per distinct experience. Don't post five 'stuck' signals for the same wall.
+- Always link via taskId so signals attach to the right context.
+- If an experience evolves (e.g. 'stuck' → 'backtrack'), update the existing signal's body
+  rather than posting duplicates.
+- Quality over quantity. A handful of high-signal experience posts per task beats a firehose.
 `;
 
 /** MCP `Tool` registration for `orcy_pulse_instructions`; on call, returns the rendered Pulse skill guide. */
@@ -185,7 +247,8 @@ export const PULSE_SKILL_TOOL: Tool = {
     "Teaches the Pulse mission signal protocol: when to post signals, how to interpret the pulse digest, and signal etiquette for multi-agent missions. " +
     "Use when you see pulse data in mission get-context responses, when you need to share a finding or blocker with mission partners, " +
     "when you encounter a BLOCKER signal and need to understand the clearance-task flow, " +
-    "or when you want to learn the difference between auto-signals and intentional signals.",
+    "when you want to learn the difference between auto-signals and intentional signals, " +
+    "or when you want to self-report your internal state (stuck, confused, surprised, etc.) via experience signals.",
   inputSchema: { type: "object", properties: {} },
 };
 

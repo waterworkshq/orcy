@@ -1,7 +1,36 @@
 import type { PulseClient } from "../api/interfaces.js";
 import type { KanbanApiClient } from "../api.js";
-import type { Agent } from "@orcy/shared";
+import type { Agent, ExperienceCategory } from "@orcy/shared";
 import { SIGNAL_TYPES } from "@orcy/shared";
+
+/** Categories accepted by the `experience` param when `signalType === "experience"`. */
+export const EXPERIENCE_CATEGORIES = [
+  "stuck",
+  "confused",
+  "backtrack",
+  "surprised",
+  "ambiguous",
+  "sidetracked",
+  "smooth",
+] as const satisfies readonly ExperienceCategory[];
+
+/**
+ * Resolves the `metadata.timing` stamp for an experience signal by inspecting the linked task's status.
+ * Returns `"mid_task"` for `in_progress` (and any non-completion state), `"completion"` for `submitted`.
+ * Falls back to `"mid_task"` when the task cannot be loaded or no `taskId` is provided.
+ */
+async function resolveExperienceTiming(
+  client: KanbanApiClient,
+  taskId?: string,
+): Promise<"mid_task" | "completion"> {
+  if (!taskId) return "mid_task";
+  try {
+    const { task } = await client.getTask(taskId);
+    return task.status === "submitted" ? "completion" : "mid_task";
+  } catch {
+    return "mid_task";
+  }
+}
 
 /**
  * @requires PulseClient
@@ -20,8 +49,13 @@ export async function pulsePost(
     toAgentName?: string;
     replyToId?: string;
     metadata?: Record<string, unknown>;
+    experience?: ExperienceCategory;
   },
 ) {
+  if (args.signalType === "experience" && !args.experience) {
+    throw new Error("experience is required when signalType='experience'");
+  }
+
   let toAgentId: string | undefined;
 
   if (args.toAgentName) {
@@ -34,6 +68,17 @@ export async function pulsePost(
       throw new Error(`Agent with name "${args.toAgentName}" not found`);
     }
     toAgentId = found.id;
+  }
+
+  let metadata = args.metadata;
+  if (args.signalType === "experience" && args.experience) {
+    const timing = await resolveExperienceTiming(client, args.taskId);
+    metadata = {
+      ...metadata,
+      implicit: true,
+      experience: args.experience,
+      timing,
+    };
   }
 
   const isHabitat = args.scope === "habitat";
@@ -50,7 +95,7 @@ export async function pulsePost(
       toAgentName: args.toAgentName,
       toAgentId,
       replyToId: args.replyToId,
-      metadata: args.metadata,
+      metadata,
     });
   }
 
@@ -68,7 +113,7 @@ export async function pulsePost(
     toAgentName: args.toAgentName,
     toAgentId,
     replyToId: args.replyToId,
-    metadata: args.metadata,
+    metadata,
   });
 }
 
