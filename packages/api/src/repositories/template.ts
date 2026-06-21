@@ -1,7 +1,21 @@
 import { getDb } from "../db/index.js";
-import { missionTemplates, missions, tasks, columns } from "../db/schema/index.js";
+import {
+  missionTemplates,
+  missions,
+  tasks,
+  columns,
+  workflows,
+  taskWorkflowGates,
+} from "../db/schema/index.js";
 import { eq, or, isNull, sql, desc, asc, max } from "drizzle-orm";
-import type { MissionTemplate, TaskPriority, TaskTemplateEntry } from "../models/index.js";
+import type {
+  MissionTemplate,
+  TaskPriority,
+  TaskTemplateEntry,
+  WorkflowTemplateDefinition,
+  WorkflowFailureHandlerConfig,
+  JoinMode,
+} from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import * as missionRepo from "./feature.js";
 import * as taskRepo from "./task.js";
@@ -23,6 +37,7 @@ export interface CreateTemplateInput {
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
   tasksTemplate?: TaskTemplateEntry[];
+  workflowTemplate?: WorkflowTemplateDefinition | null;
   isDefault?: boolean;
   createdBy: string;
 }
@@ -36,6 +51,7 @@ export interface UpdateTemplateInput {
   requiredDomain?: string | null;
   requiredCapabilities?: string[];
   tasksTemplate?: TaskTemplateEntry[];
+  workflowTemplate?: WorkflowTemplateDefinition | null;
 }
 
 export function createTemplate(input: CreateTemplateInput): MissionTemplate {
@@ -56,6 +72,7 @@ export function createTemplate(input: CreateTemplateInput): MissionTemplate {
         requiredDomain: input.requiredDomain ?? null,
         requiredCapabilities: input.requiredCapabilities ?? [],
         tasksTemplate: input.tasksTemplate ?? [],
+        workflowTemplate: input.workflowTemplate ?? null,
         isDefault: input.isDefault ?? false,
         usageCount: 0,
         createdBy: input.createdBy,
@@ -121,6 +138,7 @@ export function updateTemplate(id: string, input: UpdateTemplateInput): MissionT
   if (input.requiredCapabilities !== undefined)
     set.requiredCapabilities = input.requiredCapabilities;
   if (input.tasksTemplate !== undefined) set.tasksTemplate = input.tasksTemplate;
+  if (input.workflowTemplate !== undefined) set.workflowTemplate = input.workflowTemplate;
 
   if (Object.keys(set).length === 0) return existing;
 
@@ -164,11 +182,215 @@ export interface ApplyTemplateOverrides {
   description?: string;
   priority?: TaskPriority;
   labels?: string[];
+  /** Caller-provided values for workflow template variables. */
+  variables?: Record<string, string>;
 }
 
 export interface ApplyTemplateResult {
   mission: ReturnType<typeof missionRepo.getMissionById> & {};
   tasks: ReturnType<typeof taskRepo.getTasksByMissionId>;
+  /** The instantiated workflow row, or null when the template has no workflow definition. */
+  workflow: typeof workflows.$inferSelect | null;
+}
+
+type DbHandle = ReturnType<typeof getDb>;
+
+const TERMINAL_TASK_STATUSES = ["done", "approved", "failed", "rejected"] as const;
+
+/** Error thrown when workflow template validation fails during applyTemplate; surfaces with a clear message instead of being wrapped as a transaction error. */
+class TemplateValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TemplateValidationError";
+  }
+}
+
+interface InstantiateWorkflowOpts {
+  workflowTemplate: WorkflowTemplateDefinition;
+  tasksTemplate: TaskTemplateEntry[];
+  createdTaskIds: string[];
+  missionId: string;
+  habitatId: string;
+  callerVariables: Record<string, string>;
+  actor: string;
+  now: string;
+}
+
+/** Replaces `{{key}}` patterns with resolved variable values, leaving undeclared runtime tokens (e.g. `{{failedTaskTitle}}`) as-is. */
+function substituteTemplateVariables(
+  text: string | undefined | null,
+  resolvedVars: Record<string, string>,
+): string | undefined {
+  if (!text) return text ?? undefined;
+  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, varKey: string) => {
+    return varKey in resolvedVars ? resolvedVars[varKey] : match;
+  });
+}
+
+/** Returns a copy of the failure handler with variable substitution applied to the recovery task template text. */
+function substituteFailureHandler(
+  handler: WorkflowFailureHandlerConfig,
+  substitute: (text: string | undefined | null) => string | undefined,
+): WorkflowFailureHandlerConfig {
+  const rtt = handler.recoveryTaskTemplate;
+  return {
+    ...handler,
+    recoveryTaskTemplate: {
+      ...rtt,
+      title: substitute(rtt.title) ?? rtt.title,
+      description:
+        rtt.description !== undefined
+          ? (substitute(rtt.description) ?? rtt.description)
+          : rtt.description,
+    },
+  };
+}
+
+/** Instantiates a workflow DAG (workflow row + gate rows) from a template definition inside an applyTemplate transaction. */
+function instantiateWorkflow(tx: DbHandle, opts: InstantiateWorkflowOpts): string {
+  const {
+    workflowTemplate: wfDef,
+    tasksTemplate,
+    createdTaskIds,
+    missionId,
+    habitatId,
+    callerVariables,
+    actor,
+    now,
+  } = opts;
+
+  const keyToTaskId = new Map<string, string>();
+  const keyToEntry = new Map<string, TaskTemplateEntry>();
+  for (let i = 0; i < tasksTemplate.length; i++) {
+    const entry = tasksTemplate[i];
+    const tid = createdTaskIds[i];
+    const key = entry.key ?? `task_${i + 1}`;
+    if (keyToTaskId.has(key)) {
+      throw new TemplateValidationError(`Duplicate task key "${key}" in template`);
+    }
+    keyToTaskId.set(key, tid);
+    keyToEntry.set(key, entry);
+  }
+
+  const resolvedVars: Record<string, string> = {};
+  for (const vdef of wfDef.variables ?? []) {
+    const callerVal = callerVariables[vdef.key];
+    const defaultVal = vdef.default;
+    if (callerVal !== undefined) {
+      resolvedVars[vdef.key] = callerVal;
+    } else if (defaultVal !== undefined) {
+      resolvedVars[vdef.key] = defaultVal;
+    } else if (vdef.required) {
+      throw new TemplateValidationError(
+        `Required template variable "${vdef.key}" was not provided`,
+      );
+    }
+  }
+
+  const substitute = (text: string | undefined | null): string | undefined =>
+    substituteTemplateVariables(text, resolvedVars);
+
+  for (let i = 0; i < tasksTemplate.length; i++) {
+    const entry = tasksTemplate[i];
+    const tid = createdTaskIds[i];
+    const newTitle = substitute(entry.title);
+    const newDesc = entry.description !== undefined ? substitute(entry.description) : undefined;
+    if (newTitle !== entry.title || newDesc !== entry.description) {
+      tx.update(tasks)
+        .set({ title: newTitle ?? entry.title, description: newDesc ?? entry.description ?? "" })
+        .where(eq(tasks.id, tid))
+        .run();
+    }
+  }
+
+  const resolvedJoinSpecs: Record<string, { mode: JoinMode; n?: number }> = {};
+  for (const [taskKey, spec] of Object.entries(wfDef.joinSpecs ?? {})) {
+    const tid = keyToTaskId.get(taskKey);
+    if (!tid) {
+      throw new TemplateValidationError(`Join spec references unknown task key "${taskKey}"`);
+    }
+    resolvedJoinSpecs[tid] = spec;
+  }
+
+  let resolvedFailureHandler: WorkflowFailureHandlerConfig | null = wfDef.failureHandler ?? null;
+  if (resolvedFailureHandler) {
+    resolvedFailureHandler = substituteFailureHandler(resolvedFailureHandler, substitute);
+  }
+
+  const workflowId = uuid();
+  tx.insert(workflows)
+    .values({
+      id: workflowId,
+      missionId,
+      habitatId,
+      resolvedVariables: resolvedVars,
+      joinSpecs: resolvedJoinSpecs,
+      failureHandler: resolvedFailureHandler,
+      status: "active",
+      createdBy: actor,
+    })
+    .run();
+
+  for (const gate of wfDef.gates) {
+    const upstreamTaskId = keyToTaskId.get(gate.upstreamTaskKey);
+    const downstreamTaskId = keyToTaskId.get(gate.downstreamTaskKey);
+    if (!upstreamTaskId) {
+      throw new TemplateValidationError(
+        `Gate references unknown upstream task key "${gate.upstreamTaskKey}"`,
+      );
+    }
+    if (!downstreamTaskId) {
+      throw new TemplateValidationError(
+        `Gate references unknown downstream task key "${gate.downstreamTaskKey}"`,
+      );
+    }
+
+    let matchConfig = gate.matchConfig as Record<string, unknown> | undefined;
+    if (matchConfig) {
+      matchConfig = { ...matchConfig };
+      if (typeof matchConfig.subjectContains === "string") {
+        const substituted = substitute(matchConfig.subjectContains);
+        if (substituted !== undefined) matchConfig.subjectContains = substituted;
+      }
+    }
+
+    const upstreamEntry = keyToEntry.get(gate.upstreamTaskKey);
+    if (upstreamEntry && upstreamEntry.failureHandlerOverride !== undefined) {
+      const override = upstreamEntry.failureHandlerOverride
+        ? substituteFailureHandler(upstreamEntry.failureHandlerOverride, substitute)
+        : null;
+      matchConfig = { ...matchConfig, failureHandlerOverride: override };
+    }
+
+    const upstreamTaskRow = tx
+      .select({ status: tasks.status })
+      .from(tasks)
+      .where(eq(tasks.id, upstreamTaskId))
+      .get();
+    const isPreSatisfied =
+      !!upstreamTaskRow &&
+      (TERMINAL_TASK_STATUSES as readonly string[]).includes(upstreamTaskRow.status);
+
+    tx.insert(taskWorkflowGates)
+      .values({
+        id: uuid(),
+        workflowId,
+        missionId,
+        habitatId,
+        upstreamTaskId,
+        downstreamTaskId,
+        gateType: gate.gateType,
+        matchConfig: matchConfig ?? null,
+        condition: gate.condition ?? null,
+        satisfied: isPreSatisfied,
+        satisfiedAt: isPreSatisfied ? now : null,
+        satisfiedByEventId: isPreSatisfied ? `pre_satisfied_at_attach:${now}` : null,
+        recoveryDepth: 0,
+      })
+      .run();
+  }
+
+  return workflowId;
 }
 
 export function applyTemplate(
@@ -202,6 +424,7 @@ export function applyTemplate(
 
   const createdTaskIds: string[] = [];
   const tasksTemplate = template.tasksTemplate ?? [];
+  let createdWorkflowId: string | null = null;
 
   try {
     db.transaction((tx) => {
@@ -242,7 +465,7 @@ export function applyTemplate(
             priority: entry.priority ?? "medium",
             requiredDomain: entry.requiredDomain ?? null,
             requiredCapabilities: entry.requiredCapabilities ?? [],
-            status: "pending",
+            status: entry.initialStatus ?? "pending",
             labels: [],
             order: taskOrder,
             createdBy: actor,
@@ -254,12 +477,26 @@ export function applyTemplate(
         createdTaskIds.push(taskId);
       }
 
+      if (template.workflowTemplate) {
+        createdWorkflowId = instantiateWorkflow(tx, {
+          workflowTemplate: template.workflowTemplate,
+          tasksTemplate,
+          createdTaskIds,
+          missionId,
+          habitatId,
+          callerVariables: overrides?.variables ?? {},
+          actor,
+          now,
+        });
+      }
+
       tx.update(missionTemplates)
         .set({ usageCount: sql`${missionTemplates.usageCount} + 1` })
         .where(eq(missionTemplates.id, templateId))
         .run();
     });
   } catch (err) {
+    if (err instanceof TemplateValidationError) throw err;
     throw repositoryTransactionError("template", err as Error, templateId);
   }
 
@@ -268,9 +505,14 @@ export function applyTemplate(
     .map((id) => taskRepo.getTaskById(id))
     .filter((t): t is NonNullable<typeof t> => t !== null);
 
+  const createdWorkflow = createdWorkflowId
+    ? (db.select().from(workflows).where(eq(workflows.id, createdWorkflowId)).get() ?? null)
+    : null;
+
   return {
     mission: createdMission,
     tasks: createdTasks,
+    workflow: createdWorkflow,
   };
 }
 
@@ -345,6 +587,8 @@ export function seedGlobalTemplates(): void {
           labels: tmpl.labels,
           requiredDomain: null,
           requiredCapabilities: [],
+          tasksTemplate: [],
+          workflowTemplate: null,
           isDefault: true,
           usageCount: 0,
           createdBy: "system",

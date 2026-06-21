@@ -1,11 +1,14 @@
-import type { TaskPriority } from "./task.js";
+import type { TaskPriority, TaskStatus } from "./task.js";
 import type { ActorType } from "./events.js";
+import type { WorkflowFailureHandlerConfig, WorkflowTemplateDefinition } from "./workflow.js";
 
 export { TaskPriority };
 export { ActorType };
 
 /** Represents one task definition embedded inside a mission template. */
 export interface TaskTemplateEntry {
+  /** Stable cross-reference for gate source/target; auto-generated as `task_1`, `task_2` etc. if absent. */
+  key?: string;
   title: string;
   description?: string;
   priority?: TaskPriority;
@@ -13,6 +16,10 @@ export interface TaskTemplateEntry {
   requiredCapabilities?: string[];
   estimatedMinutes?: number;
   order?: number;
+  /** Initial lifecycle status for the task at creation; defaults to `pending`. */
+  initialStatus?: TaskStatus;
+  /** Per-task override of the workflow-level failure handler; `null` explicitly disables it. */
+  failureHandlerOverride?: WorkflowFailureHandlerConfig | null;
 }
 
 /** Lifecycle states a {@link Mission} can occupy across its board. */
@@ -110,6 +117,8 @@ export interface MissionTemplate {
   createdBy: string;
   createdAt: string;
   tasksTemplate: TaskTemplateEntry[];
+  /** Optional workflow DAG definition instantiated alongside tasks by `applyTemplate`. */
+  workflowTemplate?: WorkflowTemplateDefinition | null;
 }
 
 /** A user's subscription to receive notifications for a specific {@link Mission}. */

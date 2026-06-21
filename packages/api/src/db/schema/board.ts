@@ -19,6 +19,7 @@ import type {
   TaskTemplateEntry,
   TaskPriority,
   ScheduleType,
+  WorkflowTemplateDefinition,
 } from "../../models/index.js";
 import { teams } from "./user.js";
 import { users } from "./user.js";
@@ -222,7 +223,9 @@ export const missionCommentMentions = sqliteTable(
     commentId: text("comment_id")
       .notNull()
       .references(() => missionComments.id, { onDelete: "cascade" }),
-    mentionedType: text("mentioned_type", { enum: ["human", "agent", "remote_human", "remote_orcy"] }).notNull(),
+    mentionedType: text("mentioned_type", {
+      enum: ["human", "agent", "remote_human", "remote_orcy"],
+    }).notNull(),
     mentionedId: text("mentioned_id").notNull(),
     mentionText: text("mention_text").notNull(),
     createdAt: text("created_at")
@@ -289,6 +292,9 @@ export const missionTemplates = sqliteTable(
       .$type<TaskTemplateEntry[]>()
       .notNull()
       .$defaultFn(() => []),
+    workflowTemplate: text("workflow_template", {
+      mode: "json",
+    }).$type<WorkflowTemplateDefinition | null>(),
   },
   (table) => [
     index("idx_templates_habitat").on(table.habitatId),
