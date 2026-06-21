@@ -4,13 +4,41 @@ import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { onTransition } from "./tasks/transition-emitter.js";
 import * as pulseService from "./pulseService.js";
+import { evaluateCondition } from "./automationEvaluator.js";
+import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 import type { Pulse } from "../repositories/pulse.js";
-import type { WorkflowTemplateDefinition, SignalMatch } from "../models/index.js";
+import type {
+  WorkflowTemplateDefinition,
+  SignalMatch,
+  AutomationCondition,
+} from "../models/index.js";
 
 export { areAllWorkflowGatesSatisfied };
 
 let initialized = false;
+
+type ConditionTrigger = {
+  habitatId: string;
+  targetType: "task" | "mission" | "agent" | "sprint" | "habitat" | "none";
+  targetId: string | null;
+  eventId?: string | null;
+  payload?: Record<string, unknown>;
+};
+
+function gateConditionMatches(condition: AutomationCondition, trigger: ConditionTrigger): boolean {
+  const ctx = buildEvaluationContext(
+    buildTriggerContext({
+      triggerType: "workflow_gate",
+      triggerEventId: trigger.eventId ?? null,
+      habitatId: trigger.habitatId,
+      targetType: trigger.targetType,
+      targetId: trigger.targetId,
+      payload: trigger.payload,
+    }),
+  );
+  return evaluateCondition(condition, ctx).matched;
+}
 
 /** Registers the workflowService subscriber on the transition emitter; call once at server startup from index.ts. */
 export function initWorkflowService(): void {
@@ -40,13 +68,26 @@ export function initWorkflowService(): void {
   });
 }
 
-function handleTransition(opts: { taskId: string; action: string; habitatId: string }): void {
+function handleTransition(opts: {
+  taskId: string;
+  action: string;
+  habitatId: string;
+  actorType?: string;
+  actorId?: string;
+  oldStatus?: string;
+  newStatus?: string;
+  metadata?: Record<string, unknown>;
+}): void {
   const gateType = actionToGateType(opts.action);
   if (!gateType) return;
 
   const db = getDb();
   const gates = db
-    .select({ id: taskWorkflowGates.id, satisfied: taskWorkflowGates.satisfied })
+    .select({
+      id: taskWorkflowGates.id,
+      satisfied: taskWorkflowGates.satisfied,
+      condition: taskWorkflowGates.condition,
+    })
     .from(taskWorkflowGates)
     .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
     .where(
@@ -64,6 +105,23 @@ function handleTransition(opts: { taskId: string; action: string; habitatId: str
   for (const gate of gates) {
     if (gate.satisfied) continue;
     try {
+      if (
+        gate.condition &&
+        !gateConditionMatches(gate.condition, {
+          habitatId: opts.habitatId,
+          targetType: "task",
+          targetId: opts.taskId,
+          payload: {
+            action: opts.action,
+            actorType: opts.actorType,
+            actorId: opts.actorId,
+            oldStatus: opts.oldStatus,
+            newStatus: opts.newStatus,
+            metadata: opts.metadata,
+          },
+        })
+      )
+        continue;
       db.update(taskWorkflowGates)
         .set({ satisfied: true, satisfiedAt: now })
         .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
@@ -94,6 +152,7 @@ function handlePulseCreated(pulse: Pulse): void {
       upstreamTaskId: taskWorkflowGates.upstreamTaskId,
       missionId: taskWorkflowGates.missionId,
       matchConfig: taskWorkflowGates.matchConfig,
+      condition: taskWorkflowGates.condition,
     })
     .from(taskWorkflowGates)
     .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
@@ -116,6 +175,21 @@ function handlePulseCreated(pulse: Pulse): void {
       const match = readSignalMatch(gate.matchConfig);
       if (!match) continue;
       if (!signalMatchEqualsPulse(match, pulse, gate)) continue;
+      if (
+        gate.condition &&
+        !gateConditionMatches(gate.condition, {
+          habitatId: pulse.habitatId,
+          targetType: pulse.taskId ? "task" : pulse.missionId ? "mission" : "none",
+          targetId: pulse.taskId ?? pulse.missionId,
+          eventId: pulse.id,
+          payload: {
+            signalType: pulse.signalType,
+            subject: pulse.subject,
+            metadata: pulse.metadata,
+          },
+        })
+      )
+        continue;
       db.update(taskWorkflowGates)
         .set({
           satisfied: true,

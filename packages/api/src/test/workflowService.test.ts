@@ -26,9 +26,28 @@ vi.mock("../services/pulseService.js", () => ({
   }),
 }));
 
+vi.mock("../services/automationEvaluator.js", () => ({
+  evaluateCondition: vi.fn(),
+}));
+
+vi.mock("../services/automationContextBuilder.js", () => ({
+  buildEvaluationContext: vi.fn((trigger: any) => ({
+    habitat: null,
+    task: null,
+    mission: null,
+    agent: null,
+    sprint: null,
+    warnings: [],
+    missingFields: [],
+    raw: trigger?.payload ?? {},
+  })),
+  buildTriggerContext: vi.fn((args: any) => args),
+}));
+
 import { logger } from "../lib/logger.js";
 import { onTransition } from "../services/tasks/transition-emitter.js";
 import { onPulseCreated } from "../services/pulseService.js";
+import { evaluateCondition } from "../services/automationEvaluator.js";
 
 let transitionHook: ((opts: any) => void) | null = null;
 let pulseHook: ((pulse: any) => void) | null = null;
@@ -866,6 +885,376 @@ describe("workflowService on_signal gate evaluation", () => {
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ err: expect.any(Error) }),
       "Workflow service pulse subscriber error",
+    );
+  });
+});
+
+describe("workflowService conditional predicate evaluation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    transitionHook = null;
+    pulseHook = null;
+    resetMockDb();
+    vi.resetModules();
+  });
+
+  it("fires on_complete gate with { type: 'always' } condition", async () => {
+    vi.mocked(evaluateCondition).mockReturnValue({
+      matched: true,
+      conditionType: "always",
+      reason: "Always matches",
+    });
+    const gates = [
+      {
+        id: "gate-c1",
+        satisfied: false,
+        condition: { type: "always" },
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    transitionHook!({ taskId: "task-up", action: "completed", habitatId: "h1" });
+
+    expect(evaluateCondition).toHaveBeenCalledTimes(1);
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire on_complete gate when condition evaluates to false", async () => {
+    vi.mocked(evaluateCondition).mockReturnValue({
+      matched: false,
+      conditionType: "status_in",
+      reason: "Status not in list",
+    });
+    const gates = [
+      {
+        id: "gate-c2",
+        satisfied: false,
+        condition: { type: "status_in", statuses: ["blocked"] },
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    transitionHook!({ taskId: "task-up", action: "completed", habitatId: "h1" });
+
+    expect(evaluateCondition).toHaveBeenCalledTimes(1);
+    expect(updateRun).not.toHaveBeenCalled();
+  });
+
+  it("fires gate when condition is null (no condition evaluation)", async () => {
+    const gates = [
+      {
+        id: "gate-c3",
+        satisfied: false,
+        condition: null,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    transitionHook!({ taskId: "task-up", action: "completed", habitatId: "h1" });
+
+    expect(evaluateCondition).not.toHaveBeenCalled();
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire on_signal gate when signal matches but condition is false", async () => {
+    vi.mocked(evaluateCondition).mockReturnValue({
+      matched: false,
+      conditionType: "field",
+      reason: "Field mismatch",
+    });
+    const gates = [
+      {
+        id: "gate-c4",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        missionId: "m1",
+        matchConfig: { signalType: "blocker", matchScope: "task" },
+        condition: { type: "field", field: "task.priority", operator: "equals", value: "critical" },
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    pulseHook!({
+      id: "pulse-c4",
+      signalType: "blocker",
+      subject: "Blocked",
+      taskId: "task-up",
+      missionId: "m1",
+      habitatId: "h1",
+      metadata: {},
+    });
+
+    expect(evaluateCondition).toHaveBeenCalledTimes(1);
+    expect(updateRun).not.toHaveBeenCalled();
+  });
+
+  it("fires on_signal gate when both signal match and condition are true", async () => {
+    vi.mocked(evaluateCondition).mockReturnValue({
+      matched: true,
+      conditionType: "status_in",
+      reason: "Status matches",
+    });
+    const gates = [
+      {
+        id: "gate-c5",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        missionId: "m1",
+        matchConfig: { signalType: "blocker", matchScope: "task" },
+        condition: { type: "status_in", statuses: ["in_progress"] },
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    pulseHook!({
+      id: "pulse-c5",
+      signalType: "blocker",
+      subject: "Blocked",
+      taskId: "task-up",
+      missionId: "m1",
+      habitatId: "h1",
+      metadata: {},
+    });
+
+    expect(evaluateCondition).toHaveBeenCalledTimes(1);
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports nested AND/OR/NOT conditions to depth 5", async () => {
+    vi.mocked(evaluateCondition).mockReturnValue({
+      matched: true,
+      conditionType: "and",
+      reason: "All children matched",
+    });
+    // Depth-5 nested condition: NOT(AND(OR(NOT(AND(always)))))
+    const deepCondition = {
+      type: "not",
+      child: {
+        type: "and",
+        children: [
+          {
+            type: "or",
+            children: [
+              {
+                type: "not",
+                child: {
+                  type: "and",
+                  children: [{ type: "always" }],
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const gates = [
+      {
+        id: "gate-c6",
+        satisfied: false,
+        condition: deepCondition,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    transitionHook!({ taskId: "task-up", action: "completed", habitatId: "h1" });
+
+    expect(evaluateCondition).toHaveBeenCalledWith(deepCondition, expect.any(Object));
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("catches predicate evaluation errors without crashing subscriber", async () => {
+    vi.mocked(evaluateCondition).mockImplementation(() => {
+      throw new Error("Condition nesting depth exceeds maximum of 5: 6");
+    });
+    const gates = [
+      {
+        id: "gate-c7",
+        satisfied: false,
+        condition: { type: "always" },
+      },
+      {
+        id: "gate-c8",
+        satisfied: false,
+        condition: { type: "always" },
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    expect(() =>
+      transitionHook!({ taskId: "task-up", action: "completed", habitatId: "h1" }),
+    ).not.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      "Failed to satisfy workflow gate",
+    );
+  });
+
+  it("passes task event payload into the condition context", async () => {
+    vi.mocked(evaluateCondition).mockReturnValue({
+      matched: true,
+      conditionType: "always",
+      reason: "test",
+    });
+    const gates = [
+      {
+        id: "gate-c9",
+        satisfied: false,
+        condition: { type: "always" },
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: vi.fn() }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    transitionHook!({
+      taskId: "task-up",
+      action: "completed",
+      habitatId: "h1",
+      actorType: "agent",
+      actorId: "agent-1",
+      oldStatus: "submitted",
+      newStatus: "done",
+      metadata: { reason: "work finished" },
+    });
+
+    expect(evaluateCondition).toHaveBeenCalledWith(
+      { type: "always" },
+      expect.objectContaining({
+        raw: expect.objectContaining({
+          action: "completed",
+          actorType: "agent",
+          actorId: "agent-1",
+          oldStatus: "submitted",
+          newStatus: "done",
+          metadata: { reason: "work finished" },
+        }),
+      }),
     );
   });
 });
