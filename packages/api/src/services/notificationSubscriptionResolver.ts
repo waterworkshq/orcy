@@ -16,6 +16,9 @@ const V18_EVENT_CATALOG: Set<string> = new Set([
   "automation.action_failed",
   "digest.ready",
   "pulse.signal_posted",
+  "workflow.recovery_started",
+  "workflow.recovery_succeeded",
+  "workflow.recovery_unrecoverable",
 ]);
 
 /** Returns whether the given event type is part of the supported notification event catalog. */

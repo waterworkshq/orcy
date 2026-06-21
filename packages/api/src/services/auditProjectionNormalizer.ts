@@ -10,6 +10,7 @@ const AUDIT_SOURCES = new Set<AuditSource>([
   "integration_sync",
   "scheduler",
   "migration",
+  "workflow",
   "unknown",
 ]);
 

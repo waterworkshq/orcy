@@ -1,4 +1,4 @@
-/** Canonical event kinds the notification system can emit across task, mission, automation, pulse, and digest sources. */
+/** Canonical event kinds the notification system can emit across task, mission, automation, pulse, workflow, and digest sources. */
 export type NotificationEventType =
   | "task.blocked"
   | "task.review_requested"
@@ -7,7 +7,10 @@ export type NotificationEventType =
   | "automation.rule_matched"
   | "automation.action_failed"
   | "digest.ready"
-  | "pulse.signal_posted";
+  | "pulse.signal_posted"
+  | "workflow.recovery_started"
+  | "workflow.recovery_succeeded"
+  | "workflow.recovery_unrecoverable";
 
 /** Identifies the originating domain of a notification. */
 export type NotificationSourceType =
@@ -15,6 +18,7 @@ export type NotificationSourceType =
   | "mission"
   | "automation"
   | "pulse"
+  | "workflow"
   | "digest"
   | "system";
 

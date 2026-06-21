@@ -10,6 +10,7 @@ import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 import * as taskCrudRepo from "../repositories/taskCrud.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as failureContextService from "./failureContextService.js";
+import { enqueueNotification } from "./notificationCommandService.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
@@ -233,13 +234,15 @@ function redeemOneContext(
   // Resolve the failure context so re-firing approved/completed is a no-op.
   failureContextService.resolveFailureContext(ctx.id, "redeemed");
 
-  logger.info(
+  emitRecoveryNotification(
+    ctx.habitatId,
+    "workflow.recovery_succeeded",
+    "Recovery redeemed original failure",
     {
       contextId: ctx.id,
       failedTaskId: ctx.failedTaskId,
       gatesSatisfied: gates.length,
     },
-    "Recovery redeemed original failure (workflow_recovery_succeeded emission lands in F5)",
   );
 }
 
@@ -285,7 +288,18 @@ function spawnRecoveryForGate(
   if (gate.recoveryDepth >= MAX_RECOVERY_DEPTH) {
     logger.warn(
       { gateId: gate.id, recoveryDepth: gate.recoveryDepth, taskId: opts.taskId },
-      "Recovery depth cap reached; not spawning a deeper recovery task (audit + notification wiring lands in F5)",
+      "Recovery depth cap reached; not spawning a deeper recovery task",
+    );
+    emitRecoveryNotification(
+      gate.habitatId,
+      "workflow.recovery_unrecoverable",
+      "Recovery depth cap reached",
+      {
+        gateId: gate.id,
+        failedTaskId: opts.taskId,
+        recoveryDepth: gate.recoveryDepth,
+        action: opts.action,
+      },
     );
     return;
   }
@@ -336,6 +350,20 @@ function spawnRecoveryForGate(
     if (ctx) {
       failureContextService.linkRecoveryTask(ctx.id, recoveryTask.id);
     }
+
+    // Emit the recovery-started notification (also projects to audit via the
+    // notification-to-audit projection with source="workflow").
+    emitRecoveryNotification(
+      gate.habitatId,
+      "workflow.recovery_started",
+      `Recovery task spawned for: ${failedTask.title}`,
+      {
+        gateId: gate.id,
+        failedTaskId: failedTask.id,
+        recoveryTaskId: recoveryTask.id,
+        recoveryDepth: gate.recoveryDepth + 1,
+      },
+    );
   } catch (err) {
     logger.error(
       { err, gateId: gate.id, recoveryTaskId: recoveryTask.id },
@@ -346,6 +374,36 @@ function spawnRecoveryForGate(
 
 /** Maximum `recoveryDepth` allowed before recovery spawning is suppressed; gates at this depth fire but do not spawn deeper recoveries (two-attempts cap). */
 export const MAX_RECOVERY_DEPTH = 2;
+
+/** Emits a workflow recovery notification event (and corresponding audit via the notification-to-audit projection) with a consistent shape. */
+function emitRecoveryNotification(
+  habitatId: string,
+  eventType:
+    | "workflow.recovery_started"
+    | "workflow.recovery_succeeded"
+    | "workflow.recovery_unrecoverable",
+  title: string,
+  payload: Record<string, unknown>,
+): void {
+  try {
+    enqueueNotification({
+      habitatId,
+      eventType,
+      sourceType: "workflow",
+      targetType: "task",
+      targetId:
+        (payload.recoveryTaskId as string | undefined) ??
+        (payload.failedTaskId as string | undefined),
+      severity: eventType === "workflow.recovery_succeeded" ? "info" : "warning",
+      title,
+      payload,
+      createdByType: "system",
+      createdById: "workflow-service",
+    });
+  } catch (err) {
+    logger.error({ err, eventType, habitatId }, "Failed to emit workflow recovery notification");
+  }
+}
 
 function resolveEffectiveFailureHandler(gate: {
   matchConfig: Record<string, unknown> | null;

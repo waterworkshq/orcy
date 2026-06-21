@@ -75,7 +75,12 @@ export function projectNotificationEventToAudit(
       type: event.createdByType === "automation" ? "system" : event.createdByType,
       id: event.createdById ?? "system:notification",
     },
-    source: event.createdByType === "automation" ? "automation" : "notification",
+    source:
+      event.sourceType === "workflow"
+        ? "workflow"
+        : event.createdByType === "automation"
+          ? "automation"
+          : "notification",
     provenance: {
       eventType: event.eventType,
       sourceType: event.sourceType,
