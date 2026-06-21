@@ -13,6 +13,11 @@ vi.mock("../services/workflowService.js", () => ({
   updateWorkflow: vi.fn(),
   detachWorkflow: vi.fn(),
   getFailureContextsForWorkflow: vi.fn(),
+  getTaskWorkflowContext: vi.fn(),
+}));
+
+vi.mock("../services/failureContextService.js", () => ({
+  getFailureContext: vi.fn(),
 }));
 
 vi.mock("../repositories/feature.js", () => ({
@@ -29,7 +34,9 @@ import {
   updateWorkflow,
   detachWorkflow,
   getFailureContextsForWorkflow,
+  getTaskWorkflowContext,
 } from "../services/workflowService.js";
+import { getFailureContext } from "../services/failureContextService.js";
 import { getMissionById } from "../repositories/feature.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";
@@ -519,5 +526,111 @@ describe("workflowRoutes — GET /workflows/:id/failure-contexts", () => {
 
     expect(res.statusCode).toBe(403);
     expect(getFailureContextsForWorkflow).not.toHaveBeenCalled();
+  });
+});
+
+describe("workflowRoutes — GET /tasks/:id/failure-context", () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    app = await buildApp();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("returns the failure context when one exists (agent auth)", async () => {
+    const mockCtx = { id: "ctx-1", failedTaskId: "task-1", failureKind: "lifecycle_failed" };
+    vi.mocked(getFailureContext).mockReturnValue(mockCtx as any);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/task-1/failure-context",
+      headers: { authorization: `Bearer ${adminToken()}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(getFailureContext).toHaveBeenCalledWith("task-1");
+    expect(JSON.parse(res.body).failureContext).toEqual(mockCtx);
+  });
+
+  it("returns 404 when no failure context exists", async () => {
+    vi.mocked(getFailureContext).mockReturnValue(null);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/no-ctx/failure-context",
+      headers: { authorization: `Bearer ${adminToken()}` },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).error).toMatch(/no failure context/i);
+  });
+
+  it("returns 401 when no auth header is provided", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/task-1/failure-context",
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(getFailureContext).not.toHaveBeenCalled();
+  });
+});
+
+describe("workflowRoutes — GET /tasks/:id/workflow-context", () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    app = await buildApp();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("returns upstream and downstream gates when task is in a workflow", async () => {
+    vi.mocked(getTaskWorkflowContext).mockReturnValue({
+      upstream: [{ id: "gate-1", gateType: "on_complete", satisfied: true }],
+      downstream: [{ id: "gate-2", gateType: "on_approve", satisfied: false }],
+    } as any);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/task-1/workflow-context",
+      headers: { authorization: `Bearer ${adminToken()}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(getTaskWorkflowContext).toHaveBeenCalledWith("task-1");
+    const body = JSON.parse(res.body);
+    expect(body.upstream).toHaveLength(1);
+    expect(body.downstream).toHaveLength(1);
+  });
+
+  it("returns 404 when task is not part of any workflow", async () => {
+    vi.mocked(getTaskWorkflowContext).mockReturnValue({ upstream: [], downstream: [] } as any);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/orphan/workflow-context",
+      headers: { authorization: `Bearer ${adminToken()}` },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).error).toMatch(/not part of any workflow/i);
+  });
+
+  it("returns 401 when no auth header is provided", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/tasks/task-1/workflow-context",
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(getTaskWorkflowContext).not.toHaveBeenCalled();
   });
 });

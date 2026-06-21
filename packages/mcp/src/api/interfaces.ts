@@ -543,3 +543,11 @@ export interface AutomationClient {
   listRuns(habitatId: string, options?: { limit?: number; offset?: number }): Promise<unknown>;
   getRuleRuns(ruleId: string, options?: { limit?: number; offset?: number }): Promise<unknown>;
 }
+
+/** Read-only workflow context methods used by MCP tools (orcy_get_failure_context, orcy_get_workflow_context). */
+export interface WorkflowClient {
+  getTaskFailureContext(taskId: string): Promise<{ failureContext: Record<string, unknown> }>;
+  getTaskWorkflowContext(
+    taskId: string,
+  ): Promise<{ upstream: Record<string, unknown>[]; downstream: Record<string, unknown>[] }>;
+}

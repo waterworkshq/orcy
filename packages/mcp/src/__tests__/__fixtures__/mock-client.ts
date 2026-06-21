@@ -176,6 +176,9 @@ export function createMockClient() {
     deleteSubtask: vi.fn(),
     getWorktree: vi.fn(),
 
+    getTaskFailureContext: vi.fn(),
+    getTaskWorkflowContext: vi.fn(),
+
     getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
     withAuditToolContext: vi.fn(),
   } as unknown as KanbanApiClient;

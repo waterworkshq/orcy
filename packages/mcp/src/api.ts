@@ -70,6 +70,7 @@ import type {
   TemplateClient as TemplateClientIface,
   TimeTrackingClient as TimeTrackingClientIface,
   IntegrationClient as IntegrationClientIface,
+  WorkflowClient as WorkflowClientIface,
 } from "./api/interfaces.js";
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -209,7 +210,8 @@ export class KanbanApiClient
     WebhookClientIface,
     TemplateClientIface,
     TimeTrackingClientIface,
-    IntegrationClientIface
+    IntegrationClientIface,
+    WorkflowClientIface
 {
   private transport: ReturnType<typeof createApiClient>;
   private baseUrl: string;
@@ -2063,5 +2065,21 @@ export class KanbanApiClient
         ).toString()
       : "";
     return this.request("GET", `/api/automation-rules/${ruleId}/runs${qs}`);
+  }
+
+  /** Reads the most recent unresolved failure context for a task (used by the orcy_get_failure_context MCP tool). */
+  async getTaskFailureContext(
+    taskId: string,
+  ): Promise<{ failureContext: Record<string, unknown> }> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("GET", `/api/tasks/${taskId}/failure-context`);
+  }
+
+  /** Reads the upstream and downstream workflow gates for a task (used by the orcy_get_workflow_context MCP tool). */
+  async getTaskWorkflowContext(
+    taskId: string,
+  ): Promise<{ upstream: Record<string, unknown>[]; downstream: Record<string, unknown>[] }> {
+    taskId = normalizeTaskId(taskId);
+    return this.request("GET", `/api/tasks/${taskId}/workflow-context`);
   }
 }

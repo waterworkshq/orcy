@@ -20,6 +20,8 @@ import {
   HABITAT_SKILL_DISPATCH_HANDLER,
   NOTIFICATION_DISPATCH_HANDLER,
   AUTOMATION_DISPATCH_HANDLER,
+  WORKFLOW_FAILURE_CONTEXT_HANDLER,
+  WORKFLOW_CONTEXT_HANDLER,
 } from "./tools/index.js";
 import { KanbanApiClient } from "./api.js";
 import { setNotificationSender, cleanupAll as cleanupSubscriptions } from "./subscriptions.js";
@@ -88,6 +90,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_habitat_skill: HABITAT_SKILL_DISPATCH_HANDLER,
   orcy_notification: NOTIFICATION_DISPATCH_HANDLER,
   orcy_automation: AUTOMATION_DISPATCH_HANDLER,
+  orcy_get_failure_context: WORKFLOW_FAILURE_CONTEXT_HANDLER,
+  orcy_get_workflow_context: WORKFLOW_CONTEXT_HANDLER,
 };
 
 // ---------------------------------------------------------------------------

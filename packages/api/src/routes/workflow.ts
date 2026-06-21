@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
-import { humanAuth } from "../middleware/auth.js";
+import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import * as workflowService from "../services/workflowService.js";
+import * as failureContextService from "../services/failureContextService.js";
 import * as missionRepo from "../repositories/feature.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 
@@ -220,6 +221,32 @@ export async function workflowRoutes(fastify: FastifyInstance): Promise<void> {
         throw notFound("Workflow gate not found");
       }
       return { satisfied: true };
+    },
+  );
+
+  /** GET /tasks/:id/failure-context - Read the most recent unresolved failure context for a task. Auth: agentOrHumanAuth. Returns { failureContext } or 404. */
+  fastify.get<{ Params: { id: string } }>(
+    "/tasks/:id/failure-context",
+    { preHandler: [agentOrHumanAuth] },
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      const failureContext = failureContextService.getFailureContext(request.params.id);
+      if (!failureContext) {
+        throw notFound("No failure context found for this task");
+      }
+      return { failureContext };
+    },
+  );
+
+  /** GET /tasks/:id/workflow-context - Read the upstream and downstream workflow gates for a task. Auth: agentOrHumanAuth. Returns { upstream, downstream } or 404 when task is not in a workflow. */
+  fastify.get<{ Params: { id: string } }>(
+    "/tasks/:id/workflow-context",
+    { preHandler: [agentOrHumanAuth] },
+    async (request: FastifyRequest<{ Params: { id: string } }>, _reply: FastifyReply) => {
+      const context = workflowService.getTaskWorkflowContext(request.params.id);
+      if (context.upstream.length === 0 && context.downstream.length === 0) {
+        throw notFound("Task is not part of any workflow");
+      }
+      return context;
     },
   );
 }

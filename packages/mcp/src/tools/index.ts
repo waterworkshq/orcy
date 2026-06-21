@@ -36,6 +36,9 @@ export * from "./automation.js";
 // Re-export dispatch utilities (for tests)
 export * from "./dispatch-utils.js";
 
+// Re-export workflow context tools
+export * from "./workflow.js";
+
 // Import dispatch tool constants and handlers
 import { HABITAT_DISPATCH_TOOL, HABITAT_DISPATCH_HANDLER } from "./habitat-dispatch.js";
 import { MISSION_DISPATCH_TOOL, MISSION_DISPATCH_HANDLER } from "./mission-dispatch.js";
@@ -63,6 +66,12 @@ import {
   NOTIFICATION_DISPATCH_HANDLER,
 } from "./notification-dispatch.js";
 import { AUTOMATION_DISPATCH_TOOL, AUTOMATION_DISPATCH_HANDLER } from "./automation-dispatch.js";
+import {
+  WORKFLOW_FAILURE_CONTEXT_TOOL,
+  WORKFLOW_CONTEXT_TOOL,
+  WORKFLOW_FAILURE_CONTEXT_HANDLER,
+  WORKFLOW_CONTEXT_HANDLER,
+} from "./workflow.js";
 
 // Re-export dispatch handlers for consumers (src/index.ts, tests)
 export {
@@ -81,6 +90,8 @@ export {
   HABITAT_SKILL_DISPATCH_HANDLER,
   NOTIFICATION_DISPATCH_HANDLER,
   AUTOMATION_DISPATCH_HANDLER,
+  WORKFLOW_FAILURE_CONTEXT_HANDLER,
+  WORKFLOW_CONTEXT_HANDLER,
 };
 export {
   HABITAT_DISPATCH_TOOL,
@@ -98,6 +109,8 @@ export {
   HABITAT_SKILL_DISPATCH_TOOL,
   NOTIFICATION_DISPATCH_TOOL,
   AUTOMATION_DISPATCH_TOOL,
+  WORKFLOW_FAILURE_CONTEXT_TOOL,
+  WORKFLOW_CONTEXT_TOOL,
 };
 
 export const ALL_TOOLS: Tool[] = [
@@ -117,4 +130,6 @@ export const ALL_TOOLS: Tool[] = [
   HABITAT_SKILL_DISPATCH_TOOL,
   NOTIFICATION_DISPATCH_TOOL,
   AUTOMATION_DISPATCH_TOOL,
+  WORKFLOW_FAILURE_CONTEXT_TOOL,
+  WORKFLOW_CONTEXT_TOOL,
 ];
