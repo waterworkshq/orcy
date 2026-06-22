@@ -246,7 +246,7 @@ An optional orchestration plan attached to a mission that declares dependency an
 _Avoid_: Pipeline, runbook, playbook, DAG, workflow step
 
 **Workflow Gate**:
-A typed condition on a dependency from one task to another that determines when the downstream task becomes claimable. Gate types include completion of the upstream task, lifecycle approval of the upstream task, a matching pulse signal, a named automation outcome, or an explicit manual unblock.
+A typed condition on a dependency from one task to another that determines when the downstream task becomes claimable. Five gate types ship in v0.20: completion of the upstream task (`on_complete`), lifecycle approval of the upstream task (`on_approve`), a matching pulse signal (`on_signal`), an explicit manual unblock (`on_manual`), and upstream failure (`on_fail`, which spawns recovery). A sixth type (`on_automation`) is planned for v0.20.1 once the v0.18 automation executor is wired into production.
 _Avoid_: Trigger, transition, lifecycle event when describing the gate itself
 
 **Workflow Join**:
@@ -270,7 +270,7 @@ A reusable scaffold stored at the habitat level (or globally when habitat-scoped
 _Avoid_: Blueprint, recipe, pattern, workflow definition (a template can contain a workflow definition but is not the same thing)
 
 **Template Variable**:
-A named placeholder inside a template (such as `{{feature_name}}`) that the human fills in at instantiation time. Variable values are substituted into task titles, descriptions, and acceptance criteria when the mission is created from the template.
+A named placeholder inside a workflow template (such as `{{feature_name}}`) that the human fills in at instantiation time. Variable values are substituted into task titles, task descriptions, gate match configs, and recovery task templates when the mission is created from the template. Runtime tokens like `{{failedTaskTitle}}` and `{{failureReason}}` are left intact at instantiation and resolved later by the recovery subsystem.
 _Avoid_: Parameter, argument, macro
 
 **Experience Signal**:
@@ -290,3 +290,7 @@ _Avoid_: Exception handler, error callback
 Dev: "This mission shipped through three tasks. Where is the code evidence?"
 
 Domain expert: "The mission rolls up evidence links from its tasks: two pull requests, six commits, changed file snapshots, and one failed then passing pipeline run. The release pull request is direct mission evidence because it spans all tasks. One commit was linked by branch pattern, another was reported from a local worktree, and another was manually linked by a human because it came from a hotfix branch. If the same commit belongs to two tasks, Orcy keeps one commit evidence record and two evidence links. If no one reports off-Orcy work, Orcy shows an evidence gap rather than assuming no code changed. If a link is wrong, Orcy records an evidence correction instead of deleting the original. Orcy stores file path snapshots for history, not full diffs. For time, Orcy separates elapsed lifecycle time from logged effort and inferred heartbeat presence. Audit events explain lifecycle changes, evidence changes, effort corrections, integration sync side effects, and other source-specific histories through one canonical language. Evidence bundles collect references and metadata for a task or mission, not raw source archives."
+
+Dev: "This mission's workflow stalled — what happened?"
+
+Domain expert: "The build task failed, which fired the `on_fail` gate. The workflow's failure handler spawned a recovery task with a Failure Context — including the agent's `stuck` experience signal from 10 minutes before failure. The recovery agent claimed it, called `orcy_get_failure_context` to read what went wrong, fixed the API rate limit issue, and submitted. Recovery Redemption fired — the downstream deploy task's `on_approve` gate satisfied as if the original build had succeeded, and the workflow continued. Two recovery attempts maximum: if the recovery itself had failed at depth 2, you'd see `workflow_recovery_unrecoverable` in the audit trail and a notification would fire for human intervention."

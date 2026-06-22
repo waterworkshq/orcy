@@ -17,6 +17,7 @@ Common issues, error messages, and debugging procedures for Orcy.
 - [Remote Pods & Shared Habitat](#remote-pods--shared-habitat)
 - [Notifications](#notifications)
 - [Daemon Engine](#daemon-engine)
+- [Workflow Orchestration](#workflow-orchestration)
 - [Error Code Reference](#error-code-reference)
 - [FAQ](#faq)
 
@@ -440,6 +441,65 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
 - Register a fresh UI daemon after every API restart (credentials are returned once and held in memory only)
 - Or use the standalone CLI daemon, which persists credentials to disk
+
+---
+
+## Workflow Orchestration
+
+### Workflow gate not firing?
+
+**Problem:** A task completed or was approved, but the downstream workflow gate's `satisfied` flag stays `false`.
+
+**Check:**
+
+1. **Event subscription channel.** The `workflowService` subscribes to `onTransition` (fires for all actions), NOT `onTaskEvent` (fires for only 4 lifecycle-completing actions). If you've added a new transition action, verify it goes through `emitTransition()` which calls `notifyTransition()`.
+2. **Task is in an active workflow.** The service does a single indexed lookup: `SELECT 1 FROM task_workflow_gates WHERE upstream_task_id = ? AND workflow_id IN (SELECT id FROM workflows WHERE status = 'active')`. Check that the workflow's `status` is `active`, not `detached`.
+3. **Action → gate type mapping.** The service maps `completed → on_complete`, `approved → on_approve`, `failed/rejected/released → on_fail`. Other actions (`started`, `submitted`, `claimed`, `created`) do NOT fire gates. Verify the action you expect is in the mapping.
+4. **Conditional predicate.** If the gate has a `condition` column, the match config AND the condition must both be true. Check the API server logs for `workflow_evaluation_error` audit events — predicate evaluation failures are caught and logged, not thrown.
+
+### Downstream task not claimable after redemption?
+
+**Problem:** A recovery task was approved/completed (redemption fired), but the downstream task still can't be claimed.
+
+**Check:**
+
+1. **Recovery-spawned gates excluded.** The claim-time check `areAllWorkflowGatesSatisfied` excludes gates with `recoveryDepth > 0` from the blocking check. Verify the query includes the depth filter: `WHERE satisfied = 0 AND recovery_depth = 0`.
+2. **Redemption actually fired.** Check `failure_contexts.resolved_at` for the recovery task's context — it should be non-null with `resolution_kind = 'redeemed'`. If null, the redemption hook didn't find the context (check `recovery_task_id` linkage).
+3. **Gate type.** Redemption only satisfies `on_complete` and `on_approve` gates on the original failed task. `on_signal` and `on_manual` gates are NOT redeemed — they still need their own trigger.
+
+### Recovery task not spawning?
+
+**Problem:** A task failed within a workflow, but no recovery task was created.
+
+**Check:**
+
+1. **Failure handler configured.** Check `workflows.failure_handler` on the workflow row. If null and the gate's `matchConfig.failureHandlerOverride` is also absent, no recovery spawns. The handler must have a `recoveryTaskTemplate`.
+2. **Per-task override.** Check `gate.matchConfig.failureHandlerOverride`. If the key is present and set to `null`, recovery is explicitly disabled for that task (even if the workflow has a default handler).
+3. **Depth cap.** Check `gate.recovery_depth`. If it's >= 2, the spawn is skipped (two recovery attempts maximum). The `workflow.recovery_unrecoverable` notification should have fired.
+4. **Idempotency marker.** Check `gate.recovery_task_id`. If non-null, a recovery was already spawned for this gate. Repeated failure events do not spawn additional recoveries.
+5. **Failure action.** Only `failed`, `rejected`, and `released` (heartbeat-lost) trigger `on_fail` gates. A task that's `pending` or `claimed` doesn't trigger failure recovery.
+
+### Experience signals not appearing in skill?
+
+**Problem:** Agents are posting `signalType: "experience"` pulses, but they don't show up in the habitat skill document.
+
+**Check:**
+
+1. **Signal type consolidation.** Verify `signalType: "experience"` is in the consolidated `SIGNAL_TYPES` const at `packages/shared/src/types/signal.ts`. All consumers (API schema, MCP tool, UI config) import from shared.
+2. **Skill ingestion branch.** Check `habitatSkillService.initSkillHooks()` — the `onPulseCreated` subscriber should branch on `signalType === "experience"` and call `ingestExperienceSignal` before the existing `ingestFromPulse` path.
+3. **Category extraction.** The category lives in `pulse.metadata.experience`. If the metadata is missing or the category isn't one of the 7 valid values, the signal is defensively skipped.
+4. **Category mapping.** `stuck`/`confused`/`backtrack → pitfall`, `surprised`/`ambiguous → domain_knowledge`, `smooth → pattern`, `sidetracked → pitfall` (stopgap). If the skill document doesn't have a "Pitfalls" or "Patterns" section, signals won't appear visibly.
+
+### Template workflow not instantiating?
+
+**Problem:** A template with a `workflowTemplate` is applied, but no workflow or gates are created.
+
+**Check:**
+
+1. **Column exists.** Verify `workflow_template` column exists on `mission_templates` (migration `0033_add_workflow_template_column.sql`). Check via `sqlite3 orcy.db ".schema mission_templates"`.
+2. **`applyTemplate` extension.** The function should call `instantiateWorkflow()` when `template.workflowTemplate` is non-null. Check the API server logs for `TemplateValidationError` — duplicate keys, missing required variables, bad gate references, and bad join-spec references all surface as validation errors (400 response, not 500).
+3. **Variable validation.** Required variables (those with `required: true` in `workflowTemplate.variables`) must be provided in the `variables` argument to `applyTemplate`. Missing required variables throw `TemplateValidationError`.
+4. **Task key references.** Gate `upstreamTaskKey` and `downstreamTaskKey` must match a `key` on a `TaskTemplateEntry` in `tasksTemplate`. If keys are absent, they auto-generate as `task_1`, `task_2`, etc. Check that references match.
 
 ---
 

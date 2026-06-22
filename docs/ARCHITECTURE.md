@@ -1054,3 +1054,150 @@ The dependency injection itself lives in `daemon-wiring.ts`, which lazy-imports 
 - **Tick consolidation** — `runPollTick` replaces two 40+ line duplicated `tick()` implementations
 - **Dynamic import** — API loads `@orcy/daemon` lazily via `initDaemonWiring()` to avoid static coupling
 - **Strategy injection** — `IClaimStrategy` has two implementations (HTTP vs in-process) chosen by deployment mode
+
+## Workflow Engine (v0.20)
+
+The workflow engine adds mission-scoped orchestration DAGs with typed gates, join specs, conditional predicates, failure recovery, and agent experience self-reporting. It layers on top of the existing claim path as derived constraints — no new task status, no changes to `IClaimStrategy`, `runPollTick`, or `getSuggestionsForAgent`.
+
+### Two-Channel Event Bus (ADR-0005)
+
+The workflow service needs to react to all task lifecycle actions, not just lifecycle-completing ones. The existing `onTaskEvent` hook only fires for 4 actions (`completed|approved|rejected|failed`). Rather than widening `onTaskEvent` (which would force an audit of every existing consumer), v0.20 adds a parallel `onTransition` channel.
+
+```
+emitTransition(taskId, action, context)
+  ├── [existing] notifyTaskEvent()     → fires for 4 lifecycle-completing actions only
+  │                                      Audience: habitatSkillService (skill generation)
+  └── [new in v0.20] notifyTransition() → fires for ALL actions unconditionally
+                                         Audience: workflowService (gate evaluation, recovery)
+```
+
+**Two channels, two audiences:**
+- `onTaskEvent` — lifecycle-completing actions only (4). Preserves v0.17.1 design intent.
+- `onTransition` — all transitions. New audience: `workflowService` and future consumers that need mid-lifecycle events.
+
+### Derived-Constraint Pattern (ADR-0001)
+
+Workflow-gated tasks stay in `pending` status. "Not yet claimable" is a derived property checked at claim time, mirroring the existing `areAllDependenciesMet()` guard.
+
+```
+claimTask(taskId, agentId)
+  ├── status check (pending? assigned?)
+  ├── areAllDependenciesMet(taskId)          ← existing guard
+  ├── areAllWorkflowGatesSatisfied(taskId)   ← new in v0.20
+  │     └── EXISTS subquery on task_workflow_gates
+  │         WHERE downstream_task_id = taskId AND satisfied = 0
+  │         then evaluate join spec (all_of / any_of / n_of)
+  └── claim write
+```
+
+Zero changes to `IClaimStrategy`, `HttpClaimStrategy`, `InProcessClaimStrategy`, `runPollTick`. New claim failure reason: `workflow_gates_unmet`. Recovery-spawned gates (`recoveryDepth > 0`) are excluded from the claim-blocking check.
+
+### Workflow Service Architecture
+
+```
+Event Sources              workflowService                    State
+─────────────              ────────────────                    ─────
+onTransition ──────────┐   handleTransition()
+                       │   ├── action → gateType mapping
+                       │   │   (completed → on_complete,
+                       │   │    approved → on_approve,
+                       │   │    failed/rejected/released → on_fail)
+                       │   ├── find affected gates
+                       │   ├── evaluate matchConfig + condition
+                       │   ├── UPDATE satisfied = true (idempotent)
+                       │   ├── if on_fail: buildFailureContext()
+                       │   ├── if on_fail: spawnRecoveryForGate()
+                       │   │   ├── resolve effective handler
+                       │   │   ├── check depth cap (max 2)
+                       │   │   ├── substitute {{variables}}
+                       │   │   ├── createTask (recovery)
+                       │   │   ├── create new on_fail gate (depth+1)
+                       │   │   └── emit workflow.recovery_started
+                       │   └── if approved/completed: handleRedemptionIfNeeded()
+                       │       ├── find failure_contexts WHERE recoveryTaskId = taskId
+                       │       ├── satisfy original's downstream on_complete/on_approve gates
+                       │       ├── resolveFailureContext("redeemed")
+                       │       └── emit workflow.recovery_succeeded
+                       │
+onPulseCreated ────────┘   handlePulseCreated()
+                           ├── find on_signal gates matching pulse
+                           ├── evaluate SignalMatch config
+                           │   (signalType, experience?, subjectContains?, matchScope)
+                           ├── evaluate condition predicate
+                           └── UPDATE satisfied = true
+```
+
+**Initialization:** `initWorkflowService()` called from `api/src/index.ts` alongside `initSkillHooks()`. Registers `onTransition` and `onPulseCreated` subscribers.
+
+**Error isolation:** Per-gate try/catch (one failing gate doesn't block others). Top-level try/catch (subscriber errors don't propagate to the emitter). Predicate evaluation errors (`ConditionDepthExceededError`, `InvalidConditionError`) are caught and logged.
+
+### Recovery Subsystem
+
+```
+Task fails (failed/rejected/released)
+  │
+  ▼
+onTransition fires
+  │
+  ▼
+workflowService.handleTransition()
+  ├── on_fail gates satisfied (idempotent)
+  ├── failureContextService.buildFailureContext()
+  │   ├── read task.artifacts
+  │   ├── query task_events (last 20)
+  │   ├── query pulses WHERE signalType='experience' (last 50)
+  │   ├── summarize experience categories
+  │   └── query retry history (last 10)
+  ├── persist FailureContext row
+  └── spawnRecoveryForGate() per newly-satisfied on_fail gate
+      ├── idempotency: skip if gate.recoveryTaskId already set
+      ├── resolve effective handler (per-task override > workflow default)
+      ├── depth check: recoveryDepth >= 2 → emit workflow.recovery_unrecoverable, STOP
+      ├── substitute {{failedTaskTitle}}, {{failureReason}}, {{failedAgentName}}
+      ├── createTask() with recovery template
+      ├── create new on_fail gate (upstream=recoveryTask, depth+1)
+      ├── link gate.recoveryTaskId + failureContext.recoveryTaskId
+      └── emit workflow.recovery_started notification
+
+Recovery task approved/completed
+  │
+  ▼
+workflowService.handleRedemptionIfNeeded()
+  ├── find failure_contexts WHERE recoveryTaskId = taskId AND resolvedAt IS NULL
+  ├── satisfy original failed task's downstream on_complete/on_approve gates
+  ├── resolveFailureContext("redeemed")
+  └── emit workflow.recovery_succeeded notification
+```
+
+**Gate orientation (implementation note):** The new on_fail gate created during recovery spawning uses `upstream=recoveryTask, downstream=originalDownstream` — NOT the literal `failedTask → recoveryTask` from the original design text. This prevents a double-spawn race on repeated failure events. Redemption works via `failureContexts.recoveryTaskId` direct reference, not gate-edge walking.
+
+**Two recovery attempts maximum.** Depth 0 = original gate, depth 1 = recovery-task gate, depth 2 = recovery-of-recovery. Deeper failure is unrecoverable.
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `api/src/services/workflowService.ts` | Orchestration brain — gate evaluation, recovery spawning, redemption |
+| `api/src/services/failureContextService.ts` | Builds and reads FailureBundle |
+| `api/src/services/experienceMetricsService.ts` | Per-agent experience signal metrics |
+| `api/src/services/workflowMetricsService.ts` | Workflow metrics for admin dashboard |
+| `api/src/repositories/workflow.ts` | CRUD + `areAllWorkflowGatesSatisfied` claim-time check |
+| `api/src/repositories/failureContext.ts` | Typed CRUD over `failure_contexts` |
+| `api/src/repositories/experienceMetrics.ts` | Per-agent signal aggregation queries |
+| `api/src/routes/workflow.ts` | Admin workflow CRUD routes + manual gate unblock |
+| `api/src/routes/metrics.ts` | Admin metrics routes |
+| `api/src/db/schema/workflow.ts` | 3 tables: workflows, taskWorkflowGates, failureContexts |
+| `shared/src/types/workflow.ts` | 13 shared types (GateType, JoinMode, SignalMatch, etc.) |
+| `shared/src/types/signal.ts` | Consolidated `SIGNAL_TYPES` const (10 values including `experience`) |
+| `api/src/services/tasks/transition-emitter.ts` | `onTransition`/`notifyTransition` channel (ADR-0005) |
+| `mcp/src/tools/workflow.ts` | `orcy_get_failure_context` + `orcy_get_workflow_context` MCP tools |
+
+### Design Decisions
+
+- **Layered constraints, not mode switches** — workflows add gate rows + one claim guard; no task status, lifecycle, or assignment changes
+- **Recovery is just tasking** — recovery tasks are normal tasks in the existing table, claimed via the existing pipeline (ADR-0003)
+- **Experience signals reuse pulse** — one new enum value + metadata convention; no new tables or services (ADR-0004)
+- **Two-channel event bus** — `onTransition` for all actions, `onTaskEvent` for lifecycle-completing only (ADR-0005)
+- **`on_automation` deferred to v0.20.1** — pre-existing v0.18 executor bug; 5 gate types ship in v0.20
+- **`excludeFailedAgent` dropped** — no implementation path without violating ADR-0001's "no new task columns" principle
+- **`sidetracked → pitfall` (stopgap)** — `SkillCategory` enum has no `anti_patterns` value; `anti_patterns` addition tracked for v0.20.1

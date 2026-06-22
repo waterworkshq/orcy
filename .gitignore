@@ -38,6 +38,7 @@ bunfig.toml
 .opencode/
 
 # Other Dev Deps
+.agents/
 .todos/
 .serena/
 .gitnexus

@@ -8,9 +8,9 @@ This document covers the testing strategy, how to run tests, and how to write ne
 
 | Layer | Framework | Location | Count |
 |-------|-----------|----------|-------|
-| API unit tests | Vitest | `packages/api/src/test/` | 44+ |
-| MCP unit tests | Vitest | `packages/mcp/src/tools.test.ts` | 17+ |
-| UI unit tests | Vitest | `packages/ui/src/` | 107 (91 `.test.tsx` + 16 `.test.ts`) |
+| API unit tests | Vitest | `packages/api/src/test/` | 203 files, ~3292 tests |
+| MCP unit tests | Vitest | `packages/mcp/src/__tests__/` | 29 files, ~508 tests |
+| UI unit tests | Vitest | `packages/ui/src/` | 119 files, ~1477 tests |
 | E2E tests | Playwright | `packages/ui/e2e/` | 1 spec |
 
 ### Test Pyramid
@@ -381,6 +381,105 @@ function captureRoutes(): Map<string, { handler: Function; preHandler?: any[] }>
 ```
 
 Used by: [`daemonRoutes.test.ts`](../packages/api/src/test/daemonRoutes.test.ts), [`effortRoutes.test.ts`](../packages/api/src/test/effortRoutes.test.ts), [`codeEvidenceRoutes.test.ts`](../packages/api/src/test/codeEvidenceRoutes.test.ts), [`auditBundleRoutes.test.ts`](../packages/api/src/test/auditBundleRoutes.test.ts) — 6+ route test files.
+
+### Workflow Gate Evaluation Tests (v0.20)
+
+**When to use:** Testing gate satisfaction logic per gate type, join spec evaluation, and idempotency of gate updates.
+
+**How:** Mock the transition emitter's `onTransition` hook to capture the subscriber, then invoke it with controlled event payloads. Verify gate rows transition from `satisfied = false` to `satisfied = true` exactly once.
+
+```typescript
+// Capture the subscriber via mocked onTransition
+const hooks: TransitionHook[] = [];
+vi.mock("../services/tasks/transition-emitter.js", () => ({
+  onTransition: (hook: TransitionHook) => { hooks.push(hook); return () => {}; },
+}));
+
+// Fire a transition and check gate state
+hooks[0]({ taskId: "task-1", action: "completed", habitatId: "h1", /* ... */ });
+expect(gate.satisfied).toBe(true);
+
+// Fire again — idempotent (no error, no duplicate update)
+hooks[0]({ taskId: "task-1", action: "completed", habitatId: "h1", /* ... */ });
+expect(updateCallCount).toBe(1);
+```
+
+Used by: [`workflowService.test.ts`](../packages/api/src/test/workflowService.test.ts), [`workflowServiceRecovery.test.ts`](../packages/api/src/test/workflowServiceRecovery.test.ts), [`workflowServiceRedemption.test.ts`](../packages/api/src/test/workflowServiceRedemption.test.ts).
+
+**Per-gate-type patterns:**
+- `on_complete` → fire `completed` action on upstream task
+- `on_approve` → fire `approved` action
+- `on_signal` → fire `onPulseCreated` with matching `signalType` + `matchConfig`
+- `on_manual` → call `manualUnblockGate()` directly
+- `on_fail` → fire `failed`/`rejected`/`released` action; verify recovery task spawned
+
+**Join spec tests:** `all_of` (all gates must fire), `any_of` (any one), `n_of(k)` (quorum threshold). Test with `evaluateJoin(totalGates, satisfiedGates, config)` pure function directly.
+
+### Recovery Lifecycle Integration Tests (v0.20)
+
+**When to use:** Testing end-to-end recovery spawning, redemption, and depth cap enforcement.
+
+**How:** Use real in-memory SQLite (`initTestDb`) + real `attachWorkflow` + real `initWorkflowService()` + `emitTransition()` to fire the real handler end-to-end. The heavy-mocking pattern from unit tests doesn't work for integration tests that need real DB + real recovery spawning.
+
+```typescript
+const db = await initTestDb();
+const workflow = attachWorkflow(missionId, habitatId, definition, {}, "test");
+initWorkflowService();
+
+// Fire the real transition — triggers the full handler chain
+emitTransition("failed-task-id", "failed", habitatId, { reason: "API timeout" });
+
+// Verify recovery task spawned
+const recoveryTask = db.select().from(tasks).where(eq(tasks.title, "Investigate Test Task failure")).get();
+expect(recoveryTask).toBeDefined();
+expect(recoveryTask!.status).toBe("pending");
+```
+
+**Depth cap test:** Create a gate with `recoveryDepth = 2`, fire failure event, verify NO recovery task spawned and `workflow.recovery_unrecoverable` notification emitted.
+
+**Redemption test:** Approve the recovery task, verify original failed task's downstream `on_complete`/`on_approve` gates satisfied and `failureContexts.resolvedAt` set with `resolutionKind = "redeemed"`.
+
+Used by: [`workflowServiceRecovery.test.ts`](../packages/api/src/test/workflowServiceRecovery.test.ts), [`workflowServiceRedemption.test.ts`](../packages/api/src/test/workflowServiceRedemption.test.ts), [`workflowAuditNotifications.test.ts`](../packages/api/src/test/workflowAuditNotifications.test.ts).
+
+### Self-Reporting Flow Tests (v0.20)
+
+**When to use:** Testing the end-to-end experience signal flow: MCP tool → API → pulse storage → skill ingestion.
+
+**How:** Test the MCP `pulsePost` tool with `signalType: "experience"` + `experience` param, verify metadata auto-stamping, then verify `habitatSkillService.ingestExperienceSignal` routes the signal to the correct skill category.
+
+```typescript
+// MCP tool stamps metadata.implicit, metadata.experience, metadata.timing
+await pulsePost(client, {
+  signalType: "experience",
+  experience: "stuck",
+  taskId: "task-1",
+  subject: "Confused by the auth middleware",
+});
+
+// Skill ingestion maps category → skill type
+// stuck → pitfall, surprised → domain_knowledge, smooth → pattern
+expect(skillSignal.skillCategory).toBe("pitfall");
+expect(skillSignal.sourceSignalType).toBe("experience");
+```
+
+**Category mapping tests:** All 7 categories (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) map correctly. Note: `sidetracked → pitfall` (stopgap until `anti_patterns` SkillCategory lands in v0.20.1).
+
+Used by: [`pulse-experience.test.ts`](../packages/mcp/src/__tests__/tools/pulse-experience.test.ts), [`habitatSkillExperience.test.ts`](../packages/api/src/test/habitatSkillExperience.test.ts), [`failureContextService.test.ts`](../packages/api/src/test/failureContextService.test.ts).
+
+### Performance Benchmark Tests (v0.20)
+
+**When to use:** Verifying that workflow gates add zero measurable overhead to the claim path and that subscriber cost is negligible for non-workflow tasks.
+
+**How:** Time `claimTask` with and without workflow gates on a large gate set (100 gates). Measure `FailureBundle` construction time. The benchmarks use `performance.now()` deltas.
+
+**Results (from I2 verification):**
+- Claim path overhead: zero measurable on SQLite (the EXISTS subquery is indexed)
+- FailureBundle construction: ~1.2ms average (20 events + 50 signals + 10 retries)
+- Subscriber early-filter: near-zero (single indexed lookup: "is this task in an active workflow?")
+
+Used by: [`performanceWorkflow.test.ts`](../packages/api/src/test/performanceWorkflow.test.ts).
+
+**Key insight:** The `areAllWorkflowGatesSatisfied` guard uses an EXISTS subquery indexed on `downstream_task_id`, making it O(log n) regardless of gate count. Non-workflow tasks skip the query entirely (no rows in `task_workflow_gates`).
 
 ---
 

@@ -33,6 +33,7 @@ export interface FailureContextRow {
   resolutionKind: ResolutionKind | null;
 }
 
+/** Input shape for creating a failure context row with a pre-built FailureBundle. */
 export interface CreateFailureContextInput {
   failedTaskId: string;
   workflowId?: string | null;
@@ -138,6 +139,7 @@ export function getFailureContextsByWorkflowId(workflowId: string): FailureConte
     .map(rowToFailureContext);
 }
 
+/** Partial update shape for modifying a failure context row (e.g., linking a recovery task or resolving). */
 export interface UpdateFailureContextInput {
   workflowId?: string | null;
   failureReason?: string;

@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.19.3 | **Updated:** 2026-06-15
+> **Version:** v0.20.0 | **Updated:** 2026-06-22
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -39,37 +39,26 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.19.1 | "Deepen: API → Daemon Interface Seam" — Shared daemon types (`SessionStatus`, `ClaimResult`, `DetectedCli`, `RegisteredAgent`, `ActiveSession`, `ISessionUpdater`, `WorkdirError`) moved to `@orcy/shared`. Six seam interfaces (`ISessionManager`, `ISessionUpdater`, `ICliDetector`, `IClaimStrategy`, `IHeartbeatStrategy`, `IPollLoop`) defined in shared. `runPollTick` consolidated pure async function replacing duplicated tick loops in daemon and API. `InProcessClaimStrategy` + `HttpClaimStrategy` strategy classes. API's `daemon-wiring.ts` DI module with dynamic import. Zod schemas derived from `AGENT_TYPES` runtime array. `@orcy/daemon` moved to devDependencies. 54 new tests (interface-compliance + seam + poll + factory + wiring) |
 | v0.19.2 | "Deepen: Documentation Pass" — CONFIGURATION.md updated with 17 missing env vars, 3 stale removed, JWT_SECRET security doc bug fixed. ARCHITECTURE.md gained Daemon Runtime Seam + Audit Trail V2 sections. DATABASE.md gained 8 automation/notification table entries. 28 JSDoc blocks added to daemon seam public APIs. TESTING.md gained 5 test pattern sections + UI test count fix. TROUBLESHOOTING.md gained 8 entries across security, remote pods, notifications, daemon. README/CAPABILITIES/SKILL refreshed: MCP count 15→16, Pod Bridge features added, dispatch tools completed |
 | v0.19.3 | "Deepen: Inline JSDoc Pass" — Comprehensive inline JSDoc coverage across all 6 packages. Shared types (245 symbols across 18 files), API services (~600 symbols across 130+ files including tasks/, webhooks/, integrations/, code evidence, notifications, automation, audit, and core services), MCP dispatch handlers and tools (~310 symbols), daemon runtime (~60 symbols), and CLI commands (16 symbols). Every exported symbol now has an IDE-visible description. Pod Bridge domain types restored with full design rationale and scope notes. |
+| v0.20.0 | "Orchestrated" — Mission-scoped workflow DAGs with typed gates (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), `all_of`/`any_of`/`n_of` join specs, and conditional edge predicates reusing v0.18 AutomationCondition. Workflow gates layer on the existing claim path as derived constraints — no new task status, no changes to IClaimStrategy or runPollTick. `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history); successful recovery redeems the original failure and downstream gates fire as if the original had succeeded. Two recovery attempts maximum. Agent experience self-reporting via `orcy_pulse` with `signalType: "experience"` and 7 categories (`stuck\|confused\|backtrack\|surprised\|ambiguous\|sidetracked\|smooth`); signals flow through the existing pulse pipeline into habitat skills and failure contexts. Workflow templates extend `missionTemplates` with a `workflowTemplate` JSON column; two default templates shipped (Build-Test-Review-Deploy, Parallel Investigation). Form-based UI editor with JSON import/export, live SVG preview, workflow DAG visualization on mission detail page, blocked-by-workflow filter, admin metrics dashboard, and cross-pod read-only workflow context routes. |
 
 ---
 
 ## Upcoming
 
-### v0.20.0 — "Orchestrated"
-
-First-class multi-agent workflow patterns: handoffs, fan-out/fan-in, review chains, deploy chains, and conditional branches.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Agent Orchestration Platforms | Lets Orcy define and visualize multi-agent execution flows instead of relying on manual sequencing or prompt discipline |
-| Agent Experience Self-Reporting | Agents post implicit experience signals (stuck, confused, backtracked, surprised, ambiguous) as classified pulse signals during autonomous work, enabling humans and automation to detect problems without reading every trace |
-
-**Why here:** Orchestration depends on daemon runtime, workflow automation, notifications, identity/scopes, and shared habitat API stability. It should be built after local and trusted remote participants have a coherent boundary. Self-reporting is the observability half of orchestration — when agents fan out with less human oversight, they need to report what they experienced. **Prereq shipped:** v0.19.1 delivered the daemon seam (swappable `ISessionManager` + `IClaimStrategy` + `runPollTick`); v0.20 builds on it.
-
-Planning seeds: `docs/plans/v3/09-agent-orchestration-platforms.md`, `docs/plans/v3/13-agent-self-reporting.md`
-
----
-
 ### v0.20.1 — "Orchestration Patch"
 
-Strict-scope patch wiring the v0.18 automation executor's `executeActions` into production paths (currently called only from tests). Restores the `on_automation` gate type that was deferred from v0.20.0 due to this pre-existing bug.
+Strict-scope patch release bundling two deferred items from v0.20.0:
 
 | Item | Why it waits for a patch |
 |------|--------------------------|
 | Wire `executeActions` into `automationEventService.ingestEvent` + `automationScanService` scan functions | Pre-existing v0.18 bug; not part of the v0.20 "Orchestrated" story; needs focused testing across all action types (notify, create_signal, create_task, priority_change, assignment, review_request, risk_mark, webhook_call) |
 | Add `on_automation` gate type + `onAutomationRunCompleted` subscriber hook | Depends on executor wiring; once rules actually execute in production, gates can subscribe to their completion |
 | Workflow service subscription to automation runs | Final piece of the gate-type set (brings v0.20 to the originally-planned 6 gate types) |
+| Add `anti_patterns` to `SkillCategory` enum + consolidate to `@orcy/shared` | Completes the experience-signal-to-skill-type mapping; v0.20.0 mapped `sidetracked → pitfall` as a stopgap; same duplication pattern as signalType (6+ local copies) |
 
 **Why a patch, not part of v0.20.0:** Wiring `executeActions` is a behavior change for all existing v0.18 automation rule consumers — every rule that "matched but didn't fire" will now actually fire. That deserves its own release boundary and release notes, not coupling to the larger v0.20 feature set.
+
+**Full scope reference:** `docs/plans/v20/PATCH-v0.20.1.md`
 
 ---
 
@@ -92,9 +81,9 @@ Add an authored, editable, searchable knowledge layer above Pulse signals, proje
 | Feature | Problem it solves |
 |---------|-------------------|
 | Knowledge Base / Habitat Wiki | Provides long-form pages, hierarchy, search, versioning, cross-links, mission outcome summaries, and an insights browser |
-| Implicit Signal Surfacing | Surfaces agent experience signals (stuck, confused, etc.) as a distinct knowledge category in the habitat wiki, with frequency and outcome correlation, so teams can identify systemic pain points |
+| Implicit Signal Surfacing | Surfaces two signal classes as distinct knowledge categories in the habitat wiki: agent experience signals (stuck, confused, etc.) AND engineering findings (structured codebase observations on existing `signalType: "finding"` with metadata convention). Establishes the engineering-finding metadata convention (`findingKind`, `severity`, `affectedFiles`, `blocksCurrentWork`) that v0.23 implementation-finding triage depends on |
 
-**Why here:** Pulse already captures signals and insights; v0.15 generates habitat skills from patterns. The wiki should come after provenance and audit links exist, so knowledge can connect to missions, tasks, code artifacts, and outcomes. Self-reported experience signals from v0.20 need a surface beyond the raw pulse feed — the wiki is the natural home.
+**Why here:** Pulse already captures signals and insights; v0.15 generates habitat skills from patterns. The wiki should come after provenance and audit links exist, so knowledge can connect to missions, tasks, code artifacts, and outcomes. Self-reported experience signals from v0.20 need a surface beyond the raw pulse feed — the wiki is the natural home. Engineering findings (already informally posted by agents via `signalType: "finding"`) gain structured metadata so they can surface as queryable, clusterable knowledge rather than buried in handoff markdown.
 
 Planning seeds: `docs/plans/v3/10-knowledge-base-habitat-wiki.md`, `docs/plans/v3/14-implicit-signal-surfacing.md`
 
@@ -124,6 +113,7 @@ Automate the detection and response to systemic agent pain points. When implicit
 | Reactive Triage | Automation trigger on clustered implicit signals that auto-creates investigation missions with signal context, affected tasks, and suggested investigation steps |
 | Proactive Triage | When a signal pattern matches a previously resolved triage, surface the historical resolution as a suggested fix before creating new investigation work |
 | Agent Quality Triggers | Wire computed agent quality metrics (approval rate, rejection rate, cycle time) as automation triggers for habitat admin notification or review mission creation |
+| Implementation-Finding Triage | Parallel triage workflow for engineering findings (structured `signalType: "finding"` with metadata). Spawns investigation agent that verifies, scopes, and recommends a bucket (`fix_now / defer_to_patch / defer_to_release / document_as_known_limitation`). Workflow is deterministic (no flagged finding gets orphaned); bucket decision stays human-in-the-loop for non-trivial cases. Builds on existing pulse finding signals, evidence-gap lifecycle pattern, and blocker auto-task routing — no new infrastructure |
 
 **Why here:** Triage needs the full signal pipeline: self-reported experiences (v0.20), surfaced patterns (v0.21), and detected signals (v0.22). It also needs the automation engine (v0.18) and knowledge base (v0.21) for historical resolution lookup. Building triage before these foundations exist would mean automating on incomplete signal data.
 

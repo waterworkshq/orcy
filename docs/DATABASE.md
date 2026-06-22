@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (62 tables)
+### Entity-Relationship Diagram (65 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -509,7 +509,8 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `required_capabilities` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of capability strings |
 | `is_default` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Default template shown first |
 | `usage_count` | INTEGER | NOT NULL DEFAULT 0 | Times template was used |
-| `tasks_template` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of child task definitions auto-created when template is applied |
+| `tasks_template` | TEXT | NOT NULL DEFAULT '[]' (JSON) | JSON array of child task definitions auto-created when template is applied. Each entry may include a `key` (stable cross-ref for gate source/target), `failureHandlerOverride` (per-task recovery handler or null to disable), and `initialStatus` (v0.20 extensions). |
+| `workflow_template` | TEXT | JSON, nullable | Optional workflow definition (gates, join specs, failure handler, variables). When present, `applyTemplate` instantiates mission + tasks + workflow + gates in one transaction (v0.20). |
 | `created_by` | TEXT | NOT NULL | Creator identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
@@ -649,7 +650,7 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
 | `to_type` | TEXT | CHECK (IN 'human','agent') | Target type (NULL = broadcast) |
 | `to_id` | TEXT | | Target identifier (NULL = broadcast) |
-| `signal_type` | TEXT | NOT NULL CHECK (IN 9 types) | finding, blocker, offer, warning, question, answer, directive, context, handoff |
+| `signal_type` | TEXT | NOT NULL CHECK (IN 10 types) | finding, blocker, offer, warning, question, answer, directive, context, handoff, experience (v0.20) |
 | `subject` | TEXT | NOT NULL | Brief signal subject |
 | `body` | TEXT | NOT NULL DEFAULT '' | Full signal body |
 | `task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Related task |
@@ -1810,6 +1811,91 @@ Delivery records for compact remote webhook payloads.
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Record creation timestamp |
 
 **Indexes:** `idx_remote_webhook_deliveries_endpoint(endpoint_id, created_at)`, `idx_remote_webhook_deliveries_status(status, next_retry_at)`
+
+---
+
+### Workflow Orchestration (v0.20)
+
+The v0.20 "Orchestrated" release adds mission-scoped workflow DAGs with typed gates, join specs, failure recovery, and agent experience self-reporting. Three new tables store workflow definitions, typed gate edges with satisfaction state, and structured failure bundles for recovery consumption.
+
+**Migrations:** `0031_add_workflows.sql` (3 tables), `0032_add_workflow_join_specs.sql` (`join_specs` column on `workflows`), `0033_add_workflow_template_column.sql` (`workflow_template` column on `feature_templates`).
+
+#### `workflows`
+
+Mission-scoped workflow definition. A mission has at most one active workflow. Gates are stored in `task_workflow_gates` referencing back to this row.
+
+**Source:** `packages/api/src/db/schema/workflow.ts`
+**Migration:** `0031_add_workflows.sql`, `0032_add_workflow_join_specs.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Workflow identifier (UUID) |
+| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Parent mission |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `resolved_variables` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Snapshot of template variables resolved at attachment time (for audit) |
+| `join_specs` | TEXT | NOT NULL DEFAULT '{}' (JSON) | Per-task join specs keyed by downstream task ID. Each entry: `{ mode: "all_of" | "any_of" | "n_of", n?: number }`. Added in migration `0032`. |
+| `failure_handler` | TEXT | JSON, nullable | Optional workflow-level failure handler config (`WorkflowFailureHandlerConfig`). Individual tasks may override via `matchConfig.failureHandlerOverride` on their gate. |
+| `status` | TEXT | NOT NULL DEFAULT 'active' CHECK (IN 'active','detached') | `active` = gates enforce; `detached` = gates no longer enforce, kept for audit |
+| `created_by` | TEXT | NOT NULL | Creator identifier |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+| `detached_at` | TEXT | DEFAULT NULL | When workflow was detached |
+| `detached_by` | TEXT | DEFAULT NULL | Who detached the workflow |
+| `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic concurrency version (OCC on PATCH via `expectedVersion` body field, 409 on mismatch) |
+
+**Indexes:** `idx_workflows_mission(mission_id)`, `idx_workflows_habitat(habitat_id)`, `idx_workflows_status(status)`
+
+#### `task_workflow_gates`
+
+Typed dependency edges between tasks with satisfaction state. Each gate declares: "the downstream task is not claimable until this gate is satisfied." Gates are evaluated lazily at claim time via `areAllWorkflowGatesSatisfied(taskId)`.
+
+**Source:** `packages/api/src/db/schema/workflow.ts`
+**Migration:** `0031_add_workflows.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Gate identifier (UUID) |
+| `workflow_id` | TEXT | NOT NULL FK → workflows(id) ON DELETE CASCADE | Parent workflow |
+| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | Parent mission (denormalized for query convenience) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat (denormalized) |
+| `upstream_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task whose lifecycle event satisfies this gate |
+| `downstream_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task that is blocked until this gate is satisfied |
+| `gate_type` | TEXT | NOT NULL CHECK (IN 'on_complete','on_approve','on_signal','on_automation','on_manual','on_fail') | Gate type. Note: `on_automation` is deferred to v0.20.1 (pre-existing v0.18 executor bug). 5 types ship in v0.20. |
+| `match_config` | TEXT | JSON | Gate-type-specific match configuration. For `on_signal`: `{ signalType, experience?, subjectContains?, matchScope? }`. For `on_fail`: may contain `failureHandlerOverride` (null = disable, object = override). |
+| `condition` | TEXT | JSON, nullable | Optional predicate from v0.18 AutomationCondition language. Gate fires only when matchConfig matches AND condition evaluates true. |
+| `satisfied` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Whether this gate has been satisfied. The only mutable field at runtime. |
+| `satisfied_at` | TEXT | DEFAULT NULL | When the gate was satisfied |
+| `satisfied_by_event_id` | TEXT | DEFAULT NULL | Audit pointer to the triggering event (pulse ID for `on_signal`, transition for others) |
+| `recovery_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | If this gate is `on_fail` and a recovery task was spawned, links to it. Also serves as idempotency marker (non-null = already spawned). |
+| `recovery_depth` | INTEGER | NOT NULL DEFAULT 0 | Recovery chain depth. 0 = original workflow gate. 1 = recovery-task gate. 2 = recovery-of-recovery. Max 2 (two recovery attempts maximum). Authoritative source for depth; `failure_contexts.recovery_depth` is denormalized. |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
+
+**Indexes:** `idx_workflow_gates_workflow(workflow_id)`, `idx_workflow_gates_downstream(downstream_task_id)`, `idx_workflow_gates_upstream(upstream_task_id)`, `idx_workflow_gates_satisfied(satisfied)`, `idx_workflow_gates_type(gate_type)`
+
+#### `failure_contexts`
+
+Structured failure bundle captured when a task fails (`failed`, `rejected`, or `released`/heartbeat-lost) within a workflow. Recovery agents read this via the `orcy_get_failure_context` MCP tool to understand what went wrong before starting work.
+
+**Source:** `packages/api/src/db/schema/workflow.ts`
+**Migration:** `0031_add_workflows.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Context identifier (UUID) |
+| `failed_task_id` | TEXT | NOT NULL FK → tasks(id) ON DELETE CASCADE | The task that failed |
+| `workflow_id` | TEXT | FK → workflows(id) ON DELETE SET NULL | Active workflow at time of failure (null if detached or no workflow) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `failure_kind` | TEXT | NOT NULL CHECK (IN 'lifecycle_failed','lifecycle_rejected','heartbeat_lost','manual') | How the failure was detected. `failed` action → `lifecycle_failed`, `rejected` → `lifecycle_rejected`, `released` → `heartbeat_lost`. |
+| `failure_reason` | TEXT | NOT NULL DEFAULT '' | Extracted from task metadata (rejection reason or failure reason) |
+| `failed_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | When the failure was captured |
+| `failed_by_agent_id` | TEXT | DEFAULT NULL | Agent that was assigned when the task failed |
+| `bundle` | TEXT | NOT NULL (JSON) | Structured `FailureBundle`: artifacts (last N), recentLifecycleEvents (last 20), experienceSignals (last 50 `signalType: "experience"` pulses by failing agent), retryHistory (last 10), experienceCategorySummary. |
+| `bundle_schema_version` | INTEGER | NOT NULL DEFAULT 1 | Schema version for forward-compatible migration of bundle shape |
+| `recovery_task_id` | TEXT | FK → tasks(id) ON DELETE SET NULL | Recovery task spawned to address this failure |
+| `recovery_depth` | INTEGER | NOT NULL DEFAULT 0 | Denormalized from `task_workflow_gates.recovery_depth` (which is authoritative). For query convenience only. |
+| `resolved_at` | TEXT | DEFAULT NULL | When this context was resolved (redeemed, unrecoverable, etc.) |
+| `resolution_kind` | TEXT | CHECK (IN 'redeemed','unrecoverable','superseded','manual_intervention') | How the failure was resolved. `redeemed` = recovery task succeeded, downstream gates fired. |
+
+**Indexes:** `idx_failure_contexts_task(failed_task_id)`, `idx_failure_contexts_workflow(workflow_id)`, `idx_failure_contexts_unresolved(resolved_at)`
 
 ---
 

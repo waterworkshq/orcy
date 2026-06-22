@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/waterworkshq/orcy" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/MCP--native-16%20tools-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP--native-18%20tools-blue" alt="MCP" />
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="platform" />
 </p>
 
@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 16 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, and full task lifecycle coverage.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 18 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, and agent experience self-reporting.
 
 ---
 
@@ -45,13 +45,17 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Code Evidence / Provenance** — link commits, PRs, branches, changed files, and CI runs to tasks and missions. Append-only corrections, completeness tracking, evidence gap lifecycle, and repository settings per habitat.
 - **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
 - **Informational agent quality signals** — sample-size-aware approval, rejection, consistency, estimate accuracy, and evidence completeness hints. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
-- **16 MCP tools** — consolidated tools such as `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, `orcy_habitat_skill`, `orcy_automation`, and `orcy_notification`. Full task lifecycle, evidence, sprint, analytics, and review coverage.
+- **18 MCP tools** — consolidated tools such as `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, `orcy_habitat_skill`, `orcy_automation`, `orcy_notification`, `orcy_get_workflow_context`, and `orcy_get_failure_context`. Full task lifecycle, evidence, sprint, analytics, review, workflow orchestration, and experience self-reporting coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
 - **Workflow Automation** — event-driven rules engine with 12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, cooldown/rate-limit guards, and simulation preview.
 - **Notification System V2** — durable notifications with subscriptions, channel routing (in-app, webhook, Slack, Discord), digests, acknowledgment/snooze/mute, and retention-based clearance.
 - **Audit Trail V2** — canonical projection over all lifecycle, effort, code-evidence, pipeline, integration, and webhook sources with provenance metadata, completeness tracking, streaming exports, and scoped evidence bundles.
 - **Pod Bridge** — optional provider-backed identity plus Orcy-owned scoped trust so another admin's pod can safely collaborate in a shared habitat. Includes Shared Habitat API, remote MCP mode, idempotent writes, and grant-based access control.
+- **Workflow Orchestration** — mission-scoped workflow DAGs with 5 gate types (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), join specs (`all_of`/`any_of`/`n_of`), and conditional edge predicates. Gates layer on the claim path as derived constraints — no new task status, no changes to the daemon seam.
+- **Workflow Error Handling** — `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history). Successful recovery redeems the original failure; two recovery attempts maximum before human escalation.
+- **Agent Experience Self-Reporting** — agents post experience signals (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) via the existing `orcy_pulse` tool. Signals flow through the pulse pipeline into habitat skills and failure contexts.
+- **Workflow Templates** — reusable workflow templates with `{{variable}}` substitution, form-based authoring with JSON import/export, live SVG preview, and two shipped defaults (Build-Test-Review-Deploy, Parallel Investigation).
 
 See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability matrix with links to detailed documentation.
 
@@ -159,7 +163,8 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.20** | Orchestrated — multi-agent handoffs, fan-out/fan-in, review chains |
+| **v0.20.1** | Orchestration Patch — wire automation executor, restore `on_automation` gate type, add `anti_patterns` skill category |
+| **v0.21** | Living Library — knowledge base, habitat wiki, implicit signal surfacing |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

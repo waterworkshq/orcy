@@ -30,7 +30,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | Capability | What it does | Learn more |
 |---|---|---|
 | **Real-time updates** | SSE-pushed board state and activity feed to the web UI. No polling, no refresh needed. | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **MCP interface** | Orcys interact via the Model Context Protocol. 16 MCP tools, including consolidated dispatch tools for lifecycle, health metrics, audit exports, analytics, sprints, review rules, prioritization, scheduled tasks, automation rule inspection/simulation, and notification inbox/ack/snooze. | [SKILL.md](SKILL.md) |
+| **MCP interface** | Orcys interact via the Model Context Protocol. 18 MCP tools, including consolidated dispatch tools for lifecycle, health metrics, audit exports, analytics, sprints, review rules, prioritization, scheduled tasks, automation rule inspection/simulation, notification inbox/ack/snooze, workflow context, and failure context retrieval. | [SKILL.md](SKILL.md) |
 | **JWT authentication** | Pod members authenticate with username/password. JWT tokens for API access. Orcys use per-unit API keys. | [SECURITY.md](SECURITY.md) |
 | **Outgoing webhooks** | Slack, Discord, and standard-format webhooks with HMAC-SHA256 signing and automatic retry. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Pod Bridge / Shared Habitat** | Remote participant identity with provider-backed auth plus Orcy-owned scoped trust, so another admin's pod can collaborate safely in a shared habitat. Scoped habitat access via grants and credentials, Shared Habitat API (`/api/shared/*`), remote MCP mode, idempotent writes, and a Remote Pods UI. | [ARCHITECTURE.md](ARCHITECTURE.md) |
@@ -104,3 +104,50 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Scheduled scans** | Mission blocked, sprint ending, agent silent, and evidence gap open detection. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Run history** | Durable run records with status, skip reasons, condition results, and per-action outcomes. | [API.md](API.md) |
 | **MCP tools** | Agents can inspect automation (read/simulate/history) and manage own notification state (ack/snooze/inbox). | [API.md](API.md) |
+
+## Workflow Orchestration (v0.20)
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Mission-scoped workflow DAGs** | Optional orchestration plan attached to a mission declaring typed dependency gates between tasks. Tasks are nodes (1:1); gates are edges. Missions without workflows behave as before — any agent can claim any task. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Typed workflow gates** | Five gate types: `on_complete` (upstream task completed), `on_approve` (upstream task approved), `on_signal` (matching pulse signal posted), `on_manual` (admin unblock), `on_fail` (upstream task failed — spawns recovery). A sixth type `on_automation` is planned for v0.20.1. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Join specs** | Fan-in semantics for tasks with multiple upstream gates: `all_of` (all must fire), `any_of` (any one), `n_of` (quorum). Keyed by downstream task; applies to all upstream gates regardless of type. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Conditional edge predicates** | Optional predicate on each gate edge using the v0.18 AutomationCondition language. Gate fires only when both the match config matches AND the condition evaluates true. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Derived claim constraints** | Workflow gates are checked at claim time as a derived constraint — no new task status. Tasks with unsatisfied gates stay `pending` and return `workflow_gates_unmet` on claim. Zero changes to `IClaimStrategy` or `runPollTick`. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Two-channel event bus** | `onTransition` hook (new in v0.20, fires for all task actions) feeds the workflow service. Existing `onTaskEvent` (fires for 4 lifecycle-completing actions only) feeds habitat skill generation. Two channels, two audiences. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Blocked-by-workflow filter** | Server-side derived filter (EXISTS subquery on `task_workflow_gates`) surfaces tasks blocked by unsatisfied gates. Sets precedent as the first server-side computed filter. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Workflow CRUD** | Admin routes under `/api/v1/missions/:id/workflow` for attach, get, patch (OCC), detach, and manual gate unblock. Cross-pod agents get read-only access via `/api/shared/missions/:id/workflow` and `/api/shared/tasks/:id/workflow-context`. | [API.md](API.md) |
+
+## Workflow Error Handling (v0.20)
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **`on_fail` recovery tasks** | When a task fails (`failed`/`rejected`/heartbeat-lost), the workflow's failure handler spawns a recovery task gated by `on_fail`. Recovery tasks are normal tasks — claimed, submitted, reviewed via the existing pipeline. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Structured FailureContext** | On failure, the system captures a bundle: artifacts produced before failure, recent lifecycle events (last 20), agent experience signals (last 50), retry history (last 10), and category summary. Recovery agents read this via the `orcy_get_failure_context` MCP tool. | [SKILL.md](SKILL.md) |
+| **Recovery redemption** | When a recovery task succeeds (`approved`/`completed`), the originally failed task's downstream `on_complete`/`on_approve` gates fire as if the original had succeeded. The failed task stays failed in history; redemption is a forward-flowing unblock. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Two recovery attempts maximum** | Recovery chains: original (depth 0) → recovery (depth 1) → recovery-of-recovery (depth 2) → STOP. Deeper failure emits `workflow_recovery_unrecoverable` audit event and notification for human intervention. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Per-task failure handler overrides** | Workflow declares one default failure handler. Individual tasks may override it: set an object to use a specific handler, or set `null` to explicitly disable recovery for that task. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Recovery notifications** | Three notification events: `workflow.recovery_started`, `workflow.recovery_succeeded`, `workflow.recovery_unrecoverable`. Subscribe-able through existing Notification System V2 channels. | [API.md](API.md) |
+| **Workflow audit source** | New `"workflow"` audit source for recovery events. New audit kinds: `recovery`. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+
+## Agent Experience Self-Reporting (v0.20)
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Experience signals** | Agents post implicit experience signals via the existing `orcy_pulse` tool with `signalType: "experience"` and a category: `stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`. Both mid-task and completion-summary signals supported. | [SKILL.md](SKILL.md) |
+| **Pulse pipeline integration** | Experience signals flow through the existing pulse pipeline — no new tables, no new services. `signalType` enum widens by one value; 7 categories live in `metadata.experience`. Consolidated `SIGNAL_TYPES` const in `@orcy/shared`. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Skill ingestion** | Experience signals are ingested into habitat skills via `habitatSkillService.ingestExperienceSignal`. Category maps to skill type: `stuck`/`confused`/`backtrack` → pitfall, `surprised`/`ambiguous` → domain_knowledge, `smooth` → pattern, `sidetracked` → pitfall (stopgap until `anti_patterns` SkillCategory lands in v0.20.1). Equal per-signal weight; frequency drives strength. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **FailureContext bridge** | `FailureContext.experienceSignals` captures the failing agent's recent experience signals — the recovery agent sees what the original agent noticed before failure. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Experience summary card** | Collapsed card in task timeline showing aggregate signal counts by category. Expandable to individual signal cards. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Per-agent metrics** | Signals/task ratio, category distribution, and outlier detection surfaced in admin UI. No automatic action — display only. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+
+## Workflow Templates (v0.20)
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Workflow template column** | Existing `missionTemplates` table extended with `workflowTemplate: JSON` column (separate from `tasksTemplate`). `applyTemplate` instantiates mission + tasks + workflow + gates in one transaction. | [DATABASE.md](DATABASE.md) |
+| **Template variables** | Named placeholders (`{{feature_name}}`) substituted at instantiation into task titles, descriptions, gate match configs, and recovery task templates. Runtime tokens (`{{failedTaskTitle}}`) left intact for later resolution by the recovery subsystem. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Default workflow templates** | Two shipped defaults: "Build-Test-Review-Deploy" (4-task sequential `on_approve` chain with failure handler) and "Parallel Investigation" (5-task fan-out/fan-in with `any_of` join). Seeded globally; idempotent per-name. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Form-based authoring** | UI editor with gate rows (upstream → type → downstream → match config → condition), collapsible sections for join specs, failure handler, and variables. JSON import/export round-trip. Live SVG DAG preview via dagre layout. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Task template keys** | `TaskTemplateEntry.key` provides stable cross-references for gate source/target mapping. Auto-generated as `task_1`, `task_2` if absent. | [DATABASE.md](DATABASE.md) |
+| **DAG visualization** | Mission detail page renders live workflow DAG with color-coded gate states (green=satisfied, gray=unsatisfied, red=failed). Click gate for side panel with state details and manual unblock (admin only). | [ARCHITECTURE.md](ARCHITECTURE.md) |
