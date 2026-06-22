@@ -105,10 +105,11 @@ function createGate(
   downstreamTaskId: string,
   gateType: string,
   satisfied: boolean,
+  recoveryDepth: number = 0,
 ): void {
   db.prepare(
     `INSERT INTO task_workflow_gates (id, workflow_id, mission_id, habitat_id, upstream_task_id, downstream_task_id, gate_type, satisfied, recovery_depth)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workflowId,
@@ -118,6 +119,7 @@ function createGate(
     downstreamTaskId,
     gateType,
     satisfied ? 1 : 0,
+    recoveryDepth,
   );
 }
 
@@ -183,7 +185,7 @@ describe("areAllWorkflowGatesSatisfied (DB integration)", () => {
         `SELECT tg.satisfied, tg.workflow_id
          FROM task_workflow_gates tg
          INNER JOIN workflows w ON tg.workflow_id = w.id
-         WHERE tg.downstream_task_id = ? AND w.status = 'active'`,
+         WHERE tg.downstream_task_id = ? AND w.status = 'active' AND tg.recovery_depth = 0`,
       )
       .all(taskId) as Array<{ satisfied: number; workflow_id: string }>;
 
@@ -397,6 +399,41 @@ describe("areAllWorkflowGatesSatisfied (DB integration)", () => {
       false,
     );
     // No active workflow gates → should return true (claimable)
+    expect(checkGates(refs.taskDown)).toBe(true);
+  });
+
+  it("excludes recovery-spawned gates (recoveryDepth > 0) from claim-blocking check", () => {
+    const refs = seedPrerequisites(db);
+    createWorkflow(db, "wf-8", refs.missionId, refs.habitatId);
+    // Original depth-0 on_complete gate, satisfied by redemption.
+    createGate(
+      db,
+      "g14",
+      "wf-8",
+      refs.missionId,
+      refs.habitatId,
+      refs.taskUp,
+      refs.taskDown,
+      "on_complete",
+      true,
+      0,
+    );
+    // Recovery-spawned depth-1 on_fail gate, unsatisfied (recovery succeeded, never fired).
+    // This is a spawn trigger for recovery-of-recovery, NOT a claim constraint.
+    createGate(
+      db,
+      "g15",
+      "wf-8",
+      refs.missionId,
+      refs.habitatId,
+      refs.taskMid,
+      refs.taskDown,
+      "on_fail",
+      false,
+      1,
+    );
+    // Despite the unsatisfied depth-1 gate, the downstream task IS claimable —
+    // only depth-0 (original) gates participate in the claim-blocking check.
     expect(checkGates(refs.taskDown)).toBe(true);
   });
 });

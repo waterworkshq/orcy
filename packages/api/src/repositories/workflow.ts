@@ -22,7 +22,8 @@ export function evaluateJoin(
   }
 }
 
-/** Given a downstream task, returns true when all active-workflow gates are satisfied per the task's join spec; returns true when no gates exist (backwards compat). */
+/** Given a downstream task, returns true when all active-workflow gates are satisfied per the task's join spec; returns true when no gates exist (backwards compat).
+ * Only original gates (recoveryDepth = 0) participate in the claim-blocking check; recovery-spawned gates (recoveryDepth > 0) are spawn triggers that detect recovery failure, not claim constraints. */
 export function areAllWorkflowGatesSatisfied(taskId: string): boolean {
   const db = getDb();
 
@@ -33,7 +34,13 @@ export function areAllWorkflowGatesSatisfied(taskId: string): boolean {
     })
     .from(taskWorkflowGates)
     .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
-    .where(and(eq(taskWorkflowGates.downstreamTaskId, taskId), eq(workflows.status, "active")))
+    .where(
+      and(
+        eq(taskWorkflowGates.downstreamTaskId, taskId),
+        eq(workflows.status, "active"),
+        eq(taskWorkflowGates.recoveryDepth, 0),
+      ),
+    )
     .all();
 
   if (gates.length === 0) return true;

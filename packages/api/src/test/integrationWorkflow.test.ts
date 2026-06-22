@@ -238,6 +238,7 @@ describe("I1 Scenario 3 — Recovery lifecycle (fail → spawn → redeem)", () 
     const mission = setupMission(habitat.id, col.id);
     const taskA = setupTask(mission.id, "Task A (will fail)");
     const taskB = setupTask(mission.id, "Task B (downstream)");
+    const agent = setupAgent("recovery-claimer");
 
     const definition: WorkflowTemplateDefinition = {
       gates: [
@@ -310,11 +311,29 @@ describe("I1 Scenario 3 — Recovery lifecycle (fail → spawn → redeem)", () 
     expect(completeGates.length).toBeGreaterThanOrEqual(1);
     expect(completeGates.every((g) => g.satisfied)).toBe(true);
 
-    // BUG DOCUMENTED IN MEMORY.md: areAllWorkflowGatesSatisfied(taskB.id) returns false
-    // because the recovery-spawned depth-1 on_fail gate (upstream=recoveryTask,
-    // downstream=taskB) is never satisfied when the recovery succeeds. See
-    // "BUG: Recovery-spawned on_fail gate blocks downstream claimability" in MEMORY.md.
-    // Direct gate verification confirms redemption DID satisfy the on_complete gate.
+    // The recovery-spawned depth-1 on_fail gate (upstream=recoveryTask, downstream=taskB)
+    // exists but is NOT satisfied — recovery succeeded, so it never fired. It is a spawn
+    // trigger for recovery-of-recovery, not a claim constraint. See
+    // "fix(workflow): exclude recovery-spawned gates from claim-blocking check".
+    const recoverySpawnedGates = getDb()
+      .select()
+      .from(taskWorkflowGates)
+      .where(
+        and(
+          eq(taskWorkflowGates.downstreamTaskId, taskB.id),
+          eq(taskWorkflowGates.recoveryDepth, 1),
+        ),
+      )
+      .all();
+    expect(recoverySpawnedGates.length).toBeGreaterThanOrEqual(1);
+    expect(recoverySpawnedGates.every((g) => !g.satisfied)).toBe(true);
+
+    // CRITICAL: Despite the unsatisfied recovery-spawned gate, taskB IS claimable.
+    // areAllWorkflowGatesSatisfied excludes recoveryDepth > 0 gates (spawn triggers),
+    // counting only the original depth-0 on_complete gate — which redemption satisfied.
+    expect(areAllWorkflowGatesSatisfied(taskB.id)).toBe(true);
+    const claimB = claimTask(taskB.id, agent.id);
+    expect(claimB.success).toBe(true);
 
     // Failure context resolved with "redeemed".
     const resolvedCtx = failureContextService.getFailureContextsForTask(taskA.id);
