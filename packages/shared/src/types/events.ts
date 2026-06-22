@@ -41,7 +41,10 @@ export type EventAction =
   | "code_evidence_gap_reported"
   | "code_evidence_gap_resolved"
   | "code_evidence_marked_not_applicable"
-  | "code_evidence_cleared_not_applicable";
+  | "code_evidence_cleared_not_applicable"
+  | "workflow_gate_satisfied"
+  | "workflow_gate_unblocked"
+  | "workflow_evaluation_error";
 
 /** Classification of a live session as a human or agent viewer, stored on {@link PresenceEntry}. */
 export type PresenceType = "human" | "agent";

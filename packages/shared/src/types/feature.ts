@@ -39,7 +39,9 @@ export type MissionEventAction =
   | "code_evidence_gap_reported"
   | "code_evidence_gap_resolved"
   | "code_evidence_marked_not_applicable"
-  | "code_evidence_cleared_not_applicable";
+  | "code_evidence_cleared_not_applicable"
+  | "workflow_attached"
+  | "workflow_detached";
 
 /** A single unit of tracked work within a habitat, including dependencies, SLA, and effort accounting. */
 export interface Mission {

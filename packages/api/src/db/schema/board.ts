@@ -152,6 +152,8 @@ export const missionEvents = sqliteTable(
         "code_evidence_gap_resolved",
         "code_evidence_marked_not_applicable",
         "code_evidence_cleared_not_applicable",
+        "workflow_attached",
+        "workflow_detached",
       ],
     }).notNull(),
     fromColumnId: text("from_column_id"),

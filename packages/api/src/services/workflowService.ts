@@ -11,6 +11,7 @@ import * as taskCrudRepo from "../repositories/taskCrud.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as failureContextService from "./failureContextService.js";
 import { enqueueNotification } from "./notificationCommandService.js";
+import { emitTaskAuditEvent, emitMissionAuditEvent } from "./auditEventEmitter.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
@@ -152,8 +153,22 @@ function handleTransition(opts: {
         .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
         .run();
       newlySatisfied.push(gate);
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        upstreamTaskId: opts.taskId,
+        downstreamTaskId: gate.downstreamTaskId,
+        gateType,
+        triggeredBy: opts.action,
+      });
     } catch (err) {
       logger.error({ err, gateId: gate.id }, "Failed to satisfy workflow gate");
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        error: err instanceof Error ? err.message : String(err),
+        phase: "gate_satisfaction",
+      });
     }
   }
 
@@ -405,6 +420,50 @@ function emitRecoveryNotification(
   }
 }
 
+/** Emits an audit-only workflow task event (no notification counterpart) with `source: "workflow"`. */
+function emitWorkflowTaskAudit(
+  taskId: string,
+  action: "workflow_gate_satisfied" | "workflow_gate_unblocked" | "workflow_evaluation_error",
+  payload: Record<string, unknown>,
+): void {
+  try {
+    emitTaskAuditEvent({
+      taskId,
+      actorType: "system",
+      actorId: "workflow-service",
+      action,
+      metadata: {
+        audit: { source: "workflow" },
+        ...payload,
+      },
+    });
+  } catch (err) {
+    logger.error({ err, taskId, action }, "Failed to emit workflow task audit event");
+  }
+}
+
+/** Emits an audit-only workflow mission event (no notification counterpart) with `source: "workflow"`. */
+function emitWorkflowMissionAudit(
+  missionId: string,
+  action: "workflow_attached" | "workflow_detached",
+  payload: Record<string, unknown>,
+): void {
+  try {
+    emitMissionAuditEvent({
+      missionId,
+      actorType: "system",
+      actorId: "workflow-service",
+      action,
+      metadata: {
+        audit: { source: "workflow" },
+        ...payload,
+      },
+    });
+  } catch (err) {
+    logger.error({ err, missionId, action }, "Failed to emit workflow mission audit event");
+  }
+}
+
 function resolveEffectiveFailureHandler(gate: {
   matchConfig: Record<string, unknown> | null;
   workflowId: string;
@@ -532,6 +591,8 @@ function handlePulseCreated(pulse: Pulse): void {
       id: taskWorkflowGates.id,
       satisfied: taskWorkflowGates.satisfied,
       upstreamTaskId: taskWorkflowGates.upstreamTaskId,
+      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
+      workflowId: taskWorkflowGates.workflowId,
       missionId: taskWorkflowGates.missionId,
       matchConfig: taskWorkflowGates.matchConfig,
       condition: taskWorkflowGates.condition,
@@ -580,8 +641,23 @@ function handlePulseCreated(pulse: Pulse): void {
         })
         .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
         .run();
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        upstreamTaskId: gate.upstreamTaskId,
+        downstreamTaskId: gate.downstreamTaskId,
+        gateType: "on_signal",
+        triggeredBy: "pulse",
+        pulseId: pulse.id,
+      });
     } catch (err) {
       logger.error({ err, gateId: gate.id }, "Failed to evaluate on_signal gate");
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        error: err instanceof Error ? err.message : String(err),
+        phase: "signal_gate_evaluation",
+      });
     }
   }
 }
@@ -678,12 +754,24 @@ export function attachWorkflow(
       .run();
   }
 
+  emitWorkflowMissionAudit(missionId, "workflow_attached", {
+    workflowId,
+    habitatId,
+    gateCount: definition.gates.length,
+    createdBy,
+  });
+
   return workflowId;
 }
 
-/** Detaches a workflow by setting status to detached; gates stop enforcing immediately. */
+/** Detaches a workflow by setting status to detached; gates stop enforcing immediately. Emits a `workflow_detached` audit event. */
 export function detachWorkflow(workflowId: string, detachedBy: string): void {
   const db = getDb();
+  const existing = db
+    .select({ missionId: workflows.missionId })
+    .from(workflows)
+    .where(eq(workflows.id, workflowId))
+    .get();
   const now = new Date().toISOString();
   db.update(workflows)
     .set({
@@ -694,6 +782,13 @@ export function detachWorkflow(workflowId: string, detachedBy: string): void {
     })
     .where(and(eq(workflows.id, workflowId), eq(workflows.status, "active")))
     .run();
+
+  if (existing) {
+    emitWorkflowMissionAudit(existing.missionId, "workflow_detached", {
+      workflowId,
+      detachedBy,
+    });
+  }
 }
 
 /** Returns the active workflow for a mission, or null if none attached. */
@@ -737,7 +832,7 @@ export function getTaskWorkflowContext(taskId: string): {
   return { upstream, downstream };
 }
 
-/** Manually satisfies an on_manual gate, typically called by an admin via the unblock endpoint. */
+/** Manually satisfies an on_manual gate, typically called by an admin via the unblock endpoint. Emits a `workflow_gate_unblocked` audit event. */
 export function manualUnblockGate(gateId: string, _unblockerId: string): boolean {
   const db = getDb();
   const gate = db.select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, gateId)).get();
@@ -749,6 +844,15 @@ export function manualUnblockGate(gateId: string, _unblockerId: string): boolean
     .set({ satisfied: true, satisfiedAt: now })
     .where(and(eq(taskWorkflowGates.id, gateId), eq(taskWorkflowGates.satisfied, false)))
     .run();
+
+  emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_unblocked", {
+    gateId: gate.id,
+    workflowId: gate.workflowId,
+    upstreamTaskId: gate.upstreamTaskId,
+    downstreamTaskId: gate.downstreamTaskId,
+    unblockedBy: _unblockerId,
+  });
+
   return true;
 }
 
