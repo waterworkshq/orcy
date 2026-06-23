@@ -68,6 +68,11 @@ export interface PrioritizationSettings {
   fallbackToManual: boolean;
 }
 
+/** Configuration for the automation execution engine, controlling whether matched rules actually fire their actions. */
+export interface AutomationSettings {
+  executeActions: boolean;
+}
+
 /** A single rule evaluated by the prioritization engine, pairing a {@link PrioritizationRuleCondition} with a {@link PrioritizationRuleAction}. */
 export interface PrioritizationRule {
   id: string;

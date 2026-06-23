@@ -4,6 +4,7 @@ import type {
   WorkflowTemplateGate,
   TaskTemplateEntry,
   SignalMatch,
+  AutomationMatch,
   GateType,
   AutomationCondition,
 } from "../../types/index.js";
@@ -50,6 +51,12 @@ export function GateForm({ gate, tasks, index, onChange, onRemove }: GateFormPro
         gateType,
         matchConfig: existing ?? { signalType: "blocker", matchScope: "task" },
       });
+    } else if (gateType === "on_automation") {
+      const existing = gate.matchConfig as AutomationMatch | undefined;
+      update({
+        gateType,
+        matchConfig: existing ?? { ruleId: "", matchScope: "either" },
+      });
     } else {
       update({ gateType, matchConfig: undefined });
     }
@@ -59,6 +66,14 @@ export function GateForm({ gate, tasks, index, onChange, onRemove }: GateFormPro
     const current = (gate.matchConfig as SignalMatch | undefined) ?? {
       signalType: "blocker" as const,
       matchScope: "task" as const,
+    };
+    update({ matchConfig: { ...current, ...patch } });
+  }
+
+  function updateAutomationMatch(patch: Partial<AutomationMatch>) {
+    const current = (gate.matchConfig as AutomationMatch | undefined) ?? {
+      ruleId: "",
+      matchScope: "either" as const,
     };
     update({ matchConfig: { ...current, ...patch } });
   }
@@ -92,6 +107,11 @@ export function GateForm({ gate, tasks, index, onChange, onRemove }: GateFormPro
 
   const signalMatch =
     gate.gateType === "on_signal" ? (gate.matchConfig as SignalMatch | undefined) : undefined;
+
+  const automationMatch =
+    gate.gateType === "on_automation"
+      ? (gate.matchConfig as AutomationMatch | undefined)
+      : undefined;
 
   return (
     <div
@@ -135,11 +155,6 @@ export function GateForm({ gate, tasks, index, onChange, onRemove }: GateFormPro
                 {GATE_TYPE_LABELS[gt]}
               </option>
             ))}
-            {ALL_GATE_TYPES.includes("on_automation") && (
-              <option value="on_automation" disabled title="Deferred to v0.20.1">
-                {GATE_TYPE_LABELS.on_automation}
-              </option>
-            )}
           </select>
         </div>
 
@@ -245,6 +260,71 @@ export function GateForm({ gate, tasks, index, onChange, onRemove }: GateFormPro
               placeholder="Substring to match in signal subject"
               className={inputClass}
             />
+          </div>
+        </div>
+      )}
+
+      {automationMatch && (
+        <div
+          data-testid={`gate-automation-config-${index}`}
+          className="space-y-2 rounded-md bg-accent/20 p-2"
+        >
+          <p className="text-xs font-medium text-muted-foreground">
+            Automation Match Configuration
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={labelClass}>Rule ID</label>
+              <input
+                type="text"
+                data-testid={`gate-rule-id-${index}`}
+                value={automationMatch.ruleId}
+                onChange={(e) => updateAutomationMatch({ ruleId: e.target.value })}
+                placeholder="Automation rule UUID"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Outcome</label>
+              <select
+                data-testid={`gate-outcome-${index}`}
+                value={automationMatch.outcome ?? ""}
+                onChange={(e) =>
+                  updateAutomationMatch({
+                    outcome: e.target.value
+                      ? (e.target.value as AutomationMatch["outcome"])
+                      : undefined,
+                  })
+                }
+                className={inputClass}
+              >
+                <option value="">Any outcome</option>
+                <option value="succeeded">Succeeded</option>
+                <option value="failed">Failed</option>
+                <option value="skipped">Skipped</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Match Scope</label>
+              <select
+                data-testid={`gate-automation-scope-${index}`}
+                value={automationMatch.matchScope ?? "either"}
+                onChange={(e) =>
+                  updateAutomationMatch({
+                    matchScope: e.target.value as AutomationMatch["matchScope"],
+                  })
+                }
+                className={inputClass}
+              >
+                {MATCH_SCOPE_OPTIONS.map((ms) => (
+                  <option key={ms} value={ms}>
+                    {ms}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       )}

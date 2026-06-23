@@ -141,6 +141,7 @@ import type {
   RemoteActionKind,
   RemoteAuditMetadata,
   SignalType,
+  SkillCategory,
   // Workflow types
   GateType,
   JoinMode,
@@ -296,6 +297,7 @@ export type {
   RemoteActionKind,
   RemoteAuditMetadata,
   SignalType,
+  SkillCategory,
   GateType,
   JoinMode,
   SignalMatch,
@@ -1048,13 +1050,6 @@ export interface DetectedCli {
   version: string | null;
   path: string;
 }
-
-export type SkillCategory =
-  | "convention"
-  | "pattern"
-  | "pitfall"
-  | "domain_knowledge"
-  | "agent_insight";
 
 export interface HabitatSkill {
   id: string;

@@ -5,6 +5,7 @@ import * as sprintRepo from "../repositories/sprint.js";
 import * as missionRepo from "../repositories/feature.js";
 import { buildFingerprint } from "@orcy/shared";
 import type { AutomationScanType, AutomationRule } from "@orcy/shared";
+import { executeAndRecordRuleRun } from "./automationExecutor.js";
 
 /** Result summary of one automation scan pass over a habitat's automation rules. */
 export interface ScanReport {
@@ -16,19 +17,19 @@ export interface ScanReport {
 }
 
 /** Runs every automation scan type across all habitats, starting and recording rule runs as matches fire. Returns a {@link ScanReport} per habitat-scan that matched any rules. */
-export function runAllScans(): ScanReport[] {
+export async function runAllScans(): Promise<ScanReport[]> {
   const reports: ScanReport[] = [];
   const habitats = habitatRepo.listHabitats();
   for (const h of habitats) {
-    reports.push(...runMissionBlockedScan(h.id));
-    reports.push(...runSprintEndingScan(h.id));
-    reports.push(...runAgentSilentScan(h.id));
-    reports.push(...runEvidenceGapScan(h.id));
+    reports.push(...(await runMissionBlockedScan(h.id)));
+    reports.push(...(await runSprintEndingScan(h.id)));
+    reports.push(...(await runAgentSilentScan(h.id)));
+    reports.push(...(await runEvidenceGapScan(h.id)));
   }
   return reports;
 }
 
-function runMissionBlockedScan(habitatId: string): ScanReport[] {
+async function runMissionBlockedScan(habitatId: string): Promise<ScanReport[]> {
   const errs: string[] = [];
   let matched = 0;
   let skipped = 0;
@@ -41,15 +42,14 @@ function runMissionBlockedScan(habitatId: string): ScanReport[] {
         skipped++;
         continue;
       }
-      const run = runRepo.startRuleRun({
-        ruleId: rule.id,
+      await executeAndRecordRuleRun(
+        rule,
         habitatId,
-        triggerType: scanType,
-        triggerEventId: `scan:${scanType}:${habitatId}`,
-        targetType: "habitat",
-        targetId: habitatId,
-      });
-      runRepo.finishRuleRun(run.id, { status: "succeeded" });
+        scanType,
+        `scan:${scanType}:${habitatId}`,
+        "habitat",
+        habitatId,
+      );
       matched++;
     } catch (err) {
       errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -58,7 +58,7 @@ function runMissionBlockedScan(habitatId: string): ScanReport[] {
   return [{ scanType, habitatId, rulesMatched: matched, rulesSkipped: skipped, errors: errs }];
 }
 
-function runSprintEndingScan(habitatId: string): ScanReport[] {
+async function runSprintEndingScan(habitatId: string): Promise<ScanReport[]> {
   const errs: string[] = [];
   let matched = 0;
   let skipped = 0;
@@ -74,15 +74,14 @@ function runSprintEndingScan(habitatId: string): ScanReport[] {
         skipped++;
         continue;
       }
-      const run = runRepo.startRuleRun({
-        ruleId: rule.id,
+      await executeAndRecordRuleRun(
+        rule,
         habitatId,
-        triggerType: scanType,
-        triggerEventId: `scan:${scanType}:${active.id}`,
-        targetType: "sprint",
-        targetId: active.id,
-      });
-      runRepo.finishRuleRun(run.id, { status: "succeeded" });
+        scanType,
+        `scan:${scanType}:${active.id}`,
+        "sprint",
+        active.id,
+      );
       matched++;
     } catch (err) {
       errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -91,7 +90,7 @@ function runSprintEndingScan(habitatId: string): ScanReport[] {
   return [{ scanType, habitatId, rulesMatched: matched, rulesSkipped: skipped, errors: errs }];
 }
 
-function runAgentSilentScan(habitatId: string): ScanReport[] {
+async function runAgentSilentScan(habitatId: string): Promise<ScanReport[]> {
   const errs: string[] = [];
   let matched = 0;
   let skipped = 0;
@@ -104,15 +103,14 @@ function runAgentSilentScan(habitatId: string): ScanReport[] {
         skipped++;
         continue;
       }
-      const run = runRepo.startRuleRun({
-        ruleId: rule.id,
+      await executeAndRecordRuleRun(
+        rule,
         habitatId,
-        triggerType: scanType,
-        triggerEventId: `scan:${scanType}:${habitatId}`,
-        targetType: "agent",
-        targetId: null,
-      });
-      runRepo.finishRuleRun(run.id, { status: "succeeded" });
+        scanType,
+        `scan:${scanType}:${habitatId}`,
+        "agent",
+        null,
+      );
       matched++;
     } catch (err) {
       errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -121,7 +119,7 @@ function runAgentSilentScan(habitatId: string): ScanReport[] {
   return [{ scanType, habitatId, rulesMatched: matched, rulesSkipped: skipped, errors: errs }];
 }
 
-function runEvidenceGapScan(habitatId: string): ScanReport[] {
+async function runEvidenceGapScan(habitatId: string): Promise<ScanReport[]> {
   const errs: string[] = [];
   let matched = 0;
   let skipped = 0;
@@ -134,15 +132,14 @@ function runEvidenceGapScan(habitatId: string): ScanReport[] {
         skipped++;
         continue;
       }
-      const run = runRepo.startRuleRun({
-        ruleId: rule.id,
+      await executeAndRecordRuleRun(
+        rule,
         habitatId,
-        triggerType: scanType,
-        triggerEventId: `scan:${scanType}:${habitatId}`,
-        targetType: "habitat",
-        targetId: habitatId,
-      });
-      runRepo.finishRuleRun(run.id, { status: "succeeded" });
+        scanType,
+        `scan:${scanType}:${habitatId}`,
+        "habitat",
+        habitatId,
+      );
       matched++;
     } catch (err) {
       errs.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);

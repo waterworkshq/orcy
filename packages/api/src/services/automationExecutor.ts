@@ -8,6 +8,7 @@ import type {
   NotificationEventType,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
+import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { renderTemplate } from "./automationTemplateRenderer.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
 import * as pulseRepo from "../repositories/pulse.js";
@@ -558,4 +559,99 @@ function calculateRunStatus(succeeded: number, failed: number, total: number): A
   if (failed === 0) return "succeeded";
   if (succeeded === 0) return "failed";
   return "partial_failed";
+}
+
+// --- onAutomationRunCompleted subscriber hook (mirrors transition-emitter.ts pattern) ---
+
+type AutomationRunCompletedHook = (opts: {
+  run: AutomationRuleRun;
+  rule: AutomationRule;
+  outcome: AutomationRunStatus;
+  habitatId: string;
+}) => void;
+
+const automationRunCompletedHooks: AutomationRunCompletedHook[] = [];
+
+/** Registers a hook invoked when an automation run completes (after actions execute or fail). Returns an unsubscribe function. */
+export function onAutomationRunCompleted(hook: AutomationRunCompletedHook): () => void {
+  automationRunCompletedHooks.push(hook);
+  return () => {
+    const idx = automationRunCompletedHooks.indexOf(hook);
+    if (idx >= 0) automationRunCompletedHooks.splice(idx, 1);
+  };
+}
+
+function notifyAutomationRunCompleted(opts: Parameters<AutomationRunCompletedHook>[0]): void {
+  for (const hook of automationRunCompletedHooks) {
+    try {
+      hook(opts);
+    } catch (err) {
+      // Swallow per-hook errors so one bad subscriber cannot block the others.
+    }
+  }
+}
+
+// --- Kill switch: checks env var + habitat automationSettings before executing actions ---
+
+import * as habitatRepo from "../repositories/board.js";
+
+/** Returns `true` if automation actions should execute for the given habitat, checking env var override then habitat settings; defaults to `true`. */
+export function shouldExecuteActions(habitatId: string): boolean {
+  if (process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS === "false") return false;
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (habitat?.automationSettings?.executeActions === false) return false;
+  return true;
+}
+
+/**
+ * Encapsulates the full rule-run lifecycle: starts the run, builds the evaluation context,
+ * checks the kill switch, executes actions (if enabled), records the result, and fires
+ * the `onAutomationRunCompleted` hook. Replaces the pre-v0.20.1 pattern of
+ * `startRuleRun → finishRuleRun(succeeded)` without executing any actions.
+ */
+export async function executeAndRecordRuleRun(
+  rule: AutomationRule,
+  habitatId: string,
+  triggerType: string,
+  triggerEventId: string | null,
+  targetType: AutomationTargetType | null,
+  targetId: string | null,
+): Promise<{ run: AutomationRuleRun; outcome: AutomationRunStatus }> {
+  const run = runRepo.startRuleRun({
+    ruleId: rule.id,
+    habitatId,
+    triggerType: triggerType as AutomationRuleRun["triggerType"],
+    triggerEventId,
+    targetType,
+    targetId,
+  });
+
+  if (!shouldExecuteActions(habitatId)) {
+    runRepo.finishRuleRun(run.id, { status: "succeeded" });
+    notifyAutomationRunCompleted({ run, rule, outcome: "succeeded", habitatId });
+    return { run, outcome: "succeeded" };
+  }
+
+  try {
+    const ctx = buildEvaluationContext(
+      buildTriggerContext({
+        triggerType,
+        triggerEventId,
+        habitatId,
+        targetType,
+        targetId,
+      }),
+    );
+    const result = await executeActions(rule, run, ctx);
+    runRepo.finishRuleRun(run.id, {
+      status: result.status as "succeeded" | "partial_failed" | "failed",
+      actionResults: result.actionResults,
+    });
+    notifyAutomationRunCompleted({ run, rule, outcome: result.status, habitatId });
+    return { run, outcome: result.status };
+  } catch (err) {
+    runRepo.finishRuleRun(run.id, { status: "failed" });
+    notifyAutomationRunCompleted({ run, rule, outcome: "failed", habitatId });
+    return { run, outcome: "failed" };
+  }
 }

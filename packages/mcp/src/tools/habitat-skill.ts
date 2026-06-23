@@ -1,4 +1,5 @@
 import type { SkillClient } from "../api/interfaces.js";
+import { SKILL_CATEGORIES } from "@orcy/shared";
 
 /**
  * @requires SkillClient
@@ -18,7 +19,7 @@ export async function habitatSkillRefresh(client: SkillClient, args: Record<stri
   return client.refreshHabitatSkill(boardId);
 }
 
-const VALID_CATEGORIES = ["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"];
+const VALID_CATEGORIES = SKILL_CATEGORIES;
 
 /**
  * @requires SkillClient

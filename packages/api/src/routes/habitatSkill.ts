@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { SKILL_CATEGORIES } from "@orcy/shared";
 import * as skillRepo from "../repositories/habitatSkill.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as skillService from "../services/habitatSkillService.js";
@@ -11,16 +12,12 @@ const contributeBodySchema = z.object({
     .string()
     .min(1, "Insight is required")
     .max(2000, "Insight must be under 2000 characters"),
-  skillCategory: z
-    .enum(["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"])
-    .optional(),
+  skillCategory: z.enum(SKILL_CATEGORIES).optional(),
 });
 
 const signalsQuerySchema = z.object({
   minStrength: z.coerce.number().min(0).max(1).optional(),
-  skillCategory: z
-    .enum(["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"])
-    .optional(),
+  skillCategory: z.enum(SKILL_CATEGORIES).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });

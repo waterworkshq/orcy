@@ -92,6 +92,19 @@ vi.mock("../db/schema/index.js", () => {
     daemonInstances: table("daemonInstances"),
     daemonAgents: table("daemonAgents"),
     daemonSessions: table("daemonSessions"),
+    remoteGrants: table("remoteGrants"),
+    remoteGrantTargets: table("remoteGrantTargets"),
+    remoteGrantRules: table("remoteGrantRules"),
+    remoteGrantTaskSnapshots: table("remoteGrantTaskSnapshots"),
+    remoteCredentials: table("remoteCredentials"),
+    remoteParticipants: table("remoteParticipants"),
+    remotePods: table("remotePods"),
+    remoteInvites: table("remoteInvites"),
+    remoteIdempotencyKeys: table("remoteIdempotencyKeys"),
+    remoteWebhookEndpoints: table("remoteWebhookEndpoints"),
+    remoteWebhookDeliveries: table("remoteWebhookDeliveries"),
+    identityProviders: table("identityProviders"),
+    identityProviderAuthStates: table("identityProviderAuthStates"),
   };
 });
 

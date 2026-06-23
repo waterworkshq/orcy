@@ -51,10 +51,11 @@ Strict-scope patch release bundling two deferred items from v0.20.0:
 
 | Item | Why it waits for a patch |
 |------|--------------------------|
-| Wire `executeActions` into `automationEventService.ingestEvent` + `automationScanService` scan functions | Pre-existing v0.18 bug; not part of the v0.20 "Orchestrated" story; needs focused testing across all action types (notify, create_signal, create_task, priority_change, assignment, review_request, risk_mark, webhook_call) |
+| Wire `executeActions` into `automationEventService.ingestEvent` + `automationScanService` scan functions | Pre-existing v0.18 bug; not part of the v0.20 "Orchestrated" story; needs focused testing across all action types (notify, create_signal, create_task, change_priority, assign, release_assignment, request_review, call_webhook, mark_risk) |
 | Add `on_automation` gate type + `onAutomationRunCompleted` subscriber hook | Depends on executor wiring; once rules actually execute in production, gates can subscribe to their completion |
 | Workflow service subscription to automation runs | Final piece of the gate-type set (brings v0.20 to the originally-planned 6 gate types) |
 | Add `anti_patterns` to `SkillCategory` enum + consolidate to `@orcy/shared` | Completes the experience-signal-to-skill-type mapping; v0.20.0 mapped `sidetracked → pitfall` as a stopgap; same duplication pattern as signalType (6+ local copies) |
+| Enable `on_automation` in workflow editor UI + kill switch (UI/CLI toggleable) | Gate type is in dropdown but disabled; activating backend requires enabling it in editor + adding AutomationMatch form fields. Kill switch lets users disable action execution without env vars. |
 
 **Why a patch, not part of v0.20.0:** Wiring `executeActions` is a behavior change for all existing v0.18 automation rule consumers — every rule that "matched but didn't fire" will now actually fire. That deserves its own release boundary and release notes, not coupling to the larger v0.20 feature set.
 
@@ -62,15 +63,17 @@ Strict-scope patch release bundling two deferred items from v0.20.0:
 
 ---
 
-### v0.20.1 — "Deepen: Trim Pass-Throughs"
+### v0.20.2 — "Deepen: Trim Pass-Throughs"
 
 Remove modules that fail the deletion test — complexity would vanish, not reappear in callers.
 
 | Architecture | What deepens |
 |--------------|--------------|
-| Pass-Through Elimination (#8) | Inline `watcherService` pass-throughs, remove `task-movement.ts` (unused params, read-named-as-write), delete misleading aliases in `task-details.ts`. Auto-generate the ~70% of MCP tool handlers that are pure forwarding wrappers from a declarative config. |
+| Pass-Through Elimination (#8) | Delete dead-code `task-movement.ts` (zero callers) + misleading aliases in `task-details.ts` (zero callers). Inline `watcherService` pass-throughs into routes. MCP forwarding-handler auto-generation deferred to later patch. |
 
-**Why after v0.20:** All major seams have been deepened through v0.17.1–v0.20.1. The remaining shallow modules are pure cleanup with no feature dependency — good timing for a final sweep before the ecosystem and knowledge base layers.
+**Why after v0.20.1:** Staggered per release-boundary decision — behavior-change patch (v0.20.1) ships separately from cleanup patch (v0.20.2). All major seams have been deepened through v0.17.1–v0.20.1; remaining shallow modules are pure cleanup with no feature dependency.
+
+**Full scope reference:** `docs/plans/arch-cleanup/08-pass-through-elimination.md`
 
 ---
 
@@ -131,7 +134,7 @@ Patch releases dedicated to deepening shallow modules into deep ones — better 
 | v0.17.3 | SSE Event Registry (#4) | Event handling — prereq for automation + notification events |
 | v0.18.1 | Data Access Discipline (#3), Fat Route Extraction (#6), Dual-Write Consolidation (#5) | Repo layer, route→service boundary, Zustand vs React Query |
 | v0.19.1 | API → Daemon Interface Seam (#7) | Cross-package dependency — prereq for multi-agent orchestration |
-| v0.20.1 (upcoming) | Pass-Through Elimination (#8) | Dead indirection cleanup |
+| v0.20.2 (upcoming) | Pass-Through Elimination (#8) | Dead indirection cleanup |
 
 Full report: `/tmp/architecture-review-20260604.html`
 

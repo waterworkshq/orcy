@@ -24,8 +24,8 @@ const SKILL_CATEGORY_MAP: Record<string, SkillCategory> = {
 /**
  * Maps an agent self-reporting {@link ExperienceCategory} to the {@link SkillCategory} used for habitat skill ingestion.
  * Per the locked v0.20 decision: `stuck`/`confused`/`backtrack` → pitfall, `surprised`/`ambiguous` → domain_knowledge,
- * `sidetracked` → pitfall (the codebase has no `anti_patterns` enum value; `pitfall` is the closest semantic fit and
- * preserves the "thing to avoid" intent), `smooth` → pattern.
+ * `sidetracked` → anti_patterns (v0.20.1: added `anti_patterns` to `SkillCategory`, replacing the v0.20.0 `pitfall` stopgap),
+ * `smooth` → pattern.
  */
 export const EXPERIENCE_CATEGORY_TO_SKILL: Record<ExperienceCategory, SkillCategory> = {
   stuck: "pitfall",
@@ -33,7 +33,7 @@ export const EXPERIENCE_CATEGORY_TO_SKILL: Record<ExperienceCategory, SkillCateg
   backtrack: "pitfall",
   surprised: "domain_knowledge",
   ambiguous: "domain_knowledge",
-  sidetracked: "pitfall",
+  sidetracked: "anti_patterns",
   smooth: "pattern",
 };
 
@@ -440,6 +440,7 @@ export function generateSkillDocument(habitatId: string): string {
     architecture: signals.filter((s) => s.skillCategory === "convention"),
     patterns: signals.filter((s) => s.skillCategory === "pattern"),
     pitfalls: signals.filter((s) => s.skillCategory === "pitfall"),
+    antiPatterns: signals.filter((s) => s.skillCategory === "anti_patterns"),
     domain: signals.filter((s) => s.skillCategory === "domain_knowledge"),
     insights: signals.filter((s) => s.skillCategory === "agent_insight"),
   };
@@ -464,6 +465,7 @@ export function generateSkillDocument(habitatId: string): string {
   renderSection("Architecture & Conventions", sections.architecture);
   renderSection("Patterns", sections.patterns);
   renderSection("Pitfalls", sections.pitfalls);
+  renderSection("Anti-Patterns", sections.antiPatterns);
   renderSection("Domain Knowledge", sections.domain);
   renderSection("Agent Insights", sections.insights);
 

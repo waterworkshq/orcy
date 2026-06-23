@@ -1,4 +1,5 @@
 import { api } from "../client.js";
+import { SKILL_CATEGORIES } from "@orcy/shared";
 
 /** Registers the `orcy skill` subcommands (get, refresh, contribute, signals) on the given {@link Command}. */
 export function registerSkillCommands(program: any) {
@@ -40,7 +41,7 @@ export function registerSkillCommands(program: any) {
     .argument("<habitatId>", "Habitat UUID")
     .requiredOption("--insight <text>", "The insight text to contribute")
     .option("--category <category>", "Category for the insight")
-    .choices("category", ["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"])
+    .choices("category", [...SKILL_CATEGORIES])
     .action(async (habitatId: string, options: any) => {
       const body: Record<string, any> = { insight: options.insight };
       if (options.category) body.skillCategory = options.category;

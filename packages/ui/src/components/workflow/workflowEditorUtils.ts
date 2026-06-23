@@ -7,24 +7,25 @@ import type {
   ExperienceCategory,
 } from "../../types/index.js";
 
-/** Gate types selectable in the v0.20 editor; `on_automation` is deferred to v0.20.1. */
+/** Gate types selectable in the workflow editor. */
 export const SELECTABLE_GATE_TYPES: GateType[] = [
   "on_complete",
   "on_approve",
   "on_signal",
+  "on_automation",
   "on_manual",
   "on_fail",
 ];
 
-/** All six gate types including the deferred `on_automation` (shown disabled in dropdown). */
-export const ALL_GATE_TYPES: GateType[] = [...SELECTABLE_GATE_TYPES, "on_automation"];
+/** All six gate types. */
+export const ALL_GATE_TYPES: GateType[] = [...SELECTABLE_GATE_TYPES];
 
 /** Human-readable labels for each gate type. */
 export const GATE_TYPE_LABELS: Record<GateType, string> = {
   on_complete: "On Complete",
   on_approve: "On Approve",
   on_signal: "On Signal",
-  on_automation: "On Automation (v0.20.1)",
+  on_automation: "On Automation",
   on_manual: "On Manual",
   on_fail: "On Fail",
 };

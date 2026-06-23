@@ -59,8 +59,8 @@ describe("habitatSkillService.experience", () => {
       expect(classifyExperienceToCategory("ambiguous")).toBe("domain_knowledge");
     });
 
-    it("maps sidetracked to pitfall (codebase lacks anti_patterns enum)", () => {
-      expect(classifyExperienceToCategory("sidetracked")).toBe("pitfall");
+    it("maps sidetracked to anti_patterns", () => {
+      expect(classifyExperienceToCategory("sidetracked")).toBe("anti_patterns");
     });
 
     it("maps smooth to pattern", () => {
@@ -88,7 +88,7 @@ describe("habitatSkillService.experience", () => {
         backtrack: "pitfall",
         surprised: "domain_knowledge",
         ambiguous: "domain_knowledge",
-        sidetracked: "pitfall",
+        sidetracked: "anti_patterns",
         smooth: "pattern",
       };
 

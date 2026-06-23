@@ -31,6 +31,11 @@ const CATEGORY_CONFIG: Record<
   },
   pattern: { label: "Pattern", icon: <Lightbulb className="h-3 w-3" />, color: "var(--tertiary)" },
   pitfall: { label: "Pitfall", icon: <AlertTriangle className="h-3 w-3" />, color: "var(--error)" },
+  anti_patterns: {
+    label: "Anti-Pattern",
+    icon: <AlertTriangle className="h-3 w-3" />,
+    color: "var(--error)",
+  },
   domain_knowledge: {
     label: "Domain",
     icon: <Brain className="h-3 w-3" />,

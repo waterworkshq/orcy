@@ -2,6 +2,7 @@ import type { RetryPolicy } from "./task.js";
 import type {
   AnomalySettings,
   AutoAssignSettings,
+  AutomationSettings,
   CodeReviewSettings,
   CiCdSettings,
   GitWorktreeSettings,
@@ -38,6 +39,7 @@ export interface Habitat {
   ciCdSettings: CiCdSettings | null;
   gitWorktreeSettings: GitWorktreeSettings | null;
   prioritizationSettings: PrioritizationSettings | null;
+  automationSettings: AutomationSettings | null;
   eventRetentionDays: number | null;
   createdAt: string;
   updatedAt: string;

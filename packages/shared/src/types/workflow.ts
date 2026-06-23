@@ -5,7 +5,7 @@ import type { AutomationCondition } from "./automation.js";
 
 export type { AutomationCondition };
 
-/** The six typed dependency edges between tasks in a workflow DAG; `on_automation` is deferred to v0.20.x. */
+/** The six typed dependency edges between tasks in a workflow DAG. */
 export type GateType =
   | "on_complete"
   | "on_approve"

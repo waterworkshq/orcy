@@ -12,6 +12,7 @@ import type {
   RetryPolicy,
   AnomalySettings,
   AutoAssignSettings,
+  AutomationSettings,
   CodeReviewSettings,
   CiCdSettings,
   GitWorktreeSettings,
@@ -48,6 +49,9 @@ export const habitats = sqliteTable(
     prioritizationSettings: text("prioritization_settings", {
       mode: "json",
     }).$type<PrioritizationSettings | null>(),
+    automationSettings: text("automation_settings", {
+      mode: "json",
+    }).$type<AutomationSettings | null>(),
     teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
     carryOverPolicy: text("carry_over_policy").notNull().default("backlog"),
   },

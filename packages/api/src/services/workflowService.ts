@@ -4,6 +4,7 @@ import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { onTransition } from "./tasks/transition-emitter.js";
 import * as pulseService from "./pulseService.js";
+import { onAutomationRunCompleted } from "./automationExecutor.js";
 import { evaluateCondition } from "./automationEvaluator.js";
 import { buildEvaluationContext, buildTriggerContext } from "./automationContextBuilder.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
@@ -17,6 +18,7 @@ import type {
   WorkflowTemplateDefinition,
   WorkflowFailureHandlerConfig,
   SignalMatch,
+  AutomationMatch,
   AutomationCondition,
 } from "../models/index.js";
 
@@ -69,6 +71,17 @@ export function initWorkflowService(): void {
       logger.error(
         { err, pulseId: pulse.id, signalType: pulse.signalType },
         "Workflow service pulse subscriber error",
+      );
+    }
+  });
+
+  onAutomationRunCompleted((opts) => {
+    try {
+      handleAutomationRunCompleted(opts);
+    } catch (err) {
+      logger.error(
+        { err, runId: opts.run.id, ruleId: opts.rule.id },
+        "Workflow service automation subscriber error",
       );
     }
   });
@@ -710,6 +723,115 @@ function pulseMatchesScope(
         (pulse.missionId !== null && pulse.missionId === gate.missionId)
       );
   }
+}
+
+function handleAutomationRunCompleted(opts: {
+  run: { id: string; targetType: string | null; targetId: string | null };
+  rule: { id: string };
+  outcome: string;
+  habitatId: string;
+}): void {
+  const db = getDb();
+  const gates = db
+    .select({
+      id: taskWorkflowGates.id,
+      satisfied: taskWorkflowGates.satisfied,
+      upstreamTaskId: taskWorkflowGates.upstreamTaskId,
+      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
+      workflowId: taskWorkflowGates.workflowId,
+      missionId: taskWorkflowGates.missionId,
+      matchConfig: taskWorkflowGates.matchConfig,
+      condition: taskWorkflowGates.condition,
+    })
+    .from(taskWorkflowGates)
+    .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
+    .where(
+      and(
+        eq(taskWorkflowGates.gateType, "on_automation"),
+        eq(taskWorkflowGates.habitatId, opts.habitatId),
+        eq(taskWorkflowGates.satisfied, false),
+        eq(workflows.status, "active"),
+      ),
+    )
+    .all();
+
+  if (gates.length === 0) return;
+
+  const now = new Date().toISOString();
+  for (const gate of gates) {
+    if (gate.satisfied) continue;
+    try {
+      const match = readAutomationMatch(gate.matchConfig);
+      if (!match) continue;
+      if (!automationMatchEqualsRun(match, opts, gate)) continue;
+      db.update(taskWorkflowGates)
+        .set({
+          satisfied: true,
+          satisfiedAt: now,
+          satisfiedByEventId: opts.run.id,
+        })
+        .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
+        .run();
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        upstreamTaskId: gate.upstreamTaskId,
+        downstreamTaskId: gate.downstreamTaskId,
+        gateType: "on_automation",
+        triggeredBy: "automation_run",
+        runId: opts.run.id,
+        ruleId: opts.rule.id,
+      });
+    } catch (err) {
+      logger.error({ err, gateId: gate.id }, "Failed to evaluate on_automation gate");
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        error: err instanceof Error ? err.message : String(err),
+        phase: "automation_gate_evaluation",
+      });
+    }
+  }
+}
+
+function readAutomationMatch(
+  raw: Record<string, unknown> | null | undefined,
+): AutomationMatch | null {
+  if (!raw) return null;
+  if (typeof raw["ruleId"] !== "string") return null;
+  return {
+    ruleId: raw["ruleId"],
+    outcome: raw["outcome"] as AutomationMatch["outcome"],
+    matchScope: raw["matchScope"] as AutomationMatch["matchScope"],
+  };
+}
+
+function automationMatchEqualsRun(
+  match: AutomationMatch,
+  opts: {
+    run: { targetType: string | null; targetId: string | null };
+    rule: { id: string };
+    outcome: string;
+  },
+  gate: { upstreamTaskId: string; missionId: string },
+): boolean {
+  if (match.ruleId !== opts.rule.id) return false;
+
+  if (match.outcome !== undefined) {
+    if (match.outcome === "skipped" && opts.outcome !== "skipped") return false;
+    if (match.outcome === "succeeded" && opts.outcome !== "succeeded") return false;
+    if (match.outcome === "failed" && opts.outcome !== "failed") return false;
+  }
+
+  const scope = match.matchScope ?? "either";
+  const runTargetId = opts.run.targetId;
+  if (scope === "task") {
+    return runTargetId === gate.upstreamTaskId;
+  }
+  if (scope === "mission") {
+    return runTargetId === gate.missionId;
+  }
+  return true;
 }
 
 /** Attaches a workflow DAG to a mission, creating the workflow row and all gate rows from the template definition. */

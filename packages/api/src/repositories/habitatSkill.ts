@@ -2,6 +2,8 @@ import { getDb } from "../db/index.js";
 import { habitatSkills, habitatSkillSignals } from "../db/schema/index.js";
 import { eq, and, count, desc, gt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import type { SkillCategory } from "@orcy/shared";
+import { SKILL_CATEGORIES } from "@orcy/shared";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -10,12 +12,7 @@ import {
 } from "../errors/repository.js";
 import { isSqliteError } from "../errors/sqlite.js";
 
-export type SkillCategory =
-  | "convention"
-  | "pattern"
-  | "pitfall"
-  | "domain_knowledge"
-  | "agent_insight";
+export type { SkillCategory };
 
 export interface HabitatSkill {
   id: string;
@@ -55,13 +52,7 @@ export interface HabitatSkillSignal {
   updatedAt: string;
 }
 
-export const VALID_SKILL_CATEGORIES = new Set<SkillCategory>([
-  "convention",
-  "pattern",
-  "pitfall",
-  "domain_knowledge",
-  "agent_insight",
-]);
+export const VALID_SKILL_CATEGORIES = new Set<SkillCategory>(SKILL_CATEGORIES);
 
 export interface CreateSignalInput {
   habitatId: string;

@@ -7,6 +7,7 @@ import type {
   RetryPolicy,
   AnomalySettings,
   AutoAssignSettings,
+  AutomationSettings,
   GitWorktreeSettings,
   PrioritizationSettings,
 } from "../models/index.js";
@@ -33,6 +34,7 @@ export interface UpdateHabitatInput {
   gitWorktreeSettings?: GitWorktreeSettings | null;
   eventRetentionDays?: number;
   prioritizationSettings?: PrioritizationSettings | null;
+  automationSettings?: AutomationSettings | null;
 }
 
 export function createHabitat(input: CreateHabitatInput): Habitat {
@@ -105,6 +107,7 @@ export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | 
   if (input.eventRetentionDays !== undefined) values.eventRetentionDays = input.eventRetentionDays;
   if (input.prioritizationSettings !== undefined)
     values.prioritizationSettings = input.prioritizationSettings;
+  if (input.automationSettings !== undefined) values.automationSettings = input.automationSettings;
 
   try {
     db.update(habitats).set(values).where(eq(habitats.id, id)).run();

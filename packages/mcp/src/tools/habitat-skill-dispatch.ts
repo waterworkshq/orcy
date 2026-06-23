@@ -1,4 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { SKILL_CATEGORIES } from "@orcy/shared";
 import { createDispatchTool, createDispatchHandler, type Handler } from "./dispatch-utils.js";
 import { habitatSkillGet, habitatSkillRefresh, habitatSkillContribute } from "./habitat-skill.js";
 
@@ -13,7 +14,7 @@ export const HABITAT_SKILL_DISPATCH_TOOL: Tool = createDispatchTool({
     insight: { type: "string", description: "The insight text to add (contribute action)" },
     skillCategory: {
       type: "string",
-      enum: ["convention", "pattern", "pitfall", "domain_knowledge", "agent_insight"],
+      enum: [...SKILL_CATEGORIES],
       description: "Derived category for the contributed insight (contribute action, optional)",
     },
   },

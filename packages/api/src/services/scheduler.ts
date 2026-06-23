@@ -198,15 +198,16 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
 
   intervals.push(
     setInterval(() => {
-      try {
-        const reports = runAllScans();
-        const matched = reports.reduce((sum, r) => sum + r.rulesMatched, 0);
-        if (matched > 0 || reports.some((r) => r.errors.length > 0)) {
-          fastify.log.info({ count: reports.length, matched }, "Automation scans completed");
-        }
-      } catch (err) {
-        fastify.log.error({ err }, "Error running automation scans");
-      }
+      runAllScans()
+        .then((reports) => {
+          const matched = reports.reduce((sum, r) => sum + r.rulesMatched, 0);
+          if (matched > 0 || reports.some((r) => r.errors.length > 0)) {
+            fastify.log.info({ count: reports.length, matched }, "Automation scans completed");
+          }
+        })
+        .catch((err) => {
+          fastify.log.error({ err }, "Error running automation scans");
+        });
     }, 5 * 60_000),
   );
 

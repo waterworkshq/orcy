@@ -1,6 +1,7 @@
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import { buildTriggerContext } from "./automationContextBuilder.js";
+import { executeAndRecordRuleRun } from "./automationExecutor.js";
 import type {
   AutomationEventType,
   AutomationTriggerType,
@@ -38,7 +39,10 @@ export interface IngestionResult {
 }
 
 /** Matches an incoming event against a habitat's enabled automation rules, applying cooldown, rate-limit, and self-loop guards before starting a run for each matched rule. */
-export function ingestEvent(habitatId: string, event: IncomingEvent): IngestionResult {
+export async function ingestEvent(
+  habitatId: string,
+  event: IncomingEvent,
+): Promise<IngestionResult> {
   const errors: string[] = [];
 
   if (!EVENT_ALLOWLIST.has(event.type)) {
@@ -83,19 +87,20 @@ export function ingestEvent(habitatId: string, event: IncomingEvent): IngestionR
         continue;
       }
 
-      const run = runRepo.startRuleRun({
-        ruleId: rule.id,
+      const targetType = resolveTargetType(event);
+      const targetId = (event.data?.taskId ??
+        event.data?.missionId ??
+        event.data?.agentId ??
+        event.data?.sprintId) as string | null;
+
+      await executeAndRecordRuleRun(
+        rule,
         habitatId,
         triggerType,
-        triggerEventId: (event.data?.eventId as string | null) ?? null,
-        targetType: resolveTargetType(event) as AutomationTargetType | null,
-        targetId: (event.data?.taskId ??
-          event.data?.missionId ??
-          event.data?.agentId ??
-          event.data?.sprintId) as string | null,
-      });
-
-      runRepo.finishRuleRun(run.id, { status: "succeeded" });
+        (event.data?.eventId as string | null) ?? null,
+        targetType as AutomationTargetType | null,
+        targetId,
+      );
       matched++;
     } catch (err) {
       errors.push(`Rule ${rule.id}: ${err instanceof Error ? err.message : String(err)}`);

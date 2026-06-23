@@ -52,6 +52,7 @@ export type {
   AnomalySettings,
   Anomaly,
   AutoAssignSettings,
+  AutomationSettings,
   GitWorktreeSettings,
   CodeReviewSettings,
   CiCdSettings,
@@ -297,6 +298,9 @@ export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";
 
 export type { SignalType } from "./signal.js";
 export { SIGNAL_TYPES } from "./signal.js";
+
+export type { SkillCategory } from "./skill.js";
+export { SKILL_CATEGORIES } from "./skill.js";
 
 export type {
   GateType,
