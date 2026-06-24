@@ -2,6 +2,27 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.20.2 — 2026-06-24
+
+### Refactors
+
+#### inline watcher pass-throughs and remove dead task-movement code ([`db413de`](https://github.com/waterworkshq/orcy/commit/db413de4565d0d517648334a93e792897945425e))
+
+1. Remove `task-movement.ts` which exported `moveTask` and `reorderTask`
+2. with zero production callers — the reorder function was a no-op and
+3. moveTask was superseded by the lifecycle service long ago. Delete
+4. the accompanying test file.
+
+6. Inline three watcherService forwarding functions (`unwatchTask`,
+7. `isWatching`, `getWatchers`) into their sole callers in the
+8. watcher route handler and `task-details.ts` via direct `watcherRepo`
+9. imports, reducing the service surface to `watchTask` and
+10. `notifyWatchers` only. Remove the unused re-export aliases
+11. `assembleHabitatContext` and `assembleCrossHabitatDependencies` from
+12. `task-details.ts` (zero import sites). Bump ROADMAP to v0.20.2.
+
+
+
 ## 0.20.1 — 2026-06-24
 
 ### Bug Fixes
@@ -750,69 +771,3 @@
 
 
 #### performance verification for claim path and subscriber cost ([`a7d8d4e`](https://github.com/waterworkshq/orcy/commit/a7d8d4ea12dd8fe0e12d5b8fea528d4490fe0342))
-
-
-
-## 0.19.3 — 2026-06-15
-
-### Documentation
-
-#### add comprehensive JSDoc documentation to type definitions ([`9427b86`](https://github.com/waterworkshq/orcy/commit/9427b86684d4f76d15ffd9c56b28f2267ab4f602))
-
-1. Add detailed JSDoc comments to all type definitions in the shared package, providing clear descriptions of each interface, type, and enum. The documentation explains the purpose, usage, and relationships between types to improve developer understanding and IDE support.
-
-
-#### add inline documentation to API services and type definitions ([`49dcfce`](https://github.com/waterworkshq/orcy/commit/49dcfcec491762fa005ec7f7e3711dc9306d4fb5))
-
-1. Add detailed JSDoc comments to service functions and type definitions across the shared package and API services, improving code readability and developer understanding. The documentation explains function purposes, parameters, return values, and type semantics to enhance maintainability and IDE support.
-
-
-#### add comprehensive JSDoc documentation to service functions ([`619d723`](https://github.com/waterworkshq/orcy/commit/619d723b979bc5c74d6c7ac9e3cbc0ccbcbcb865))
-
-1. Add detailed inline documentation to all service functions across the API package, including clear descriptions of function purposes, parameters, return values, and side effects. The documentation follows JSDoc standards with proper type annotations and explains complex business logic to improve code maintainability and developer experience.
-
-
-#### enhance service function documentation with detailed JSDoc ([`7ccd9c4`](https://github.com/waterworkshq/orcy/commit/7ccd9c46fa52a5bcf9069ba3033f0256cfef7260))
-
-1. Add comprehensive inline documentation to all service functions across the API package, including clear descriptions of function purposes, parameters, return values, and side effects. The documentation follows JSDoc standards with proper type annotations and explains complex business logic to improve code maintainability and developer experience.
-
-
-#### enhance tool documentation with comprehensive JSDoc ([`965bf32`](https://github.com/waterworkshq/orcy/commit/965bf32322993ddb59e5dd2cf533b2d2b579375d))
-
-1. Add detailed JSDoc comments to MCP dispatch tools and handlers across the mcp package, describing their purpose, functionality, and relationship to underlying implementations. The documentation improves code maintainability and clarifies the architecture of the dispatch system for developers working with MCP tool integration.
-
-
-#### add JSDoc to remaining dispatch files and utility modules ([`f0d0a9c`](https://github.com/waterworkshq/orcy/commit/f0d0a9cbb4f4f3983d876ead1117770bcca16edb))
-
-
-#### add comprehensive JSDoc documentation to CLI commands and daemon modules ([`5c36a66`](https://github.com/waterworkshq/orcy/commit/5c36a66c67bbe7bb418e59cf2037ae5b9c7cbac6))
-
-1. Add detailed JSDoc comments to CLI command registration functions and daemon modules, explaining their purpose, functionality, and relationships to underlying implementations. The documentation improves code maintainability and clarifies the architecture of the CLI and daemon systems for developers working with Orcy integration.
-
-
-#### enhance service interfaces and function documentation ([`661a5a3`](https://github.com/waterworkshq/orcy/commit/661a5a3a7535f425a32cf753b39116db195bc90d))
-
-1. Add detailed JSDoc comments to service interfaces and function implementations across API services, improving code readability and maintainability. The documentation clarifies the purpose, parameters, and return values of key functions in webhook dispatching, OAuth handling, task management, and integration services.
-
-
-#### add JSDoc documentation to integration services and webhook handlers ([`567d9cc`](https://github.com/waterworkshq/orcy/commit/567d9cc255d461e888c613cb4023646611501b84))
-
-1. Add detailed JSDoc documentation to integration adapters (GitHub, Jira, Linear), OAuth services, task management services, and webhook handlers, clarifying function purposes, parameters, and return values. The documentation improves code readability and maintainability across core API functionality.
-
-
-#### add comprehensive JSDoc documentation to automation and notification services ([`b45f63d`](https://github.com/waterworkshq/orcy/commit/b45f63d54d094714b5f6eae73ec50e1df9bf949c))
-
-1. Add detailed JSDoc documentation to automation services (context builder, evaluator, executor, simulation, template renderer) and notification services (delivery, clearance, command, digest, migration), clarifying function purposes, parameters, and return values. The documentation improves code readability and maintainability across core API functionality.
-
-
-#### add comprehensive JSDoc documentation to core services ([`5bd40be`](https://github.com/waterworkshq/orcy/commit/5bd40beb9d65ac62a349e4c8ec5f089ecd7777c9))
-
-1. Add detailed JSDoc documentation to core API services including analytics, audit, authentication, automation, board management, capacity planning, chat integrations, CI/CD, code evidence, comments, dependency tracking, Discord integration, effort tracking, event enrichment, feature comments, file storage, Git worktrees, habitat digests, session management, notification channels, quality gates, remote notifications, retry logic, scheduled tasks, secret management, shared grants, sprint analytics, subtasks, task scoring, suggestions, time tracking, trend analysis, and task watching. The documentation clarifies function purposes, parameters, return types, and behavior across the entire service layer.
-
-
-#### enhance type documentation across shared and API packages ([`d814ad6`](https://github.com/waterworkshq/orcy/commit/d814ad6c8affd589420c3a890e5ecf6e94aa4b73))
-
-1. Add detailed JSDoc documentation to type definitions and interfaces across shared and API packages, clarifying purpose, usage, and relationships between complex types including AgentQualitySignal, ForecastEstimate, RemoteGrantType, ParticipantStanding, and PodAffiliation. The documentation improves type discoverability and provides clear context for API consumers and developers working with these shared contracts.
-
-
-#### mark v0.19.3 as released and remove from upcoming ([`8a136b5`](https://github.com/waterworkshq/orcy/commit/8a136b5d5b097fed72cccd1a508c2e9ef89688bb))
