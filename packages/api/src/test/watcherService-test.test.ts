@@ -20,13 +20,7 @@ vi.mock("../errors.js", async (importOriginal) => {
   return { ...actual };
 });
 
-import {
-  watchTask,
-  unwatchTask,
-  isWatching,
-  getWatchers,
-  notifyWatchers,
-} from "../services/watcherService.js";
+import { watchTask, notifyWatchers } from "../services/watcherService.js";
 
 describe("watcherService", () => {
   beforeEach(() => {
@@ -53,20 +47,6 @@ describe("watcherService", () => {
   it("watchTask adds watcher when task exists", () => {
     const r = watchTask("t1", "u1");
     expect(r.taskId).toBe("t1");
-  });
-
-  it("unwatchTask delegates", () => {
-    watcherMocks.removeWatcher.mockReturnValue(true);
-    expect(unwatchTask("t1", "u1")).toBe(true);
-  });
-
-  it("isWatching delegates", () => {
-    watcherMocks.isWatching.mockReturnValue(true);
-    expect(isWatching("t1", "u1")).toBe(true);
-  });
-
-  it("getWatchers delegates", () => {
-    expect(getWatchers("t1")).toHaveLength(1);
   });
 
   it("notifyWatchers publishes when watchers exist", () => {

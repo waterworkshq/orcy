@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.20.1 | **Updated:** 2026-06-24
+> **Version:** v0.20.2 | **Updated:** 2026-06-24
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -41,24 +41,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.19.3 | "Deepen: Inline JSDoc Pass" — Comprehensive inline JSDoc coverage across all 6 packages. Shared types (245 symbols across 18 files), API services (~600 symbols across 130+ files including tasks/, webhooks/, integrations/, code evidence, notifications, automation, audit, and core services), MCP dispatch handlers and tools (~310 symbols), daemon runtime (~60 symbols), and CLI commands (16 symbols). Every exported symbol now has an IDE-visible description. Pod Bridge domain types restored with full design rationale and scope notes. |
 | v0.20.0 | "Orchestrated" — Mission-scoped workflow DAGs with typed gates (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), `all_of`/`any_of`/`n_of` join specs, and conditional edge predicates reusing v0.18 AutomationCondition. Workflow gates layer on the existing claim path as derived constraints — no new task status, no changes to IClaimStrategy or runPollTick. `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history); successful recovery redeems the original failure and downstream gates fire as if the original had succeeded. Two recovery attempts maximum. Agent experience self-reporting via `orcy_pulse` with `signalType: "experience"` and 7 categories (`stuck\|confused\|backtrack\|surprised\|ambiguous\|sidetracked\|smooth`); signals flow through the existing pulse pipeline into habitat skills and failure contexts. Workflow templates extend `missionTemplates` with a `workflowTemplate` JSON column; two default templates shipped (Build-Test-Review-Deploy, Parallel Investigation). Form-based UI editor with JSON import/export, live SVG preview, workflow DAG visualization on mission detail page, blocked-by-workflow filter, admin metrics dashboard, and cross-pod read-only workflow context routes. |
 | v0.20.1 | "Orchestration Patch" — Wired `automationExecutor.executeActions` into production via `executeAndRecordRuleRun` (consolidated lifecycle: start run → kill-switch check → execute actions → finish run → notify hooks). All event + scan paths now actually fire actions. Added `on_automation` gate type (6th gate type) with `onAutomationRunCompleted` subscriber hook + workflow service gate evaluation + AutomationMatch form fields in workflow editor. Habitat-scoped kill switch (`automationSettings.executeActions`) toggleable via UI, CLI, and env var. Added `anti_patterns` to `SkillCategory` (consolidated 6 duplicate definitions to `@orcy/shared`), remapped `sidetracked → anti_patterns`, separate bucket in skill document generation. |
+| v0.20.2 | "Deepen: Trim Pass-Throughs" — Deleted dead-code `task-movement.ts` (`moveTask`/`reorderTask`, zero production callers) and misleading aliases `assembleHabitatContext`/`assembleCrossHabitatDependencies` in `task-details.ts` (zero import sites). Inlined 3 `watcherService` pass-throughs (`unwatchTask`, `isWatching`, `getWatchers`) directly into their route and service callers via `watcherRepo`. `watcherService` now contains only `watchTask` (validation logic) and `notifyWatchers` (SSE logic). MCP forwarding-handler auto-generation deferred to later patch. |
 
 ---
 
 ## Upcoming
-
-### v0.20.2 — "Deepen: Trim Pass-Throughs"
-
-Remove modules that fail the deletion test — complexity would vanish, not reappear in callers.
-
-| Architecture | What deepens |
-|--------------|--------------|
-| Pass-Through Elimination (#8) | Delete dead-code `task-movement.ts` (zero callers) + misleading aliases in `task-details.ts` (zero callers). Inline `watcherService` pass-throughs into routes. MCP forwarding-handler auto-generation deferred to later patch. |
-
-**Why after v0.20.1:** Staggered per release-boundary decision — behavior-change patch (v0.20.1) ships separately from cleanup patch (v0.20.2). All major seams have been deepened through v0.17.1–v0.20.1; remaining shallow modules are pure cleanup with no feature dependency.
-
-**Full scope reference:** `docs/plans/arch-cleanup/08-pass-through-elimination.md`
-
----
 
 ### v0.21.0 — "Living Library"
 
@@ -117,7 +104,7 @@ Patch releases dedicated to deepening shallow modules into deep ones — better 
 | v0.17.3 | SSE Event Registry (#4) | Event handling — prereq for automation + notification events |
 | v0.18.1 | Data Access Discipline (#3), Fat Route Extraction (#6), Dual-Write Consolidation (#5) | Repo layer, route→service boundary, Zustand vs React Query |
 | v0.19.1 | API → Daemon Interface Seam (#7) | Cross-package dependency — prereq for multi-agent orchestration |
-| v0.20.2 (upcoming) | Pass-Through Elimination (#8) | Dead indirection cleanup |
+| v0.20.2 | Pass-Through Elimination (#8) | Dead indirection cleanup |
 
 Full report: `/tmp/architecture-review-20260604.html`
 

@@ -8,7 +8,7 @@ import * as pipelineEventRepo from "../../repositories/pipelineEvent.js";
 import * as eventRepo from "../../repositories/event.js";
 import * as commentRepo from "../../repositories/comment.js";
 import * as attachmentRepo from "../../repositories/attachment.js";
-import * as watcherService from "../watcherService.js";
+import * as watcherRepo from "../../repositories/watcher.js";
 import type { Task } from "../../models/index.js";
 
 /** Enriched task payload returned by getTaskDetails, including mission and habitat context. */
@@ -67,8 +67,8 @@ export async function getTaskDetails(
       attachmentRepo.getAttachmentsByTaskId(taskId),
     ]);
 
-  const watchers = watcherService.getWatchers(taskId);
-  const isWatching = userId ? watcherService.isWatching(taskId, userId) : false;
+  const watchers = watcherRepo.getWatchersForTask(taskId);
+  const isWatching = userId ? watcherRepo.isWatching(taskId, userId) : false;
 
   let missionContext: TaskWithMissionContext["mission"] = null;
   if (mission) {
@@ -121,8 +121,3 @@ export async function getTaskDetails(
       : { name: "", columns: [] },
   };
 }
-
-/** Alias for {@link getTaskDetails} used when assembling habitat context. */
-export { getTaskDetails as assembleHabitatContext };
-/** Alias for {@link getTaskDetails} used when assembling cross-habitat dependencies. */
-export { getTaskDetails as assembleCrossHabitatDependencies };

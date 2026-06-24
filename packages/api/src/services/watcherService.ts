@@ -18,35 +18,6 @@ export function watchTask(taskId: string, userId: string): TaskWatcher {
 }
 
 /**
- * Unsubscribe a user from task notifications.
- * @param taskId - ID of the task to stop watching
- * @param userId - ID of the user to remove
- * @returns True if removed, false otherwise
- */
-export function unwatchTask(taskId: string, userId: string): boolean {
-  return watcherRepo.removeWatcher(taskId, userId);
-}
-
-/**
- * Check if a user is watching a task.
- * @param taskId - ID of the task
- * @param userId - ID of the user
- * @returns True if the user is watching the task
- */
-export function isWatching(taskId: string, userId: string): boolean {
-  return watcherRepo.isWatching(taskId, userId);
-}
-
-/**
- * Get all watchers for a task.
- * @param taskId - ID of the task
- * @returns Array of TaskWatcher records
- */
-export function getWatchers(taskId: string): TaskWatcher[] {
-  return watcherRepo.getWatchersForTask(taskId);
-}
-
-/**
  * Notify all watchers of a task event via SSE.
  * @param taskId - ID of the task
  * @param habitatId - ID of the habitat (for SSE broadcast scope)
