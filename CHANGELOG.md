@@ -2,6 +2,42 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.20.1 — 2026-06-24
+
+### Bug Fixes
+
+#### activate rule execution across event ingestion and scheduled scans ([`81122c5`](https://github.com/waterworkshq/orcy/commit/81122c590616c298481e46ea7f1d2f927cc909ee))
+
+1. Connect `executeAndRecordRuleRun` to `automationEventService.ingestEvent`
+2. and the four `automationScanService` scan functions, closing a v0.18 defect where matched rules recorded "succeeded" runs without firing any configured actions. The new function encapsulates start→context→kill switch→execute→record→hook, giving both call sites a single async entry-point instead of the previous sync start→finish(succeeded) stub.
+
+4. Adds a two-tier kill switch: per-habitat `automation_settings.executeActions`
+5. (new JSON column via drizzle migration 0034) and the
+6. `ORCY_AUTOMATION_EXECUTE_ACTIONS` env-var override, both defaulting to enabled so existing consumers see no regression when the toggle is absent.
+
+8. Subscribes `workflowService` to `onAutomationRunCompleted` and
+9. implements `handleAutomationRunCompleted` to satisfy unsatisfied `on_automation` gates when matching rule runs complete, completing the originally-planned six-type gate set.
+
+11. Moves `SkillCategory` and the `SKILL_CATEGORIES` array to
+12. `@orcy/shared` (packages/api, cli, and mcp now import from the single source), adds the `anti_patterns` value for `sidetracked` experience signals, and enables the `on_automation` gate type in the workflow
+13. editor with its `AutomationMatch` form fields (rule ID, outcome, target type/scope).
+
+
+#### expose per-habitat automation execution toggle and enable on_automation workflow gate ([`6166404`](https://github.com/waterworkshq/orcy/commit/616640426e53ebd864c1ef5277b81df37f67d298))
+
+1. Complete the deferred on_automation gate that was held back in v0.20 due to the executor wiring gap.
+2. The executor now subscribes to rule-run completions, satisfies downstream gates whose match config references the completed rule (including outcome filtering), and records run history for auditability.
+
+4. Introduce an `automationSettings.executeActions` flag persisted on the habitat model.
+5. When the flag is off the executor still matches rules and records runs but suppresses all side effects; the UI surfaces a toggle with a warning banner in the settings dialog, the CLI exposes it under `habitat update-settings --automation-execution`, and the
+6. REST PATCH endpoint accepts the new field. A global override via
+7. `ORCY_AUTOMATION_EXECUTE_ACTIONS=false` env var is also supported.
+
+9. Update CAPABILITIES.md to list six active gate types, revise
+10. ARCHITECTURE.md decision notes to reflect that the gate ships in v0.20, and remove the v0.20.1 roadmap row from README.md.
+
+
+
 ## 0.20.0 — 2026-06-22
 
 ### Bug Fixes
@@ -780,21 +816,3 @@
 
 
 #### mark v0.19.3 as released and remove from upcoming ([`8a136b5`](https://github.com/waterworkshq/orcy/commit/8a136b5d5b097fed72cccd1a508c2e9ef89688bb))
-
-
-
-## 0.19.2 — 2026-06-15
-
-### Documentation
-
-#### update daemon interface types and documentation ([`9a202b2`](https://github.com/waterworkshq/orcy/commit/9a202b24ee5e6ad07548e1e7ed0f120836e311d4))
-
-1. Add comprehensive JSDoc documentation to daemon interface types and implement strategy pattern for daemon operations. Update architecture documentation to reflect the new daemon interface seam with lazy loading, lifecycle management, and claim/heartbeat strategies.
-
-
-#### expand documentation for automation, notifications, and shared habitat features ([`3865cfb`](https://github.com/waterworkshq/orcy/commit/3865cfb5c89da1fd861612acb5731baa187d23be))
-
-1. Update README.md, CAPABILITIES.md, SKILL.md, TESTING.md, and TROUBLESHOOTING.md with comprehensive documentation for new features including workflow automation with event-driven rules, notification system V2 with multi-channel routing, Pod Bridge for secure remote collaboration, and testing patterns.
-
-
-#### move v0.19.2 to Delivered, add v0.19.3 to Upcoming ([`cd20e76`](https://github.com/waterworkshq/orcy/commit/cd20e7689c5f3c0f49e60c9222aa14b8a8c0025c))
