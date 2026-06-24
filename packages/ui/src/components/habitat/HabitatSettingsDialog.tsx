@@ -230,6 +230,8 @@ export function HabitatSettingsDialog({
             <AutomationTab
               ref={automationRef}
               habitatId={board.id}
+              boardAutomationSettings={board.automationSettings}
+              onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
           </div>

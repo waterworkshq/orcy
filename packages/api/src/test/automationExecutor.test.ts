@@ -14,9 +14,17 @@ import type {
   AutomationRuleRun,
   AutomationActionResult,
 } from "@orcy/shared";
-import { executeActions } from "../services/automationExecutor.js";
+import {
+  executeActions,
+  shouldExecuteActions,
+  executeAndRecordRuleRun,
+  onAutomationRunCompleted,
+} from "../services/automationExecutor.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
+import * as runRepo from "../repositories/automationRuleRun.js";
+import * as ruleRepo from "../repositories/automationRule.js";
+import * as pulseRepo from "../repositories/pulse.js";
 
 function setupHabitat() {
   const h = boardRepo.createHabitat({ name: "Test Habitat" });
@@ -689,5 +697,165 @@ describe("automationExecutor", () => {
         "mark_risk",
       ]);
     });
+  });
+});
+
+describe("shouldExecuteActions", () => {
+  beforeEach(async () => {
+    await initTestDb();
+  });
+  afterEach(() => closeDb());
+
+  it("returns true by default (no env var, no habitat setting)", () => {
+    const prev = process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    delete process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    const h = setupHabitat();
+    expect(shouldExecuteActions(h.id)).toBe(true);
+    if (prev !== undefined) process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS = prev;
+  });
+
+  it("returns false when ORCY_AUTOMATION_EXECUTE_ACTIONS=false", () => {
+    const prev = process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS = "false";
+    const h = setupHabitat();
+    expect(shouldExecuteActions(h.id)).toBe(false);
+    if (prev !== undefined) process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS = prev;
+    else delete process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+  });
+
+  it("returns false when habitat automationSettings.executeActions is false", () => {
+    const prev = process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    delete process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    const h = setupHabitat();
+    boardRepo.updateHabitat(h.id, {
+      automationSettings: { executeActions: false },
+    });
+    expect(shouldExecuteActions(h.id)).toBe(false);
+    if (prev !== undefined) process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS = prev;
+  });
+
+  it("returns true when habitat automationSettings.executeActions is true", () => {
+    const prev = process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    delete process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS;
+    const h = setupHabitat();
+    boardRepo.updateHabitat(h.id, {
+      automationSettings: { executeActions: true },
+    });
+    expect(shouldExecuteActions(h.id)).toBe(true);
+    if (prev !== undefined) process.env.ORCY_AUTOMATION_EXECUTE_ACTIONS = prev;
+  });
+});
+
+describe("executeAndRecordRuleRun", () => {
+  beforeEach(async () => {
+    await initTestDb();
+  });
+  afterEach(() => closeDb());
+
+  it("executes actions and records the run as succeeded", async () => {
+    const h = setupHabitat();
+    const mission = setupMission(h.id);
+    const agent = setupAgent("Agent-1", "backend");
+    const task = taskRepo.createTask({
+      missionId: mission.id,
+      title: "Test Task",
+      createdBy: "user-1",
+    });
+    taskRepo.updateTask(task.id, { assignedAgentId: agent.id });
+
+    ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Notify on reject",
+      trigger: { type: "event", eventType: "task.rejected" },
+      condition: { type: "always" },
+      actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "Rejected!" }],
+      cooldownSeconds: 300,
+      maxRunsPerHour: 30,
+      priority: 0,
+      enabled: true,
+      createdBy: "test",
+    });
+    const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(h.id, "task.rejected")[0];
+
+    const { run, outcome } = await executeAndRecordRuleRun(
+      rule,
+      h.id,
+      "task.rejected",
+      "evt-1",
+      "task",
+      task.id,
+    );
+
+    expect(outcome).toBe("succeeded");
+    const finished = runRepo.getRuleRunById(run.id);
+    expect(finished?.status).toBe("succeeded");
+    expect(finished?.actionResults).toHaveLength(1);
+    expect(finished?.actionResults?.[0]?.actionType).toBe("notify");
+  });
+
+  it("fires onAutomationRunCompleted hook for succeeded outcome", async () => {
+    const h = setupHabitat();
+    const mission = setupMission(h.id);
+
+    ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Create signal",
+      trigger: { type: "event", eventType: "task.rejected" },
+      condition: { type: "always" },
+      actions: [{ type: "create_signal", content: "Signal from automation" }],
+      cooldownSeconds: 300,
+      maxRunsPerHour: 30,
+      priority: 0,
+      enabled: true,
+      createdBy: "test",
+    });
+    const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(h.id, "task.rejected")[0];
+
+    let hookCalled = false;
+    let hookOutcome: string | null = null;
+    const unsub = onAutomationRunCompleted((opts) => {
+      hookCalled = true;
+      hookOutcome = opts.outcome;
+    });
+
+    await executeAndRecordRuleRun(rule, h.id, "task.rejected", "evt-2", "mission", mission.id);
+
+    expect(hookCalled).toBe(true);
+    expect(hookOutcome).toBe("succeeded");
+    unsub();
+  });
+
+  it("does not execute actions when kill switch is off (habitat setting)", async () => {
+    const h = setupHabitat();
+    boardRepo.updateHabitat(h.id, {
+      automationSettings: { executeActions: false },
+    });
+
+    ruleRepo.createAutomationRule({
+      habitatId: h.id,
+      name: "Create task",
+      trigger: { type: "event", eventType: "task.rejected" },
+      condition: { type: "always" },
+      actions: [{ type: "create_task", title: "Should not be created" }],
+      cooldownSeconds: 300,
+      maxRunsPerHour: 30,
+      priority: 0,
+      enabled: true,
+      createdBy: "test",
+    });
+    const rule = ruleRepo.getEnabledRulesByHabitatAndTrigger(h.id, "task.rejected")[0];
+
+    const { outcome } = await executeAndRecordRuleRun(
+      rule,
+      h.id,
+      "task.rejected",
+      "evt-3",
+      "habitat",
+      h.id,
+    );
+
+    expect(outcome).toBe("succeeded");
+    const pulses = pulseRepo.getPulsesByHabitat(h.id, { limit: 100, offset: 0 });
+    expect(pulses.total).toBe(0);
   });
 });

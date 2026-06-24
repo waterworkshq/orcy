@@ -39,16 +39,28 @@ export function registerHabitatCommands(program: any) {
 
   habitat
     .command("update-settings")
-    .description("Update habitat name and/or description")
+    .description("Update habitat name, description, and/or automation execution")
     .argument("<habitatId>", "Habitat UUID")
     .option("--name <name>", "New habitat name")
     .option("--description <desc>", "New habitat description")
+    .option("--automation-execution <on|off>", "Enable or disable automation action execution")
     .action(
       withErrorHandling(
-        async (habitatId: string, options: { name?: string; description?: string }) => {
-          const body: Record<string, string> = {};
+        async (
+          habitatId: string,
+          options: {
+            name?: string;
+            description?: string;
+            automationExecution?: string;
+          },
+        ) => {
+          const body: Record<string, unknown> = {};
           if (options.name) body.name = options.name;
           if (options.description) body.description = options.description;
+          if (options.automationExecution) {
+            const enabled = options.automationExecution === "on";
+            body.automationSettings = { executeActions: enabled };
+          }
           const result = await api.patch<any>(`/api/boards/${habitatId}`, body);
           console.log(JSON.stringify(result, null, 2));
         },

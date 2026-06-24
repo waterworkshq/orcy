@@ -28,6 +28,7 @@ import type {
   Anomaly,
   AnomalySettings,
   AutoAssignSettings,
+  AutomationSettings,
   PrioritizationSettings,
   CapacityReport,
   PredictionResponse,
@@ -215,6 +216,7 @@ export const api = {
         retrySettings?: import("../types/index.js").RetryPolicy | null;
         anomalySettings?: AnomalySettings | null;
         autoAssignSettings?: AutoAssignSettings | null;
+        automationSettings?: AutomationSettings | null;
         prioritizationSettings?: PrioritizationSettings | null;
         gitWorktreeSettings?: import("../types/index.js").GitWorktreeSettings | null;
       },

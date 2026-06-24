@@ -163,7 +163,6 @@ Jira OAuth is available only for advanced self-hosted deployments that provide `
 
 | Release | Theme |
 |---------|-------|
-| **v0.20.1** | Orchestration Patch — wire automation executor, restore `on_automation` gate type, add `anti_patterns` skill category |
 | **v0.21** | Living Library — knowledge base, habitat wiki, implicit signal surfacing |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**

@@ -44,6 +44,13 @@ vi.mock("../services/automationContextBuilder.js", () => ({
   buildTriggerContext: vi.fn((args: any) => args),
 }));
 
+vi.mock("../services/automationExecutor.js", () => ({
+  onAutomationRunCompleted: vi.fn((fn: (opts: any) => void) => {
+    automationHook = fn;
+    return () => {};
+  }),
+}));
+
 import { logger } from "../lib/logger.js";
 import { onTransition } from "../services/tasks/transition-emitter.js";
 import { onPulseCreated } from "../services/pulseService.js";
@@ -51,6 +58,7 @@ import { evaluateCondition } from "../services/automationEvaluator.js";
 
 let transitionHook: ((opts: any) => void) | null = null;
 let pulseHook: ((pulse: any) => void) | null = null;
+let automationHook: ((opts: any) => void) | null = null;
 
 const mockDb = {
   select: vi.fn(),
@@ -1250,5 +1258,163 @@ describe("workflowService conditional predicate evaluation", () => {
         }),
       }),
     );
+  });
+});
+
+describe("workflowService on_automation gate evaluation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    transitionHook = null;
+    pulseHook = null;
+    automationHook = null;
+    resetMockDb();
+    vi.resetModules();
+  });
+
+  it("satisfies on_automation gate when ruleId matches", async () => {
+    const gates = [
+      {
+        id: "gate-a1",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        downstreamTaskId: "task-down",
+        workflowId: "wf-1",
+        missionId: "m1",
+        matchConfig: { ruleId: "rule-1", matchScope: "either" },
+        condition: null,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    automationHook!({
+      run: { id: "run-1", targetType: "task", targetId: "task-up" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not satisfy gate when ruleId does not match", async () => {
+    const gates = [
+      {
+        id: "gate-a2",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        downstreamTaskId: "task-down",
+        workflowId: "wf-1",
+        missionId: "m1",
+        matchConfig: { ruleId: "rule-1", matchScope: "either" },
+        condition: null,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    automationHook!({
+      run: { id: "run-2", targetType: "task", targetId: "task-up" },
+      rule: { id: "rule-different" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+
+    expect(updateRun).not.toHaveBeenCalled();
+  });
+
+  it("respects outcome filter in match config", async () => {
+    const gates = [
+      {
+        id: "gate-a3",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        downstreamTaskId: "task-down",
+        workflowId: "wf-1",
+        missionId: "m1",
+        matchConfig: { ruleId: "rule-1", outcome: "failed", matchScope: "either" },
+        condition: null,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+
+    // Succeeded outcome should NOT match a gate configured for "failed"
+    automationHook!({
+      run: { id: "run-3", targetType: "task", targetId: "task-up" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+    expect(updateRun).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when no on_automation gates exist", async () => {
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue([]),
+          }),
+        }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+    automationHook!({
+      run: { id: "run-4", targetType: "task", targetId: "task-up" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 });

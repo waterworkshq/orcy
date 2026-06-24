@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.20.0 | **Updated:** 2026-06-22
+> **Version:** v0.20.1 | **Updated:** 2026-06-24
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -40,28 +40,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.19.2 | "Deepen: Documentation Pass" — CONFIGURATION.md updated with 17 missing env vars, 3 stale removed, JWT_SECRET security doc bug fixed. ARCHITECTURE.md gained Daemon Runtime Seam + Audit Trail V2 sections. DATABASE.md gained 8 automation/notification table entries. 28 JSDoc blocks added to daemon seam public APIs. TESTING.md gained 5 test pattern sections + UI test count fix. TROUBLESHOOTING.md gained 8 entries across security, remote pods, notifications, daemon. README/CAPABILITIES/SKILL refreshed: MCP count 15→16, Pod Bridge features added, dispatch tools completed |
 | v0.19.3 | "Deepen: Inline JSDoc Pass" — Comprehensive inline JSDoc coverage across all 6 packages. Shared types (245 symbols across 18 files), API services (~600 symbols across 130+ files including tasks/, webhooks/, integrations/, code evidence, notifications, automation, audit, and core services), MCP dispatch handlers and tools (~310 symbols), daemon runtime (~60 symbols), and CLI commands (16 symbols). Every exported symbol now has an IDE-visible description. Pod Bridge domain types restored with full design rationale and scope notes. |
 | v0.20.0 | "Orchestrated" — Mission-scoped workflow DAGs with typed gates (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), `all_of`/`any_of`/`n_of` join specs, and conditional edge predicates reusing v0.18 AutomationCondition. Workflow gates layer on the existing claim path as derived constraints — no new task status, no changes to IClaimStrategy or runPollTick. `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history); successful recovery redeems the original failure and downstream gates fire as if the original had succeeded. Two recovery attempts maximum. Agent experience self-reporting via `orcy_pulse` with `signalType: "experience"` and 7 categories (`stuck\|confused\|backtrack\|surprised\|ambiguous\|sidetracked\|smooth`); signals flow through the existing pulse pipeline into habitat skills and failure contexts. Workflow templates extend `missionTemplates` with a `workflowTemplate` JSON column; two default templates shipped (Build-Test-Review-Deploy, Parallel Investigation). Form-based UI editor with JSON import/export, live SVG preview, workflow DAG visualization on mission detail page, blocked-by-workflow filter, admin metrics dashboard, and cross-pod read-only workflow context routes. |
+| v0.20.1 | "Orchestration Patch" — Wired `automationExecutor.executeActions` into production via `executeAndRecordRuleRun` (consolidated lifecycle: start run → kill-switch check → execute actions → finish run → notify hooks). All event + scan paths now actually fire actions. Added `on_automation` gate type (6th gate type) with `onAutomationRunCompleted` subscriber hook + workflow service gate evaluation + AutomationMatch form fields in workflow editor. Habitat-scoped kill switch (`automationSettings.executeActions`) toggleable via UI, CLI, and env var. Added `anti_patterns` to `SkillCategory` (consolidated 6 duplicate definitions to `@orcy/shared`), remapped `sidetracked → anti_patterns`, separate bucket in skill document generation. |
 
 ---
 
 ## Upcoming
-
-### v0.20.1 — "Orchestration Patch"
-
-Strict-scope patch release bundling two deferred items from v0.20.0:
-
-| Item | Why it waits for a patch |
-|------|--------------------------|
-| Wire `executeActions` into `automationEventService.ingestEvent` + `automationScanService` scan functions | Pre-existing v0.18 bug; not part of the v0.20 "Orchestrated" story; needs focused testing across all action types (notify, create_signal, create_task, change_priority, assign, release_assignment, request_review, call_webhook, mark_risk) |
-| Add `on_automation` gate type + `onAutomationRunCompleted` subscriber hook | Depends on executor wiring; once rules actually execute in production, gates can subscribe to their completion |
-| Workflow service subscription to automation runs | Final piece of the gate-type set (brings v0.20 to the originally-planned 6 gate types) |
-| Add `anti_patterns` to `SkillCategory` enum + consolidate to `@orcy/shared` | Completes the experience-signal-to-skill-type mapping; v0.20.0 mapped `sidetracked → pitfall` as a stopgap; same duplication pattern as signalType (6+ local copies) |
-| Enable `on_automation` in workflow editor UI + kill switch (UI/CLI toggleable) | Gate type is in dropdown but disabled; activating backend requires enabling it in editor + adding AutomationMatch form fields. Kill switch lets users disable action execution without env vars. |
-
-**Why a patch, not part of v0.20.0:** Wiring `executeActions` is a behavior change for all existing v0.18 automation rule consumers — every rule that "matched but didn't fire" will now actually fire. That deserves its own release boundary and release notes, not coupling to the larger v0.20 feature set.
-
-**Full scope reference:** `docs/plans/v20/PATCH-v0.20.1.md`
-
----
 
 ### v0.20.2 — "Deepen: Trim Pass-Throughs"
 

@@ -3,9 +3,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../../api/index.js";
 import { queryKeys } from "../../../lib/queryKeys.js";
 import { notify } from "../../../lib/toast.js";
+import { ToggleSwitch } from "../../ui/ToggleSwitch.js";
+import type { Habitat, AutomationSettings } from "../../../types/index.js";
 
 interface AutomationTabProps {
   habitatId: string;
+  boardAutomationSettings?: AutomationSettings | null;
+  onUpdate?: (board: Habitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -30,8 +34,26 @@ function jsonParse(text: string): unknown {
 }
 
 export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>(
-  function AutomationTab({ habitatId, onSavingChange }, ref) {
+  function AutomationTab({ habitatId, boardAutomationSettings, onUpdate, onSavingChange }, ref) {
     const qc = useQueryClient();
+
+    const executeActions = boardAutomationSettings?.executeActions ?? true;
+
+    const executionToggleMut = useMutation({
+      mutationFn: async (enabled: boolean) => {
+        const result = await api.habitats.update(habitatId, {
+          automationSettings: { executeActions: enabled },
+        });
+        return result;
+      },
+      onSuccess: (result) => {
+        onUpdate?.(result.board);
+        notify.success(
+          executeActions ? "Automation execution disabled" : "Automation execution enabled",
+        );
+      },
+      onError: (err: Error) => notify.error(err.message),
+    });
     const [editingId, setEditingId] = useState<string | null>(null);
     const [name, setName] = useState("");
     const [enabled, setEnabled] = useState(false);
@@ -166,6 +188,32 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
 
     return (
       <div className="space-y-4" data-testid="automation-tab">
+        <div className="border border-border rounded-lg p-3 bg-surface-container-low">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-headline font-bold uppercase tracking-wide">
+                Action Execution
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                When enabled, matched automation rules will execute their defined actions (notify,
+                create signal, create task, etc.). When disabled, rules still match and record runs,
+                but no actions fire.
+              </p>
+            </div>
+            <ToggleSwitch
+              checked={executeActions}
+              onChange={(checked) => executionToggleMut.mutate(checked)}
+              disabled={executionToggleMut.isPending}
+              aria-label="Toggle automation action execution"
+            />
+          </div>
+          {!executeActions && (
+            <p className="text-xs text-warning mt-2" data-testid="automation-execution-warning">
+              Action execution is disabled — rules will match but not fire actions.
+            </p>
+          )}
+        </div>
+
         {isLoading ? (
           <p className="text-xs text-muted-foreground py-4 text-center">Loading...</p>
         ) : (

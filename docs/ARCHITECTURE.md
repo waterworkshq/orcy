@@ -1198,6 +1198,6 @@ workflowService.handleRedemptionIfNeeded()
 - **Recovery is just tasking** — recovery tasks are normal tasks in the existing table, claimed via the existing pipeline (ADR-0003)
 - **Experience signals reuse pulse** — one new enum value + metadata convention; no new tables or services (ADR-0004)
 - **Two-channel event bus** — `onTransition` for all actions, `onTaskEvent` for lifecycle-completing only (ADR-0005)
-- **`on_automation` deferred to v0.20.1** — pre-existing v0.18 executor bug; 5 gate types ship in v0.20
+- **`on_automation` active since v0.20.1** — automation executor wired into production; 6 gate types available
 - **`excludeFailedAgent` dropped** — no implementation path without violating ADR-0001's "no new task columns" principle
 - **`sidetracked → pitfall` (stopgap)** — `SkillCategory` enum has no `anti_patterns` value; `anti_patterns` addition tracked for v0.20.1
