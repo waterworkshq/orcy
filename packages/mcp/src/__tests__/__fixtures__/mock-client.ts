@@ -179,6 +179,21 @@ export function createMockClient() {
     getTaskFailureContext: vi.fn(),
     getTaskWorkflowContext: vi.fn(),
 
+    listWikiPages: vi.fn(),
+    getWikiPage: vi.fn(),
+    createWikiPage: vi.fn(),
+    updateWikiPageMetadata: vi.fn(),
+    deleteWikiPage: vi.fn(),
+    listWikiVersions: vi.fn(),
+    getWikiVersion: vi.fn(),
+    saveWikiVersion: vi.fn(),
+    restoreWikiVersion: vi.fn(),
+    listWikiLinks: vi.fn(),
+    addWikiPageLink: vi.fn(),
+    removeWikiPageLink: vi.fn(),
+    searchWiki: vi.fn(),
+    markNoUpdateNeeded: vi.fn(),
+
     getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
     withAuditToolContext: vi.fn(),
   } as unknown as KanbanApiClient;

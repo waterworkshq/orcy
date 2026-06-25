@@ -23,6 +23,8 @@ export type {
   TemplateClient,
   TimeTrackingClient,
   IntegrationClient,
+  WikiClient,
+  WikiSearchHit,
 } from "./interfaces.js";
 export { createFacade, type ApiClient, type ApiClientDomains } from "./facade.js";
 export { composeMissionContext, type MissionContextClients } from "../services/mission-context.js";

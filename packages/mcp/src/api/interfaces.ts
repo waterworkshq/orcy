@@ -17,6 +17,9 @@ import type {
   Sprint,
   SprintCreateInput,
   SprintUpdateInput,
+  WikiPage,
+  WikiPageVersion,
+  WikiPageLink,
 } from "@orcy/shared";
 import type {
   ClaimTaskResponse,
@@ -550,4 +553,70 @@ export interface WorkflowClient {
   getTaskWorkflowContext(
     taskId: string,
   ): Promise<{ upstream: Record<string, unknown>[]; downstream: Record<string, unknown>[] }>;
+}
+
+/** Search hit row returned by {@link WikiClient.searchWiki} — BM25-ranked excerpt over published pages. */
+export interface WikiSearchHit {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  rank: number;
+}
+
+/** Habitat wiki methods used by the `orcy_wiki` MCP dispatch tool (seed 10, v0.21). */
+export interface WikiClient {
+  listWikiPages(
+    habitatId: string,
+    filters?: { parentId?: string | null; tag?: string; status?: string },
+  ): Promise<WikiPage[]>;
+  getWikiPage(
+    habitatId: string,
+    pageId: string,
+  ): Promise<WikiPage & { links: (WikiPageLink & { dangling?: boolean })[] }>;
+  createWikiPage(
+    habitatId: string,
+    input: { title: string; content: string; parentId?: string | null; tags?: string[] },
+  ): Promise<WikiPage>;
+  updateWikiPageMetadata(
+    habitatId: string,
+    pageId: string,
+    patch: { parentId?: string | null; tags?: string[]; status?: "draft" | "published" },
+  ): Promise<WikiPage>;
+  deleteWikiPage(
+    habitatId: string,
+    pageId: string,
+    opts?: { stayGone?: boolean; reason?: string },
+  ): Promise<{ deleted: true }>;
+  listWikiVersions(habitatId: string, pageId: string): Promise<WikiPageVersion[]>;
+  getWikiVersion(
+    habitatId: string,
+    pageId: string,
+    versionNumber: number,
+  ): Promise<WikiPageVersion>;
+  saveWikiVersion(
+    habitatId: string,
+    pageId: string,
+    input: { title: string; content: string; editSummary?: string },
+  ): Promise<WikiPage>;
+  restoreWikiVersion(habitatId: string, pageId: string, versionNumber: number): Promise<WikiPage>;
+  listWikiLinks(
+    habitatId: string,
+    pageId: string,
+  ): Promise<(WikiPageLink & { dangling?: boolean })[]>;
+  addWikiPageLink(
+    habitatId: string,
+    pageId: string,
+    input: { targetType: string; targetId: string; note?: string },
+  ): Promise<WikiPageLink>;
+  removeWikiPageLink(habitatId: string, pageId: string, linkId: string): Promise<{ deleted: true }>;
+  searchWiki(
+    habitatId: string,
+    query: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<WikiSearchHit[]>;
+  markNoUpdateNeeded(
+    habitatId: string,
+    input: { from: string; to: string; reason?: string },
+  ): Promise<{ created: true }>;
 }

@@ -17,6 +17,9 @@ import type {
   Sprint,
   SprintCreateInput,
   SprintUpdateInput,
+  WikiPage,
+  WikiPageVersion,
+  WikiPageLink,
 } from "@orcy/shared";
 import type {
   ClaimTaskResponse,
@@ -71,6 +74,8 @@ import type {
   TimeTrackingClient as TimeTrackingClientIface,
   IntegrationClient as IntegrationClientIface,
   WorkflowClient as WorkflowClientIface,
+  WikiClient as WikiClientIface,
+  WikiSearchHit,
 } from "./api/interfaces.js";
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -211,7 +216,8 @@ export class KanbanApiClient
     TemplateClientIface,
     TimeTrackingClientIface,
     IntegrationClientIface,
-    WorkflowClientIface
+    WorkflowClientIface,
+    WikiClientIface
 {
   private transport: ReturnType<typeof createApiClient>;
   private baseUrl: string;
@@ -2081,5 +2087,198 @@ export class KanbanApiClient
   ): Promise<{ upstream: Record<string, unknown>[]; downstream: Record<string, unknown>[] }> {
     taskId = normalizeTaskId(taskId);
     return this.request("GET", `/api/tasks/${taskId}/workflow-context`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Habitat wiki (v0.21 / seed 10) — backs the `orcy_wiki` MCP dispatch tool.
+  // Routes mounted at `/api/habitats/:habitatId/wiki/...` by `packages/api/src/routes/wiki.ts`.
+  // ---------------------------------------------------------------------------
+
+  /** List wiki pages in a habitat, optionally filtered by parent/tag/status. */
+  async listWikiPages(
+    habitatId: string,
+    filters?: { parentId?: string | null; tag?: string; status?: string },
+  ): Promise<WikiPage[]> {
+    const params = new URLSearchParams();
+    if (filters?.parentId !== undefined && filters.parentId !== null) {
+      params.set("parentId", filters.parentId);
+    }
+    if (filters?.tag) params.set("tag", filters.tag);
+    if (filters?.status) params.set("status", filters.status);
+    const query = params.toString();
+    const res = await this.request<{ pages: WikiPage[] }>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/pages${query ? `?${query}` : ""}`,
+    );
+    return res.pages;
+  }
+
+  /** Fetch one wiki page with its links (dangling links flagged). */
+  async getWikiPage(
+    habitatId: string,
+    pageId: string,
+  ): Promise<WikiPage & { links: (WikiPageLink & { dangling?: boolean })[] }> {
+    const res = await this.request<{
+      page: WikiPage & { links: (WikiPageLink & { dangling?: boolean })[] };
+    }>("GET", `/api/habitats/${habitatId}/wiki/pages/${pageId}`);
+    return res.page;
+  }
+
+  /** Create a new wiki page (initial draft). */
+  async createWikiPage(
+    habitatId: string,
+    input: { title: string; content: string; parentId?: string | null; tags?: string[] },
+  ): Promise<WikiPage> {
+    const res = await this.request<{ page: WikiPage }>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/pages`,
+      input,
+    );
+    return res.page;
+  }
+
+  /** Patch wiki page metadata (parent, tags, status). No version bump. */
+  async updateWikiPageMetadata(
+    habitatId: string,
+    pageId: string,
+    patch: { parentId?: string | null; tags?: string[]; status?: "draft" | "published" },
+  ): Promise<WikiPage> {
+    const res = await this.request<{ page: WikiPage }>(
+      "PATCH",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}`,
+      patch,
+    );
+    return res.page;
+  }
+
+  /** Delete a wiki page. `stayGone: true` holds the cadence watermark via a `no_update_needed` marker. */
+  async deleteWikiPage(
+    habitatId: string,
+    pageId: string,
+    opts?: { stayGone?: boolean; reason?: string },
+  ): Promise<{ deleted: true }> {
+    return this.request<{ deleted: true }>(
+      "DELETE",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}`,
+      opts ?? {},
+    );
+  }
+
+  /** List all versions of a wiki page (newest first per repo). */
+  async listWikiVersions(habitatId: string, pageId: string): Promise<WikiPageVersion[]> {
+    const res = await this.request<{ versions: WikiPageVersion[] }>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/versions`,
+    );
+    return res.versions;
+  }
+
+  /** Fetch a specific wiki page version. */
+  async getWikiVersion(
+    habitatId: string,
+    pageId: string,
+    versionNumber: number,
+  ): Promise<WikiPageVersion> {
+    const res = await this.request<{ version: WikiPageVersion }>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/versions/${versionNumber}`,
+    );
+    return res.version;
+  }
+
+  /** Append a new wiki page version (denormalizes current content + bumps version number). */
+  async saveWikiVersion(
+    habitatId: string,
+    pageId: string,
+    input: { title: string; content: string; editSummary?: string },
+  ): Promise<WikiPage> {
+    const res = await this.request<{ page: WikiPage }>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/versions`,
+      input,
+    );
+    return res.page;
+  }
+
+  /** Restore a prior version by appending a new version that copies the old content. */
+  async restoreWikiVersion(
+    habitatId: string,
+    pageId: string,
+    versionNumber: number,
+  ): Promise<WikiPage> {
+    const res = await this.request<{ page: WikiPage }>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/versions/${versionNumber}/restore`,
+      {},
+    );
+    return res.page;
+  }
+
+  /** List a wiki page's polymorphic links, with dangling flags resolved at read time. */
+  async listWikiLinks(
+    habitatId: string,
+    pageId: string,
+  ): Promise<(WikiPageLink & { dangling?: boolean })[]> {
+    const res = await this.request<{ links: (WikiPageLink & { dangling?: boolean })[] }>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/links`,
+    );
+    return res.links;
+  }
+
+  /** Add a polymorphic citation link to a wiki page. */
+  async addWikiPageLink(
+    habitatId: string,
+    pageId: string,
+    input: { targetType: string; targetId: string; note?: string },
+  ): Promise<WikiPageLink> {
+    const res = await this.request<{ link: WikiPageLink }>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/links`,
+      input,
+    );
+    return res.link;
+  }
+
+  /** Remove a polymorphic citation link from a wiki page. */
+  async removeWikiPageLink(
+    habitatId: string,
+    pageId: string,
+    linkId: string,
+  ): Promise<{ deleted: true }> {
+    return this.request<{ deleted: true }>(
+      "DELETE",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/links/${linkId}`,
+      {},
+    );
+  }
+
+  /** Free-text search over published wiki pages (FTS5 with LIKE fallback). */
+  async searchWiki(
+    habitatId: string,
+    query: string,
+    opts?: { limit?: number; offset?: number },
+  ): Promise<WikiSearchHit[]> {
+    const params = new URLSearchParams();
+    params.set("q", query);
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.offset !== undefined) params.set("offset", String(opts.offset));
+    const res = await this.request<{ results: WikiSearchHit[] }>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/search?${params.toString()}`,
+    );
+    return res.results;
+  }
+
+  /** Post a `no_update_needed` coverage marker (ADR-0009) — holds the cadence watermark. */
+  async markNoUpdateNeeded(
+    habitatId: string,
+    input: { from: string; to: string; reason?: string },
+  ): Promise<{ created: true }> {
+    return this.request<{ created: true }>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/coverage/no-update-needed`,
+      input,
+    );
   }
 }

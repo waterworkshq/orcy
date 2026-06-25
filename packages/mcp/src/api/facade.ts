@@ -23,6 +23,7 @@ import type {
   TemplateClient,
   TimeTrackingClient,
   IntegrationClient,
+  WikiClient,
 } from "./interfaces.js";
 
 export type ApiClient = KanbanApiClient & ApiClientDomains;
@@ -50,7 +51,8 @@ export type ApiClientDomains =
   & WebhookClient
   & TemplateClient
   & TimeTrackingClient
-  & IntegrationClient;
+  & IntegrationClient
+  & WikiClient;
 
 export function createFacade(client: KanbanApiClient): ApiClient {
   return client as ApiClient;

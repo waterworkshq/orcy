@@ -23,4 +23,6 @@ export type {
   TemplateClient,
   TimeTrackingClient,
   IntegrationClient,
+  WikiClient,
+  WikiSearchHit,
 } from "./interfaces.js";

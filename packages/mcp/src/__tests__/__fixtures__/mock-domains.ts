@@ -23,6 +23,7 @@ import type {
   TemplateClient,
   TimeTrackingClient,
   IntegrationClient,
+  WikiClient,
 } from "../../api/interfaces.js";
 
 function mockAll<T>(): T {
@@ -133,4 +134,8 @@ export function createMockTimeTrackingClient(): TimeTrackingClient {
 
 export function createMockIntegrationClient(): IntegrationClient {
   return mockAll<IntegrationClient>();
+}
+
+export function createMockWikiClient(): WikiClient {
+  return mockAll<WikiClient>();
 }

@@ -23,6 +23,7 @@ import {
   createMockTemplateClient,
   createMockTimeTrackingClient,
   createMockIntegrationClient,
+  createMockWikiClient,
 } from "../__tests__/__fixtures__/mock-domains.js";
 import type {
   TaskClient,
@@ -48,6 +49,7 @@ import type {
   TemplateClient,
   TimeTrackingClient,
   IntegrationClient,
+  WikiClient,
 } from "../api/interfaces.js";
 
 describe("Per-domain mock factories", () => {
@@ -187,6 +189,24 @@ describe("Per-domain mock factories", () => {
   it("createMockIntegrationClient returns a complete IntegrationClient", () => {
     const mock = createMockIntegrationClient() as IntegrationClient;
     expect(typeof mock.inferRepositoryFromIntegration).toBe("function");
+  });
+
+  it("createMockWikiClient returns a complete WikiClient", () => {
+    const mock = createMockWikiClient() as WikiClient;
+    expect(typeof mock.listWikiPages).toBe("function");
+    expect(typeof mock.getWikiPage).toBe("function");
+    expect(typeof mock.createWikiPage).toBe("function");
+    expect(typeof mock.updateWikiPageMetadata).toBe("function");
+    expect(typeof mock.deleteWikiPage).toBe("function");
+    expect(typeof mock.listWikiVersions).toBe("function");
+    expect(typeof mock.getWikiVersion).toBe("function");
+    expect(typeof mock.saveWikiVersion).toBe("function");
+    expect(typeof mock.restoreWikiVersion).toBe("function");
+    expect(typeof mock.listWikiLinks).toBe("function");
+    expect(typeof mock.addWikiPageLink).toBe("function");
+    expect(typeof mock.removeWikiPageLink).toBe("function");
+    expect(typeof mock.searchWiki).toBe("function");
+    expect(typeof mock.markNoUpdateNeeded).toBe("function");
   });
 
   it("mock factory return values are chainable vi.fn() spies", async () => {
