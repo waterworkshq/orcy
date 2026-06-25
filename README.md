@@ -106,6 +106,23 @@ The habitat updates in real time via SSE. Orcys connect through the Model Contex
 
 ---
 
+## Agnostic by design
+
+Orcy is a coordination layer, not a vendor product. It is agnostic on four axes, so your agentic workflow isn't married to any one supplier:
+
+| Axis | What it means |
+|---|---|
+| **Model** | Works with any LLM — Claude, GPT, Gemini, DeepSeek, or local models. The model is a swappable component, not an architectural commitment. |
+| **Agent client** | 7 agent clients on day one — Claude Code, Cursor, Codex CLI, Gemini CLI, OpenCode, Kilo Code, plus direct CLI. No vendor lock-in on the agent surface. |
+| **Work source** | Issues flow in from **GitHub Issues, Linear, or Jira** into one intake. The board is the hub; every tracker is an adapter. |
+| **Output surface** | Notifications and commands route to **Slack, Discord, webhooks, or in-app**. Rip any chat tool out tomorrow and Orcy keeps running — chat is a pluggable surface, not the substrate. |
+
+Chat-native agents (e.g. a model living inside Slack) make the chat surface *the* product. Orcy inverts that: the board owns coordination, and Slack/Discord are just one of many ways to reach it. The moment you run two or more agents, or care about provenance and gates, a structured board scales where chat does not.
+
+See **[docs/COMPARISON.md](docs/COMPARISON.md)** for how Orcy compares to other agent orchestrators and adjacent tools.
+
+---
+
 ## Quick Start
 
 > **Reminder:** Orcy is prerelease. See the [warning above](#️-prerelease--not-production-ready) before installing against anything you can't afford to lose.
@@ -135,27 +152,41 @@ The daemon claims pending tasks, spawns CLI sessions, monitors progress, and rec
 
 ## External Integrations
 
-Orcy can pull external tracker issues into habitat intake, where humans/orcys review and promote them into missions.
+Orcy pulls work from your existing trackers and pushes attention to your existing chat tools. The board is the hub; everything else is an adapter. Swap any of them without rethinking your workflow.
 
-**Linear:** use OAuth PKCE from the CLI:
+### Issue trackers (work in)
 
-```bash
-orcy integrations connect <habitat-id> linear
-```
+Orcy pulls external tracker issues into habitat intake, where humans/orcys review and promote them into missions.
 
-If you register your own Linear OAuth app, add `http://127.0.0.1:17530/callback` as the callback URL. No Linear client secret is required for Orcy's PKCE flow.
+- **GitHub Issues** — OAuth device flow (PAT fallback). Inbound webhooks (HMAC-verified) sync issue events. GitHub OAuth is also an auth-provider preset for identity.
+- **Linear** — OAuth PKCE from the CLI, no client secret required:
 
-**Jira Cloud:** use the UI setup at **Habitat Settings -> Integrations -> Jira Cloud**. You need your Atlassian email, an Atlassian API token, Jira site URL, and project key. Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+  ```bash
+  orcy integrations connect <habitat-id> linear
+  ```
 
-For command-line setup help:
+  If you register your own Linear OAuth app, add `http://127.0.0.1:17530/callback` as the callback URL.
 
-```bash
-orcy integrations guide
-orcy integrations guide jira
-orcy integrations guide linear
-```
+- **Jira Cloud** — UI setup at **Habitat Settings → Integrations → Jira Cloud**. You need your Atlassian email, an Atlassian API token, Jira site URL, and project key. Create the token at <https://id.atlassian.com/manage-profile/security/api-tokens>. Jira OAuth is available only for advanced self-hosted deployments that provide `ORCY_JIRA_OAUTH_CLIENT_ID` and `ORCY_JIRA_OAUTH_CLIENT_SECRET` on the API server.
 
-Jira OAuth is available only for advanced self-hosted deployments that provide `ORCY_JIRA_OAUTH_CLIENT_ID` and `ORCY_JIRA_OAUTH_CLIENT_SECRET` on the API server. Do not commit Jira OAuth secrets.
+  ```bash
+  orcy integrations guide            # list all
+  orcy integrations guide jira
+  orcy integrations guide linear
+  ```
+
+### Code evidence & CI/CD (provenance in)
+
+- **GitHub** and **GitLab** — link PRs, commits, branches, changed files, and pipeline runs to tasks and missions. CI/CD and code-review webhooks from GitHub, GitLab, and Bitbucket feed the audit trail. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/SECURITY.md](docs/SECURITY.md).
+
+### Chat & notifications (attention out)
+
+- **Slack** and **Discord** are *pluggable notification and command surfaces*, not the substrate. They deliver notifications via webhook and accept slash commands / interactions (`/chat/slack/command`, `/chat/discord/interaction`). Remove them entirely and Orcy keeps coordinating through the web UI, CLI, MCP, and standard webhooks. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md#integrations) and [docs/API.md](docs/API.md).
+
+### Extensibility
+
+- **Plugin system** — extensible architecture. Built-in auto-label plugin categorizes tasks by analyzing titles. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Pod Bridge** — federate trust so another admin's pod can collaborate safely in a shared habitat. See the Pod Bridge row in [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 
 ---
 
@@ -226,6 +257,7 @@ For a detailed walkthrough of each package, see **[docs/PROJECT-STRUCTURE.md](do
 | [docs/TESTING.md](docs/TESTING.md) | Running unit and end-to-end tests |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and their solutions |
 | [docs/CAPABILITIES.md](docs/CAPABILITIES.md) | Full capability matrix with links to relevant docs |
+| [docs/COMPARISON.md](docs/COMPARISON.md) | How Orcy compares to other agent orchestrators and adjacent tools |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Planned releases and feature direction |
 | [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md) | Detailed walkthrough of the monorepo layout |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |

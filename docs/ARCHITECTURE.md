@@ -70,7 +70,7 @@ This document covers the system architecture, design decisions, key flows, and i
 | File | Responsibility |
 |------|---------------|
 | `src/index.ts` | MCP SDK server setup, tool registry |
-| `src/tools/index.ts` | All tool exports + 13 dispatch tool files (15 MCP tools total, including instructions tools) |
+| `src/tools/index.ts` | All tool exports + dispatch tool files (18 MCP tools total, including instructions tools) |
 | `src/tools/habitat-dispatch.ts` | Habitat dispatch: list, find, summary, metrics, settings, health, analytics, prioritization rules |
 | `src/tools/mission-dispatch.ts` | Mission dispatch: lifecycle, context, comments, code evidence, scoped audit bundle |
 | `src/tools/task-dispatch.ts` | Task dispatch: lifecycle, CRUD, details, quality, subtasks, dependencies, effort, code evidence, scoped audit bundle |
@@ -516,6 +516,7 @@ The MCP server exposes **13 dispatch tools** with dozens of action-routed operat
 Pulse adds a structured signal layer on top of the existing task state machine. Signals flow as follows:
 
 ```
+
 Agent / Human
   │
   ├─► orcy_pulse({action: "post", missionId, signalType, subject})
@@ -536,6 +537,7 @@ Agent / Human
         ├─► fail → WARNING: "Task '{title}' failed: {reason}"
         ├─► release → CONTEXT: "Task '{title}' released"
         └─► blocker clearance done → CONTEXT: "Blocker cleared: {subject}"
+
 ```
 
 **Key tables:** `pulses` (signal storage with deep-linking to missions, tasks, and other pulses) and `pulse_cursors` (per-reader per-mission last-checked timestamp). See [DATABASE.md](DATABASE.md) for the full schema.
@@ -627,6 +629,7 @@ Tasks use the following state machine. Two paths lead to `done`: the **gated pat
 Mission status is **auto-derived** from child task states. There is no manual status management.
 
 ```
+
 Mission Status Derivation Rules:
 ─────────────────────────────────
 not_started  ← all tasks are pending
@@ -634,6 +637,7 @@ in_progress  ← any task is claimed/in_progress/submitted/approved/rejected
 review       ← all tasks are submitted/approved/done (none active)
 done         ← all tasks are done/approved (at least one done)
 failed       ← any task failed and none actively being worked on
+
 ```
 
 ### Column Auto-Advancement
@@ -641,6 +645,7 @@ failed       ← any task failed and none actively being worked on
 After deriving mission status, the mission's column position is automatically updated:
 
 ```
+
 Status → Column Mapping:
 ─────────────────────────
 not_started  → first column (Backlog)
@@ -648,6 +653,7 @@ in_progress  → second column (In Progress)
 review       → second-to-last non-terminal column (Review)
 done         → terminal column (Done)
 failed       → stays in current column (no auto-advance)
+
 ```
 
 ### Trigger Points
@@ -720,11 +726,13 @@ Dynamic prioritization rules engine that auto-recalculates task priority based o
 ### Architecture
 
 ```
+
 prioritizationService.ts
 ├── evaluateCondition(task, rule, context) — recursive, handles all 10 condition types + And/Or
 ├── evaluateRules(habitatId) — aggregates all rule evaluations for a habitat
 ├── applyPrioritization(habitatId) — orchestrator: fetch tasks, evaluate, apply actions, broadcast SSE
 └── applyAllBoards() — batch iterator for background interval
+
 ```
 
 ### Condition Types
@@ -776,11 +784,13 @@ Recurring scheduled creation of missions and tasks from templates. Follows the `
 ### Architecture
 
 ```
+
 scheduledTaskService.ts
 ├── processDueScheduledTasks() — polls for due tasks and executes them
 ├── executeScheduledTask(scheduledTask) — creates mission + tasks from template
 ├── calculateNextRun(scheduledTask) — computes nextRunAt using cron-parser
 └── CRUD operations — create, update, delete, enable, disable
+
 ```
 
 ### Background Interval
@@ -808,7 +818,9 @@ Scheduled tasks are polled every 60 seconds via `scheduler.ts`:
 External issue trackers (GitHub Issues, eventually Jira/Linear) act as **intake surfaces**, not mirrored task boards. Orcy remains the execution system — external issues flow through an authority gradient:
 
 ```
+
 external issue → intake candidate → refined mission → Orcy tasks
+
 ```
 
 This is pull-first and downstream: `external issue → Orcy mission`. No default writeback to external trackers.
@@ -1072,6 +1084,7 @@ emitTransition(taskId, action, context)
 ```
 
 **Two channels, two audiences:**
+
 - `onTaskEvent` — lifecycle-completing actions only (4). Preserves v0.17.1 design intent.
 - `onTransition` — all transitions. New audience: `workflowService` and future consumers that need mid-lifecycle events.
 
