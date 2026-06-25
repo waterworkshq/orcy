@@ -8,7 +8,7 @@ This document covers the testing strategy, how to run tests, and how to write ne
 
 | Layer | Framework | Location | Count |
 |-------|-----------|----------|-------|
-| API unit tests | Vitest | `packages/api/src/test/` | 203 files, ~3292 tests |
+| API unit tests | Vitest | `packages/api/src/test/` | 201 files, ~3292 tests (+ 3 perf benchmarks run separately) |
 | MCP unit tests | Vitest | `packages/mcp/src/__tests__/` | 29 files, ~508 tests |
 | UI unit tests | Vitest | `packages/ui/src/` | 119 files, ~1477 tests |
 | E2E tests | Playwright | `packages/ui/e2e/` | 1 spec |
@@ -112,6 +112,32 @@ pnpm --filter api test -- --grep "claim"
 
 ## Writing API Tests
 
+### Test Database Setup (read this before writing a test)
+
+Every API test that touches the database follows one convention — call `initTestDb()` in `beforeEach` and `closeDb()` in `afterEach`. This gives each test a fresh, isolated in-memory SQLite database (schema + seeded admin user + global templates):
+
+```typescript
+import { initTestDb, closeDb } from "../db/index.js";
+
+beforeEach(async () => {
+  await initTestDb();
+});
+
+afterEach(() => {
+  closeDb();
+});
+```
+
+**How `initTestDb()` stays fast (the snapshot model).** It used to rebuild the schema and re-bcrypt the seed user on every call (~97ms/test, which made the suite take ~190s). It now caches three things in `packages/api/src/db/index.ts`:
+
+1. **`_adminHash`** — the bcrypt hash of the seed admin password, computed once. Safe to cache because it's only ever compared via `bcrypt.compare`, and bcrypt salts are embedded in the hash string.
+2. **`_sqlFactory`** — the initialized sql.js WASM module, so WASM isn't recompiled per call.
+3. **`_snapshot`** — bytes of a freshly-built + seeded DB. The first call in a file does the full migration + seed and captures the snapshot via `db.export()`; every subsequent call restores via `new SQL.Database(_snapshot)` (a cheap memcpy). Vitest isolates the module registry per file, so the snapshot is naturally scoped per file — the first test in a file pays the cold build, the rest restore from the snapshot.
+
+This took the suite from ~190s to ~12s. **Do not** "optimize" by moving `initTestDb` to `beforeAll`, clearing the caches per test, or reverting to per-test migrations — all of these reintroduce the huge overhead.
+
+**The `foreign_keys` gotcha.** `PRAGMA foreign_keys = ON` (set by the migrations, required for `ON DELETE CASCADE` to fire) is a *connection-level* pragma and is **not** stored in the DB snapshot bytes. `initTestDb()` re-enables it explicitly on every restored connection. If you ever add another DB-creation path for tests, set the pragma after opening the connection or cascade-delete tests will silently break.
+
 ### Test Structure
 
 Tests use Vitest with `describe`/`it` blocks:
@@ -133,18 +159,18 @@ describe('MyFeature', () => {
 
 ### Testing Service Functions
 
-Services can be tested directly since they operate on the SQLite database:
+Services can be tested directly since they operate on the SQLite database. `initTestDb()` already gives each test a clean schema + seeded admin user, so you only need to insert the specific rows your test exercises:
 
 ```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { initTestDb, closeDb, getDb } from '../db/index.js';
 import { createTask, claimTask } from '../services/taskService.js';
-import { getDb } from '../db/index.js';
 
 describe('Task claiming', () => {
   beforeEach(async () => {
-    const db = await getDb();
-    // Clear and reseed test data
+    await initTestDb(); // fresh DB, no manual clearing needed
   });
+  afterEach(() => closeDb());
 
   it('should claim a pending task', () => {
     const task = createTask({
@@ -477,7 +503,13 @@ Used by: [`pulse-experience.test.ts`](../packages/mcp/src/__tests__/tools/pulse-
 - FailureBundle construction: ~1.2ms average (20 events + 50 signals + 10 retries)
 - Subscriber early-filter: near-zero (single indexed lookup: "is this task in an active workflow?")
 
-Used by: [`performanceWorkflow.test.ts`](../packages/api/src/test/performanceWorkflow.test.ts).
+**Not part of the default `test` run.** These are absolute-latency benchmarks whose assertions flake under parallel/CPU-contended execution (local dev or CI). They live in `packages/api/src/test/perfWorkflow.test.ts` and are **excluded** from `pnpm test` (via the `test` script's `--exclude` flag). Run them explicitly and serially:
+
+```bash
+pnpm --filter api test:perf
+```
+
+Used by: [`perfWorkflow.test.ts`](../packages/api/src/test/perfWorkflow.test.ts).
 
 **Key insight:** The `areAllWorkflowGatesSatisfied` guard uses an EXISTS subquery indexed on `downstream_task_id`, making it O(log n) regardless of gate count. Non-workflow tasks skip the query entirely (no rows in `task_workflow_gates`).
 
@@ -488,6 +520,12 @@ Used by: [`performanceWorkflow.test.ts`](../packages/api/src/test/performanceWor
 ### Vitest Configuration
 
 Vitest is configured in each package's `package.json` via the `test` script. Configuration can be extended with a `vitest.config.ts` file.
+
+**API package (`packages/api`):**
+
+- **Parallelism:** `fileParallelism` defaults to `true` (vitest's default). Files run concurrently, which is why the snapshot-based `initTestDb()` matters — vitest isolates the module registry per file, so each file's `_drizzleDb` singleton is independent and the snapshot is scoped per file. No need to disable parallelism.
+- **Perf benchmarks excluded from the default run:** `pnpm test` excludes `src/test/perfWorkflow.test.ts` (via the `test` script's `--exclude` flag) because its timing assertions flake under parallel CPU contention. Run it serially with `pnpm --filter api test:perf`.
+- **Why no `setupFiles`:** the test-DB setup lives inside `initTestDb()` itself (see [Test Database Setup](#test-database-setup-read-this-before-writing-a-test)) rather than a global setup file, so each test file remains self-contained and the snapshot cache is scoped correctly per file.
 
 ### Playwright Configuration
 

@@ -20,8 +20,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest run",
+    "test": "vitest run --exclude src/test/perfWorkflow.test.ts",
     "test:watch": "vitest",
+    "test:perf": "vitest run src/test/perfWorkflow.test.ts --fileParallelism=false",
     "typecheck": "tsc --noEmit",
     "db:seed": "tsx ../../scripts/seed.ts"
   },

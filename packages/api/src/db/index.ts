@@ -93,72 +93,108 @@ export async function initDb(dbPath?: string) {
   return _drizzleDb;
 }
 
-export async function initTestDb() {
-  const initSqlJs = (await import("sql.js")).default;
-  const { drizzle } = await import("drizzle-orm/sql-js");
+// --- Test DB performance caches -------------------------------------------------------------
+// initTestDb() is invoked per-test (beforeEach) across the whole @orcy/api suite.
+// Doing a full WASM init + schema migration + bcrypt seed on every call made the suite
+// ~10x slower than necessary (~97ms/call). These three caches collapse per-test cost to
+// sub-millisecond after the first call in a process:
+//   _sqlFactory  -> initialized sql.js module (avoids recompiling WASM each call)
+//   _adminHash   -> bcrypt hash of the seed admin password (bcrypt.hash is the single
+//                   biggest line item at ~46ms/call; the hash is only ever compared via
+//                   bcrypt.compare, so a cached literal is safe)
+//   _snapshot    -> bytes of a freshly built+seeded DB; restored via `new SQL.Database(bytes)`
+//                   which copies the bytes, so per-test isolation is preserved.
+// Vitest isolates the module registry per file, so the snapshot is naturally scoped per
+// file (first test in a file pays the cold build, the rest restore from the snapshot).
+// Do NOT remove these caches or call clearTestDbCache() in beforeEach/afterEach — that
+// defeats the entire optimization and reintroduces the ~150s suite runtime.
+let _sqlFactory: any = null;
+let _adminHash: string | null = null;
+let _snapshot: Uint8Array | null = null;
 
-  const SQL = await initSqlJs();
-  const testSqlite = new SQL.Database();
-  _sqlite = testSqlite as any;
+async function getSqlFactory(): Promise<any> {
+  if (!_sqlFactory) {
+    const initSqlJs = (await import("sql.js")).default;
+    _sqlFactory = await initSqlJs();
+  }
+  return _sqlFactory;
+}
 
-  _drizzleDb = drizzle(testSqlite, { schema }) as any;
-  setDriver("sqlite");
+async function getAdminHash(): Promise<string> {
+  if (!_adminHash) {
+    _adminHash = await bcrypt.hash("admin123", 10);
+  }
+  return _adminHash;
+}
 
-  const migrationFolder = join(getWorkspaceRoot(), "packages", "api", "drizzle");
+function applyMigrations(testSqlite: any, migrationFolder: string): void {
   const schemaFile = join(migrationFolder, "0000_schema.sql");
   if (existsSync(schemaFile)) {
-    const schemaSql = readFileSync(schemaFile, "utf-8");
-    const statements = schemaSql
-      .split("--> statement-breakpoint")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    for (const stmt of statements) {
-      try {
-        testSqlite.run(stmt);
-      } catch (err: any) {
-        const msg = String(err?.message ?? err ?? "");
-        if (
-          !msg.includes("already exists") &&
-          !msg.includes("no such table") &&
-          !msg.includes("no such column") &&
-          !msg.includes("no such index") &&
-          !msg.includes("duplicate column name")
-        )
-          throw err;
-      }
-    }
+    runMigrationSql(testSqlite, readFileSync(schemaFile, "utf-8"));
   }
-
   const incrementalMigrations = readdirSync(migrationFolder)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f) && f !== "0000_schema.sql")
     .sort();
   for (const migrationFile of incrementalMigrations) {
-    const filePath = join(migrationFolder, migrationFile);
-    const sql = readFileSync(filePath, "utf-8");
-    const statements = sql
-      .split("--> statement-breakpoint")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    for (const stmt of statements) {
-      try {
-        testSqlite.run(stmt);
-      } catch (err: any) {
-        const msg = String(err?.message ?? err ?? "");
-        if (
-          !msg.includes("already exists") &&
-          !msg.includes("no such table") &&
-          !msg.includes("no such column") &&
-          !msg.includes("no such index") &&
-          !msg.includes("duplicate column name")
-        )
-          throw err;
-      }
+    runMigrationSql(testSqlite, readFileSync(join(migrationFolder, migrationFile), "utf-8"));
+  }
+}
+
+function runMigrationSql(testSqlite: any, sqlText: string): void {
+  const statements = sqlText
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  for (const stmt of statements) {
+    try {
+      testSqlite.run(stmt);
+    } catch (err: any) {
+      const msg = String(err?.message ?? err ?? "");
+      if (
+        !msg.includes("already exists") &&
+        !msg.includes("no such table") &&
+        !msg.includes("no such column") &&
+        !msg.includes("no such index") &&
+        !msg.includes("duplicate column name")
+      )
+        throw err;
     }
   }
+}
+
+export async function initTestDb() {
+  const { drizzle } = await import("drizzle-orm/sql-js");
+  const migrationFolder = join(getWorkspaceRoot(), "packages", "api", "drizzle");
+
+  // Fast path: restore a previously snapshotted schema+seed DB. `new SQL.Database(bytes)`
+  // copies the bytes, so each test gets an isolated mutable copy.
+  if (_snapshot) {
+    const SQL = await getSqlFactory();
+    const testSqlite = new SQL.Database(_snapshot);
+    // foreign_keys is a connection-level pragma (NOT persisted in the DB file), so it must
+    // be re-enabled on every restored connection — otherwise ON DELETE CASCADE rules silently
+    // stop firing. The original migrations set it, but snapshot restore skips migrations.
+    testSqlite.run("PRAGMA foreign_keys = ON");
+    _sqlite = testSqlite as any;
+    _drizzleDb = drizzle(testSqlite, { schema }) as any;
+    setDriver("sqlite");
+    return _drizzleDb;
+  }
+
+  // Cold path: build schema, seed, then snapshot for fast subsequent resets.
+  const SQL = await getSqlFactory();
+  const testSqlite = new SQL.Database();
+  testSqlite.run("PRAGMA foreign_keys = ON");
+  _sqlite = testSqlite as any;
+  _drizzleDb = drizzle(testSqlite, { schema }) as any;
+  setDriver("sqlite");
+
+  applyMigrations(testSqlite, migrationFolder);
 
   await seedDefaultUser();
   seedGlobalTemplates();
 
+  _snapshot = testSqlite.export();
   return _drizzleDb;
 }
 
@@ -170,7 +206,7 @@ async function seedDefaultUser(): Promise<void> {
     .get();
   if ((result?.count ?? 0) > 0) return;
 
-  const passwordHash = await bcrypt.hash("admin123", 10);
+  const passwordHash = await getAdminHash();
   const id = uuidv4();
   const now = new Date().toISOString();
 
