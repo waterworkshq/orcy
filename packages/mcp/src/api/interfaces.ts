@@ -564,6 +564,41 @@ export interface WikiSearchHit {
   rank: number;
 }
 
+/** Search hit row returned by {@link WikiClient.searchWiki} — BM25-ranked excerpt over published pages. */
+export interface WikiSearchHit {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  rank: number;
+}
+
+/** Aggregated experience cluster projected for reader-facing surfaces (ADR-0009-adjacent privacy boundary — see ARCHITECTURE.md §11.7). Individual pulse / task / comment / agent IDs are NOT exposed. */
+export interface WikiExperienceAggregate {
+  id: string;
+  subject: string;
+  summary: string | null;
+  skillCategory: string;
+  sourceSignalType: string;
+  strength: number;
+  frequency: number;
+  corroboratingAgents: number;
+  successfulTasks: number;
+  failedTasks: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+/** Subset of the pulse shape returned by {@link WikiClient.getSignalSurface} — attribution preserved (no privacy gate on findings). */
+export type WikiFindingPulse = Record<string, unknown>;
+
+/** Parallel-array surface returned by {@link WikiClient.getSignalSurface}. Experience and findings are NOT cross-correlated (deferred to v0.23). */
+export interface WikiSignalSurface {
+  experiencePatterns?: WikiExperienceAggregate[];
+  findings?: WikiFindingPulse[];
+  unstructuredFindings?: WikiFindingPulse[];
+}
+
 /** Habitat wiki methods used by the `orcy_wiki` MCP dispatch tool (seed 10, v0.21). */
 export interface WikiClient {
   listWikiPages(
@@ -628,4 +663,13 @@ export interface WikiClient {
   ): Promise<Record<string, unknown>>;
   /** Triggers a one-shot refresh of the wiki coverage gap for the habitat. */
   triggerWikiRefresh(habitatId: string): Promise<Record<string, unknown>>;
+  /** Returns the parallel-array signal surface for a habitat (seed 14 — experience + findings, NOT cross-correlated). */
+  getSignalSurface(
+    habitatId: string,
+    opts?: {
+      domain?: string;
+      timeWindow?: string;
+      signalClass?: "experience" | "finding" | "both";
+    },
+  ): Promise<WikiSignalSurface>;
 }

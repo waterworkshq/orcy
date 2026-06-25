@@ -8,7 +8,7 @@ describe("WIKI_DISPATCH_TOOL", () => {
     expect(WIKI_DISPATCH_TOOL.name).toBe("orcy_wiki");
   });
 
-  it("includes all 12 actions in the enum", () => {
+  it("includes all 13 actions in the enum", () => {
     const actionProp = WIKI_DISPATCH_TOOL.inputSchema.properties!.action as { enum?: string[] };
     expect(actionProp.enum).toEqual([
       "search",
@@ -23,6 +23,7 @@ describe("WIKI_DISPATCH_TOOL", () => {
       "remove_link",
       "mark_no_update_needed",
       "trigger_refresh",
+      "get_signal_surface",
     ]);
   });
 
@@ -82,8 +83,12 @@ describe("WIKI_ACTIONS — action routing", () => {
     expect(WIKI_ACTIONS["trigger_refresh"]).toBe(wiki.wikiTriggerRefresh);
   });
 
-  it("has exactly 12 actions", () => {
-    expect(Object.keys(WIKI_ACTIONS)).toHaveLength(12);
+  it("routes get_signal_surface to wikiGetSignalSurface", () => {
+    expect(WIKI_ACTIONS["get_signal_surface"]).toBe(wiki.wikiGetSignalSurface);
+  });
+
+  it("has exactly 13 actions", () => {
+    expect(Object.keys(WIKI_ACTIONS)).toHaveLength(13);
   });
 
   it("every action maps to a function", () => {
@@ -387,5 +392,52 @@ describe("wiki action handlers — delegation to WikiClient", () => {
   it("trigger_refresh returns error when habitatId missing", async () => {
     const result = await wiki.wikiTriggerRefresh(client, {});
     expect(result).toEqual({ error: "Missing required parameter: habitatId" });
+  });
+
+  it("get_signal_surface → client.getSignalSurface with signalClass='both' by default", async () => {
+    client.getSignalSurface.mockResolvedValue({
+      experiencePatterns: [],
+      findings: [],
+      unstructuredFindings: [],
+    });
+    const result = await wiki.wikiGetSignalSurface(client, { habitatId: "h-1" });
+    expect(client.getSignalSurface).toHaveBeenCalledWith("h-1", { signalClass: "both" });
+    expect(result).toEqual({
+      experiencePatterns: [],
+      findings: [],
+      unstructuredFindings: [],
+    });
+  });
+
+  it("get_signal_surface forwards domain + timeWindow + signalClass", async () => {
+    client.getSignalSurface.mockResolvedValue({ experiencePatterns: [] });
+    await wiki.wikiGetSignalSurface(client, {
+      habitatId: "h-1",
+      domain: "backend",
+      timeWindow: "7 days",
+      signalClass: "experience",
+    });
+    expect(client.getSignalSurface).toHaveBeenCalledWith("h-1", {
+      domain: "backend",
+      timeWindow: "7 days",
+      signalClass: "experience",
+    });
+  });
+
+  it("get_signal_surface returns error when habitatId missing", async () => {
+    const result = await wiki.wikiGetSignalSurface(client, {});
+    expect(result).toEqual({ error: "Missing required parameter: habitatId" });
+    expect(client.getSignalSurface).not.toHaveBeenCalled();
+  });
+
+  it("get_signal_surface returns error on invalid signalClass", async () => {
+    const result = await wiki.wikiGetSignalSurface(client, {
+      habitatId: "h-1",
+      signalClass: "garbage",
+    });
+    expect(result).toEqual({
+      error: "Invalid signalClass. Must be one of: experience, finding, both",
+    });
+    expect(client.getSignalSurface).not.toHaveBeenCalled();
   });
 });

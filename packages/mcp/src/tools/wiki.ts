@@ -206,3 +206,35 @@ export async function wikiTriggerRefresh(client: WikiClient, args: Record<string
   if (!habitatId) return { error: "Missing required parameter: habitatId" };
   return client.triggerWikiRefresh(habitatId);
 }
+
+/**
+ * @requires WikiClient
+ *
+ * Returns the parallel-array signal surface for a habitat (seed 14). `signalClass` selects
+ * which sub-surface to populate: `'experience'` (aggregates only), `'finding'` (structured
+ * + unstructured), or `'both'` (default; all three). Experience aggregates are
+ * privacy-projected server-side — no individual pulse / task / comment / agent IDs. Findings
+ * preserve attribution (no privacy gate).
+ */
+export async function wikiGetSignalSurface(client: WikiClient, args: Record<string, any>) {
+  const habitatId = args.habitatId;
+  if (!habitatId) return { error: "Missing required parameter: habitatId" };
+  const opts: {
+    domain?: string;
+    timeWindow?: string;
+    signalClass: "experience" | "finding" | "both";
+  } = { signalClass: "both" };
+  if (args.domain !== undefined) opts.domain = args.domain;
+  if (args.timeWindow !== undefined) opts.timeWindow = args.timeWindow;
+  if (args.signalClass !== undefined) {
+    if (
+      args.signalClass !== "experience" &&
+      args.signalClass !== "finding" &&
+      args.signalClass !== "both"
+    ) {
+      return { error: "Invalid signalClass. Must be one of: experience, finding, both" };
+    }
+    opts.signalClass = args.signalClass;
+  }
+  return client.getSignalSurface(habitatId, opts);
+}

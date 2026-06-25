@@ -76,6 +76,7 @@ import type {
   WorkflowClient as WorkflowClientIface,
   WikiClient as WikiClientIface,
   WikiSearchHit,
+  WikiSignalSurface,
 } from "./api/interfaces.js";
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -2313,6 +2314,26 @@ export class KanbanApiClient
       "POST",
       `/api/habitats/${habitatId}/wiki/refresh`,
       {},
+    );
+  }
+
+  /** Returns the parallel-array signal surface (experience aggregates + findings) for a habitat. Seed 14 — privacy boundary enforced server-side; no individual experience pulse / task / comment / agent IDs are returned. */
+  async getSignalSurface(
+    habitatId: string,
+    opts?: {
+      domain?: string;
+      timeWindow?: string;
+      signalClass?: "experience" | "finding" | "both";
+    },
+  ): Promise<WikiSignalSurface> {
+    const params = new URLSearchParams();
+    if (opts?.domain !== undefined) params.set("domain", opts.domain);
+    if (opts?.timeWindow !== undefined) params.set("timeWindow", opts.timeWindow);
+    if (opts?.signalClass !== undefined) params.set("signalClass", opts.signalClass);
+    const query = params.toString();
+    return this.request<WikiSignalSurface>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/signal-surface${query ? `?${query}` : ""}`,
     );
   }
 }

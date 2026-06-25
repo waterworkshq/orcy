@@ -13,13 +13,14 @@ import {
   wikiRemoveLink,
   wikiMarkNoUpdateNeeded,
   wikiTriggerRefresh,
+  wikiGetSignalSurface,
 } from "./wiki.js";
 
 /** MCP {@link Tool} descriptor registering the `orcy_wiki` tool surface. */
 export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_wiki",
   description:
-    "Habitat wiki — authored, versioned knowledge pages. Read pages, author pages, manage citations, search, and post coverage markers.",
+    "Habitat wiki — authored, versioned knowledge pages. Read pages, author pages, manage citations, search, post coverage markers, and surface experience patterns + engineering findings (seed 14).",
   actions: [
     "search",
     "get_page",
@@ -33,6 +34,7 @@ export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
     "remove_link",
     "mark_no_update_needed",
     "trigger_refresh",
+    "get_signal_surface",
   ],
   sharedParams: {
     habitatId: { type: "string", description: "The UUID of the habitat" },
@@ -92,6 +94,21 @@ export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
       type: "boolean",
       description: "Hold the cadence watermark across page delete (delete_page body via REST)",
     },
+    domain: {
+      type: "string",
+      description:
+        "Filter signal surface by task domain (get_signal_surface; experience aggregates only — no-op in v0.21)",
+    },
+    timeWindow: {
+      type: "string",
+      description:
+        "Duration string for recency filter on signal surface (get_signal_surface), e.g. '7 days', '30 days'",
+    },
+    signalClass: {
+      type: "string",
+      enum: ["experience", "finding", "both"],
+      description: "Which signal sub-surfaces to populate (get_signal_surface); defaults to 'both'",
+    },
   },
 });
 
@@ -109,6 +126,7 @@ export const WIKI_ACTIONS: Record<string, Handler> = {
   remove_link: wikiRemoveLink,
   mark_no_update_needed: wikiMarkNoUpdateNeeded,
   trigger_refresh: wikiTriggerRefresh,
+  get_signal_surface: wikiGetSignalSurface,
 };
 
 /** Top-level {@link ToolHandler} that resolves incoming `orcy_wiki` calls to their action handler. */
