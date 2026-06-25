@@ -8,9 +8,16 @@ import * as wikiPageLinkRepo from "../repositories/wikiPageLink.js";
 import * as wikiCoverageRepo from "../repositories/wikiCoverage.js";
 import { notFound, conflict, badRequest } from "../errors.js";
 import { isSqliteError } from "../errors/sqlite.js";
-import type { WikiPage, WikiPageLink, WikiPageStatus } from "@orcy/shared";
+import {
+  WIKI_LINK_TARGET_TYPES,
+  type WikiPage,
+  type WikiPageLink,
+  type WikiPageStatus,
+  type WikiLinkTargetType,
+} from "@orcy/shared";
 
-export type { WikiPage, WikiPageLink, WikiPageStatus };
+export type { WikiPage, WikiPageLink, WikiPageStatus, WikiLinkTargetType };
+export type { WikiPageLinkWithDangling } from "../repositories/wikiPageLink.js";
 
 /** Slug collision retry cap — keep the page from spinning forever on a saturated namespace. */
 const MAX_SLUG_ATTEMPTS = 200;
@@ -57,6 +64,25 @@ export interface UpdateWikiPageMetadataInput {
   parentId?: string | null;
   tags?: string[];
   status?: WikiPageStatus;
+}
+
+/** Input for {@link saveVersion}. `title` and `content` are required; `editSummary` is an authored one-liner. */
+export interface SaveWikiVersionInput {
+  title: string;
+  content: string;
+  editSummary?: string;
+}
+
+/** Input for {@link addLink}. `targetType` is validated against `WIKI_LINK_TARGET_TYPES`; `note` is an authored one-liner. */
+export interface AddWikiPageLinkInput {
+  targetType: WikiLinkTargetType;
+  targetId: string;
+  note?: string;
+}
+
+/** Type guard that narrows an arbitrary string to {@link WikiLinkTargetType} using the runtime allowlist. */
+function isValidTargetType(t: string): t is WikiLinkTargetType {
+  return (WIKI_LINK_TARGET_TYPES as readonly string[]).includes(t);
 }
 
 /** A page with its links attached (each link carries a `dangling` flag). */
@@ -298,4 +324,182 @@ export function deletePage(pageId: string, options: DeleteWikiPageInput, deleted
   }
 
   // TODO: SSE wiki_page_deleted
+}
+
+/**
+ * Appends a new version snapshot for a wiki page and atomically rewrites the denormalized current-version
+ * fields on the page row (`title`, `content`, `currentVersionNumber`, `lastUpdatedBy`, `lastUpdatedAt`).
+ * Restore is implemented as a {@link saveVersion} that copies old content (the old version row is never
+ * rewritten — versions are append-only).
+ *
+ * When the page is `published`, the existing page-type coverage marker(s) for the page are extended
+ * (`coverage_to` is advanced to `now`) so the cadence watermark reflects the new content. The
+ * `coverage_from` is preserved — the window is widened, not replaced. If the page is `draft`, no
+ * coverage marker mutation occurs (a draft has no watermark contribution).
+ *
+ * Side effect: writes 1 version row + updates 1 page row (+ updates 0..N coverage markers). Throws 404
+ * when the page is missing. SSE event `wiki_page_updated` is wired in Phase 8 (E8a) — see TODO marker.
+ */
+export function saveVersion(
+  pageId: string,
+  input: SaveWikiVersionInput,
+  editedBy: string,
+): WikiPage {
+  const page = wikiPageRepo.getById(pageId);
+  if (!page) throw notFound(`Wiki page not found: ${pageId}`);
+
+  const db = getDb();
+  const now = new Date().toISOString();
+  const newVersionNumber = page.currentVersionNumber + 1;
+
+  db.transaction((tx) => {
+    tx.insert(wikiPageVersions)
+      .values({
+        id: uuid(),
+        pageId,
+        versionNumber: newVersionNumber,
+        title: input.title,
+        content: input.content,
+        editSummary: input.editSummary ?? null,
+        editedBy,
+        createdAt: now,
+      })
+      .run();
+
+    tx.update(wikiPages)
+      .set({
+        title: input.title,
+        content: input.content,
+        currentVersionNumber: newVersionNumber,
+        lastUpdatedBy: editedBy,
+        lastUpdatedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(wikiPages.id, pageId))
+      .run();
+
+    if (page.status === "published") {
+      tx.update(wikiCoverageMarkers)
+        .set({ coverageTo: now })
+        .where(
+          and(eq(wikiCoverageMarkers.pageId, pageId), eq(wikiCoverageMarkers.markerType, "page")),
+        )
+        .run();
+    }
+  });
+
+  // TODO: SSE wiki_page_updated
+
+  const updated = wikiPageRepo.getById(pageId);
+  if (!updated) throw notFound(`wikiPage not found after saveVersion: ${pageId}`);
+  return updated;
+}
+
+/**
+ * Restores an older version of a wiki page as a NEW version (append-only history). The old version row
+ * is untouched; the new version copies its `title` and `content` and tags `editSummary` with the
+ * source version number. Returns the updated page.
+ *
+ * Throws 404 when the page or the requested version is missing.
+ */
+export function restoreVersion(pageId: string, versionNumber: number, editedBy: string): WikiPage {
+  const oldVersion = wikiPageVersionRepo.getByPageAndNumber(pageId, versionNumber);
+  if (!oldVersion) {
+    throw notFound(`Wiki page version not found: pageId=${pageId} versionNumber=${versionNumber}`);
+  }
+  return saveVersion(
+    pageId,
+    {
+      title: oldVersion.title,
+      content: oldVersion.content,
+      editSummary: `Restored from version ${versionNumber}`,
+    },
+    editedBy,
+  );
+}
+
+/**
+ * Adds a polymorphic citation from a wiki page to a source primitive (ADR-0007). `targetType` is
+ * validated against `WIKI_LINK_TARGET_TYPES`; the `UNIQUE (page_id, target_type, target_id)` index
+ * catches duplicate citations and is translated to a 409. The target row is NOT verified to exist at
+ * insert time (no FK on `(target_type, target_id)`); dangling detection runs at read time via
+ * {@link listLinks}.
+ *
+ * Throws 400 when `targetType` is not in the allowlist, 404 when the page is missing, 409 when a
+ * citation for the same `(pageId, targetType, targetId)` already exists.
+ */
+export function addLink(
+  pageId: string,
+  input: AddWikiPageLinkInput,
+  createdBy: string,
+): WikiPageLink {
+  if (!isValidTargetType(input.targetType)) {
+    throw badRequest(
+      `Invalid targetType: ${input.targetType}. Must be one of: ${WIKI_LINK_TARGET_TYPES.join(", ")}`,
+      { targetType: input.targetType, allowed: WIKI_LINK_TARGET_TYPES },
+    );
+  }
+
+  if (!wikiPageRepo.getById(pageId)) {
+    throw notFound(`Wiki page not found: ${pageId}`);
+  }
+
+  try {
+    return wikiPageLinkRepo.create({
+      pageId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      linkNote: input.note ?? null,
+      createdBy,
+    });
+  } catch (err) {
+    const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+    const isUniqueError =
+      (isSqliteError(cause) && cause.code === "SQLITE_CONSTRAINT_UNIQUE") ||
+      (cause instanceof Error && /UNIQUE constraint failed/i.test(cause.message));
+    if (isUniqueError) {
+      throw conflict("Link already exists.", {
+        pageId,
+        targetType: input.targetType,
+        targetId: input.targetId,
+      });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Removes a citation from a wiki page. The link must exist AND belong to the named page; otherwise
+ * throws 404. A second 404 check after the repo delete guards against a concurrent-delete race.
+ *
+ * Throws 404 when the page is missing or the link is missing / owned by a different page.
+ */
+export function removeLink(pageId: string, linkId: string): void {
+  if (!wikiPageRepo.getById(pageId)) {
+    throw notFound(`Wiki page not found: ${pageId}`);
+  }
+
+  const pageLinks = wikiPageLinkRepo.listByPage(pageId);
+  if (!pageLinks.some((l) => l.id === linkId)) {
+    throw notFound(`Wiki page link not found: ${linkId} on page ${pageId}`);
+  }
+
+  const removed = wikiPageLinkRepo.remove(linkId);
+  if (!removed) {
+    throw notFound(`Wiki page link not found: ${linkId} on page ${pageId}`);
+  }
+}
+
+/**
+ * Returns all citations from a wiki page, each tagged `dangling: boolean` per ADR-0007
+ * (read-time dangling detection — no FK, no background reconciliation). `dangling: true` means the
+ * target row in its source table no longer exists.
+ *
+ * Throws 404 when the page is missing.
+ */
+export function listLinks(pageId: string): wikiPageLinkRepo.WikiPageLinkWithDangling[] {
+  if (!wikiPageRepo.getById(pageId)) {
+    throw notFound(`Wiki page not found: ${pageId}`);
+  }
+  return wikiPageLinkRepo.resolveDangling(wikiPageLinkRepo.listByPage(pageId));
 }

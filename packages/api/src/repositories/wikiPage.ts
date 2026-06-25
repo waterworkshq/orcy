@@ -216,11 +216,23 @@ export function deletePage(id: string): boolean {
 }
 
 /**
- * Searches published pages in a habitat for a free-text query.
- * Uses FTS5 + BM25 + snippet when the `wiki_pages_fts` virtual table exists in the current connection;
- * otherwise falls back to a deterministic `LIKE` scan over `title`/`content` so the test environment
- * (sql.js without FTS5) still produces a correct result. Full BM25 ranking is a Phase 3 (S3a) refinement;
- * this stub establishes the capability-aware branch.
+ * Wraps an arbitrary user query in a FTS5 phrase match and escapes any embedded double quotes.
+ * This is the safe subset of FTS5 MATCH syntax for v0.21 wiki search — see S3a done-when notes in
+ * `docs/plans/v21/PROMPT-phase2-4-versioning-links-search.md` for the limitations (no OR/AND/NOT,
+ * no prefix wildcards, no column filters). The LIKE fallback path does not need escaping because
+ * its `%`/`_` wildcards are benign for free-text search.
+ */
+function escapeFtsQuery(query: string): string {
+  return `"${query.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Searches published pages in a habitat for a free-text query. Returns `{ id, slug, title, excerpt, rank }[]`.
+ *
+ * Capability-aware: uses FTS5 + BM25 + `snippet()` when the `wiki_pages_fts` virtual table exists
+ * (production), or falls back to a deterministic `LIKE` scan with a 160-char excerpt and `rank = 0`
+ * when it does not (sql.js test environment, see MEMORY.md "FTS5 is new to the codebase").
+ * Both paths filter `status = 'published'` so drafts are never returned.
  */
 export function search(
   habitatId: string,
@@ -232,6 +244,7 @@ export function search(
   const db = getDb();
 
   if (ftsTableExists()) {
+    const ftsQuery = escapeFtsQuery(query);
     const rows = db.all<{
       id: string;
       slug: string;
@@ -244,7 +257,7 @@ export function search(
           bm25(wiki_pages_fts) AS rank
         FROM wiki_pages_fts f
         JOIN wiki_pages w ON w.rowid = f.rowid
-        WHERE wiki_pages_fts MATCH ${query}
+        WHERE wiki_pages_fts MATCH ${ftsQuery}
           AND w.habitat_id = ${habitatId}
           AND w.status = 'published'
         ORDER BY rank

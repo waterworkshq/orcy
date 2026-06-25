@@ -229,6 +229,138 @@ describe("wikiPage repo", () => {
       const results = wikiPageRepo.search(habitat.id, "nothere");
       expect(results).toEqual([]);
     });
+
+    it("matches content-only (term appears in content but not title)", () => {
+      const { habitat } = setupHabitat();
+      wikiPageRepo.create({
+        habitatId: habitat.id,
+        slug: "incident-42",
+        title: "Q3 retrospective",
+        content: "on-call rotation missed a paging escalation",
+        status: "published",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+      wikiPageRepo.create({
+        habitatId: habitat.id,
+        slug: "other",
+        title: "Quarterly OKRs",
+        content: "ambitious targets set in July",
+        status: "published",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+
+      const results = wikiPageRepo.search(habitat.id, "paging");
+      expect(results).toHaveLength(1);
+      expect(results[0].slug).toBe("incident-42");
+    });
+
+    it("does not return pages from a different habitat", () => {
+      const habitatA = habitatRepo.createHabitat({ name: "Habitat A" });
+      columnRepo.createColumn({ habitatId: habitatA.id, name: "Todo", order: 0 });
+      const habitatB = habitatRepo.createHabitat({ name: "Habitat B" });
+      columnRepo.createColumn({ habitatId: habitatB.id, name: "Todo", order: 0 });
+
+      wikiPageRepo.create({
+        habitatId: habitatA.id,
+        slug: "shared-term-a",
+        title: "Habitat A alpha",
+        content: "uses the alpha term",
+        status: "published",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+      wikiPageRepo.create({
+        habitatId: habitatB.id,
+        slug: "shared-term-b",
+        title: "Habitat B alpha",
+        content: "uses the alpha term",
+        status: "published",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+
+      const resultsA = wikiPageRepo.search(habitatA.id, "alpha");
+      expect(resultsA).toHaveLength(1);
+      expect(resultsA[0].slug).toBe("shared-term-a");
+
+      const resultsB = wikiPageRepo.search(habitatB.id, "alpha");
+      expect(resultsB).toHaveLength(1);
+      expect(resultsB[0].slug).toBe("shared-term-b");
+    });
+
+    it("honors limit and offset", () => {
+      const { habitat } = setupHabitat();
+      for (let i = 0; i < 5; i++) {
+        wikiPageRepo.create({
+          habitatId: habitat.id,
+          slug: `page-${i}`,
+          title: `Shared ${i}`,
+          content: "common content",
+          status: "published",
+          createdBy: "human-1",
+          lastUpdatedBy: "human-1",
+        });
+      }
+
+      const first2 = wikiPageRepo.search(habitat.id, "Shared", { limit: 2, offset: 0 });
+      expect(first2).toHaveLength(2);
+
+      const next2 = wikiPageRepo.search(habitat.id, "Shared", { limit: 2, offset: 2 });
+      expect(next2).toHaveLength(2);
+
+      const idsFirst = new Set(first2.map((r) => r.id));
+      const idsNext = new Set(next2.map((r) => r.id));
+      for (const id of idsNext) {
+        expect(idsFirst.has(id)).toBe(false);
+      }
+    });
+
+    it("returns rank=0 and a 160-char excerpt in the LIKE fallback path", () => {
+      const { habitat } = setupHabitat();
+      const longContent = "x".repeat(500);
+      wikiPageRepo.create({
+        habitatId: habitat.id,
+        slug: "long",
+        title: "Long",
+        content: longContent,
+        status: "published",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+
+      const results = wikiPageRepo.search(habitat.id, "Long");
+      expect(results).toHaveLength(1);
+      expect(results[0].rank).toBe(0);
+      expect(results[0].excerpt.length).toBeLessThanOrEqual(160);
+    });
+
+    it("excludes draft pages even when the term matches", () => {
+      const { habitat } = setupHabitat();
+      wikiPageRepo.create({
+        habitatId: habitat.id,
+        slug: "published-match",
+        title: "Common term",
+        content: "common body",
+        status: "published",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+      wikiPageRepo.create({
+        habitatId: habitat.id,
+        slug: "draft-match",
+        title: "Common term",
+        content: "common body",
+        status: "draft",
+        createdBy: "human-1",
+        lastUpdatedBy: "human-1",
+      });
+
+      const results = wikiPageRepo.search(habitat.id, "common");
+      expect(results).toHaveLength(1);
+      expect(results[0].slug).toBe("published-match");
+    });
   });
 });
 

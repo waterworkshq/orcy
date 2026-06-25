@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
+import * as missionRepo from "../repositories/feature.js";
 import * as wikiPageRepo from "../repositories/wikiPage.js";
 import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
 import * as wikiCoverageRepo from "../repositories/wikiCoverage.js";
@@ -21,6 +22,15 @@ function setupHabitat() {
   const habitat = habitatRepo.createHabitat({ name: "Wiki Service Habitat" });
   const col = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
   return { habitat, col };
+}
+
+function seedMission(habitatId: string, columnId: string) {
+  return missionRepo.createMission({
+    habitatId,
+    columnId,
+    title: "Test Mission",
+    createdBy: "human-1",
+  });
 }
 
 beforeEach(async () => {
@@ -368,6 +378,318 @@ describe("wikiService.updatePageMetadata", () => {
     expect(() => wikiService.updatePageMetadata("nonexistent", { tags: [] }, "human-1")).toThrow(
       /not found/i,
     );
+  });
+});
+
+describe("wikiService.saveVersion", () => {
+  it("appends a new version, increments currentVersionNumber, and rewrites denormalized title/content", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "V1", content: "body v1" }, "human-1");
+
+    const v2 = wikiService.saveVersion(
+      page.id,
+      { title: "V2", content: "body v2", editSummary: "first edit" },
+      "agent-1",
+    );
+    expect(v2.currentVersionNumber).toBe(2);
+    expect(v2.title).toBe("V2");
+    expect(v2.content).toBe("body v2");
+    expect(v2.lastUpdatedBy).toBe("agent-1");
+
+    const v3 = wikiService.saveVersion(page.id, { title: "V3", content: "body v3" }, "agent-1");
+    expect(v3.currentVersionNumber).toBe(3);
+    expect(v3.title).toBe("V3");
+    expect(v3.content).toBe("body v3");
+
+    const v4 = wikiService.saveVersion(
+      page.id,
+      { title: "V4", content: "body v4", editSummary: "third edit" },
+      "human-1",
+    );
+    expect(v4.currentVersionNumber).toBe(4);
+    expect(v4.title).toBe("V4");
+    expect(v4.content).toBe("body v4");
+
+    const versions = wikiPageVersionRepo.listByPage(page.id);
+    expect(versions).toHaveLength(4);
+    expect(versions.map((v) => v.versionNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+    const v4Row = versions.find((v) => v.versionNumber === 4)!;
+    expect(v4Row.title).toBe("V4");
+    expect(v4Row.content).toBe("body v4");
+    expect(v4Row.editSummary).toBe("third edit");
+    expect(v4Row.editedBy).toBe("human-1");
+  });
+
+  it("extends the page-type coverage marker coverage_to when the page is published", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(
+      habitat.id,
+      { title: "P", content: "v1", status: "published" },
+      "human-1",
+    );
+    const markerBefore = wikiCoverageRepo.getByPage(page.id);
+    expect(markerBefore).toHaveLength(1);
+    const originalTo = markerBefore[0].coverageTo;
+    const originalFrom = markerBefore[0].coverageFrom;
+
+    // Advance wall clock so the new coverage_to can be observed as a strict extension.
+    const before = new Date().toISOString();
+    while (new Date().toISOString() === before) {
+      // spin until ISO tick advances
+    }
+    const after = new Date().toISOString();
+
+    wikiService.saveVersion(
+      page.id,
+      { title: "P", content: "v2", editSummary: "refresh" },
+      "agent-1",
+    );
+
+    const markerAfter = wikiCoverageRepo.getByPage(page.id);
+    expect(markerAfter).toHaveLength(1);
+    expect(markerAfter[0].coverageFrom).toBe(originalFrom);
+    expect(markerAfter[0].coverageTo >= after).toBe(true);
+    expect(markerAfter[0].coverageTo >= originalTo).toBe(true);
+  });
+
+  it("does not touch coverage markers when the page is a draft", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "D", content: "v1" }, "human-1");
+    expect(wikiCoverageRepo.getByPage(page.id)).toHaveLength(0);
+
+    wikiService.saveVersion(page.id, { title: "D", content: "v2" }, "human-1");
+
+    expect(wikiCoverageRepo.getByPage(page.id)).toHaveLength(0);
+  });
+
+  it("throws 404 for a missing page", () => {
+    expect(() =>
+      wikiService.saveVersion("nonexistent", { title: "X", content: "X" }, "human-1"),
+    ).toThrow(/not found/i);
+  });
+});
+
+describe("wikiService.restoreVersion", () => {
+  it("creates a new version copying the source version's title and content with a 'Restored from version N' summary", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "V1", content: "body v1" }, "human-1");
+    wikiService.saveVersion(page.id, { title: "V2", content: "body v2" }, "agent-1");
+    wikiService.saveVersion(page.id, { title: "V3", content: "body v3" }, "agent-1");
+
+    const restored = wikiService.restoreVersion(page.id, 1, "human-1");
+    expect(restored.currentVersionNumber).toBe(4);
+    expect(restored.title).toBe("V1");
+    expect(restored.content).toBe("body v1");
+    expect(restored.lastUpdatedBy).toBe("human-1");
+
+    const versions = wikiPageVersionRepo.listByPage(page.id);
+    expect(versions).toHaveLength(4);
+    const v4 = versions.find((v) => v.versionNumber === 4)!;
+    expect(v4.title).toBe("V1");
+    expect(v4.content).toBe("body v1");
+    expect(v4.editSummary).toBe("Restored from version 1");
+    expect(v4.editedBy).toBe("human-1");
+
+    // The source version row is untouched.
+    const v1 = versions.find((v) => v.versionNumber === 1)!;
+    expect(v1.title).toBe("V1");
+    expect(v1.content).toBe("body v1");
+    expect(v1.editSummary).toBe("initial");
+  });
+
+  it("extends the page-type coverage marker coverage_to when the page is published", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(
+      habitat.id,
+      { title: "P", content: "v1", status: "published" },
+      "human-1",
+    );
+    wikiService.saveVersion(page.id, { title: "P", content: "v2" }, "agent-1");
+    const markerBefore = wikiCoverageRepo.getByPage(page.id);
+    expect(markerBefore).toHaveLength(1);
+
+    const before = new Date().toISOString();
+    while (new Date().toISOString() === before) {
+      // spin until ISO tick advances
+    }
+
+    wikiService.restoreVersion(page.id, 1, "human-1");
+
+    const markerAfter = wikiCoverageRepo.getByPage(page.id);
+    expect(markerAfter).toHaveLength(1);
+    expect(markerAfter[0].coverageTo >= before).toBe(true);
+  });
+
+  it("throws 404 for a missing page", () => {
+    expect(() => wikiService.restoreVersion("nonexistent", 1, "human-1")).toThrow(/not found/i);
+  });
+
+  it("throws 404 for a missing version", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "V1", content: "v1" }, "human-1");
+    expect(() => wikiService.restoreVersion(page.id, 99, "human-1")).toThrow(/not found/i);
+  });
+});
+
+describe("wikiService.addLink", () => {
+  it("inserts a link with a valid targetType and returns it", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+
+    const link = wikiService.addLink(
+      page.id,
+      { targetType: "mission", targetId: mission.id, note: "covers" },
+      "agent-1",
+    );
+
+    expect(link.pageId).toBe(page.id);
+    expect(link.targetType).toBe("mission");
+    expect(link.targetId).toBe(mission.id);
+    expect(link.linkNote).toBe("covers");
+    expect(link.createdBy).toBe("agent-1");
+  });
+
+  it("inserts a link to a non-existent target (no FK; dangling detection runs at read time)", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+
+    // No mission with this id exists; addLink does not validate target existence.
+    const link = wikiService.addLink(
+      page.id,
+      { targetType: "mission", targetId: "nonexistent-mission" },
+      "human-1",
+    );
+    expect(link.targetId).toBe("nonexistent-mission");
+
+    const listed = wikiService.listLinks(page.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0].dangling).toBe(true);
+  });
+
+  it("throws 400 for an invalid targetType", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+
+    expect(() =>
+      wikiService.addLink(
+        page.id,
+        // Bypass the TS type guard to simulate a runtime-invalid value.
+        { targetType: "bogus_type" as never, targetId: mission.id },
+        "human-1",
+      ),
+    ).toThrow(/invalid targettype/i);
+  });
+
+  it("throws 404 for a missing page", () => {
+    expect(() =>
+      wikiService.addLink("nonexistent-page", { targetType: "mission", targetId: "m1" }, "human-1"),
+    ).toThrow(/not found/i);
+  });
+
+  it("throws 409 for a duplicate (pageId, targetType, targetId) citation", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+
+    wikiService.addLink(page.id, { targetType: "mission", targetId: mission.id }, "human-1");
+
+    expect(() =>
+      wikiService.addLink(page.id, { targetType: "mission", targetId: mission.id }, "human-1"),
+    ).toThrow(/already exists/i);
+  });
+
+  it("allows the same target from a different page", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const pageA = wikiService.createPage(habitat.id, { title: "A", content: "" }, "human-1");
+    const pageB = wikiService.createPage(habitat.id, { title: "B", content: "" }, "human-1");
+
+    wikiService.addLink(pageA.id, { targetType: "mission", targetId: mission.id }, "human-1");
+    expect(() =>
+      wikiService.addLink(pageB.id, { targetType: "mission", targetId: mission.id }, "human-1"),
+    ).not.toThrow();
+  });
+});
+
+describe("wikiService.removeLink", () => {
+  it("removes a link and the list shrinks", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+    const link = wikiService.addLink(
+      page.id,
+      { targetType: "mission", targetId: mission.id },
+      "human-1",
+    );
+
+    wikiService.removeLink(page.id, link.id);
+    expect(wikiService.listLinks(page.id)).toHaveLength(0);
+  });
+
+  it("throws 404 for a missing link id", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+
+    expect(() => wikiService.removeLink(page.id, "nonexistent-link")).toThrow(/not found/i);
+  });
+
+  it("throws 404 when the link belongs to a different page", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const pageA = wikiService.createPage(habitat.id, { title: "A", content: "" }, "human-1");
+    const pageB = wikiService.createPage(habitat.id, { title: "B", content: "" }, "human-1");
+    const link = wikiService.addLink(
+      pageA.id,
+      { targetType: "mission", targetId: mission.id },
+      "human-1",
+    );
+
+    expect(() => wikiService.removeLink(pageB.id, link.id)).toThrow(/not found/i);
+    // Link still present on pageA.
+    expect(wikiService.listLinks(pageA.id)).toHaveLength(1);
+  });
+
+  it("throws 404 for a missing page", () => {
+    expect(() => wikiService.removeLink("nonexistent-page", "any-link")).toThrow(/not found/i);
+  });
+});
+
+describe("wikiService.listLinks", () => {
+  it("returns an empty array for a page with no links", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+    expect(wikiService.listLinks(page.id)).toEqual([]);
+  });
+
+  it("attaches dangling=false for links to live targets", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+    wikiService.addLink(page.id, { targetType: "mission", targetId: mission.id }, "human-1");
+
+    const listed = wikiService.listLinks(page.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0].dangling).toBe(false);
+  });
+
+  it("flips dangling=true after the target row is deleted (read-time detection)", () => {
+    const { habitat, col } = setupHabitat();
+    const mission = seedMission(habitat.id, col.id);
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+    wikiService.addLink(page.id, { targetType: "mission", targetId: mission.id }, "human-1");
+
+    expect(wikiService.listLinks(page.id)[0].dangling).toBe(false);
+
+    // Delete the target row directly (bypassing the service to simulate the real-world case).
+    getDb().delete(missions).where(eqMark(missions.id, mission.id)).run();
+
+    expect(wikiService.listLinks(page.id)[0].dangling).toBe(true);
+  });
+
+  it("throws 404 for a missing page", () => {
+    expect(() => wikiService.listLinks("nonexistent-page")).toThrow(/not found/i);
   });
 });
 
