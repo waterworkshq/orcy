@@ -8,6 +8,8 @@ import * as wikiPageLinkRepo from "../repositories/wikiPageLink.js";
 import * as wikiCoverageRepo from "../repositories/wikiCoverage.js";
 import { notFound, conflict, badRequest } from "../errors.js";
 import { isSqliteError } from "../errors/sqlite.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
+import { logger } from "../lib/logger.js";
 import {
   WIKI_LINK_TARGET_TYPES,
   type WikiPage,
@@ -18,6 +20,7 @@ import {
 
 export type { WikiPage, WikiPageLink, WikiPageStatus, WikiLinkTargetType };
 export type { WikiPageLinkWithDangling } from "../repositories/wikiPageLink.js";
+export type { WikiPageSearchResult, WikiPageSearchOptions } from "../repositories/wikiPage.js";
 
 /** Slug collision retry cap — keep the page from spinning forever on a saturated namespace. */
 const MAX_SLUG_ATTEMPTS = 200;
@@ -83,6 +86,17 @@ export interface AddWikiPageLinkInput {
 /** Type guard that narrows an arbitrary string to {@link WikiLinkTargetType} using the runtime allowlist. */
 function isValidTargetType(t: string): t is WikiLinkTargetType {
   return (WIKI_LINK_TARGET_TYPES as readonly string[]).includes(t);
+}
+
+/** Best-effort SSE broadcast — never throws to the caller. Mirrors `pulseService.broadcastPulse`. */
+function publishWikiEvent(habitatId: string, type: string, data: Record<string, unknown>): void {
+  try {
+    sseBroadcaster.publish(habitatId, { type, data } as Parameters<
+      typeof sseBroadcaster.publish
+    >[1]);
+  } catch (err) {
+    logger.warn({ err, type, habitatId }, "SSE broadcast failed after wiki mutation");
+  }
 }
 
 /** A page with its links attached (each link carries a `dangling` flag). */
@@ -153,9 +167,25 @@ export function createPage(
     }
   });
 
-  // TODO: SSE wiki_page_created
   const page = wikiPageRepo.getById(pageId);
   if (!page) throw notFound(`wikiPage not found after insert: ${pageId}`);
+
+  publishWikiEvent(page.habitatId, "wiki_page_created", {
+    pageId: page.id,
+    habitatId: page.habitatId,
+    title: page.title,
+    status: page.status,
+    parentId: page.parentId,
+  });
+
+  if (status === "published") {
+    publishWikiEvent(habitatId, "wiki_coverage_changed", {
+      habitatId,
+      watermark: wikiCoverageRepo.getWatermark(habitatId),
+      markerType: "page",
+    });
+  }
+
   return page;
 }
 
@@ -202,6 +232,9 @@ export function updatePageMetadata(
 
   const db = getDb();
   const now = new Date().toISOString();
+  const nextStatus: WikiPageStatus | undefined = patch.status;
+  const isPublishing = nextStatus === "published" && page.status !== "published";
+  const isUnpublishing = nextStatus === "draft" && page.status === "published";
 
   if (patch.parentId !== undefined && patch.parentId !== page.parentId) {
     const collision = wikiPageRepo.getByHabitatAndSlug(page.habitatId, page.slug, patch.parentId);
@@ -228,10 +261,6 @@ export function updatePageMetadata(
       .where(eq(wikiPages.id, pageId))
       .run();
 
-    const nextStatus: WikiPageStatus | undefined = patch.status;
-    const isPublishing = nextStatus === "published" && page.status !== "published";
-    const isUnpublishing = nextStatus === "draft" && page.status === "published";
-
     if (isPublishing) {
       tx.insert(wikiCoverageMarkers)
         .values({
@@ -254,10 +283,24 @@ export function updatePageMetadata(
     }
   });
 
-  // TODO: SSE wiki_page_updated (on status change)
-
   const updated = wikiPageRepo.getById(pageId);
   if (!updated) throw notFound(`wikiPage not found after update: ${pageId}`);
+
+  if (isPublishing || isUnpublishing) {
+    publishWikiEvent(updated.habitatId, "wiki_page_updated", {
+      pageId: updated.id,
+      habitatId: updated.habitatId,
+      title: updated.title,
+      versionNumber: updated.currentVersionNumber,
+      status: updated.status,
+    });
+    publishWikiEvent(updated.habitatId, "wiki_coverage_changed", {
+      habitatId: updated.habitatId,
+      watermark: wikiCoverageRepo.getWatermark(updated.habitatId),
+      markerType: isPublishing ? "page" : "no_update_needed",
+    });
+  }
+
   return updated;
 }
 
@@ -323,7 +366,19 @@ export function deletePage(pageId: string, options: DeleteWikiPageInput, deleted
     throw err;
   }
 
-  // TODO: SSE wiki_page_deleted
+  publishWikiEvent(page.habitatId, "wiki_page_deleted", {
+    pageId: page.id,
+    habitatId: page.habitatId,
+    parentId: page.parentId,
+  });
+
+  if (stayGone) {
+    publishWikiEvent(page.habitatId, "wiki_coverage_changed", {
+      habitatId: page.habitatId,
+      watermark: wikiCoverageRepo.getWatermark(page.habitatId),
+      markerType: "no_update_needed",
+    });
+  }
 }
 
 /**
@@ -388,10 +443,17 @@ export function saveVersion(
     }
   });
 
-  // TODO: SSE wiki_page_updated
-
   const updated = wikiPageRepo.getById(pageId);
   if (!updated) throw notFound(`wikiPage not found after saveVersion: ${pageId}`);
+
+  publishWikiEvent(updated.habitatId, "wiki_page_updated", {
+    pageId: updated.id,
+    habitatId: updated.habitatId,
+    title: updated.title,
+    versionNumber: updated.currentVersionNumber,
+    status: updated.status,
+  });
+
   return updated;
 }
 
@@ -502,4 +564,58 @@ export function listLinks(pageId: string): wikiPageLinkRepo.WikiPageLinkWithDang
     throw notFound(`Wiki page not found: ${pageId}`);
   }
   return wikiPageLinkRepo.resolveDangling(wikiPageLinkRepo.listByPage(pageId));
+}
+
+/** Input for {@link postNoUpdateNeeded}. `from` must be ≤ `to`; both are ISO-8601 strings. */
+export interface PostNoUpdateNeededInput {
+  from: string;
+  to: string;
+  reason?: string;
+}
+
+/**
+ * Inserts a `no_update_needed` coverage marker for a habitat (ADR-0009). Holds the cadence watermark
+ * across an explicit "no content needs to be authored for this window" decision — used by both the
+ * REST route and the `mark_no_update_needed` MCP action. Broadcasts `wiki_coverage_changed` so the UI
+ * cadence status panel refreshes.
+ *
+ * No habitat existence check at the service layer (matches `createPage` and the marker-management
+ * paths in `updatePageMetadata` / `deletePage`); FK on `wiki_coverage_markers.habitat_id` enforces
+ * referential integrity at the DB level.
+ */
+export function postNoUpdateNeeded(
+  habitatId: string,
+  input: PostNoUpdateNeededInput,
+  createdBy: string,
+): wikiCoverageRepo.WikiCoverageMarker {
+  const marker = wikiCoverageRepo.create({
+    habitatId,
+    coverageFrom: input.from,
+    coverageTo: input.to,
+    markerType: "no_update_needed",
+    pageId: null,
+    reason: input.reason ?? null,
+    createdBy,
+  });
+
+  publishWikiEvent(habitatId, "wiki_coverage_changed", {
+    habitatId,
+    watermark: wikiCoverageRepo.getWatermark(habitatId),
+    markerType: "no_update_needed",
+  });
+
+  return marker;
+}
+
+/**
+ * Free-text search over published pages in a habitat. Thin wrapper around
+ * {@link wikiPageRepo.search} (FTS5 + BM25 with LIKE fallback — see the S3a note in
+ * `docs/plans/MEMORY.md`). Drafts are never returned.
+ */
+export function searchPages(
+  habitatId: string,
+  query: string,
+  options: wikiPageRepo.WikiPageSearchOptions = {},
+): wikiPageRepo.WikiPageSearchResult[] {
+  return wikiPageRepo.search(habitatId, query, options);
 }

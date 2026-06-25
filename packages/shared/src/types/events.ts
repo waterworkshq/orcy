@@ -5,6 +5,7 @@ import type { TaskComment } from "./task.js";
 import type { Mission, MissionStatus, MissionComment } from "./feature.js";
 import type { Column } from "./board.js";
 import type { Subtask } from "./task.js";
+import type { WikiPageStatus, WikiCoverageMarkerType } from "./wiki.js";
 
 /** Identity kind of an entity that performs {@link EventAction} verbs on tasks and missions. */
 export type ActorType =
@@ -223,6 +224,38 @@ export type SSEEvent =
         actorId: string | null;
         source: string;
         minutes: number;
+      };
+    }
+  | {
+      type: "wiki_page_created";
+      data: {
+        pageId: string;
+        habitatId: string;
+        title: string;
+        status: WikiPageStatus;
+        parentId: string | null;
+      };
+    }
+  | {
+      type: "wiki_page_updated";
+      data: {
+        pageId: string;
+        habitatId: string;
+        title: string;
+        versionNumber: number;
+        status: WikiPageStatus;
+      };
+    }
+  | {
+      type: "wiki_page_deleted";
+      data: { pageId: string; habitatId: string; parentId: string | null };
+    }
+  | {
+      type: "wiki_coverage_changed";
+      data: {
+        habitatId: string;
+        watermark: string | null;
+        markerType: WikiCoverageMarkerType;
       };
     };
 

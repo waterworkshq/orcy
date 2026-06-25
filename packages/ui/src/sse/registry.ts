@@ -72,6 +72,10 @@ export const SSE_EVENT_TYPES = [
   "sprint.completed",
   "code_evidence.updated",
   "effort.updated",
+  "wiki_page_created",
+  "wiki_page_updated",
+  "wiki_page_deleted",
+  "wiki_coverage_changed",
 ] as const satisfies readonly SSEEventType[];
 
 export type SSEEventRegistryMissingEvents = AssertNever<
@@ -490,6 +494,10 @@ export const SSE_EVENT_REGISTRY = {
   "sprint.completed": sprintCacheHandler,
   "code_evidence.updated": noopHandler,
   "effort.updated": noopHandler,
+  wiki_page_created: noopHandler,
+  wiki_page_updated: noopHandler,
+  wiki_page_deleted: noopHandler,
+  wiki_coverage_changed: noopHandler,
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
 export function getSSEEventHandler(type: SSEEventType): SSEEventHandler {
