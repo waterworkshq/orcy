@@ -42,17 +42,26 @@ export async function wikiListPages(client: WikiClient, args: Record<string, any
 /**
  * @requires WikiClient
  *
- * Stub — backed by `wikiAugmentationService` (Phase 5, seed 10). The two
- * modes (delta-on-edit for existing pages, chunk-bounded for new pages)
- * will land together. For now the action is registered so the tool surface
- * is complete; agents see the action exists and a clear "not yet
- * implemented" error.
+ * Branches on the input shape: `pageId` → delta mode
+ * (`client.getAuthoringContextForEdit`); otherwise requires `from` + `to` and
+ * uses chunk mode (`client.getAuthoringContextForChunk`). Optional `query`
+ * narrows the chunk-mode result.
  */
-export async function wikiGetAuthoringContext(_client: WikiClient, _args: Record<string, any>) {
-  return {
-    error:
-      "Authoring context is not yet implemented. It will be available after the wiki augmentation service ships in a future update.",
-  };
+export async function wikiGetAuthoringContext(client: WikiClient, args: Record<string, any>) {
+  const habitatId = args.habitatId;
+  if (!habitatId) return { error: "Missing required parameter: habitatId" };
+
+  if (args.pageId) {
+    return client.getAuthoringContextForEdit(habitatId, args.pageId);
+  }
+
+  const from = args.from;
+  const to = args.to;
+  if (!from) return { error: "Missing required parameter: from" };
+  if (!to) return { error: "Missing required parameter: to" };
+  const input: { from: string; to: string; query?: string } = { from, to };
+  if (args.query !== undefined) input.query = args.query;
+  return client.getAuthoringContextForChunk(habitatId, input);
 }
 
 /**
@@ -189,13 +198,11 @@ export async function wikiMarkNoUpdateNeeded(client: WikiClient, args: Record<st
 /**
  * @requires WikiClient
  *
- * Stub — backed by `wikiSchedulerService` (Phase 6, seed 10). The action is
- * registered so the tool surface is complete; agents see the action exists
- * and a clear "not yet implemented" error.
+ * Triggers a one-shot refresh of the wiki coverage gap for the habitat
+ * (ADR-0008). Backed by `wikiSchedulerService.triggerRefresh` over REST.
  */
-export async function wikiTriggerRefresh(_client: WikiClient, _args: Record<string, any>) {
-  return {
-    error:
-      "Wiki refresh is not yet implemented. It will be available after the wiki scheduler service ships in a future update.",
-  };
+export async function wikiTriggerRefresh(client: WikiClient, args: Record<string, any>) {
+  const habitatId = args.habitatId;
+  if (!habitatId) return { error: "Missing required parameter: habitatId" };
+  return client.triggerWikiRefresh(habitatId);
 }

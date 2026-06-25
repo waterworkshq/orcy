@@ -4,6 +4,8 @@ import { WIKI_LINK_TARGET_TYPES } from "@orcy/shared";
 import * as wikiService from "../services/wikiService.js";
 import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
 import * as habitatRepo from "../repositories/board.js";
+import * as augmentation from "../services/wikiAugmentationService.js";
+import * as scheduler from "../services/wikiSchedulerService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, notFound } from "../errors.js";
 
@@ -355,6 +357,149 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
         createdBy,
       );
       reply.code(201).send({ marker });
+    },
+  );
+
+  fastify.get<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>(
+    "/habitats/:habitatId/wiki/pages/:pageId/authoring-context",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>,
+      _reply: FastifyReply,
+    ) => {
+      const context = augmentation.getAuthoringContextForEdit(request.params.pageId);
+      return { context };
+    },
+  );
+
+  fastify.post<{
+    Params: z.infer<typeof paramsWithHabitat>;
+    Body: { from: string; to: string; query?: string };
+  }>(
+    "/habitats/:habitatId/wiki/authoring-context",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof paramsWithHabitat>;
+        Body: { from: string; to: string; query?: string };
+      }>,
+      _reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+      const chunkBody = z
+        .object({
+          from: z.string().min(1),
+          to: z.string().min(1),
+          query: z.string().optional(),
+        })
+        .safeParse(request.body);
+      if (!chunkBody.success) {
+        throw badRequest(chunkBody.error.issues.map((i) => i.message).join("; "));
+      }
+
+      const context = augmentation.getAuthoringContextForChunk(
+        request.params.habitatId,
+        chunkBody.data,
+      );
+      return { context };
+    },
+  );
+
+  fastify.get<{ Params: z.infer<typeof paramsWithHabitat> }>(
+    "/habitats/:habitatId/wiki/cadence",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
+      _reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+      const cadence = scheduler.getCadence(request.params.habitatId);
+      return { cadence };
+    },
+  );
+
+  fastify.put<{
+    Params: z.infer<typeof paramsWithHabitat>;
+    Body: {
+      enabled: boolean;
+      scheduleType: "interval" | "cron";
+      intervalMinutes?: number;
+      cronExpression?: string;
+      timezone?: string;
+    };
+  }>(
+    "/habitats/:habitatId/wiki/cadence",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof paramsWithHabitat>;
+        Body: {
+          enabled: boolean;
+          scheduleType: "interval" | "cron";
+          intervalMinutes?: number;
+          cronExpression?: string;
+          timezone?: string;
+        };
+      }>,
+      _reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+      const cadenceBody = z
+        .object({
+          enabled: z.boolean(),
+          scheduleType: z.enum(["interval", "cron"]),
+          intervalMinutes: z.number().int().min(1).optional(),
+          cronExpression: z.string().min(1).optional(),
+          timezone: z.string().optional(),
+        })
+        .safeParse(request.body);
+      if (!cadenceBody.success) {
+        throw badRequest(cadenceBody.error.issues.map((i) => i.message).join("; "));
+      }
+      const createdBy = request.agent?.id ?? request.user!.id;
+      const cadence = scheduler.setCadence(request.params.habitatId, cadenceBody.data, createdBy);
+      return { cadence };
+    },
+  );
+
+  fastify.delete<{ Params: z.infer<typeof paramsWithHabitat> }>(
+    "/habitats/:habitatId/wiki/cadence",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
+      reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+      scheduler.disableCadence(request.params.habitatId);
+      reply.code(200).send({ success: true });
+    },
+  );
+
+  fastify.post<{ Params: z.infer<typeof paramsWithHabitat> }>(
+    "/habitats/:habitatId/wiki/bootstrap",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
+      _reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+      const createdBy = request.agent?.id ?? request.user!.id;
+      const result = scheduler.triggerBootstrap(request.params.habitatId, { createdBy });
+      return result;
+    },
+  );
+
+  fastify.post<{ Params: z.infer<typeof paramsWithHabitat> }>(
+    "/habitats/:habitatId/wiki/refresh",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
+      _reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+      const createdBy = request.agent?.id ?? request.user!.id;
+      const result = scheduler.triggerRefresh(request.params.habitatId, { createdBy });
+      return result;
     },
   );
 }

@@ -160,10 +160,64 @@ describe("wiki action handlers — delegation to WikiClient", () => {
     expect(client.listWikiPages).toHaveBeenCalledWith("h-1", {});
   });
 
-  it("get_authoring_context returns stub error without calling client", async () => {
-    const result = await wiki.wikiGetAuthoringContext(client, { habitatId: "h-1", pageId: "p-1" });
-    expect(result).toMatchObject({ error: expect.stringMatching(/not yet implemented/i) });
-    expect(client.listWikiPages).not.toHaveBeenCalled();
+  it("get_authoring_context with pageId → client.getAuthoringContextForEdit", async () => {
+    client.getAuthoringContextForEdit.mockResolvedValue({ habitatId: "h-1" } as never);
+    const result = await wiki.wikiGetAuthoringContext(client, {
+      habitatId: "h-1",
+      pageId: "p-1",
+    });
+    expect(client.getAuthoringContextForEdit).toHaveBeenCalledWith("h-1", "p-1");
+    expect(result).toEqual({ habitatId: "h-1" });
+  });
+
+  it("get_authoring_context with from/to → client.getAuthoringContextForChunk", async () => {
+    client.getAuthoringContextForChunk.mockResolvedValue({ habitatId: "h-1" } as never);
+    const result = await wiki.wikiGetAuthoringContext(client, {
+      habitatId: "h-1",
+      from: "2026-01-01T00:00:00.000Z",
+      to: "2026-01-08T00:00:00.000Z",
+    });
+    expect(client.getAuthoringContextForChunk).toHaveBeenCalledWith("h-1", {
+      from: "2026-01-01T00:00:00.000Z",
+      to: "2026-01-08T00:00:00.000Z",
+    });
+    expect(result).toEqual({ habitatId: "h-1" });
+  });
+
+  it("get_authoring_context with from/to + query forwards the query", async () => {
+    client.getAuthoringContextForChunk.mockResolvedValue({ habitatId: "h-1" } as never);
+    await wiki.wikiGetAuthoringContext(client, {
+      habitatId: "h-1",
+      from: "2026-01-01T00:00:00.000Z",
+      to: "2026-01-08T00:00:00.000Z",
+      query: "auth",
+    });
+    expect(client.getAuthoringContextForChunk).toHaveBeenCalledWith("h-1", {
+      from: "2026-01-01T00:00:00.000Z",
+      to: "2026-01-08T00:00:00.000Z",
+      query: "auth",
+    });
+  });
+
+  it("get_authoring_context returns error when habitatId missing", async () => {
+    const result = await wiki.wikiGetAuthoringContext(client, { pageId: "p-1" });
+    expect(result).toEqual({ error: "Missing required parameter: habitatId" });
+  });
+
+  it("get_authoring_context returns error when from missing in chunk mode", async () => {
+    const result = await wiki.wikiGetAuthoringContext(client, {
+      habitatId: "h-1",
+      to: "2026-01-08T00:00:00.000Z",
+    });
+    expect(result).toEqual({ error: "Missing required parameter: from" });
+  });
+
+  it("get_authoring_context returns error when to missing in chunk mode", async () => {
+    const result = await wiki.wikiGetAuthoringContext(client, {
+      habitatId: "h-1",
+      from: "2026-01-01T00:00:00.000Z",
+    });
+    expect(result).toEqual({ error: "Missing required parameter: to" });
   });
 
   it("create_page → client.createWikiPage with title, content, parentId, tags", async () => {
@@ -323,8 +377,15 @@ describe("wiki action handlers — delegation to WikiClient", () => {
     expect(result).toEqual({ error: "Missing required parameter: from" });
   });
 
-  it("trigger_refresh returns stub error without calling client", async () => {
+  it("trigger_refresh → client.triggerWikiRefresh with habitatId", async () => {
+    client.triggerWikiRefresh.mockResolvedValue({ tasksCreated: 1 } as never);
     const result = await wiki.wikiTriggerRefresh(client, { habitatId: "h-1" });
-    expect(result).toMatchObject({ error: expect.stringMatching(/not yet implemented/i) });
+    expect(client.triggerWikiRefresh).toHaveBeenCalledWith("h-1");
+    expect(result).toEqual({ tasksCreated: 1 });
+  });
+
+  it("trigger_refresh returns error when habitatId missing", async () => {
+    const result = await wiki.wikiTriggerRefresh(client, {});
+    expect(result).toEqual({ error: "Missing required parameter: habitatId" });
   });
 });

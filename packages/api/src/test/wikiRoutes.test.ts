@@ -63,7 +63,18 @@ function captureRoutes(): CapturedRoute[] {
         handler,
       });
     }),
-    put: vi.fn(),
+    put: vi.fn((path: string, opts: any, handler: any) => {
+      routes.push({
+        method: "PUT",
+        path,
+        preHandler: Array.isArray(opts?.preHandler)
+          ? opts.preHandler
+          : opts?.preHandler
+            ? [opts.preHandler]
+            : [],
+        handler,
+      });
+    }),
   };
   wikiRoutes(fakeFastify);
   return routes;
@@ -240,8 +251,8 @@ describe("wikiRoutes — registration", () => {
   beforeEach(resetMocks);
   const routes = captureRoutes();
 
-  it("registers exactly 14 routes", () => {
-    expect(routes).toHaveLength(14);
+  it("registers exactly 21 routes", () => {
+    expect(routes).toHaveLength(21);
   });
 
   it.each([
@@ -259,6 +270,13 @@ describe("wikiRoutes — registration", () => {
     ["DELETE", "/habitats/:habitatId/wiki/pages/:pageId/links/:linkId"],
     ["GET", "/habitats/:habitatId/wiki/search"],
     ["POST", "/habitats/:habitatId/wiki/coverage/no-update-needed"],
+    ["GET", "/habitats/:habitatId/wiki/pages/:pageId/authoring-context"],
+    ["POST", "/habitats/:habitatId/wiki/authoring-context"],
+    ["GET", "/habitats/:habitatId/wiki/cadence"],
+    ["PUT", "/habitats/:habitatId/wiki/cadence"],
+    ["DELETE", "/habitats/:habitatId/wiki/cadence"],
+    ["POST", "/habitats/:habitatId/wiki/bootstrap"],
+    ["POST", "/habitats/:habitatId/wiki/refresh"],
   ] as const)("registers %s %s", (method, path) => {
     const r = routes.find((x) => x.method === method && x.path === path);
     expect(r, `${method} ${path} not registered`).toBeDefined();

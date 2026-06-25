@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { effortEntries, tasks, taskTimeRecords, missions, agents } from "../db/schema/index.js";
-import { eq, and, sql, ne, inArray } from "drizzle-orm";
+import { eq, and, sql, ne, inArray, gt, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type {
   EffortEntry,
@@ -443,6 +443,26 @@ export function getPersistedEffortMetricsForTask(
       estimatedMinutes && basis !== "unavailable" ? actualMinutes / estimatedMinutes : null,
     basis,
   };
+}
+
+/**
+ * Returns effort entries in a habitat with `recorded_at > since`, scoped via
+ * `effort_entries.task_id → tasks.mission_id → missions.habitat_id`. Backs the
+ * `wikiAugmentationService` delta + chunk modes (authoring time signal). `limit` defaults to
+ * 100; ordered newest-first by `recorded_at`. No side effects.
+ */
+export function listByHabitatSince(habitatId: string, since: string, limit = 100): EffortEntry[] {
+  const db = getDb();
+  return db
+    .select({ row: effortEntries })
+    .from(effortEntries)
+    .innerJoin(tasks, eq(tasks.id, effortEntries.taskId))
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(and(eq(missions.habitatId, habitatId), gt(effortEntries.recordedAt, since)))
+    .orderBy(desc(effortEntries.recordedAt))
+    .limit(limit)
+    .all()
+    .map((r) => r.row) as EffortEntry[];
 }
 
 export function recalculateTaskEffortMetrics(taskId: string): void {

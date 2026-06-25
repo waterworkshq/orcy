@@ -193,6 +193,9 @@ export function createMockClient() {
     removeWikiPageLink: vi.fn(),
     searchWiki: vi.fn(),
     markNoUpdateNeeded: vi.fn(),
+    getAuthoringContextForEdit: vi.fn(),
+    getAuthoringContextForChunk: vi.fn(),
+    triggerWikiRefresh: vi.fn(),
 
     getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
     withAuditToolContext: vi.fn(),

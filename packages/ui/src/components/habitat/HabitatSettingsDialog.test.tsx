@@ -160,6 +160,7 @@ const mockHabitat: Habitat = {
   codeReviewSettings: null,
   ciCdSettings: null,
   gitWorktreeSettings: null,
+  wikiSettings: null,
   eventRetentionDays: null,
   createdAt: "2024-01-01",
   updatedAt: "2024-01-01",

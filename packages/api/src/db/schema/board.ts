@@ -20,6 +20,7 @@ import type {
   TaskTemplateEntry,
   TaskPriority,
   ScheduleType,
+  WikiSettings,
   WorkflowTemplateDefinition,
 } from "../../models/index.js";
 import { teams } from "./user.js";
@@ -52,6 +53,7 @@ export const habitats = sqliteTable(
     automationSettings: text("automation_settings", {
       mode: "json",
     }).$type<AutomationSettings | null>(),
+    wikiSettings: text("wiki_settings", { mode: "json" }).$type<WikiSettings | null>(),
     teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
     carryOverPolicy: text("carry_over_policy").notNull().default("backlog"),
   },

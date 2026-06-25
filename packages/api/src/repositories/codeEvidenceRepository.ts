@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
-import { habitatCodeRepositories } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { habitatCodeRepositories, codeEvidenceLinks, tasks, missions } from "../db/schema/index.js";
+import { eq, and, gt, desc, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
 import {
@@ -164,4 +164,65 @@ export function deleteById(id: string): boolean {
     throw repositoryDeleteError("codeRepository", err as Error, id);
   }
   return true;
+}
+
+/**
+ * Returns active `code_evidence_links` rows in a habitat with `linked_at > since`, scoped via
+ * `code_evidence_links.target_id → tasks.id` (for `target_type='task'`) or
+ * `code_evidence_links.target_id → missions.id` (for `target_type='mission'`) and
+ * `missions.habitat_id = habitatId`. Backs the `wikiAugmentationService` delta + chunk modes.
+ * `limit` defaults to 100; ordered newest-first by `linked_at`. No side effects.
+ *
+ * The result rows are the raw code-evidence link records (title/description/url/etc.), not the
+ * habitat code-repository metadata. The shape is intentionally permissive — augmentation panels
+ * group these under `evidence[]` regardless of the underlying target type.
+ */
+export function listByHabitatSince(
+  habitatId: string,
+  since: string,
+  limit = 100,
+): Array<Record<string, unknown>> {
+  const db = getDb();
+
+  const taskRows = db
+    .select({ row: codeEvidenceLinks })
+    .from(codeEvidenceLinks)
+    .innerJoin(tasks, eq(tasks.id, codeEvidenceLinks.targetId))
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(
+      and(
+        eq(codeEvidenceLinks.targetType, "task"),
+        eq(missions.habitatId, habitatId),
+        gt(codeEvidenceLinks.linkedAt, since),
+      ),
+    )
+    .orderBy(desc(codeEvidenceLinks.linkedAt))
+    .limit(limit)
+    .all();
+
+  const missionRows = db
+    .select({ row: codeEvidenceLinks })
+    .from(codeEvidenceLinks)
+    .innerJoin(missions, eq(missions.id, codeEvidenceLinks.targetId))
+    .where(
+      and(
+        eq(codeEvidenceLinks.targetType, "mission"),
+        eq(missions.habitatId, habitatId),
+        gt(codeEvidenceLinks.linkedAt, since),
+      ),
+    )
+    .orderBy(desc(codeEvidenceLinks.linkedAt))
+    .limit(limit)
+    .all();
+
+  const combined: Array<Record<string, unknown>> = [
+    ...taskRows.map((r) => r.row as unknown as Record<string, unknown>),
+    ...missionRows.map((r) => r.row as unknown as Record<string, unknown>),
+  ];
+  combined.sort((a, b) => {
+    const aTs = String(a.linkedAt ?? "");
+    const bTs = String(b.linkedAt ?? "");
+    return aTs < bTs ? 1 : aTs > bTs ? -1 : 0;
+  });
+  return combined.slice(0, limit);
 }

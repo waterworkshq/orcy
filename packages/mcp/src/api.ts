@@ -2281,4 +2281,38 @@ export class KanbanApiClient
       input,
     );
   }
+
+  /** Returns the authoring context (delta mode) for an existing page — primitives since the page's lastUpdatedAt. */
+  async getAuthoringContextForEdit(
+    habitatId: string,
+    pageId: string,
+  ): Promise<Record<string, unknown>> {
+    const res = await this.request<{ context: Record<string, unknown> }>(
+      "GET",
+      `/api/habitats/${habitatId}/wiki/pages/${pageId}/authoring-context`,
+    );
+    return res.context;
+  }
+
+  /** Returns the authoring context (chunk mode) for a date range — primitives in [from, to] scoped to the habitat. */
+  async getAuthoringContextForChunk(
+    habitatId: string,
+    input: { from: string; to: string; query?: string },
+  ): Promise<Record<string, unknown>> {
+    const res = await this.request<{ context: Record<string, unknown> }>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/authoring-context`,
+      input,
+    );
+    return res.context;
+  }
+
+  /** Triggers a one-shot refresh of the wiki coverage gap for the habitat (ADR-0008). */
+  async triggerWikiRefresh(habitatId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(
+      "POST",
+      `/api/habitats/${habitatId}/wiki/refresh`,
+      {},
+    );
+  }
 }

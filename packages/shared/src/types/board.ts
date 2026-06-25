@@ -7,6 +7,7 @@ import type {
   CiCdSettings,
   GitWorktreeSettings,
   PrioritizationSettings,
+  WikiSettings,
 } from "./settings.js";
 import type { TaskPriority } from "./task.js";
 import type { MissionStatus } from "./feature.js";
@@ -40,6 +41,7 @@ export interface Habitat {
   gitWorktreeSettings: GitWorktreeSettings | null;
   prioritizationSettings: PrioritizationSettings | null;
   automationSettings: AutomationSettings | null;
+  wikiSettings: WikiSettings | null;
   eventRetentionDays: number | null;
   createdAt: string;
   updatedAt: string;

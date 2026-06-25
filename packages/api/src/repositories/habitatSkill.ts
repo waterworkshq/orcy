@@ -380,6 +380,30 @@ export function getAllSignalsByHabitat(habitatId: string): HabitatSkillSignal[] 
     .map(rowToSignal);
 }
 
+/**
+ * Returns the latest habitat skill signals in a habitat with `updated_at > since`, scoped to
+ * the habitat, ordered by `updated_at DESC` then `strength DESC`. Backs the
+ * `wikiAugmentationService.getAuthoringContextForEdit` and `getAuthoringContextForChunk` flows.
+ * `limit` defaults to 100. No side effects.
+ */
+export function listByHabitatSince(
+  habitatId: string,
+  since: string,
+  limit = 100,
+): HabitatSkillSignal[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(habitatSkillSignals)
+    .where(
+      and(eq(habitatSkillSignals.habitatId, habitatId), gt(habitatSkillSignals.updatedAt, since)),
+    )
+    .orderBy(desc(habitatSkillSignals.updatedAt), desc(habitatSkillSignals.strength))
+    .limit(limit)
+    .all()
+    .map(rowToSignal);
+}
+
 export function deleteSignal(id: string): boolean {
   const db = getDb();
   try {

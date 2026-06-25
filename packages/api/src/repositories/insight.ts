@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { projectInsights } from "../db/schema/index.js";
-import { eq, and, count, desc, sql } from "drizzle-orm";
+import { eq, and, count, desc, sql, gt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { SignalType } from "./pulse.js";
 import {
@@ -141,6 +141,34 @@ export function deactivateInsight(id: string): boolean {
     throw repositoryUpdateError("insight", err as Error, id);
   }
   return true;
+}
+
+/**
+ * Returns active project insights in a habitat with `created_at > since`, ordered newest-first
+ * by `promoted_at`. Backs the `wikiAugmentationService` delta + chunk modes. Only `is_active = 1`
+ * rows are returned (deactivated insights are authoring noise). `limit` defaults to 100. No side
+ * effects.
+ */
+export function listActiveByHabitatSince(
+  habitatId: string,
+  since: string,
+  limit = 100,
+): ProjectInsight[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(projectInsights)
+    .where(
+      and(
+        eq(projectInsights.habitatId, habitatId),
+        eq(projectInsights.isActive, true),
+        gt(projectInsights.createdAt, since),
+      ),
+    )
+    .orderBy(desc(projectInsights.promotedAt))
+    .limit(limit)
+    .all();
+  return rows.map(rowToInsight);
 }
 
 export function getRelevantInsights(

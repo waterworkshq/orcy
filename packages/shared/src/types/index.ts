@@ -60,6 +60,7 @@ export type {
   PrioritizationRule,
   PrioritizationRuleCondition,
   PrioritizationRuleAction,
+  WikiSettings,
 } from "./settings.js";
 
 export type {

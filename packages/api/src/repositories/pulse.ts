@@ -527,6 +527,25 @@ export function getPulseDigest(
   };
 }
 
+/**
+ * Returns the latest pulses in a habitat with `createdAt > since` (delta/chunk mode for
+ * `wikiAugmentationService`). `limit` defaults to 100, ordered newest-first by `createdAt`.
+ * Bypasses the standard `PulseFilters` path because that one couples to a habitat query key
+ * (not a raw ISO timestamp) and the augmentation service needs a stable, no-paging signature.
+ * No side effects.
+ */
+export function listByHabitatSince(habitatId: string, since: string, limit = 100): Pulse[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(pulses)
+    .where(and(eq(pulses.habitatId, habitatId), gt(pulses.createdAt, since)))
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
+    .limit(limit)
+    .all();
+  return rows.map(rowToPulse);
+}
+
 export function getHabitatPulseDigest(
   habitatId: string,
   readerType: "human" | "agent",

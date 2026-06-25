@@ -73,6 +73,23 @@ export interface AutomationSettings {
   executeActions: boolean;
 }
 
+/**
+ * Per-habitat wiki cadence configuration. Stored as a JSON column on `habitats.wiki_settings`
+ * (mirrors the v0.18.1 `automation_settings` precedent). When `enabled` is `true`, the
+ * {@link wikiSchedulerService} registers a `scheduled_tasks` row that runs `runCadence` on the
+ * configured interval. When `false`, the schedule is deregistered. `intervalMinutes` is used for
+ * `scheduleType: "interval"`; `cronExpression` is used for `scheduleType: "cron"`.
+ */
+export interface WikiSettings {
+  enabled: boolean;
+  scheduleType: "interval" | "cron";
+  intervalMinutes?: number;
+  cronExpression?: string;
+  timezone: string;
+  scheduledTaskId?: string;
+  updatedAt: string;
+}
+
 /** A single rule evaluated by the prioritization engine, pairing a {@link PrioritizationRuleCondition} with a {@link PrioritizationRuleAction}. */
 export interface PrioritizationRule {
   id: string;

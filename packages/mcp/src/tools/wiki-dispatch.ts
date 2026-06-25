@@ -72,8 +72,15 @@ export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     note: { type: "string", description: "Optional link note (add_link)" },
     linkId: { type: "string", description: "Wiki page link id (remove_link)" },
-    from: { type: "string", description: "Coverage window start (mark_no_update_needed)" },
-    to: { type: "string", description: "Coverage window end (mark_no_update_needed)" },
+    from: {
+      type: "string",
+      description:
+        "Coverage window start (mark_no_update_needed, get_authoring_context chunk mode)",
+    },
+    to: {
+      type: "string",
+      description: "Coverage window end (mark_no_update_needed, get_authoring_context chunk mode)",
+    },
     reason: {
       type: "string",
       description: "Optional reason / note (mark_no_update_needed)",

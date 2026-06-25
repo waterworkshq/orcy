@@ -619,4 +619,13 @@ export interface WikiClient {
     habitatId: string,
     input: { from: string; to: string; reason?: string },
   ): Promise<{ created: true }>;
+  /** Returns the authoring context for an existing page (delta mode). */
+  getAuthoringContextForEdit(habitatId: string, pageId: string): Promise<Record<string, unknown>>;
+  /** Returns the authoring context for a date range (chunk mode). */
+  getAuthoringContextForChunk(
+    habitatId: string,
+    input: { from: string; to: string; query?: string },
+  ): Promise<Record<string, unknown>>;
+  /** Triggers a one-shot refresh of the wiki coverage gap for the habitat. */
+  triggerWikiRefresh(habitatId: string): Promise<Record<string, unknown>>;
 }
