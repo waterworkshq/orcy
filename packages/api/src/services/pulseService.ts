@@ -7,7 +7,7 @@ import * as taskService from "./tasks/index.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { badRequest, notFound, forbidden } from "../errors.js";
-import { SIGNAL_TYPES, type SignalType } from "@orcy/shared";
+import { findingMetadataSchema, SIGNAL_TYPES, type SignalType } from "@orcy/shared";
 
 export { type SignalType };
 /** Alias of {@link SIGNAL_TYPES} from @orcy/shared, retained for backward compatibility with existing importers. */
@@ -117,9 +117,20 @@ function checkReplyScope(replyToId: string | undefined, habitatId: string, scope
   if (parent.scope !== scope) throw forbidden("Cannot reply across scopes");
 }
 
-function validateMetadata(metadata: Record<string, unknown> | undefined): void {
+function formatFindingMetadataError(error: { errors: Array<{ message: string }> }): string {
+  return error.errors.map((issue) => issue.message).join("; ");
+}
+
+function validateMetadata(signalType: string, metadata: Record<string, unknown> | undefined): void {
   if (metadata && JSON.stringify(metadata).length > MAX_METADATA_BYTES) {
     throw badRequest(`Metadata exceeds maximum size (${MAX_METADATA_BYTES / 1000}KB)`);
+  }
+
+  if (signalType === "finding") {
+    const result = findingMetadataSchema.safeParse(metadata ?? {});
+    if (!result.success) {
+      throw badRequest(`Invalid finding metadata: ${formatFindingMetadataError(result.error)}`);
+    }
   }
 }
 
@@ -220,7 +231,7 @@ export function postMissionPulseSignal(input: {
 
   const { toType, toId } = resolveRecipient(body);
   checkReplyScope(body.replyToId, mission.habitatId, "mission");
-  validateMetadata(body.metadata);
+  validateMetadata(body.signalType, body.metadata);
 
   const pulse = createPulseAndNotify({
     missionId: input.missionId,
@@ -274,7 +285,7 @@ export function postHabitatPulseSignal(input: {
 
   const { toType, toId } = resolveRecipient(body);
   checkReplyScope(body.replyToId, input.habitatId, "habitat");
-  validateMetadata(body.metadata);
+  validateMetadata(body.signalType, body.metadata);
 
   const pulse = createPulseAndNotify({
     habitatId: input.habitatId,

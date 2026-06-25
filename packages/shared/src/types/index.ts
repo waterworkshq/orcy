@@ -296,8 +296,31 @@ export type {
 } from "./daemon.js";
 export { AGENT_TYPES, SESSION_STATUSES } from "./daemon.js";
 
-export type { SignalType } from "./signal.js";
-export { SIGNAL_TYPES } from "./signal.js";
+export type {
+  SignalType,
+  FindingKind,
+  FindingSeverity,
+  SuggestedBucket,
+  StructuredFindingMetadata,
+} from "./signal.js";
+export {
+  SIGNAL_TYPES,
+  FINDING_KINDS,
+  FINDING_SEVERITIES,
+  SUGGESTED_BUCKETS,
+  findingMetadataSchema,
+} from "./signal.js";
+
+export type {
+  WikiPageStatus,
+  WikiCoverageMarkerType,
+  WikiLinkTargetType,
+  WikiPage,
+  WikiPageVersion,
+  WikiPageLink,
+  WikiCoverageMarker,
+} from "./wiki.js";
+export { WIKI_LINK_TARGET_TYPES } from "./wiki.js";
 
 export type { SkillCategory } from "./skill.js";
 export { SKILL_CATEGORIES } from "./skill.js";

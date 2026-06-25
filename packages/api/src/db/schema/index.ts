@@ -86,6 +86,7 @@ export {
 } from "./remote-pod.js";
 export { remoteWebhookDeliveries } from "./remote-webhook.js";
 export { workflows, taskWorkflowGates, failureContexts } from "./workflow.js";
+export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
 export {
   habitatsRelations,
   columnsRelations,

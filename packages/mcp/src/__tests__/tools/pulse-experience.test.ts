@@ -157,6 +157,62 @@ describe("pulsePost — experience signalType", () => {
     expect(client.postPulse.mock.calls[0][1].metadata).toEqual({ kept: "as-is" });
   });
 
+  it("accepts complete structured finding metadata", async () => {
+    await pulsePost(client, {
+      missionId: "m-1",
+      signalType: "finding",
+      subject: "Pre-existing auth bug",
+      metadata: {
+        findingKind: "pre_existing_bug",
+        severity: "high",
+        affectedFiles: ["packages/api/src/auth/token.ts"],
+        blocksCurrentWork: false,
+      },
+    });
+
+    expect(client.postPulse).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects partial structured finding metadata before posting", async () => {
+    await expect(
+      pulsePost(client, {
+        missionId: "m-1",
+        signalType: "finding",
+        subject: "Partial finding",
+        metadata: { findingKind: "pre_existing_bug" },
+      }),
+    ).rejects.toThrow(/severity.*affectedFiles.*blocksCurrentWork/);
+    expect(client.postPulse).not.toHaveBeenCalled();
+  });
+
+  it("accepts free-form finding metadata", async () => {
+    await pulsePost(client, {
+      missionId: "m-1",
+      signalType: "finding",
+      subject: "Free-form finding",
+      metadata: { kept: "as-is" },
+    });
+
+    expect(client.postPulse.mock.calls[0][1].metadata).toEqual({ kept: "as-is" });
+  });
+
+  it("rejects invalid structured finding enum values before posting", async () => {
+    await expect(
+      pulsePost(client, {
+        missionId: "m-1",
+        signalType: "finding",
+        subject: "Invalid finding",
+        metadata: {
+          findingKind: "typo",
+          severity: "high",
+          affectedFiles: ["packages/api/src/auth/token.ts"],
+          blocksCurrentWork: false,
+        },
+      }),
+    ).rejects.toThrow(/findingKind must be one of/);
+    expect(client.postPulse).not.toHaveBeenCalled();
+  });
+
   it("existing non-experience signalTypes still post without metadata injection", async () => {
     await pulsePost(client, {
       missionId: "m-1",
@@ -214,7 +270,7 @@ describe("pulse-dispatch — experience wiring", () => {
   });
 
   it("PULSE_ACTIONS still maps the four base actions", () => {
-    expect(Object.keys(PULSE_ACTIONS).sort()).toEqual(["check", "post", "promote", "react"]);
+    expect(Object.keys(PULSE_ACTIONS).toSorted()).toEqual(["check", "post", "promote", "react"]);
   });
 });
 

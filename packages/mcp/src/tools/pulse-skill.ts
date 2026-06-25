@@ -85,6 +85,55 @@ When the clearance task is completed, the system posts "Blocker cleared: {subjec
 - Check if a signal already exists before posting
 - Quality over quantity — one signal per distinct discovery
 
+## Structured Engineering Findings
+
+During implementation work, post Engineering Findings with structured metadata when you surface a codebase observation such as a pre-existing bug, scope gap, broken integration, undocumented convention, or dead-end approach. When in doubt, post structured. Free-form findings are accepted, but they do not surface in the wiki Findings tab's structured section.
+
+Required metadata fields:
+- findingKind: one of the eight categories below
+- severity: low, medium, high, or critical
+- affectedFiles: file paths involved in the observation
+- blocksCurrentWork: true if the finding blocks the current task, otherwise false
+
+Finding kinds:
+- pre_existing_bug: bug that existed before the current task began
+- scope_gap: required behavior or edge case not covered by the task scope
+- approach_deadend: attempted implementation path that proved wrong
+- undocumented_convention: codebase convention discovered but not documented
+- deferred_fix_candidate: real issue worth fixing later, not now
+- schema_missing: missing type, schema field, table, or validation contract
+- integration_broken: broken boundary between packages, services, tools, or external systems
+- other: useful finding that does not fit another bucket
+
+Optional metadata fields:
+- suggestedBucket: fix_now, defer_to_patch, defer_to_release, document_as_known_limitation, or needs_investigation
+- releaseImpact: release names or versions affected by the finding
+- identifiedDuring: release and phase where the finding was identified
+
+Structured example:
+
+orcy_pulse({
+  action: "post",
+  missionId: "mission-uuid",
+  taskId: "task-uuid",
+  signalType: "finding",
+  subject: "Existing auth token parser rejects JWT v3",
+  body: "The token parser assumes HS256, but the current provider emits RS256. See auth/token.ts L42.",
+  metadata: {
+    findingKind: "pre_existing_bug",
+    severity: "high",
+    affectedFiles: ["auth/token.ts"],
+    blocksCurrentWork: false,
+    suggestedBucket: "defer_to_patch",
+    releaseImpact: ["v0.21"],
+    identifiedDuring: "v0.21 Phase 0"
+  }
+})
+
+Free-form example:
+
+orcy_pulse({ action: "post", missionId: "mission-uuid", signalType: "finding", subject: "Token format changed to JWT v3 with RS256", body: "See auth/token.ts L42." })
+
 ## Examples
 
 Finding: Token format changed to JWT v3 with RS256. See auth/token.ts L42.

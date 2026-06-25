@@ -141,15 +141,25 @@ function applyMigrations(testSqlite: any, migrationFolder: string): void {
 }
 
 function runMigrationSql(testSqlite: any, sqlText: string): void {
+  let fts5Available = true;
   const statements = sqlText
     .split("--> statement-breakpoint")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   for (const stmt of statements) {
+    if (!fts5Available && stmt.includes("wiki_pages_fts")) {
+      continue;
+    }
     try {
       testSqlite.run(stmt);
     } catch (err: any) {
       const msg = String(err?.message ?? err ?? "");
+      if (/no such module.*fts5/i.test(msg)) {
+        // Some SQLite builds, including sql.js in tests, omit FTS5. Base wiki tables still
+        // migrate successfully; FTS-dependent statements are skipped and search uses LIKE.
+        fts5Available = false;
+        continue;
+      }
       if (
         !msg.includes("already exists") &&
         !msg.includes("no such table") &&

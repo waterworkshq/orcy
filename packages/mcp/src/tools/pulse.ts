@@ -1,7 +1,6 @@
-import type { PulseClient } from "../api/interfaces.js";
 import type { KanbanApiClient } from "../api.js";
 import type { Agent, ExperienceCategory } from "@orcy/shared";
-import { SIGNAL_TYPES } from "@orcy/shared";
+import { findingMetadataSchema, SIGNAL_TYPES } from "@orcy/shared";
 
 /** Categories accepted by the `experience` param when `signalType === "experience"`. */
 export const EXPERIENCE_CATEGORIES = [
@@ -79,6 +78,14 @@ export async function pulsePost(
       experience: args.experience,
       timing,
     };
+  }
+
+  if (args.signalType === "finding") {
+    const result = findingMetadataSchema.safeParse(metadata ?? {});
+    if (!result.success) {
+      const message = result.error.errors.map((issue) => issue.message).join("; ");
+      throw new Error(`Invalid finding metadata: ${message}`);
+    }
   }
 
   const isHabitat = args.scope === "habitat";
