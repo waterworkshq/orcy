@@ -285,6 +285,26 @@ _Avoid_: Retry count, failure level
 A workflow-level or per-task configuration that declares what recovery task template to spawn and which agent selector to use when an `on_fail` gate fires. A workflow may declare one default failure handler; individual tasks may override it (including setting `null` to disable recovery for that task specifically).
 _Avoid_: Exception handler, error callback
 
+**Wiki Page**:
+A habitat-scoped, authored, versioned markdown document that synthesizes the habitat's primitives — pulses, signals, insights, skills, evidence, generated material — into long-form knowledge. Authored by a human or agent orcy; never auto-generated. Organized in a tree with optional collection tags. Cites source primitives via wiki page links.
+_Avoid_: Knowledge Base entry, doc, note (when the distinction is authored-synthesis vs. raw capture)
+
+**Wiki Page Link**:
+A citation from a wiki page to a source primitive (mission, task, pulse, insight, skill signal, code evidence, external issue, etc.). Links are citations, not dependencies — dangling links are surfaced at read time rather than enforced by cascade-delete. One page may cite many primitives; one primitive may be cited by many pages.
+_Avoid_: Evidence Link (which records provenance for code artifacts specifically), Attachment, Reference
+
+**Authoring Augmentation**:
+The authoring-time surface that exposes active habitat primitives to a wiki page author as context while writing. On edits, surfaces deltas since the last page version; on initial or ongoing generation, a scheduler spawns time-chunked authoring tasks that an orcy claims and authors. The scheduler never writes content; relevance ranking and embeddings are out of scope.
+_Avoid_: RAG, retrieval system, auto-completion, content generation
+
+**Engineering Finding**:
+A structured codebase observation posted as a pulse with `signalType: "finding"` and required metadata (`findingKind`, `severity`, `affectedFiles`, `blocksCurrentWork`). Engineering findings are intentional observations about the codebase (pre-existing bugs, scope gaps, approach dead-ends, integration breakage) — distinct from candid self-reported Experience Signals. Structured findings opt into wiki surfacing and triage routing; free-form findings without metadata remain backward-compatible but surface in a catch-all section.
+_Avoid_: Bug report (when the observation is an in-system signal, not an external tracker item), finding (when the distinction between structured engineering finding and general pulse finding matters)
+
+**Signal Surface**:
+A reader-facing derived view in the wiki browser that aggregates signals into glanceable patterns — frequency, outcome correlation, time-windowed trends, per-domain filtering. Two surfaces ship in v0.21: Experience Signals (aggregated from `habitat_skill_signals`, privacy-protected to aggregates only) and Engineering Findings (individual + attributed, structured + unstructured). Signal surfaces are live queries over existing tables, not authored pages.
+_Avoid_: Dashboard (when the view is specifically the wiki's signal-derived tabs), report (when the view is live/derived, not generated)
+
 ## Example Dialogue
 
 Dev: "This mission shipped through three tasks. Where is the code evidence?"
