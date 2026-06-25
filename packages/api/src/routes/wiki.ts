@@ -6,6 +6,7 @@ import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as augmentation from "../services/wikiAugmentationService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
+import * as signalSurface from "../services/wikiSignalSurfaceService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, notFound } from "../errors.js";
 
@@ -500,6 +501,50 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       const createdBy = request.agent?.id ?? request.user!.id;
       const result = scheduler.triggerRefresh(request.params.habitatId, { createdBy });
       return result;
+    },
+  );
+
+  fastify.get<{
+    Params: z.infer<typeof paramsWithHabitat>;
+    Querystring: {
+      domain?: string;
+      timeWindow?: string;
+      signalClass?: "experience" | "finding" | "both";
+    };
+  }>(
+    "/habitats/:habitatId/wiki/signal-surface",
+    { preHandler: agentOrHumanAuth },
+    async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof paramsWithHabitat>;
+        Querystring: {
+          domain?: string;
+          timeWindow?: string;
+          signalClass?: "experience" | "finding" | "both";
+        };
+      }>,
+      _reply: FastifyReply,
+    ) => {
+      requireHabitat(request.params.habitatId);
+
+      const parsed = z
+        .object({
+          domain: z.string().optional(),
+          timeWindow: z.string().optional(),
+          signalClass: z.enum(["experience", "finding", "both"]).optional(),
+        })
+        .safeParse(request.query ?? {});
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+
+      const signalClass = parsed.data.signalClass ?? "both";
+      const surface = signalSurface.getSignalSurfaceForAgent(request.params.habitatId, {
+        ...(parsed.data.domain !== undefined ? { domain: parsed.data.domain } : {}),
+        ...(parsed.data.timeWindow !== undefined ? { timeWindow: parsed.data.timeWindow } : {}),
+        signalClass,
+      });
+      return surface;
     },
   );
 }

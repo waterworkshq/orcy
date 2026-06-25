@@ -79,6 +79,47 @@ export interface PulseFilters {
   offset?: number;
 }
 
+/**
+ * Filters for {@link listFindings}. `structured` toggles between structured findings
+ * (`metadata->>'$.findingKind' IS NOT NULL`) and free-form findings (`IS NULL`); `undefined`
+ * returns both. `findingKind` and `severity` apply JSON-extracted equality filters (ADR-0010).
+ * `timeWindow` is a duration string (`'7 days'`, `'30 days'`) parsed into an ISO timestamp.
+ */
+export interface FindingFilters {
+  structured?: boolean;
+  findingKind?: string;
+  severity?: string;
+  timeWindow?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Parses a duration string (e.g. `'7 days'`, `'30 days'`, `'90 days'`) into an ISO timestamp
+ * representing `now - duration`. Returns `null` for unparseable input so the caller can skip
+ * the filter rather than silently widen the window. Mirrors the habitat-skill helper.
+ */
+function parseDurationWindow(
+  timeWindow: string | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!timeWindow) return null;
+  const match = timeWindow
+    .trim()
+    .match(/^(\d+)\s*(s|sec|seconds?|m|min|mins?|minutes?|h|hr|hrs|hours?|d|days?|w|weeks?)$/i);
+  if (!match) return null;
+  const n = parseInt(match[1]!, 10);
+  const unit = match[2]!.toLowerCase();
+  let ms: number;
+  if (unit.startsWith("s")) ms = n * 1000;
+  else if (unit.startsWith("m") && !unit.startsWith("ms")) ms = n * 60 * 1000;
+  else if (unit.startsWith("h")) ms = n * 60 * 60 * 1000;
+  else if (unit.startsWith("d")) ms = n * 24 * 60 * 60 * 1000;
+  else if (unit.startsWith("w")) ms = n * 7 * 24 * 60 * 60 * 1000;
+  else return null;
+  return new Date(now.getTime() - ms).toISOString();
+}
+
 function rowToPulse(row: Record<string, unknown>): Pulse {
   // drizzle's RETURNING (INSERT) and select() can return different key
   // casings — RETURNING uses camelCase (the schema property names) while
@@ -641,4 +682,56 @@ export function getHabitatPulseDigest(
     counts: counts as Record<SignalType, number>,
     highlights,
   };
+}
+
+/**
+ * Returns finding pulses in a habitat, optionally filtered by structure / kind / severity /
+ * recency. Backed by the `pulses` table with `signalType = 'finding'` and
+ * `metadata->>'$.findingKind'` JSON extraction (ADR-0010 layered opt-in convention).
+ *
+ * `structured: true` matches rows where `findingKind IS NOT NULL` (fully-formed engineering
+ * findings); `structured: false` matches free-form findings (`IS NULL`). When `undefined`,
+ * both kinds are returned.
+ *
+ * No privacy gate on findings — individual rows are returned with `createdBy` (`fromType` +
+ * `fromId`) so readers can attribute observations. See ARCHITECTURE.md §11.7.
+ */
+export function listFindings(habitatId: string, filters: FindingFilters = {}): Pulse[] {
+  const db = getDb();
+  const conditions = [eq(pulses.habitatId, habitatId), eq(pulses.signalType, "finding")];
+
+  if (filters.structured === true) {
+    conditions.push(sql`json_extract(${pulses.metadata}, '$.findingKind') IS NOT NULL`);
+  } else if (filters.structured === false) {
+    conditions.push(sql`json_extract(${pulses.metadata}, '$.findingKind') IS NULL`);
+  }
+  if (filters.findingKind !== undefined) {
+    conditions.push(
+      sql`json_extract(${pulses.metadata}, '$.findingKind') = ${filters.findingKind}`,
+    );
+  }
+  if (filters.severity !== undefined) {
+    conditions.push(sql`json_extract(${pulses.metadata}, '$.severity') = ${filters.severity}`);
+  }
+
+  const sinceIso = parseDurationWindow(filters.timeWindow);
+  if (sinceIso) {
+    conditions.push(gt(pulses.createdAt, sinceIso));
+  }
+
+  const where = and(...conditions);
+
+  const limit = filters.limit ?? 100;
+  const offset = filters.offset ?? 0;
+
+  const rows = db
+    .select()
+    .from(pulses)
+    .where(where)
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
+    .limit(limit)
+    .offset(offset)
+    .all();
+
+  return rows.map(rowToPulse);
 }

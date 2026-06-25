@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { habitatSkills, habitatSkillSignals } from "../db/schema/index.js";
-import { eq, and, count, desc, gt, sql } from "drizzle-orm";
+import { eq, and, count, desc, gt, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { SkillCategory } from "@orcy/shared";
 import { SKILL_CATEGORIES } from "@orcy/shared";
@@ -76,6 +76,97 @@ export interface SignalFilters {
   promotedOnly?: boolean;
   limit?: number;
   offset?: number;
+}
+
+/**
+ * Aggregated experience-signal cluster projected for reader-facing surfaces. Same shape across
+ * `wikiSignalSurfaceService.getExperienceSurface` and the `get_signal_surface` MCP action.
+ *
+ * **Privacy boundary (ARCHITECTURE.md §11.7):** individual-level fields (`sourcePulseIds`,
+ * `sourceTaskIds`, `sourceCommentIds`, `corroboratingAgentIds`) are stripped — readers see
+ * aggregate counts (`frequency`, `successfulTasks`, `failedTasks`, `corroboratingAgents`) and
+ * first/last-seen timestamps only. The raw `HabitatSkillSignal` row is the source of truth;
+ * the projection is constructed in {@link listExperienceAggregates}.
+ */
+export interface ExperienceAggregate {
+  id: string;
+  subject: string;
+  summary: string | null;
+  skillCategory: SkillCategory;
+  sourceSignalType: string;
+  strength: number;
+  frequency: number;
+  corroboratingAgents: number;
+  successfulTasks: number;
+  failedTasks: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+/**
+ * Filters for {@link listExperienceAggregates}. `category` narrows within the experience-derived
+ * subset; `timeWindow` is a human-readable duration string (e.g. `'7 days'`, `'30 days'`,
+ * `'90 days'`) parsed into an ISO timestamp by the repo. `domain` is accepted but not yet
+ * implemented — the join through `source_task_ids` JSON is deferred to a later release (see
+ * MEMORY.md).
+ */
+export interface ExperienceAggregateFilters {
+  domain?: string;
+  timeWindow?: string;
+  category?: SkillCategory;
+  limit?: number;
+  offset?: number;
+}
+
+/** Experience-derived skill categories — the union of `EXPERIENCE_CATEGORY_TO_SKILL` values. */
+const EXPERIENCE_SKILL_CATEGORIES: readonly SkillCategory[] = [
+  "pitfall",
+  "domain_knowledge",
+  "anti_patterns",
+  "pattern",
+] as const;
+
+/**
+ * Parses a duration string (e.g. `'7 days'`, `'30 days'`, `'90 days'`) into an ISO timestamp
+ * representing `now - duration`. Returns `null` for unparseable input so the caller can choose
+ * to skip the filter rather than silently widen the window.
+ */
+export function parseDurationWindow(
+  timeWindow: string | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!timeWindow) return null;
+  const match = timeWindow
+    .trim()
+    .match(/^(\d+)\s*(s|sec|seconds?|m|min|mins?|minutes?|h|hr|hrs|hours?|d|days?|w|weeks?)$/i);
+  if (!match) return null;
+  const n = parseInt(match[1]!, 10);
+  const unit = match[2]!.toLowerCase();
+  let ms: number;
+  if (unit.startsWith("s")) ms = n * 1000;
+  else if (unit.startsWith("m") && !unit.startsWith("ms")) ms = n * 60 * 1000;
+  else if (unit.startsWith("h")) ms = n * 60 * 60 * 1000;
+  else if (unit.startsWith("d")) ms = n * 24 * 60 * 60 * 1000;
+  else if (unit.startsWith("w")) ms = n * 7 * 24 * 60 * 60 * 1000;
+  else return null;
+  return new Date(now.getTime() - ms).toISOString();
+}
+
+function rowToExperienceAggregate(row: Record<string, unknown>): ExperienceAggregate {
+  return {
+    id: row.id as string,
+    subject: row.subject as string,
+    summary: (row.summary as string | null) ?? null,
+    skillCategory: row.skillCategory as SkillCategory,
+    sourceSignalType: row.sourceSignalType as string,
+    strength: row.strength as number,
+    frequency: row.frequency as number,
+    corroboratingAgents: row.corroboratingAgents as number,
+    successfulTasks: row.successfulTasks as number,
+    failedTasks: row.failedTasks as number,
+    firstSeenAt: row.firstSeenAt as string,
+    lastSeenAt: row.lastSeenAt as string,
+  };
 }
 
 function rowToSkill(row: Record<string, unknown>): HabitatSkill {
@@ -412,4 +503,60 @@ export function deleteSignal(id: string): boolean {
   } catch (err) {
     throw repositoryDeleteError("habitatSkillSignal", err as Error, id);
   }
+}
+
+/**
+ * Returns aggregated experience clusters for a habitat, filtered to the experience-derived skill
+ * categories (`pitfall`, `domain_knowledge`, `anti_patterns`, `pattern` — the union of
+ * `EXPERIENCE_CATEGORY_TO_SKILL` values). Each row is projected to {@link ExperienceAggregate}:
+ * aggregate counts + timestamps are kept; individual-level fields (`sourcePulseIds`,
+ * `sourceTaskIds`, `sourceCommentIds`, `corroboratingAgentIds`) are intentionally stripped —
+ * see ARCHITECTURE.md §11.7 (privacy boundary).
+ *
+ * Filters: `category` narrows within the experience subset; `timeWindow` accepts a duration
+ * string (`'7 days'` etc.) parsed via {@link parseDurationWindow}; `domain` is accepted for API
+ * stability but is currently a no-op (the JSON `source_task_ids` → `tasks.requiredDomain` join
+ * is deferred to a later release — see MEMORY.md).
+ *
+ * Ordered by `strength DESC, lastSeenAt DESC` — strongest + most recent first.
+ */
+export function listExperienceAggregates(
+  habitatId: string,
+  filters: ExperienceAggregateFilters = {},
+): ExperienceAggregate[] {
+  const db = getDb();
+  const conditions = [
+    eq(habitatSkillSignals.habitatId, habitatId),
+    inArray(habitatSkillSignals.skillCategory, EXPERIENCE_SKILL_CATEGORIES as SkillCategory[]),
+  ];
+
+  if (filters.category) {
+    if (!EXPERIENCE_SKILL_CATEGORIES.includes(filters.category)) {
+      throw new Error(
+        `Invalid experience category: ${filters.category} — must be one of ${EXPERIENCE_SKILL_CATEGORIES.join(", ")}`,
+      );
+    }
+    conditions.push(eq(habitatSkillSignals.skillCategory, filters.category));
+  }
+
+  const sinceIso = parseDurationWindow(filters.timeWindow);
+  if (sinceIso) {
+    conditions.push(gt(habitatSkillSignals.lastSeenAt, sinceIso));
+  }
+
+  const where = and(...conditions);
+
+  const limit = filters.limit ?? 100;
+  const offset = filters.offset ?? 0;
+
+  const rows = db
+    .select()
+    .from(habitatSkillSignals)
+    .where(where)
+    .orderBy(desc(habitatSkillSignals.strength), desc(habitatSkillSignals.lastSeenAt))
+    .limit(limit)
+    .offset(offset)
+    .all();
+
+  return rows.map(rowToExperienceAggregate);
 }

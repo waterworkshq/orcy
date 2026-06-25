@@ -3,6 +3,7 @@ import { wikiRoutes } from "../routes/wiki.js";
 import * as wikiService from "../services/wikiService.js";
 import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
 import * as habitatRepo from "../repositories/board.js";
+import * as signalSurfaceService from "../services/wikiSignalSurfaceService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 interface CapturedRoute {
@@ -173,6 +174,10 @@ const {
   mockPostNoUpdateNeeded: vi.fn(),
 }));
 
+const { mockGetSignalSurfaceForAgent } = vi.hoisted(() => ({
+  mockGetSignalSurfaceForAgent: vi.fn(),
+}));
+
 const { mockListByPage, mockGetByPageAndNumber } = vi.hoisted(() => ({
   mockListByPage: vi.fn(),
   mockGetByPageAndNumber: vi.fn(),
@@ -215,6 +220,10 @@ vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: { publish: mockPublish },
 }));
 
+vi.mock("../services/wikiSignalSurfaceService.js", () => ({
+  getSignalSurfaceForAgent: mockGetSignalSurfaceForAgent,
+}));
+
 function resetMocks() {
   vi.clearAllMocks();
   mockGetHabitatById.mockReturnValue(mockHabitat);
@@ -235,6 +244,11 @@ function resetMocks() {
   mockListByPage.mockReturnValue([mockVersion]);
   mockGetByPageAndNumber.mockReturnValue(mockVersion);
   mockPublish.mockReturnValue(undefined);
+  mockGetSignalSurfaceForAgent.mockReturnValue({
+    experiencePatterns: [],
+    findings: [],
+    unstructuredFindings: [],
+  });
 }
 
 function findRoute(routes: CapturedRoute[], method: string, pathPattern: RegExp): CapturedRoute {
@@ -251,8 +265,8 @@ describe("wikiRoutes — registration", () => {
   beforeEach(resetMocks);
   const routes = captureRoutes();
 
-  it("registers exactly 21 routes", () => {
-    expect(routes).toHaveLength(21);
+  it("registers exactly 22 routes", () => {
+    expect(routes).toHaveLength(22);
   });
 
   it.each([
@@ -277,6 +291,7 @@ describe("wikiRoutes — registration", () => {
     ["DELETE", "/habitats/:habitatId/wiki/cadence"],
     ["POST", "/habitats/:habitatId/wiki/bootstrap"],
     ["POST", "/habitats/:habitatId/wiki/refresh"],
+    ["GET", "/habitats/:habitatId/wiki/signal-surface"],
   ] as const)("registers %s %s", (method, path) => {
     const r = routes.find((x) => x.method === method && x.path === path);
     expect(r, `${method} ${path} not registered`).toBeDefined();
@@ -777,6 +792,82 @@ describe("wikiRoutes — search & coverage", () => {
         {
           params: { habitatId: "habitat-1" },
           body: { from: "x" },
+          agent: { id: "agent-1" },
+          user: null,
+        },
+        makeReply(),
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("wikiRoutes — signal surface", () => {
+  beforeEach(resetMocks);
+  const routes = captureRoutes();
+
+  it("GET /signal-surface calls getSignalSurfaceForAgent with 'both' when no signalClass supplied", async () => {
+    const r = findRoute(routes, "GET", /\/signal-surface$/);
+    mockGetSignalSurfaceForAgent.mockReturnValue({ experiencePatterns: [], findings: [] });
+    const result = await r.handler(
+      {
+        params: { habitatId: "habitat-1" },
+        query: {},
+        body: {},
+        agent: { id: "agent-1" },
+        user: null,
+      },
+      makeReply(),
+    );
+    expect(mockGetSignalSurfaceForAgent).toHaveBeenCalledWith("habitat-1", { signalClass: "both" });
+    expect(result).toEqual({ experiencePatterns: [], findings: [] });
+  });
+
+  it("GET /signal-surface forwards signalClass and timeWindow", async () => {
+    const r = findRoute(routes, "GET", /\/signal-surface$/);
+    mockGetSignalSurfaceForAgent.mockReturnValue({ experiencePatterns: [] });
+    await r.handler(
+      {
+        params: { habitatId: "habitat-1" },
+        query: { signalClass: "experience", timeWindow: "7 days" },
+        body: {},
+        agent: { id: "agent-1" },
+        user: null,
+      },
+      makeReply(),
+    );
+    expect(mockGetSignalSurfaceForAgent).toHaveBeenCalledWith("habitat-1", {
+      timeWindow: "7 days",
+      signalClass: "experience",
+    });
+  });
+
+  it("GET /signal-surface forwards domain filter", async () => {
+    const r = findRoute(routes, "GET", /\/signal-surface$/);
+    mockGetSignalSurfaceForAgent.mockReturnValue({ experiencePatterns: [], findings: [] });
+    await r.handler(
+      {
+        params: { habitatId: "habitat-1" },
+        query: { domain: "backend", signalClass: "both" },
+        body: {},
+        agent: { id: "agent-1" },
+        user: null,
+      },
+      makeReply(),
+    );
+    expect(mockGetSignalSurfaceForAgent).toHaveBeenCalledWith("habitat-1", {
+      domain: "backend",
+      signalClass: "both",
+    });
+  });
+
+  it("GET /signal-surface returns 400 on invalid signalClass", async () => {
+    const r = findRoute(routes, "GET", /\/signal-surface$/);
+    await expect(
+      r.handler(
+        {
+          params: { habitatId: "habitat-1" },
+          query: { signalClass: "garbage" },
+          body: {},
           agent: { id: "agent-1" },
           user: null,
         },
