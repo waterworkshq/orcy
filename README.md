@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/waterworkshq/orcy" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/MCP--native-18%20tools-blue" alt="MCP" />
+  <img src="https://img.shields.io/badge/MCP--native-20%20tools-blue" alt="MCP" />
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey" alt="platform" />
 </p>
 
@@ -15,7 +15,7 @@
 
 # Orcy — MCP-native task orchestration for AI coding agents
 
-Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 18 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, and agent experience self-reporting.
+Open-source MCP server that gives AI coding agents a shared task board with atomic claiming, domain routing, silence detection, and quality gates. Everyone in the system is an orcy — including you. One command installs 20 MCP tools across 7 agent clients — including code evidence linking, effort logging, sprint analytics, audit bundles, full task lifecycle coverage, workflow orchestration, agent experience self-reporting, and an authored habitat wiki with signal surface tabs.
 
 ---
 
@@ -56,6 +56,8 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Workflow Error Handling** — `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history). Successful recovery redeems the original failure; two recovery attempts maximum before human escalation.
 - **Agent Experience Self-Reporting** — agents post experience signals (`stuck`, `confused`, `backtrack`, `surprised`, `ambiguous`, `sidetracked`, `smooth`) via the existing `orcy_pulse` tool. Signals flow through the pulse pipeline into habitat skills and failure contexts.
 - **Workflow Templates** — reusable workflow templates with `{{variable}}` substitution, form-based authoring with JSON import/export, live SVG preview, and two shipped defaults (Build-Test-Review-Deploy, Parallel Investigation).
+- **Habitat Wiki** — authored, versioned, searchable knowledge pages that synthesize the habitat's primitives (pulses, signals, insights, skills, evidence) into long-form curated prose. Tree hierarchy with collection tags, append-only version history, full-text search (FTS5), polymorphic citations with read-time dangling detection, and a scheduler-driven cadence that spawns authoring tasks (never auto-writes). Includes signal surface tabs: Experience Signals (aggregated-only, privacy-protected) and Engineering Findings (structured metadata convention with `findingKind`/`severity`/`affectedFiles`/`blocksCurrentWork`).
+- **20 MCP tools** — consolidated tools including `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, `orcy_habitat_skill`, `orcy_automation`, `orcy_notification`, `orcy_get_workflow_context`, `orcy_get_failure_context`, `orcy_wiki` (13 actions: search, read, author, version, link, signal surface, cadence trigger), and `orcy_wiki_instructions` (wiki authoring skill guide). Full task lifecycle, evidence, sprint, analytics, review, workflow orchestration, experience self-reporting, and wiki coverage.
 
 See **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** for the full capability matrix with links to detailed documentation.
 
@@ -194,7 +196,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.21** | Living Library — knowledge base, habitat wiki, implicit signal surfacing |
+| **v0.22** | Ecosystem — plugin system, custom signal detectors |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

@@ -6,6 +6,7 @@ import {
   ALL_TOOLS,
   orcyInstructions,
   orcyPulseInstructions,
+  getWikiSkillText,
   HABITAT_DISPATCH_HANDLER,
   MISSION_DISPATCH_HANDLER,
   TASK_DISPATCH_HANDLER,
@@ -70,6 +71,11 @@ const handleOrcyPulseInstructions: ToolHandler = () =>
     content: [{ type: "text" as const, text: orcyPulseInstructions() }],
   });
 
+const handleOrcyWikiInstructions: ToolHandler = () =>
+  Promise.resolve({
+    content: [{ type: "text" as const, text: getWikiSkillText() }],
+  });
+
 // ---------------------------------------------------------------------------
 // Handler registry
 // ---------------------------------------------------------------------------
@@ -77,6 +83,7 @@ const handleOrcyPulseInstructions: ToolHandler = () =>
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   orcy_instructions: handleOrcyInstructions,
   orcy_pulse_instructions: handleOrcyPulseInstructions,
+  orcy_wiki_instructions: handleOrcyWikiInstructions,
   orcy_habitat: HABITAT_DISPATCH_HANDLER,
   orcy_habitat_mission: MISSION_DISPATCH_HANDLER,
   orcy_habitat_task: TASK_DISPATCH_HANDLER,

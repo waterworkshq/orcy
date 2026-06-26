@@ -16,6 +16,7 @@ export * from "./template.js";
 export * from "./messaging.js";
 export * from "./pulse.js";
 export * from "./pulse-skill.js";
+export * from "./wiki-skill.js";
 export * from "./subscription.js";
 export * from "./worktree.js";
 export * from "./suggest.js";
@@ -63,6 +64,7 @@ import {
 } from "./habitat-skill-dispatch.js";
 import { ORCY_INITIAL_INSTRUCTIONS_TOOL } from "./instructions.js";
 import { PULSE_SKILL_TOOL } from "./pulse-skill.js";
+import { WIKI_SKILL_TOOL } from "./wiki-skill.js";
 import {
   NOTIFICATION_DISPATCH_TOOL,
   NOTIFICATION_DISPATCH_HANDLER,
@@ -121,6 +123,7 @@ export {
 export const ALL_TOOLS: Tool[] = [
   ORCY_INITIAL_INSTRUCTIONS_TOOL,
   PULSE_SKILL_TOOL,
+  WIKI_SKILL_TOOL,
   HABITAT_DISPATCH_TOOL,
   MISSION_DISPATCH_TOOL,
   TASK_DISPATCH_TOOL,

@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (65 tables)
+### Entity-Relationship Diagram (69 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -1896,6 +1896,104 @@ Structured failure bundle captured when a task fails (`failed`, `rejected`, or `
 | `resolution_kind` | TEXT | CHECK (IN 'redeemed','unrecoverable','superseded','manual_intervention') | How the failure was resolved. `redeemed` = recovery task succeeded, downstream gates fired. |
 
 **Indexes:** `idx_failure_contexts_task(failed_task_id)`, `idx_failure_contexts_workflow(workflow_id)`, `idx_failure_contexts_unresolved(resolved_at)`
+
+---
+
+### Habitat Wiki (v0.21)
+
+The v0.21 Habitat Wiki adds an authored, versioned, searchable knowledge layer with 4 base tables, 1 FTS5 virtual table, and a `wiki_settings` JSON column on `habitats`.
+
+**Migration:** `0035_wiki.sql` (tables + FTS5 + triggers), `0036_wiki_cadence_settings.sql` (`habitats.wiki_settings` column).
+
+#### `wiki_pages`
+
+Current page state with denormalized current-version content for fast reads and FTS indexing.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | TEXT | PRIMARY KEY | UUID |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `parent_id` | TEXT | FK → wiki_pages(id) ON DELETE NO ACTION | Self-reference for tree hierarchy. NO ACTION = refuse delete when children exist. |
+| `slug` | TEXT | NOT NULL | URL-readable segment; unique within siblings (partial unique indexes) |
+| `title` | TEXT | NOT NULL | Denormalized from current version |
+| `content` | TEXT | NOT NULL DEFAULT '' | Denormalized from current version; updated atomically on every saveVersion |
+| `status` | TEXT | NOT NULL DEFAULT 'draft' | `draft` \| `published` |
+| `tags` | TEXT | NOT NULL DEFAULT '[]' | JSON array of collection tags |
+| `current_version_number` | INTEGER | NOT NULL DEFAULT 1 | Points to current version |
+| `created_by` | TEXT | NOT NULL | Orcy ID (human or agent) |
+| `last_updated_by` | TEXT | NOT NULL | Denormalized from latest version |
+| `last_updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | |
+| `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | |
+
+**Indexes:** `idx_wiki_pages_habitat(habitat_id)`, `idx_wiki_pages_parent(parent_id)`, `idx_wiki_pages_habitat_status(habitat_id, status)`, partial unique indexes on slug within siblings.
+
+#### `wiki_page_versions`
+
+Append-only content history. Every save (draft or publish) creates a new row.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | TEXT | PRIMARY KEY | UUID |
+| `page_id` | TEXT | NOT NULL FK → wiki_pages(id) ON DELETE CASCADE | Parent page |
+| `version_number` | INTEGER | NOT NULL | Monotonic per page |
+| `title` | TEXT | NOT NULL | |
+| `content` | TEXT | NOT NULL | |
+| `edit_summary` | TEXT | | Optional author note |
+| `edited_by` | TEXT | NOT NULL | Orcy ID |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | |
+
+**Unique:** `(page_id, version_number)`. **Index:** `idx_wiki_versions_page(page_id)`.
+
+#### `wiki_page_links`
+
+Polymorphic citations (ADR-0007). No FK on target — dangling links detected at read time.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | TEXT | PRIMARY KEY | UUID |
+| `page_id` | TEXT | NOT NULL FK → wiki_pages(id) ON DELETE CASCADE | Citing page |
+| `target_type` | TEXT | NOT NULL | `mission` \| `task` \| `pulse` \| `insight` \| `skill_signal` \| `commit` \| `pull_request` \| `evidence_link` \| `external_issue` |
+| `target_id` | TEXT | NOT NULL | UUID of the target entity |
+| `link_note` | TEXT | | Optional author annotation |
+| `created_by` | TEXT | NOT NULL | Orcy ID |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | |
+
+**Unique:** `(page_id, target_type, target_id)`. **Indexes:** `idx_wiki_links_page(page_id)`, `idx_wiki_links_target(target_type, target_id)`.
+
+#### `wiki_coverage_markers`
+
+Cadence watermark tracking (ADR-0009). Advanced by page-type markers (content authored) or `no_update_needed` markers (adjudicated no content warranted).
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | TEXT | PRIMARY KEY | UUID |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `coverage_from` | TEXT | NOT NULL | ISO timestamp; start of evaluated window |
+| `coverage_to` | TEXT | NOT NULL | ISO timestamp; end of evaluated window |
+| `marker_type` | TEXT | NOT NULL | `page` \| `no_update_needed` |
+| `page_id` | TEXT | FK → wiki_pages(id) ON DELETE CASCADE | Set when `marker_type='page'`; null for `no_update_needed` |
+| `reason` | TEXT | | Optional explanation for no-update markers |
+| `created_by` | TEXT | NOT NULL | Orcy ID |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | |
+
+**Indexes:** `idx_wiki_coverage_habitat(habitat_id)`, `idx_wiki_coverage_page(page_id)`, `idx_wiki_coverage_type(habitat_id, marker_type)`.
+
+Per-habitat watermark query: `SELECT MAX(coverage_to) FROM wiki_coverage_markers WHERE habitat_id = ?`.
+
+#### `wiki_pages_fts` (FTS5 virtual table)
+
+Full-text search index using SQLite FTS5 external-content pattern. First FTS5 use in the codebase.
+
+```sql
+CREATE VIRTUAL TABLE wiki_pages_fts USING fts5(title, content, CONTENT='wiki_pages', CONTENT_ROWID='rowid');
+```
+
+Three triggers (`wiki_pages_ai`, `wiki_pages_ad`, `wiki_pages_au`) keep the index in sync on every insert/update/delete. The migration runner gracefully skips FTS5 statements when the SQLite engine lacks FTS5 support (sql.js test runner); search falls back to LIKE queries.
+
+#### `habitats.wiki_settings` (JSON column)
+
+Per-habitat cadence configuration added via migration `0036_wiki_cadence_settings.sql`. Stores `{ enabled, intervalMinutes, timezone }`. Managed via the wiki cadence REST routes.
 
 ---
 

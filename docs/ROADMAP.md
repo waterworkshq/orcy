@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.20.2 | **Updated:** 2026-06-24
+> **Version:** v0.21.0 | **Updated:** 2026-06-26
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -42,25 +42,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.20.0 | "Orchestrated" — Mission-scoped workflow DAGs with typed gates (`on_complete`, `on_approve`, `on_signal`, `on_manual`, `on_fail`), `all_of`/`any_of`/`n_of` join specs, and conditional edge predicates reusing v0.18 AutomationCondition. Workflow gates layer on the existing claim path as derived constraints — no new task status, no changes to IClaimStrategy or runPollTick. `on_fail` gates spawn recovery tasks with structured FailureContext (artifacts, lifecycle events, experience signals, retry history); successful recovery redeems the original failure and downstream gates fire as if the original had succeeded. Two recovery attempts maximum. Agent experience self-reporting via `orcy_pulse` with `signalType: "experience"` and 7 categories (`stuck\|confused\|backtrack\|surprised\|ambiguous\|sidetracked\|smooth`); signals flow through the existing pulse pipeline into habitat skills and failure contexts. Workflow templates extend `missionTemplates` with a `workflowTemplate` JSON column; two default templates shipped (Build-Test-Review-Deploy, Parallel Investigation). Form-based UI editor with JSON import/export, live SVG preview, workflow DAG visualization on mission detail page, blocked-by-workflow filter, admin metrics dashboard, and cross-pod read-only workflow context routes. |
 | v0.20.1 | "Orchestration Patch" — Wired `automationExecutor.executeActions` into production via `executeAndRecordRuleRun` (consolidated lifecycle: start run → kill-switch check → execute actions → finish run → notify hooks). All event + scan paths now actually fire actions. Added `on_automation` gate type (6th gate type) with `onAutomationRunCompleted` subscriber hook + workflow service gate evaluation + AutomationMatch form fields in workflow editor. Habitat-scoped kill switch (`automationSettings.executeActions`) toggleable via UI, CLI, and env var. Added `anti_patterns` to `SkillCategory` (consolidated 6 duplicate definitions to `@orcy/shared`), remapped `sidetracked → anti_patterns`, separate bucket in skill document generation. |
 | v0.20.2 | "Deepen: Trim Pass-Throughs" — Deleted dead-code `task-movement.ts` (`moveTask`/`reorderTask`, zero production callers) and misleading aliases `assembleHabitatContext`/`assembleCrossHabitatDependencies` in `task-details.ts` (zero import sites). Inlined 3 `watcherService` pass-throughs (`unwatchTask`, `isWatching`, `getWatchers`) directly into their route and service callers via `watcherRepo`. `watcherService` now contains only `watchTask` (validation logic) and `notifyWatchers` (SSE logic). MCP forwarding-handler auto-generation deferred to later patch. |
+| v0.21.0 | "Living Library" — Authored, versioned, searchable Habitat Wiki with tree hierarchy, collection tags, append-only version history, FTS5 full-text search, polymorphic citations with read-time dangling detection (ADR-0007), and a scheduler-driven cadence that spawns authoring tasks (ADR-0008). Coverage watermark with two-mode deletion + no-update-needed markers (ADR-0009). Authoring augmentation surface exposing primitives as authoring context (delta-on-edit, chunk-on-create). Implicit Signal Surfacing: Experience Signals tab (aggregated-only, privacy-protected) and Engineering Findings tab (structured metadata convention with layered Zod opt-in validation, ADR-0010). `orcy_wiki` MCP tool with 13 actions. 4 wiki tables + FTS5 virtual table + 2 migrations. 5 ADRs (0006-0010). |
 
 ---
 
 ## Upcoming
-
-### v0.21.0 — "Living Library"
-
-Add an authored, editable, searchable knowledge layer above Pulse signals, project insights, and dynamic habitat skills.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Knowledge Base / Habitat Wiki | Provides long-form pages, hierarchy, search, versioning, cross-links, mission outcome summaries, and an insights browser |
-| Implicit Signal Surfacing | Surfaces two signal classes as distinct knowledge categories in the habitat wiki: agent experience signals (stuck, confused, etc.) AND engineering findings (structured codebase observations on existing `signalType: "finding"` with metadata convention). Establishes the engineering-finding metadata convention (`findingKind`, `severity`, `affectedFiles`, `blocksCurrentWork`) that v0.23 implementation-finding triage depends on |
-
-**Why here:** Pulse already captures signals and insights; v0.15 generates habitat skills from patterns. The wiki should come after provenance and audit links exist, so knowledge can connect to missions, tasks, code artifacts, and outcomes. Self-reported experience signals from v0.20 need a surface beyond the raw pulse feed — the wiki is the natural home. Engineering findings (already informally posted by agents via `signalType: "finding"`) gain structured metadata so they can surface as queryable, clusterable knowledge rather than buried in handoff markdown.
-
-Planning seeds: `docs/plans/v3/10-knowledge-base-habitat-wiki.md`, `docs/plans/v3/14-implicit-signal-surfacing.md`
-
----
 
 ### v0.22.0 — "Ecosystem"
 

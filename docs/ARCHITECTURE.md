@@ -1214,3 +1214,35 @@ workflowService.handleRedemptionIfNeeded()
 - **`on_automation` active since v0.20.1** — automation executor wired into production; 6 gate types available
 - **`excludeFailedAgent` dropped** — no implementation path without violating ADR-0001's "no new task columns" principle
 - **`sidetracked → pitfall` (stopgap)** — `SkillCategory` enum has no `anti_patterns` value; `anti_patterns` addition tracked for v0.20.1
+
+## Habitat Wiki (v0.21)
+
+The Habitat Wiki adds an authored, versioned, searchable knowledge layer above the habitat's existing primitives (pulses, signals, insights, skills, evidence). Human and agent orcys author markdown pages that synthesize primitives into long-form curated prose. The wiki does not auto-generate — every page is authored (ADR-0006).
+
+### Services (4)
+
+| Service | Responsibility |
+|---|---|
+| `wikiService` | Page CRUD, versioning, links, search, coverage marker management. Touches wiki tables only. |
+| `wikiAugmentationService` | Cross-domain primitive composition for authoring context. Delta-on-edit (changes since last version) and chunk mode (time-windowed). Optional reactive keyword suggest. No RAG or embeddings. |
+| `wikiSchedulerService` | Habitat-wide cadence (cron + agent-triggered), coverage watermark, bootstrap/refresh triggers. Wraps v0.9 `scheduledTaskService`. Scheduler spawns authoring TASKS; never writes content (ADR-0008). |
+| `wikiSignalSurfaceService` | Reader-facing signal tab queries. Experience Signals (aggregated-only, privacy-protected from `habitat_skill_signals`) and Engineering Findings (individual + attributed, from `pulses WHERE signalType='finding'`). |
+
+### Key Design Decisions
+
+- **Authored-only** — every page written by an orcy; auto-write deferred to Learning Loop (seed 12) (ADR-0006)
+- **Polymorphic citations** — single `wiki_page_links` table with `(target_type, target_id)`; dangling links detected at read time (ADR-0007)
+- **Coverage watermark** — two-mode deletion (plain = cadence re-authors, stayGone = marker holds watermark); `no_update_needed` is a first-class coverage primitive (ADR-0009)
+- **Scheduler spawns tasks, never writes** — both cron-driven and agent-triggered paths produce task rows, not page content (ADR-0008)
+- **FTS5 external-content** — virtual table + triggers, first FTS5 use in codebase; LIKE fallback for sql.js test runner
+- **Pure democracy permissions** — any orcy can read, author, publish, delete; deletion healable via cadence (ADR-0009 consequences)
+- **Layered finding-metadata opt-in** — free-form findings always accepted; structured fields trigger Zod validation (ADR-0010)
+- **Privacy boundary** — experience signals aggregated-only in wiki UI/MCP; system-internal consumers (v0.23 triage) access individual signals via service layer
+
+### Data Model
+
+4 base tables (`wiki_pages`, `wiki_page_versions`, `wiki_page_links`, `wiki_coverage_markers`) + 1 FTS5 virtual table (`wiki_pages_fts`) + `habitats.wiki_settings` JSON column. See [DATABASE.md](DATABASE.md) for column details.
+
+### MCP Surface
+
+`orcy_wiki` dispatch tool with 13 actions (search, get_page, list_pages, get_authoring_context, create_page, save_version, restore_version, update_metadata, add_link, remove_link, mark_no_update_needed, trigger_refresh, get_signal_surface) + `orcy_wiki_instructions` skill guide tool. 22 REST routes under `/habitats/:hid/wiki/...`. 4 SSE event types (`wiki_page_created`/`_updated`/`_deleted`/`_coverage_changed`).
