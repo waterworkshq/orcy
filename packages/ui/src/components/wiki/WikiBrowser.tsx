@@ -9,6 +9,7 @@ import {
   Search,
   X,
   AlertTriangle,
+  Plus,
 } from "lucide-react";
 import { wikiApi } from "../../api/domains/wiki.js";
 import { queryKeys } from "../../lib/queryKeys.js";
@@ -16,11 +17,12 @@ import type { WikiPage, WikiPageStatus, WikiSearchHit } from "../../types/index.
 
 interface WikiBrowserProps {
   habitatId: string;
+  onCreatePage?: () => void;
 }
 
 const STATUS_FILTERS: Array<"all" | WikiPageStatus> = ["all", "published", "draft"];
 
-export function WikiBrowser({ habitatId }: WikiBrowserProps) {
+export function WikiBrowser({ habitatId, onCreatePage }: WikiBrowserProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<"all" | WikiPageStatus>("all");
   const [tagFilter, setTagFilter] = useState("");
@@ -75,6 +77,15 @@ export function WikiBrowser({ habitatId }: WikiBrowserProps) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        {onCreatePage && (
+          <button
+            type="button"
+            onClick={onCreatePage}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-[var(--primary)] text-[var(--on-primary)] hover:opacity-90 transition-opacity shrink-0"
+          >
+            <Plus className="h-3.5 w-3.5" /> New Page
+          </button>
+        )}
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--on-surface-variant)]" />
           <input

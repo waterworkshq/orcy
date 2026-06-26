@@ -3,6 +3,8 @@ import { ArrowLeft, BookOpen, Loader2, Signal, FlaskConical, FileText } from "lu
 import { useBoard } from "../lib/useHabitatData.js";
 import { WikiBrowser } from "../components/wiki/WikiBrowser.js";
 import { WikiPageViewer } from "../components/wiki/WikiPageViewer.js";
+import { WikiEditor } from "../components/wiki/WikiEditor.js";
+import { CadencePanel } from "../components/wiki/CadencePanel.js";
 import { ExperienceSignalsTab } from "../components/wiki/ExperienceSignalsTab.js";
 import { EngineeringFindingsTab } from "../components/wiki/EngineeringFindingsTab.js";
 
@@ -20,6 +22,8 @@ export function WikiPage() {
   const { data: boardData } = useBoard(habitatId);
 
   const activePageId = searchParams.get("page");
+  const isEditing = searchParams.get("edit") === "true";
+  const isCreateMode = activePageId === "new";
   const tab = (searchParams.get("tab") as Tab | null) ?? "pages";
 
   if (!habitatId) {
@@ -44,7 +48,31 @@ export function WikiPage() {
   const closePage = () => {
     const params = new URLSearchParams(searchParams);
     params.delete("page");
+    params.delete("edit");
     setSearchParams(params, { replace: true });
+  };
+
+  const openEditor = (pageId: string) => {
+    const params = new URLSearchParams(searchParams);
+    params.set("page", pageId);
+    params.set("edit", "true");
+    params.delete("tab");
+    setSearchParams(params, { replace: false });
+  };
+
+  const openCreate = () => {
+    const params = new URLSearchParams(searchParams);
+    params.set("page", "new");
+    params.delete("edit");
+    params.delete("tab");
+    setSearchParams(params, { replace: false });
+  };
+
+  const viewPage = (pageId: string) => {
+    const params = new URLSearchParams(searchParams);
+    params.set("page", pageId);
+    params.delete("edit");
+    setSearchParams(params, { replace: false });
   };
 
   const habitatName = boardData?.board.name ?? "Habitat";
@@ -67,11 +95,32 @@ export function WikiPage() {
       </div>
 
       <div className="max-w-5xl mx-auto py-6 px-4">
-        {activePageId ? (
-          <WikiPageViewer habitatId={habitatId} pageId={activePageId} onBack={closePage} />
+        {isCreateMode ? (
+          <WikiEditor
+            habitatId={habitatId}
+            mode="create"
+            onDone={(newId) => viewPage(newId)}
+            onCancel={closePage}
+          />
+        ) : activePageId && isEditing ? (
+          <WikiEditor
+            habitatId={habitatId}
+            mode="edit"
+            pageId={activePageId}
+            onDone={(id) => viewPage(id)}
+            onCancel={() => viewPage(activePageId)}
+          />
+        ) : activePageId ? (
+          <WikiPageViewer
+            habitatId={habitatId}
+            pageId={activePageId}
+            onBack={closePage}
+            onEdit={() => openEditor(activePageId)}
+          />
         ) : (
           <>
-            <div role="tablist" className="flex border-b border-[var(--outline-variant)] mb-4">
+            <CadencePanel habitatId={habitatId} />
+            <div role="tablist" className="flex border-b border-[var(--outline-variant)] mb-4 mt-3">
               {TABS.map(({ id, label, icon: Icon }) => {
                 const active = tab === id;
                 return (
@@ -95,7 +144,7 @@ export function WikiPage() {
             </div>
 
             <div role="tabpanel">
-              {tab === "pages" && <WikiBrowser habitatId={habitatId} />}
+              {tab === "pages" && <WikiBrowser habitatId={habitatId} onCreatePage={openCreate} />}
               {tab === "experience" && <ExperienceSignalsTab habitatId={habitatId} />}
               {tab === "findings" && <EngineeringFindingsTab habitatId={habitatId} />}
             </div>
