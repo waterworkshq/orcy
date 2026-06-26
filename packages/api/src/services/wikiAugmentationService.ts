@@ -63,7 +63,9 @@ export function getAuthoringContextForEdit(
     from: page.lastUpdatedAt,
     to: null,
     query: null,
-    pulses: pulseRepo.listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
+    pulses: pulseRepo
+      .listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit)
+      .filter((p) => p.signalType !== "experience"),
     skillSignals: habitatSkillRepo.listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
     insights: insightRepo.listActiveByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
     evidence: codeEvidenceRepository.listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
@@ -114,7 +116,9 @@ export function getAuthoringContextForChunk(
     to: input.to,
     query,
     pulses: filter(
-      pulseRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4),
+      pulseRepo
+        .listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4)
+        .filter((p) => p.signalType !== "experience"),
       (p) => p.createdAt >= input.from && p.createdAt <= input.to && matches(p.subject, p.body),
       limit,
     ),

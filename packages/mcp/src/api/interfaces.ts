@@ -564,15 +564,6 @@ export interface WikiSearchHit {
   rank: number;
 }
 
-/** Search hit row returned by {@link WikiClient.searchWiki} — BM25-ranked excerpt over published pages. */
-export interface WikiSearchHit {
-  id: string;
-  slug: string;
-  title: string;
-  excerpt: string;
-  rank: number;
-}
-
 /** Aggregated experience cluster projected for reader-facing surfaces (ADR-0009-adjacent privacy boundary — see ARCHITECTURE.md §11.7). Individual pulse / task / comment / agent IDs are NOT exposed. */
 export interface WikiExperienceAggregate {
   id: string;

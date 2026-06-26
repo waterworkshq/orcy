@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("../repositories/wikiPage.js", () => ({
+  getById: (id: string) => ({ id, habitatId: "habitat-1" }),
+}));
+
 import { wikiRoutes } from "../routes/wiki.js";
 import * as augmentation from "../services/wikiAugmentationService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
@@ -138,21 +143,31 @@ describe("wikiRoutes — augmentation routes (Phase 5 routes)", () => {
 
     const getAuthoringContextForChunkSpy = vi
       .spyOn(augmentation, "getAuthoringContextForChunk")
-      .mockReturnValue({ habitatId: "habitat-1", from: "f", to: "t" } as never);
+      .mockReturnValue({
+        habitatId: "habitat-1",
+        from: "2024-01-01T00:00:00.000Z",
+        to: "2024-12-31T00:00:00.000Z",
+      } as never);
 
     const request: any = {
       params: { habitatId: "habitat-1" },
-      body: { from: "f", to: "t", query: "q" },
+      body: { from: "2024-01-01T00:00:00.000Z", to: "2024-12-31T00:00:00.000Z", query: "q" },
       agent: { id: "agent-1" },
     };
     const reply = makeReply();
     const result = await route!.handler(request, reply);
     expect(getAuthoringContextForChunkSpy).toHaveBeenCalledWith("habitat-1", {
-      from: "f",
-      to: "t",
+      from: "2024-01-01T00:00:00.000Z",
+      to: "2024-12-31T00:00:00.000Z",
       query: "q",
     });
-    expect(result).toEqual({ context: { habitatId: "habitat-1", from: "f", to: "t" } });
+    expect(result).toEqual({
+      context: {
+        habitatId: "habitat-1",
+        from: "2024-01-01T00:00:00.000Z",
+        to: "2024-12-31T00:00:00.000Z",
+      },
+    });
   });
 
   it("POST /authoring-context throws 400 when from missing", async () => {

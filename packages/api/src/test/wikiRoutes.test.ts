@@ -212,6 +212,11 @@ vi.mock("../repositories/wikiPageVersion.js", () => ({
   getByPageAndNumber: mockGetByPageAndNumber,
 }));
 
+vi.mock("../repositories/wikiPage.js", () => ({
+  getById: (id: string) => ({ id, habitatId: "habitat-1" }),
+  search: mockSearchPages,
+}));
+
 vi.mock("../repositories/board.js", () => ({
   getHabitatById: mockGetHabitatById,
 }));
@@ -297,9 +302,9 @@ describe("wikiRoutes — registration", () => {
     expect(r, `${method} ${path} not registered`).toBeDefined();
   });
 
-  it("every route uses agentOrHumanAuth preHandler", () => {
+  it("every route uses agentOrHumanAuth + requireHabitatAccess preHandler", () => {
     for (const r of routes) {
-      expect(r.preHandler, `${r.method} ${r.path} has no preHandler`).toHaveLength(1);
+      expect(r.preHandler, `${r.method} ${r.path} has no preHandler`).toHaveLength(2);
     }
   });
 });

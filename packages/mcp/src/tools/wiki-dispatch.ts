@@ -90,10 +90,6 @@ export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
     tag: { type: "string", description: "Filter by tag (list_pages)" },
     limit: { type: "number", description: "Result limit (search, list_pages)" },
     offset: { type: "number", description: "Result offset (search, list_pages)" },
-    stayGone: {
-      type: "boolean",
-      description: "Hold the cadence watermark across page delete (delete_page body via REST)",
-    },
     domain: {
       type: "string",
       description:

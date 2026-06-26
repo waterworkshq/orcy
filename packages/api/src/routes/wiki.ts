@@ -8,7 +8,11 @@ import * as augmentation from "../services/wikiAugmentationService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
 import * as signalSurface from "../services/wikiSignalSurfaceService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
+import { requireHabitatAccess } from "../middleware/team.js";
+import * as wikiPageRepo from "../repositories/wikiPage.js";
 import { badRequest, notFound } from "../errors.js";
+
+const preHandler = [agentOrHumanAuth, requireHabitatAccess];
 
 const createPageSchema = z.object({
   title: z.string().min(1),
@@ -42,8 +46,8 @@ const addLinkSchema = z.object({
 });
 
 const noUpdateNeededSchema = z.object({
-  from: z.string().min(1),
-  to: z.string().min(1),
+  from: z.string().datetime(),
+  to: z.string().datetime(),
   reason: z.string().optional(),
 });
 
@@ -77,6 +81,12 @@ function requireHabitat(habitatId: string): void {
   if (!habitat) throw notFound("Habitat not found");
 }
 
+/** Defense-in-depth: verify the page belongs to the habitat in the URL params. */
+function verifyPageHabitat(pageId: string, habitatId: string): void {
+  const page = wikiPageRepo.getById(pageId);
+  if (!page || page.habitatId !== habitatId) throw notFound("Wiki page not found");
+}
+
 /**
  * Wiki routes — pages, versions, links, search, and coverage markers. All routes
  * require an authenticated orcy (human or agent) per ADR-0009 (pure democracy). Mounted
@@ -88,7 +98,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Querystring: z.infer<typeof listPagesQuerySchema>;
   }>(
     "/habitats/:habitatId/wiki/pages",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;
@@ -117,7 +127,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof createPageSchema>;
   }>(
     "/habitats/:habitatId/wiki/pages",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;
@@ -140,11 +150,12 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>(
     "/habitats/:habitatId/wiki/pages/:pageId",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>,
       _reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const page = wikiService.getPage(request.params.pageId);
       return { page };
     },
@@ -155,7 +166,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof updatePageMetadataSchema>;
   }>(
     "/habitats/:habitatId/wiki/pages/:pageId",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitatAndPage>;
@@ -163,6 +174,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       }>,
       _reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const parsed = updatePageMetadataSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
@@ -179,7 +191,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof deletePageSchema>;
   }>(
     "/habitats/:habitatId/wiki/pages/:pageId",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitatAndPage>;
@@ -187,6 +199,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       }>,
       reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const parsed = deletePageSchema.safeParse(request.body ?? {});
       if (!parsed.success) {
         throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
@@ -200,11 +213,12 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>(
     "/habitats/:habitatId/wiki/pages/:pageId/versions",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>,
       _reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const versions = wikiPageVersionRepo.listByPage(request.params.pageId);
       return { versions };
     },
@@ -212,8 +226,9 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: z.infer<typeof paramsWithVersion> }>(
     "/habitats/:habitatId/wiki/pages/:pageId/versions/:n",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (request: FastifyRequest<{ Params: z.infer<typeof paramsWithVersion> }>, _reply) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const version = wikiPageVersionRepo.getByPageAndNumber(
         request.params.pageId,
         request.params.n,
@@ -229,7 +244,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof saveVersionSchema>;
   }>(
     "/habitats/:habitatId/wiki/pages/:pageId/versions",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitatAndPage>;
@@ -237,6 +252,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       }>,
       _reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const parsed = saveVersionSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
@@ -250,8 +266,9 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: z.infer<typeof paramsWithVersion> }>(
     "/habitats/:habitatId/wiki/pages/:pageId/versions/:n/restore",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (request: FastifyRequest<{ Params: z.infer<typeof paramsWithVersion> }>, _reply) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const editedBy = request.agent?.id ?? request.user!.id;
       const page = wikiService.restoreVersion(request.params.pageId, request.params.n, editedBy);
       return { page };
@@ -260,11 +277,12 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>(
     "/habitats/:habitatId/wiki/pages/:pageId/links",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>,
       _reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const links = wikiService.listLinks(request.params.pageId);
       return { links };
     },
@@ -275,7 +293,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof addLinkSchema>;
   }>(
     "/habitats/:habitatId/wiki/pages/:pageId/links",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitatAndPage>;
@@ -283,6 +301,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       }>,
       reply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const parsed = addLinkSchema.safeParse(request.body);
       if (!parsed.success) {
         throw badRequest(parsed.error.issues.map((i) => i.message).join("; "));
@@ -296,8 +315,9 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: z.infer<typeof paramsWithPageLink> }>(
     "/habitats/:habitatId/wiki/pages/:pageId/links/:linkId",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (request: FastifyRequest<{ Params: z.infer<typeof paramsWithPageLink> }>, reply) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       wikiService.removeLink(request.params.pageId, request.params.linkId);
       reply.code(200).send({ success: true });
     },
@@ -308,7 +328,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Querystring: z.infer<typeof searchQuerySchema>;
   }>(
     "/habitats/:habitatId/wiki/search",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;
@@ -336,7 +356,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: z.infer<typeof noUpdateNeededSchema>;
   }>(
     "/habitats/:habitatId/wiki/coverage/no-update-needed",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;
@@ -363,11 +383,12 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>(
     "/habitats/:habitatId/wiki/pages/:pageId/authoring-context",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitatAndPage> }>,
       _reply: FastifyReply,
     ) => {
+      verifyPageHabitat(request.params.pageId, request.params.habitatId);
       const context = augmentation.getAuthoringContextForEdit(request.params.pageId);
       return { context };
     },
@@ -378,7 +399,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Body: { from: string; to: string; query?: string };
   }>(
     "/habitats/:habitatId/wiki/authoring-context",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;
@@ -389,8 +410,8 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       requireHabitat(request.params.habitatId);
       const chunkBody = z
         .object({
-          from: z.string().min(1),
-          to: z.string().min(1),
+          from: z.string().datetime(),
+          to: z.string().datetime(),
           query: z.string().optional(),
         })
         .safeParse(request.body);
@@ -408,7 +429,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: z.infer<typeof paramsWithHabitat> }>(
     "/habitats/:habitatId/wiki/cadence",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
       _reply: FastifyReply,
@@ -430,7 +451,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     };
   }>(
     "/habitats/:habitatId/wiki/cadence",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;
@@ -465,7 +486,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: z.infer<typeof paramsWithHabitat> }>(
     "/habitats/:habitatId/wiki/cadence",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
       reply: FastifyReply,
@@ -478,7 +499,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: z.infer<typeof paramsWithHabitat> }>(
     "/habitats/:habitatId/wiki/bootstrap",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
       _reply: FastifyReply,
@@ -492,7 +513,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post<{ Params: z.infer<typeof paramsWithHabitat> }>(
     "/habitats/:habitatId/wiki/refresh",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{ Params: z.infer<typeof paramsWithHabitat> }>,
       _reply: FastifyReply,
@@ -513,7 +534,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     };
   }>(
     "/habitats/:habitatId/wiki/signal-surface",
-    { preHandler: agentOrHumanAuth },
+    { preHandler },
     async (
       request: FastifyRequest<{
         Params: z.infer<typeof paramsWithHabitat>;

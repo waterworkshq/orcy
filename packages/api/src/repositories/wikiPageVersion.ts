@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { wikiPageVersions, wikiPages } from "../db/schema/index.js";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { WikiPageVersion } from "@orcy/shared";
 import { repositoryCreateError } from "../errors/repository.js";
@@ -78,9 +78,10 @@ export function getByPageAndNumber(pageId: string, versionNumber: number): WikiP
   const row = db
     .select()
     .from(wikiPageVersions)
-    .where(eq(wikiPageVersions.pageId, pageId))
-    .all()
-    .find((r) => r.versionNumber === versionNumber);
+    .where(
+      and(eq(wikiPageVersions.pageId, pageId), eq(wikiPageVersions.versionNumber, versionNumber)),
+    )
+    .get();
   return row ? rowToVersion(row) : null;
 }
 
