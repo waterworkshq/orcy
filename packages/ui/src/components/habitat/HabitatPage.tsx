@@ -31,6 +31,7 @@ import {
   Settings,
   HelpCircle,
   Activity,
+  BookOpen,
   Eye,
   CheckSquare,
   Square,
@@ -322,6 +323,14 @@ export function HabitatPage() {
                 <Button variant="outline" size="sm" onClick={() => navigate("/activity")}>
                   <Activity className="h-4 w-4" />
                   Activity
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/habitats/${habitatId}/wiki`)}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  Wiki
                 </Button>
                 <div className="w-px h-5 bg-outline-variant mx-0.5" />
                 <Button variant="outline" size="sm" onClick={() => setShowDepGraph(true)}>

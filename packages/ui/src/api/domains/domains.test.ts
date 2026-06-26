@@ -37,6 +37,7 @@ describe("UI per-domain API organization", () => {
     "integrationsApi",
     "daemonsApi",
     "skillApi",
+    "wikiApi",
     "codeEvidenceApi",
   ];
 

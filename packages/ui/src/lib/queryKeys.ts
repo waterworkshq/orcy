@@ -222,4 +222,17 @@ export const queryKeys = {
     workflow: (habitatId: string, days: number) =>
       [...queryKeys.metrics.all, "workflow", habitatId, days] as const,
   },
+  wiki: {
+    all: ["wiki"] as const,
+    pages: (habitatId: string) => [...queryKeys.wiki.all, "pages", habitatId] as const,
+    page: (habitatId: string, pageId: string) =>
+      [...queryKeys.wiki.all, "page", habitatId, pageId] as const,
+    versions: (habitatId: string, pageId: string) =>
+      [...queryKeys.wiki.all, "versions", habitatId, pageId] as const,
+    search: (habitatId: string, query: string) =>
+      [...queryKeys.wiki.all, "search", habitatId, query] as const,
+    signalSurface: (habitatId: string, opts?: string) =>
+      [...queryKeys.wiki.all, "signalSurface", habitatId, opts ?? ""] as const,
+    cadence: (habitatId: string) => [...queryKeys.wiki.all, "cadence", habitatId] as const,
+  },
 };

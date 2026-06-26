@@ -494,10 +494,35 @@ export const SSE_EVENT_REGISTRY = {
   "sprint.completed": sprintCacheHandler,
   "code_evidence.updated": noopHandler,
   "effort.updated": noopHandler,
-  wiki_page_created: noopHandler,
-  wiki_page_updated: noopHandler,
-  wiki_page_deleted: noopHandler,
-  wiki_coverage_changed: noopHandler,
+  wiki_page_created: defineSSEHandler<"wiki_page_created">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "wiki_page_created") return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(event.data.habitatId) });
+    },
+  }),
+  wiki_page_updated: defineSSEHandler<"wiki_page_updated">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "wiki_page_updated") return;
+      const { habitatId, pageId } = event.data;
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.versions(habitatId, pageId) });
+    },
+  }),
+  wiki_page_deleted: defineSSEHandler<"wiki_page_deleted">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "wiki_page_deleted") return;
+      const { habitatId, pageId } = event.data;
+      queryClient.removeQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
+    },
+  }),
+  wiki_coverage_changed: defineSSEHandler<"wiki_coverage_changed">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "wiki_coverage_changed") return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.cadence(event.data.habitatId) });
+    },
+  }),
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
 export function getSSEEventHandler(type: SSEEventType): SSEEventHandler {

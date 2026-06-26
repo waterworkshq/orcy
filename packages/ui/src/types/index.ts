@@ -143,6 +143,12 @@ import type {
   RemoteAuditMetadata,
   SignalType,
   SkillCategory,
+  // Wiki types
+  WikiPageStatus,
+  WikiLinkTargetType,
+  WikiPage,
+  WikiPageVersion,
+  WikiPageLink,
   // Workflow types
   GateType,
   JoinMode,
@@ -300,6 +306,11 @@ export type {
   RemoteAuditMetadata,
   SignalType,
   SkillCategory,
+  WikiPageStatus,
+  WikiLinkTargetType,
+  WikiPage,
+  WikiPageVersion,
+  WikiPageLink,
   GateType,
   JoinMode,
   SignalMatch,
@@ -1080,4 +1091,67 @@ export interface SkillSignal {
   failedTasks: number;
   promotedToSkill: boolean;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Wiki view-model interfaces (reader-facing surfaces — seed 10 + seed 14)
+// ---------------------------------------------------------------------------
+
+/** Search hit row returned by the wiki FTS5/LIKE search route. */
+export interface WikiSearchHit {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  rank: number;
+}
+
+/** Wiki page link with read-time dangling flag (ADR-0007 polymorphic citation). */
+export interface WikiPageLinkWithDangling extends WikiPageLink {
+  dangling?: boolean;
+}
+
+/** Wiki page enriched with resolved citations for the page viewer. */
+export interface WikiPageWithLinks extends WikiPage {
+  links: WikiPageLinkWithDangling[];
+}
+
+/**
+ * Aggregated experience cluster projected for reader-facing surfaces.
+ * Individual pulse / task / comment / agent IDs are NOT exposed (privacy
+ * boundary, ARCHITECTURE.md §11.7).
+ */
+export interface WikiExperienceAggregate {
+  id: string;
+  subject: string;
+  summary: string | null;
+  skillCategory: string;
+  sourceSignalType: string;
+  strength: number;
+  frequency: number;
+  corroboratingAgents: number;
+  successfulTasks: number;
+  failedTasks: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+/** Parallel-array signal surface returned by the signal-surface route. */
+export interface WikiSignalSurface {
+  experiencePatterns?: WikiExperienceAggregate[];
+  findings?: Record<string, unknown>[];
+  unstructuredFindings?: Record<string, unknown>[];
+}
+
+/** Coverage watermark + marker-type payload from the cadence status route. */
+export interface WikiCadence {
+  enabled: boolean;
+  scheduleType?: string;
+  intervalMinutes?: number | null;
+  cronExpression?: string | null;
+  timezone?: string;
+  scheduledTaskId?: string | null;
+  updatedAt?: string;
+  watermark?: string | null;
+  coverageGap?: { from: string | null; to: string };
 }

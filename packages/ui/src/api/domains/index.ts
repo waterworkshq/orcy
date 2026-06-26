@@ -31,4 +31,5 @@ export { sprintsApi } from "./sprints.js";
 export { integrationsApi } from "./integrations.js";
 export { daemonsApi } from "./daemons.js";
 export { skillApi } from "./skill.js";
+export { wikiApi } from "./wiki.js";
 export { codeEvidenceApi } from "./codeEvidence.js";

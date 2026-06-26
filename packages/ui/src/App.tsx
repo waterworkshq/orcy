@@ -13,6 +13,7 @@ import { AgentsPage } from "./pages/AgentsPage.js";
 import { RemotePodsPage } from "./pages/RemotePodsPage.js";
 import { ActivityPage } from "./pages/ActivityPage.js";
 import { AdminWorkflowsPage } from "./pages/AdminWorkflowsPage.js";
+import { WikiPage } from "./pages/WikiPage.js";
 import { AppShell } from "./components/layout/AppShell.js";
 import { useHabitatStore } from "./store/habitatStore.js";
 
@@ -68,6 +69,7 @@ export default function App() {
             >
               <Route path="/" element={<HabitatListPage />} />
               <Route path="/habitats/:habitatId" element={<HabitatPage />} />
+              <Route path="/habitats/:habitatId/wiki" element={<WikiPage />} />
               <Route
                 path="/dashboard"
                 element={
