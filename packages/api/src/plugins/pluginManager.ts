@@ -35,6 +35,7 @@ import { pathToFileURL } from "node:url";
 import { logger } from "../lib/logger.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as pulseService from "../services/pulseService.js";
 import * as taskLifecycle from "../services/tasks/task-lifecycle.js";
 import * as commentService from "../services/commentService.js";
@@ -406,6 +407,15 @@ export function getLoadedPlugins(): PluginManifestView[] {
   return result;
 }
 
+/**
+ * Returns the full manifest for a loaded plugin, or `null` if no plugin with
+ * that id is loaded. Used by the enrollment service to look up contributions
+ * and their config schemas (ADR-0016).
+ */
+export function getPluginManifest(pluginId: string): PluginManifest | null {
+  return loadedPlugins.get(pluginId)?.manifest ?? null;
+}
+
 export function getCustomMcpTools(): McpToolDefinition[] {
   const tools: McpToolDefinition[] = [];
   for (const mod of loadedPlugins.values()) {
@@ -724,6 +734,20 @@ function incrementError(pluginKey: string): void {
   if (entry.count >= threshold) {
     quarantineSet.add(pluginKey);
     logger.warn({ pluginKey }, "Plugin quarantined after error threshold");
+    // Emit plugin.quarantined SSE to every habitat with this plugin enrolled so
+    // the loader cache invalidates and the UI can surface quarantine state.
+    try {
+      const enrollments = enrollmentRepo.listByPlugin(pluginKey);
+      const habitats = new Set(enrollments.map((e) => e.habitatId));
+      for (const habitatId of habitats) {
+        sseBroadcaster.publish(habitatId, {
+          type: "plugin.quarantined",
+          data: { habitatId, pluginId: pluginKey },
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, pluginKey }, "Failed to emit plugin.quarantined SSE");
+    }
   }
 }
 

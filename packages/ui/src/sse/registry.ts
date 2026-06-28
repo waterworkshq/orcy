@@ -76,6 +76,9 @@ export const SSE_EVENT_TYPES = [
   "wiki_page_updated",
   "wiki_page_deleted",
   "wiki_coverage_changed",
+  "plugin.enrollment_toggled",
+  "plugin.enrollment_removed",
+  "plugin.quarantined",
 ] as const satisfies readonly SSEEventType[];
 
 export type SSEEventRegistryMissingEvents = AssertNever<
@@ -531,6 +534,9 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.cadence(event.data.habitatId) });
     },
   }),
+  "plugin.enrollment_toggled": noopHandler,
+  "plugin.enrollment_removed": noopHandler,
+  "plugin.quarantined": noopHandler,
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
 export function getSSEEventHandler(type: SSEEventType): SSEEventHandler {

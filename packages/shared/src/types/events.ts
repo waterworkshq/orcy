@@ -257,6 +257,18 @@ export type SSEEvent =
         watermark: string | null;
         markerType: WikiCoverageMarkerType;
       };
+    }
+  | {
+      type: "plugin.enrollment_toggled";
+      data: { habitatId: string; enrollmentId: string; pluginId: string; enabled: boolean };
+    }
+  | {
+      type: "plugin.enrollment_removed";
+      data: { habitatId: string; enrollmentId: string; pluginId: string };
+    }
+  | {
+      type: "plugin.quarantined";
+      data: { habitatId: string; pluginId: string };
     };
 
 /** Subset of {@link SSEEvent} restricted to presence lifecycle updates such as join, leave, refresh, and summary. */

@@ -62,6 +62,7 @@ import { remoteAccessRoutes } from "./routes/remoteAccess.js";
 import { sharedInviteRoutes } from "./routes/sharedInvite.js";
 import { sharedApiRoutes } from "./routes/sharedApi.js";
 import { remoteWebhookRoutes } from "./routes/remoteWebhooks.js";
+import { pluginRoutes } from "./routes/plugins.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -218,6 +219,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(remoteAccessRoutes);
   await f.register(remoteWebhookRoutes);
   await f.register(sharedInviteRoutes);
+  await f.register(pluginRoutes);
 }
 
 await fastify.register(
