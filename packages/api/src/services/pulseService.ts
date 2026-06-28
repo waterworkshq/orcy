@@ -146,7 +146,7 @@ function resolveRecipient(body: PulsePostInput): { toType?: "human" | "agent"; t
   return {};
 }
 
-function broadcastPulse(pulse: pulseRepo.Pulse): void {
+export function broadcastPulse(pulse: pulseRepo.Pulse): void {
   try {
     sseBroadcaster.publish(pulse.habitatId, {
       type: "pulse.signal_posted",
@@ -210,6 +210,14 @@ function validatePostBody(body: PulsePostInput): void {
   }
   if (!VALID_SIGNAL_TYPES.includes(body.signalType as SignalType)) {
     throw badRequest(`Invalid signalType. Must be one of: ${VALID_SIGNAL_TYPES.join(", ")}`);
+  }
+  // The "detected" category is reachable only from the plugin detector capability surface
+  // (PulseWriter.createDetectedSignal) — agents/humans posting via REST/MCP cannot forge it
+  // (ADR-0013). The detector path bypasses this validator entirely (it calls
+  // createPulseAndNotify directly), so reaching this branch with "detected" indicates an
+  // attempted provenance forgery.
+  if (body.signalType === "detected") {
+    throw badRequest("signalType 'detected' is reachable only from plugin detector capability");
   }
 }
 

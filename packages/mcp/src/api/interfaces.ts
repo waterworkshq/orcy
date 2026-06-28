@@ -589,6 +589,8 @@ export interface WikiSignalSurface {
   experiencePatterns?: WikiExperienceAggregate[];
   findings?: WikiFindingPulse[];
   unstructuredFindings?: WikiFindingPulse[];
+  /** Plugin-detector output rows (ADR-0013); only populated when `signalClass === "detected"`. */
+  detectedSignals?: WikiFindingPulse[];
 }
 
 /** Habitat wiki methods used by the `orcy_wiki` MCP dispatch tool (seed 10, v0.21). */
@@ -674,7 +676,7 @@ export interface WikiClient {
     opts?: {
       domain?: string;
       timeWindow?: string;
-      signalClass?: "experience" | "finding" | "both";
+      signalClass?: "experience" | "finding" | "both" | "detected";
     },
   ): Promise<WikiSignalSurface>;
 }

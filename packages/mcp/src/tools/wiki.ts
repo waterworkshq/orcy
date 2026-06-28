@@ -241,7 +241,7 @@ export async function wikiGetSignalSurface(client: WikiClient, args: Record<stri
   const opts: {
     domain?: string;
     timeWindow?: string;
-    signalClass: "experience" | "finding" | "both";
+    signalClass: "experience" | "finding" | "both" | "detected";
   } = { signalClass: "both" };
   if (args.domain !== undefined) opts.domain = args.domain;
   if (args.timeWindow !== undefined) opts.timeWindow = args.timeWindow;
@@ -249,9 +249,10 @@ export async function wikiGetSignalSurface(client: WikiClient, args: Record<stri
     if (
       args.signalClass !== "experience" &&
       args.signalClass !== "finding" &&
-      args.signalClass !== "both"
+      args.signalClass !== "both" &&
+      args.signalClass !== "detected"
     ) {
-      return { error: "Invalid signalClass. Must be one of: experience, finding, both" };
+      return { error: "Invalid signalClass. Must be one of: experience, finding, both, detected" };
     }
     opts.signalClass = args.signalClass;
   }

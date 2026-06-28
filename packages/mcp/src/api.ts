@@ -2338,7 +2338,7 @@ export class KanbanApiClient
     opts?: {
       domain?: string;
       timeWindow?: string;
-      signalClass?: "experience" | "finding" | "both";
+      signalClass?: "experience" | "finding" | "both" | "detected";
     },
   ): Promise<WikiSignalSurface> {
     const params = new URLSearchParams();

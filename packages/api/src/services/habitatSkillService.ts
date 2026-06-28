@@ -19,6 +19,10 @@ const SKILL_CATEGORY_MAP: Record<string, SkillCategory> = {
   warning: "pitfall",
   blocker: "pitfall",
   handoff: "agent_insight",
+  // Plugin-detector output (ADR-0013) lands in its own skill category so the reader can
+  // distinguish "agent self-report" from "plugin regex match" — lower trust weighting in
+  // v0.23 triage depends on this provenance split.
+  detected: "detected_patterns",
 };
 
 /**
@@ -187,8 +191,14 @@ export function ingestFromPulse(opts: {
   fromId: string;
 }): void {
   try {
+    // System-authored pulses (emitAutoSignal, internal markers) are normally excluded from skill
+    // ingestion — they are bookkeeping, not learning signal. The exception is detected signals
+    // (ADR-0013): their `fromType` is "system" (server-injected provenance per PulseWriter) but
+    // they ARE real observations authored by detector plugins and MUST be ingested into the
+    // `detected_patterns` skill category. The signalType-based exemption keeps them flowing
+    // through classifyPulseToCategory → SKILL_CATEGORY_MAP["detected"] → ingestSignal.
     if (
-      opts.fromType === "system" ||
+      (opts.fromType === "system" && opts.signalType !== "detected") ||
       opts.signalType === "question" ||
       opts.signalType === "answer"
     )

@@ -52,10 +52,16 @@ export interface SignalSurfaceForAgent {
   experiencePatterns?: ExperienceAggregate[];
   findings?: Pulse[];
   unstructuredFindings?: Pulse[];
+  /** Plugin-detector output rows (ADR-0013); only populated when `signalClass === "detected"`. */
+  detectedSignals?: Pulse[];
 }
 
-/** Class selector for {@link getSignalSurfaceForAgent}. */
-export type SignalClass = "experience" | "finding" | "both";
+/**
+ * Class selector for {@link getSignalSurfaceForAgent}. `"both"` keeps its v0.21 meaning
+ * (experience + findings); `"detected"` is a separate class that returns only detector output —
+ * provenance-distinct from agent self-report and agent-authored findings (ADR-0013).
+ */
+export type SignalClass = "experience" | "finding" | "both" | "detected";
 
 /** Inputs for {@link getExperienceSurface}. */
 export interface ExperienceSurfaceInput {
@@ -148,7 +154,10 @@ export function getFindingsSurface(
  *
  * - `'experience'`: populates only `experiencePatterns`.
  * - `'finding'`: populates only `findings` + `unstructuredFindings`.
- * - `'both'` (default): populates all three.
+ * - `'both'` (default): populates all three experience/finding arrays.
+ * - `'detected'`: populates only `detectedSignals` (ADR-0013 — plugin-detector output, kept
+ *   categorically separate from `"both"` so the wiki UI can render a distinct "Plugin-Detected
+ *   Patterns" bucket with detector attribution).
  */
 export function getSignalSurfaceForAgent(
   habitatId: string,
@@ -172,6 +181,12 @@ export function getSignalSurfaceForAgent(
     const unstructuredFilters: FindingFilters = { structured: false };
     if (input.timeWindow !== undefined) unstructuredFilters.timeWindow = input.timeWindow;
     result.unstructuredFindings = pulseRepo.listFindings(habitatId, unstructuredFilters);
+  }
+
+  if (signalClass === "detected") {
+    const detectedFilters: { timeWindow?: string } = {};
+    if (input.timeWindow !== undefined) detectedFilters.timeWindow = input.timeWindow;
+    result.detectedSignals = pulseRepo.listDetected(habitatId, detectedFilters);
   }
 
   return result;

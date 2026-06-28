@@ -112,8 +112,9 @@ export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
     },
     signalClass: {
       type: "string",
-      enum: ["experience", "finding", "both"],
-      description: "Which signal sub-surfaces to populate (get_signal_surface); defaults to 'both'",
+      enum: ["experience", "finding", "both", "detected"],
+      description:
+        "Which signal sub-surfaces to populate (get_signal_surface); defaults to 'both' (experience + findings). Use 'detected' for plugin-detector output only (ADR-0013).",
     },
   },
 });

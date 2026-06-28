@@ -1,18 +1,175 @@
 /**
- * Phase 4 lifecycle interceptor seam tests.
+ * Phase 5 runner-fix verification.
  *
- * NOTE: Phase 3's `runPreInterceptors` / `runPostInterceptors` in
- * `pluginManager.ts` (lines 432-468 and 475-489) do not await handler
- * Promises — they cast `Promise<InterceptorResult>` to `InterceptorResult`
- * synchronously, so handler return values (veto reasons, post-signals) are
- * discarded. End-to-end veto/emit assertions therefore cannot pass until
- * that runner is fixed in a follow-up phase. These tests verify what CAN be
- * verified today: that the 7 transition functions call the seams at the
- * right points (pre before DB write, post after emitTransition), that
- * InterceptorVetoError is thrown when a veto is returned, and that the
- * route layer converts it to a 403. The seams are spied directly so the
- * tests do not depend on the Phase 3 runner's (broken) await behaviour.
+ * Phase 3's runner cast `Promise<InterceptorResult>` to `InterceptorResult` synchronously, so
+ * veto never propagated. The Phase 5 fix widens `InterceptorHandler` to accept sync returns and
+ * the runner now checks thenability + uses the sync result directly. These tests load REAL
+ * plugin files (no spies) and assert the end-to-end flow: a synchronous pre-interceptor veto
+ * reaches `claimTask` and produces a 403 + no DB write.
  */
+describe("Lifecycle interceptor runner — real end-to-end (Phase 5 fix)", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    await initTestDb();
+    pluginManager.resetPlugins();
+  });
+
+  afterEach(async () => {
+    pluginManager.resetPlugins();
+    closeDb();
+    if (tmpDir) {
+      const { rm } = await import("node:fs/promises");
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  async function writePlugin(name: string, moduleBody: string): Promise<void> {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    tmpDir = `/tmp/test-runner-${name}-${Date.now()}`;
+    await mkdir(tmpDir, { recursive: true });
+    await writeFile(`${tmpDir}/${name}.mjs`, `export default ${moduleBody};`);
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+  }
+
+  it("a synchronous pre-interceptor returning {allow:false} vetoes claimTask (DB untouched)", async () => {
+    await writePlugin(
+      "veto-pre",
+      `{
+        manifest: {
+          id: 'veto-pre',
+          version: '1.0.0',
+          description: 'veto pre-interceptor',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'pre',
+            event: 'taskClaimed',
+            interceptorId: 'block-claim',
+            requires: [],
+            priority: 0,
+          }],
+        },
+        interceptors: {
+          'block-claim': () => ({ allow: false, reason: 'plugin vetoed', details: 'test' }),
+        },
+      }`,
+    );
+
+    const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+    // Enroll the plugin contribution for this habitat so isEnrolled() returns true.
+    enrollmentRepo.create({
+      habitatId,
+      pluginId: "veto-pre",
+      contributionId: "block-claim",
+      contributionKind: "lifecycleInterceptor",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    // Reset the spy from the outer beforeEach — we want the REAL runner, not the mock.
+    vi.restoreAllMocks();
+
+    expect(() => taskService.claimTask(taskId, agentId)).toThrow(InterceptorVetoError);
+
+    // DB row untouched — the veto short-circuited before the transaction.
+    const after = taskRepo.getTaskById(taskId);
+    expect(after?.status).toBe("pending");
+    expect(after?.assignedAgentId).toBeNull();
+  });
+
+  it("a synchronous pre-interceptor returning {allow:true} permits claimTask", async () => {
+    await writePlugin(
+      "allow-pre",
+      `{
+        manifest: {
+          id: 'allow-pre',
+          version: '1.0.0',
+          description: 'allow pre-interceptor',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'pre',
+            event: 'taskClaimed',
+            interceptorId: 'allow-claim',
+            requires: [],
+            priority: 0,
+          }],
+        },
+        interceptors: {
+          'allow-claim': () => ({ allow: true }),
+        },
+      }`,
+    );
+
+    const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+    enrollmentRepo.create({
+      habitatId,
+      pluginId: "allow-pre",
+      contributionId: "allow-claim",
+      contributionKind: "lifecycleInterceptor",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    vi.restoreAllMocks();
+
+    const result = taskService.claimTask(taskId, agentId);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.task.status).toBe("claimed");
+    }
+  });
+
+  it("an async pre-interceptor (Promise return) fails open — logged but not blocking", async () => {
+    await writePlugin(
+      "async-pre",
+      `{
+        manifest: {
+          id: 'async-pre',
+          version: '1.0.0',
+          description: 'async pre-interceptor (contract violation)',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'pre',
+            event: 'taskClaimed',
+            interceptorId: 'async-claim',
+            requires: [],
+            priority: 0,
+          }],
+        },
+        interceptors: {
+          'async-claim': async () => ({ allow: false, reason: 'would veto but is async' }),
+        },
+      }`,
+    );
+
+    const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+    enrollmentRepo.create({
+      habitatId,
+      pluginId: "async-pre",
+      contributionId: "async-claim",
+      contributionKind: "lifecycleInterceptor",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    vi.restoreAllMocks();
+
+    // The async handler returns a Promise — the sync runner detects thenable, logs, and treats
+    // as allow. The claim succeeds (fail-open) per ADR-0014.
+    const result = taskService.claimTask(taskId, agentId);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.task.status).toBe("claimed");
+    }
+  });
+});
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { initTestDb, closeDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/board.js";
@@ -22,6 +179,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as taskService from "../services/tasks/index.js";
 import * as pluginManager from "../plugins/pluginManager.js";
+import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import { InterceptorVetoError, isAppError } from "../errors.js";
 import { taskLifecycleRoutes } from "../routes/tasks/lifecycle.js";
 import type { FastifyInstance } from "fastify";

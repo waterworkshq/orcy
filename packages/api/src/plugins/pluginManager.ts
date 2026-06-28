@@ -448,18 +448,29 @@ export function runPreInterceptors(
     });
     ctx.transition = { taskId, action: event, habitatId, context };
     try {
-      const result = entry.handler(ctx, ctx.transition) as Promise<InterceptorPreResult>;
-      const settled = result as unknown as InterceptorPreResult;
-      void runRepo.startRun({
-        habitatId,
-        pluginId: entry.pluginId,
-        contributionId: entry.contribution.interceptorId,
-        contributionKind: "lifecycleInterceptor",
-        triggerEventId: taskId,
-        triggerType: `${event}:pre`,
-      });
-      if (settled && settled.allow === false) {
-        return { allow: false, reason: settled.reason, details: settled.details };
+      const raw = entry.handler(ctx, ctx.transition);
+      // Pre-phase handlers are contractually synchronous (ADR-0014). A thenable return is a
+      // contract violation — fail open (treat as allow) and log, so one misbehaving plugin
+      // cannot block transitions by returning a Promise that the synchronous runner would never
+      // await. The post-phase runner (`dispatchInterceptorRun`) correctly awaits async handlers.
+      if (raw && typeof (raw as Promise<unknown>).then === "function") {
+        logger.error(
+          { pluginId: entry.pluginId, contributionId: entry.contribution.interceptorId },
+          "Pre-phase interceptor returned a Promise — pre-phase handlers must be synchronous. Treating as allow.",
+        );
+      } else {
+        const settled = raw as InterceptorPreResult;
+        void runRepo.startRun({
+          habitatId,
+          pluginId: entry.pluginId,
+          contributionId: entry.contribution.interceptorId,
+          contributionKind: "lifecycleInterceptor",
+          triggerEventId: taskId,
+          triggerType: `${event}:pre`,
+        });
+        if (settled && settled.allow === false) {
+          return { allow: false, reason: settled.reason, details: settled.details };
+        }
       }
     } catch (err) {
       logger.error({ err, pluginId: entry.pluginId }, "Pre-interceptor threw");
@@ -584,6 +595,11 @@ async function runDetector(
 function registerDetectorHooks(): void {
   pulseService.onPulseCreated((pulse) => {
     if (!pulse.habitatId) return;
+    // Recursion guard: detected signals are themselves detector OUTPUT. Without this check, a
+    // detected pulse would re-trigger pulseCreated → dispatchDetectionEvent → detector handler
+    // → another detected pulse → infinite loop (ADR-0013). Detected signals are excluded from
+    // detector dispatch; they surface via the wiki "Detected Signals" tab instead.
+    if (pulse.signalType === "detected") return;
     dispatchDetectionEvent("pulseCreated", {
       kind: "pulseCreated",
       sourceId: pulse.id,

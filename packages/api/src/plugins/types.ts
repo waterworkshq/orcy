@@ -35,11 +35,19 @@ export type DetectorHandler = (
   source: EventSourceRef,
 ) => Promise<DetectedSignalInput[]>;
 
-/** Intercepts a task lifecycle transition (pre or post phase). */
+/**
+ * Intercepts a task lifecycle transition (pre or post phase).
+ *
+ * Pre-phase handlers MUST be synchronous (return `InterceptorResult` directly, not a Promise) —
+ * pre-hooks are gate functions and must complete fast so the transition DB transaction is not
+ * delayed. The runner detects thenable returns and fails open (treats them as `{ allow: true }`
+ * with an error log) per ADR-0014. Post-phase handlers SHOULD be async (the runner awaits them
+ * via `dispatchInterceptorRun`).
+ */
 export type InterceptorHandler = (
   ctx: PluginContext,
   transition: TransitionRef,
-) => Promise<InterceptorResult>;
+) => InterceptorResult | Promise<InterceptorResult>;
 
 /** MCP tool handler (validated-only in v0.22.0; dispatch not wired per ADR-0018). */
 export type McpToolHandler = (args: Record<string, unknown>) => Promise<unknown>;

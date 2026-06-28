@@ -11,6 +11,7 @@ import type {
 } from "@orcy/shared";
 import type { PluginContext, PluginLogger, PluginAudit, AuditPayload } from "./types.js";
 import * as pulseRepo from "../repositories/pulse.js";
+import * as pulseService from "../services/pulseService.js";
 import * as taskRepo from "../repositories/task.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/board.js";
@@ -105,7 +106,14 @@ function buildPulseWriter(pluginId: string, runId: string, habitatId: string | n
         detector: pluginId,
         detectorRunId: runId,
       };
-      return pulseRepo.createPulse({
+      // Route through pulseService.createPulseAndNotify (not pulseRepo.createPulse directly) so
+      // pulseCreatedHooks fire (skill ingestion via habitatSkillService.ingestFromPulse, detector
+      // dispatch via pluginManager.registerDetectorHooks) AND broadcastPulse emits the SSE event
+      // (pulse.signal_posted) so the UI invalidates its signal-surface queries. The previous
+      // direct repo write bypassed both side-channels (ADR-0013, ADR-0014). The recursion guard
+      // in registerDetectorHooks skips detected signals to prevent detector→detected→detector
+      // infinite loops.
+      const pulse = pulseService.createPulseAndNotify({
         habitatId: habitatId ?? "",
         scope: "habitat",
         fromType: "system",
@@ -118,6 +126,8 @@ function buildPulseWriter(pluginId: string, runId: string, habitatId: string | n
         metadata: merged,
         isAuto: true,
       });
+      pulseService.broadcastPulse(pulse);
+      return pulse;
     },
   };
 }

@@ -534,7 +534,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Querystring: {
       domain?: string;
       timeWindow?: string;
-      signalClass?: "experience" | "finding" | "both";
+      signalClass?: "experience" | "finding" | "both" | "detected";
     };
   }>(
     "/habitats/:habitatId/wiki/signal-surface",
@@ -545,7 +545,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
         Querystring: {
           domain?: string;
           timeWindow?: string;
-          signalClass?: "experience" | "finding" | "both";
+          signalClass?: "experience" | "finding" | "both" | "detected";
         };
       }>,
       _reply: FastifyReply,
@@ -556,7 +556,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
         .object({
           domain: z.string().optional(),
           timeWindow: z.string().optional(),
-          signalClass: z.enum(["experience", "finding", "both"]).optional(),
+          signalClass: z.enum(["experience", "finding", "both", "detected"]).optional(),
         })
         .safeParse(request.query ?? {});
       if (!parsed.success) {

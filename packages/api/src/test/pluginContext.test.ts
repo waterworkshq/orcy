@@ -17,6 +17,10 @@ vi.mock("../repositories/pulse.js", () => ({
   listByHabitatBetween: (h: unknown, f: unknown, t: unknown) => listByHabitatBetweenMock(h, f, t),
 }));
 
+vi.mock("../sse/broadcaster.js", () => ({
+  sseBroadcaster: { publish: vi.fn() },
+}));
+
 vi.mock("../repositories/task.js", () => ({
   getTaskById: (i: unknown) => getTaskByIdMock(i),
   getTasksByHabitatId: (h: unknown, f?: unknown) => getTasksByHabitatIdMock(h, f),

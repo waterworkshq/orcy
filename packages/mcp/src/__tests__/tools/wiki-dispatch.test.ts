@@ -448,7 +448,7 @@ describe("wiki action handlers — delegation to WikiClient", () => {
       signalClass: "garbage",
     });
     expect(result).toEqual({
-      error: "Invalid signalClass. Must be one of: experience, finding, both",
+      error: "Invalid signalClass. Must be one of: experience, finding, both, detected",
     });
     expect(client.getSignalSurface).not.toHaveBeenCalled();
   });

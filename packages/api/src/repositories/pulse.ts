@@ -738,3 +738,38 @@ export function listFindings(habitatId: string, filters: FindingFilters = {}): P
 
   return rows.map(rowToPulse);
 }
+
+/**
+ * Lists plugin-detector signals (`signalType:"detected"`) for the wiki signal-surface "Detected
+ * Signals" sub-bucket (ADR-0013). Detector attribution is preserved via `metadata.detector`
+ * (pluginId) — no privacy gate, detectors are plugin-attributed not agent-candid. `timeWindow`
+ * is a duration string parsed into an ISO timestamp lower bound.
+ */
+export function listDetected(
+  habitatId: string,
+  filters: { timeWindow?: string; limit?: number; offset?: number } = {},
+): Pulse[] {
+  const db = getDb();
+  const conditions = [eq(pulses.habitatId, habitatId), eq(pulses.signalType, "detected")];
+
+  const sinceIso = parseDurationWindow(filters.timeWindow);
+  if (sinceIso) {
+    conditions.push(gt(pulses.createdAt, sinceIso));
+  }
+
+  const where = and(...conditions);
+
+  const limit = filters.limit ?? 100;
+  const offset = filters.offset ?? 0;
+
+  const rows = db
+    .select()
+    .from(pulses)
+    .where(where)
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
+    .limit(limit)
+    .offset(offset)
+    .all();
+
+  return rows.map(rowToPulse);
+}
