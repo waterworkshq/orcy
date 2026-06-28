@@ -2,6 +2,77 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.21.5 — 2026-06-28
+
+### Bug Fixes
+
+#### align client contracts and complete SSE cache invalidation ([`ceb9e6c`](https://github.com/waterworkshq/orcy/commit/ceb9e6cecab58b38e99e4b391827c876b1102139))
+
+1. The wiki UI and MCP client surfaces drifted from the REST contracts, and SSE
+2. cache invalidation left search and signal-surface tabs stale. Five coupled
+3. client-contract fixes plus docs reconciliation.
+
+5. 1. UI enable-cadence omitted the required `scheduleType` (HIGH)
+6. CadencePanel's enable mutation sent {enabled, intervalMinutes, timezone}
+7. but the PUT /wiki/cadence route requires scheduleType ("interval"|"cron"),
+8. so "Enable cadence" always failed backend validation with a 400. Send
+9. scheduleType: "interval" and widen the UI api client's setCadence body type
+10. to include scheduleType/cronExpression.
+
+12. 2. UI no-update form sent date-only values (WARNING)
+13. The "Mark period as no-update-needed" form bound `type="date"` inputs
+14. (YYYY-MM-DD) straight to markNoUpdateNeeded, whose backend schema is
+15. z.string().datetime() — so posting the marker always failed validation.
+16. Convert from -> start-of-day and to -> end-of-day ISO datetimes before
+17. sending.
+
+19. 3. UI publish-on-create was fire-and-forget (WARNING)
+20. Creating a "published" page first created a draft, then fire-and-forgot an
+21. updatePageMetadata({status}) whose errors were swallowed — the user saw
+22. "Page created" while the page silently stayed draft, and cache invalidation
+23. raced the second request. Include status in the createPage body (the backend
+24. schema already supports it) and drop the second call. Also accept status on
+25. the UI api client createPage body type.
+
+27. 4. Metadata updates did not broadcast wiki_page_updated (WARNING)
+28. updatePageMetadata only emitted wiki_page_updated on publish/unpublish, so
+29. tag and parent changes never reached other clients — their wiki trees/tags
+30. stayed stale. Emit wiki_page_updated on ANY successful metadata patch;
+31. wiki_coverage_changed remains gated to status transitions (only those move
+32. the watermark).
+
+34. 5. SSE search + signal-surface invalidation gaps (WARNING)
+35. wiki_page_created/_updated/_deleted invalidated page/list/version caches but
+36. not search results; pulse.signal_posted did not invalidate the wiki
+37. signal-surface tabs (Experience Signals + Engineering Findings are live
+38. queries over pulses and habitat_skill_signals). Invalidate the
+39. ["wiki","search",habitatId] prefix on wiki mutations and the
+40. ["wiki","signalSurface",habitatId] prefix from pulse.signal_posted.
+
+42. 6. MCP return-shape mismatches (WARNING)
+43. WikiClient typed deleteWikiPage/removeWikiPageLink as {deleted: true} and
+44. markNoUpdateNeeded as {created: true}, but the REST routes return
+45. {success: true} and {marker} respectively — consumers/tests got different
+46. JSON at runtime than the types promised. Align the WikiClient interface and
+47. KanbanApiClient to return {success: true} for the two deletes and the
+48. unwrapped WikiCoverageMarker for markNoUpdateNeeded (REST returns {marker};
+49. the client unwraps it, consistent with the other wiki methods).
+
+51. 7. Docs reconciliation (SUGGESTION)
+52. Remove the stale "18 MCP tools" README bullet (the current 20-tool bullet
+53. below it is authoritative). Update ARCHITECTURE's workflow section: the
+54. `sidetracked -> pitfall` stopgap note is obsolete now that `anti_patterns`
+55. ships in SkillCategory (v0.20.1); document `sidetracked -> anti_patterns`.
+56. Also fix the long-standing stale workflowEditorUtils test that asserted
+57. SELECTABLE_GATE_TYPES has 5 entries without on_automation, when v0.20.1
+58. shipped on_automation as the 6th — the suite is now fully green.
+
+60. 3509 API tests pass, 581 MCP tests pass, 1479 UI tests pass (the pre-existing
+61. workflowEditorUtils failure is now resolved — full green), typecheck clean
+62. across api/mcp/ui, lint 0 errors.
+
+
+
 ## 0.21.4 — 2026-06-28
 
 ### Bug Fixes
@@ -93,55 +164,3 @@
 45. no-future check; a malformed or future marker could advance/hold the
 46. watermark incorrectly. Reuse the new validateCoverageWindow helper to
 47. reject unparseable bounds, from > to, and future  with badRequest.
-
-
-
-## 0.21.2 — 2026-06-28
-
-### Bug Fixes
-
-#### isolate the wiki graph per habitat ([`2254bbe`](https://github.com/waterworkshq/orcy/commit/2254bbe1abcd00ec53212eba4f3932006c349715))
-
-1. The wiki page tree and polymorphic citation surface leaked across
-2. habitats in two ways, and the Drizzle schema was out of sync with the
-3. slug uniqueness the migration actually enforces.
-
-5. 1. Parent page validation (createPage + updatePageMetadata)
-6. parentId was accepted without verifying the parent belongs to the same
-7. habitat or that the move does not create a cycle. A caller with access
-8. to habitat A could attach a page to a page id from habitat B, creating
-9. cross-habitat FK coupling and potential delete blockers; a reparent
-10. could also create a descendant cycle that makes the tree disappear in
-11. buildTree. Add a validateParent helper that throws badRequest when the
-12. parent belongs to a different habitat or when parentId === pageId
-13. (self-parent), notFound when the parent is missing, and conflict when
-14. the proposed parent is a descendant of the page being moved (detected
-15. via an isAncestorOf walk up the parent chain with a pre-existing-cycle
-16. guard and a depth cap). Wired into both createPage and
-17. updatePageMetadata before any DB write.
-
-19. 2. Habitat-aware link dangling resolution (resolveDangling)
-20. resolveDangling checked only target table existence (SELECT id FROM
-21. <table> WHERE id IN (...)), not same-habitat ownership. A wiki page in
-22. habitat A could cite another habitat's mission/task/pulse and read it
-23. back as dangling: false, leaking target existence. resolveDangling now
-24. takes the citing page's habitatId and issues one habitat-scoped
-25. existence query per target type, so a cross-habitat target reads as
-26. dangling: true. Per-type habitat join paths: mission/pulse/insight/
-27. skill_signal/external_issue use a direct habitat_id column; task joins
-28. missions; commit and pull_request join habitat_code_repositories on
-29. repository_id (NULL repository_id collapses to dangling); evidence_link
-30. joins through code_evidence_links.target_type/target_id to the
-31. underlying task or mission's habitat. ADR-0007's citation model is
-32. preserved — addLink still does not validate target existence at insert
-33. time; the privacy/isolation boundary is enforced at read, same as
-34. dangling detection always has been. getPage and listLinks now pass the
-35. page's habitatId through.
-
-37. 3. Drizzle slug-index parity (schema/wiki.ts)
-38. 0035_wiki.sql ships two partial unique slug indexes
-39. (idx_wiki_pages_slug_root for parent_id IS NULL, idx_wiki_pages_slug_child
-40. for parent_id IS NOT NULL) but the Drizzle schema definition omitted
-41. them, leaving schema-as-source-of-truth out of sync with the actual DB.
-42. Add both via uniqueIndex(...).where(...) (drizzle-orm 0.45.2 supports
-43. partial indexes) so the schema metadata matches the migration.
