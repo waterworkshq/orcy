@@ -98,12 +98,29 @@ export function listByPage(pageId: string): WikiPageLink[] {
 export type WikiPageLinkWithDangling = WikiPageLink & { dangling: boolean };
 
 /**
- * Batch-resolves which link targets still exist in their source tables and attaches a `dangling: boolean`
- * flag to each link. Groups by `targetType` and issues one `SELECT id FROM <table> WHERE id IN (...)` per
- * type so the per-link cost stays low regardless of fan-out. Returns the input array shape (order preserved)
- * with the boolean attached.
+ * Batch-resolves which link targets still exist **in the same habitat as the citing page** and
+ * attaches a `dangling: boolean` flag to each link. Groups by `targetType` and issues one
+ * habitat-aware `SELECT id ... WHERE habitat = ? AND id IN (...)` per type so:
+ *
+ * - a link to a target that was deleted → `dangling: true` (same as before)
+ * - a link to a target that exists in a **different** habitat → `dangling: true` (NEW — closes
+ *   the cross-habitat existence-leak where a page in habitat A could confirm a target exists in
+ *   habitat B via `dangling: false`)
+ *
+ * Per-type habitat join paths (per ADR-0007 + ARCHITECTURE §2.1):
+ * - `mission`, `pulse`, `insight`, `skill_signal`, `external_issue` → direct `habitat_id` column
+ * - `task` → join `missions` on `tasks.mission_id`
+ * - `commit`, `pull_request` → join `habitat_code_repositories` on `repository_id`
+ * - `evidence_link` → join through `code_evidence_links.target_type`/`target_id` to the
+ *   underlying task/mission's habitat
+ *
+ * Returns the input array shape (order preserved) with the boolean attached. Targets whose
+ * `repository_id` is NULL (e.g. an orphan commit) are treated as not-in-habitat → `dangling: true`.
  */
-export function resolveDangling(links: WikiPageLink[]): WikiPageLinkWithDangling[] {
+export function resolveDangling(
+  links: WikiPageLink[],
+  habitatId: string,
+): WikiPageLinkWithDangling[] {
   if (links.length === 0) return [];
 
   const db = getDb();
@@ -116,23 +133,56 @@ export function resolveDangling(links: WikiPageLink[]): WikiPageLinkWithDangling
 
   const foundByTypeAndId = new Map<string, Set<string>>();
   for (const [type, group] of byType) {
-    const table = TARGET_TYPE_TO_TABLE[type];
     const ids = [...new Set(group.map((l) => l.targetId))];
     if (ids.length === 0) continue;
-    const rows = db.all<{ id: string }>(
-      sql`SELECT id FROM ${sql.raw(table)} WHERE id IN (${sql.join(
-        ids.map((id) => sql`${id}`),
-        sql`, `,
-      )})`,
-    );
-    const set = new Set(rows.map((r) => r.id));
-    foundByTypeAndId.set(type, set);
+    const rows = db.all<{ id: string }>(habitatScopedQuery(type, habitatId, ids));
+    foundByTypeAndId.set(type, new Set(rows.map((r) => r.id)));
   }
 
   return links.map((link) => {
     const set = foundByTypeAndId.get(link.targetType);
     return { ...link, dangling: !set || !set.has(link.targetId) };
   });
+}
+
+/**
+ * Builds the habitat-scoped existence query for one `targetType`. Returns the ids of targets that
+ * exist AND belong to `habitatId`. Uses drizzle's `sql` template so values are parameterised; the
+ * table/column names are injected via `sql.raw` (they come from a static allowlist, not user input).
+ */
+function habitatScopedQuery(type: WikiLinkTargetType, habitatId: string, ids: string[]) {
+  const idList = sql.join(
+    ids.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  switch (type) {
+    case "mission":
+      return sql`SELECT id FROM ${sql.raw("missions")} WHERE habitat_id = ${habitatId} AND id IN (${idList})`;
+    case "task":
+      return sql`SELECT t.id AS id FROM ${sql.raw("tasks")} t JOIN ${sql.raw("missions")} m ON t.mission_id = m.id WHERE m.habitat_id = ${habitatId} AND t.id IN (${idList})`;
+    case "pulse":
+      return sql`SELECT id FROM ${sql.raw("pulses")} WHERE habitat_id = ${habitatId} AND id IN (${idList})`;
+    case "insight":
+      return sql`SELECT id FROM ${sql.raw("project_insights")} WHERE habitat_id = ${habitatId} AND id IN (${idList})`;
+    case "skill_signal":
+      return sql`SELECT id FROM ${sql.raw("habitat_skill_signals")} WHERE habitat_id = ${habitatId} AND id IN (${idList})`;
+    case "external_issue":
+      return sql`SELECT id FROM ${sql.raw("external_issue_links")} WHERE habitat_id = ${habitatId} AND id IN (${idList})`;
+    case "commit":
+      return sql`SELECT c.id AS id FROM ${sql.raw("code_commits")} c LEFT JOIN ${sql.raw("habitat_code_repositories")} r ON c.repository_id = r.id WHERE r.habitat_id = ${habitatId} AND c.id IN (${idList})`;
+    case "pull_request":
+      return sql`SELECT p.id AS id FROM ${sql.raw("pull_requests")} p LEFT JOIN ${sql.raw("habitat_code_repositories")} r ON p.repository_id = r.id WHERE r.habitat_id = ${habitatId} AND p.id IN (${idList})`;
+    case "evidence_link":
+      return sql`SELECT el.id AS id FROM ${sql.raw("code_evidence_links")} el WHERE el.id IN (${idList}) AND (
+        (el.target_type = 'task' AND el.target_id IN (
+          SELECT t.id FROM ${sql.raw("tasks")} t JOIN ${sql.raw("missions")} m ON t.mission_id = m.id WHERE m.habitat_id = ${habitatId}
+        ))
+        OR
+        (el.target_type = 'mission' AND el.target_id IN (
+          SELECT id FROM ${sql.raw("missions")} WHERE habitat_id = ${habitatId}
+        ))
+      )`;
+  }
 }
 
 /** Re-export for callers that want to test the mapping table directly. */

@@ -503,15 +503,53 @@ describe("wikiPageLink repo", () => {
         createdBy: "human-1",
       });
 
-      const resolved = wikiPageLinkRepo.resolveDangling(wikiPageLinkRepo.listByPage(page.id));
+      const resolved = wikiPageLinkRepo.resolveDangling(
+        wikiPageLinkRepo.listByPage(page.id),
+        habitat.id,
+      );
       const byId = new Map(resolved.map((r) => [r.id, r]));
       expect(byId.get(l1.id)?.dangling).toBe(false);
       expect(byId.get(l2.id)?.dangling).toBe(true);
       expect(byId.get(l3.id)?.dangling).toBe(false);
     });
 
+    it("flags links to a target that exists in a different habitat as dangling (cross-habitat isolation)", () => {
+      const { habitat, col } = setupHabitat();
+      const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" });
+      const otherCol = columnRepo.createColumn({
+        habitatId: otherHabitat.id,
+        name: "Other Todo",
+        order: 0,
+      });
+      const crossMission = seedMission(otherHabitat.id, otherCol.id);
+      const page = makePage(habitat.id);
+
+      const link = wikiPageLinkRepo.create({
+        pageId: page.id,
+        targetType: "mission",
+        targetId: crossMission.id,
+        createdBy: "human-1",
+      });
+
+      // Resolving against the page's habitat must mark the cross-habitat target dangling,
+      // even though the mission exists in another habitat.
+      const resolved = wikiPageLinkRepo.resolveDangling(
+        wikiPageLinkRepo.listByPage(page.id),
+        habitat.id,
+      );
+      expect(resolved).toHaveLength(1);
+      expect(resolved[0].dangling).toBe(true);
+
+      // Sanity: the same target resolves as non-dangling against its own habitat.
+      const resolvedInOwnHabitat = wikiPageLinkRepo.resolveDangling(
+        wikiPageLinkRepo.listByPage(page.id),
+        otherHabitat.id,
+      );
+      expect(resolvedInOwnHabitat[0].dangling).toBe(false);
+    });
+
     it("returns empty array for empty input", () => {
-      expect(wikiPageLinkRepo.resolveDangling([])).toEqual([]);
+      expect(wikiPageLinkRepo.resolveDangling([], "any-habitat")).toEqual([]);
     });
   });
 });

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
+import { isNull } from "drizzle-orm";
 import { habitats } from "./board.js";
 
 /** Current page state and denormalized current-version content for habitat Wiki Pages. */
@@ -41,6 +42,16 @@ export const wikiPages = sqliteTable(
     index("idx_wiki_pages_habitat").on(table.habitatId),
     index("idx_wiki_pages_parent").on(table.parentId),
     index("idx_wiki_pages_habitat_status").on(table.habitatId, table.status),
+    // Partial unique slug indexes — mirror 0035_wiki.sql. Root pages (parent_id IS NULL) are
+    // unique per (habitat, slug); child pages are unique per (habitat, parent, slug). SQLite
+    // treats NULL parent_id as distinct in a composite unique index, so the partial split keeps
+    // uniqueness honest for both root and child slug spaces.
+    uniqueIndex("idx_wiki_pages_slug_root")
+      .on(table.habitatId, table.slug)
+      .where(isNull(table.parentId)),
+    uniqueIndex("idx_wiki_pages_slug_child")
+      .on(table.habitatId, table.parentId, table.slug)
+      .where(sql`parent_id IS NOT NULL`),
   ],
 );
 

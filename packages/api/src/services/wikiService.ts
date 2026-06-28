@@ -99,6 +99,56 @@ function publishWikiEvent(habitatId: string, type: string, data: Record<string, 
   }
 }
 
+/**
+ * Validates a `parentId` for a page in `habitatId`. Throws:
+ * - `badRequest` when `parentId` equals `pageId` (self-parent would create a trivial cycle),
+ * - `notFound` when the parent page does not exist,
+ * - `badRequest` when the parent belongs to a different habitat (cross-habitat tree coupling),
+ * - `conflict` when the parent is a descendant of `pageId` (move would create a cycle).
+ *
+ * `pageId` is the id of the page being created/moved (pass `null` for create-self-check skip —
+ * a brand-new id can't be its own ancestor, but a caller could still pass `parentId === pageId`
+ * if they fabricated the id, so the self-check runs regardless).
+ */
+function validateParent(habitatId: string, parentId: string, pageId: string | null): void {
+  if (pageId !== null && parentId === pageId) {
+    throw badRequest("A wiki page cannot be its own parent.", { parentId });
+  }
+  const parent = wikiPageRepo.getById(parentId);
+  if (!parent) throw notFound(`Parent wiki page not found: ${parentId}`);
+  if (parent.habitatId !== habitatId) {
+    throw badRequest("Parent wiki page belongs to a different habitat.", {
+      parentHabitatId: parent.habitatId,
+      pageHabitatId: habitatId,
+    });
+  }
+  if (pageId !== null && isAncestorOf(pageId, parentId)) {
+    throw conflict("Cannot move a wiki page under one of its own descendants (cycle).", {
+      pageId,
+      parentId,
+    });
+  }
+}
+
+/**
+ * Walks up the parent chain from `startId` and returns `true` if `ancestorId` is encountered.
+ * Used to detect cycles before reparenting: if the proposed new parent is a descendant of the
+ * page being moved, walking up from that parent will hit the page's id. Bounded by the depth of
+ * the tree; a malformed/self-referential chain bails out after a sane cap to avoid infinite loops.
+ */
+function isAncestorOf(ancestorId: string, startId: string): boolean {
+  let current: string | null = startId;
+  const seen = new Set<string>();
+  for (let depth = 0; depth < 10_000 && current; depth++) {
+    if (current === ancestorId) return true;
+    if (seen.has(current)) return false; // pre-existing cycle guard
+    seen.add(current);
+    const row = wikiPageRepo.getById(current);
+    current = row?.parentId ?? null;
+  }
+  return false;
+}
+
 /** A page with its links attached (each link carries a `dangling` flag). */
 export type WikiPageWithLinks = WikiPage & { links: (WikiPageLink & { dangling: boolean })[] };
 
@@ -119,6 +169,10 @@ export function createPage(
   const now = new Date().toISOString();
   const slug = resolveUniqueSlug(habitatId, input.parentId ?? null, slugifyTitle(input.title));
   const status = input.status ?? "draft";
+
+  if (input.parentId) {
+    validateParent(habitatId, input.parentId, pageId);
+  }
 
   db.transaction((tx) => {
     tx.insert(wikiPages)
@@ -197,7 +251,10 @@ export function getPage(pageId: string): WikiPageWithLinks {
   const page = wikiPageRepo.getById(pageId);
   if (!page) throw notFound(`Wiki page not found: ${pageId}`);
 
-  const links = wikiPageLinkRepo.resolveDangling(wikiPageLinkRepo.listByPage(pageId));
+  const links = wikiPageLinkRepo.resolveDangling(
+    wikiPageLinkRepo.listByPage(pageId),
+    page.habitatId,
+  );
   return { ...page, links };
 }
 
@@ -237,6 +294,9 @@ export function updatePageMetadata(
   const isUnpublishing = nextStatus === "draft" && page.status === "published";
 
   if (patch.parentId !== undefined && patch.parentId !== page.parentId) {
+    if (patch.parentId) {
+      validateParent(page.habitatId, patch.parentId, pageId);
+    }
     const collision = wikiPageRepo.getByHabitatAndSlug(page.habitatId, page.slug, patch.parentId);
     if (collision && collision.id !== pageId) {
       throw conflict("A sibling page with this slug already exists in the target parent.", {
@@ -560,10 +620,9 @@ export function removeLink(pageId: string, linkId: string): void {
  * Throws 404 when the page is missing.
  */
 export function listLinks(pageId: string): wikiPageLinkRepo.WikiPageLinkWithDangling[] {
-  if (!wikiPageRepo.getById(pageId)) {
-    throw notFound(`Wiki page not found: ${pageId}`);
-  }
-  return wikiPageLinkRepo.resolveDangling(wikiPageLinkRepo.listByPage(pageId));
+  const page = wikiPageRepo.getById(pageId);
+  if (!page) throw notFound(`Wiki page not found: ${pageId}`);
+  return wikiPageLinkRepo.resolveDangling(wikiPageLinkRepo.listByPage(pageId), page.habitatId);
 }
 
 /** Input for {@link postNoUpdateNeeded}. `from` must be ≤ `to`; both are ISO-8601 strings. */

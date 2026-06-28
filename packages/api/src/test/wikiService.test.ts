@@ -379,6 +379,70 @@ describe("wikiService.updatePageMetadata", () => {
       /not found/i,
     );
   });
+
+  it("rejects creating a page under a parent from a different habitat (cross-habitat isolation)", () => {
+    const { habitat } = setupHabitat();
+    const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" });
+    const foreignParent = wikiService.createPage(
+      otherHabitat.id,
+      { title: "Foreign Parent", content: "" },
+      "human-1",
+    );
+
+    expect(() =>
+      wikiService.createPage(
+        habitat.id,
+        { title: "Child", content: "", parentId: foreignParent.id },
+        "human-1",
+      ),
+    ).toThrow(/different habitat/i);
+  });
+
+  it("rejects moving a page under a parent from a different habitat", () => {
+    const { habitat } = setupHabitat();
+    const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" });
+    const foreignParent = wikiService.createPage(
+      otherHabitat.id,
+      { title: "Foreign Parent", content: "" },
+      "human-1",
+    );
+    const page = wikiService.createPage(habitat.id, { title: "Page", content: "" }, "human-1");
+
+    expect(() =>
+      wikiService.updatePageMetadata(page.id, { parentId: foreignParent.id }, "human-1"),
+    ).toThrow(/different habitat/i);
+    expect(wikiPageRepo.getById(page.id)?.parentId).toBeNull();
+  });
+
+  it("rejects moving a page under one of its own descendants (cycle prevention)", () => {
+    const { habitat } = setupHabitat();
+    const root = wikiService.createPage(habitat.id, { title: "Root", content: "" }, "human-1");
+    const child = wikiService.createPage(
+      habitat.id,
+      { title: "Child", content: "", parentId: root.id },
+      "human-1",
+    );
+    const grandchild = wikiService.createPage(
+      habitat.id,
+      { title: "Grandchild", content: "", parentId: child.id },
+      "human-1",
+    );
+
+    // Moving root under grandchild would create root → child → grandchild → root.
+    expect(() =>
+      wikiService.updatePageMetadata(root.id, { parentId: grandchild.id }, "human-1"),
+    ).toThrow(/cycle|descendant/i);
+    expect(wikiPageRepo.getById(root.id)?.parentId).toBeNull();
+  });
+
+  it("rejects moving a page under itself", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "Self", content: "" }, "human-1");
+
+    expect(() => wikiService.updatePageMetadata(page.id, { parentId: page.id }, "human-1")).toThrow(
+      /own parent/i,
+    );
+  });
 });
 
 describe("wikiService.saveVersion", () => {
