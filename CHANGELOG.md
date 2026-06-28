@@ -2,6 +2,46 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.21.6 — 2026-06-28
+
+### Refactors
+
+#### explicit handler-key dispatch with fail-loud guard; extract parseDurationWindow ([`4836a34`](https://github.com/waterworkshq/orcy/commit/4836a343d9ec0208e373c37b63d2a3942bb161a5))
+
+1. Hardening follow-up to the v0.21 cadence-execution work. Two coupled
+2. robustness fixes on the scheduled-task handler dispatch, plus a shared-helper
+3. extraction.
+
+5. 1. Explicit handler-key dispatch (replaces fragile name-prefix matching)
+6. v0.21.3 keyed the wiki-cadence handler dispatch on schedule.name.startsWith
+7. ("wiki-cadence:"), which silently broke if the name prefix was renamed and
+8. could in principle match unrelated schedules. Dispatch is now explicit: a
+9. new nullable `handler_key` column on `scheduled_tasks` (migration 0037),
+10. surfaced on the ScheduledTask shared type, the CreateScheduledTaskInput,
+11. and the drizzle schema. setCadence stamps handler_key = "wiki-cadence" on
+12. the schedule row; executeScheduledTask looks up the handler by that key.
+13. A schedule with handler_key = null (the default, including the chunk
+14. authoring tasks spawned by runCadence) takes the standard
+15. mission-from-template path. The old findHandlerForName prefix scan is gone.
+
+17. 2. Fail-loud guard against missing handlers
+18. The silent-failure footgun: if a handler-keyed schedule's handler is not
+19. registered at boot (e.g. initWikiScheduler was skipped), the old code would
+20. have silently fallen through to mission creation — producing the wrong
+21. artifact with no error signal. Now executeScheduledTask detects
+22. handler_key-set-but-no-handler-registered, logs an error, publishes
+23. scheduled_task.failed with a clear message naming the key and schedule, and
+24. returns {success: false}. The bug cannot recur silently.
+
+26. 3. parseDurationWindow extracted to @orcy/shared
+27. The duration parser was duplicated verbatim in habitatSkill.ts and pulse.ts
+28. (the pulse copy even said "Mirrors the habitat-skill helper"). Extracted to
+29. shared/src/duration.ts, exported from the shared package, and both repos now
+30. import it. Added a focused shared test (units, case-insensitivity,
+31. unparseable rejection).
+
+
+
 ## 0.21.5 — 2026-06-28
 
 ### Bug Fixes
@@ -108,59 +148,3 @@
 27. returns the 3 in-window rows; the old code crowded them out and returned 0.
 
 29. 3509 API tests pass (3508 + 1 new), typecheck clean, lint 0 errors.
-
-
-
-## 0.21.3 — 2026-06-28
-
-### Bug Fixes
-
-#### correct coverage watermark windows and wire cadence execution ([`bc20977`](https://github.com/waterworkshq/orcy/commit/bc20977bde561d2cd709aed4cfb12a493f88c26f))
-
-1. The wiki cadence feature did not advance the watermark correctly and did
-2. not actually fire on a schedule; no-update-needed markers also accepted
-3. malformed windows. Three coupled fixes, all on the coverage/cadence seam.
-
-5. 1. Coverage window correctness (ADR-0009)
-6. createPage({status:'published'}) wrote a now->now zero-width marker and
-7. updatePageMetadata's draft->published transition wrote [createdAt, now].
-8. A page authored for an old bootstrap chunk advanced the habitat watermark
-9. (MAX(coverage_to)) to the current time, so the cadence skipped unevaluated
-10. history between the chunk and now. Add optional coverageFrom/coverageTo to
-11. CreateWikiPageInput and UpdateWikiPageMetadataInput; when provided they are
-12. validated (parseable ISO, from <= to, to not in the future) and used as the
-13. page-type marker window. When omitted, fall back to a zero-width
-14. [createdAt, createdAt] window — honest about the page covering at least its
-15. own creation instant, without leaping the watermark forward to now. Agents
-16. authoring scheduler-spawned chunk work pass the chunk bounds so the watermark
-17. advances to the chunk end. The cited-primitive-window derivation (min/max
-18. updated_at of linked primitives) remains a documented future refinement.
-19. Wire coverageFrom/coverageTo through the REST create/update schemas
-20. (z.string().datetime()), the orcy_wiki create_page and update_metadata MCP
-21. actions + WikiClient interface + KanbanApiClient, the dispatch sharedParams,
-22. and the UI api client (forward-compatible; the Editor behavior fix is a
-23. later patch).
-
-25. 2. Cadence execution (ADR-0008)
-26. setCadence registered a scheduled_tasks row whose template created a
-27. 'Wiki cadence run' mission instructing an agent to call runCadence — but the
-28. generic scheduled-task executor (executeScheduledTask -> createMissionFromSchedule)
-29. never invoked runCadence itself, so enabled cadence did not automatically
-30. spawn authoring tasks. Add a prefix-based scheduled-task handler registry to
-31. scheduledTaskService (registerScheduledTaskHandler / findHandlerForName); when
-32. a due schedule's name matches a registered prefix, the handler runs instead of
-33. the default mission-creation path. wikiSchedulerService.initWikiScheduler
-34. registers a handler under the 'wiki-cadence:' name prefix that calls
-35. runCadence(habitatId), spawning the next chunk of authoring tasks directly.
-36. setCadence's schedule no longer carries a meta 'run_cadence' tasksTemplate
-37. (the handler does the work). finalizeExecution now accepts a nullable
-38. missionId so handler runs that produce no mission can still finalize. The
-39. scheduled_task.executed SSE event's missionId/missionTitle are now optional
-40. to reflect handler-driven runs. initWikiScheduler is called once at API boot
-41. alongside initWorkflowService.
-
-43. 3. no-update-needed window validation
-44. postNoUpdateNeeded accepted any datetime pair with no from <= to or
-45. no-future check; a malformed or future marker could advance/hold the
-46. watermark incorrectly. Reuse the new validateCoverageWindow helper to
-47. reject unparseable bounds, from > to, and future  with badRequest.
