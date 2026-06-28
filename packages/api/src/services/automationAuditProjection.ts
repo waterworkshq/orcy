@@ -7,6 +7,7 @@ import type {
   AuditCompleteness,
   AuditProvenance,
 } from "@orcy/shared";
+import type { PluginRunRow } from "../db/schema/plugin.js";
 
 /** Projects an {@link AutomationRuleRun} and its owning rule into a canonical {@link AuditEvent} for the audit read model. */
 export function projectAutomationRunToAudit(
@@ -149,5 +150,47 @@ export function projectNotificationDeliveryToAudit(
       clearedAt: delivery.clearedAt,
     },
     completeness: { status: "complete", caveats: [] },
+  } as unknown as AuditEvent;
+}
+
+/** Projects a {@link PluginRunRow} into a canonical {@link AuditEvent} for the audit read model, joining plugin activity into Audit Trail V2 by `runId`. */
+export function projectPluginRunToAudit(run: PluginRunRow): AuditEvent {
+  return {
+    id: `plugin_run:${run.id}`,
+    habitatId: run.habitatId,
+    occurredAt: run.startedAt,
+    entity: {
+      type: "plugin_run",
+      id: run.id,
+      title: `${run.contributionKind}:${run.contributionId} (${run.pluginId})`,
+    },
+    action: `plugin.${run.status}`,
+    actor: { type: "system", id: run.pluginId },
+    source: "plugin",
+    provenance: {
+      pluginId: run.pluginId,
+      contributionId: run.contributionId,
+      contributionKind: run.contributionKind,
+      triggerType: run.triggerType,
+      runId: run.id,
+    } as unknown as AuditProvenance,
+    linkedEntities: [],
+    summary: `Plugin ${run.pluginId} ${run.contributionId} ${run.status}${run.signalsEmitted ? ` (${run.signalsEmitted} signals)` : ""}${run.error ? ` error: ${run.error}` : ""}`,
+    metadata: {
+      pluginId: run.pluginId,
+      contributionId: run.contributionId,
+      contributionKind: run.contributionKind,
+      triggerType: run.triggerType,
+      triggerEventId: run.triggerEventId,
+      status: run.status,
+      signalsEmitted: run.signalsEmitted,
+      error: run.error,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+    },
+    completeness: {
+      status: run.status === "succeeded" || run.status === "failed" ? "complete" : "partial",
+      caveats: [],
+    },
   } as unknown as AuditEvent;
 }

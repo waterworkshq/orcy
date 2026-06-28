@@ -206,6 +206,7 @@ function sourceFromAuditMetadata(metadata: Record<string, unknown>): AuditSource
     source === "integration_sync" ||
     source === "scheduler" ||
     source === "migration" ||
+    source === "plugin" ||
     source === "unknown"
   ) {
     return source;

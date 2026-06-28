@@ -11,6 +11,7 @@ const AUDIT_SOURCES = new Set<AuditSource>([
   "scheduler",
   "migration",
   "workflow",
+  "plugin",
   "unknown",
 ]);
 

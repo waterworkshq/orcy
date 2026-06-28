@@ -107,6 +107,7 @@ function isAuditSource(value: string | undefined): value is AuditSource {
     "integration_sync",
     "scheduler",
     "migration",
+    "plugin",
     "unknown",
   ].includes(value);
 }

@@ -43,6 +43,7 @@ export type AuditSource =
   | "automation"
   | "notification"
   | "workflow"
+  | "plugin"
   | "unknown";
 
 /** Traceability context recording where, why, and through what mechanism an audit event was produced. */
