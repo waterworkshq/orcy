@@ -309,7 +309,9 @@ describe("wiki action handlers — delegation to WikiClient", () => {
 
   it("update_metadata returns error when no patch fields provided", async () => {
     const result = await wiki.wikiUpdateMetadata(client, { habitatId: "h-1", pageId: "p-1" });
-    expect(result).toEqual({ error: "At least one of parentId, tags, status is required" });
+    expect(result).toEqual({
+      error: "At least one of parentId, tags, status, coverageFrom, coverageTo is required",
+    });
   });
 
   it("add_link → client.addWikiPageLink with valid targetType", async () => {

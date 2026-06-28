@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
@@ -8,6 +8,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import * as wikiService from "../services/wikiService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
+import { executeScheduledTask } from "../services/scheduledTaskService.js";
 import {
   habitats,
   columns,
@@ -115,8 +116,11 @@ describe("wikiSchedulerService.setCadence", () => {
     expect(schedule!.habitatId).toBe(habitat.id);
     expect(schedule!.scheduleType).toBe("interval");
     expect(schedule!.intervalMinutes).toBe(60);
-    expect(schedule!.tasksTemplate).toHaveLength(1);
-    expect(schedule!.tasksTemplate[0].key).toBe("run_cadence");
+    // The cadence schedule no longer carries a meta "run_cadence" task template — the due-run
+    // is dispatched to wikiSchedulerService.runCadence via the handler registered under the
+    // wiki-cadence: name prefix (initWikiScheduler). tasksTemplate is empty by design.
+    expect(schedule!.tasksTemplate).toHaveLength(0);
+    expect(schedule!.name.startsWith("wiki-cadence:")).toBe(true);
   });
 
   it("registers a cron schedule when scheduleType is cron", () => {
@@ -335,5 +339,60 @@ describe("wikiSchedulerService.runCadence (ADR-0008 invariant)", () => {
     const result = scheduler.runCadence(habitat.id);
     expect(result.tasksCreated).toBe(0);
     expect(result.chunks).toEqual([]);
+  });
+});
+
+describe("wikiSchedulerService cadence handler dispatch", () => {
+  it("initWikiScheduler registers a handler that runCadence on due cadence schedules (no meta mission created)", () => {
+    const { habitat } = setupHabitat();
+    const db = getDb();
+    db.insert(pulses)
+      .values({
+        id: "p-dispatch",
+        habitatId: habitat.id,
+        scope: "habitat",
+        fromType: "human",
+        fromId: "h-1",
+        signalType: "context",
+        subject: "x",
+        body: "x",
+        metadata: {},
+        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString(),
+        pinned: 0,
+        isAuto: false,
+      })
+      .run();
+
+    // Register the handler (idempotent; mirrors API boot).
+    scheduler.initWikiScheduler();
+
+    // Enable cadence with a due-now interval schedule.
+    const settings = scheduler.setCadence(
+      habitat.id,
+      { enabled: true, scheduleType: "interval", intervalMinutes: 60, timezone: "UTC" },
+      "human-1",
+    );
+    const schedule = scheduledTaskRepo.getScheduledTaskById(settings.scheduledTaskId!);
+    expect(schedule).toBeTruthy();
+
+    // Force the schedule due and process it via the generic scheduled-task executor.
+    db.update(scheduledTasks)
+      .set({ nextRunAt: new Date(Date.now() - 1000).toISOString() })
+      .where(eq(scheduledTasks.id, schedule!.id))
+      .run();
+
+    const beforeMissions = db.select().from(missions).all().length;
+    const result = executeScheduledTask(schedule!.id);
+    expect(result.success).toBe(true);
+
+    // The handler ran runCadence, which spawned one-shot wiki-authoring scheduled tasks —
+    // NOT a "Wiki cadence run" mission. Mission count is unchanged.
+    const afterMissions = db.select().from(missions).all().length;
+    expect(afterMissions).toBe(beforeMissions);
+
+    // The cadence schedule advanced its nextRunAt (finalizeExecution ran) and is still enabled
+    // (interval schedules stay enabled; only "once" schedules auto-disable).
+    const refreshed = scheduledTaskRepo.getScheduledTaskById(schedule!.id);
+    expect(refreshed!.enabled).toBe(true);
   });
 });

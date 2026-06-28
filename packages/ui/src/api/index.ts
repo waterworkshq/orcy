@@ -1563,7 +1563,14 @@ export const api = {
       ),
     createPage: (
       habitatId: string,
-      body: { title: string; content: string; parentId?: string | null; tags?: string[] },
+      body: {
+        title: string;
+        content: string;
+        parentId?: string | null;
+        tags?: string[];
+        coverageFrom?: string;
+        coverageTo?: string;
+      },
     ) =>
       request<{ page: WikiPage }>(`/habitats/${habitatId}/wiki/pages`, {
         method: "POST",
@@ -1572,7 +1579,13 @@ export const api = {
     updatePageMetadata: (
       habitatId: string,
       pageId: string,
-      patch: { parentId?: string | null; tags?: string[]; status?: WikiPageStatus },
+      patch: {
+        parentId?: string | null;
+        tags?: string[];
+        status?: WikiPageStatus;
+        coverageFrom?: string;
+        coverageTo?: string;
+      },
     ) =>
       request<{ page: WikiPage }>(`/habitats/${habitatId}/wiki/pages/${pageId}`, {
         method: "PATCH",

@@ -602,12 +602,25 @@ export interface WikiClient {
   ): Promise<WikiPage & { links: (WikiPageLink & { dangling?: boolean })[] }>;
   createWikiPage(
     habitatId: string,
-    input: { title: string; content: string; parentId?: string | null; tags?: string[] },
+    input: {
+      title: string;
+      content: string;
+      parentId?: string | null;
+      tags?: string[];
+      coverageFrom?: string;
+      coverageTo?: string;
+    },
   ): Promise<WikiPage>;
   updateWikiPageMetadata(
     habitatId: string,
     pageId: string,
-    patch: { parentId?: string | null; tags?: string[]; status?: "draft" | "published" },
+    patch: {
+      parentId?: string | null;
+      tags?: string[];
+      status?: "draft" | "published";
+      coverageFrom?: string;
+      coverageTo?: string;
+    },
   ): Promise<WikiPage>;
   deleteWikiPage(
     habitatId: string,

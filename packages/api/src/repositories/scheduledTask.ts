@@ -200,14 +200,14 @@ export function claimExecution(id: string, nextRunAt: string): boolean {
   return after?.runCount === beforeRunCount + 1;
 }
 
-export function finalizeExecution(id: string, missionId: string): void {
+export function finalizeExecution(id: string, missionId: string | null): void {
   const db = getDb();
   const now = new Date().toISOString();
 
   try {
     db.update(scheduledTasks)
       .set({
-        lastCreatedMissionId: missionId,
+        ...(missionId ? { lastCreatedMissionId: missionId } : {}),
         updatedAt: now,
       })
       .where(eq(scheduledTasks.id, id))

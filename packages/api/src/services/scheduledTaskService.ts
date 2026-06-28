@@ -15,6 +15,47 @@ import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { sanitizeFilename } from "./fileStorage.js";
 
+/**
+ * Result returned by a registered {@link ScheduledTaskHandler}. `missionId` is optional — handlers
+ * that spawn work without creating a mission (e.g. the wiki cadence handler, which spawns further
+ * scheduled-task rows via `runCadence`) leave it unset.
+ */
+export interface ScheduledTaskHandlerResult {
+  success: boolean;
+  error?: string;
+  missionId?: string;
+}
+
+/**
+ * A custom handler invoked when a due scheduled task's `name` starts with a registered prefix,
+ * instead of the default mission-from-template creation path. This lets domain services (wiki
+ * cadence) hook into the scheduler without `scheduledTaskService` depending on them.
+ */
+export type ScheduledTaskHandler = (schedule: ScheduledTask) => ScheduledTaskHandlerResult;
+
+/** Prefix → handler registry, populated by domain services at boot via {@link registerScheduledTaskHandler}. */
+const scheduledTaskHandlers = new Map<string, ScheduledTaskHandler>();
+
+/**
+ * Registers a handler invoked when a due scheduled task's `name` starts with `namePrefix`. The
+ * handler replaces the default mission-from-template execution for matching schedules. Domain
+ * services register their handlers at boot (see `wikiSchedulerService.initWikiScheduler`).
+ */
+export function registerScheduledTaskHandler(
+  namePrefix: string,
+  handler: ScheduledTaskHandler,
+): void {
+  scheduledTaskHandlers.set(namePrefix, handler);
+}
+
+/** Returns the registered handler whose `namePrefix` matches `scheduleName`, or `null` when none match. */
+function findHandlerForName(scheduleName: string): ScheduledTaskHandler | null {
+  for (const [prefix, handler] of scheduledTaskHandlers) {
+    if (scheduleName.startsWith(prefix)) return handler;
+  }
+  return null;
+}
+
 /** Replaces `{{date}}` and `{{counter}}` tokens in a template string using the schedule's timezone and run count. */
 export function substituteTokens(
   template: string,
@@ -117,6 +158,33 @@ export function executeScheduledTask(id: string): {
   }
 
   try {
+    const handler = findHandlerForName(schedule.name);
+    if (handler) {
+      const handlerResult = handler(schedule);
+      const missionId = handlerResult.missionId ?? null;
+      scheduledTaskRepo.finalizeExecution(id, missionId);
+
+      if (schedule.scheduleType === "once") {
+        scheduledTaskRepo.updateScheduledTask(id, { enabled: false });
+      }
+
+      if (handlerResult.success) {
+        sseBroadcaster.publish(schedule.habitatId, {
+          type: "scheduled_task.executed",
+          data: {
+            scheduleId: id,
+            ...(missionId ? { missionId } : {}),
+          },
+        });
+        return { success: true, ...(missionId ? { missionId } : {}) };
+      }
+      sseBroadcaster.publish(schedule.habitatId, {
+        type: "scheduled_task.failed",
+        data: { scheduleId: id, error: handlerResult.error ?? "handler failed" },
+      });
+      return { success: false, error: handlerResult.error ?? "handler failed" };
+    }
+
     let missionId: string;
     let missionTitle: string;
 

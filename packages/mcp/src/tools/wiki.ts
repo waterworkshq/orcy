@@ -76,12 +76,21 @@ export async function wikiCreatePage(client: WikiClient, args: Record<string, an
   if (content === undefined || content === null) {
     return { error: "Missing required parameter: content" };
   }
-  const input: { title: string; content: string; parentId?: string | null; tags?: string[] } = {
+  const input: {
+    title: string;
+    content: string;
+    parentId?: string | null;
+    tags?: string[];
+    coverageFrom?: string;
+    coverageTo?: string;
+  } = {
     title,
     content,
   };
   if (args.parentId !== undefined) input.parentId = args.parentId;
   if (args.tags !== undefined) input.tags = args.tags;
+  if (args.coverageFrom !== undefined) input.coverageFrom = args.coverageFrom;
+  if (args.coverageTo !== undefined) input.coverageTo = args.coverageTo;
   return client.createWikiPage(habitatId, input);
 }
 
@@ -127,7 +136,13 @@ export async function wikiUpdateMetadata(client: WikiClient, args: Record<string
   const pageId = args.pageId;
   if (!habitatId) return { error: "Missing required parameter: habitatId" };
   if (!pageId) return { error: "Missing required parameter: pageId" };
-  const patch: { parentId?: string | null; tags?: string[]; status?: "draft" | "published" } = {};
+  const patch: {
+    parentId?: string | null;
+    tags?: string[];
+    status?: "draft" | "published";
+    coverageFrom?: string;
+    coverageTo?: string;
+  } = {};
   if (args.parentId !== undefined) patch.parentId = args.parentId;
   if (args.tags !== undefined) patch.tags = args.tags;
   if (args.status !== undefined) {
@@ -136,8 +151,12 @@ export async function wikiUpdateMetadata(client: WikiClient, args: Record<string
     }
     patch.status = args.status;
   }
+  if (args.coverageFrom !== undefined) patch.coverageFrom = args.coverageFrom;
+  if (args.coverageTo !== undefined) patch.coverageTo = args.coverageTo;
   if (Object.keys(patch).length === 0) {
-    return { error: "At least one of parentId, tags, status is required" };
+    return {
+      error: "At least one of parentId, tags, status, coverageFrom, coverageTo is required",
+    };
   }
   return client.updateWikiPageMetadata(habitatId, pageId, patch);
 }

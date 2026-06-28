@@ -20,12 +20,16 @@ const createPageSchema = z.object({
   parentId: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   status: z.enum(["draft", "published"]).optional(),
+  coverageFrom: z.string().datetime().optional(),
+  coverageTo: z.string().datetime().optional(),
 });
 
 const updatePageMetadataSchema = z.object({
   parentId: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   status: z.enum(["draft", "published"]).optional(),
+  coverageFrom: z.string().datetime().optional(),
+  coverageTo: z.string().datetime().optional(),
 });
 
 const deletePageSchema = z.object({

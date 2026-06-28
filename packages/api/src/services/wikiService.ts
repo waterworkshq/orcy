@@ -54,6 +54,16 @@ export interface CreateWikiPageInput {
   parentId?: string | null;
   tags?: string[];
   status?: WikiPageStatus;
+  /**
+   * Optional explicit coverage window `[from, to]` for the page-type coverage marker inserted on
+   * publish (ADR-0009). When omitted, the marker falls back to a zero-width `[createdAt, createdAt]`
+   * window — honest about the page covering at least its own creation instant, without leaping the
+   * habitat watermark forward to `now` (which would skip unevaluated history). Agents authoring a
+   * page for a known time chunk (e.g. a scheduler-spawned bootstrap chunk) should pass the chunk
+   * bounds so the watermark advances to the chunk end, not the page's creation time.
+   */
+  coverageFrom?: string;
+  coverageTo?: string;
 }
 
 /** Input for {@link deletePage}. */
@@ -67,6 +77,9 @@ export interface UpdateWikiPageMetadataInput {
   parentId?: string | null;
   tags?: string[];
   status?: WikiPageStatus;
+  /** Optional explicit coverage window for the page-type marker inserted on `draft → published` (see {@link CreateWikiPageInput.coverageFrom}). */
+  coverageFrom?: string;
+  coverageTo?: string;
 }
 
 /** Input for {@link saveVersion}. `title` and `content` are required; `editSummary` is an authored one-liner. */
@@ -86,6 +99,49 @@ export interface AddWikiPageLinkInput {
 /** Type guard that narrows an arbitrary string to {@link WikiLinkTargetType} using the runtime allowlist. */
 function isValidTargetType(t: string): t is WikiLinkTargetType {
   return (WIKI_LINK_TARGET_TYPES as readonly string[]).includes(t);
+}
+
+/**
+ * Parses and validates a coverage window `[from, to]` (ADR-0009). Throws `badRequest` when either
+ * bound is not a parseable ISO datetime, when `from > to`, or when `to` is in the future (a marker
+ * must not advance the watermark past the present — the cadence gap is `[watermark, now]`).
+ * Returns the validated `[from, to]` pair.
+ */
+function validateCoverageWindow(from: string, to: string): { from: string; to: string } {
+  const fromMs = Date.parse(from);
+  const toMs = Date.parse(to);
+  if (!Number.isFinite(fromMs)) throw badRequest(`coverageFrom is not a valid datetime: ${from}`);
+  if (!Number.isFinite(toMs)) throw badRequest(`coverageTo is not a valid datetime: ${to}`);
+  if (fromMs > toMs) {
+    throw badRequest("coverageFrom must be earlier than or equal to coverageTo.", { from, to });
+  }
+  if (toMs > Date.now()) {
+    throw badRequest("coverageTo must not be in the future.", { to });
+  }
+  return { from, to };
+}
+
+/**
+ * Derives the coverage window for a page-type marker on publish. Prefer explicit caller-provided
+ * bounds (validated); otherwise fall back to a zero-width `[createdAt, createdAt]` window — the
+ * page covers at least its own creation instant. This deliberately does NOT leap the watermark
+ * forward to `now`, so unevaluated history after the page's creation remains in the cadence gap
+ * for re-authoring. The cited-primitive-window derivation (min/max `updated_at` of linked
+ * primitives) is a future refinement (ARCHITECTURE.md §10 open note).
+ */
+function deriveCoverageWindow(
+  createdAt: string,
+  explicitFrom?: string,
+  explicitTo?: string,
+): { from: string; to: string } {
+  if (explicitFrom && explicitTo) return validateCoverageWindow(explicitFrom, explicitTo);
+  if (explicitFrom || explicitTo) {
+    throw badRequest("coverageFrom and coverageTo must be provided together.", {
+      coverageFrom: explicitFrom,
+      coverageTo: explicitTo,
+    });
+  }
+  return { from: createdAt, to: createdAt };
 }
 
 /** Best-effort SSE broadcast — never throws to the caller. Mirrors `pulseService.broadcastPulse`. */
@@ -206,12 +262,13 @@ export function createPage(
       })
       .run();
     if (status === "published") {
+      const window = deriveCoverageWindow(now, input.coverageFrom, input.coverageTo);
       tx.insert(wikiCoverageMarkers)
         .values({
           id: uuid(),
           habitatId,
-          coverageFrom: now,
-          coverageTo: now,
+          coverageFrom: window.from,
+          coverageTo: window.to,
           markerType: "page",
           pageId,
           createdBy,
@@ -322,12 +379,13 @@ export function updatePageMetadata(
       .run();
 
     if (isPublishing) {
+      const window = deriveCoverageWindow(page.createdAt, patch.coverageFrom, patch.coverageTo);
       tx.insert(wikiCoverageMarkers)
         .values({
           id: uuid(),
           habitatId: page.habitatId,
-          coverageFrom: page.createdAt,
-          coverageTo: now,
+          coverageFrom: window.from,
+          coverageTo: window.to,
           markerType: "page",
           pageId: pageId,
           createdBy: editedBy,
@@ -647,10 +705,11 @@ export function postNoUpdateNeeded(
   input: PostNoUpdateNeededInput,
   createdBy: string,
 ): wikiCoverageRepo.WikiCoverageMarker {
+  const window = validateCoverageWindow(input.from, input.to);
   const marker = wikiCoverageRepo.create({
     habitatId,
-    coverageFrom: input.from,
-    coverageTo: input.to,
+    coverageFrom: window.from,
+    coverageTo: window.to,
     markerType: "no_update_needed",
     pageId: null,
     reason: input.reason ?? null,

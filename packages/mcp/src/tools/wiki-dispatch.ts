@@ -64,6 +64,16 @@ export const WIKI_DISPATCH_TOOL: Tool = createDispatchTool({
       enum: ["draft", "published"],
       description: "Curation status (update_metadata)",
     },
+    coverageFrom: {
+      type: "string",
+      description:
+        "ISO datetime — explicit coverage window start for the page-type marker on publish (create_page, update_metadata). Pass the authoring chunk start when publishing scheduler-spawned authoring work.",
+    },
+    coverageTo: {
+      type: "string",
+      description:
+        "ISO datetime — explicit coverage window end for the page-type marker on publish (create_page, update_metadata). Pass the authoring chunk end when publishing scheduler-spawned authoring work.",
+    },
     targetType: {
       type: "string",
       description: "Polymorphic link target type (add_link), e.g. 'mission', 'task', 'pulse'",

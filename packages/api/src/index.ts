@@ -73,6 +73,7 @@ import { seedDefaultTemplates as seedQualityTemplates } from "./services/quality
 import { startAllSchedulers } from "./services/scheduler.js";
 import { initSkillHooks } from "./services/habitatSkillService.js";
 import { initWorkflowService } from "./services/workflowService.js";
+import { initWikiScheduler } from "./services/wikiSchedulerService.js";
 import { initDb } from "./db/index.js";
 
 import { registerErrorHandler } from "./errors/plugin.js";
@@ -325,6 +326,12 @@ try {
   initWorkflowService();
 } catch (err) {
   fastify.log.error({ err }, "Failed to initialize workflow service");
+}
+
+try {
+  initWikiScheduler();
+} catch (err) {
+  fastify.log.error({ err }, "Failed to initialize wiki scheduler");
 }
 
 const healthSnapshotInterval = setInterval(async () => {

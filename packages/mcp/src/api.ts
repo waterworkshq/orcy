@@ -2128,7 +2128,14 @@ export class KanbanApiClient
   /** Create a new wiki page (initial draft). */
   async createWikiPage(
     habitatId: string,
-    input: { title: string; content: string; parentId?: string | null; tags?: string[] },
+    input: {
+      title: string;
+      content: string;
+      parentId?: string | null;
+      tags?: string[];
+      coverageFrom?: string;
+      coverageTo?: string;
+    },
   ): Promise<WikiPage> {
     const res = await this.request<{ page: WikiPage }>(
       "POST",
@@ -2138,11 +2145,17 @@ export class KanbanApiClient
     return res.page;
   }
 
-  /** Patch wiki page metadata (parent, tags, status). No version bump. */
+  /** Patch wiki page metadata (parent, tags, status, coverage window). No version bump. */
   async updateWikiPageMetadata(
     habitatId: string,
     pageId: string,
-    patch: { parentId?: string | null; tags?: string[]; status?: "draft" | "published" },
+    patch: {
+      parentId?: string | null;
+      tags?: string[];
+      status?: "draft" | "published";
+      coverageFrom?: string;
+      coverageTo?: string;
+    },
   ): Promise<WikiPage> {
     const res = await this.request<{ page: WikiPage }>(
       "PATCH",

@@ -309,6 +309,155 @@ describe("wikiService.updatePageMetadata", () => {
     expect(wikiCoverageRepo.getByPage(page.id)).toHaveLength(1);
   });
 
+  it("createPage published with explicit coverage window uses that window for the marker", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(
+      habitat.id,
+      {
+        title: "Chunk page",
+        content: "",
+        status: "published",
+        coverageFrom: "2026-01-01T00:00:00.000Z",
+        coverageTo: "2026-02-01T00:00:00.000Z",
+      },
+      "human-1",
+    );
+    const markers = wikiCoverageRepo.getByPage(page.id);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].coverageFrom).toBe("2026-01-01T00:00:00.000Z");
+    expect(markers[0].coverageTo).toBe("2026-02-01T00:00:00.000Z");
+  });
+
+  it("createPage published without an explicit coverage window falls back to a zero-width [createdAt, createdAt] marker (does not leap the watermark to now)", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(
+      habitat.id,
+      { title: "Adhoc page", content: "", status: "published" },
+      "human-1",
+    );
+    const markers = wikiCoverageRepo.getByPage(page.id);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].coverageFrom).toBe(page.createdAt);
+    expect(markers[0].coverageTo).toBe(page.createdAt);
+    // The fallback is a zero-width window at creation — it must NOT span to `now` (which would
+    // leap the habitat watermark forward past unevaluated history). Zero-width <=> from === to.
+    expect(markers[0].coverageFrom).toBe(markers[0].coverageTo);
+  });
+
+  it("updatePageMetadata publish with explicit coverage window uses that window", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+    wikiService.updatePageMetadata(
+      page.id,
+      {
+        status: "published",
+        coverageFrom: "2026-03-01T00:00:00.000Z",
+        coverageTo: "2026-03-15T00:00:00.000Z",
+      },
+      "human-1",
+    );
+    const markers = wikiCoverageRepo.getByPage(page.id);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].coverageFrom).toBe("2026-03-01T00:00:00.000Z");
+    expect(markers[0].coverageTo).toBe("2026-03-15T00:00:00.000Z");
+  });
+
+  it("updatePageMetadata publish without explicit coverage window falls back to zero-width [createdAt, createdAt]", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1");
+    wikiService.updatePageMetadata(page.id, { status: "published" }, "human-1");
+    const markers = wikiCoverageRepo.getByPage(page.id);
+    expect(markers).toHaveLength(1);
+    expect(markers[0].coverageFrom).toBe(page.createdAt);
+    expect(markers[0].coverageTo).toBe(page.createdAt);
+  });
+
+  it("rejects publishing with coverageFrom but no coverageTo (and vice versa)", () => {
+    const { habitat } = setupHabitat();
+    expect(() =>
+      wikiService.createPage(
+        habitat.id,
+        { title: "P", content: "", status: "published", coverageFrom: "2026-01-01T00:00:00.000Z" },
+        "human-1",
+      ),
+    ).toThrow(/together/i);
+    expect(() =>
+      wikiService.updatePageMetadata(
+        wikiService.createPage(habitat.id, { title: "P", content: "" }, "human-1").id,
+        { status: "published", coverageTo: "2026-01-08T00:00:00.000Z" },
+        "human-1",
+      ),
+    ).toThrow(/together/i);
+  });
+
+  it("rejects a coverage window where from > to or to is in the future", () => {
+    const { habitat } = setupHabitat();
+    expect(() =>
+      wikiService.createPage(
+        habitat.id,
+        {
+          title: "P",
+          content: "",
+          status: "published",
+          coverageFrom: "2026-02-01T00:00:00.000Z",
+          coverageTo: "2026-01-01T00:00:00.000Z",
+        },
+        "human-1",
+      ),
+    ).toThrow(/earlier than|coverageFrom/i);
+    expect(() =>
+      wikiService.createPage(
+        habitat.id,
+        {
+          title: "P",
+          content: "",
+          status: "published",
+          coverageFrom: "2026-01-01T00:00:00.000Z",
+          coverageTo: "9999-12-31T23:59:59Z",
+        },
+        "human-1",
+      ),
+    ).toThrow(/future/i);
+  });
+
+  it("postNoUpdateNeeded rejects malformed windows (from > to, future to, unparseable)", () => {
+    const { habitat } = setupHabitat();
+    expect(() =>
+      wikiService.postNoUpdateNeeded(
+        habitat.id,
+        { from: "2026-02-01T00:00:00.000Z", to: "2026-01-01T00:00:00.000Z" },
+        "human-1",
+      ),
+    ).toThrow(/earlier than|coverageFrom/i);
+    expect(() =>
+      wikiService.postNoUpdateNeeded(
+        habitat.id,
+        { from: "2026-01-01T00:00:00.000Z", to: "9999-12-31T23:59:59Z" },
+        "human-1",
+      ),
+    ).toThrow(/future/i);
+    expect(() =>
+      wikiService.postNoUpdateNeeded(
+        habitat.id,
+        { from: "not-a-date", to: "2026-01-01T00:00:00.000Z" },
+        "human-1",
+      ),
+    ).toThrow(/valid datetime/i);
+  });
+
+  it("postNoUpdateNeeded accepts a valid window and advances the watermark", () => {
+    const { habitat } = setupHabitat();
+    const marker = wikiService.postNoUpdateNeeded(
+      habitat.id,
+      { from: "2026-01-01T00:00:00.000Z", to: "2026-01-08T00:00:00.000Z", reason: "low signal" },
+      "human-1",
+    );
+    expect(marker.markerType).toBe("no_update_needed");
+    expect(marker.coverageFrom).toBe("2026-01-01T00:00:00.000Z");
+    expect(marker.coverageTo).toBe("2026-01-08T00:00:00.000Z");
+    expect(marker.reason).toBe("low signal");
+  });
+
   it("updates tags and lastUpdatedBy without touching title or content", () => {
     const { habitat } = setupHabitat();
     const page = wikiService.createPage(habitat.id, { title: "P", content: "body" }, "human-1");

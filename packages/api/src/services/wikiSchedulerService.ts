@@ -118,31 +118,17 @@ export function setCadence(
     const schedule = scheduledTaskRepo.createScheduledTask({
       habitatId,
       name: `${CADENCE_SCHEDULE_NAME_PREFIX}${habitatId}`,
-      description: `Wiki cadence run for habitat ${habitatId}. Spawns wiki-authoring tasks for the current coverage gap.`,
+      description: `Wiki cadence run for habitat ${habitatId}. On due, the registered handler invokes wikiSchedulerService.runCadence to spawn wiki-authoring tasks for the current coverage gap.`,
       scheduleType,
       cronExpression: input.cronExpression ?? null,
       intervalMinutes: input.intervalMinutes ?? null,
       timezone,
       missionTitle: "Wiki cadence run",
-      missionDescription: `Run wiki cadence for habitat ${habitatId}. The handler invokes wikiSchedulerService.runCadence to spawn authoring tasks for the current coverage gap.`,
+      missionDescription: `Run wiki cadence for habitat ${habitatId}. Invoked automatically by the scheduled-task handler registered under the wiki-cadence: name prefix.`,
       missionPriority: "low",
       missionLabels: ["wiki", "cadence"],
       missionDomain: "wiki",
-      tasksTemplate: [
-        {
-          key: "run_cadence",
-          title: `Run wiki cadence for habitat ${habitatId}`,
-          description:
-            `Invoke wikiSchedulerService.runCadence(habitatId) via the cadence handler. ` +
-            `The handler reads the coverage gap, chunks it, and registers wiki-authoring tasks ` +
-            `via scheduledTaskService. An agent claiming this task should call ` +
-            `wikiSchedulerService.runCadence(habitatId) and verify the resulting tasks were spawned.`,
-          priority: "low",
-          requiredDomain: "wiki",
-          requiredCapabilities: ["wiki-authoring"],
-          order: 0,
-        },
-      ],
+      tasksTemplate: [],
       nextRunAt,
       createdBy,
     });
@@ -365,5 +351,30 @@ function spawnAuthoringTask(
     ],
     nextRunAt: now,
     createdBy,
+  });
+}
+
+/**
+ * Registers the wiki cadence handler with the scheduled-task service so that due
+ * `wiki-cadence:<habitatId>` schedules invoke {@link runCadence} automatically — spawning the
+ * next chunk of wiki-authoring tasks — instead of creating a meta "call runCadence" mission that
+ * an agent would have to claim manually. Idempotent: re-registration overwrites the prior handler.
+ * Called once at API boot (see `packages/api/src/index.ts`).
+ */
+export function initWikiScheduler(): void {
+  scheduledTaskService.registerScheduledTaskHandler(CADENCE_SCHEDULE_NAME_PREFIX, (schedule) => {
+    try {
+      const result = runCadence(schedule.habitatId);
+      return {
+        success: true,
+        ...(result.tasksCreated > 0 ? { missionId: result.chunks[0]?.scheduledTaskId } : {}),
+      };
+    } catch (err) {
+      logger.error(
+        { err, scheduleId: schedule.id, habitatId: schedule.habitatId },
+        "Wiki cadence handler failed",
+      );
+      return { success: false, error: (err as Error).message };
+    }
   });
 }

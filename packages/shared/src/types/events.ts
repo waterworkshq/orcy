@@ -190,7 +190,7 @@ export type SSEEvent =
     }
   | {
       type: "scheduled_task.executed";
-      data: { scheduleId: string; missionId: string; missionTitle: string };
+      data: { scheduleId: string; missionId?: string; missionTitle?: string };
     }
   | { type: "scheduled_task.failed"; data: { scheduleId: string; error: string } }
   | { type: "scheduled_task.created"; data: { scheduleId: string; name: string } }
