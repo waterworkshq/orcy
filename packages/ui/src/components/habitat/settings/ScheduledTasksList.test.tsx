@@ -1,53 +1,54 @@
-import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import { ScheduledTasksList } from './ScheduledTasksList.js';
-import type { ScheduledTask } from '../../../types/index.js';
+import React from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { ScheduledTasksList } from "./ScheduledTasksList.js";
+import type { ScheduledTask } from "../../../types/index.js";
 
 const mockScheduledTask: ScheduledTask = {
-  id: 'st-1',
-  habitatId: 'board-1',
+  id: "st-1",
+  habitatId: "board-1",
   templateId: null,
-  name: 'Weekly Sprint',
-  description: 'Create weekly sprint feature',
-  scheduleType: 'cron',
-  cronExpression: '0 9 * * 1',
+  name: "Weekly Sprint",
+  description: "Create weekly sprint feature",
+  scheduleType: "cron",
+  cronExpression: "0 9 * * 1",
   intervalMinutes: null,
   scheduledAt: null,
-  timezone: 'UTC',
-  missionTitle: 'Sprint {{date}}',
-  missionDescription: 'Weekly sprint',
-  missionPriority: 'medium',
-  missionLabels: ['sprint'],
+  timezone: "UTC",
+  missionTitle: "Sprint {{date}}",
+  missionDescription: "Weekly sprint",
+  missionPriority: "medium",
+  missionLabels: ["sprint"],
   missionDomain: null,
+  handlerKey: null,
   tasksTemplate: [],
   enabled: true,
-  lastRunAt: '2025-01-01T09:00:00Z',
-  nextRunAt: '2025-01-06T09:00:00Z',
+  lastRunAt: "2025-01-01T09:00:00Z",
+  nextRunAt: "2025-01-06T09:00:00Z",
   runCount: 5,
-  lastCreatedMissionId: 'feat-100',
-  createdBy: 'user-1',
-  createdAt: '2024-12-01T00:00:00Z',
-  updatedAt: '2025-01-01T09:00:00Z',
+  lastCreatedMissionId: "feat-100",
+  createdBy: "user-1",
+  createdAt: "2024-12-01T00:00:00Z",
+  updatedAt: "2025-01-01T09:00:00Z",
 };
 
 const mockDisabledTask: ScheduledTask = {
   ...mockScheduledTask,
-  id: 'st-2',
-  name: 'Monthly Review',
+  id: "st-2",
+  name: "Monthly Review",
   enabled: false,
-  cronExpression: '0 0 1 * *',
+  cronExpression: "0 0 1 * *",
   lastCreatedMissionId: null,
   runCount: 0,
 };
 
-vi.mock('../../ui/ToggleSwitch.js', () => ({
+vi.mock("../../ui/ToggleSwitch.js", () => ({
   ToggleSwitch: ({ checked, onChange }: any) => (
     <button data-testid="toggle" onClick={() => onChange(!checked)} data-checked={checked} />
   ),
 }));
 
-describe('ScheduledTasksList', () => {
+describe("ScheduledTasksList", () => {
   const mockOnToggle = vi.fn();
   const mockOnRun = vi.fn();
   const mockOnDelete = vi.fn();
@@ -62,7 +63,7 @@ describe('ScheduledTasksList', () => {
     cleanup();
   });
 
-  it('renders loading state', () => {
+  it("renders loading state", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[]}
@@ -73,12 +74,12 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    expect(screen.getByText('Loading scheduled tasks...')).toBeTruthy();
+    expect(screen.getByText("Loading scheduled tasks...")).toBeTruthy();
   });
 
-  it('renders empty state with add button', () => {
+  it("renders empty state with add button", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[]}
@@ -89,13 +90,13 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
     expect(screen.getByText(/No scheduled tasks configured/)).toBeTruthy();
-    expect(screen.getByTestId('add-scheduled-task-btn')).toBeTruthy();
+    expect(screen.getByTestId("add-scheduled-task-btn")).toBeTruthy();
   });
 
-  it('renders schedule items with name and next run time', () => {
+  it("renders schedule items with name and next run time", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -106,15 +107,15 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    expect(screen.getByTestId('task-name-st-1')).toBeTruthy();
-    expect(screen.getByText('Weekly Sprint')).toBeTruthy();
+    expect(screen.getByTestId("task-name-st-1")).toBeTruthy();
+    expect(screen.getByText("Weekly Sprint")).toBeTruthy();
     expect(screen.getByText(/0 9 \* \* 1/)).toBeTruthy();
     expect(screen.getByText(/5 runs/)).toBeTruthy();
   });
 
-  it('shows active badge for enabled tasks', () => {
+  it("shows active badge for enabled tasks", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -125,12 +126,12 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    expect(screen.getByText('Active')).toBeTruthy();
+    expect(screen.getByText("Active")).toBeTruthy();
   });
 
-  it('shows paused badge for disabled tasks', () => {
+  it("shows paused badge for disabled tasks", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockDisabledTask]}
@@ -141,12 +142,12 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    expect(screen.getByText('Paused')).toBeTruthy();
+    expect(screen.getByText("Paused")).toBeTruthy();
   });
 
-  it('enable/disable toggle calls onToggle', () => {
+  it("enable/disable toggle calls onToggle", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -157,14 +158,14 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    const toggles = screen.getAllByTestId('toggle');
+    const toggles = screen.getAllByTestId("toggle");
     fireEvent.click(toggles[0]);
     expect(mockOnToggle).toHaveBeenCalledWith(mockScheduledTask);
   });
 
-  it('run button calls onRun with task id', () => {
+  it("run button calls onRun with task id", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -175,13 +176,13 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    fireEvent.click(screen.getByTestId('run-btn-st-1'));
-    expect(mockOnRun).toHaveBeenCalledWith('st-1');
+    fireEvent.click(screen.getByTestId("run-btn-st-1"));
+    expect(mockOnRun).toHaveBeenCalledWith("st-1");
   });
 
-  it('delete button calls onDelete with task id', () => {
+  it("delete button calls onDelete with task id", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -192,13 +193,13 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    fireEvent.click(screen.getByTestId('delete-btn-st-1'));
-    expect(mockOnDelete).toHaveBeenCalledWith('st-1');
+    fireEvent.click(screen.getByTestId("delete-btn-st-1"));
+    expect(mockOnDelete).toHaveBeenCalledWith("st-1");
   });
 
-  it('shows feature link when lastCreatedMissionId exists', () => {
+  it("shows feature link when lastCreatedMissionId exists", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -209,12 +210,12 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    expect(screen.getByTestId('feature-link-st-1')).toBeTruthy();
+    expect(screen.getByTestId("feature-link-st-1")).toBeTruthy();
   });
 
-  it('disables run button when task is currently running', () => {
+  it("disables run button when task is currently running", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -225,16 +226,16 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    const runBtn = screen.getByTestId('run-btn-st-1');
-    expect(runBtn).toHaveProperty('disabled', true);
+    const runBtn = screen.getByTestId("run-btn-st-1");
+    expect(runBtn).toHaveProperty("disabled", true);
   });
 
-  it('displays interval schedule type correctly', () => {
+  it("displays interval schedule type correctly", () => {
     const intervalTask: ScheduledTask = {
       ...mockScheduledTask,
-      scheduleType: 'interval',
+      scheduleType: "interval",
       intervalMinutes: 30,
       cronExpression: null,
     };
@@ -248,12 +249,12 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
     expect(screen.getByText(/Every 30m/)).toBeTruthy();
   });
 
-  it('calls onEdit when edit button clicked', () => {
+  it("calls onEdit when edit button clicked", () => {
     render(
       <ScheduledTasksList
         scheduledTasks={[mockScheduledTask]}
@@ -264,9 +265,9 @@ describe('ScheduledTasksList', () => {
         onDelete={mockOnDelete}
         onEdit={mockOnEdit}
         onAdd={mockOnAdd}
-      />
+      />,
     );
-    fireEvent.click(screen.getByTestId('edit-btn-st-1'));
+    fireEvent.click(screen.getByTestId("edit-btn-st-1"));
     expect(mockOnEdit).toHaveBeenCalledWith(mockScheduledTask);
   });
 });

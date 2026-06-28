@@ -27,33 +27,36 @@ export interface ScheduledTaskHandlerResult {
 }
 
 /**
- * A custom handler invoked when a due scheduled task's `name` starts with a registered prefix,
- * instead of the default mission-from-template creation path. This lets domain services (wiki
- * cadence) hook into the scheduler without `scheduledTaskService` depending on them.
+ * A custom handler invoked when a due scheduled task carries a `handlerKey` that matches a
+ * registered handler, instead of the default mission-from-template creation path. This lets
+ * domain services (wiki cadence) hook into the scheduler without `scheduledTaskService`
+ * depending on them.
  */
 export type ScheduledTaskHandler = (schedule: ScheduledTask) => ScheduledTaskHandlerResult;
 
-/** Prefix → handler registry, populated by domain services at boot via {@link registerScheduledTaskHandler}. */
+/** Dispatch key for the wiki cadence handler (registered by `wikiSchedulerService.initWikiScheduler`). */
+export const WIKI_CADENCE_HANDLER_KEY = "wiki-cadence";
+
+/** handlerKey → handler registry, populated by domain services at boot via {@link registerScheduledTaskHandler}. */
 const scheduledTaskHandlers = new Map<string, ScheduledTaskHandler>();
 
 /**
- * Registers a handler invoked when a due scheduled task's `name` starts with `namePrefix`. The
+ * Registers a handler invoked when a due scheduled task's `handlerKey` equals `handlerKey`. The
  * handler replaces the default mission-from-template execution for matching schedules. Domain
- * services register their handlers at boot (see `wikiSchedulerService.initWikiScheduler`).
+ * services register their handlers at boot (see `wikiSchedulerService.initWikiScheduler`). This
+ * is explicit dispatch keyed on the schedule's declared `handler_key` column — no name-prefix
+ * matching, so renaming a schedule's name can never silently break dispatch.
  */
 export function registerScheduledTaskHandler(
-  namePrefix: string,
+  handlerKey: string,
   handler: ScheduledTaskHandler,
 ): void {
-  scheduledTaskHandlers.set(namePrefix, handler);
+  scheduledTaskHandlers.set(handlerKey, handler);
 }
 
-/** Returns the registered handler whose `namePrefix` matches `scheduleName`, or `null` when none match. */
-function findHandlerForName(scheduleName: string): ScheduledTaskHandler | null {
-  for (const [prefix, handler] of scheduledTaskHandlers) {
-    if (scheduleName.startsWith(prefix)) return handler;
-  }
-  return null;
+/** Returns the registered handler for `handlerKey`, or `null` when none is registered. */
+function getHandler(handlerKey: string): ScheduledTaskHandler | null {
+  return scheduledTaskHandlers.get(handlerKey) ?? null;
 }
 
 /** Replaces `{{date}}` and `{{counter}}` tokens in a template string using the schedule's timezone and run count. */
@@ -158,8 +161,27 @@ export function executeScheduledTask(id: string): {
   }
 
   try {
-    const handler = findHandlerForName(schedule.name);
-    if (handler) {
+    // Explicit dispatch: a schedule declares `handler_key` to opt into handler-driven execution.
+    // When set, the registered handler runs instead of the default mission-from-template path.
+    // Fail-loud guard: if `handlerKey` is set but no handler is registered (e.g. a domain service
+    // forgot to register at boot), this is a configuration error — surface it via scheduled_task.failed
+    // and a logged error rather than silently falling through to mission creation (which would hide
+    // the bug and produce the wrong artifact).
+    if (schedule.handlerKey) {
+      const handler = getHandler(schedule.handlerKey);
+      if (!handler) {
+        const error = `No handler registered for handlerKey "${schedule.handlerKey}" on scheduled task ${schedule.name} (id=${id}). Register it at boot via registerScheduledTaskHandler.`;
+        logger.error(
+          { scheduleId: id, handlerKey: schedule.handlerKey, name: schedule.name },
+          error,
+        );
+        scheduledTaskRepo.finalizeExecution(id, null);
+        sseBroadcaster.publish(schedule.habitatId, {
+          type: "scheduled_task.failed",
+          data: { scheduleId: id, error },
+        });
+        return { success: false, error };
+      }
       const handlerResult = handler(schedule);
       const missionId = handlerResult.missionId ?? null;
       scheduledTaskRepo.finalizeExecution(id, missionId);

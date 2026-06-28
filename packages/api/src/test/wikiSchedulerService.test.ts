@@ -118,8 +118,10 @@ describe("wikiSchedulerService.setCadence", () => {
     expect(schedule!.intervalMinutes).toBe(60);
     // The cadence schedule no longer carries a meta "run_cadence" task template — the due-run
     // is dispatched to wikiSchedulerService.runCadence via the handler registered under the
-    // wiki-cadence: name prefix (initWikiScheduler). tasksTemplate is empty by design.
+    // "wiki-cadence" handlerKey (initWikiScheduler). Dispatch is explicit via the handler_key
+    // column, not name-prefix matching. tasksTemplate is empty by design.
     expect(schedule!.tasksTemplate).toHaveLength(0);
+    expect(schedule!.handlerKey).toBe("wiki-cadence");
     expect(schedule!.name.startsWith("wiki-cadence:")).toBe(true);
   });
 
@@ -394,5 +396,52 @@ describe("wikiSchedulerService cadence handler dispatch", () => {
     // (interval schedules stay enabled; only "once" schedules auto-disable).
     const refreshed = scheduledTaskRepo.getScheduledTaskById(schedule!.id);
     expect(refreshed!.enabled).toBe(true);
+  });
+
+  it("fails loud when a handler-keyed schedule has no registered handler (no silent mission fallback)", () => {
+    const { habitat } = setupHabitat();
+    const db = getDb();
+
+    // A schedule stamped with a handlerKey for which no handler is registered (simulates a domain
+    // service forgetting to call its init at boot). Use a unique key no test registers.
+    const dueAt = new Date(Date.now() - 1000).toISOString();
+    db.insert(scheduledTasks)
+      .values({
+        id: "orphan-handler-schedule",
+        habitatId: habitat.id,
+        templateId: null,
+        name: "orphan-handler-schedule",
+        description: "handlerKey set, no handler registered",
+        scheduleType: "interval",
+        cronExpression: null,
+        intervalMinutes: 60,
+        scheduledAt: null,
+        timezone: "UTC",
+        missionTitle: "Orphan",
+        missionDescription: "",
+        missionPriority: "medium",
+        missionLabels: [],
+        missionDomain: "wiki",
+        handlerKey: "nonexistent-handler-key",
+        tasksTemplate: [],
+        enabled: true,
+        lastRunAt: null,
+        nextRunAt: dueAt,
+        runCount: 0,
+        lastCreatedMissionId: null,
+        createdBy: "human-1",
+        createdAt: dueAt,
+        updatedAt: dueAt,
+      })
+      .run();
+
+    const beforeMissions = db.select().from(missions).all().length;
+    const result = executeScheduledTask("orphan-handler-schedule");
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/No handler registered for handlerKey "nonexistent-handler-key"/);
+
+    // The fail-loud guard must NOT fall through to mission creation.
+    const afterMissions = db.select().from(missions).all().length;
+    expect(afterMissions).toBe(beforeMissions);
   });
 });

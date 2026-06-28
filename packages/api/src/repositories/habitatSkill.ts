@@ -3,7 +3,7 @@ import { habitatSkills, habitatSkillSignals } from "../db/schema/index.js";
 import { eq, and, count, desc, gt, gte, lte, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { SkillCategory } from "@orcy/shared";
-import { SKILL_CATEGORIES } from "@orcy/shared";
+import { SKILL_CATEGORIES, parseDurationWindow } from "@orcy/shared";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -163,31 +163,8 @@ const EXPERIENCE_SKILL_CATEGORIES: readonly SkillCategory[] = [
   "pattern",
 ] as const;
 
-/**
- * Parses a duration string (e.g. `'7 days'`, `'30 days'`, `'90 days'`) into an ISO timestamp
- * representing `now - duration`. Returns `null` for unparseable input so the caller can choose
- * to skip the filter rather than silently widen the window.
- */
-export function parseDurationWindow(
-  timeWindow: string | undefined,
-  now: Date = new Date(),
-): string | null {
-  if (!timeWindow) return null;
-  const match = timeWindow
-    .trim()
-    .match(/^(\d+)\s*(s|sec|seconds?|m|min|mins?|minutes?|h|hr|hrs|hours?|d|days?|w|weeks?)$/i);
-  if (!match) return null;
-  const n = parseInt(match[1]!, 10);
-  const unit = match[2]!.toLowerCase();
-  let ms: number;
-  if (unit.startsWith("s")) ms = n * 1000;
-  else if (unit.startsWith("m") && !unit.startsWith("ms")) ms = n * 60 * 1000;
-  else if (unit.startsWith("h")) ms = n * 60 * 60 * 1000;
-  else if (unit.startsWith("d")) ms = n * 24 * 60 * 60 * 1000;
-  else if (unit.startsWith("w")) ms = n * 7 * 24 * 60 * 60 * 1000;
-  else return null;
-  return new Date(now.getTime() - ms).toISOString();
-}
+// `parseDurationWindow` is imported from `@orcy/shared` (extracted from the duplicated copies that
+// previously lived here and in `pulse.ts`). See `shared/src/duration.ts`.
 
 function rowToExperienceAggregate(row: Record<string, unknown>): ExperienceAggregate {
   return {

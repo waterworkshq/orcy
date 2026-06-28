@@ -413,6 +413,7 @@ export const scheduledTasks = sqliteTable(
       .notNull()
       .$defaultFn(() => []),
     missionDomain: text("mission_domain"),
+    handlerKey: text("handler_key"),
     tasksTemplate: text("tasks_template", { mode: "json" })
       .$type<TaskTemplateEntry[]>()
       .notNull()

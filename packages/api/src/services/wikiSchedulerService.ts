@@ -124,10 +124,11 @@ export function setCadence(
       intervalMinutes: input.intervalMinutes ?? null,
       timezone,
       missionTitle: "Wiki cadence run",
-      missionDescription: `Run wiki cadence for habitat ${habitatId}. Invoked automatically by the scheduled-task handler registered under the wiki-cadence: name prefix.`,
+      missionDescription: `Run wiki cadence for habitat ${habitatId}. Invoked automatically by the scheduled-task handler registered under the wiki-cadence handlerKey.`,
       missionPriority: "low",
       missionLabels: ["wiki", "cadence"],
       missionDomain: "wiki",
+      handlerKey: scheduledTaskService.WIKI_CADENCE_HANDLER_KEY,
       tasksTemplate: [],
       nextRunAt,
       createdBy,
@@ -355,26 +356,34 @@ function spawnAuthoringTask(
 }
 
 /**
- * Registers the wiki cadence handler with the scheduled-task service so that due
- * `wiki-cadence:<habitatId>` schedules invoke {@link runCadence} automatically — spawning the
- * next chunk of wiki-authoring tasks — instead of creating a meta "call runCadence" mission that
- * an agent would have to claim manually. Idempotent: re-registration overwrites the prior handler.
- * Called once at API boot (see `packages/api/src/index.ts`).
+ * Registers the wiki cadence handler with the scheduled-task service so that due wiki-cadence
+ * schedules (those carrying `handlerKey: WIKI_CADENCE_HANDLER_KEY`) invoke {@link runCadence}
+ * automatically — spawning the next chunk of wiki-authoring tasks — instead of creating a meta
+ * "call runCadence" mission that an agent would have to claim manually. Idempotent: re-registration
+ * overwrites the prior handler. Called once at API boot (see `packages/api/src/index.ts`).
+ *
+ * Dispatch is explicit: setCadence stamps `handler_key = "wiki-cadence"` on the schedule row, and
+ * executeScheduledTask looks up the handler by that key. If this init runs after the first due tick
+ * (or not at all), the fail-loud guard in executeScheduledTask surfaces "No handler registered for
+ * handlerKey wiki-cadence" rather than silently creating the wrong artifact.
  */
 export function initWikiScheduler(): void {
-  scheduledTaskService.registerScheduledTaskHandler(CADENCE_SCHEDULE_NAME_PREFIX, (schedule) => {
-    try {
-      const result = runCadence(schedule.habitatId);
-      return {
-        success: true,
-        ...(result.tasksCreated > 0 ? { missionId: result.chunks[0]?.scheduledTaskId } : {}),
-      };
-    } catch (err) {
-      logger.error(
-        { err, scheduleId: schedule.id, habitatId: schedule.habitatId },
-        "Wiki cadence handler failed",
-      );
-      return { success: false, error: (err as Error).message };
-    }
-  });
+  scheduledTaskService.registerScheduledTaskHandler(
+    scheduledTaskService.WIKI_CADENCE_HANDLER_KEY,
+    (schedule) => {
+      try {
+        const result = runCadence(schedule.habitatId);
+        return {
+          success: true,
+          ...(result.tasksCreated > 0 ? { missionId: result.chunks[0]?.scheduledTaskId } : {}),
+        };
+      } catch (err) {
+        logger.error(
+          { err, scheduleId: schedule.id, habitatId: schedule.habitatId },
+          "Wiki cadence handler failed",
+        );
+        return { success: false, error: (err as Error).message };
+      }
+    },
+  );
 }

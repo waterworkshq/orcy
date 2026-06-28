@@ -30,6 +30,7 @@ export interface CreateScheduledTaskInput {
   missionPriority?: TaskPriority;
   missionLabels?: string[];
   missionDomain?: string | null;
+  handlerKey?: string | null;
   tasksTemplate?: TaskTemplateEntry[];
   nextRunAt: string;
   createdBy: string;
@@ -77,6 +78,7 @@ export function createScheduledTask(input: CreateScheduledTaskInput): ScheduledT
         missionPriority: input.missionPriority ?? "medium",
         missionLabels: input.missionLabels ?? [],
         missionDomain: input.missionDomain ?? null,
+        handlerKey: input.handlerKey ?? null,
         tasksTemplate: input.tasksTemplate ?? [],
         enabled: true,
         lastRunAt: null,

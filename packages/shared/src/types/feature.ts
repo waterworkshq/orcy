@@ -174,6 +174,14 @@ export interface ScheduledTask {
   missionPriority: TaskPriority;
   missionLabels: string[];
   missionDomain: string | null;
+  /**
+   * Optional dispatch key. When set, the scheduled-task executor invokes the handler registered
+   * for this key (via `scheduledTaskService.registerScheduledTaskHandler`) instead of creating a
+   * mission from the template. `null` (the default) means the standard mission-from-template path.
+   * Used by the wiki cadence (`"wiki-cadence"`), which spawns authoring tasks directly via
+   * `runCadence` rather than materializing a meta "call runCadence" mission.
+   */
+  handlerKey: string | null;
   tasksTemplate: TaskTemplateEntry[];
   enabled: boolean;
   lastRunAt: string | null;

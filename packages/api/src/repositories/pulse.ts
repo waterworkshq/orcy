@@ -9,7 +9,7 @@ import {
   repositoryDeleteError,
   repositoryUpsertError,
 } from "../errors/repository.js";
-import { SIGNAL_TYPES, type SignalType } from "@orcy/shared";
+import { SIGNAL_TYPES, type SignalType, parseDurationWindow } from "@orcy/shared";
 
 export { type SignalType };
 
@@ -94,31 +94,8 @@ export interface FindingFilters {
   offset?: number;
 }
 
-/**
- * Parses a duration string (e.g. `'7 days'`, `'30 days'`, `'90 days'`) into an ISO timestamp
- * representing `now - duration`. Returns `null` for unparseable input so the caller can skip
- * the filter rather than silently widen the window. Mirrors the habitat-skill helper.
- */
-function parseDurationWindow(
-  timeWindow: string | undefined,
-  now: Date = new Date(),
-): string | null {
-  if (!timeWindow) return null;
-  const match = timeWindow
-    .trim()
-    .match(/^(\d+)\s*(s|sec|seconds?|m|min|mins?|minutes?|h|hr|hrs|hours?|d|days?|w|weeks?)$/i);
-  if (!match) return null;
-  const n = parseInt(match[1]!, 10);
-  const unit = match[2]!.toLowerCase();
-  let ms: number;
-  if (unit.startsWith("s")) ms = n * 1000;
-  else if (unit.startsWith("m") && !unit.startsWith("ms")) ms = n * 60 * 1000;
-  else if (unit.startsWith("h")) ms = n * 60 * 60 * 1000;
-  else if (unit.startsWith("d")) ms = n * 24 * 60 * 60 * 1000;
-  else if (unit.startsWith("w")) ms = n * 7 * 24 * 60 * 60 * 1000;
-  else return null;
-  return new Date(now.getTime() - ms).toISOString();
-}
+// `parseDurationWindow` is imported from `@orcy/shared` (extracted from the duplicated copies that
+// previously lived here and in `habitatSkill.ts`). See `shared/src/duration.ts`.
 
 function rowToPulse(row: Record<string, unknown>): Pulse {
   // drizzle's RETURNING (INSERT) and select() can return different key
