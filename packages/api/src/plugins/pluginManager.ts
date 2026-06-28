@@ -19,6 +19,7 @@ type ContributionKind =
 import type {
   PluginModule,
   ChannelHandler,
+  ChannelHandlerResult,
   DetectorHandler,
   InterceptorHandler,
   McpToolHandler,
@@ -26,6 +27,7 @@ import type {
   EventSourceRef,
   InterceptorPreResult,
 } from "./types.js";
+import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { buildPluginContext } from "./context.js";
 import { readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -422,6 +424,51 @@ export function getCustomMcpTools(): McpToolDefinition[] {
 
 export function getChannelHandler(channelId: string): ChannelHandler | undefined {
   return channelRegistry.get(channelId)?.handler;
+}
+
+/**
+ * Dispatches a notification delivery to a registered channel plugin handler.
+ * Returns `null` when no plugin has registered a handler for `channel`
+ * (caller must fall through to the in-tree switch). On a registry hit, the
+ * plugin handler is invoked with a per-run `PluginContext` carrying
+ * `notificationPayload`; handler exceptions are caught and surfaced as a
+ * failed `ChannelHandlerResult` rather than propagating to the dispatcher.
+ */
+export async function dispatchToChannelPlugin(
+  channel: string,
+  delivery: NotificationDelivery,
+  event: NotificationEvent,
+): Promise<ChannelHandlerResult | null> {
+  const entry = channelRegistry.get(channel);
+  if (!entry) return null;
+
+  const runId = cryptoRandom();
+  const run = runRepo.startRun({
+    habitatId: delivery.habitatId,
+    pluginId: entry.pluginId,
+    contributionId: channel,
+    contributionKind: "notificationChannel",
+    triggerEventId: delivery.eventId,
+    triggerType: `channel:${channel}`,
+  });
+  const ctx = buildPluginContext({
+    pluginId: entry.pluginId,
+    contributionId: channel,
+    habitatId: delivery.habitatId,
+    runId: run.id,
+    requires: [],
+  });
+  ctx.notificationPayload = { delivery, event };
+
+  try {
+    const result = await entry.handler(ctx, ctx.notificationPayload);
+    runRepo.finishRun(run.id, result.success ? "succeeded" : "failed", undefined, result.error);
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    runRepo.finishRun(run.id, "failed", undefined, message);
+    return { success: false, error: message };
+  }
 }
 
 /**

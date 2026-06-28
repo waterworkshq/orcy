@@ -4,6 +4,7 @@ import { deliverInApp } from "./notification-channels/inApp.js";
 import { deliverWebhook } from "./notification-channels/webhook.js";
 import { deliverSlack } from "./notification-channels/slack.js";
 import { deliverDiscord } from "./notification-channels/discord.js";
+import * as pluginManager from "../plugins/pluginManager.js";
 import type { NotificationDelivery, NotificationEvent, NotificationChannel } from "@orcy/shared";
 
 /** Outcome of attempting delivery through a single notification channel. */
@@ -49,6 +50,13 @@ async function dispatchChannel(
   event: NotificationEvent,
   channel: NotificationChannel,
 ): Promise<ChannelDeliveryResult> {
+  // Channel registry (ADR-0017): if a plugin has registered a handler for this channel,
+  // invoke it and return. Miss falls through to the in-tree switch below unchanged.
+  const pluginResult = await pluginManager.dispatchToChannelPlugin(channel, delivery, event);
+  if (pluginResult) {
+    return { channel, ...pluginResult };
+  }
+
   switch (channel) {
     case "in_app": {
       const r = await deliverInApp(delivery, event);
