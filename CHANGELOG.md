@@ -2,6 +2,40 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.21.1 — 2026-06-28
+
+### Bug Fixes
+
+#### strip experience-signal source IDs from authoring context ([`87ee3cb`](https://github.com/waterworkshq/orcy/commit/87ee3cbc95a5883d1fd6f8ff45f77c94131fcb46))
+
+1. The wiki authoring augmentation surface (delta-on-edit and chunk-on-create
+2. modes) returned raw HabitatSkillSignal rows, which include the individual-
+3. level fields sourcePulseIds, sourceTaskIds, sourceCommentIds, and
+4. corroboratingAgentIds. This leaked candid self-assessment attribution into
+5. the REST authoring-context response and the orcy_wiki get_authoring_context
+6. MCP action — a violation of the v0.21 privacy boundary that experience
+7. signals are aggregated-only in wiki UI/MCP (ARCHITECTURE.md §11.7, ADR-0009
+8. consequences).
+
+10. Add a privacy-safe AuthoringSkillSignal projection (Omit of the four
+11. source-ID fields) and a toAuthoringSkillSignal mapper in the habitatSkill
+12. repo, mirroring the existing listExperienceAggregates projection pattern.
+13. Project skill signals through the mapper in both
+14. getAuthoringContextForEdit and getAuthoringContextForChunk before they
+15. leave the service. Aggregate counts (frequency, corroboratingAgents,
+16. successfulTasks, failedTasks) and timestamps are retained; only the
+17. individual-level identifiers are stripped.
+
+19. getRelevantPrimitives was already safe — it only copies public fields
+20. (id/subject/body/habitatId/createdAt) into RelevantPrimitive, so no change
+21. needed there.
+
+23. Add a test that creates an experience-derived skill signal with source IDs
+24. and asserts the secret fields never appear on the returned authoring
+25. context (field-undefined check plus serialised-string containment check).
+
+
+
 ## 0.21.0 — 2026-06-26
 
 ### Bug Fixes
@@ -506,24 +540,3 @@
 6. Move `fileParallelism: false` from vitest.config.ts to the `test:perf` script so parallel test execution is preserved by default
 7. Update test scripts to exclude perf benchmarks from the main `pnpm test` command
 8. Document the snapshot model and `foreign_keys` pragma gotcha in TESTING.md
-
-
-
-## 0.20.2 — 2026-06-24
-
-### Refactors
-
-#### inline watcher pass-throughs and remove dead task-movement code ([`db413de`](https://github.com/waterworkshq/orcy/commit/db413de4565d0d517648334a93e792897945425e))
-
-1. Remove `task-movement.ts` which exported `moveTask` and `reorderTask`
-2. with zero production callers — the reorder function was a no-op and
-3. moveTask was superseded by the lifecycle service long ago. Delete
-4. the accompanying test file.
-
-6. Inline three watcherService forwarding functions (`unwatchTask`,
-7. `isWatching`, `getWatchers`) into their sole callers in the
-8. watcher route handler and `task-details.ts` via direct `watcherRepo`
-9. imports, reducing the service surface to `watchTask` and
-10. `notifyWatchers` only. Remove the unused re-export aliases
-11. `assembleHabitatContext` and `assembleCrossHabitatDependencies` from
-12. `task-details.ts` (zero import sites). Bump ROADMAP to v0.20.2.
