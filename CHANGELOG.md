@@ -2,6 +2,58 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.21.2 — 2026-06-28
+
+### Bug Fixes
+
+#### isolate the wiki graph per habitat ([`2254bbe`](https://github.com/waterworkshq/orcy/commit/2254bbe1abcd00ec53212eba4f3932006c349715))
+
+1. The wiki page tree and polymorphic citation surface leaked across
+2. habitats in two ways, and the Drizzle schema was out of sync with the
+3. slug uniqueness the migration actually enforces.
+
+5. 1. Parent page validation (createPage + updatePageMetadata)
+6. parentId was accepted without verifying the parent belongs to the same
+7. habitat or that the move does not create a cycle. A caller with access
+8. to habitat A could attach a page to a page id from habitat B, creating
+9. cross-habitat FK coupling and potential delete blockers; a reparent
+10. could also create a descendant cycle that makes the tree disappear in
+11. buildTree. Add a validateParent helper that throws badRequest when the
+12. parent belongs to a different habitat or when parentId === pageId
+13. (self-parent), notFound when the parent is missing, and conflict when
+14. the proposed parent is a descendant of the page being moved (detected
+15. via an isAncestorOf walk up the parent chain with a pre-existing-cycle
+16. guard and a depth cap). Wired into both createPage and
+17. updatePageMetadata before any DB write.
+
+19. 2. Habitat-aware link dangling resolution (resolveDangling)
+20. resolveDangling checked only target table existence (SELECT id FROM
+21. <table> WHERE id IN (...)), not same-habitat ownership. A wiki page in
+22. habitat A could cite another habitat's mission/task/pulse and read it
+23. back as dangling: false, leaking target existence. resolveDangling now
+24. takes the citing page's habitatId and issues one habitat-scoped
+25. existence query per target type, so a cross-habitat target reads as
+26. dangling: true. Per-type habitat join paths: mission/pulse/insight/
+27. skill_signal/external_issue use a direct habitat_id column; task joins
+28. missions; commit and pull_request join habitat_code_repositories on
+29. repository_id (NULL repository_id collapses to dangling); evidence_link
+30. joins through code_evidence_links.target_type/target_id to the
+31. underlying task or mission's habitat. ADR-0007's citation model is
+32. preserved — addLink still does not validate target existence at insert
+33. time; the privacy/isolation boundary is enforced at read, same as
+34. dangling detection always has been. getPage and listLinks now pass the
+35. page's habitatId through.
+
+37. 3. Drizzle slug-index parity (schema/wiki.ts)
+38. 0035_wiki.sql ships two partial unique slug indexes
+39. (idx_wiki_pages_slug_root for parent_id IS NULL, idx_wiki_pages_slug_child
+40. for parent_id IS NOT NULL) but the Drizzle schema definition omitted
+41. them, leaving schema-as-source-of-truth out of sync with the actual DB.
+42. Add both via uniqueIndex(...).where(...) (drizzle-orm 0.45.2 supports
+43. partial indexes) so the schema metadata matches the migration.
+
+
+
 ## 0.21.1 — 2026-06-28
 
 ### Bug Fixes
@@ -512,31 +564,3 @@
 
 
 #### add wiki authoring editor, augmentation panel, cadence panel, and delete flows ([`898e2ec`](https://github.com/waterworkshq/orcy/commit/898e2ec98cd662674003589ab843b209444c079d))
-
-
-
-## 0.20.3 — 2026-06-25
-
-### Chores
-
-#### update package license and reorganize documentation ([`def6e4e`](https://github.com/waterworkshq/orcy/commit/def6e4e0f790240ba413d9f1fc43e2886ead5cc2))
-
-1. Add MIT license field to package.json
-2. Add "Agnostic by design" section and restructure external integrations into categorized sections in README
-3. Add comprehensive comparison guide in docs/COMPARISON.md
-4. Update architecture docs with corrected tool count and added blank lines around code blocks
-
-
-
-### Performance
-
-#### optimize test database initialization with snapshot caching ([`3e12d0f`](https://github.com/waterworkshq/orcy/commit/3e12d0f9da45f224741a138d82486d7e82c85723))
-
-1. Refactor `initTestDb()` to cache sql.js WASM module, bcrypt admin hash, and a snapshot of the seeded database. Per-test calls now restore from the snapshot instead of running full migrations and seed operations, reducing the API test suite runtime from ~190s to ~12s.
-
-3. Cache sql.js factory to avoid WASM recompilation per call
-4. Cache bcrypt admin hash to avoid ~46ms bcrypt.hash overhead per call
-5. Cache database snapshot bytes and restore via `new SQL.Database(bytes)` for cheap per-test isolation
-6. Move `fileParallelism: false` from vitest.config.ts to the `test:perf` script so parallel test execution is preserved by default
-7. Update test scripts to exclude perf benchmarks from the main `pnpm test` command
-8. Document the snapshot model and `foreign_keys` pragma gotcha in TESTING.md
