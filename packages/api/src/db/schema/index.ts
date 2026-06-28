@@ -88,6 +88,14 @@ export { remoteWebhookDeliveries } from "./remote-webhook.js";
 export { workflows, taskWorkflowGates, failureContexts } from "./workflow.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
 export {
+  pluginEnrollments,
+  pluginRuns,
+  type PluginEnrollmentRow,
+  type PluginRunRow,
+  type PluginEnrollmentInsert,
+  type PluginRunInsert,
+} from "./plugin.js";
+export {
   habitatsRelations,
   columnsRelations,
   missionsRelations,
