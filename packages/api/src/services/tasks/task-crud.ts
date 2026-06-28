@@ -1,11 +1,9 @@
 import * as taskRepo from "../../repositories/task.js";
 import * as missionRepo from "../../repositories/feature.js";
-import * as habitatRepo from "../../repositories/board.js";
 import * as eventRepo from "../../repositories/event.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import * as watcherService from "../watcherService.js";
 import * as autoAssignService from "../autoAssignService.js";
-import * as pluginManager from "../../plugins/pluginManager.js";
 import * as missionService from "../featureService.js";
 import * as subtaskRepo from "../../repositories/subtask.js";
 import * as commentRepo from "../../repositories/comment.js";
@@ -45,7 +43,6 @@ export function createTask(input: {
 
   if (habitatId) {
     autoAssignService.assignTask(task.id, habitatId);
-    pluginManager.emitTaskCreated(task, habitatRepo.getHabitatById(habitatId)).catch(() => {});
   }
 
   return task;

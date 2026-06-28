@@ -3,7 +3,6 @@ import * as taskRepo from "../repositories/task.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
 import * as timeTrackingService from "./timeTrackingService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import * as pluginManager from "../plugins/pluginManager.js";
 import type { Agent, AgentStatus, Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 
@@ -17,7 +16,6 @@ export function createAgent(input: Parameters<typeof agentRepo.createAgent>[0]):
   plainApiKey: string;
 } {
   const result = agentRepo.createAgent(input);
-  pluginManager.emitAgentRegistered(result.agent).catch(() => {});
   return result;
 }
 

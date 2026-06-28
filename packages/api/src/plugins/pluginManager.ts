@@ -1,62 +1,281 @@
-import type { FastifyInstance } from 'fastify';
-import type { KanbanPlugin, PluginManifest, McpToolDefinition } from './types.js';
-import type { Task, Habitat, Agent } from '../models/index.js';
-import { readdir, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { logger } from '../lib/logger.js';
+import type { FastifyInstance } from "fastify";
+import type {
+  PluginManifest,
+  Contribution,
+  PluginCapabilityName,
+  InterceptorEvent,
+  SignalDetectorContribution,
+  LifecycleInterceptorContribution,
+  DetectedSignalInput,
+} from "@orcy/shared";
 
-const loadedPlugins: Map<string, KanbanPlugin> = new Map();
+/** Discriminator string for {@link Contribution}. */
+type ContributionKind =
+  | "notificationChannel"
+  | "signalDetector"
+  | "lifecycleInterceptor"
+  | "customMcpTool"
+  | "customHttpRoute";
+import type {
+  PluginModule,
+  ChannelHandler,
+  DetectorHandler,
+  InterceptorHandler,
+  McpToolHandler,
+  PluginManifestView,
+  EventSourceRef,
+  InterceptorPreResult,
+} from "./types.js";
+import { buildPluginContext } from "./context.js";
+import { readdir, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { logger } from "../lib/logger.js";
+import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
+import * as runRepo from "../repositories/pluginRun.js";
+import * as pulseService from "../services/pulseService.js";
+import * as taskLifecycle from "../services/tasks/task-lifecycle.js";
+import * as commentService from "../services/commentService.js";
+
+/** Valid contribution kinds (ADR-0011 discriminated union). */
+const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
+  "notificationChannel",
+  "signalDetector",
+  "lifecycleInterceptor",
+  "customMcpTool",
+  "customHttpRoute",
+]);
+
+/** The 5 whitelisted capability names (ADR-0012). */
+const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapabilityName>([
+  "pulseReader",
+  "pulseWriter",
+  "commentReader",
+  "taskReader",
+  "habitatReader",
+]);
+
+/** Capabilities a signalDetector may require. */
+const DETECTOR_CAPS: ReadonlySet<PluginCapabilityName> = new Set([
+  "pulseReader",
+  "pulseWriter",
+  "commentReader",
+  "taskReader",
+]);
+
+const loadedPlugins: Map<string, PluginModule> = new Map();
 const pluginErrors: Map<string, string> = new Map();
 let pluginDirectory: string | null = null;
+
+const channelRegistry: Map<string, { pluginId: string; handler: ChannelHandler }> = new Map();
+const detectorRegistry: Map<
+  string,
+  { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
+> = new Map();
+const interceptorRegistry: {
+  pre: Map<
+    InterceptorEvent,
+    Array<{
+      pluginId: string;
+      contribution: LifecycleInterceptorContribution;
+      handler: InterceptorHandler;
+    }>
+  >;
+  post: Map<
+    InterceptorEvent,
+    Array<{
+      pluginId: string;
+      contribution: LifecycleInterceptorContribution;
+      handler: InterceptorHandler;
+    }>
+  >;
+} = { pre: new Map(), post: new Map() };
+
+const enrollmentCache: Map<string, Set<string>> = new Map();
+const quarantineSet: Set<string> = new Set();
+const errorCounters: Map<string, { count: number; windowStart: number }> = new Map();
+const activeRuns: Map<string, number> = new Map();
+
+/** Custom MCP tool definition surfaced via `GET /plugins` (display-only in v0.22.0 per ADR-0018). */
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
 
 function getPluginDirectory(): string {
   if (pluginDirectory) return pluginDirectory;
   return process.env.PLUGINS_DIR
     ? resolve(process.env.PLUGINS_DIR)
-    : resolve(process.cwd(), 'plugins');
+    : resolve(process.cwd(), "plugins");
 }
 
 export function setPluginDirectory(dir: string): void {
   pluginDirectory = resolve(dir);
 }
 
-function validatePlugin(plugin: unknown, _source: string): plugin is KanbanPlugin {
-  if (!plugin || typeof plugin !== 'object') return false;
-  const p = plugin as Record<string, unknown>;
-  if (typeof p.name !== 'string' || !p.name) return false;
-  if (typeof p.version !== 'string' || !p.version) return false;
-  if (p.hooks !== undefined && typeof p.hooks !== 'object') return false;
-  if (p.customRoutes !== undefined && typeof p.customRoutes !== 'function') return false;
-  if (p.customMcpTools !== undefined) {
-    if (!Array.isArray(p.customMcpTools)) return false;
-    for (const tool of p.customMcpTools as unknown[]) {
-      if (!tool || typeof tool !== 'object') return false;
-      const t = tool as Record<string, unknown>;
-      if (typeof t.name !== 'string' || typeof t.description !== 'string' || typeof t.handler !== 'function') return false;
+function capabilityMatrixViolation(c: Contribution): string | null {
+  if (c.kind === "signalDetector") {
+    for (const cap of c.requires) {
+      if (!DETECTOR_CAPS.has(cap)) {
+        return `signalDetector "${c.detectorId}" cannot require capability "${cap}"`;
+      }
+    }
+    return null;
+  }
+  if (c.kind === "lifecycleInterceptor") {
+    const forbidden = c.phase === "pre" ? (["pulseWriter"] as const) : ([] as const);
+    if (c.phase === "pre" && c.requires.includes("pulseWriter")) {
+      return `lifecycleInterceptor "${c.interceptorId}" is pre-phase and cannot require "pulseWriter"`;
+    }
+    for (const cap of c.requires) {
+      if (!VALID_CAPABILITIES.has(cap)) {
+        return `lifecycleInterceptor "${c.interceptorId}" requires unknown capability "${cap}"`;
+      }
+    }
+    void forbidden;
+    return null;
+  }
+  if (c.requires.length > 0) {
+    return `${c.kind} contributions cannot declare requires (got [${c.requires.join(", ")}])`;
+  }
+  return null;
+}
+
+function orphanHandler(c: Contribution, mod: PluginModule): string | null {
+  switch (c.kind) {
+    case "notificationChannel":
+      return mod.channels?.[c.channelId]
+        ? null
+        : `notificationChannel "${c.channelId}" declared but no matching handler in module.channels`;
+    case "signalDetector":
+      return mod.detectors?.[c.detectorId]
+        ? null
+        : `signalDetector "${c.detectorId}" declared but no matching handler in module.detectors`;
+    case "lifecycleInterceptor":
+      return mod.interceptors?.[c.interceptorId]
+        ? null
+        : `lifecycleInterceptor "${c.interceptorId}" declared but no matching handler in module.interceptors`;
+    case "customMcpTool":
+      return mod.mcpHandlers?.[c.toolName]
+        ? null
+        : `customMcpTool "${c.toolName}" declared but no matching handler in module.mcpHandlers`;
+    case "customHttpRoute":
+      return mod.routeHandlers
+        ? null
+        : `customHttpRoute declared but module.routeHandlers is missing`;
+  }
+}
+
+function validatePlugin(mod: unknown, _source: string): mod is PluginModule {
+  if (!mod || typeof mod !== "object") return false;
+  const m = mod as Record<string, unknown>;
+  const manifest = m.manifest;
+  if (!manifest || typeof manifest !== "object") return false;
+  const man = manifest as PluginManifest;
+  if (typeof man.id !== "string" || !man.id) return false;
+  if (typeof man.version !== "string" || !man.version) return false;
+  if (typeof man.description !== "string" || !man.description) return false;
+  if (!Array.isArray(man.contributions) || man.contributions.length === 0) return false;
+
+  for (const c of man.contributions as Contribution[]) {
+    if (!c || typeof c.kind !== "string" || !VALID_KINDS.has(c.kind as ContributionKind)) {
+      pluginErrors.set(man.id, `Invalid contribution kind in manifest`);
+      return false;
+    }
+    if (!Array.isArray(c.requires)) {
+      pluginErrors.set(man.id, `Contribution requires must be an array`);
+      return false;
+    }
+    for (const cap of c.requires) {
+      if (!VALID_CAPABILITIES.has(cap)) {
+        pluginErrors.set(man.id, `Unknown capability "${cap}" in contribution requires`);
+        return false;
+      }
+    }
+    const matrixViolation = capabilityMatrixViolation(c);
+    if (matrixViolation) {
+      pluginErrors.set(man.id, matrixViolation);
+      return false;
+    }
+    const orphan = orphanHandler(c, m as unknown as PluginModule);
+    if (orphan) {
+      pluginErrors.set(man.id, orphan);
+      return false;
     }
   }
   return true;
 }
 
-async function loadPluginFromPath(pluginPath: string, name: string): Promise<KanbanPlugin | null> {
+async function loadPluginFromPath(pluginPath: string, name: string): Promise<PluginModule | null> {
   try {
     const fileUrl = pathToFileURL(pluginPath).href;
-    const mod = await import(fileUrl);
-    const plugin: KanbanPlugin = mod.default ?? mod;
-    if (!validatePlugin(plugin, name)) {
-      pluginErrors.set(name, `Invalid plugin structure in ${name}`);
+    const imported = await import(fileUrl);
+    const mod: PluginModule = (imported.manifest ? imported : imported.default) ?? imported;
+    const idCandidate =
+      mod && typeof mod === "object" && "manifest" in mod && mod.manifest?.id
+        ? String(mod.manifest.id)
+        : name;
+    if (!validatePlugin(mod, name)) {
+      if (!pluginErrors.has(idCandidate)) {
+        pluginErrors.set(idCandidate, `Invalid plugin structure in ${name}`);
+      }
       return null;
     }
-    if (plugin.name !== name) {
-      pluginErrors.set(name, `Plugin name mismatch: expected "${name}", got "${plugin.name}"`);
+    if (mod.manifest.id !== name) {
+      pluginErrors.set(
+        mod.manifest.id,
+        `Plugin id mismatch: expected "${name}", got "${mod.manifest.id}"`,
+      );
       return null;
     }
-    return plugin;
+    return mod;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     pluginErrors.set(name, `Failed to load: ${message}`);
     return null;
+  }
+}
+
+function detectIdCollisions(mod: PluginModule): string | null {
+  for (const c of mod.manifest.contributions) {
+    if (c.kind === "notificationChannel" && channelRegistry.has(c.channelId)) {
+      return `channelId "${c.channelId}" already registered by another plugin`;
+    }
+    if (c.kind === "signalDetector") {
+      const key = `${mod.manifest.id}:${c.detectorId}`;
+      if (detectorRegistry.has(key)) {
+        return `detectorId "${c.detectorId}" already registered`;
+      }
+    }
+  }
+  return null;
+}
+
+function registerContributions(mod: PluginModule): void {
+  for (const c of mod.manifest.contributions) {
+    if (c.kind === "notificationChannel" && mod.channels?.[c.channelId]) {
+      channelRegistry.set(c.channelId, {
+        pluginId: mod.manifest.id,
+        handler: mod.channels[c.channelId],
+      });
+    } else if (c.kind === "signalDetector" && mod.detectors?.[c.detectorId]) {
+      detectorRegistry.set(`${mod.manifest.id}:${c.detectorId}`, {
+        pluginId: mod.manifest.id,
+        contribution: c,
+        handler: mod.detectors[c.detectorId],
+      });
+    } else if (c.kind === "lifecycleInterceptor" && mod.interceptors?.[c.interceptorId]) {
+      const bucket = interceptorRegistry[c.phase];
+      const list = bucket.get(c.event) ?? [];
+      list.push({
+        pluginId: mod.manifest.id,
+        contribution: c,
+        handler: mod.interceptors[c.interceptorId],
+      });
+      list.sort((a, b) => a.contribution.priority - b.contribution.priority);
+      bucket.set(c.event, list);
+    }
   }
 }
 
@@ -81,10 +300,15 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
       continue;
     }
 
-    if (enabled.length > 0 && !enabled.includes(entry) && !enabled.includes(entry.replace(/\.(js|mjs|ts)$/, ''))) continue;
+    if (
+      enabled.length > 0 &&
+      !enabled.includes(entry) &&
+      !enabled.includes(entry.replace(/\.(js|mjs|ts)$/, ""))
+    )
+      continue;
 
     if (isDir) {
-      const indexPaths = ['index.ts', 'index.js', 'index.mjs'];
+      const indexPaths = ["index.ts", "index.js", "index.mjs"];
       let loaded = false;
       for (const idx of indexPaths) {
         try {
@@ -92,9 +316,15 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
         } catch {
           continue;
         }
-        const plugin = await loadPluginFromPath(join(entryPath, idx), entry);
-        if (plugin) {
-          loadedPlugins.set(plugin.name, plugin);
+        const mod = await loadPluginFromPath(join(entryPath, idx), entry);
+        if (mod) {
+          const collision = detectIdCollisions(mod);
+          if (collision) {
+            pluginErrors.set(mod.manifest.id, collision);
+            break;
+          }
+          loadedPlugins.set(mod.manifest.id, mod);
+          registerContributions(mod);
           loaded = true;
         }
         break;
@@ -103,113 +333,364 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
         pluginErrors.set(entry, `No index file found in plugin directory`);
       }
     } else {
-      const name = entry.replace(/\.(js|mjs|ts)$/, '');
-      const plugin = await loadPluginFromPath(entryPath, name);
-      if (plugin) {
-        loadedPlugins.set(plugin.name, plugin);
+      const name = entry.replace(/\.(js|mjs|ts)$/, "");
+      const mod = await loadPluginFromPath(entryPath, name);
+      if (mod) {
+        const collision = detectIdCollisions(mod);
+        if (collision) {
+          pluginErrors.set(mod.manifest.id, collision);
+        } else {
+          loadedPlugins.set(mod.manifest.id, mod);
+          registerContributions(mod);
+        }
       }
     }
   }
+
+  loadEnrollmentCacheForAllHabitats();
 }
 
 function parseEnabledFromEnv(): string[] {
   const envVal = process.env.PLUGINS_ENABLED;
   if (!envVal) return [];
-  return envVal.split(',').map(s => s.trim()).filter(Boolean);
+  return envVal
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function loadEnrollmentCacheForAllHabitats(): void {
+  enrollmentCache.clear();
+  try {
+    const seen = new Set<string>();
+    for (const [, entry] of detectorRegistry) {
+      const key = `${entry.pluginId}:${entry.contribution.detectorId}`;
+      seen.add(key);
+    }
+    void seen;
+  } catch (err) {
+    logger.warn({ err }, "Failed to preload enrollment cache");
+  }
 }
 
 export async function initializePlugins(fastify: FastifyInstance): Promise<void> {
-  for (const [name, plugin] of loadedPlugins) {
-    if (plugin.customRoutes) {
+  for (const [id, mod] of loadedPlugins) {
+    if (mod.routeHandlers) {
       try {
-        await fastify.register(plugin.customRoutes);
+        await fastify.register(mod.routeHandlers);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        pluginErrors.set(name, `Failed to register custom routes: ${message}`);
-        loadedPlugins.delete(name);
+        pluginErrors.set(id, `Failed to register custom routes: ${message}`);
+        loadedPlugins.delete(id);
       }
     }
   }
+  registerDetectorHooks();
 }
 
-export function getLoadedPlugins(): PluginManifest[] {
-  const result: PluginManifest[] = [];
-  for (const [_name, plugin] of loadedPlugins) {
-    result.push({ name: plugin.name, version: plugin.version, enabled: true });
+export function getLoadedPlugins(): PluginManifestView[] {
+  const result: PluginManifestView[] = [];
+  for (const [, mod] of loadedPlugins) {
+    result.push({
+      id: mod.manifest.id,
+      version: mod.manifest.version,
+      description: mod.manifest.description,
+      enabled: true,
+    });
   }
   for (const [name, error] of pluginErrors) {
-    result.push({ name, version: '0.0.0', enabled: false, error });
+    result.push({ id: name, version: "0.0.0", description: "", enabled: false, error });
   }
   return result;
 }
 
 export function getCustomMcpTools(): McpToolDefinition[] {
   const tools: McpToolDefinition[] = [];
-  for (const plugin of loadedPlugins.values()) {
-    if (plugin.customMcpTools) {
-      tools.push(...plugin.customMcpTools);
+  for (const mod of loadedPlugins.values()) {
+    for (const c of mod.manifest.contributions) {
+      if (c.kind === "customMcpTool") {
+        tools.push({
+          name: c.toolName,
+          description: c.description,
+          inputSchema: c.inputSchema,
+        });
+      }
     }
   }
   return tools;
+}
+
+export function getChannelHandler(channelId: string): ChannelHandler | undefined {
+  return channelRegistry.get(channelId)?.handler;
+}
+
+/**
+ * Runs pre-phase interceptors for an event synchronously. Returns the first veto
+ * (caller must throw/abort the DB write) or `null` if all allow. Pre-interceptors
+ * are the only ones that can block a transition.
+ */
+export function runPreInterceptors(
+  taskId: string,
+  event: InterceptorEvent,
+  habitatId: string,
+  context: import("../services/tasks/transition-emitter.js").TransitionContext,
+): { allow: false; reason: string; details?: string } | null {
+  const list = interceptorRegistry.pre.get(event) ?? [];
+  for (const entry of list) {
+    if (!isEnrolled(habitatId, `${entry.pluginId}:${entry.contribution.interceptorId}`)) continue;
+    const runId = cryptoRandom();
+    const ctx = buildPluginContext({
+      pluginId: entry.pluginId,
+      contributionId: entry.contribution.interceptorId,
+      habitatId,
+      runId,
+      requires: entry.contribution.requires,
+    });
+    ctx.transition = { taskId, action: event, habitatId, context };
+    try {
+      const result = entry.handler(ctx, ctx.transition) as Promise<InterceptorPreResult>;
+      const settled = result as unknown as InterceptorPreResult;
+      void runRepo.startRun({
+        habitatId,
+        pluginId: entry.pluginId,
+        contributionId: entry.contribution.interceptorId,
+        contributionKind: "lifecycleInterceptor",
+        triggerEventId: taskId,
+        triggerType: `${event}:pre`,
+      });
+      if (settled && settled.allow === false) {
+        return { allow: false, reason: settled.reason, details: settled.details };
+      }
+    } catch (err) {
+      logger.error({ err, pluginId: entry.pluginId }, "Pre-interceptor threw");
+    }
+  }
+  return null;
+}
+
+/**
+ * Runs post-phase interceptors fire-and-forget. Post-interceptors cannot veto;
+ * they may emit detected signals which the server persists via PulseWriter.
+ */
+export function runPostInterceptors(
+  taskId: string,
+  event: InterceptorEvent,
+  habitatId: string,
+  context: import("../services/tasks/transition-emitter.js").TransitionContext,
+): void {
+  const list = interceptorRegistry.post.get(event) ?? [];
+  for (const entry of list) {
+    if (!isEnrolled(habitatId, `${entry.pluginId}:${entry.contribution.interceptorId}`)) continue;
+    const runId = cryptoRandom();
+    void dispatchInterceptorRun(entry, taskId, event, habitatId, context, runId).catch((err) => {
+      logger.error({ err, pluginId: entry.pluginId }, "Post-interceptor run failed");
+    });
+  }
+}
+
+async function dispatchInterceptorRun(
+  entry: {
+    pluginId: string;
+    contribution: LifecycleInterceptorContribution;
+    handler: InterceptorHandler;
+  },
+  taskId: string,
+  event: InterceptorEvent,
+  habitatId: string,
+  context: import("../services/tasks/transition-emitter.js").TransitionContext,
+  runId: string,
+): Promise<void> {
+  const run = runRepo.startRun({
+    habitatId,
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.interceptorId,
+    contributionKind: "lifecycleInterceptor",
+    triggerEventId: taskId,
+    triggerType: `${event}:post`,
+  });
+  const ctx = buildPluginContext({
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.interceptorId,
+    habitatId,
+    runId: run.id,
+    requires: entry.contribution.requires,
+  });
+  ctx.transition = { taskId, action: event, habitatId, context };
+  try {
+    const result = await entry.handler(ctx, ctx.transition);
+    const signals = (result as { signals?: DetectedSignalInput[] })?.signals ?? [];
+    for (const signal of signals) {
+      await ctx.pulseWriter?.createDetectedSignal(signal);
+    }
+    runRepo.finishRun(run.id, "succeeded", signals.length);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    runRepo.finishRun(run.id, "failed", undefined, message);
+    throw err;
+  }
+}
+
+/**
+ * Fire-and-forget detector dispatch. Checks enrollment, quarantine, rate limit,
+ * and per-habitat concurrency before invoking each eligible detector handler.
+ */
+export function dispatchDetectionEvent(kind: EventSourceRef["kind"], ref: EventSourceRef): void {
+  for (const [key, entry] of detectorRegistry) {
+    if (entry.contribution.detects !== kind) continue;
+    if (!isEnrolled(ref.habitatId, key)) continue;
+    if (quarantineSet.has(key)) continue;
+    if (isRateLimited(key)) continue;
+    if (!acquireConcurrencySlot(ref.habitatId)) continue;
+    void runDetector(entry, ref).catch((err) => {
+      logger.error({ err, pluginId: entry.pluginId }, "Detector run failed");
+    });
+  }
+}
+
+async function runDetector(
+  entry: { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler },
+  ref: EventSourceRef,
+): Promise<void> {
+  const run = runRepo.startRun({
+    habitatId: ref.habitatId,
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.detectorId,
+    contributionKind: "signalDetector",
+    triggerEventId: ref.sourceId,
+    triggerType: ref.kind,
+  });
+  const ctx = buildPluginContext({
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.detectorId,
+    habitatId: ref.habitatId,
+    runId: run.id,
+    requires: entry.contribution.requires,
+  });
+  try {
+    const signals = await entry.handler(ctx, ref);
+    for (const signal of signals) {
+      await ctx.pulseWriter?.createDetectedSignal(signal);
+    }
+    runRepo.finishRun(run.id, "succeeded", signals.length);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    incrementError(entry.pluginId);
+    runRepo.finishRun(run.id, "failed", undefined, message);
+  } finally {
+    releaseConcurrencySlot(ref.habitatId);
+  }
+}
+
+function registerDetectorHooks(): void {
+  pulseService.onPulseCreated((pulse) => {
+    if (!pulse.habitatId) return;
+    dispatchDetectionEvent("pulseCreated", {
+      kind: "pulseCreated",
+      sourceId: pulse.id,
+      habitatId: pulse.habitatId,
+      occurredAt: pulse.createdAt,
+    });
+  });
+  taskLifecycle.onTaskEvent((opts) => {
+    dispatchDetectionEvent("taskEvent", {
+      kind: "taskEvent",
+      sourceId: opts.taskId,
+      habitatId: opts.habitatId,
+      occurredAt: new Date().toISOString(),
+    });
+  });
+  commentService.onCommentCreated((_comment, habitatId) => {
+    if (!habitatId) return;
+    dispatchDetectionEvent("commentCreated", {
+      kind: "commentCreated",
+      sourceId: String((_comment as { id?: unknown })?.id ?? ""),
+      habitatId,
+      occurredAt: new Date().toISOString(),
+    });
+  });
+}
+
+function isEnrolled(habitatId: string, contributionKey: string): boolean {
+  let set = enrollmentCache.get(habitatId);
+  if (!set) {
+    set = reloadEnrollmentCache(habitatId);
+  }
+  return set.has(contributionKey);
+}
+
+function reloadEnrollmentCache(habitatId: string): Set<string> {
+  const set = new Set<string>();
+  try {
+    const rows = enrollmentRepo.listEnabledByHabitat(habitatId);
+    for (const row of rows) {
+      set.add(`${row.pluginId}:${row.contributionId}`);
+    }
+  } catch (err) {
+    logger.warn({ err, habitatId }, "Failed to load enrollment cache");
+  }
+  enrollmentCache.set(habitatId, set);
+  return set;
+}
+
+export function invalidateEnrollmentCache(habitatId: string): void {
+  enrollmentCache.delete(habitatId);
+  reloadEnrollmentCache(habitatId);
+}
+
+function isRateLimited(pluginKey: string): boolean {
+  const threshold = Number(process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD ?? "10");
+  const entry = errorCounters.get(pluginKey);
+  if (!entry) return false;
+  const now = Date.now();
+  if (now - entry.windowStart > 60_000) {
+    errorCounters.delete(pluginKey);
+    return false;
+  }
+  return entry.count >= threshold;
+}
+
+function incrementError(pluginKey: string): void {
+  const now = Date.now();
+  const entry = errorCounters.get(pluginKey);
+  if (!entry || now - entry.windowStart > 60_000) {
+    errorCounters.set(pluginKey, { count: 1, windowStart: now });
+    return;
+  }
+  entry.count += 1;
+  const threshold = Number(process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD ?? "10");
+  if (entry.count >= threshold) {
+    quarantineSet.add(pluginKey);
+    logger.warn({ pluginKey }, "Plugin quarantined after error threshold");
+  }
+}
+
+function acquireConcurrencySlot(habitatId: string): boolean {
+  const max = Number(process.env.ORCY_DETECTOR_MAX_CONCURRENT ?? "8");
+  const current = activeRuns.get(habitatId) ?? 0;
+  if (current >= max) return false;
+  activeRuns.set(habitatId, current + 1);
+  return true;
+}
+
+function releaseConcurrencySlot(habitatId: string): void {
+  const current = activeRuns.get(habitatId) ?? 0;
+  activeRuns.set(habitatId, Math.max(0, current - 1));
+}
+
+function cryptoRandom(): string {
+  return globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 }
 
 export function resetPlugins(): void {
   loadedPlugins.clear();
   pluginErrors.clear();
   pluginDirectory = null;
-}
-
-async function invokeHook(
-  hookName: keyof NonNullable<KanbanPlugin['hooks']>,
-  ...args: unknown[]
-): Promise<void> {
-  const promises: (void | Promise<void>)[] = [];
-  for (const plugin of loadedPlugins.values()) {
-    const hook = plugin.hooks?.[hookName];
-    if (hook) {
-      try {
-        const result = (hook as (...a: unknown[]) => void | Promise<void>)(...args);
-        if (result instanceof Promise) {
-          promises.push(result.catch(err => {
-            logger.error({ err, pluginName: plugin.name, hookName }, 'Plugin hook error');
-          }));
-        }
-      } catch (err) {
-        logger.error({ err, pluginName: plugin.name, hookName }, 'Plugin hook error');
-      }
-    }
-  }
-  await Promise.all(promises);
-}
-
-export async function emitTaskCreated(task: Task, habitat: Habitat | null): Promise<void> {
-  await invokeHook('onTaskCreated', task, habitat);
-}
-
-export async function emitTaskClaimed(task: Task, agent: Omit<Agent, 'apiKeyHash'>): Promise<void> {
-  await invokeHook('onTaskClaimed', task, agent);
-}
-
-export async function emitTaskSubmitted(task: Task): Promise<void> {
-  await invokeHook('onTaskSubmitted', task);
-}
-
-export async function emitTaskApproved(task: Task): Promise<void> {
-  await invokeHook('onTaskApproved', task);
-}
-
-export async function emitTaskRejected(task: Task, reason: string): Promise<void> {
-  await invokeHook('onTaskRejected', task, reason);
-}
-
-export async function emitHabitatCreated(habitat: Habitat): Promise<void> {
-  await invokeHook('onHabitatCreated', habitat);
-}
-
-export async function emitAgentRegistered(agent: Omit<Agent, 'apiKeyHash'>): Promise<void> {
-  await invokeHook('onAgentRegistered', agent);
-}
-
-export async function emitEvent(eventType: string, data: unknown): Promise<void> {
-  await invokeHook('onEvent', eventType, data);
+  channelRegistry.clear();
+  detectorRegistry.clear();
+  interceptorRegistry.pre.clear();
+  interceptorRegistry.post.clear();
+  enrollmentCache.clear();
+  quarantineSet.clear();
+  errorCounters.clear();
+  activeRuns.clear();
 }

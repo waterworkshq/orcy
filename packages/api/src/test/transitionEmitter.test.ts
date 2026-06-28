@@ -15,10 +15,6 @@ vi.mock("../repositories/task.js", () => ({
   getHabitatIdForTask: vi.fn(),
 }));
 
-vi.mock("../repositories/agent.js", () => ({
-  getAgentById: vi.fn(),
-}));
-
 vi.mock("../repositories/event.js", () => ({
   createEvent: vi.fn(),
 }));
@@ -40,14 +36,6 @@ vi.mock("../services/retryService.js", () => ({
   getEffectivePolicy: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock("../plugins/pluginManager.js", () => ({
-  emitTaskCreated: vi.fn().mockResolvedValue(undefined),
-  emitTaskClaimed: vi.fn().mockResolvedValue(undefined),
-  emitTaskSubmitted: vi.fn().mockResolvedValue(undefined),
-  emitTaskApproved: vi.fn().mockResolvedValue(undefined),
-  emitTaskRejected: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock("../services/featureService.js", () => ({
   recalculateMissionStatus: vi.fn(),
 }));
@@ -58,12 +46,10 @@ vi.mock("../services/pulseService.js", () => ({
 
 import { logger } from "../lib/logger.js";
 import * as taskRepo from "../repositories/task.js";
-import * as agentRepo from "../repositories/agent.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as watcherService from "../services/watcherService.js";
 import * as retryService from "../services/retryService.js";
-import * as pluginManager from "../plugins/pluginManager.js";
 import * as missionService from "../services/featureService.js";
 import * as pulseService from "../services/pulseService.js";
 import {
@@ -277,58 +263,6 @@ describe("TransitionEmitter", () => {
       const task = makeTask();
       emitTransition("task-1", "updated", "hab-1", baseCtx({ task }));
       expect(watcherService.notifyWatchers).toHaveBeenCalledWith("task-1", "hab-1", "task.updated");
-    });
-  });
-
-  describe("plugin hooks", () => {
-    it("fires emitTaskClaimed when agent exists", () => {
-      const task = makeTask();
-      (agentRepo.getAgentById as ReturnType<typeof vi.fn>).mockReturnValue({
-        id: "agent-1",
-        name: "Agent One",
-      });
-      emitTransition("task-1", "claimed", "hab-1", baseCtx({ task, newStatus: "claimed" }));
-      expect(pluginManager.emitTaskClaimed).toHaveBeenCalledWith(
-        task,
-        expect.objectContaining({ id: "agent-1" }),
-      );
-    });
-
-    it("does NOT fire emitTaskClaimed when agent lookup fails", () => {
-      const task = makeTask();
-      (agentRepo.getAgentById as ReturnType<typeof vi.fn>).mockReturnValue(null);
-      emitTransition("task-1", "claimed", "hab-1", baseCtx({ task, newStatus: "claimed" }));
-      expect(pluginManager.emitTaskClaimed).not.toHaveBeenCalled();
-    });
-
-    it("fires emitTaskSubmitted for submitted action", () => {
-      const task = makeTask();
-      emitTransition("task-1", "submitted", "hab-1", baseCtx({ task, newStatus: "submitted" }));
-      expect(pluginManager.emitTaskSubmitted).toHaveBeenCalledWith(task);
-    });
-
-    it("fires emitTaskApproved for approved action", () => {
-      const task = makeTask();
-      emitTransition("task-1", "approved", "hab-1", baseCtx({ task, newStatus: "approved" }));
-      expect(pluginManager.emitTaskApproved).toHaveBeenCalledWith(task);
-    });
-
-    it("fires emitTaskRejected for rejected action with reason", () => {
-      const task = makeTask();
-      emitTransition(
-        "task-1",
-        "rejected",
-        "hab-1",
-        baseCtx({ task, newStatus: "rejected", reason: "bad" }),
-      );
-      expect(pluginManager.emitTaskRejected).toHaveBeenCalledWith(task, "bad");
-    });
-
-    it("does NOT fire any plugin hook for started (per inventory)", () => {
-      const task = makeTask();
-      emitTransition("task-1", "started", "hab-1", baseCtx({ task, newStatus: "in_progress" }));
-      expect(pluginManager.emitTaskSubmitted).not.toHaveBeenCalled();
-      expect(pluginManager.emitTaskApproved).not.toHaveBeenCalled();
     });
   });
 

@@ -1,10 +1,8 @@
 import * as taskRepo from "../../repositories/task.js";
-import * as agentRepo from "../../repositories/agent.js";
 import * as eventRepo from "../../repositories/event.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import * as watcherService from "../watcherService.js";
 import * as retryService from "../retryService.js";
-import * as pluginManager from "../../plugins/pluginManager.js";
 import * as missionService from "../featureService.js";
 import * as pulseService from "../pulseService.js";
 import { logger } from "../../lib/logger.js";
@@ -75,13 +73,6 @@ interface ActionConfig {
   sseSpecific?: string;
   emitTaskUpdated: boolean;
   watchers?: string;
-  pluginHook?:
-    | "emitTaskCreated"
-    | "emitTaskClaimed"
-    | "emitTaskSubmitted"
-    | "emitTaskApproved"
-    | "emitTaskRejected";
-  pluginAgentRequired?: boolean;
   recalc: RecalcMode;
   pulseSignal?: {
     type: "context" | "offer" | "warning";
@@ -104,8 +95,6 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
     sseSpecific: "task.claimed",
     emitTaskUpdated: true,
     watchers: "task.claimed",
-    pluginHook: "emitTaskClaimed",
-    pluginAgentRequired: true,
     recalc: "wrapped",
     emitEvent: true,
     eventToStatus: "claimed",
@@ -124,7 +113,6 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
     sseSpecific: "task.submitted",
     emitTaskUpdated: true,
     watchers: "task.submitted",
-    pluginHook: "emitTaskSubmitted",
     recalc: "wrapped",
     emitEvent: true,
     eventToStatus: "submitted",
@@ -137,7 +125,6 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
     sseSpecific: "task.completed",
     emitTaskUpdated: true,
     watchers: "task.completed",
-    pluginHook: "emitTaskApproved",
     recalc: "wrapped",
     emitEvent: true,
     eventToStatus: "done",
@@ -157,7 +144,6 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
     sseSpecific: "task.approved",
     emitTaskUpdated: true,
     watchers: "task.approved",
-    pluginHook: "emitTaskApproved",
     recalc: "wrapped",
     emitEvent: true,
     eventToStatus: "approved",
@@ -168,7 +154,6 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
     sseSpecific: "task.rejected",
     emitTaskUpdated: true,
     watchers: "task.rejected",
-    pluginHook: "emitTaskRejected",
     recalc: "wrapped",
     emitEvent: true,
     eventToStatus: "rejected",
@@ -204,7 +189,6 @@ const ACTION_EFFECTS: Record<TaskAction, ActionConfig> = {
   created: {
     sseSpecific: "task.created",
     emitTaskUpdated: false,
-    pluginHook: "emitTaskCreated",
     recalc: "direct",
     emitEvent: true,
   },
@@ -418,35 +402,6 @@ function publishSseForAction(
   }
 }
 
-function runPluginHook(cfg: ActionConfig, task: Task, ctx: TransitionContext): void {
-  if (!cfg.pluginHook) return;
-  switch (cfg.pluginHook) {
-    case "emitTaskCreated":
-      pluginManager.emitTaskCreated(task, null).catch(() => {});
-      return;
-    case "emitTaskClaimed": {
-      if (!cfg.pluginAgentRequired) {
-        pluginManager.emitTaskClaimed(task, { id: ctx.actorId ?? "" } as never).catch(() => {});
-        return;
-      }
-      const agent = agentRepo.getAgentById(ctx.actorId ?? "");
-      if (agent) {
-        pluginManager.emitTaskClaimed(task, agent).catch(() => {});
-      }
-      return;
-    }
-    case "emitTaskSubmitted":
-      pluginManager.emitTaskSubmitted(task).catch(() => {});
-      return;
-    case "emitTaskApproved":
-      pluginManager.emitTaskApproved(task).catch(() => {});
-      return;
-    case "emitTaskRejected":
-      pluginManager.emitTaskRejected(task, ctx.reason ?? "").catch(() => {});
-      return;
-  }
-}
-
 function unblockDependents(taskId: string): void {
   const dependents = taskRepo.getTasksByDependency(taskId);
   for (const dependent of dependents) {
@@ -557,10 +512,6 @@ export function emitTransition(
 
   if (cfg.watchers && habitatId) {
     watcherService.notifyWatchers(taskId, habitatId, cfg.watchers);
-  }
-
-  if (task && cfg.pluginHook) {
-    runPluginHook(cfg, task, ctx);
   }
 
   if (task && cfg.triggerUnblock) {

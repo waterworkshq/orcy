@@ -9,7 +9,6 @@ import * as savedFilterRepo from "../repositories/savedFilter.js";
 import { getWebhookSubscriptions, createWebhookSubscription } from "./webhookDispatcher.js";
 import { badRequest } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import * as pluginManager from "../plugins/pluginManager.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "./boardSecretCache.js";
 import * as missionService from "./featureService.js";
 import * as skillRepo from "../repositories/habitatSkill.js";
@@ -46,7 +45,6 @@ export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; co
   skillRepo.getOrCreateSkill(habitat.id);
 
   sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: habitat });
-  pluginManager.emitHabitatCreated(habitat).catch(() => {});
   rebuildHabitatSecretCache();
   return { habitat, columns };
 }
