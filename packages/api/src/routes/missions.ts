@@ -17,7 +17,15 @@ import {
 } from "../models/schemas.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { requireHabitat } from "./middleware/preHandlers.js";
-import { badRequest, notFound, forbidden, conflict, internalError, AppError } from "../errors.js";
+import {
+  badRequest,
+  notFound,
+  forbidden,
+  conflict,
+  internalError,
+  AppError,
+  InterceptorVetoError,
+} from "../errors.js";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 const missionIdParamsSchema = z.object({ missionId: z.string() });
@@ -274,19 +282,28 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
 
       const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
 
-      const task = taskService.createTask({
-        missionId: mission.id,
-        title: parsed.title,
-        description: parsed.description,
-        priority: parsed.priority,
-        requiredDomain: parsed.requiredDomain,
-        requiredCapabilities: parsed.requiredCapabilities,
-        estimatedMinutes: parsed.estimatedMinutes,
-        order: parsed.order,
-        createdBy: actorId,
-      });
+      try {
+        const task = taskService.createTask({
+          missionId: mission.id,
+          title: parsed.title,
+          description: parsed.description,
+          priority: parsed.priority,
+          requiredDomain: parsed.requiredDomain,
+          requiredCapabilities: parsed.requiredCapabilities,
+          estimatedMinutes: parsed.estimatedMinutes,
+          order: parsed.order,
+          createdBy: actorId,
+        });
 
-      reply.code(201).send({ task });
+        reply.code(201).send({ task });
+      } catch (err) {
+        if (err instanceof InterceptorVetoError) {
+          throw forbidden("Transition blocked by lifecycle interceptor", "INTERCEPTOR_VETO", {
+            blockedBy: { reason: err.veto.reason, details: err.veto.details },
+          });
+        }
+        throw err;
+      }
     },
   );
 

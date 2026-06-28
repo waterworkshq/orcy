@@ -12,6 +12,7 @@ import * as dependencyService from "../dependencyService.js";
 import type { Task, Artifact } from "../../models/index.js";
 import { validateTransition, mergeArtifacts, validateAgentCapabilities } from "./helpers.js";
 import { logger } from "../../lib/logger.js";
+import { InterceptorVetoError } from "../../errors.js";
 import * as pulseService from "../pulseService.js";
 import * as reviewAssignment from "../reviewAssignmentService.js";
 import { emitTransition } from "./transition-emitter.js";
@@ -100,12 +101,35 @@ export function claimTask(
     }
   }
 
+  // Pre-interceptor seam (ADR-0014): gates run BEFORE the DB write so a veto
+  // leaves the task row untouched. The hook sees the pre-claim task state.
+  const preHabitatId = getHabitatId(current);
+  const veto = pluginManager.runPreInterceptors(taskId, "taskClaimed", preHabitatId, {
+    actorType: "agent",
+    actorId: agentId,
+    oldStatus: current.status,
+    newStatus: "claimed",
+    assignedAgentId: agentId,
+    task: current,
+  });
+  if (veto) throw new InterceptorVetoError(veto);
+
   const result = taskRepo.claimTask(taskId, agentId);
 
   if (result.success) {
     const habitatId = getHabitatId(result.task);
 
     emitTransition(taskId, "claimed", habitatId, {
+      actorType: "agent",
+      actorId: agentId,
+      oldStatus: "pending",
+      newStatus: "claimed",
+      assignedAgentId: agentId,
+      task: result.task,
+    });
+
+    // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
+    pluginManager.runPostInterceptors(taskId, "taskClaimed", habitatId, {
       actorType: "agent",
       actorId: agentId,
       oldStatus: "pending",
@@ -167,6 +191,21 @@ export function submitTask(
 
   if (!validateTransition(current.status, "submitted")) return { task: null };
 
+  // Pre-interceptor seam (ADR-0014): veto before the quality gate check and
+  // DB write. A blocking interceptor stops the submission from committing.
+  {
+    const preHabitatId = getHabitatId(current);
+    const veto = pluginManager.runPreInterceptors(taskId, "taskSubmitted", preHabitatId, {
+      actorType: "agent",
+      actorId: agentId,
+      oldStatus: current.status,
+      newStatus: "submitted",
+      metadata: { result },
+      task: current,
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
   const qualityValidation = qualityGateService.validateQualityGates(taskId);
   if (!qualityValidation.passed) {
     return {
@@ -188,6 +227,16 @@ export function submitTask(
   }
 
   emitTransition(taskId, "submitted", habitatId, {
+    actorType: "agent",
+    actorId: agentId,
+    oldStatus: current.status,
+    newStatus: "submitted",
+    metadata: { result },
+    task,
+  });
+
+  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
+  pluginManager.runPostInterceptors(taskId, "taskSubmitted", habitatId, {
     actorType: "agent",
     actorId: agentId,
     oldStatus: current.status,
@@ -280,6 +329,21 @@ export function completeTask(
     taskRepo.updateTask(taskId, { result: existingResult + separator + reviewNote });
   }
 
+  // Pre-interceptor seam (ADR-0014): veto before the completion DB write.
+  // Event is `taskApproved` because ACTION_EFFECTS maps completed → emitTaskApproved.
+  {
+    const preHabitatId = getHabitatId(current);
+    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", preHabitatId, {
+      actorType: "agent",
+      actorId: agentId,
+      oldStatus: current.status,
+      newStatus: "done",
+      metadata: { reviewNote },
+      task: current,
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
   const task = taskRepo.markTaskDone(taskId);
   if (!task) return { task: null };
 
@@ -290,6 +354,17 @@ export function completeTask(
   };
 
   emitTransition(taskId, "completed", habitatId, {
+    actorType: "agent",
+    actorId: agentId,
+    oldStatus: current.status,
+    newStatus: "done",
+    metadata,
+    task,
+  });
+
+  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
+  // Event is `taskApproved` per ACTION_EFFECTS mapping (completed → emitTaskApproved).
+  pluginManager.runPostInterceptors(taskId, "taskApproved", habitatId, {
     actorType: "agent",
     actorId: agentId,
     oldStatus: current.status,
@@ -344,6 +419,20 @@ export function approveTask(
     if (!fresh || fresh.status !== "submitted") return fresh ?? null;
   }
 
+  // Pre-interceptor seam (ADR-0014): veto before the approval DB write.
+  {
+    const preHabitatId = getHabitatId(current);
+    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", preHabitatId, {
+      actorType: reviewerType,
+      actorId: reviewerId,
+      reviewerId,
+      oldStatus: current.status,
+      newStatus: "approved",
+      task: current,
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
   const task = taskRepo.approveTask(taskId);
   if (!task) return null;
 
@@ -362,6 +451,16 @@ export function approveTask(
   const habitatId = getHabitatId(task);
 
   emitTransition(taskId, "approved", habitatId, {
+    actorType: reviewerType,
+    actorId: reviewerId,
+    reviewerId,
+    oldStatus: current.status,
+    newStatus: "approved",
+    task,
+  });
+
+  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
+  pluginManager.runPostInterceptors(taskId, "taskApproved", habitatId, {
     actorType: reviewerType,
     actorId: reviewerId,
     reviewerId,
@@ -401,12 +500,40 @@ export function rejectTask(
     }
   }
 
+  // Pre-interceptor seam (ADR-0014): veto before the rejection DB write.
+  {
+    const preHabitatId = getHabitatId(current);
+    const veto = pluginManager.runPreInterceptors(taskId, "taskRejected", preHabitatId, {
+      actorType: reviewerType,
+      actorId: reviewerId,
+      reviewerId,
+      oldStatus: current.status,
+      newStatus: "rejected",
+      reason,
+      metadata: { reason },
+      task: current,
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
   const task = taskRepo.rejectTask(taskId, reason);
   if (!task) return null;
 
   const habitatId = getHabitatId(task);
 
   emitTransition(taskId, "rejected", habitatId, {
+    actorType: reviewerType,
+    actorId: reviewerId,
+    reviewerId,
+    oldStatus: current.status,
+    newStatus: "rejected",
+    reason,
+    metadata: { reason },
+    task,
+  });
+
+  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
+  pluginManager.runPostInterceptors(taskId, "taskRejected", habitatId, {
     actorType: reviewerType,
     actorId: reviewerId,
     reviewerId,

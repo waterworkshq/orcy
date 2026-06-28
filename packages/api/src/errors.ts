@@ -89,3 +89,27 @@ export function serviceUnavailable(message: string, details?: unknown): AppError
 export function unprocessableEntity(message: string, code: string, details?: unknown): AppError {
   return new AppError(422, code, message, details);
 }
+
+/**
+ * Veto result returned by a pre-phase lifecycle interceptor that blocked a
+ * task transition. Carried by {@link InterceptorVetoError} up to the route
+ * layer, where it surfaces as a 403 with blocker details (ADR-0014).
+ */
+export interface InterceptorVeto {
+  allow: false;
+  reason: string;
+  details?: string;
+}
+
+/**
+ * Thrown by a transition function when a pre-phase lifecycle interceptor
+ * vetoed the action before any DB write occurred. Route handlers catch this
+ * and return 403 with the blocker reason. Per ADR-0014: no DB row is written,
+ * no SSE event fires, no post-hook executes.
+ */
+export class InterceptorVetoError extends Error {
+  constructor(public readonly veto: InterceptorVeto) {
+    super(`Transition blocked by interceptor: ${veto.reason}`);
+    this.name = "InterceptorVetoError";
+  }
+}

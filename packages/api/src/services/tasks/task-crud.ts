@@ -7,6 +7,8 @@ import * as autoAssignService from "../autoAssignService.js";
 import * as missionService from "../featureService.js";
 import * as subtaskRepo from "../../repositories/subtask.js";
 import * as commentRepo from "../../repositories/comment.js";
+import * as pluginManager from "../../plugins/pluginManager.js";
+import { InterceptorVetoError } from "../../errors.js";
 import type { Task, TaskStatus } from "../../models/index.js";
 import { formatClonedTitle } from "./helpers.js";
 import { logger } from "../../lib/logger.js";
@@ -28,10 +30,22 @@ export function createTask(input: {
   order?: number;
   estimatedMinutes?: number | null;
 }): Task {
-  const task = taskRepo.createTask(input);
-
   const mission = missionRepo.getMissionById(input.missionId);
   const habitatId = mission?.habitatId ?? "";
+
+  // Pre-interceptor seam (ADR-0014): gates run BEFORE the task row is written.
+  // No task exists yet, so the context carries only the prospective fields.
+  if (habitatId) {
+    const veto = pluginManager.runPreInterceptors(input.missionId, "taskCreated", habitatId, {
+      actorType: "human",
+      actorId: input.createdBy,
+      newStatus: "pending",
+      metadata: { title: input.title, missionId: input.missionId },
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
+  const task = taskRepo.createTask(input);
 
   emitTransition(task.id, "created", habitatId, {
     actorType: "human",
@@ -40,6 +54,17 @@ export function createTask(input: {
     metadata: { title: task.title, missionId: input.missionId },
     task,
   });
+
+  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition
+  // commits. The loader materializes any returned detected signals.
+  if (habitatId) {
+    pluginManager.runPostInterceptors(task.id, "taskCreated", habitatId, {
+      actorType: "human",
+      actorId: input.createdBy,
+      newStatus: task.status,
+      task,
+    });
+  }
 
   if (habitatId) {
     autoAssignService.assignTask(task.id, habitatId);

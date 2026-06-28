@@ -3,6 +3,8 @@ import * as agentRepo from "../../repositories/agent.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import * as watcherService from "../watcherService.js";
 import * as missionService from "../featureService.js";
+import * as pluginManager from "../../plugins/pluginManager.js";
+import { InterceptorVetoError } from "../../errors.js";
 import type { Task } from "../../models/index.js";
 import { validateAgentCapabilities } from "./helpers.js";
 import { emitTransition } from "./transition-emitter.js";
@@ -130,6 +132,21 @@ export function claimDelegatedTask(
     }
   }
 
+  // Pre-interceptor seam (ADR-0014): veto before the delegated claim DB write.
+  {
+    const preHabitatId = taskRepo.getHabitatIdForTask(taskId) ?? "";
+    const veto = pluginManager.runPreInterceptors(taskId, "taskClaimed", preHabitatId, {
+      actorType: "agent",
+      actorId: agentId,
+      oldStatus: current.status,
+      newStatus: "claimed",
+      assignedAgentId: agentId,
+      metadata: { delegatedClaim: true },
+      task: current,
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
   const result = taskRepo.claimDelegatedTask(taskId, agentId);
 
   if (result.success) {
@@ -138,6 +155,17 @@ export function claimDelegatedTask(
     emitTransition(taskId, "claimed_delegated", habitatId, {
       actorType: "agent",
       actorId: agentId,
+      newStatus: "claimed",
+      assignedAgentId: agentId,
+      metadata: { delegatedClaim: true },
+      task: result.task,
+    });
+
+    // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
+    pluginManager.runPostInterceptors(taskId, "taskClaimed", habitatId, {
+      actorType: "agent",
+      actorId: agentId,
+      oldStatus: current.status,
       newStatus: "claimed",
       assignedAgentId: agentId,
       metadata: { delegatedClaim: true },
