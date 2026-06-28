@@ -10,6 +10,7 @@ import {
   Info,
   ArrowRightLeft,
   Lightbulb,
+  ScanLine,
   ExternalLink,
   type LucideIcon,
 } from "lucide-react";
@@ -33,6 +34,7 @@ const SIGNAL_CONFIG: Record<SignalType, { icon: LucideIcon; label: string; color
   context: { icon: Info, label: "Context", color: "var(--on-surface-variant)" },
   handoff: { icon: ArrowRightLeft, label: "Handoff", color: "hsl(200,70%,60%)" },
   experience: { icon: Lightbulb, label: "Experience", color: "var(--on-surface-variant)" },
+  detected: { icon: ScanLine, label: "Detected", color: "hsl(160,60%,50%)" },
 };
 
 interface PulseSignalCardProps {

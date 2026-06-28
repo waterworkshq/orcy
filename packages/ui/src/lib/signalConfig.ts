@@ -13,6 +13,7 @@ export const SIGNAL_LABELS: Record<SignalType, string> = {
   context: "Context",
   handoff: "Handoff",
   experience: "Experience",
+  detected: "Detected",
 };
 
 /** CSS variable-based colors matching the Obsidian Glass design system */
@@ -27,6 +28,7 @@ export const SIGNAL_COLORS: Record<SignalType, string> = {
   context: "var(--on-surface-variant)",
   handoff: "hsl(200,70%,60%)",
   experience: "var(--on-surface-variant)",
+  detected: "hsl(160,60%,50%)",
 };
 
 /** Hex-based colors for use outside CSS variable context */
@@ -41,4 +43,5 @@ export const SIGNAL_CONFIG: Record<SignalType, { label: string; icon: string; co
   context: { label: "Context", icon: "Info", color: "#78909c" },
   handoff: { label: "Handoff", icon: "ArrowRightLeft", color: "#5c6bc0" },
   experience: { label: "Experience", icon: "Lightbulb", color: "#78909c" },
+  detected: { label: "Detected", icon: "ScanLine", color: "#26a69a" },
 };

@@ -5,6 +5,7 @@ import {
   SIGNAL_TYPES,
   SUGGESTED_BUCKETS,
   findingMetadataSchema,
+  detectedMetadataSchema,
   type SignalType,
 } from "../types/signal.js";
 
@@ -21,6 +22,7 @@ describe("SIGNAL_TYPES (canonical shared const)", () => {
       "context",
       "handoff",
       "experience",
+      "detected",
     ]);
   });
 
@@ -28,8 +30,12 @@ describe("SIGNAL_TYPES (canonical shared const)", () => {
     expect(SIGNAL_TYPES).toContain("experience");
   });
 
-  it("has exactly 10 values (no drift)", () => {
-    expect(SIGNAL_TYPES).toHaveLength(10);
+  it("includes the v0.22 plugin-detector type", () => {
+    expect(SIGNAL_TYPES).toContain("detected");
+  });
+
+  it("has exactly 11 values (no drift)", () => {
+    expect(SIGNAL_TYPES).toHaveLength(11);
   });
 
   it("contains no duplicates", () => {
@@ -39,6 +45,11 @@ describe("SIGNAL_TYPES (canonical shared const)", () => {
   it("exposes SignalType as a union including experience", () => {
     const sample: SignalType = "experience";
     expect(sample).toBe("experience");
+  });
+
+  it("exposes SignalType as a union including detected", () => {
+    const sample: SignalType = "detected";
+    expect(sample).toBe("detected");
   });
 });
 
@@ -85,5 +96,51 @@ describe("findingMetadataSchema", () => {
     expect(FINDING_KINDS).toContain("schema_missing");
     expect(FINDING_SEVERITIES).toEqual(["low", "medium", "high", "critical"]);
     expect(SUGGESTED_BUCKETS).toContain("needs_investigation");
+  });
+});
+
+describe("detectedMetadataSchema", () => {
+  it("accepts metadata with all three provenance fields and passthrough extras", () => {
+    const result = detectedMetadataSchema.safeParse({
+      detected: true,
+      detector: "detector-regex-frustration",
+      detectorRunId: "run-123",
+      custom: "anything",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects when detected is not the literal boolean true", () => {
+    const result = detectedMetadataSchema.safeParse({
+      detected: "true",
+      detector: "p",
+      detectorRunId: "r",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects when detector is missing or non-string", () => {
+    const missing = detectedMetadataSchema.safeParse({ detected: true, detectorRunId: "r" });
+    const nonString = detectedMetadataSchema.safeParse({
+      detected: true,
+      detector: 5,
+      detectorRunId: "r",
+    });
+    expect(missing.success).toBe(false);
+    expect(nonString.success).toBe(false);
+  });
+
+  it("rejects when detectorRunId is missing or non-string", () => {
+    const missing = detectedMetadataSchema.safeParse({
+      detected: true,
+      detector: "p",
+    });
+    const nonString = detectedMetadataSchema.safeParse({
+      detected: true,
+      detector: "p",
+      detectorRunId: 9,
+    });
+    expect(missing.success).toBe(false);
+    expect(nonString.success).toBe(false);
   });
 });

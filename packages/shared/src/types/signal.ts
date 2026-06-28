@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Exhaustive readonly list of recognised pulse signal categories, including the v0.20 experience self-reporting type. */
+/** Exhaustive readonly list of recognised pulse signal categories, including the v0.20 experience self-reporting type and the v0.22 plugin-detector type. */
 export const SIGNAL_TYPES = [
   "finding",
   "blocker",
@@ -12,6 +12,7 @@ export const SIGNAL_TYPES = [
   "context",
   "handoff",
   "experience",
+  "detected",
 ] as const;
 
 /** Union of the members of {@link SIGNAL_TYPES}, representing a categorised inter-agent signal. */
@@ -157,5 +158,21 @@ export const findingMetadataSchema = z
     }
     if ("identifiedDuring" in metadata && typeof metadata.identifiedDuring !== "string") {
       addFieldIssue(ctx, ["identifiedDuring"], "identifiedDuring must be a string");
+    }
+  });
+
+/** Metadata schema for `detected` signals emitted by plugin detectors (ADR-0013). Requires server-injected provenance fields. */
+export const detectedMetadataSchema = z
+  .object({})
+  .passthrough()
+  .superRefine((metadata, ctx) => {
+    if (metadata.detected !== true) {
+      addFieldIssue(ctx, ["detected"], "detected must be the literal boolean true");
+    }
+    if (typeof metadata.detector !== "string") {
+      addFieldIssue(ctx, ["detector"], "detector must be the emitting plugin id (string)");
+    }
+    if (typeof metadata.detectorRunId !== "string") {
+      addFieldIssue(ctx, ["detectorRunId"], "detectorRunId must be the plugin run id (string)");
     }
   });

@@ -14,6 +14,7 @@ import {
   Brain,
   GraduationCap,
   MessageSquare,
+  ScanLine,
 } from "lucide-react";
 import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
@@ -45,6 +46,11 @@ const CATEGORY_CONFIG: Record<
     label: "Insight",
     icon: <Sparkles className="h-3 w-3" />,
     color: "hsl(200,70%,60%)",
+  },
+  detected_patterns: {
+    label: "Detected",
+    icon: <ScanLine className="h-3 w-3" />,
+    color: "hsl(160,60%,50%)",
   },
 };
 

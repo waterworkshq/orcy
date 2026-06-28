@@ -310,6 +310,7 @@ export {
   FINDING_SEVERITIES,
   SUGGESTED_BUCKETS,
   findingMetadataSchema,
+  detectedMetadataSchema,
 } from "./signal.js";
 
 export type {
@@ -325,6 +326,34 @@ export { WIKI_LINK_TARGET_TYPES } from "./wiki.js";
 
 export type { SkillCategory } from "./skill.js";
 export { SKILL_CATEGORIES } from "./skill.js";
+
+export type {
+  PluginManifest,
+  PluginScope,
+  Contribution,
+  NotificationChannelContribution,
+  SignalDetectorContribution,
+  LifecycleInterceptorContribution,
+  CustomMcpToolContribution,
+  CustomHttpRouteContribution,
+  DetectorSourceEvent,
+  InterceptorEvent,
+  PluginCapabilityName,
+  Pulse,
+  TaskListFilter,
+  PluginHabitatView,
+  ScopedComment,
+  DetectedSignalInput,
+  PulseReader,
+  PulseWriter,
+  CommentReader,
+  TaskReader,
+  HabitatReader,
+  PluginRunStatus,
+  PluginEnrollment,
+  PluginEnrollmentInput,
+  PluginRun,
+} from "./plugin.js";
 
 export type {
   GateType,
