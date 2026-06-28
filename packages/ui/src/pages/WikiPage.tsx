@@ -1,5 +1,5 @@
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { ArrowLeft, BookOpen, Loader2, Signal, FlaskConical, FileText } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, Signal, FlaskConical, FileText, Radar } from "lucide-react";
 import { useBoard } from "../lib/useHabitatData.js";
 import { WikiBrowser } from "../components/wiki/WikiBrowser.js";
 import { WikiPageViewer } from "../components/wiki/WikiPageViewer.js";
@@ -7,13 +7,15 @@ import { WikiEditor } from "../components/wiki/WikiEditor.js";
 import { CadencePanel } from "../components/wiki/CadencePanel.js";
 import { ExperienceSignalsTab } from "../components/wiki/ExperienceSignalsTab.js";
 import { EngineeringFindingsTab } from "../components/wiki/EngineeringFindingsTab.js";
+import { DetectedSignalsTab } from "../components/wiki/DetectedSignalsTab.js";
 
-type Tab = "pages" | "experience" | "findings";
+type Tab = "pages" | "experience" | "findings" | "detected";
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof FileText }> = [
   { id: "pages", label: "Pages", icon: FileText },
   { id: "experience", label: "Experience Signals", icon: Signal },
   { id: "findings", label: "Engineering Findings", icon: FlaskConical },
+  { id: "detected", label: "Detected Signals", icon: Radar },
 ];
 
 export function WikiPage() {
@@ -147,6 +149,7 @@ export function WikiPage() {
               {tab === "pages" && <WikiBrowser habitatId={habitatId} onCreatePage={openCreate} />}
               {tab === "experience" && <ExperienceSignalsTab habitatId={habitatId} />}
               {tab === "findings" && <EngineeringFindingsTab habitatId={habitatId} />}
+              {tab === "detected" && <DetectedSignalsTab habitatId={habitatId} />}
             </div>
           </>
         )}

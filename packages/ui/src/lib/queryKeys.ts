@@ -235,4 +235,11 @@ export const queryKeys = {
       [...queryKeys.wiki.all, "signalSurface", habitatId, opts ?? ""] as const,
     cadence: (habitatId: string) => [...queryKeys.wiki.all, "cadence", habitatId] as const,
   },
+  plugins: {
+    all: ["plugins"] as const,
+    enrollments: (habitatId: string) =>
+      [...queryKeys.plugins.all, "enrollments", habitatId] as const,
+    loaded: () => [...queryKeys.plugins.all, "loaded"] as const,
+    runs: (habitatId: string) => [...queryKeys.plugins.all, "runs", habitatId] as const,
+  },
 };

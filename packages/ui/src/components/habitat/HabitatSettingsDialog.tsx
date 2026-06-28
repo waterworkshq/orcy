@@ -18,6 +18,7 @@ import { ReviewRulesTab } from "./settings/ReviewRulesTab.js";
 import { IntegrationsTab } from "./settings/IntegrationsTab.js";
 import { WorktreeTab, type WorktreeTabHandle } from "./settings/WorktreeTab.js";
 import { RepositoryTab, type RepositoryTabHandle } from "./settings/RepositoryTab.js";
+import { PluginsTab } from "./settings/PluginsTab.js";
 import { ExportHabitatDialog } from "./ExportHabitatDialog.js";
 import { ImportHabitatDialog } from "./ImportHabitatDialog.js";
 import { api } from "../../api/index.js";
@@ -37,7 +38,8 @@ type SettingsTab =
   | "review_rules"
   | "integrations"
   | "worktree"
-  | "repository";
+  | "repository"
+  | "plugins";
 
 const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "general", label: "General" },
@@ -53,6 +55,7 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "integrations", label: "Integrations" },
   { key: "worktree", label: "Worktree" },
   { key: "repository", label: "Repository" },
+  { key: "plugins", label: "Plugins" },
 ];
 
 const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
@@ -256,6 +259,9 @@ export function HabitatSettingsDialog({
               habitatId={board.id}
               onSavingChange={handleTabSavingChange}
             />
+          </div>
+          <div className={activeTab !== "plugins" ? "hidden" : ""}>
+            <PluginsTab habitatId={board.id} />
           </div>
         </DialogContent>
         <DialogFooter>

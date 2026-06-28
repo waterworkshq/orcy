@@ -534,9 +534,33 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.cadence(event.data.habitatId) });
     },
   }),
-  "plugin.enrollment_toggled": noopHandler,
-  "plugin.enrollment_removed": noopHandler,
-  "plugin.quarantined": noopHandler,
+  "plugin.enrollment_toggled": defineSSEHandler<"plugin.enrollment_toggled">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "plugin.enrollment_toggled") return;
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.enrollments(event.data.habitatId),
+      });
+    },
+  }),
+  "plugin.enrollment_removed": defineSSEHandler<"plugin.enrollment_removed">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "plugin.enrollment_removed") return;
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.enrollments(event.data.habitatId),
+      });
+    },
+  }),
+  "plugin.quarantined": defineSSEHandler<"plugin.quarantined">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "plugin.quarantined") return;
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.enrollments(event.data.habitatId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.plugins.runs(event.data.habitatId),
+      });
+    },
+  }),
 } satisfies Record<SSEEventType, SSEEventHandler>;
 
 export function getSSEEventHandler(type: SSEEventType): SSEEventHandler {

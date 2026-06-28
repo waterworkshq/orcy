@@ -1141,6 +1141,8 @@ export interface WikiSignalSurface {
   experiencePatterns?: WikiExperienceAggregate[];
   findings?: Record<string, unknown>[];
   unstructuredFindings?: Record<string, unknown>[];
+  /** Plugin-detector output rows (ADR-0013); only populated when signalClass === "detected". */
+  detectedSignals?: Record<string, unknown>[];
 }
 
 /** Coverage watermark + marker-type payload from the cadence status route. */
