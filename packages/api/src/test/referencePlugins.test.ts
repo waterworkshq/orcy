@@ -13,13 +13,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import type { PluginModule, PluginContext, NotificationPayload } from "../plugins/types.js";
-import type { NotificationEvent, NotificationDelivery } from "@orcy/shared";
+import type {
+  PluginModule,
+  PluginContext,
+  NotificationPayload,
+  EventSourceRef,
+} from "../plugins/types.js";
+import type { NotificationEvent, NotificationDelivery, Pulse } from "@orcy/shared";
 import type { Task } from "../models/index.js";
 
 const REPO_ROOT = resolve(__dirname, "../../../../");
 const autoLabelUrl = pathToFileURL(resolve(REPO_ROOT, "plugins/auto-label/index.ts")).href;
 const teamsChannelUrl = pathToFileURL(resolve(REPO_ROOT, "plugins/teams-channel/index.ts")).href;
+const detectorFrustrationUrl = pathToFileURL(
+  resolve(REPO_ROOT, "plugins/detector-regex-frustration/index.ts"),
+).href;
 
 async function loadPlugin(url: string): Promise<PluginModule> {
   const mod = (await import(url)) as { default: PluginModule };
@@ -242,5 +250,142 @@ describe("reference plugin: teams-channel (notificationChannel via webhook)", ()
     const result = await handler(buildCtx(), buildPayload());
     expect(result.success).toBe(false);
     expect(result.error).toBe("ECONNREFUSED");
+  });
+});
+
+describe("reference plugin: detector-regex-frustration (signalDetector, detects pulseCreated)", () => {
+  let detector: PluginModule;
+
+  beforeEach(async () => {
+    detector = await loadPlugin(detectorFrustrationUrl);
+  });
+
+  function buildPulse(overrides: Partial<Pulse> = {}): Pulse {
+    return {
+      id: "pulse-1",
+      missionId: null,
+      habitatId: "hab-1",
+      scope: "habitat",
+      fromType: "agent",
+      fromId: "agent-1",
+      toType: null,
+      toId: null,
+      signalType: "experience",
+      subject: "status update",
+      body: "all good",
+      taskId: null,
+      replyToId: null,
+      linkedTaskId: null,
+      metadata: {},
+      createdAt: new Date().toISOString(),
+      pinned: 0,
+      isAuto: false,
+      ...overrides,
+    } as Pulse;
+  }
+
+  function buildSource(overrides: Partial<EventSourceRef> = {}): EventSourceRef {
+    return {
+      kind: "pulseCreated",
+      sourceId: "pulse-1",
+      habitatId: "hab-1",
+      occurredAt: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  it("manifest declares the signalDetector contribution correctly", () => {
+    expect(detector.manifest.id).toBe("detector-regex-frustration");
+    expect(detector.manifest.contributions).toHaveLength(1);
+    const c = detector.manifest.contributions[0];
+    expect(c.kind).toBe("signalDetector");
+    if (c.kind !== "signalDetector") return;
+    expect(c.scope).toBe("habitat");
+    expect(c.detectorId).toBe("regex-frustration");
+    expect(c.detects).toBe("pulseCreated");
+    expect(c.requires).toEqual(["pulseReader", "pulseWriter"]);
+    expect(c.rateLimitDefaults).toEqual({ maxDetectionsPerMinute: 30, maxSignalsPerHour: 200 });
+  });
+
+  it("emits a detected signal with categories when the pulse body matches a frustration pattern", async () => {
+    const handler = detector.detectors!["regex-frustration"];
+    const pulseReader = {
+      getPulse: vi
+        .fn()
+        .mockResolvedValue(
+          buildPulse({ subject: "dependency problems", body: "this dependency is hell" }),
+        ),
+    };
+    const ctx = buildCtx({ pulseReader: pulseReader as never });
+    const result = await handler(ctx, buildSource());
+
+    expect(pulseReader.getPulse).toHaveBeenCalledWith("pulse-1");
+    expect(result).toHaveLength(1);
+    const signal = result[0];
+    expect(signal.signalType).toBe("detected");
+    expect(signal.subject).toContain("Frustration detected");
+    expect(signal.metadata?.categories).toEqual(["dependency_hell"]);
+    expect(signal.metadata?.sourcePulseId).toBe("pulse-1");
+  });
+
+  it("returns [] for a pulse whose text matches no frustration pattern", async () => {
+    const handler = detector.detectors!["regex-frustration"];
+    const pulseReader = {
+      getPulse: vi
+        .fn()
+        .mockResolvedValue(
+          buildPulse({ subject: "shipping the feature", body: "all tests green" }),
+        ),
+    };
+    const ctx = buildCtx({ pulseReader: pulseReader as never });
+    const result = await handler(ctx, buildSource());
+    expect(result).toEqual([]);
+  });
+
+  it("returns [] when pulseReader is absent (defensive — loader always provides it)", async () => {
+    const handler = detector.detectors!["regex-frustration"];
+    const ctx = buildCtx({ pulseReader: undefined });
+    const result = await handler(ctx, buildSource());
+    expect(result).toEqual([]);
+  });
+
+  it("returns [] when getPulse resolves null (pulse no longer exists)", async () => {
+    const handler = detector.detectors!["regex-frustration"];
+    const pulseReader = { getPulse: vi.fn().mockResolvedValue(null) };
+    const ctx = buildCtx({ pulseReader: pulseReader as never });
+    const result = await handler(ctx, buildSource());
+    expect(result).toEqual([]);
+  });
+
+  it("returns [] when the source pulse is itself a detected signal (recursion guard)", async () => {
+    const handler = detector.detectors!["regex-frustration"];
+    const pulseReader = {
+      getPulse: vi
+        .fn()
+        .mockResolvedValue(buildPulse({ signalType: "detected", body: "this dependency is hell" })),
+    };
+    const ctx = buildCtx({ pulseReader: pulseReader as never });
+    const result = await handler(ctx, buildSource());
+    expect(result).toEqual([]);
+  });
+
+  it("aggregates multiple matched categories into a single signal", async () => {
+    const handler = detector.detectors!["regex-frustration"];
+    const pulseReader = {
+      getPulse: vi.fn().mockResolvedValue(
+        buildPulse({
+          subject: "this is so frustrating",
+          body: "why does this always break — what a waste of time",
+        }),
+      ),
+    };
+    const ctx = buildCtx({ pulseReader: pulseReader as never });
+    const result = await handler(ctx, buildSource());
+    expect(result).toHaveLength(1);
+    const categories = result[0].metadata?.categories as string[];
+    expect(categories).toEqual(
+      expect.arrayContaining(["frustration", "repeated_breakage", "time_waste"]),
+    );
+    expect(categories).toHaveLength(3);
   });
 });
