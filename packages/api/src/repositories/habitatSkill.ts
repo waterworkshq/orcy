@@ -104,6 +104,43 @@ export interface ExperienceAggregate {
 }
 
 /**
+ * Privacy-safe projection of {@link HabitatSkillSignal} for authoring augmentation context.
+ * Strips the individual-level fields (`sourcePulseIds`, `sourceTaskIds`, `sourceCommentIds`,
+ * `corroboratingAgentIds`) per ARCHITECTURE.md §11.7 — the authoring surface mirrors the
+ * reader-facing signal-surface privacy boundary. Aggregate counts (`frequency`,
+ * `corroboratingAgents`, `successfulTasks`, `failedTasks`) and timestamps are retained.
+ */
+export type AuthoringSkillSignal = Omit<
+  HabitatSkillSignal,
+  "sourcePulseIds" | "sourceTaskIds" | "sourceCommentIds" | "corroboratingAgentIds"
+>;
+
+/** Projects a raw {@link HabitatSkillSignal} row to the privacy-safe {@link AuthoringSkillSignal}. */
+export function toAuthoringSkillSignal(row: HabitatSkillSignal): AuthoringSkillSignal {
+  return {
+    id: row.id,
+    habitatId: row.habitatId,
+    clusterKey: row.clusterKey,
+    skillCategory: row.skillCategory,
+    sourceSignalType: row.sourceSignalType,
+    sourceType: row.sourceType,
+    subject: row.subject,
+    summary: row.summary,
+    strength: row.strength,
+    frequency: row.frequency,
+    corroboratingAgents: row.corroboratingAgents,
+    crossMissionCount: row.crossMissionCount,
+    successfulTasks: row.successfulTasks,
+    failedTasks: row.failedTasks,
+    lastSeenAt: row.lastSeenAt,
+    firstSeenAt: row.firstSeenAt,
+    promotedToSkill: row.promotedToSkill,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/**
  * Filters for {@link listExperienceAggregates}. `category` narrows within the experience-derived
  * subset; `timeWindow` is a human-readable duration string (e.g. `'7 days'`, `'30 days'`,
  * `'90 days'`) parsed into an ISO timestamp by the repo. `domain` is accepted but not yet

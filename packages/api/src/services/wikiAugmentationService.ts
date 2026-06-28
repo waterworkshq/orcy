@@ -31,8 +31,8 @@ export interface AuthoringContext {
   query: string | null;
   /** Pulses (`pulses` table) updated in the window, scoped to the habitat. */
   pulses: pulseRepo.Pulse[];
-  /** Habitat skill signals updated in the window. */
-  skillSignals: habitatSkillRepo.HabitatSkillSignal[];
+  /** Habitat skill signals updated in the window, projected to the privacy-safe {@link habitatSkillRepo.AuthoringSkillSignal} (individual source IDs stripped per ARCHITECTURE.md §11.7). */
+  skillSignals: habitatSkillRepo.AuthoringSkillSignal[];
   /** Active project insights (`project_insights`) created in the window. */
   insights: insightRepo.ProjectInsight[];
   /** Code-evidence links (`code_evidence_links`) linked in the window. */
@@ -66,7 +66,9 @@ export function getAuthoringContextForEdit(
     pulses: pulseRepo
       .listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit)
       .filter((p) => p.signalType !== "experience"),
-    skillSignals: habitatSkillRepo.listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
+    skillSignals: habitatSkillRepo
+      .listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit)
+      .map(habitatSkillRepo.toAuthoringSkillSignal),
     insights: insightRepo.listActiveByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
     evidence: codeEvidenceRepository.listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
     effort: effortEntryRepo.listByHabitatSince(page.habitatId, page.lastUpdatedAt, limit),
@@ -123,7 +125,9 @@ export function getAuthoringContextForChunk(
       limit,
     ),
     skillSignals: filter(
-      habitatSkillRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4),
+      habitatSkillRepo
+        .listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4)
+        .map(habitatSkillRepo.toAuthoringSkillSignal),
       (s) => s.updatedAt >= input.from && s.updatedAt <= input.to && matches(s.subject, s.summary),
       limit,
     ),

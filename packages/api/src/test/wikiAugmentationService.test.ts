@@ -177,6 +177,42 @@ describe("wikiAugmentationService.getAuthoringContextForEdit — delta mode", ()
     expect(ctx.skillSignals).toHaveLength(1);
   });
 
+  it("strips individual experience-signal source IDs from the authoring context (privacy boundary)", () => {
+    const { habitat } = setupHabitat();
+    const page = wikiService.createPage(habitat.id, { title: "Page", content: "body" }, "human-1");
+
+    advanceClockPast(page.lastUpdatedAt);
+    skillRepo.createSignal({
+      habitatId: habitat.id,
+      clusterKey: "stuck-on-drizzle",
+      skillCategory: "pitfall",
+      sourceSignalType: "experience",
+      subject: "Stuck on Drizzle migrations",
+      summary: "Agent got stuck on FTS5 migration",
+      sourcePulseId: "pulse-secret-1",
+      sourceTaskId: "task-secret-1",
+      sourceCommentId: "comment-secret-1",
+      agentId: "agent-secret-1",
+    });
+
+    const ctx = augmentation.getAuthoringContextForEdit(page.id);
+    expect(ctx.skillSignals).toHaveLength(1);
+    const signal = ctx.skillSignals[0] as Record<string, unknown>;
+    // Aggregate counts are retained...
+    expect(signal.frequency).toBe(1);
+    expect(signal.corroboratingAgents).toBe(1);
+    // ...but individual-level source IDs must never leave the service.
+    expect(signal.sourcePulseIds).toBeUndefined();
+    expect(signal.sourceTaskIds).toBeUndefined();
+    expect(signal.sourceCommentIds).toBeUndefined();
+    expect(signal.corroboratingAgentIds).toBeUndefined();
+    const serialised = JSON.stringify(ctx.skillSignals[0]);
+    expect(serialised).not.toContain("pulse-secret-1");
+    expect(serialised).not.toContain("task-secret-1");
+    expect(serialised).not.toContain("comment-secret-1");
+    expect(serialised).not.toContain("agent-secret-1");
+  });
+
   it("surfaces an active project insight in the habitat", () => {
     const { habitat } = setupHabitat();
     const page = wikiService.createPage(habitat.id, { title: "Page", content: "body" }, "human-1");
