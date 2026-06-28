@@ -118,6 +118,10 @@ describe("wikiAugmentationService.getAuthoringContextForEdit — delta mode", ()
     const { habitat } = setupHabitat();
     const page = wikiService.createPage(habitat.id, { title: "Page", content: "body" }, "human-1");
 
+    // Advance the clock past the page's lastUpdatedAt so the pulse's createdAt is strictly greater
+    // (delta mode queries `createdAt > lastUpdatedAt`); without this the two timestamps can collide
+    // at millisecond resolution and the pulse is missed under parallel test contention.
+    advanceClockPast(page.lastUpdatedAt);
     pulseRepo.createPulse({
       habitatId: habitat.id,
       scope: "habitat",
@@ -390,6 +394,64 @@ describe("wikiAugmentationService.getAuthoringContextForChunk — chunk mode", (
     expect(ctx.pulses).toHaveLength(2);
     expect(authCtx.pulses).toHaveLength(1);
     expect(authCtx.pulses[0].subject).toBe("Auth context");
+  });
+
+  it("returns in-window rows for an OLD chunk even when many newer rows exist (SQL-bounded, no crowding-out)", () => {
+    const { habitat } = setupHabitat();
+    const db = getDb();
+
+    // Three pulses inside the queried historical window.
+    const windowStart = "2026-01-10T00:00:00.000Z";
+    const windowEnd = "2026-01-12T00:00:00.000Z";
+    for (let i = 0; i < 3; i++) {
+      db.insert(pulses)
+        .values({
+          id: `old-${i}`,
+          habitatId: habitat.id,
+          scope: "habitat",
+          fromType: "human",
+          fromId: "human-1",
+          signalType: "context",
+          subject: `In-window ${i}`,
+          body: "old",
+          metadata: {},
+          createdAt: "2026-01-11T00:00:00.000Z",
+          pinned: 0,
+          isAuto: false,
+        })
+        .run();
+    }
+
+    // Many newer pulses (well past the window). With the old `listByHabitatSince(habitat, "1970",
+    // limit*4)` + in-memory filter path, primitiveLimit=10 → fetch of 40 newest since 1970, all
+    // of which were newer than the window → the 3 in-window rows were crowded out → 0 returned.
+    // The SQL-bounded `listByHabitatBetween(habitat, from, to, limit)` path returns them.
+    for (let i = 0; i < 45; i++) {
+      db.insert(pulses)
+        .values({
+          id: `new-${i}`,
+          habitatId: habitat.id,
+          scope: "habitat",
+          fromType: "human",
+          fromId: "human-1",
+          signalType: "context",
+          subject: `Newer ${i}`,
+          body: "recent",
+          metadata: {},
+          createdAt: "2026-06-01T00:00:00.000Z",
+          pinned: 0,
+          isAuto: false,
+        })
+        .run();
+    }
+
+    const ctx = augmentation.getAuthoringContextForChunk(
+      habitat.id,
+      { from: windowStart, to: windowEnd },
+      { primitiveLimit: 10 },
+    );
+    expect(ctx.pulses).toHaveLength(3);
+    expect(ctx.pulses.every((p) => p.subject.startsWith("In-window"))).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { habitatSkills, habitatSkillSignals } from "../db/schema/index.js";
-import { eq, and, count, desc, gt, inArray, sql } from "drizzle-orm";
+import { eq, and, count, desc, gt, gte, lte, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { SkillCategory } from "@orcy/shared";
 import { SKILL_CATEGORIES } from "@orcy/shared";
@@ -525,6 +525,36 @@ export function listByHabitatSince(
     .from(habitatSkillSignals)
     .where(
       and(eq(habitatSkillSignals.habitatId, habitatId), gt(habitatSkillSignals.updatedAt, since)),
+    )
+    .orderBy(desc(habitatSkillSignals.updatedAt), desc(habitatSkillSignals.strength))
+    .limit(limit)
+    .all()
+    .map(rowToSignal);
+}
+
+/**
+ * Returns habitat skill signals with `updated_at` in the inclusive window `[from, to]`, ordered
+ * newest-first by `updated_at` then `strength`. Backs the `wikiAugmentationService` chunk mode so
+ * old bootstrap chunks return rows actually in the window (SQL-bounded) instead of the newest
+ * `limit*4` since 1970 filtered in memory. Rows are projected to the privacy-safe
+ * {@link AuthoringSkillSignal} by the caller. `limit` defaults to 100. No side effects.
+ */
+export function listByHabitatBetween(
+  habitatId: string,
+  from: string,
+  to: string,
+  limit = 100,
+): HabitatSkillSignal[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(habitatSkillSignals)
+    .where(
+      and(
+        eq(habitatSkillSignals.habitatId, habitatId),
+        gte(habitatSkillSignals.updatedAt, from),
+        lte(habitatSkillSignals.updatedAt, to),
+      ),
     )
     .orderBy(desc(habitatSkillSignals.updatedAt), desc(habitatSkillSignals.strength))
     .limit(limit)

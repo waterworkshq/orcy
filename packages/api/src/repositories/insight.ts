@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { projectInsights } from "../db/schema/index.js";
-import { eq, and, count, desc, sql, gt } from "drizzle-orm";
+import { eq, and, count, desc, sql, gt, gte, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { SignalType } from "./pulse.js";
 import {
@@ -163,6 +163,36 @@ export function listActiveByHabitatSince(
         eq(projectInsights.habitatId, habitatId),
         eq(projectInsights.isActive, true),
         gt(projectInsights.createdAt, since),
+      ),
+    )
+    .orderBy(desc(projectInsights.promotedAt))
+    .limit(limit)
+    .all();
+  return rows.map(rowToInsight);
+}
+
+/**
+ * Returns active project insights in a habitat with `created_at` in the inclusive window
+ * `[from, to]`, ordered newest-first by `promoted_at`. Backs the `wikiAugmentationService` chunk
+ * mode (SQL-bounded window instead of newest-`limit*4`-since-1970 filtered in memory). Only
+ * `is_active = 1` rows are returned. `limit` defaults to 100. No side effects.
+ */
+export function listActiveByHabitatBetween(
+  habitatId: string,
+  from: string,
+  to: string,
+  limit = 100,
+): ProjectInsight[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(projectInsights)
+    .where(
+      and(
+        eq(projectInsights.habitatId, habitatId),
+        eq(projectInsights.isActive, true),
+        gte(projectInsights.createdAt, from),
+        lte(projectInsights.createdAt, to),
       ),
     )
     .orderBy(desc(projectInsights.promotedAt))

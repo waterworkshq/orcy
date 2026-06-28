@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { taskComments, missionComments, tasks, missions } from "../db/schema/index.js";
-import { eq, and, desc, count, gt } from "drizzle-orm";
+import { eq, and, desc, count, gt, gte, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import * as commentMentionRepo from "./commentMention.js";
 import type { TaskCommentMention } from "../models/index.js";
@@ -193,6 +193,92 @@ export function listByHabitatSince(habitatId: string, since: string, limit = 100
     .from(missionComments)
     .innerJoin(missions, eq(missions.id, missionComments.missionId))
     .where(and(eq(missions.habitatId, habitatId), gt(missionComments.createdAt, since)))
+    .orderBy(desc(missionComments.createdAt))
+    .limit(limit)
+    .all();
+
+  const combined: ScopedComment[] = [
+    ...taskRows.map((r) => ({
+      id: r.id,
+      scope: "task" as const,
+      taskId: r.taskId,
+      missionId: null,
+      content: r.content,
+      authorType: r.authorType,
+      authorId: r.authorId,
+      createdAt: r.createdAt,
+    })),
+    ...missionRows.map((r) => ({
+      id: r.id,
+      scope: "mission" as const,
+      taskId: null,
+      missionId: r.missionId,
+      content: r.content,
+      authorType: r.authorType,
+      authorId: r.authorId,
+      createdAt: r.createdAt,
+    })),
+  ];
+
+  combined.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  return combined.slice(0, limit);
+}
+
+/**
+ * Returns comments in a habitat (both task and mission) with `created_at` in the inclusive window
+ * `[from, to]`. Backs the `wikiAugmentationService` chunk mode (SQL-bounded window instead of
+ * newest-`limit*4`-since-1970 filtered in memory). `limit` is a soft cap on the combined result
+ * (per-source caps are `limit` each; combined then trimmed). No side effects.
+ */
+export function listByHabitatBetween(
+  habitatId: string,
+  from: string,
+  to: string,
+  limit = 100,
+): ScopedComment[] {
+  const db = getDb();
+
+  const taskRows = db
+    .select({
+      id: taskComments.id,
+      content: taskComments.content,
+      authorType: taskComments.authorType,
+      authorId: taskComments.authorId,
+      createdAt: taskComments.createdAt,
+      taskId: taskComments.taskId,
+    })
+    .from(taskComments)
+    .innerJoin(tasks, eq(tasks.id, taskComments.taskId))
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(
+      and(
+        eq(missions.habitatId, habitatId),
+        gte(taskComments.createdAt, from),
+        lte(taskComments.createdAt, to),
+      ),
+    )
+    .orderBy(desc(taskComments.createdAt))
+    .limit(limit)
+    .all();
+
+  const missionRows = db
+    .select({
+      id: missionComments.id,
+      content: missionComments.content,
+      authorType: missionComments.authorType,
+      authorId: missionComments.authorId,
+      createdAt: missionComments.createdAt,
+      missionId: missionComments.missionId,
+    })
+    .from(missionComments)
+    .innerJoin(missions, eq(missions.id, missionComments.missionId))
+    .where(
+      and(
+        eq(missions.habitatId, habitatId),
+        gte(missionComments.createdAt, from),
+        lte(missionComments.createdAt, to),
+      ),
+    )
     .orderBy(desc(missionComments.createdAt))
     .limit(limit)
     .all();

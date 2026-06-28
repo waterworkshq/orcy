@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { pulses, pulseCursors } from "../db/schema/index.js";
-import { eq, and, or, gt, count, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, or, gt, gte, lte, count, desc, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -581,6 +581,32 @@ export function listByHabitatSince(habitatId: string, since: string, limit = 100
     .select()
     .from(pulses)
     .where(and(eq(pulses.habitatId, habitatId), gt(pulses.createdAt, since)))
+    .orderBy(desc(pulses.createdAt), desc(pulses.id))
+    .limit(limit)
+    .all();
+  return rows.map(rowToPulse);
+}
+
+/**
+ * Returns pulses in a habitat with `created_at` in the inclusive window `[from, to]`, ordered
+ * newest-first. Backs the `wikiAugmentationService` chunk mode so old bootstrap chunks in active
+ * habitats return the rows actually in the window, instead of the newest `limit*4` since 1970
+ * filtered in memory (which crowded out historical rows). `limit` defaults to 100. No side
+ * effects.
+ */
+export function listByHabitatBetween(
+  habitatId: string,
+  from: string,
+  to: string,
+  limit = 100,
+): Pulse[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(pulses)
+    .where(
+      and(eq(pulses.habitatId, habitatId), gte(pulses.createdAt, from), lte(pulses.createdAt, to)),
+    )
     .orderBy(desc(pulses.createdAt), desc(pulses.id))
     .limit(limit)
     .all();

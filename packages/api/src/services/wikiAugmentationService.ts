@@ -117,46 +117,43 @@ export function getAuthoringContextForChunk(
     from: input.from,
     to: input.to,
     query,
+    // SQL-bounded `[from, to]` queries (inclusive) per primitive type — the window predicate is
+    // applied at the DB layer so old bootstrap chunks in active habitats return rows actually in
+    // the window, instead of the newest `limit*4` since 1970 crowded out by newer rows. The dumb
+    // `LIKE` keyword filter is applied in-memory over the bounded result set (small set; no FTS,
+    // no relevance ranking per the locked v0.21 decision).
     pulses: filter(
       pulseRepo
-        .listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4)
+        .listByHabitatBetween(habitatId, input.from, input.to, limit)
         .filter((p) => p.signalType !== "experience"),
-      (p) => p.createdAt >= input.from && p.createdAt <= input.to && matches(p.subject, p.body),
+      (p) => matches(p.subject, p.body),
       limit,
     ),
     skillSignals: filter(
       habitatSkillRepo
-        .listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4)
+        .listByHabitatBetween(habitatId, input.from, input.to, limit)
         .map(habitatSkillRepo.toAuthoringSkillSignal),
-      (s) => s.updatedAt >= input.from && s.updatedAt <= input.to && matches(s.subject, s.summary),
+      (s) => matches(s.subject, s.summary),
       limit,
     ),
     insights: filter(
-      insightRepo.listActiveByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4),
-      (i) => i.createdAt >= input.from && i.createdAt <= input.to && matches(i.subject, i.body),
+      insightRepo.listActiveByHabitatBetween(habitatId, input.from, input.to, limit),
+      (i) => matches(i.subject, i.body),
       limit,
     ),
     evidence: filter(
-      codeEvidenceRepository.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4),
-      (e) => {
-        const ts = String(e.linkedAt ?? "");
-        return (
-          ts >= input.from &&
-          ts <= input.to &&
-          matches(stringOrNull(e.title), stringOrNull(e.description))
-        );
-      },
+      codeEvidenceRepository.listByHabitatBetween(habitatId, input.from, input.to, limit),
+      (e) => matches(stringOrNull(e.title), stringOrNull(e.description)),
       limit,
     ),
     effort: filter(
-      effortEntryRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4),
-      (e) =>
-        e.recordedAt >= input.from && e.recordedAt <= input.to && matches(null, e.note ?? null),
+      effortEntryRepo.listByHabitatBetween(habitatId, input.from, input.to, limit),
+      (e) => matches(null, e.note ?? null),
       limit,
     ),
     comments: filter(
-      commentRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z", limit * 4),
-      (c) => c.createdAt >= input.from && c.createdAt <= input.to && matches(null, c.content),
+      commentRepo.listByHabitatBetween(habitatId, input.from, input.to, limit),
+      (c) => matches(null, c.content),
       limit,
     ),
   };

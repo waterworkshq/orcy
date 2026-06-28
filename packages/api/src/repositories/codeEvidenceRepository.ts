@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { habitatCodeRepositories, codeEvidenceLinks, tasks, missions } from "../db/schema/index.js";
-import { eq, and, gt, desc, sql } from "drizzle-orm";
+import { eq, and, gt, gte, lte, desc, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { CodeEvidenceVerificationState } from "@orcy/shared";
 import {
@@ -209,6 +209,67 @@ export function listByHabitatSince(
         eq(codeEvidenceLinks.targetType, "mission"),
         eq(missions.habitatId, habitatId),
         gt(codeEvidenceLinks.linkedAt, since),
+      ),
+    )
+    .orderBy(desc(codeEvidenceLinks.linkedAt))
+    .limit(limit)
+    .all();
+
+  const combined: Array<Record<string, unknown>> = [
+    ...taskRows.map((r) => r.row as unknown as Record<string, unknown>),
+    ...missionRows.map((r) => r.row as unknown as Record<string, unknown>),
+  ];
+  combined.sort((a, b) => {
+    const aTs = String(a.linkedAt ?? "");
+    const bTs = String(b.linkedAt ?? "");
+    return aTs < bTs ? 1 : aTs > bTs ? -1 : 0;
+  });
+  return combined.slice(0, limit);
+}
+
+/**
+ * Returns code-evidence links in a habitat with `linked_at` in the inclusive window `[from, to]`,
+ * scoped via `code_evidence_links → tasks/missions → missions.habitat_id`. Backs the
+ * `wikiAugmentationService` chunk mode (SQL-bounded window instead of newest-`limit*4`-since-1970
+ * filtered in memory). Result rows are the raw link records (title/description/url/etc.). `limit`
+ * is a soft cap on the combined result (per-source caps are `limit` each; combined then trimmed).
+ * No side effects.
+ */
+export function listByHabitatBetween(
+  habitatId: string,
+  from: string,
+  to: string,
+  limit = 100,
+): Array<Record<string, unknown>> {
+  const db = getDb();
+
+  const taskRows = db
+    .select({ row: codeEvidenceLinks })
+    .from(codeEvidenceLinks)
+    .innerJoin(tasks, eq(tasks.id, codeEvidenceLinks.targetId))
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(
+      and(
+        eq(codeEvidenceLinks.targetType, "task"),
+        eq(missions.habitatId, habitatId),
+        gte(codeEvidenceLinks.linkedAt, from),
+        lte(codeEvidenceLinks.linkedAt, to),
+      ),
+    )
+    .orderBy(desc(codeEvidenceLinks.linkedAt))
+    .limit(limit)
+    .all();
+
+  const missionRows = db
+    .select({ row: codeEvidenceLinks })
+    .from(codeEvidenceLinks)
+    .innerJoin(missions, eq(missions.id, codeEvidenceLinks.targetId))
+    .where(
+      and(
+        eq(codeEvidenceLinks.targetType, "mission"),
+        eq(missions.habitatId, habitatId),
+        gte(codeEvidenceLinks.linkedAt, from),
+        lte(codeEvidenceLinks.linkedAt, to),
       ),
     )
     .orderBy(desc(codeEvidenceLinks.linkedAt))

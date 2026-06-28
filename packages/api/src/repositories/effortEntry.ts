@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { effortEntries, tasks, taskTimeRecords, missions, agents } from "../db/schema/index.js";
-import { eq, and, sql, ne, inArray, gt, desc } from "drizzle-orm";
+import { eq, and, sql, ne, inArray, gt, gte, lte, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type {
   EffortEntry,
@@ -459,6 +459,38 @@ export function listByHabitatSince(habitatId: string, since: string, limit = 100
     .innerJoin(tasks, eq(tasks.id, effortEntries.taskId))
     .innerJoin(missions, eq(missions.id, tasks.missionId))
     .where(and(eq(missions.habitatId, habitatId), gt(effortEntries.recordedAt, since)))
+    .orderBy(desc(effortEntries.recordedAt))
+    .limit(limit)
+    .all()
+    .map((r) => r.row) as EffortEntry[];
+}
+
+/**
+ * Returns effort entries in a habitat with `recorded_at` in the inclusive window `[from, to]`,
+ * scoped via `effort_entries.task_id → tasks.mission_id → missions.habitat_id`. Backs the
+ * `wikiAugmentationService` chunk mode (SQL-bounded window instead of newest-`limit*4`-since-1970
+ * filtered in memory). `limit` defaults to 100; ordered newest-first by `recorded_at`. No side
+ * effects.
+ */
+export function listByHabitatBetween(
+  habitatId: string,
+  from: string,
+  to: string,
+  limit = 100,
+): EffortEntry[] {
+  const db = getDb();
+  return db
+    .select({ row: effortEntries })
+    .from(effortEntries)
+    .innerJoin(tasks, eq(tasks.id, effortEntries.taskId))
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(
+      and(
+        eq(missions.habitatId, habitatId),
+        gte(effortEntries.recordedAt, from),
+        lte(effortEntries.recordedAt, to),
+      ),
+    )
     .orderBy(desc(effortEntries.recordedAt))
     .limit(limit)
     .all()
