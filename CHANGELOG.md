@@ -2,6 +2,44 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.21.4 — 2026-06-28
+
+### Bug Fixes
+
+#### bound authoring-context chunk queries to the requested window ([`6aa581f`](https://github.com/waterworkshq/orcy/commit/6aa581f1897d609c76c7a0e06c3ade235a60ff9b))
+
+1. The wiki authoring augmentation chunk mode (getAuthoringContextForChunk)
+2. fetched the newest `limit*4` primitives since 1970 then filtered the
+3. requested [from, to] window in memory. In an active habitat with more than
+4. `limit*4` recent primitives, the newer rows crowded out the historical window
+5. entirely, so old bootstrap chunks returned empty or incomplete authoring
+6. context — breaking the scheduler's chunked-authoring model.
+
+8. Add a SQL-bounded `listByHabitatBetween(habitatId, from, to, limit)` variant
+9. to each of the six augmentation-source repositories (pulse, habitatSkill,
+10. insight, effortEntry, comment, codeEvidenceRepository). Each applies an
+11. inclusive `>= from AND <= to` window predicate at the DB layer over the same
+12. timestamp column and habitat join the existing `listByHabitatSince` uses.
+13. `getAuthoringContextForChunk` now calls the bounded variants directly, and the
+14. dumb `LIKE` keyword filter is applied in-memory over the (now small) bounded
+15. result set — preserving the locked v0.21 no-FTS/no-relevance-ranking decision.
+16. Delta mode (`getAuthoringContextForEdit`) is unchanged; it still uses
+17. `listByHabitatSince` with its strict `> lastUpdatedAt` semantics.
+
+19. Also hardens a pre-existing flaky delta-mode test
+20. ("surfaces a habitat-scoped pulse that arrives after the page's lastUpdatedAt")
+21. that collided at millisecond resolution under parallel file contention by
+22. adding the same `advanceClockPast(page.lastUpdatedAt)` spin-wait its sibling
+23. delta tests already use.
+
+25. Regression test: an old historical chunk with 3 in-window pulses plus 45 newer
+26. pulses (exceeding the old `limit*4` fetch cap of 40 at primitiveLimit=10) now
+27. returns the 3 in-window rows; the old code crowded them out and returned 0.
+
+29. 3509 API tests pass (3508 + 1 new), typecheck clean, lint 0 errors.
+
+
+
 ## 0.21.3 — 2026-06-28
 
 ### Bug Fixes
@@ -107,37 +145,3 @@
 41. them, leaving schema-as-source-of-truth out of sync with the actual DB.
 42. Add both via uniqueIndex(...).where(...) (drizzle-orm 0.45.2 supports
 43. partial indexes) so the schema metadata matches the migration.
-
-
-
-## 0.21.1 — 2026-06-28
-
-### Bug Fixes
-
-#### strip experience-signal source IDs from authoring context ([`87ee3cb`](https://github.com/waterworkshq/orcy/commit/87ee3cbc95a5883d1fd6f8ff45f77c94131fcb46))
-
-1. The wiki authoring augmentation surface (delta-on-edit and chunk-on-create
-2. modes) returned raw HabitatSkillSignal rows, which include the individual-
-3. level fields sourcePulseIds, sourceTaskIds, sourceCommentIds, and
-4. corroboratingAgentIds. This leaked candid self-assessment attribution into
-5. the REST authoring-context response and the orcy_wiki get_authoring_context
-6. MCP action — a violation of the v0.21 privacy boundary that experience
-7. signals are aggregated-only in wiki UI/MCP (ARCHITECTURE.md §11.7, ADR-0009
-8. consequences).
-
-10. Add a privacy-safe AuthoringSkillSignal projection (Omit of the four
-11. source-ID fields) and a toAuthoringSkillSignal mapper in the habitatSkill
-12. repo, mirroring the existing listExperienceAggregates projection pattern.
-13. Project skill signals through the mapper in both
-14. getAuthoringContextForEdit and getAuthoringContextForChunk before they
-15. leave the service. Aggregate counts (frequency, corroboratingAgents,
-16. successfulTasks, failedTasks) and timestamps are retained; only the
-17. individual-level identifiers are stripped.
-
-19. getRelevantPrimitives was already safe — it only copies public fields
-20. (id/subject/body/habitatId/createdAt) into RelevantPrimitive, so no change
-21. needed there.
-
-23. Add a test that creates an experience-derived skill signal with source IDs
-24. and asserts the secret fields never appear on the returned authoring
-25. context (field-undefined check plus serialised-string containment check).
