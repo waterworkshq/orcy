@@ -305,6 +305,34 @@ _Avoid_: Bug report (when the observation is an in-system signal, not an externa
 A reader-facing derived view in the wiki browser that aggregates signals into glanceable patterns — frequency, outcome correlation, time-windowed trends, per-domain filtering. Two surfaces ship in v0.21: Experience Signals (aggregated from `habitat_skill_signals`, privacy-protected to aggregates only) and Engineering Findings (individual + attributed, structured + unstructured). Signal surfaces are live queries over existing tables, not authored pages.
 _Avoid_: Dashboard (when the view is specifically the wiki's signal-derived tabs), report (when the view is live/derived, not generated)
 
+**Plugin**:
+A bundled, manifest-declared extension that contributes to Orcy through one or more typed extension points (notification channel, signal detector, lifecycle interceptor, dynamic MCP tool, future action/condition/adapter). Loaded at server boot from a local filesystem drop-in (`PLUGINS_DIR`); cannot execute without a manifest. Same plugin module may declare multiple contributions. Marketplaces, npm install, and remote signed fetch are deferred.
+_Avoid_: Add-on, extension, app, module (when describing the unit of ecosystem contribution)
+
+**System Plugin**:
+A plugin whose every contribution declares `scope: "system"`. System contributions shape server-wide infrastructure and are enabled at boot via the `PLUGINS_ENABLED` env list. Notification channels and webhook transformers are system-scoped: only one contribution per channel id may be loaded server-wide. Per-habitat enablement is meaningless for system plugins because their contribution shapes the infrastructure all habitats share.
+_Avoid_: Global plugin (when the distinction is infrastructure vs content), Core module
+
+**Habitat Plugin**:
+A plugin whose every contribution declares `scope: "habitat"`. Habitat contributions produce per-habitat content or behavior and are enrolled per-habitat by a habitat admin via REST/UI. Signal detectors and lifecycle interceptors are habitat-scoped; a plugin may be enrolled in zero, one, or many habitats. Enrolled state is independent across habitats, but the plugin module itself is loaded once at boot and may be denied entry by the `ORCY_DETECTOR_ALLOWLIST` boot-time config when such an allowlist applies.
+_Avoid_: Local plugin (when the distinction is per-habitat enrollment vs server boot), Tenant plugin
+
+**Mixed Plugin**:
+A plugin with both system-scoped and habitat-scoped contributions in one module. The system contributions are enabled at boot by the server admin; the habitat contributions are enrolled per-habitat by the habitat admin. The two enablement paths are independent — a mixed plugin can boot its system contribution server-wide without any habitat enrolling its habitat contribution, and vice versa a habitat can enroll the habitat contribution while the system contribution sits loaded-but-inert if env-disabled.
+_Avoid_: Duplex plugin, dual plugin
+
+**Plugin Manifest**:
+A typed declaration emitted by a plugin that names the plugin, declares its version, lists its contributions (notification channels, detectors, MCP tool definitions, lifecycle interceptors), and binds a config schema default. Manifest is the contract between plugin author and Orcy; the existing `KanbanPlugin` interface is collapsed into it for v0.22.
+_Avoid_: Manifest when describing a process or data row rather than the plugin contract, plugin.json (the manifest is an exported object, not a file convention)
+
+**Plugin Enrollment**:
+A per-habitat REST-managed configuration row that opts a habitat-scoped plugin into a specific habitat. Carries a habitat-scoped config blob validated against the plugin's manifest config schema, an `enabled` flag, and an audit trail. System plugins are not enrolled because their contributions are server-wide.
+_Avoid_: Activation, installation, grant
+
+**Detected Signal**:
+A pulse signal emitted by a signal-detector plugin with `signalType: "detected"` and server-injected provenance (`metadata.detected: true`, `metadata.detector: "<pluginId>"`, `metadata.detectorRunId: "<runId>"`). Detected signals are categorically distinct from agent self-reports (`signalType: "experience"`) and intentional agent observations (`signalType: "finding"`) — they are automated pattern matches over pulse text, task events, comments, or submission output. They surface in the wiki signal-surface reader as their own sub-bucket (separate from Experience Signals and Engineering Findings) and route through v0.23 triage with different weighting from self-reports.
+_Avoid_: Auto-finding, auto-signal, machine signal, classified signal (when describing the pulse category rather than a triage decision)
+
 ## Example Dialogue
 
 Dev: "This mission shipped through three tasks. Where is the code evidence?"
