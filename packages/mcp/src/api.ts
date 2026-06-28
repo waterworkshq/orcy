@@ -20,6 +20,7 @@ import type {
   WikiPage,
   WikiPageVersion,
   WikiPageLink,
+  WikiCoverageMarker,
 } from "@orcy/shared";
 import type {
   ClaimTaskResponse,
@@ -2165,13 +2166,13 @@ export class KanbanApiClient
     return res.page;
   }
 
-  /** Delete a wiki page. `stayGone: true` holds the cadence watermark via a `no_update_needed` marker. */
+  /** Delete a wiki page. `stayGone: true` holds the cadence watermark via a `no_update_needed` marker. Returns `{ success: true }` to match the REST route. */
   async deleteWikiPage(
     habitatId: string,
     pageId: string,
     opts?: { stayGone?: boolean; reason?: string },
-  ): Promise<{ deleted: true }> {
-    return this.request<{ deleted: true }>(
+  ): Promise<{ success: true }> {
+    return this.request<{ success: true }>(
       "DELETE",
       `/api/habitats/${habitatId}/wiki/pages/${pageId}`,
       opts ?? {},
@@ -2254,13 +2255,13 @@ export class KanbanApiClient
     return res.link;
   }
 
-  /** Remove a polymorphic citation link from a wiki page. */
+  /** Remove a polymorphic citation link from a wiki page. Returns `{ success: true }` to match the REST route. */
   async removeWikiPageLink(
     habitatId: string,
     pageId: string,
     linkId: string,
-  ): Promise<{ deleted: true }> {
-    return this.request<{ deleted: true }>(
+  ): Promise<{ success: true }> {
+    return this.request<{ success: true }>(
       "DELETE",
       `/api/habitats/${habitatId}/wiki/pages/${pageId}/links/${linkId}`,
       {},
@@ -2284,16 +2285,17 @@ export class KanbanApiClient
     return res.results;
   }
 
-  /** Post a `no_update_needed` coverage marker (ADR-0009) — holds the cadence watermark. */
+  /** Post a `no_update_needed` coverage marker (ADR-0009) — holds the cadence watermark. Returns the created marker (REST unwraps `{ marker }`). */
   async markNoUpdateNeeded(
     habitatId: string,
     input: { from: string; to: string; reason?: string },
-  ): Promise<{ created: true }> {
-    return this.request<{ created: true }>(
+  ): Promise<WikiCoverageMarker> {
+    const res = await this.request<{ marker: WikiCoverageMarker }>(
       "POST",
       `/api/habitats/${habitatId}/wiki/coverage/no-update-needed`,
       input,
     );
+    return res.marker;
   }
 
   /** Returns the authoring context (delta mode) for an existing page — primitives since the page's lastUpdatedAt. */

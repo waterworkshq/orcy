@@ -1213,7 +1213,7 @@ workflowService.handleRedemptionIfNeeded()
 - **Two-channel event bus** — `onTransition` for all actions, `onTaskEvent` for lifecycle-completing only (ADR-0005)
 - **`on_automation` active since v0.20.1** — automation executor wired into production; 6 gate types available
 - **`excludeFailedAgent` dropped** — no implementation path without violating ADR-0001's "no new task columns" principle
-- **`sidetracked → pitfall` (stopgap)** — `SkillCategory` enum has no `anti_patterns` value; `anti_patterns` addition tracked for v0.20.1
+- **`sidetracked → anti_patterns`** — `SkillCategory` includes `anti_patterns` (shipped v0.20.1); the `sidetracked` experience category maps to it. Earlier drafts mapped it to `pitfall` as a stopgap; that is no longer the case.
 
 ## Habitat Wiki (v0.21)
 

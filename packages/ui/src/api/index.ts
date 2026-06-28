@@ -1568,6 +1568,7 @@ export const api = {
         content: string;
         parentId?: string | null;
         tags?: string[];
+        status?: WikiPageStatus;
         coverageFrom?: string;
         coverageTo?: string;
       },
@@ -1676,7 +1677,13 @@ export const api = {
       ),
     setCadence: (
       habitatId: string,
-      body: { interval?: number; intervalMinutes?: number; timezone?: string; enabled?: boolean },
+      body: {
+        enabled?: boolean;
+        scheduleType?: "interval" | "cron";
+        intervalMinutes?: number;
+        cronExpression?: string;
+        timezone?: string;
+      },
     ) =>
       request<{ cadence: WikiCadence }>(`/habitats/${habitatId}/wiki/cadence`, {
         method: "PUT",

@@ -20,6 +20,7 @@ import type {
   WikiPage,
   WikiPageVersion,
   WikiPageLink,
+  WikiCoverageMarker,
 } from "@orcy/shared";
 import type {
   ClaimTaskResponse,
@@ -626,7 +627,7 @@ export interface WikiClient {
     habitatId: string,
     pageId: string,
     opts?: { stayGone?: boolean; reason?: string },
-  ): Promise<{ deleted: true }>;
+  ): Promise<{ success: true }>;
   listWikiVersions(habitatId: string, pageId: string): Promise<WikiPageVersion[]>;
   getWikiVersion(
     habitatId: string,
@@ -648,7 +649,7 @@ export interface WikiClient {
     pageId: string,
     input: { targetType: string; targetId: string; note?: string },
   ): Promise<WikiPageLink>;
-  removeWikiPageLink(habitatId: string, pageId: string, linkId: string): Promise<{ deleted: true }>;
+  removeWikiPageLink(habitatId: string, pageId: string, linkId: string): Promise<{ success: true }>;
   searchWiki(
     habitatId: string,
     query: string,
@@ -657,7 +658,7 @@ export interface WikiClient {
   markNoUpdateNeeded(
     habitatId: string,
     input: { from: string; to: string; reason?: string },
-  ): Promise<{ created: true }>;
+  ): Promise<WikiCoverageMarker>;
   /** Returns the authoring context for an existing page (delta mode). */
   getAuthoringContextForEdit(habitatId: string, pageId: string): Promise<Record<string, unknown>>;
   /** Returns the authoring context for a date range (chunk mode). */

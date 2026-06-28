@@ -404,14 +404,18 @@ export function updatePageMetadata(
   const updated = wikiPageRepo.getById(pageId);
   if (!updated) throw notFound(`wikiPage not found after update: ${pageId}`);
 
+  // Broadcast wiki_page_updated on ANY successful metadata patch (parent move, tag change, or
+  // status transition) so other clients invalidate their page/tree caches — not just on
+  // publish/unpublish. Coverage-change events remain gated to status transitions (only those move
+  // the watermark).
+  publishWikiEvent(updated.habitatId, "wiki_page_updated", {
+    pageId: updated.id,
+    habitatId: updated.habitatId,
+    title: updated.title,
+    versionNumber: updated.currentVersionNumber,
+    status: updated.status,
+  });
   if (isPublishing || isUnpublishing) {
-    publishWikiEvent(updated.habitatId, "wiki_page_updated", {
-      pageId: updated.id,
-      habitatId: updated.habitatId,
-      title: updated.title,
-      versionNumber: updated.currentVersionNumber,
-      status: updated.status,
-    });
     publishWikiEvent(updated.habitatId, "wiki_coverage_changed", {
       habitatId: updated.habitatId,
       watermark: wikiCoverageRepo.getWatermark(updated.habitatId),

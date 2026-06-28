@@ -196,9 +196,18 @@ describe("wikiService SSE broadcasts", () => {
     );
   });
 
-  it("updatePageMetadata without status change does NOT publish any event", () => {
+  it("updatePageMetadata without status change publishes wiki_page_updated (but not wiki_coverage_changed)", () => {
     wikiService.updatePageMetadata("p1", { tags: ["a"] }, "u1");
-    expect(mockPublish).not.toHaveBeenCalled();
+    // Tag/parent changes invalidate other clients' page + tree caches via wiki_page_updated...
+    expect(mockPublish).toHaveBeenCalledWith(
+      "h1",
+      expect.objectContaining({ type: "wiki_page_updated" }),
+    );
+    // ...but do not move the watermark, so no wiki_coverage_changed.
+    expect(mockPublish).not.toHaveBeenCalledWith(
+      "h1",
+      expect.objectContaining({ type: "wiki_coverage_changed" }),
+    );
   });
 
   it("deletePage publishes wiki_page_deleted always", () => {

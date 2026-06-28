@@ -15,14 +15,14 @@ import {
 
 describe("workflowEditorUtils", () => {
   describe("SELECTABLE_GATE_TYPES", () => {
-    it("includes 5 gate types but not on_automation", () => {
-      expect(SELECTABLE_GATE_TYPES).toHaveLength(5);
+    it("includes all 6 gate types including on_automation (shipped v0.20.1)", () => {
+      expect(SELECTABLE_GATE_TYPES).toHaveLength(6);
       expect(SELECTABLE_GATE_TYPES).toContain("on_complete");
       expect(SELECTABLE_GATE_TYPES).toContain("on_approve");
       expect(SELECTABLE_GATE_TYPES).toContain("on_signal");
       expect(SELECTABLE_GATE_TYPES).toContain("on_manual");
       expect(SELECTABLE_GATE_TYPES).toContain("on_fail");
-      expect(SELECTABLE_GATE_TYPES).not.toContain("on_automation");
+      expect(SELECTABLE_GATE_TYPES).toContain("on_automation");
     });
   });
 

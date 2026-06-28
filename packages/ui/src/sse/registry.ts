@@ -411,6 +411,10 @@ export const SSE_EVENT_REGISTRY = {
     cache: ({ queryClient, boardId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.insights.byBoard(boardId) });
+      // New pulses (findings) and the experience signals they feed change the wiki signal-surface
+      // tabs (Experience Signals + Engineering Findings), which are live queries over pulses and
+      // habitat_skill_signals.
+      queryClient.invalidateQueries({ queryKey: ["wiki", "signalSurface", boardId] });
     },
   }),
   "task.retry_scheduled": noopHandler,
@@ -498,6 +502,8 @@ export const SSE_EVENT_REGISTRY = {
     cache: ({ event, queryClient }) => {
       if (event.type !== "wiki_page_created") return;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(event.data.habitatId) });
+      // New pages change search results and the signal-surface tab counts.
+      queryClient.invalidateQueries({ queryKey: ["wiki", "search", event.data.habitatId] });
     },
   }),
   wiki_page_updated: defineSSEHandler<"wiki_page_updated">({
@@ -507,6 +513,7 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.versions(habitatId, pageId) });
+      queryClient.invalidateQueries({ queryKey: ["wiki", "search", habitatId] });
     },
   }),
   wiki_page_deleted: defineSSEHandler<"wiki_page_deleted">({
@@ -515,6 +522,7 @@ export const SSE_EVENT_REGISTRY = {
       const { habitatId, pageId } = event.data;
       queryClient.removeQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
+      queryClient.invalidateQueries({ queryKey: ["wiki", "search", habitatId] });
     },
   }),
   wiki_coverage_changed: defineSSEHandler<"wiki_coverage_changed">({

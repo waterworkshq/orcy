@@ -351,7 +351,7 @@ describe("wiki action handlers — delegation to WikiClient", () => {
   });
 
   it("remove_link → client.removeWikiPageLink with habitatId, pageId, linkId", async () => {
-    client.removeWikiPageLink.mockResolvedValue({ deleted: true } as never);
+    client.removeWikiPageLink.mockResolvedValue({ success: true } as never);
     await wiki.wikiRemoveLink(client, { habitatId: "h-1", pageId: "p-1", linkId: "l-1" });
     expect(client.removeWikiPageLink).toHaveBeenCalledWith("h-1", "p-1", "l-1");
   });
@@ -362,7 +362,17 @@ describe("wiki action handlers — delegation to WikiClient", () => {
   });
 
   it("mark_no_update_needed → client.markNoUpdateNeeded with from, to, reason", async () => {
-    client.markNoUpdateNeeded.mockResolvedValue({ created: true } as never);
+    client.markNoUpdateNeeded.mockResolvedValue({
+      id: "m-1",
+      habitatId: "h-1",
+      coverageFrom: "2026-01-01T00:00:00Z",
+      coverageTo: "2026-01-08T00:00:00Z",
+      markerType: "no_update_needed",
+      pageId: null,
+      reason: "no new primitives",
+      createdBy: "human-1",
+      createdAt: "2026-01-01T00:00:00Z",
+    } as never);
     await wiki.wikiMarkNoUpdateNeeded(client, {
       habitatId: "h-1",
       from: "2026-01-01T00:00:00Z",

@@ -70,12 +70,10 @@ export function WikiEditor({ habitatId, mode, pageId, onDone, onCancel }: WikiEd
         content,
         parentId: parentId || null,
         tags,
+        status,
       }),
     onSuccess: (page: WikiPage) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(habitatId) });
-      if (status === "published") {
-        wikiApi.updatePageMetadata(habitatId, page.id, { status }).catch(() => {});
-      }
       notify.success("Page created");
       onDone(page.id);
     },

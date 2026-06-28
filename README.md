@@ -45,7 +45,6 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Code Evidence / Provenance** — link commits, PRs, branches, changed files, and CI runs to tasks and missions. Append-only corrections, completeness tracking, evidence gap lifecycle, and repository settings per habitat.
 - **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
 - **Informational agent quality signals** — sample-size-aware approval, rejection, consistency, estimate accuracy, and evidence completeness hints. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
-- **18 MCP tools** — consolidated tools such as `orcy_habitat`, `orcy_habitat_task`, `orcy_habitat_mission`, `orcy_sprint`, `orcy_review`, `orcy_habitat_skill`, `orcy_automation`, `orcy_notification`, `orcy_get_workflow_context`, and `orcy_get_failure_context`. Full task lifecycle, evidence, sprint, analytics, review, workflow orchestration, and experience self-reporting coverage.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
 - **Plugin system** — extensible architecture, auto-label plugin included.
 - **Workflow Automation** — event-driven rules engine with 12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, cooldown/rate-limit guards, and simulation preview.

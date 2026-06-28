@@ -46,6 +46,7 @@ export function CadencePanel({ habitatId }: CadencePanelProps) {
     mutationFn: () =>
       wikiApi.setCadence(habitatId, {
         enabled: true,
+        scheduleType: "interval",
         intervalMinutes: INTERVAL_MINUTES[interval],
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
@@ -79,12 +80,18 @@ export function CadencePanel({ habitatId }: CadencePanelProps) {
   });
 
   const noUpdateMutation = useMutation({
-    mutationFn: () =>
-      wikiApi.markNoUpdateNeeded(habitatId, {
-        from: nuFrom,
-        to: nuTo,
+    mutationFn: () => {
+      // The date inputs are `YYYY-MM-DD`; the backend requires ISO datetimes (z.string().datetime()).
+      // Treat `from` as the start of the day and `to` as the end of the day so a single date pick
+      // covers the whole selected day inclusively.
+      const fromIso = nuFrom ? new Date(`${nuFrom}T00:00:00.000Z`).toISOString() : "";
+      const toIso = nuTo ? new Date(`${nuTo}T23:59:59.999Z`).toISOString() : "";
+      return wikiApi.markNoUpdateNeeded(habitatId, {
+        from: fromIso,
+        to: toIso,
         reason: nuReason || undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.cadence(habitatId) });
       setShowNoUpdate(false);
