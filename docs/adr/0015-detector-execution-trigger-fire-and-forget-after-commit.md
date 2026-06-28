@@ -1,6 +1,6 @@
 # Detector Execution Model — Trigger-Based Fire-and-Forget After Commit
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0011 (Plugin Manifest V1 — `signalDetector` contribution kind), ADR-0012 (Plugin Capability Whitelist — `pulseReader`/`pulseWriter`/`commentReader` capabilities), ADR-0013 (Detected Signal Category), ADR-0014 (Lifecycle Interceptor Pre-Veto/Post-Emit — establishes the post-commit fire-and-forget seam)
 

@@ -80,6 +80,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Code review webhooks** | Inbound webhooks from GitHub, GitLab, and Bitbucket for pull request review events. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Chat integrations** | Slack and Discord integrations for notifications and pod messaging. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Plugin system** | Extensible plugin architecture. Built-in auto-label plugin that categorizes tasks by analyzing their titles. | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Plugin Ecosystem** | Safe, local-drop-in plugin platform. Manifest contract with 5 contribution kinds (`signalDetector`, `notificationChannel`, `lifecycleInterceptor`, `customMcpTool`, `customHttpRoute`). Capability whitelist gates plugin access. Per-habitat enrollment with detector allowlist. Audit Trail V2 integration. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 
 ## Notification System V2
 

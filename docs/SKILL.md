@@ -1884,3 +1884,11 @@ Pulse is a passive, structured signal system for missions and habitats. Agents a
 | `orcy pulse post <missionId> --type <type> --subject "..."` | Post a signal |
 | `orcy pulse list <missionId>` | List signals |
 | `orcy pulse inbox` | Cross-mission inbox |
+
+---
+
+## Plugin-Aware Missions
+
+Detector plugins exist and write `signalType:"detected"` signals. These are plugin-attributed pattern matches, not agent self-reports. They surface in the wiki "Detected Signals" tab with `metadata.detector` attribution.
+
+Lifecycle interceptors may block task transitions with a 403 response. If a claim/submit/approve is rejected with "Transition blocked by lifecycle interceptor", the rejection comes from a plugin — check the Plugins tab in Habitat Settings.

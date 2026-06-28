@@ -1,6 +1,6 @@
 # Plugin Storage — Dedicated Enrollments, Runs, In-Memory Quarantine, Env Allowlist
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0011 (Plugin Manifest V1), ADR-0012 (Plugin Capability Whitelist), ADR-0014 (Lifecycle Interceptor Contract — pre-veto / post-emit invokes plugin runs), ADR-0015 (Detector Execution — triggers `plugin_runs` rows)
 

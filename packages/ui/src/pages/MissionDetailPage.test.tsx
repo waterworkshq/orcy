@@ -203,6 +203,7 @@ vi.mock("lucide-react", () => ({
   Trash2: () => <span data-testid="icon-trash2">🗑</span>,
   Lightbulb: () => <span data-testid="icon-lightbulb">💡</span>,
   GitBranch: () => <span data-testid="icon-git-branch">⎇</span>,
+  ScanLine: () => <span data-testid="icon-scan-line">📡</span>,
 }));
 
 function renderWithProviders(

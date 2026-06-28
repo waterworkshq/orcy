@@ -1,6 +1,6 @@
 # Plugin Manifest V1 — Discriminated Contributions, Module Split, Per-Contribution Scope
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 ## Context
 

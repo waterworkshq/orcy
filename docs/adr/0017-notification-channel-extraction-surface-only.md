@@ -1,6 +1,6 @@
 # Notification Channel Extraction Surface — Ship the Surface, Don't Migrate In-Tree Channels
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0011 (Plugin Manifest V1 — `notificationChannel` contribution kind), ADR-0012 (Plugin Capability Whitelist — `notificationPayload` context field), ADR-0013 (Detected Signal Category — `pulseWriter.createDetectedSignal` capability)
 

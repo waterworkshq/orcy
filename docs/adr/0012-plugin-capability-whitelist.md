@@ -1,6 +1,6 @@
 # Plugin Capability Whitelist — Vetted Menu, No Open Repository Access
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0011 (Plugin Manifest V1, discriminated contributions + manifest/module split)
 

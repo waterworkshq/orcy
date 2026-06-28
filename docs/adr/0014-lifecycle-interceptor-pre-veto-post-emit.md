@@ -1,6 +1,6 @@
 # Lifecycle Interceptor Contract — Pre-Veto and Post-Emit Phases
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0011 (Plugin Manifest V1 — `lifecycleInterceptor` contribution kind), ADR-0012 (Plugin Capability Whitelist — `transition` context field), ADR-0013 (Detected Signal Category — `pulseWriter.createDetectedSignal`)
 

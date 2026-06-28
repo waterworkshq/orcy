@@ -46,7 +46,7 @@ Open-source MCP server that gives AI coding agents a shared task board with atom
 - **Time Tracking & Effort Logging** — deliberate effort entries separate from inferred presence time. Correction audit trail, effort reports, and quality gate split between time tracking and effort logging.
 - **Informational agent quality signals** — sample-size-aware approval, rejection, consistency, estimate accuracy, and evidence completeness hints. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
 - **Real-time SSE** — habitat updates push to all connected clients instantly.
-- **Plugin system** — extensible architecture, auto-label plugin included.
+- **Plugin system** — safe, local-drop-in plugin platform with manifest contract, capability whitelist, lifecycle interceptors (pre-veto/post-emit), custom signal detectors, and notification channel registry. 3 reference plugins shipped (`auto-label`, `detector-regex-frustration`, `teams-channel`). In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1.
 - **Workflow Automation** — event-driven rules engine with 12 trigger types, 9 action types, condition evaluation with AND/OR/NOT nesting, cooldown/rate-limit guards, and simulation preview.
 - **Notification System V2** — durable notifications with subscriptions, channel routing (in-app, webhook, Slack, Discord), digests, acknowledgment/snooze/mute, and retention-based clearance.
 - **Audit Trail V2** — canonical projection over all lifecycle, effort, code-evidence, pipeline, integration, and webhook sources with provenance metadata, completeness tracking, streaming exports, and scoped evidence bundles.
@@ -186,7 +186,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 ### Extensibility
 
-- **Plugin system** — extensible architecture. Built-in auto-label plugin categorizes tasks by analyzing titles. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Plugin system** — safe, local-drop-in plugin platform with manifest contract (5 contribution kinds), capability whitelist, per-habitat enrollment, lifecycle interceptors, and notification channel registry. 3 reference plugins shipped. In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Pod Bridge** — federate trust so another admin's pod can collaborate safely in a shared habitat. See the Pod Bridge row in [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 
 ---
@@ -195,7 +195,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.22** | Ecosystem — plugin system, custom signal detectors |
+| **v0.23** | Triage — reactive + proactive triage automation on clustered signals |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

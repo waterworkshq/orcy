@@ -1246,3 +1246,115 @@ The Habitat Wiki adds an authored, versioned, searchable knowledge layer above t
 ### MCP Surface
 
 `orcy_wiki` dispatch tool with 13 actions (search, get_page, list_pages, get_authoring_context, create_page, save_version, restore_version, update_metadata, add_link, remove_link, mark_no_update_needed, trigger_refresh, get_signal_surface) + `orcy_wiki_instructions` skill guide tool. 22 REST routes under `/habitats/:hid/wiki/...`. 4 SSE event types (`wiki_page_created`/`_updated`/`_deleted`/`_coverage_changed`).
+
+## Plugin Runtime (v0.22)
+
+The plugin platform extracts Orcy's matured in-tree extension seams into a safe, local-drop-in plugin surface. Plugins load in-process (same Node event loop as the API server) and interact with Orcy core exclusively through a vetted capability whitelist.
+
+### Manifest / Module Split (ADR-0011)
+
+A plugin is declared as a **discriminated `PluginManifest`** (declarative record in `@orcy/shared`: `{ id, version, description, contributions }`) paired with a **`PluginModule`** runtime object (`@orcy/api/src/plugins/types.ts`: handler maps). The split keeps the manifest serializable for audit rows and lets the loader fail-loud on declared contributions that have no matching handler. The `KanbanPlugin` shape is deleted and replaced (no backward-compat layer — prerelease).
+
+### Contribution Kinds
+
+Five contribution kinds on the manifest, each carrying its own `scope`:
+
+| Kind | Scope | Purpose |
+|------|-------|---------|
+| `signalDetector` | habitat | Detects patterns in pulses/comments/task events and emits `signalType:"detected"` signals |
+| `notificationChannel` | system | Delivers notifications via a custom channel (e.g. Microsoft Teams) |
+| `lifecycleInterceptor` | habitat | Pre-veto or post-emit hooks on task transitions |
+| `customMcpTool` | system | Declares a custom MCP tool (v0.22.0: validated-only — dispatch not wired, ADR-0018) |
+| `customHttpRoute` | system | Registers custom HTTP routes via Fastify plugin |
+
+A Mixed Plugin ships system + habitat contributions in one bundle — each contribution enables independently (system at boot env, habitat via enrollment REST).
+
+### Capability Whitelist (ADR-0012)
+
+`PluginContext` (constructed per handler invocation, scoped to pluginId + contributionId + habitatId + runId) exposes exactly 5 vetted capabilities:
+
+| Capability | Methods | Bounds |
+|------------|---------|--------|
+| `pulseReader` | `listByHabitatSince`, `listByHabitatBetween`, `getPulse` | Habitat-pinned, mutation-free |
+| `pulseWriter` | `createDetectedSignal(input)` | Server injects `metadata.detected:true`, `metadata.detector:<pluginId>`, `metadata.detectorRunId:<runId>`. Rejects `signalType:"experience"`. No update/delete. |
+| `commentReader` | `listByHabitatSince` | No mutation |
+| `taskReader` | `getTask`, `listTasksByHabitat` | Auth fields (`apiKeyHash`, etc.) stripped |
+| `habitatReader` | `getHabitat` | Auth fields stripped |
+
+Universal context fields (not capability-gated): `logger` (tagged with pluginId + runId) and `audit` (write-only — `auditSource:"plugin"`, cannot READ audit history). Contribution-kind-specific fields: `notificationPayload` for channels, `transition` for interceptors. The TS type of an undeclared capability is `undefined` — undeclared calls don't typecheck. See [SECURITY.md](SECURITY.md#plugin-trust-model) for the trust model.
+
+### Detected Signal Category (ADR-0013)
+
+The 11th member of `SIGNAL_TYPES` (`@orcy/shared/types/signal.ts`). Detector output lands in its own category — categorically distinct by provenance from agent self-report (`experience`) and intentional findings (`finding`). Server-injected metadata (`detected:true`, `detector:<pluginId>`, `detectorRunId:<runId>`) is constructed by the `PulseWriter.createDetectedSignal` capability, not by plugin input — agents cannot forge detected signals. The wiki signal surface gains a "Detected Signals" sub-bucket; v0.23 triage can weight detected clusters separately from self-reported ones.
+
+### Lifecycle Interceptors (ADR-0014)
+
+`lifecycleInterceptor` contributions declare `phase: "pre" | "post"`:
+
+- **pre** — runs before the transition DB transaction opens. Returns `{ allow: true } | { allow: false, reason }`. First `allow:false` short-circuits remaining pre-hooks; transition service returns `403 { error: "Transition blocked by lifecycle interceptor", blockedBy: [...] }`. Pre-phase contributions cannot require `pulseWriter` — gates decide, they don't emit.
+- **post** — runs after commit via `Promise.allSettled`. Returns `{ signals?: DetectedSignalInput[] }`; the loader materializes signals atomically via `PulseWriter.createDetectedSignal`. Post-hooks can require `pulseWriter`.
+
+Priority is ascending; lower-priority pre-hooks veto short-circuit. A pre-hook throw is treated as `{ allow:false }` and increments the plugin's error counter toward auto-quarantine.
+
+### Detector Execution (ADR-0015)
+
+Trigger-based fire-and-forget-after-commit — same execution seam as post-interceptors. When a source event (`pulseCreated`, `taskEvent`, `commentCreated`, `taskSubmitted`) commits, the loader dispatches to enrolled detector handlers in a background `Promise`. Source event commits independently of detector outcome — detected signals are hints, not ground truth. Per-run atomic batching: signals from one detector invocation are written all-or-nothing in one `db.transaction`.
+
+**Rate limiting & concurrency:** per-detector rate limit (declared on manifest `rateLimitDefaults`); per-habitat concurrency cap (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8); overflow queue (`ORCY_DETECTOR_QUEUE_MAX`, default 256) drops oldest on overflow. Catch-up scan for missed-during-outage events is deferred to v0.22.1.
+
+### Plugin Storage (ADR-0016)
+
+Two new tables:
+
+| Table | Purpose |
+|-------|---------|
+| `plugin_enrollments` | Per-contribution habitat enrollment. `UNIQUE (habitat_id, plugin_id, contribution_id)` — Mixed Plugin contributions enroll independently. |
+| `plugin_runs` | Per-invocation telemetry: `pluginId`, `contributionId`, `triggerType`, `status` (`running`/`succeeded`/`failed`/`rate_limited`/`skipped`), `signals_emitted`, `error`, `started_at`, `finished_at`. |
+
+Auto-quarantine state is in-memory only (no `plugin_quarantines` table in v0.22); the per-plugin error counter resets on restart. `ORCY_DETECTOR_ALLOWLIST` (comma-separated plugin ids, unset = fail-closed, `*` = open) gates which detectors can be habitat-enrolled.
+
+### Notification Channel Registry (ADR-0017)
+
+`notificationDeliveryService` consults a `channelRegistry` (built at boot from loaded plugins' `notificationChannel` contributions) BEFORE the existing 4-case switch. Registry hit → plugin handler invoked with `ctx.notificationPayload`. Registry miss → existing `in_app`/`webhook`/`slack`/`discord` cases run unchanged. v0.22.0 ships one new real channel (Microsoft Teams via `plugins/teams-channel/`); in-tree channel migration to the registry is v0.22.1 Architecture Deepening.
+
+### Custom MCP Tool (ADR-0018)
+
+`customMcpTool` is a first-class manifest kind in v0.22.0. The loader validates the contribution and registers the handler in `pluginManager`'s in-memory map. **The MCP server does NOT consume `getCustomMcpTools()` in v0.22.0** — the `orcy_*` count stays at 20. The cross-process wiring (REST endpoint for tool definitions + dispatcher route + MCP-server boot polling) is a v0.22.1 deliverable.
+
+### Audit Source "plugin"
+
+Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` capability — `auditSource: "plugin"`, `source: "plugin:<pluginId>"`, `runId` joined to the `plugin_runs` row. Existing audit endpoints (`/api/audit/habitats/:id/events`) automatically include plugin rows in cross-source audit history. Per-plugin debug queries go through `GET /api/habitats/:habitatId/plugins/runs`.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLUGINS_DIR` | `plugins/` | Plugin files directory |
+| `PLUGINS_ENABLED` | — | Comma-separated plugin names to load (unset = all discovered) |
+| `ORCY_DETECTOR_ALLOWLIST` | — | Detector enrollment gate (unset = fail-closed, `*` = open) |
+| `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Error count for auto-quarantine |
+| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector invocations |
+| `ORCY_DETECTOR_QUEUE_MAX` | `256` | Per-habitat queue cap before overflow drop |
+
+### Reference Plugins (3 shipped)
+
+| Plugin | Contribution kind | Scope |
+|--------|-------------------|-------|
+| `plugins/auto-label/` | `lifecycleInterceptor` (phase: post, event: taskCreated) | habitat |
+| `plugins/detector-regex-frustration/` | `signalDetector` (detects: pulseCreated) | habitat |
+| `plugins/teams-channel/` | `notificationChannel` (channelId: teams) | system |
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `shared/src/types/plugin.ts` | `PluginManifest`, `Contribution`, capability types, enrollment/run types |
+| `shared/src/types/signal.ts` | `SIGNAL_TYPES` (11 values including `"detected"`) |
+| `api/src/plugins/types.ts` | `PluginModule`, `ChannelHandler`, `DetectorHandler`, `InterceptorHandler`, `TransitionRef` |
+| `api/src/plugins/context.ts` | `PluginContext` construction with capability whitelist |
+| `api/src/plugins/pluginManager.ts` | Loader, channel registry, detector dispatcher, in-memory quarantine |
+| `api/src/services/pluginEnrollmentService.ts` | REST-layer enrollment CRUD + allowlist gate |
+| `api/src/repositories/pluginEnrollment.ts` | Enrollment CRUD + loader cache |
+| `api/src/repositories/pluginRun.ts` | Per-run telemetry |
+| `api/src/db/schema/plugin.ts` | 2 drizzle tables |
+| `api/src/routes/plugins.ts` | Enrollment + run-listing REST routes |

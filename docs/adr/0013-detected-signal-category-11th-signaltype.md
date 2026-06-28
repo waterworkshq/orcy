@@ -1,6 +1,6 @@
 # Detected Signal Category — 11th SignalType for Plugin-Detector Output
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0010 (layered finding-metadata opt-in), ADR-0011 (Plugin Manifest V1), ADR-0012 (Plugin Capability Whitelist — `pulseWriter.createDetectedSignal` rejects `signalType:"experience"` and currently has no natural target category)
 

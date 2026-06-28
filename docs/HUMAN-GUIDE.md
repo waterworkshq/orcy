@@ -454,6 +454,19 @@ Sessions are isolated per task. Each session gets:
 
 Sessions exit on task completion (exit code 0), failure (non-zero), or timeout. The daemon reports the outcome to the API and moves on to the next task.
 
+## Plugin Enrollment
+
+Habitat admins can enroll habitat-scoped plugin contributions (detectors, lifecycle interceptors) via Habitat Settings → Plugins tab. Server operators control which detectors can be enrolled via the `ORCY_DETECTOR_ALLOWLIST` environment variable.
+
+To enable a detector:
+
+1. Ensure the plugin is loaded (add to `PLUGINS_ENABLED` env and restart the API)
+2. Ensure the plugin ID is in `ORCY_DETECTOR_ALLOWLIST` (or set to `*` for open mode)
+3. Navigate to Habitat Settings → Plugins → enroll the contribution
+4. Toggle enabled
+
+Plugin run history (status, signals emitted, errors) is visible in the same tab. A plugin that exceeds `ORCY_PLUGIN_QUARANTINE_THRESHOLD` errors is auto-quarantined and skipped on dispatch until a habitat admin re-enables it.
+
 ## Need Help?
 
 - Press `?` in the UI to open the contextual help drawer with keyboard shortcuts

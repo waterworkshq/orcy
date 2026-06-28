@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.21.0 | **Updated:** 2026-06-26
+> **Version:** v0.22.0 | **Updated:** 2026-06-29
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -43,25 +43,11 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.20.1 | "Orchestration Patch" — Wired `automationExecutor.executeActions` into production via `executeAndRecordRuleRun` (consolidated lifecycle: start run → kill-switch check → execute actions → finish run → notify hooks). All event + scan paths now actually fire actions. Added `on_automation` gate type (6th gate type) with `onAutomationRunCompleted` subscriber hook + workflow service gate evaluation + AutomationMatch form fields in workflow editor. Habitat-scoped kill switch (`automationSettings.executeActions`) toggleable via UI, CLI, and env var. Added `anti_patterns` to `SkillCategory` (consolidated 6 duplicate definitions to `@orcy/shared`), remapped `sidetracked → anti_patterns`, separate bucket in skill document generation. |
 | v0.20.2 | "Deepen: Trim Pass-Throughs" — Deleted dead-code `task-movement.ts` (`moveTask`/`reorderTask`, zero production callers) and misleading aliases `assembleHabitatContext`/`assembleCrossHabitatDependencies` in `task-details.ts` (zero import sites). Inlined 3 `watcherService` pass-throughs (`unwatchTask`, `isWatching`, `getWatchers`) directly into their route and service callers via `watcherRepo`. `watcherService` now contains only `watchTask` (validation logic) and `notifyWatchers` (SSE logic). MCP forwarding-handler auto-generation deferred to later patch. |
 | v0.21.0 | "Living Library" — Authored, versioned, searchable Habitat Wiki with tree hierarchy, collection tags, append-only version history, FTS5 full-text search, polymorphic citations with read-time dangling detection (ADR-0007), and a scheduler-driven cadence that spawns authoring tasks (ADR-0008). Coverage watermark with two-mode deletion + no-update-needed markers (ADR-0009). Authoring augmentation surface exposing primitives as authoring context (delta-on-edit, chunk-on-create). Implicit Signal Surfacing: Experience Signals tab (aggregated-only, privacy-protected) and Engineering Findings tab (structured metadata convention with layered Zod opt-in validation, ADR-0010). `orcy_wiki` MCP tool with 13 actions. 4 wiki tables + FTS5 virtual table + 2 migrations. 5 ADRs (0006-0010). |
+| v0.22.0 | "Ecosystem" — Plugin System V2: plugin manifest contract with 5 contribution kinds (`signalDetector`, `notificationChannel`, `lifecycleInterceptor`, `customMcpTool`, `customHttpRoute`), manifest/module split, 5-capability whitelist, per-habitat enrollment with detector allowlist (`ORCY_DETECTOR_ALLOWLIST`), in-memory auto-quarantine. Lifecycle interceptors with pre-veto + post-emit phases (ADR-0014). Custom signal detector plugins writing `signalType:"detected"` (11th category, ADR-0013) via trigger-based fire-and-forget-after-commit execution (ADR-0015). Notification channel registry surface — `teams-channel` reference plugin shipped; existing in-tree channels untouched (ADR-0017). `customMcpTool` validated-only in v0.22.0 — dispatch wiring deferred to v0.22.1 (ADR-0018). 2 new DB tables (`plugin_enrollments`, `plugin_runs`); audit source `"plugin"`. 3 reference plugins: `auto-label` (rewritten as lifecycleInterceptor), `detector-regex-frustration`, `teams-channel`. 8 ADRs (0011-0018). |
 
 ---
 
 ## Upcoming
-
-### v0.22.0 — "Ecosystem"
-
-Turn Orcy's matured internal extension seams into a safe plugin platform.
-
-| Feature | Problem it solves |
-|---------|-------------------|
-| Plugin System V2 | Adds plugin manifests, configuration, safe context, lifecycle interceptors, dynamic MCP extension points, custom signals, conditions/actions, notification channels, integration adapters, and background jobs |
-| Custom Signal Detector Plugins | Lets teams build automated implicit signal detectors (regex, classifiers) as plugins that write into the pulse/skill pipeline, extending detection beyond agent self-reporting |
-
-**Why last:** Plugin surfaces should be extracted from mature internal patterns, not guessed early. By this point Orcy has integrations, automation, notifications, auth scopes, public APIs, knowledge, and audit trails worth exposing safely. Signal detectors are a natural plugin type — they extend the self-reporting convention from v0.20 with automated pattern matching.
-
-Planning seeds: `docs/plans/v3/11-plugin-system-v2.md`, `docs/plans/v3/15-custom-signal-detectors.md`
-
----
 
 ### v0.23.0 — "Triage"
 

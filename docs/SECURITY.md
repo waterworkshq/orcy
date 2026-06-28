@@ -348,6 +348,16 @@ Git worktree operations use safe process execution:
 
 ---
 
+## Plugin Trust Model
+
+Plugins run in-process (same Node event loop as the API server). The capability whitelist (5 vetted capabilities: `pulseReader`, `pulseWriter`, `commentReader`, `taskReader`, `habitatReader`) is the contractual boundary between Orcy core and plugin code. Plugins cannot reach raw `getDb()`, repo mutation methods, or auth-bearing fields.
+
+**Treat plugins like code dependencies; audit before installing.** Operators who install plugins eat the same risk they eat for any `pnpm add` dependency. The whitelist closes the Orcy-data-mutation surface; the OS-side (filesystem, network, `process.env`) stays operator trust.
+
+Worker-thread isolation and plugin marketplace are deferred to future releases. See ADR-0012 for the capability whitelist decision and ADR-0011 for the manifest/module contract.
+
+---
+
 ## Rate Limiting
 
 | Dimension | Value |

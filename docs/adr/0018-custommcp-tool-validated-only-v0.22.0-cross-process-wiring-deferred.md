@@ -1,6 +1,6 @@
 # customMcpTool Contribution — Validated-Only in v0.22.0, Cross-Process Wiring Deferred
 
-Status: proposed · 2026-06-28
+Status: accepted · 2026-06-29
 
 Depends on: ADR-0011 (Plugin Manifest V1 — `customMcpTool` in contribution kind union), ADR-0017 (Notification Channel extraction — same "ship surface, wire later" pattern)
 

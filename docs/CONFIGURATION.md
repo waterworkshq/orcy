@@ -96,6 +96,10 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 |----------|---------|-------------|
 | `PLUGINS_DIR` | `plugins/` | Directory for plugin files |
 | `PLUGINS_ENABLED` | — | Comma-separated plugin names to load. When unset, all discovered plugins load. When set, only listed plugins load. |
+| `ORCY_DETECTOR_ALLOWLIST` | — | Comma-separated plugin IDs allowed for detector enrollment. Unset = fail-closed (all detector enrollments return 403). `*` = open. |
+| `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Error count threshold for auto-quarantine. A plugin reaching this many errors is flagged `quarantined` and skipped on dispatch until re-enabled. |
+| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Max concurrent detector invocations per habitat. Excess triggers queue. |
+| `ORCY_DETECTOR_QUEUE_MAX` | `256` | Max queued detector triggers per habitat before overflow drop. Oldest trigger is dropped + `detector.queue_overflow` audit event emitted. |
 
 ### Realtime (SSE / WebSocket)
 
