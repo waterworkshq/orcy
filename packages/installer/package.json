@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "private": false,
   "type": "module",
-  "publishConfig": { "access": "public" },
-  "files": ["dist", "skills"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "bin": {
     "orcy-install": "./dist/index.js"
   },
@@ -21,7 +26,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
-    "typescript": "^5.4.0"
+    "typescript": "^6.0.3"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }
