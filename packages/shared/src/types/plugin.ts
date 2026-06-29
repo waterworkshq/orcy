@@ -349,7 +349,7 @@ export interface PluginRun {
   habitatId: string;
   pluginId: string;
   contributionId: string;
-  contributionKind: "signalDetector" | "lifecycleInterceptor" | "notificationChannel";
+  contributionKind: "signalDetector" | "lifecycleInterceptor" | "notificationChannel" | "automationAction";
   triggerEventId: string | null;
   triggerType: string;
   status: PluginRunStatus;

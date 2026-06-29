@@ -728,6 +728,7 @@ export async function dispatchActionHandler(
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    incrementError(`${entry.pluginId}:${actionId}`);
     runRepo.finishRun(runId, "failed", undefined, message);
     return { status: "failed", error: message };
   }

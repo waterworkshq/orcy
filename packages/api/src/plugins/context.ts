@@ -47,6 +47,12 @@ export function buildPluginContext(opts: {
   const { pluginId, contributionId, habitatId, runId, requires } = opts;
   const has = (cap: PluginCapabilityName): boolean => requires.includes(cap);
 
+  // Shared write cap counter across all write capabilities in this context (ADR-0020).
+  // A single counter prevents a plugin requiring taskWriter + notificationSender + webhookCaller
+  // from getting 3× the cap (150 writes instead of 50).
+  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
+  const sharedWriteCounter = { count: 0, cap: writeCap };
+
   const logger = buildPluginLogger(pluginId, contributionId, runId);
   const audit = buildPluginAudit(pluginId, runId);
 
@@ -63,10 +69,10 @@ export function buildPluginContext(opts: {
   if (has("pulseWriter")) ctx.pulseWriter = buildPulseWriter(pluginId, runId, habitatId);
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
   if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
-  if (has("taskWriter")) ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId);
+  if (has("taskWriter")) ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId, sharedWriteCounter);
   if (has("notificationSender"))
-    ctx.notificationSender = buildNotificationSender(pluginId, runId, habitatId);
-  if (has("webhookCaller")) ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId);
+    ctx.notificationSender = buildNotificationSender(pluginId, runId, habitatId, sharedWriteCounter);
+  if (has("webhookCaller")) ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId, sharedWriteCounter);
   if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
   if (has("chatIntegrationReader"))
     ctx.chatIntegrationReader = buildChatIntegrationReader(habitatId);
@@ -228,17 +234,19 @@ function buildTaskReader(habitatId: string | null): TaskReader {
  * (`plugin:${pluginId}`) on created tasks, logs to the audit surface, and enforces
  * a per-run write cap to prevent runaway plugins.
  */
-function buildTaskWriter(pluginId: string, runId: string, habitatId: string | null): TaskWriter {
-  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
-  let writeCount = 0;
-
+function buildTaskWriter(
+  pluginId: string,
+  runId: string,
+  habitatId: string | null,
+  writeCounter: { count: number; cap: number },
+): TaskWriter {
   function checkCap(): void {
-    if (writeCount >= writeCap) {
+    if (writeCounter.count >= writeCounter.cap) {
       throw new Error(
-        `Plugin write cap exceeded (${writeCount}/${writeCap}) — too many mutations in a single run`,
+        `Plugin write cap exceeded (${writeCounter.count}/${writeCounter.cap}) — too many mutations in a single run`,
       );
     }
-    writeCount++;
+    writeCounter.count++;
   }
 
   function verifyHabitat(taskId: string): { missionId: string } {
@@ -334,17 +342,15 @@ function buildNotificationSender(
   pluginId: string,
   runId: string,
   habitatId: string | null,
+  writeCounter: { count: number; cap: number },
 ): NotificationSender {
-  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
-  let writeCount = 0;
-
   return {
     notify: async (input: PluginNotificationInput) => {
       if (!habitatId) throw new Error("notify requires a habitat-scoped plugin context");
-      if (writeCount >= writeCap) {
-        throw new Error(`Plugin write cap exceeded (${writeCount}/${writeCap})`);
+      if (writeCounter.count >= writeCounter.cap) {
+        throw new Error(`Plugin write cap exceeded (${writeCounter.count}/${writeCounter.cap})`);
       }
-      writeCount++;
+      writeCounter.count++;
       const result = enqueueNotificationForRecipients(
         habitatId,
         input.eventType as any,
@@ -374,25 +380,22 @@ function buildWebhookCaller(
   pluginId: string,
   runId: string,
   habitatId: string | null,
+  writeCounter: { count: number; cap: number },
 ): WebhookCaller {
-  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
-  let writeCount = 0;
-
   function validateUrl(url: string): void {
+    let parsed: URL;
     try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        throw new Error("URL must use http or https");
-      }
-      for (const pattern of SSRF_BLOCKED_PATTERNS) {
-        if (pattern.test(url)) {
-          throw new Error("URL resolves to a private/internal address");
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("private")) throw err;
-      if (err instanceof Error && err.message.includes("http or https")) throw err;
+      parsed = new URL(url);
+    } catch {
       throw new Error("Invalid URL");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("URL must use http or https");
+    }
+    for (const pattern of SSRF_BLOCKED_PATTERNS) {
+      if (pattern.test(url)) {
+        throw new Error("URL resolves to a private/internal address");
+      }
     }
   }
 
@@ -408,10 +411,10 @@ function buildWebhookCaller(
   return {
     call: async (url: string, body?: string, headers?: Record<string, string>) => {
       if (!habitatId) throw new Error("call requires a habitat-scoped plugin context");
-      if (writeCount >= writeCap) {
-        throw new Error(`Plugin write cap exceeded (${writeCount}/${writeCap})`);
+      if (writeCounter.count >= writeCounter.cap) {
+        throw new Error(`Plugin write cap exceeded (${writeCounter.count}/${writeCounter.cap})`);
       }
-      writeCount++;
+      writeCounter.count++;
       validateUrl(url);
       validateHeaders(headers);
       try {
