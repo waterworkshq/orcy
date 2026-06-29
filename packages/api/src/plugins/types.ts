@@ -22,6 +22,7 @@ export interface PluginModule {
   detectors?: Record<string, DetectorHandler>;
   interceptors?: Record<string, InterceptorHandler>;
   mcpHandlers?: Record<string, McpToolHandler>;
+  formatters?: Record<string, FormatterHandler>;
   routeHandlers?: FastifyPluginCallback;
 }
 
@@ -53,6 +54,13 @@ export type InterceptorHandler = (
 
 /** MCP tool handler (validated-only in v0.22.0; dispatch not wired per ADR-0018). */
 export type McpToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
+
+/** Webhook payload formatter handler — pure function transforming enriched event data (ADR-0021). */
+export type FormatterHandler = (
+  enrichment: unknown,
+  eventType: string,
+  deliveryId: string,
+) => object;
 
 /** Per-invocation context handed to every plugin handler. */
 export interface PluginContext {

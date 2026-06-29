@@ -38,13 +38,14 @@ export type PluginCapabilityName =
   | "chatIntegrationReader"
   | "taskWriter";
 
-/** Discriminated union of the five contribution kinds a plugin may declare (ADR-0011). */
+/** Discriminated union of the contribution kinds a plugin may declare (ADR-0011 + ADR-0021). */
 export type Contribution =
   | NotificationChannelContribution
   | SignalDetectorContribution
   | LifecycleInterceptorContribution
   | CustomMcpToolContribution
-  | CustomHttpRouteContribution;
+  | CustomHttpRouteContribution
+  | WebhookFormatterContribution;
 
 /** System-scoped notification delivery channel (e.g. Microsoft Teams webhook). */
 export interface NotificationChannelContribution {
@@ -100,6 +101,16 @@ export interface CustomHttpRouteContribution {
   scope: "system";
   method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
+  timeoutMs?: number;
+  requires: [];
+}
+
+/** System-scoped webhook payload formatter (ADR-0021). Transforms enriched event data into a provider-specific payload shape. */
+export interface WebhookFormatterContribution {
+  kind: "webhookFormatter";
+  scope: "system";
+  formatId: string;
+  label: string;
   timeoutMs?: number;
   requires: [];
 }

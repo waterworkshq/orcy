@@ -75,6 +75,9 @@ vi.mock("../services/webhook-formatters/discord.js", () => ({
 }));
 vi.mock("../services/webhooks/webhook-delivery.js", () => deliveryMocks);
 vi.mock("../lib/logger.js", () => ({ logger: loggerMock }));
+vi.mock("../plugins/pluginManager.js", () => ({
+  getFormatterHandler: vi.fn(() => undefined),
+}));
 
 import { dispatchWebhooks } from "../services/webhooks/webhook-dispatch.js";
 

@@ -15,7 +15,8 @@ type ContributionKind =
   | "signalDetector"
   | "lifecycleInterceptor"
   | "customMcpTool"
-  | "customHttpRoute";
+  | "customHttpRoute"
+  | "webhookFormatter";
 import type {
   PluginModule,
   PluginContext,
@@ -24,6 +25,7 @@ import type {
   DetectorHandler,
   InterceptorHandler,
   McpToolHandler,
+  FormatterHandler,
   PluginManifestView,
   EventSourceRef,
   InterceptorPreResult,
@@ -49,6 +51,7 @@ const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
   "lifecycleInterceptor",
   "customMcpTool",
   "customHttpRoute",
+  "webhookFormatter",
 ]);
 
 /** The whitelisted capability names (ADR-0012 + ADR-0019 + ADR-0020). */
@@ -98,6 +101,9 @@ const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPolicy>> = 
   customHttpRoute: {
     allowed: [],
   },
+  webhookFormatter: {
+    allowed: [],
+  },
 };
 
 const loadedPlugins: Map<string, PluginModule> = new Map();
@@ -108,6 +114,7 @@ const channelRegistry: Map<
   string,
   { pluginId: string; handler: ChannelHandler; timeoutMs?: number }
 > = new Map();
+const formatterRegistry: Map<string, { pluginId: string; handler: FormatterHandler }> = new Map();
 const detectorRegistry: Map<
   string,
   { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
@@ -259,6 +266,8 @@ function contributionLabel(c: Contribution): string {
       return c.toolName;
     case "customHttpRoute":
       return c.path;
+    case "webhookFormatter":
+      return c.formatId;
   }
 }
 
@@ -284,6 +293,10 @@ function orphanHandler(c: Contribution, mod: PluginModule): string | null {
       return typeof mod.routeHandlers === "function"
         ? null
         : `customHttpRoute declared but module.routeHandlers is missing or not a function`;
+    case "webhookFormatter":
+      return typeof mod.formatters?.[c.formatId] === "function"
+        ? null
+        : `webhookFormatter "${c.formatId}" declared but no matching handler in module.formatters`;
   }
 }
 
@@ -386,6 +399,15 @@ function detectIdCollisions(mod: PluginModule): string | null {
       }
       seenWithinManifest.add(withinKey);
     }
+    if (c.kind === "webhookFormatter") {
+      if (seenWithinManifest.has(`formatter:${c.formatId}`)) {
+        return `duplicate formatId "${c.formatId}" within manifest`;
+      }
+      seenWithinManifest.add(`formatter:${c.formatId}`);
+      if (formatterRegistry.has(c.formatId)) {
+        return `formatId "${c.formatId}" already registered by another plugin`;
+      }
+    }
   }
   return null;
 }
@@ -414,6 +436,11 @@ function registerContributions(mod: PluginModule): void {
       });
       list.sort((a, b) => a.contribution.priority - b.contribution.priority);
       bucket.set(c.event, list);
+    } else if (c.kind === "webhookFormatter" && mod.formatters?.[c.formatId]) {
+      formatterRegistry.set(c.formatId, {
+        pluginId: mod.manifest.id,
+        handler: mod.formatters[c.formatId],
+      });
     }
   }
 }
@@ -569,6 +596,14 @@ export function getCustomMcpTools(): McpToolDefinition[] {
 
 export function getChannelHandler(channelId: string): ChannelHandler | undefined {
   return channelRegistry.get(channelId)?.handler;
+}
+
+/**
+ * Returns the formatter handler for a format ID from the plugin registry, or `undefined`.
+ * The webhook dispatcher calls this first; a miss falls through to the in-tree FORMATTER_REGISTRY.
+ */
+export function getFormatterHandler(formatId: string): FormatterHandler | undefined {
+  return formatterRegistry.get(formatId)?.handler;
 }
 
 /**
@@ -928,6 +963,7 @@ export function resetPlugins(): void {
   pluginErrors.clear();
   pluginDirectory = null;
   channelRegistry.clear();
+  formatterRegistry.clear();
   detectorRegistry.clear();
   interceptorRegistry.pre.clear();
   interceptorRegistry.post.clear();

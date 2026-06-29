@@ -1,6 +1,6 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
-vi.mock('../db/index.js', () => {
+vi.mock("../db/index.js", () => {
   const insertRun = vi.fn();
   const insertValues = vi.fn(() => ({ run: insertRun }));
   const insertFn = vi.fn(() => ({ values: insertValues }));
@@ -27,30 +27,49 @@ vi.mock('../db/index.js', () => {
   return { getDb: vi.fn(() => mockDb) };
 });
 
-vi.mock('../db/schema/index.js', () => ({
-  habitats: { id: 'id', name: 'name' },
+vi.mock("../db/schema/index.js", () => ({
+  habitats: { id: "id", name: "name" },
   webhookSubscriptions: {
-    id: 'id', habitatId: 'habitatId', name: 'name', url: 'url',
-    secret: 'secret', events: 'events', headers: 'headers',
-    format: 'format', enabled: 'enabled', createdAt: 'createdAt', updatedAt: 'updatedAt',
+    id: "id",
+    habitatId: "habitatId",
+    name: "name",
+    url: "url",
+    secret: "secret",
+    events: "events",
+    headers: "headers",
+    format: "format",
+    enabled: "enabled",
+    createdAt: "createdAt",
+    updatedAt: "updatedAt",
   },
   webhookDeliveries: {
-    id: 'id', subscriptionId: 'subscriptionId', eventType: 'eventType',
-    payload: 'payload', status: 'status', statusCode: 'statusCode',
-    responseBody: 'responseBody', attempts: 'attempts', lastAttemptAt: 'lastAttemptAt',
-    nextRetryAt: 'nextRetryAt', createdAt: 'createdAt',
+    id: "id",
+    subscriptionId: "subscriptionId",
+    eventType: "eventType",
+    payload: "payload",
+    status: "status",
+    statusCode: "statusCode",
+    responseBody: "responseBody",
+    attempts: "attempts",
+    lastAttemptAt: "lastAttemptAt",
+    nextRetryAt: "nextRetryAt",
+    createdAt: "createdAt",
   },
 }));
 
-vi.mock('../repositories/task.js', () => ({
+vi.mock("../repositories/task.js", () => ({
   getTaskById: vi.fn(),
 }));
 
-vi.mock('../repositories/agent.js', () => ({
+vi.mock("../repositories/agent.js", () => ({
   getAgentById: vi.fn(),
 }));
 
-import { getDb } from '../db/index.js';
+vi.mock("../plugins/pluginManager.js", () => ({
+  getFormatterHandler: vi.fn(() => undefined),
+}));
+
+import { getDb } from "../db/index.js";
 import {
   createWebhookSubscription,
   getWebhookSubscriptions,
@@ -59,37 +78,44 @@ import {
   deleteWebhookSubscription,
   rotateWebhookSecret,
   getDeliveriesForSubscription,
-} from '../services/webhookDispatcher.js';
-import { generateSecret, signPayload } from '../utils/webhookSigning.js';
+} from "../services/webhookDispatcher.js";
+import { generateSecret, signPayload } from "../utils/webhookSigning.js";
 
-describe('webhookDispatcher — integration', () => {
+describe("webhookDispatcher — integration", () => {
   beforeEach(() => {
     vi.resetAllMocks();
   });
 
-  describe('createWebhookSubscription', () => {
-    it('creates subscription and returns it with generated secret', () => {
-      const sub = createWebhookSubscription('habitat-1', 'Test Hook', 'https://example.com/hook', 'standard', ['task.created'], {});
-      expect(sub.name).toBe('Test Hook');
-      expect(sub.url).toBe('https://example.com/hook');
-      expect(sub.format).toBe('standard');
-      expect(sub.events).toEqual(['task.created']);
+  describe("createWebhookSubscription", () => {
+    it("creates subscription and returns it with generated secret", () => {
+      const sub = createWebhookSubscription(
+        "habitat-1",
+        "Test Hook",
+        "https://example.com/hook",
+        "standard",
+        ["task.created"],
+        {},
+      );
+      expect(sub.name).toBe("Test Hook");
+      expect(sub.url).toBe("https://example.com/hook");
+      expect(sub.format).toBe("standard");
+      expect(sub.events).toEqual(["task.created"]);
       expect(sub.secret).toMatch(/^[0-9a-f]{64}$/);
       expect(sub.enabled).toBe(1);
     });
   });
 
-  describe('getWebhookSubscriptions', () => {
-    it('returns all when no filter', () => {
+  describe("getWebhookSubscriptions", () => {
+    it("returns all when no filter", () => {
       const mockDb = getDb();
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
-        from: vi.fn(() => ({ all: vi.fn(() => [{ id: '1', name: 'a' }]) })),
+        from: vi.fn(() => ({ all: vi.fn(() => [{ id: "1", name: "a" }]) })),
       });
       const result = getWebhookSubscriptions();
-      expect(result).toEqual([{ id: '1', name: 'a' }]);
+      expect(result).toEqual([{ id: "1", name: "a" }]);
     });
 
-    it('returns global only when null', () => {
+    it("returns global only when null", () => {
       const mockDb = getDb();
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
         from: vi.fn(() => ({ where: vi.fn(() => ({ all: vi.fn(() => []) })) })),
@@ -99,48 +125,60 @@ describe('webhookDispatcher — integration', () => {
     });
   });
 
-  describe('getWebhookSubscriptionById', () => {
-    it('returns null when not found', () => {
+  describe("getWebhookSubscriptionById", () => {
+    it("returns null when not found", () => {
       const mockDb = getDb();
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
         from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => undefined) })) })),
       });
-      expect(getWebhookSubscriptionById('missing')).toBeNull();
+      expect(getWebhookSubscriptionById("missing")).toBeNull();
     });
 
-    it('returns subscription when found', () => {
+    it("returns subscription when found", () => {
       const mockDb = getDb();
-      const mockSub = { id: 'sub-1', name: 'hook' };
+      const mockSub = { id: "sub-1", name: "hook" };
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
         from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => mockSub) })) })),
       });
-      expect(getWebhookSubscriptionById('sub-1')).toEqual(mockSub);
+      expect(getWebhookSubscriptionById("sub-1")).toEqual(mockSub);
     });
   });
 
-  describe('updateWebhookSubscription', () => {
-    it('returns false when subscription not found', () => {
+  describe("updateWebhookSubscription", () => {
+    it("returns false when subscription not found", () => {
       const mockDb = getDb();
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
         from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => undefined) })) })),
       });
-      expect(updateWebhookSubscription('missing', { name: 'x' })).toBe(false);
+      expect(updateWebhookSubscription("missing", { name: "x" })).toBe(false);
     });
 
-    it('returns true and updates when found', () => {
+    it("returns true and updates when found", () => {
       const mockDb = getDb();
-      const mockSub = { id: 'sub-1', name: 'old', url: 'http://a', format: 'standard', events: [], headers: {}, enabled: 1 };
+      const mockSub = {
+        id: "sub-1",
+        name: "old",
+        url: "http://a",
+        format: "standard",
+        events: [],
+        headers: {},
+        enabled: 1,
+      };
       (mockDb.select as ReturnType<typeof vi.fn>)
-        .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => mockSub) })) })) })
-        .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => mockSub) })) })) });
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => mockSub) })) })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => mockSub) })) })),
+        });
       const setMock = vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) }));
       (mockDb.update as ReturnType<typeof vi.fn>).mockReturnValue({ set: setMock });
-      expect(updateWebhookSubscription('sub-1', { name: 'new' })).toBe(true);
+      expect(updateWebhookSubscription("sub-1", { name: "new" })).toBe(true);
     });
   });
 
-  describe('deleteWebhookSubscription', () => {
-    it('returns false when not found', () => {
+  describe("deleteWebhookSubscription", () => {
+    it("returns false when not found", () => {
       const mockDb = getDb();
       const getFn = vi.fn(() => undefined);
       const whereChain = { get: getFn };
@@ -148,36 +186,38 @@ describe('webhookDispatcher — integration', () => {
       const fromFn = vi.fn(() => fromChain);
       (mockDb.select as ReturnType<typeof vi.fn>).mockReset();
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({ from: fromFn });
-      const result = deleteWebhookSubscription('missing');
+      const result = deleteWebhookSubscription("missing");
       expect(fromFn).toHaveBeenCalled();
       expect(getFn).toHaveBeenCalled();
       expect(result).toBe(false);
     });
 
-    it('returns true and deletes when found', () => {
+    it("returns true and deletes when found", () => {
       const mockDb = getDb();
-      const whereChain = { get: vi.fn(() => ({ id: 'sub-1' })) };
+      const whereChain = { get: vi.fn(() => ({ id: "sub-1" })) };
       const fromChain = { where: vi.fn(() => whereChain) };
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({ from: vi.fn(() => fromChain) });
       const runMock = vi.fn();
-      (mockDb.delete as ReturnType<typeof vi.fn>).mockReturnValue({ where: vi.fn(() => ({ run: runMock })) });
-      expect(deleteWebhookSubscription('sub-1')).toBe(true);
+      (mockDb.delete as ReturnType<typeof vi.fn>).mockReturnValue({
+        where: vi.fn(() => ({ run: runMock })),
+      });
+      expect(deleteWebhookSubscription("sub-1")).toBe(true);
       expect(runMock).toHaveBeenCalled();
     });
   });
 
-  describe('rotateWebhookSecret', () => {
-    it('returns null when not found', () => {
+  describe("rotateWebhookSecret", () => {
+    it("returns null when not found", () => {
       const mockDb = getDb();
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
         from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => undefined) })) })),
       });
-      expect(rotateWebhookSecret('missing')).toBeNull();
+      expect(rotateWebhookSecret("missing")).toBeNull();
     });
   });
 
-  describe('getDeliveriesForSubscription', () => {
-    it('queries with correct limit', () => {
+  describe("getDeliveriesForSubscription", () => {
+    it("queries with correct limit", () => {
       const mockDb = getDb();
       const allMock = vi.fn(() => []);
       (mockDb.select as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -189,19 +229,19 @@ describe('webhookDispatcher — integration', () => {
           })),
         })),
       });
-      const result = getDeliveriesForSubscription('sub-1', 10);
+      const result = getDeliveriesForSubscription("sub-1", 10);
       expect(result).toEqual([]);
     });
   });
 
-  describe('signing integration', () => {
-    it('generateSecret produces valid hex', () => {
+  describe("signing integration", () => {
+    it("generateSecret produces valid hex", () => {
       const secret = generateSecret();
       expect(secret).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('signPayload produces sha256 prefixed hex', () => {
-      const sig = signPayload('test', 'secret');
+    it("signPayload produces sha256 prefixed hex", () => {
+      const sig = signPayload("test", "secret");
       expect(sig).toMatch(/^sha256=[0-9a-f]{64}$/);
     });
   });

@@ -336,6 +336,7 @@ export type {
   LifecycleInterceptorContribution,
   CustomMcpToolContribution,
   CustomHttpRouteContribution,
+  WebhookFormatterContribution,
   DetectorSourceEvent,
   InterceptorEvent,
   PluginCapabilityName,
