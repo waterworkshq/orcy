@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.5 — 2026-06-29
+
+### Bug Fixes
+
+#### reader scope, veto timing, auth, dead hook bus, boot order ([`fc2f74c`](https://github.com/waterworkshq/orcy/commit/fc2f74c5c501ae615c063c7a5ab7b84c6f163ed7))
+
+1. v0.22.5 Plugin Review Fixes: Security & Wiring:
+
+
+
 ## 0.22.4 — 2026-06-29
 
 ### Bug Fixes
@@ -32,20 +42,3 @@
 12. admin DELETE /habitats/:id/plugins/:pluginKey/quarantine endpoint
 
 14. 10 new tests (3 timeout + 3 scan + 4 quarantine). API 3617 pass.
-
-
-
-## 0.22.2 — 2026-06-29
-
-### Bug Fixes
-
-#### widen NotificationChannel type, fix audit source drift, re-mount plugins route ([`8114e98`](https://github.com/waterworkshq/orcy/commit/8114e98a69a291cc8e54831430859c6bce12ea2b))
-
-1. Widen NotificationChannel from closed 4-literal union to string so
-2. plugin-registered channels (e.g. teams) flow through delivery system
-3. Widen 2 Zod subscription validators to accept plugin channels
-4. Re-mount GET /plugins under /api/plugins (UI request() 404 fix)
-5. Fix audit source enum drift: add automation/notification/workflow to
-6. AUDIT_SOURCES, sourceFromAuditMetadata, isAuditSource (production
-7. events were coerced to unknown in cross-source audit views)
-8. Delete dead webhookUrl cast-hack in dispatchChannel
