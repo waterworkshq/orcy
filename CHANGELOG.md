@@ -2,6 +2,43 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.11 — 2026-06-29
+
+### Features
+
+#### automation action contribution kind + write capabilities (taskWriter activated) ([`9a0d06a`](https://github.com/waterworkshq/orcy/commit/9a0d06adfdb63c797fcfa66d1f826a69cec7d08d))
+
+1. Third and final extraction in the plugin extraction arc (ADR-0023):
+
+3. Add 'plugin' variant to AutomationAction union: { type: plugin,
+4. actionId, params }. Plugin actions dispatch to registered handlers
+5. with full PluginContext (write capabilities).
+
+7. Add automationAction as 8th contribution kind (system-scoped, requires
+8. taskWriter/notificationSender/webhookCaller per handler declaration).
+9. CAPABILITY_MATRIX entry allows all 3 write capabilities.
+
+11. ACTIVATE taskWriter (ADR-0020) — dormant since v0.22.8, now reachable
+12. via automationAction contribution kind. Full write path tested.
+
+14. Add notificationSender capability: wraps enqueueNotificationForRecipients
+15. with habitat scoping, provenance stamping, rate cap.
+
+17. Add webhookCaller capability: wraps fetch() with SSRF guard (same
+18. patterns as in-tree executeCallWebhook), banned headers blocklist,
+19. rate cap, habitat scoping.
+
+21. dispatchActionHandler in pluginManager: startPluginRun + withTimeout
+22. + finishRun — full run tracking for plugin actions.
+
+24. Executor case 'plugin' dispatches via dynamic import (avoids circular
+25. dependency). Simulation previewAction also handles 'plugin' case.
+
+27. Reference plugin: action-create-followup (creates a follow-up task
+28. using taskWriter.createTask, demonstrates params + evaluationCtx).
+
+
+
 ## 0.22.10 — 2026-06-29
 
 ### Features
@@ -62,29 +99,3 @@
 
 20. Mock pluginManager in 2 webhook test files to prevent transitive
 21. schema import chain from breaking existing mocks.
-
-
-
-## 0.22.8 — 2026-06-29
-
-### Features
-
-#### data-driven capability matrix, startPluginRun utility, taskWriter write capability ([`c1cdf7d`](https://github.com/waterworkshq/orcy/commit/c1cdf7de4ad1479a53ed4c5bf9e270ee15160345))
-
-1. Foundation for plugin extraction arc (v0.22.8–v0.22.11):
-
-3. Replace hardcoded capabilityMatrixViolation if/else chain with
-4. CAPABILITY_MATRIX table-driven lookup. Fixes latent v0.22.6 bug where
-5. notificationChannel contributions were rejected for requiring
-6. chatIntegrationReader.
-
-8. Extract startPluginRun() utility from 3 dispatchers (channel, detector,
-9. interceptor). Consolidates duplicated startRun + buildPluginContext
-10. boilerplate into one call.
-
-12. Add taskWriter write capability (ADR-0020): TaskWriter interface with
-13. createTask, assignTask, releaseTask, updatePriority. Follows write-
-14. capability pattern: habitat scoping, provenance stamping (plugin:ID),
-15. structured logging, rate cap (ORCY_PLUGIN_WRITE_CAP default 50).
-16. Ships DORMANT — no contribution kind in CAPABILITY_MATRIX allows it
-17. yet; unreachable until v0.22.11 wires it into automationAction.
