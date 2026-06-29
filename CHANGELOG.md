@@ -2,6 +2,36 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.9 — 2026-06-29
+
+### Features
+
+#### webhook formatter contribution kind + 3 reference plugins ([`e025ceb`](https://github.com/waterworkshq/orcy/commit/e025ceb61d055cb924cd5fbf796939d313b96752))
+
+1. First extraction using the v0.22.8 foundation (ADR-0021):
+
+3. Add webhookFormatter as 6th contribution kind (system-scoped, pure
+4. function handlers with no PluginContext — mirrors McpToolHandler
+5. pattern). Handlers transform (enrichment, eventType, deliveryId)
+6. into a provider-specific payload object.
+
+8. Add formatterRegistry to pluginManager with getFormatterHandler()
+9. export. Plugin-first lookup in webhook-dispatch.ts formatPayload()
+10. with in-tree FORMATTER_REGISTRY as backward-compat fallback (gradual
+11. migration, same pattern as notification channels).
+
+13. 3 reference plugins: formatter-standard, formatter-slack,
+14. formatter-discord — thin wrappers calling existing in-tree
+15. formatXxxPayload functions.
+
+17. Data-driven CAPABILITY_MATRIX entry: webhookFormatter has empty
+18. allowed list (no capabilities needed).
+
+20. Mock pluginManager in 2 webhook test files to prevent transitive
+21. schema import chain from breaking existing mocks.
+
+
+
 ## 0.22.8 — 2026-06-29
 
 ### Features
@@ -46,24 +76,3 @@
 10. API 3612 pass / 2 skipped, MCP 581 pass.
 
 12. v0.22 code review complete: 9 CRITICAL + 15 WARNING + 6 TIER 3 resolved.
-
-
-
-## 0.22.6 — 2026-06-29
-
-### Features
-
-#### add chatIntegrationReader capability and 4 channel migration plugins ([`15db80f`](https://github.com/waterworkshq/orcy/commit/15db80fe2eafe66c9c70f67ff64713b57662a9ae))
-
-1. v0.22.6 Channel Migration:
-
-3. ADR-0019: chatIntegrationReader capability (6th on PluginContext whitelist)
-4. enables channel plugins to resolve per-habitat webhook URLs
-5. ChatIntegrationView strips botToken (security boundary)
-6. NotificationChannelContribution.requires widened from [] to PluginCapabilityName[]
-7. 4 channel plugin modules created as thin wrappers calling existing deliverXxx
-8. Gradual migration: hardcoded switch retained as backward-compat fallback
-9. (dead code in production, active in test environments)
-10. Plugins auto-load by default (PLUGINS_ENABLED unset → load all)
-
-12. API 3612 pass / 2 skipped, MCP 581 pass.
