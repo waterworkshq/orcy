@@ -5,11 +5,15 @@ import type {
   CommentReader,
   TaskReader,
   TaskWriter,
+  NotificationSender,
+  WebhookCaller,
+  WebhookCallResult,
   HabitatReader,
   ChatIntegrationView,
   ChatIntegrationReader,
   PluginHabitatView,
   PluginTaskCreateInput,
+  PluginNotificationInput,
   ScopedComment,
   PluginCapabilityName,
 } from "@orcy/shared";
@@ -24,6 +28,7 @@ import * as missionRepo from "../repositories/feature.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
+import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { logger as rootLogger } from "../lib/logger.js";
 
 /**
@@ -59,6 +64,9 @@ export function buildPluginContext(opts: {
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
   if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
   if (has("taskWriter")) ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId);
+  if (has("notificationSender"))
+    ctx.notificationSender = buildNotificationSender(pluginId, runId, habitatId);
+  if (has("webhookCaller")) ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId);
   if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
   if (has("chatIntegrationReader"))
     ctx.chatIntegrationReader = buildChatIntegrationReader(habitatId);
@@ -307,6 +315,122 @@ function buildTaskWriter(pluginId: string, runId: string, habitatId: string | nu
         { pluginId, runId, taskId, priority, action: "task.updatePriority" },
         "plugin.taskWriter: updatePriority",
       );
+    },
+  };
+}
+
+/** SSRF guard patterns shared with the in-tree automation executor. */
+const SSRF_BLOCKED_PATTERNS = [
+  /^https?:\/\/(localhost|127\.|10\.|172\.1[6-9]|172\.2\d|172\.3[0-1]|192\.168\.|0\.0\.0\.0|169\.254\.)/i,
+];
+const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
+
+/**
+ * Write surface for notification enqueueing, scoped to the contribution's habitat (ADR-0023).
+ * Wraps notificationCommandService.enqueueNotificationForRecipients with provenance
+ * stamping, rate cap, and habitat scoping.
+ */
+function buildNotificationSender(
+  pluginId: string,
+  runId: string,
+  habitatId: string | null,
+): NotificationSender {
+  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
+  let writeCount = 0;
+
+  return {
+    notify: async (input: PluginNotificationInput) => {
+      if (!habitatId) throw new Error("notify requires a habitat-scoped plugin context");
+      if (writeCount >= writeCap) {
+        throw new Error(`Plugin write cap exceeded (${writeCount}/${writeCap})`);
+      }
+      writeCount++;
+      const result = enqueueNotificationForRecipients(
+        habitatId,
+        input.eventType as any,
+        "automation",
+        (input.severity ?? "info") as any,
+        input.recipients,
+        {
+          payload: { renderedTemplate: input.template, pluginId },
+          createdByType: "automation",
+          createdById: `plugin:${pluginId}`,
+        },
+      );
+      rootLogger.info(
+        { pluginId, runId, eventId: result.event.id, deliveryCount: result.deliveries.length, action: "notification.send" },
+        "plugin.notificationSender: notify",
+      );
+      return { eventId: result.event.id, deliveryCount: result.deliveries.length };
+    },
+  };
+}
+
+/**
+ * Write surface for outbound HTTP calls with SSRF guard and banned headers (ADR-0023).
+ * Every call is validated against private-network patterns and auth-header blocklist.
+ */
+function buildWebhookCaller(
+  pluginId: string,
+  runId: string,
+  habitatId: string | null,
+): WebhookCaller {
+  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
+  let writeCount = 0;
+
+  function validateUrl(url: string): void {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("URL must use http or https");
+      }
+      for (const pattern of SSRF_BLOCKED_PATTERNS) {
+        if (pattern.test(url)) {
+          throw new Error("URL resolves to a private/internal address");
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("private")) throw err;
+      if (err instanceof Error && err.message.includes("http or https")) throw err;
+      throw new Error("Invalid URL");
+    }
+  }
+
+  function validateHeaders(headers?: Record<string, string>): void {
+    if (!headers) return;
+    for (const key of Object.keys(headers)) {
+      if (BANNED_HEADERS.has(key.toLowerCase())) {
+        throw new Error(`Header "${key}" is not allowed in plugin webhook calls`);
+      }
+    }
+  }
+
+  return {
+    call: async (url: string, body?: string, headers?: Record<string, string>) => {
+      if (!habitatId) throw new Error("call requires a habitat-scoped plugin context");
+      if (writeCount >= writeCap) {
+        throw new Error(`Plugin write cap exceeded (${writeCount}/${writeCap})`);
+      }
+      writeCount++;
+      validateUrl(url);
+      validateHeaders(headers);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "User-Agent": `Orcy-Plugin/${pluginId}`, ...headers },
+          body: body ?? undefined,
+        });
+        const responseText = await response.text().catch(() => "");
+        rootLogger.info(
+          { pluginId, runId, url, statusCode: response.status, action: "webhook.call" },
+          "plugin.webhookCaller: call",
+        );
+        return { statusCode: response.status, ok: response.ok, body: responseText.slice(0, 1000) };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        rootLogger.warn({ pluginId, runId, url, err: message }, "plugin.webhookCaller: call failed");
+        throw new Error(`Webhook call to ${url} failed: ${message}`);
+      }
     },
   };
 }

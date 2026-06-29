@@ -125,6 +125,12 @@ function previewAction(
         actionIndex: index,
         description: `Mark risk level ${action.level ?? "(unknown)"}${action.reason ? `: ${action.reason}` : ""}`,
       };
+    case "plugin":
+      return {
+        actionType: "plugin",
+        actionIndex: index,
+        description: `Plugin action "${action.actionId}"${Object.keys(action.params ?? {}).length > 0 ? ` (params: ${JSON.stringify(action.params)})` : ""}`,
+      };
   }
 }
 

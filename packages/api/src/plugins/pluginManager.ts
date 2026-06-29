@@ -17,7 +17,8 @@ type ContributionKind =
   | "customMcpTool"
   | "customHttpRoute"
   | "webhookFormatter"
-  | "automationCondition";
+  | "automationCondition"
+  | "automationAction";
 import type {
   PluginModule,
   PluginContext,
@@ -28,6 +29,7 @@ import type {
   McpToolHandler,
   FormatterHandler,
   ConditionHandler,
+  ActionListener,
   PluginManifestView,
   EventSourceRef,
   InterceptorPreResult,
@@ -55,6 +57,7 @@ const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
   "customHttpRoute",
   "webhookFormatter",
   "automationCondition",
+  "automationAction",
 ]);
 
 /** The whitelisted capability names (ADR-0012 + ADR-0019 + ADR-0020). */
@@ -66,6 +69,8 @@ const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapa
   "habitatReader",
   "chatIntegrationReader",
   "taskWriter",
+  "notificationSender",
+  "webhookCaller",
 ]);
 
 /**
@@ -110,6 +115,9 @@ const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPolicy>> = 
   automationCondition: {
     allowed: [],
   },
+  automationAction: {
+    allowed: ["taskWriter", "notificationSender", "webhookCaller"],
+  },
 };
 
 const loadedPlugins: Map<string, PluginModule> = new Map();
@@ -122,6 +130,10 @@ const channelRegistry: Map<
 > = new Map();
 const formatterRegistry: Map<string, { pluginId: string; handler: FormatterHandler }> = new Map();
 const conditionRegistry: Map<string, { pluginId: string; handler: ConditionHandler }> = new Map();
+const actionRegistry: Map<
+  string,
+  { pluginId: string; handler: ActionListener; timeoutMs?: number }
+> = new Map();
 const detectorRegistry: Map<
   string,
   { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
@@ -277,6 +289,8 @@ function contributionLabel(c: Contribution): string {
       return c.formatId;
     case "automationCondition":
       return c.conditionId;
+    case "automationAction":
+      return c.actionId;
   }
 }
 
@@ -310,6 +324,10 @@ function orphanHandler(c: Contribution, mod: PluginModule): string | null {
       return typeof mod.conditions?.[c.conditionId] === "function"
         ? null
         : `automationCondition "${c.conditionId}" declared but no matching handler in module.conditions`;
+    case "automationAction":
+      return typeof mod.actions?.[c.actionId] === "function"
+        ? null
+        : `automationAction "${c.actionId}" declared but no matching handler in module.actions`;
   }
 }
 
@@ -430,6 +448,15 @@ function detectIdCollisions(mod: PluginModule): string | null {
         return `conditionId "${c.conditionId}" already registered by another plugin`;
       }
     }
+    if (c.kind === "automationAction") {
+      if (seenWithinManifest.has(`action:${c.actionId}`)) {
+        return `duplicate actionId "${c.actionId}" within manifest`;
+      }
+      seenWithinManifest.add(`action:${c.actionId}`);
+      if (actionRegistry.has(c.actionId)) {
+        return `actionId "${c.actionId}" already registered by another plugin`;
+      }
+    }
   }
   return null;
 }
@@ -467,6 +494,12 @@ function registerContributions(mod: PluginModule): void {
       conditionRegistry.set(c.conditionId, {
         pluginId: mod.manifest.id,
         handler: mod.conditions[c.conditionId],
+      });
+    } else if (c.kind === "automationAction" && mod.actions?.[c.actionId]) {
+      actionRegistry.set(c.actionId, {
+        pluginId: mod.manifest.id,
+        handler: mod.actions[c.actionId],
+        timeoutMs: c.timeoutMs,
       });
     }
   }
@@ -639,6 +672,65 @@ export function getFormatterHandler(formatId: string): FormatterHandler | undefi
  */
 export function getConditionHandler(conditionId: string): ConditionHandler | undefined {
   return conditionRegistry.get(conditionId)?.handler;
+}
+
+/**
+ * Returns the action handler entry for an action ID from the plugin registry, or `null`.
+ * The automation executor calls this when encountering a `{ type: "plugin" }` action.
+ */
+export function getActionEntry(
+  actionId: string,
+): { pluginId: string; handler: ActionListener; timeoutMs?: number } | null {
+  return actionRegistry.get(actionId) ?? null;
+}
+
+/**
+ * Dispatches a plugin action handler with full run tracking, context building,
+ * and timeout (ADR-0023). Called by the automation executor for `type: "plugin"` actions.
+ */
+export async function dispatchActionHandler(
+  entry: { pluginId: string; handler: ActionListener; timeoutMs?: number },
+  actionId: string,
+  habitatId: string,
+  evaluationCtx: import("@orcy/shared").PluginEvaluationContext,
+  params: Record<string, unknown>,
+): Promise<{ status: "succeeded" | "failed"; result?: Record<string, unknown>; error?: string }> {
+  // Look up the contribution's requires from the loaded plugin manifest
+  const manifest = loadedPlugins.get(entry.pluginId)?.manifest;
+  const contribution = manifest?.contributions.find(
+    (c) => c.kind === "automationAction" && c.actionId === actionId,
+  );
+  const requires = contribution && "requires" in contribution ? contribution.requires : [];
+
+  const { runId, ctx } = startPluginRun({
+    pluginId: entry.pluginId,
+    contributionId: actionId,
+    contributionKind: "automationAction",
+    habitatId,
+    triggerEventId: null,
+    triggerType: "automation:plugin-action",
+    requires,
+  });
+
+  try {
+    const effectiveTimeout = entry.timeoutMs ?? 0;
+    const result = await withTimeout(
+      entry.handler(ctx, evaluationCtx, params),
+      effectiveTimeout,
+      entry.pluginId,
+    );
+    runRepo.finishRun(
+      runId,
+      result.status === "succeeded" ? "succeeded" : "failed",
+      undefined,
+      result.error,
+    );
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    runRepo.finishRun(runId, "failed", undefined, message);
+    return { status: "failed", error: message };
+  }
 }
 
 /**
@@ -1000,6 +1092,7 @@ export function resetPlugins(): void {
   channelRegistry.clear();
   formatterRegistry.clear();
   conditionRegistry.clear();
+  actionRegistry.clear();
   detectorRegistry.clear();
   interceptorRegistry.pre.clear();
   interceptorRegistry.post.clear();

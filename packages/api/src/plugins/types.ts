@@ -7,6 +7,8 @@ import type {
   CommentReader,
   TaskReader,
   TaskWriter,
+  NotificationSender,
+  WebhookCaller,
   HabitatReader,
   ChatIntegrationReader,
   PluginEvaluationContext,
@@ -25,6 +27,7 @@ export interface PluginModule {
   mcpHandlers?: Record<string, McpToolHandler>;
   formatters?: Record<string, FormatterHandler>;
   conditions?: Record<string, ConditionHandler>;
+  actions?: Record<string, ActionListener>;
   routeHandlers?: FastifyPluginCallback;
 }
 
@@ -70,6 +73,13 @@ export type ConditionHandler = (
   params: Record<string, unknown>,
 ) => { matched: boolean; reason: string };
 
+/** Automation action handler — async execution with write capabilities (ADR-0023). */
+export type ActionListener = (
+  ctx: PluginContext,
+  evaluationCtx: PluginEvaluationContext,
+  params: Record<string, unknown>,
+) => Promise<{ status: "succeeded" | "failed"; result?: Record<string, unknown>; error?: string }>;
+
 /** Per-invocation context handed to every plugin handler. */
 export interface PluginContext {
   pluginId: string;
@@ -85,6 +95,8 @@ export interface PluginContext {
   commentReader?: CommentReader;
   taskReader?: TaskReader;
   taskWriter?: TaskWriter;
+  notificationSender?: NotificationSender;
+  webhookCaller?: WebhookCaller;
   habitatReader?: HabitatReader;
   chatIntegrationReader?: ChatIntegrationReader;
 }

@@ -36,7 +36,9 @@ export type PluginCapabilityName =
   | "taskReader"
   | "habitatReader"
   | "chatIntegrationReader"
-  | "taskWriter";
+  | "taskWriter"
+  | "notificationSender"
+  | "webhookCaller";
 
 /** Discriminated union of the contribution kinds a plugin may declare (ADR-0011 + ADR-0021). */
 export type Contribution =
@@ -46,7 +48,8 @@ export type Contribution =
   | CustomMcpToolContribution
   | CustomHttpRouteContribution
   | WebhookFormatterContribution
-  | AutomationConditionContribution;
+  | AutomationConditionContribution
+  | AutomationActionContribution;
 
 /** System-scoped notification delivery channel (e.g. Microsoft Teams webhook). */
 export interface NotificationChannelContribution {
@@ -124,6 +127,17 @@ export interface AutomationConditionContribution {
   label: string;
   description: string;
   requires: [];
+}
+
+/** System-scoped automation action handler (ADR-0023). Extends the automation rule action switch with plugin-defined actions. */
+export interface AutomationActionContribution {
+  kind: "automationAction";
+  scope: "system";
+  actionId: string;
+  label: string;
+  description: string;
+  timeoutMs?: number;
+  requires: PluginCapabilityName[];
 }
 
 /** Stripped evaluation context view for plugin condition handlers (ADR-0022). Agent apiKeyHash and rateLimitPerMinute are stripped. */
@@ -249,6 +263,38 @@ export interface TaskWriter {
   assignTask(taskId: string, agentId: string): Promise<void>;
   releaseTask(taskId: string): Promise<void>;
   updatePriority(taskId: string, priority: TaskPriority): Promise<void>;
+}
+
+/** Input for plugin-driven notification sending; habitat and source are server-stamped. */
+export interface PluginNotificationInput {
+  recipients: Array<{ recipientType: "human" | "agent"; recipientId: string }>;
+  eventType: string;
+  template: string;
+  severity?: "info" | "warning" | "critical";
+}
+
+/**
+ * Write surface for notification enqueueing, scoped to the contribution's habitat (ADR-0023).
+ * Wraps notificationCommandService.enqueueNotificationForRecipients with provenance
+ * stamping, rate cap, and habitat scoping.
+ */
+export interface NotificationSender {
+  notify(input: PluginNotificationInput): Promise<{ eventId: string; deliveryCount: number }>;
+}
+
+/** Result of an outbound webhook call from a plugin. */
+export interface WebhookCallResult {
+  statusCode: number;
+  ok: boolean;
+  body?: string;
+}
+
+/**
+ * Write surface for outbound HTTP calls with SSRF guard and banned headers (ADR-0023).
+ * Every call is validated against private-network patterns and auth-header blocklist.
+ */
+export interface WebhookCaller {
+  call(url: string, body?: string, headers?: Record<string, string>): Promise<WebhookCallResult>;
 }
 
 /** Read surface for the stripped habitat projection. */

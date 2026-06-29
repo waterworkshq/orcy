@@ -411,8 +411,10 @@ function evaluatePluginCondition(
   }
 }
 
-/** Projects the internal evaluation context into the stripped plugin-safe view (ADR-0022). */
-function toPluginEvaluationContext(ctx: AutomationEvaluationContext): PluginEvaluationContext {
+/** Projects the internal evaluation context into the stripped plugin-safe view (ADR-0022). Exported for reuse by the action executor. */
+export function toPluginEvaluationContext(
+  ctx: AutomationEvaluationContext,
+): PluginEvaluationContext {
   return {
     habitat: ctx.habitat
       ? {

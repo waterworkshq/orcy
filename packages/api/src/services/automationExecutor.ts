@@ -105,6 +105,58 @@ async function executeAction(
       return executeCallWebhook(action, index, rule, run, ctx);
     case "mark_risk":
       return executeMarkRisk(action, index, rule, run, ctx);
+    case "plugin":
+      return executePluginAction(action, index, rule, ctx);
+  }
+}
+
+/**
+ * Dispatches a plugin-defined action to the registered handler (ADR-0023).
+ * Builds a PluginContext with the contribution's required capabilities,
+ * projects the evaluation context, and invokes the handler with timeout.
+ * Missing handler returns a failed result (fail-safe).
+ */
+async function executePluginAction(
+  action: Extract<AutomationAction, { type: "plugin" }>,
+  index: number,
+  rule: AutomationRule,
+  ctx: AutomationEvaluationContext,
+): Promise<AutomationActionResult> {
+  const { getActionEntry, dispatchActionHandler } = await import("../plugins/pluginManager.js");
+  const { toPluginEvaluationContext } = await import("./automationEvaluator.js");
+  const entry = getActionEntry(action.actionId);
+  if (!entry) {
+    return {
+      actionType: "plugin",
+      actionIndex: index,
+      status: "failed",
+      error: `No plugin handler registered for actionId "${action.actionId}"`,
+    };
+  }
+  const evaluationCtx = toPluginEvaluationContext(ctx);
+  try {
+    const result = await dispatchActionHandler(
+      entry,
+      action.actionId,
+      rule.habitatId,
+      evaluationCtx,
+      action.params ?? {},
+    );
+    return {
+      actionType: "plugin",
+      actionIndex: index,
+      status: result.status,
+      result: result.result,
+      error: result.error,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      actionType: "plugin",
+      actionIndex: index,
+      status: "failed",
+      error: `Plugin action "${action.actionId}" threw: ${message}`,
+    };
   }
 }
 

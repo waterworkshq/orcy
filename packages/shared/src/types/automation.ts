@@ -76,7 +76,8 @@ export type AutomationActionType =
   | "release_assignment"
   | "request_review"
   | "call_webhook"
-  | "mark_risk";
+  | "mark_risk"
+  | "plugin";
 
 /** Resolvable destination for an automation notification — a role-based group or an explicit agent/human reference. */
 export type AutomationRecipient =
@@ -163,7 +164,8 @@ export type AutomationAction =
   | AutomationActionReleaseAssignment
   | AutomationActionRequestReview
   | AutomationActionCallWebhook
-  | AutomationActionMarkRisk;
+  | AutomationActionMarkRisk
+  | { type: "plugin"; actionId: string; params?: Record<string, unknown> };
 
 /** Runtime enablement state of a rule. */
 export type AutomationRuleStatus = "enabled" | "disabled";
