@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.4 — 2026-06-29
+
+### Bug Fixes
+
+#### quarantine key mismatch, pre-interceptor run leak, detected signal pipeline ([`33ee6c7`](https://github.com/waterworkshq/orcy/commit/33ee6c7c392f66d916b2f45eee811f47f1ea5db5))
+
+1. v0.22.4 Plugin Review Fixes: Runtime & Pipeline:
+
+
+
 ## 0.22.3 — 2026-06-29
 
 ### Features
@@ -39,13 +49,3 @@
 6. AUDIT_SOURCES, sourceFromAuditMetadata, isAuditSource (production
 7. events were coerced to unknown in cross-source audit views)
 8. Delete dead webhookUrl cast-hack in dispatchChannel
-
-
-
-## 0.22.1 — 2026-06-29
-
-### Chores
-
-#### upgrade TypeScript to 6.0.3 across all packages ([`73dd06f`](https://github.com/waterworkshq/orcy/commit/73dd06f6fca6fb030e06d8f82d9b182add0ac0d7))
-
-1. Upgrades TypeScript from ^5.9.3 (root) and ^5.4.0 (packages) to ^6.0.3. Also includes minor JSON formatting improvements to files arrays in several package.json files.
