@@ -351,6 +351,8 @@ export type {
   HabitatReader,
   ChatIntegrationView,
   ChatIntegrationReader,
+  PluginTaskCreateInput,
+  TaskWriter,
   PluginRunStatus,
   PluginEnrollment,
   PluginEnrollmentInput,

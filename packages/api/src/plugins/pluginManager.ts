@@ -18,6 +18,7 @@ type ContributionKind =
   | "customHttpRoute";
 import type {
   PluginModule,
+  PluginContext,
   ChannelHandler,
   ChannelHandlerResult,
   DetectorHandler,
@@ -50,7 +51,7 @@ const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
   "customHttpRoute",
 ]);
 
-/** The 5 whitelisted capability names (ADR-0012). */
+/** The whitelisted capability names (ADR-0012 + ADR-0019 + ADR-0020). */
 const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapabilityName>([
   "pulseReader",
   "pulseWriter",
@@ -58,15 +59,46 @@ const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapa
   "taskReader",
   "habitatReader",
   "chatIntegrationReader",
+  "taskWriter",
 ]);
 
-/** Capabilities a signalDetector may require. */
-const DETECTOR_CAPS: ReadonlySet<PluginCapabilityName> = new Set([
-  "pulseReader",
-  "pulseWriter",
-  "commentReader",
-  "taskReader",
-]);
+/**
+ * Data-driven capability policy per contribution kind (ADR-0012 whitelist).
+ * Replaces the former hardcoded `if/else` chain in `capabilityMatrixViolation`.
+ * Adding a new contribution kind is a data entry here, not a code change.
+ */
+interface CapabilityPolicy {
+  /** Capabilities this kind is allowed to declare in its `requires` array. */
+  allowed: readonly PluginCapabilityName[];
+  /** Capabilities forbidden when a phase-specific field matches the key (e.g. `{ pre: ["pulseWriter"] }`). */
+  forbiddenByPhase?: Readonly<Record<string, readonly PluginCapabilityName[]>>;
+}
+
+const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPolicy>> = {
+  signalDetector: {
+    allowed: ["pulseReader", "pulseWriter", "commentReader", "taskReader"],
+  },
+  lifecycleInterceptor: {
+    allowed: [
+      "pulseReader",
+      "pulseWriter",
+      "commentReader",
+      "taskReader",
+      "habitatReader",
+      "chatIntegrationReader",
+    ],
+    forbiddenByPhase: { pre: ["pulseWriter"] },
+  },
+  notificationChannel: {
+    allowed: ["chatIntegrationReader"],
+  },
+  customMcpTool: {
+    allowed: [],
+  },
+  customHttpRoute: {
+    allowed: [],
+  },
+};
 
 const loadedPlugins: Map<string, PluginModule> = new Map();
 const pluginErrors: Map<string, string> = new Map();
@@ -121,8 +153,7 @@ const DEFAULT_TIMEOUT_MS: Record<string, number> = {
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, pluginKey: string): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) return promise;
   // Suppress late rejection if timeout wins the race — the handler promise may
-  // later reject with no consumer, causing an unhandledRejection event. This
-  // no-op catch ensures the rejection is swallowed silently.
+  // later reject with no consumer, causing an unhandledRejection event. This  // no-op catch ensures the rejection is swallowed silently.
   promise.catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -134,6 +165,39 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, pluginKey: strin
   return Promise.race([promise, timeoutPromise]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+/**
+ * Creates a plugin run record and builds the per-invocation PluginContext.
+ * Shared startup boilerplate extracted from the 3 dispatchers (channel, detector,
+ * interceptor). Each dispatcher calls this, then sets kind-specific payload fields
+ * on the returned context before invoking the handler.
+ */
+function startPluginRun(opts: {
+  pluginId: string;
+  contributionId: string;
+  contributionKind: string;
+  habitatId: string;
+  triggerEventId: string | null;
+  triggerType: string;
+  requires: PluginCapabilityName[];
+}): { runId: string; ctx: PluginContext } {
+  const run = runRepo.startRun({
+    habitatId: opts.habitatId,
+    pluginId: opts.pluginId,
+    contributionId: opts.contributionId,
+    contributionKind: opts.contributionKind,
+    triggerEventId: opts.triggerEventId,
+    triggerType: opts.triggerType,
+  });
+  const ctx = buildPluginContext({
+    pluginId: opts.pluginId,
+    contributionId: opts.contributionId,
+    habitatId: opts.habitatId,
+    runId: run.id,
+    requires: opts.requires,
+  });
+  return { runId: run.id, ctx };
 }
 
 /** Custom MCP tool definition surfaced via `GET /plugins` (display-only in v0.22.0 per ADR-0018). */
@@ -155,31 +219,47 @@ export function setPluginDirectory(dir: string): void {
 }
 
 function capabilityMatrixViolation(c: Contribution): string | null {
-  if (c.kind === "signalDetector") {
-    for (const cap of c.requires) {
-      if (!DETECTOR_CAPS.has(cap)) {
-        return `signalDetector "${c.detectorId}" cannot require capability "${cap}"`;
+  const policy = CAPABILITY_MATRIX[c.kind];
+  if (!policy) {
+    return `No capability policy defined for contribution kind "${c.kind}"`;
+  }
+
+  const allowedSet = new Set(policy.allowed);
+
+  if (c.kind === "lifecycleInterceptor" && policy.forbiddenByPhase) {
+    const forbidden = policy.forbiddenByPhase[c.phase];
+    if (forbidden) {
+      for (const cap of c.requires) {
+        if (forbidden.includes(cap)) {
+          return `lifecycleInterceptor "${c.interceptorId}" is ${c.phase}-phase and cannot require "${cap}"`;
+        }
       }
     }
-    return null;
   }
-  if (c.kind === "lifecycleInterceptor") {
-    const forbidden = c.phase === "pre" ? (["pulseWriter"] as const) : ([] as const);
-    if (c.phase === "pre" && c.requires.includes("pulseWriter")) {
-      return `lifecycleInterceptor "${c.interceptorId}" is pre-phase and cannot require "pulseWriter"`;
+
+  for (const cap of c.requires) {
+    if (!allowedSet.has(cap)) {
+      const id = contributionLabel(c);
+      return `${c.kind} "${id}" cannot require capability "${cap}"`;
     }
-    for (const cap of c.requires) {
-      if (!VALID_CAPABILITIES.has(cap)) {
-        return `lifecycleInterceptor "${c.interceptorId}" requires unknown capability "${cap}"`;
-      }
-    }
-    void forbidden;
-    return null;
-  }
-  if (c.requires.length > 0) {
-    return `${c.kind} contributions cannot declare requires (got [${c.requires.join(", ")}])`;
   }
   return null;
+}
+
+/** Extracts the human-readable identifier from a contribution for error messages. */
+function contributionLabel(c: Contribution): string {
+  switch (c.kind) {
+    case "signalDetector":
+      return c.detectorId;
+    case "lifecycleInterceptor":
+      return c.interceptorId;
+    case "notificationChannel":
+      return c.channelId;
+    case "customMcpTool":
+      return c.toolName;
+    case "customHttpRoute":
+      return c.path;
+  }
 }
 
 function orphanHandler(c: Contribution, mod: PluginModule): string | null {
@@ -518,20 +598,13 @@ export async function dispatchToChannelPlugin(
   const entry = channelRegistry.get(channel);
   if (!entry) return null;
 
-  const runId = cryptoRandom();
-  const run = runRepo.startRun({
-    habitatId: delivery.habitatId,
+  const { runId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: channel,
     contributionKind: "notificationChannel",
+    habitatId: delivery.habitatId,
     triggerEventId: delivery.eventId,
     triggerType: `channel:${channel}`,
-  });
-  const ctx = buildPluginContext({
-    pluginId: entry.pluginId,
-    contributionId: channel,
-    habitatId: delivery.habitatId,
-    runId: run.id,
     requires: [],
   });
   ctx.notificationPayload = { delivery, event };
@@ -543,11 +616,11 @@ export async function dispatchToChannelPlugin(
       effectiveTimeout,
       entry.pluginId,
     );
-    runRepo.finishRun(run.id, result.success ? "succeeded" : "failed", undefined, result.error);
+    runRepo.finishRun(runId, result.success ? "succeeded" : "failed", undefined, result.error);
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    runRepo.finishRun(run.id, "failed", undefined, message);
+    runRepo.finishRun(runId, "failed", undefined, message);
     return { success: false, error: message };
   }
 }
@@ -634,19 +707,15 @@ async function dispatchInterceptorRun(
   context: import("../services/tasks/transition-emitter.js").TransitionContext,
   runId: string,
 ): Promise<void> {
-  const run = runRepo.startRun({
-    habitatId,
+  // runId is passed from runPostInterceptors (generated via cryptoRandom there).
+  // We create a separate run record here for audit tracking.
+  const { runId: dbRunId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: entry.contribution.interceptorId,
     contributionKind: "lifecycleInterceptor",
+    habitatId,
     triggerEventId: taskId,
     triggerType: `${event}:post`,
-  });
-  const ctx = buildPluginContext({
-    pluginId: entry.pluginId,
-    contributionId: entry.contribution.interceptorId,
-    habitatId,
-    runId: run.id,
     requires: entry.contribution.requires,
   });
   ctx.transition = { taskId, action: event, habitatId, context };
@@ -662,10 +731,10 @@ async function dispatchInterceptorRun(
     for (const signal of signals) {
       await ctx.pulseWriter?.createDetectedSignal(signal);
     }
-    runRepo.finishRun(run.id, "succeeded", signals.length);
+    runRepo.finishRun(dbRunId, "succeeded", signals.length);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    runRepo.finishRun(run.id, "failed", undefined, message);
+    runRepo.finishRun(dbRunId, "failed", undefined, message);
     throw err;
   }
 }
@@ -694,19 +763,13 @@ async function runDetector(
   entry: { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler },
   ref: EventSourceRef,
 ): Promise<void> {
-  const run = runRepo.startRun({
-    habitatId: ref.habitatId,
+  const { runId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: entry.contribution.detectorId,
     contributionKind: "signalDetector",
+    habitatId: ref.habitatId,
     triggerEventId: ref.sourceId,
     triggerType: ref.kind,
-  });
-  const ctx = buildPluginContext({
-    pluginId: entry.pluginId,
-    contributionId: entry.contribution.detectorId,
-    habitatId: ref.habitatId,
-    runId: run.id,
     requires: entry.contribution.requires,
   });
   try {
@@ -715,11 +778,11 @@ async function runDetector(
     for (const signal of signals) {
       await ctx.pulseWriter?.createDetectedSignal(signal);
     }
-    runRepo.finishRun(run.id, "succeeded", signals.length);
+    runRepo.finishRun(runId, "succeeded", signals.length);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     incrementError(`${entry.pluginId}:${entry.contribution.detectorId}`);
-    runRepo.finishRun(run.id, "failed", undefined, message);
+    runRepo.finishRun(runId, "failed", undefined, message);
   } finally {
     releaseConcurrencySlot(ref.habitatId);
   }

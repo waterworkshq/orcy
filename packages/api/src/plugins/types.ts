@@ -6,6 +6,7 @@ import type {
   PulseWriter,
   CommentReader,
   TaskReader,
+  TaskWriter,
   HabitatReader,
   ChatIntegrationReader,
   InterceptorEvent,
@@ -67,6 +68,7 @@ export interface PluginContext {
   pulseWriter?: PulseWriter;
   commentReader?: CommentReader;
   taskReader?: TaskReader;
+  taskWriter?: TaskWriter;
   habitatReader?: HabitatReader;
   chatIntegrationReader?: ChatIntegrationReader;
 }

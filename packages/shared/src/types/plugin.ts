@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { SignalType } from "./signal.js";
-import type { Task } from "./task.js";
+import type { Task, TaskPriority } from "./task.js";
 
 /** Zod object constructor alias used for declarative config schemas on contributions. */
 type ZodObjectAny = z.ZodType<any>;
@@ -35,7 +35,8 @@ export type PluginCapabilityName =
   | "commentReader"
   | "taskReader"
   | "habitatReader"
-  | "chatIntegrationReader";
+  | "chatIntegrationReader"
+  | "taskWriter";
 
 /** Discriminated union of the five contribution kinds a plugin may declare (ADR-0011). */
 export type Contribution =
@@ -188,6 +189,28 @@ export interface CommentReader {
 export interface TaskReader {
   getTask(taskId: string): Promise<Task | null>;
   listTasksByHabitat(habitatId: string, filter?: TaskListFilter): Promise<Task[]>;
+}
+
+/** Restricted input for plugin-driven task creation; `createdBy` is server-stamped. */
+export interface PluginTaskCreateInput {
+  missionId: string;
+  title: string;
+  description?: string;
+  labels?: string[];
+  priority?: TaskPriority;
+}
+
+/**
+ * Write surface for task mutations, scoped to the contribution's habitat (ADR-0020).
+ * Every write is habitat-scoped, audit-logged, provenance-stamped, and rate-capped.
+ * No contribution kind can require `taskWriter` until the automation action extraction
+ * wires it in — the capability ships dormant in v0.22.8.
+ */
+export interface TaskWriter {
+  createTask(input: PluginTaskCreateInput): Promise<Task>;
+  assignTask(taskId: string, agentId: string): Promise<void>;
+  releaseTask(taskId: string): Promise<void>;
+  updatePriority(taskId: string, priority: TaskPriority): Promise<void>;
 }
 
 /** Read surface for the stripped habitat projection. */

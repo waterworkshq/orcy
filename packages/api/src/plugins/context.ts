@@ -4,18 +4,22 @@ import type {
   PulseWriter,
   CommentReader,
   TaskReader,
+  TaskWriter,
   HabitatReader,
   ChatIntegrationView,
   ChatIntegrationReader,
   PluginHabitatView,
+  PluginTaskCreateInput,
   ScopedComment,
   PluginCapabilityName,
 } from "@orcy/shared";
 import { detectedMetadataSchema } from "@orcy/shared";
+import type { TaskPriority } from "@orcy/shared";
 import type { PluginContext, PluginLogger, PluginAudit, AuditPayload } from "./types.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as pulseService from "../services/pulseService.js";
 import * as taskRepo from "../repositories/task.js";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/board.js";
@@ -54,6 +58,7 @@ export function buildPluginContext(opts: {
   if (has("pulseWriter")) ctx.pulseWriter = buildPulseWriter(pluginId, runId, habitatId);
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
   if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
+  if (has("taskWriter")) ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId);
   if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
   if (has("chatIntegrationReader"))
     ctx.chatIntegrationReader = buildChatIntegrationReader(habitatId);
@@ -205,6 +210,103 @@ function buildTaskReader(habitatId: string | null): TaskReader {
     listTasksByHabitat: (queryHabitatId, filter) => {
       if (queryHabitatId !== habitatId) return Promise.resolve([]);
       return Promise.resolve(taskRepo.getTasksByHabitatId(queryHabitatId, filter).tasks);
+    },
+  };
+}
+
+/**
+ * Write surface for task mutations, scoped to the contribution's habitat (ADR-0020).
+ * Every method validates habitat ownership before writing, stamps provenance
+ * (`plugin:${pluginId}`) on created tasks, logs to the audit surface, and enforces
+ * a per-run write cap to prevent runaway plugins.
+ */
+function buildTaskWriter(pluginId: string, runId: string, habitatId: string | null): TaskWriter {
+  const writeCap = Number(process.env.ORCY_PLUGIN_WRITE_CAP ?? "50");
+  let writeCount = 0;
+
+  function checkCap(): void {
+    if (writeCount >= writeCap) {
+      throw new Error(
+        `Plugin write cap exceeded (${writeCount}/${writeCap}) — too many mutations in a single run`,
+      );
+    }
+    writeCount++;
+  }
+
+  function verifyHabitat(taskId: string): { missionId: string } {
+    const task = taskRepo.getTaskById(taskId);
+    if (!task) throw new Error(`Task not found: ${taskId}`);
+    const mission = missionRepo.getMissionById(task.missionId);
+    if (!mission || mission.habitatId !== habitatId) {
+      throw new Error(`Task ${taskId} does not belong to this habitat`);
+    }
+    return { missionId: task.missionId };
+  }
+
+  return {
+    createTask: async (input: PluginTaskCreateInput) => {
+      if (!habitatId) throw new Error("createTask requires a habitat-scoped plugin context");
+      checkCap();
+      const mission = missionRepo.getMissionById(input.missionId);
+      if (!mission) throw new Error(`Mission not found: ${input.missionId}`);
+      if (mission.habitatId !== habitatId) {
+        throw new Error(`Mission ${input.missionId} does not belong to this habitat`);
+      }
+      const task = taskRepo.createTask({
+        missionId: input.missionId,
+        title: input.title,
+        description: input.description,
+        labels: input.labels,
+        priority: input.priority,
+        createdBy: `plugin:${pluginId}`,
+      });
+      rootLogger.info(
+        { pluginId, runId, taskId: task.id, missionId: input.missionId, action: "task.create" },
+        "plugin.taskWriter: createTask",
+      );
+      return task;
+    },
+
+    assignTask: async (taskId: string, agentId: string) => {
+      if (!habitatId) throw new Error("assignTask requires a habitat-scoped plugin context");
+      checkCap();
+      verifyHabitat(taskId);
+      const result = taskStateMachine.claimTask(taskId, agentId);
+      if (!result.success) {
+        throw new Error(`assignTask failed: ${result.reason}`);
+      }
+      rootLogger.info(
+        { pluginId, runId, taskId, agentId, action: "task.assign" },
+        "plugin.taskWriter: assignTask",
+      );
+    },
+
+    releaseTask: async (taskId: string) => {
+      if (!habitatId) throw new Error("releaseTask requires a habitat-scoped plugin context");
+      checkCap();
+      verifyHabitat(taskId);
+      const released = taskStateMachine.releaseTask(taskId, `plugin:${pluginId}`);
+      if (!released) {
+        throw new Error(`releaseTask failed — task may not be in correct state`);
+      }
+      rootLogger.info(
+        { pluginId, runId, taskId, action: "task.release" },
+        "plugin.taskWriter: releaseTask",
+      );
+    },
+
+    updatePriority: async (taskId: string, priority: TaskPriority) => {
+      if (!habitatId) throw new Error("updatePriority requires a habitat-scoped plugin context");
+      checkCap();
+      verifyHabitat(taskId);
+      const updated = taskRepo.updateTask(taskId, { priority });
+      if (!updated) {
+        throw new Error(`updatePriority failed — task ${taskId} not found or update rejected`);
+      }
+      rootLogger.info(
+        { pluginId, runId, taskId, priority, action: "task.updatePriority" },
+        "plugin.taskWriter: updatePriority",
+      );
     },
   };
 }
