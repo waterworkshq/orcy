@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.1 — 2026-06-29
+
+### Chores
+
+#### upgrade TypeScript to 6.0.3 across all packages ([`73dd06f`](https://github.com/waterworkshq/orcy/commit/73dd06f6fca6fb030e06d8f82d9b182add0ac0d7))
+
+1. Upgrades TypeScript from ^5.9.3 (root) and ^5.4.0 (packages) to ^6.0.3. Also includes minor JSON formatting improvements to files arrays in several package.json files.
+
+
+
 ## 0.22.0 — 2026-06-28
 
 ### Bug Fixes
@@ -181,74 +191,3 @@
 29. shared/src/duration.ts, exported from the shared package, and both repos now
 30. import it. Added a focused shared test (units, case-insensitivity,
 31. unparseable rejection).
-
-
-
-## 0.21.5 — 2026-06-28
-
-### Bug Fixes
-
-#### align client contracts and complete SSE cache invalidation ([`ceb9e6c`](https://github.com/waterworkshq/orcy/commit/ceb9e6cecab58b38e99e4b391827c876b1102139))
-
-1. The wiki UI and MCP client surfaces drifted from the REST contracts, and SSE
-2. cache invalidation left search and signal-surface tabs stale. Five coupled
-3. client-contract fixes plus docs reconciliation.
-
-5. 1. UI enable-cadence omitted the required `scheduleType` (HIGH)
-6. CadencePanel's enable mutation sent {enabled, intervalMinutes, timezone}
-7. but the PUT /wiki/cadence route requires scheduleType ("interval"|"cron"),
-8. so "Enable cadence" always failed backend validation with a 400. Send
-9. scheduleType: "interval" and widen the UI api client's setCadence body type
-10. to include scheduleType/cronExpression.
-
-12. 2. UI no-update form sent date-only values (WARNING)
-13. The "Mark period as no-update-needed" form bound `type="date"` inputs
-14. (YYYY-MM-DD) straight to markNoUpdateNeeded, whose backend schema is
-15. z.string().datetime() — so posting the marker always failed validation.
-16. Convert from -> start-of-day and to -> end-of-day ISO datetimes before
-17. sending.
-
-19. 3. UI publish-on-create was fire-and-forget (WARNING)
-20. Creating a "published" page first created a draft, then fire-and-forgot an
-21. updatePageMetadata({status}) whose errors were swallowed — the user saw
-22. "Page created" while the page silently stayed draft, and cache invalidation
-23. raced the second request. Include status in the createPage body (the backend
-24. schema already supports it) and drop the second call. Also accept status on
-25. the UI api client createPage body type.
-
-27. 4. Metadata updates did not broadcast wiki_page_updated (WARNING)
-28. updatePageMetadata only emitted wiki_page_updated on publish/unpublish, so
-29. tag and parent changes never reached other clients — their wiki trees/tags
-30. stayed stale. Emit wiki_page_updated on ANY successful metadata patch;
-31. wiki_coverage_changed remains gated to status transitions (only those move
-32. the watermark).
-
-34. 5. SSE search + signal-surface invalidation gaps (WARNING)
-35. wiki_page_created/_updated/_deleted invalidated page/list/version caches but
-36. not search results; pulse.signal_posted did not invalidate the wiki
-37. signal-surface tabs (Experience Signals + Engineering Findings are live
-38. queries over pulses and habitat_skill_signals). Invalidate the
-39. ["wiki","search",habitatId] prefix on wiki mutations and the
-40. ["wiki","signalSurface",habitatId] prefix from pulse.signal_posted.
-
-42. 6. MCP return-shape mismatches (WARNING)
-43. WikiClient typed deleteWikiPage/removeWikiPageLink as {deleted: true} and
-44. markNoUpdateNeeded as {created: true}, but the REST routes return
-45. {success: true} and {marker} respectively — consumers/tests got different
-46. JSON at runtime than the types promised. Align the WikiClient interface and
-47. KanbanApiClient to return {success: true} for the two deletes and the
-48. unwrapped WikiCoverageMarker for markNoUpdateNeeded (REST returns {marker};
-49. the client unwraps it, consistent with the other wiki methods).
-
-51. 7. Docs reconciliation (SUGGESTION)
-52. Remove the stale "18 MCP tools" README bullet (the current 20-tool bullet
-53. below it is authoritative). Update ARCHITECTURE's workflow section: the
-54. `sidetracked -> pitfall` stopgap note is obsolete now that `anti_patterns`
-55. ships in SkillCategory (v0.20.1); document `sidetracked -> anti_patterns`.
-56. Also fix the long-standing stale workflowEditorUtils test that asserted
-57. SELECTABLE_GATE_TYPES has 5 entries without on_automation, when v0.20.1
-58. shipped on_automation as the 6th — the suite is now fully green.
-
-60. 3509 API tests pass, 581 MCP tests pass, 1479 UI tests pass (the pre-existing
-61. workflowEditorUtils failure is now resolved — full green), typecheck clean
-62. across api/mcp/ui, lint 0 errors.
