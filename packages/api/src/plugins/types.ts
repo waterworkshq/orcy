@@ -9,6 +9,7 @@ import type {
   TaskWriter,
   HabitatReader,
   ChatIntegrationReader,
+  PluginEvaluationContext,
   InterceptorEvent,
   NotificationDelivery,
   NotificationEvent,
@@ -23,6 +24,7 @@ export interface PluginModule {
   interceptors?: Record<string, InterceptorHandler>;
   mcpHandlers?: Record<string, McpToolHandler>;
   formatters?: Record<string, FormatterHandler>;
+  conditions?: Record<string, ConditionHandler>;
   routeHandlers?: FastifyPluginCallback;
 }
 
@@ -61,6 +63,12 @@ export type FormatterHandler = (
   eventType: string,
   deliveryId: string,
 ) => object;
+
+/** Automation condition handler — synchronous evaluation returning match result (ADR-0022). */
+export type ConditionHandler = (
+  evaluationCtx: PluginEvaluationContext,
+  params: Record<string, unknown>,
+) => { matched: boolean; reason: string };
 
 /** Per-invocation context handed to every plugin handler. */
 export interface PluginContext {

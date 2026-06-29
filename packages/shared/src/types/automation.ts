@@ -44,7 +44,7 @@ export type AutomationConditionComparison =
   | "exists"
   | "not_exists";
 
-/** Recursive predicate tree evaluated against a trigger payload; supports boolean composition and field comparisons. */
+/** Recursive predicate tree evaluated against a trigger payload; supports boolean composition, field comparisons, and plugin-defined conditions (ADR-0022). */
 export type AutomationCondition =
   | { type: "always" }
   | { type: "and"; children: AutomationCondition[] }
@@ -63,7 +63,8 @@ export type AutomationCondition =
   | { type: "unassigned" }
   | { type: "overdue_by"; minutes: number }
   | { type: "label_contains"; label: string }
-  | { type: "domain_is"; domain: string };
+  | { type: "domain_is"; domain: string }
+  | { type: "plugin"; conditionId: string; params?: Record<string, unknown> };
 
 /** Discriminator for the concrete action a rule executes when its condition matches. */
 export type AutomationActionType =

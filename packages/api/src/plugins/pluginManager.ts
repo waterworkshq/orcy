@@ -16,7 +16,8 @@ type ContributionKind =
   | "lifecycleInterceptor"
   | "customMcpTool"
   | "customHttpRoute"
-  | "webhookFormatter";
+  | "webhookFormatter"
+  | "automationCondition";
 import type {
   PluginModule,
   PluginContext,
@@ -26,6 +27,7 @@ import type {
   InterceptorHandler,
   McpToolHandler,
   FormatterHandler,
+  ConditionHandler,
   PluginManifestView,
   EventSourceRef,
   InterceptorPreResult,
@@ -52,6 +54,7 @@ const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
   "customMcpTool",
   "customHttpRoute",
   "webhookFormatter",
+  "automationCondition",
 ]);
 
 /** The whitelisted capability names (ADR-0012 + ADR-0019 + ADR-0020). */
@@ -104,6 +107,9 @@ const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPolicy>> = 
   webhookFormatter: {
     allowed: [],
   },
+  automationCondition: {
+    allowed: [],
+  },
 };
 
 const loadedPlugins: Map<string, PluginModule> = new Map();
@@ -115,6 +121,7 @@ const channelRegistry: Map<
   { pluginId: string; handler: ChannelHandler; timeoutMs?: number }
 > = new Map();
 const formatterRegistry: Map<string, { pluginId: string; handler: FormatterHandler }> = new Map();
+const conditionRegistry: Map<string, { pluginId: string; handler: ConditionHandler }> = new Map();
 const detectorRegistry: Map<
   string,
   { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
@@ -268,6 +275,8 @@ function contributionLabel(c: Contribution): string {
       return c.path;
     case "webhookFormatter":
       return c.formatId;
+    case "automationCondition":
+      return c.conditionId;
   }
 }
 
@@ -297,6 +306,10 @@ function orphanHandler(c: Contribution, mod: PluginModule): string | null {
       return typeof mod.formatters?.[c.formatId] === "function"
         ? null
         : `webhookFormatter "${c.formatId}" declared but no matching handler in module.formatters`;
+    case "automationCondition":
+      return typeof mod.conditions?.[c.conditionId] === "function"
+        ? null
+        : `automationCondition "${c.conditionId}" declared but no matching handler in module.conditions`;
   }
 }
 
@@ -408,6 +421,15 @@ function detectIdCollisions(mod: PluginModule): string | null {
         return `formatId "${c.formatId}" already registered by another plugin`;
       }
     }
+    if (c.kind === "automationCondition") {
+      if (seenWithinManifest.has(`condition:${c.conditionId}`)) {
+        return `duplicate conditionId "${c.conditionId}" within manifest`;
+      }
+      seenWithinManifest.add(`condition:${c.conditionId}`);
+      if (conditionRegistry.has(c.conditionId)) {
+        return `conditionId "${c.conditionId}" already registered by another plugin`;
+      }
+    }
   }
   return null;
 }
@@ -440,6 +462,11 @@ function registerContributions(mod: PluginModule): void {
       formatterRegistry.set(c.formatId, {
         pluginId: mod.manifest.id,
         handler: mod.formatters[c.formatId],
+      });
+    } else if (c.kind === "automationCondition" && mod.conditions?.[c.conditionId]) {
+      conditionRegistry.set(c.conditionId, {
+        pluginId: mod.manifest.id,
+        handler: mod.conditions[c.conditionId],
       });
     }
   }
@@ -604,6 +631,14 @@ export function getChannelHandler(channelId: string): ChannelHandler | undefined
  */
 export function getFormatterHandler(formatId: string): FormatterHandler | undefined {
   return formatterRegistry.get(formatId)?.handler;
+}
+
+/**
+ * Returns the condition handler for a condition ID from the plugin registry, or `undefined`.
+ * The automation evaluator calls this when encountering a `{ type: "plugin" }` condition.
+ */
+export function getConditionHandler(conditionId: string): ConditionHandler | undefined {
+  return conditionRegistry.get(conditionId)?.handler;
 }
 
 /**
@@ -964,6 +999,7 @@ export function resetPlugins(): void {
   pluginDirectory = null;
   channelRegistry.clear();
   formatterRegistry.clear();
+  conditionRegistry.clear();
   detectorRegistry.clear();
   interceptorRegistry.pre.clear();
   interceptorRegistry.post.clear();

@@ -337,6 +337,8 @@ export type {
   CustomMcpToolContribution,
   CustomHttpRouteContribution,
   WebhookFormatterContribution,
+  AutomationConditionContribution,
+  PluginEvaluationContext,
   DetectorSourceEvent,
   InterceptorEvent,
   PluginCapabilityName,

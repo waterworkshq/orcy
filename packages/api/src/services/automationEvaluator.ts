@@ -8,8 +8,11 @@ import type {
   Habitat,
   Agent,
   Sprint,
+  PluginEvaluationContext,
+  PluginHabitatView,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
+import * as pluginManager from "../plugins/pluginManager.js";
 
 /** Maximum nesting depth allowed for recursive AND/OR/NOT condition trees before {@link ConditionDepthExceededError} is thrown. */
 export const MAX_CONDITION_DEPTH = 5;
@@ -124,6 +127,9 @@ export function evaluateCondition(
 
     case "domain_is":
       return evaluateDomainIs(condition.domain, ctx);
+
+    case "plugin":
+      return evaluatePluginCondition(condition, ctx);
 
     default:
       return {
@@ -366,6 +372,87 @@ function resolveFieldPath(path: string, ctx: AutomationEvaluationContext): unkno
     acc = (acc as Record<string, unknown>)[parts[i]];
   }
   return acc;
+}
+
+/**
+ * Evaluates a plugin-defined condition by dispatching to the registered handler.
+ * If no handler is registered for the conditionId, returns not-matched (fail-safe).
+ * Handler errors are caught and returned as not-matched — critical because
+ * gateConditionMatches runs on the workflow gate path where a throw would
+ * block transitions.
+ */
+function evaluatePluginCondition(
+  condition: Extract<AutomationCondition, { type: "plugin" }>,
+  ctx: AutomationEvaluationContext,
+): AutomationConditionResult {
+  const handler = pluginManager.getConditionHandler(condition.conditionId);
+  if (!handler) {
+    return {
+      matched: false,
+      conditionType: "plugin",
+      reason: `No plugin handler registered for conditionId "${condition.conditionId}"`,
+    };
+  }
+  try {
+    const pluginCtx = toPluginEvaluationContext(ctx);
+    const result = handler(pluginCtx, condition.params ?? {});
+    return {
+      matched: result.matched,
+      conditionType: "plugin",
+      reason: result.reason,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      matched: false,
+      conditionType: "plugin",
+      reason: `Plugin condition "${condition.conditionId}" threw: ${message}`,
+    };
+  }
+}
+
+/** Projects the internal evaluation context into the stripped plugin-safe view (ADR-0022). */
+function toPluginEvaluationContext(ctx: AutomationEvaluationContext): PluginEvaluationContext {
+  return {
+    habitat: ctx.habitat
+      ? {
+          id: ctx.habitat.id,
+          name: ctx.habitat.name,
+          description: ctx.habitat.description,
+          teamId: ctx.habitat.teamId,
+          createdAt: ctx.habitat.createdAt,
+          updatedAt: ctx.habitat.updatedAt,
+        }
+      : null,
+    task: ctx.task,
+    mission: ctx.mission
+      ? {
+          id: ctx.mission.id,
+          title: ctx.mission.title,
+          status: ctx.mission.status,
+          habitatId: ctx.mission.habitatId,
+          sprintId: ctx.mission.sprintId ?? null,
+        }
+      : null,
+    agent: ctx.agent
+      ? {
+          id: ctx.agent.id,
+          name: ctx.agent.name,
+          type: ctx.agent.type,
+          domain: ctx.agent.domain,
+          status: ctx.agent.status,
+        }
+      : null,
+    sprint: ctx.sprint
+      ? {
+          id: ctx.sprint.id,
+          name: ctx.sprint.name,
+          status: ctx.sprint.status,
+          habitatId: ctx.sprint.habitatId,
+        }
+      : null,
+    raw: ctx.raw,
+  };
 }
 
 /** Outcome of validating an automation rule's structure and action configuration. */

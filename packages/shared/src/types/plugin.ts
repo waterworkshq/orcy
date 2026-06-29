@@ -45,7 +45,8 @@ export type Contribution =
   | LifecycleInterceptorContribution
   | CustomMcpToolContribution
   | CustomHttpRouteContribution
-  | WebhookFormatterContribution;
+  | WebhookFormatterContribution
+  | AutomationConditionContribution;
 
 /** System-scoped notification delivery channel (e.g. Microsoft Teams webhook). */
 export interface NotificationChannelContribution {
@@ -113,6 +114,32 @@ export interface WebhookFormatterContribution {
   label: string;
   timeoutMs?: number;
   requires: [];
+}
+
+/** System-scoped automation condition evaluator (ADR-0022). Extends the automation rule condition tree with plugin-defined leaf conditions. */
+export interface AutomationConditionContribution {
+  kind: "automationCondition";
+  scope: "system";
+  conditionId: string;
+  label: string;
+  description: string;
+  requires: [];
+}
+
+/** Stripped evaluation context view for plugin condition handlers (ADR-0022). Agent apiKeyHash and rateLimitPerMinute are stripped. */
+export interface PluginEvaluationContext {
+  habitat: PluginHabitatView | null;
+  task: Task | null;
+  mission: {
+    id: string;
+    title: string;
+    status: string;
+    habitatId: string;
+    sprintId: string | null;
+  } | null;
+  agent: { id: string; name: string; type: string; domain: string | null; status: string } | null;
+  sprint: { id: string; name: string; status: string; habitatId: string } | null;
+  raw: Record<string, unknown>;
 }
 
 /** Read-only view of a Pulse (inter-agent signal) exposed to plugin detectors. */
