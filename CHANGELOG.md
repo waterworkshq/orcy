@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.12 — 2026-06-29
+
+### Bug Fixes
+
+#### shared write cap counter, action quarantine, PluginRun type widening ([`06c37aa`](https://github.com/waterworkshq/orcy/commit/06c37aa5622974d2f51138eb3dba21db21823dc7))
+
+1. Code review fixes for the plugin extraction arc (v0.22.8–v0.22.11):
+
+
+
 ## 0.22.11 — 2026-06-29
 
 ### Features
@@ -69,33 +79,3 @@
 
 23. Reference plugin: condition-rejection-spike (matches tasks with N+
 24. rejections, demonstrates params passing).
-
-
-
-## 0.22.9 — 2026-06-29
-
-### Features
-
-#### webhook formatter contribution kind + 3 reference plugins ([`e025ceb`](https://github.com/waterworkshq/orcy/commit/e025ceb61d055cb924cd5fbf796939d313b96752))
-
-1. First extraction using the v0.22.8 foundation (ADR-0021):
-
-3. Add webhookFormatter as 6th contribution kind (system-scoped, pure
-4. function handlers with no PluginContext — mirrors McpToolHandler
-5. pattern). Handlers transform (enrichment, eventType, deliveryId)
-6. into a provider-specific payload object.
-
-8. Add formatterRegistry to pluginManager with getFormatterHandler()
-9. export. Plugin-first lookup in webhook-dispatch.ts formatPayload()
-10. with in-tree FORMATTER_REGISTRY as backward-compat fallback (gradual
-11. migration, same pattern as notification channels).
-
-13. 3 reference plugins: formatter-standard, formatter-slack,
-14. formatter-discord — thin wrappers calling existing in-tree
-15. formatXxxPayload functions.
-
-17. Data-driven CAPABILITY_MATRIX entry: webhookFormatter has empty
-18. allowed list (no capabilities needed).
-
-20. Mock pluginManager in 2 webhook test files to prevent transitive
-21. schema import chain from breaking existing mocks.
