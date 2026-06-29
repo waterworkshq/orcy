@@ -57,6 +57,7 @@ const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapa
   "commentReader",
   "taskReader",
   "habitatReader",
+  "chatIntegrationReader",
 ]);
 
 /** Capabilities a signalDetector may require. */

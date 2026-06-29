@@ -7,6 +7,7 @@ import type {
   CommentReader,
   TaskReader,
   HabitatReader,
+  ChatIntegrationReader,
   InterceptorEvent,
   NotificationDelivery,
   NotificationEvent,
@@ -67,6 +68,7 @@ export interface PluginContext {
   commentReader?: CommentReader;
   taskReader?: TaskReader;
   habitatReader?: HabitatReader;
+  chatIntegrationReader?: ChatIntegrationReader;
 }
 
 /** Structured logger scoped to a single plugin invocation. */

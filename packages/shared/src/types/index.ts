@@ -349,6 +349,8 @@ export type {
   CommentReader,
   TaskReader,
   HabitatReader,
+  ChatIntegrationView,
+  ChatIntegrationReader,
   PluginRunStatus,
   PluginEnrollment,
   PluginEnrollmentInput,

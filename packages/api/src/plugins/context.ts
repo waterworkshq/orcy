@@ -5,6 +5,8 @@ import type {
   CommentReader,
   TaskReader,
   HabitatReader,
+  ChatIntegrationView,
+  ChatIntegrationReader,
   PluginHabitatView,
   ScopedComment,
   PluginCapabilityName,
@@ -17,6 +19,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/board.js";
+import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
 import { logger as rootLogger } from "../lib/logger.js";
 
 /**
@@ -52,6 +55,8 @@ export function buildPluginContext(opts: {
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
   if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
   if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
+  if (has("chatIntegrationReader"))
+    ctx.chatIntegrationReader = buildChatIntegrationReader(habitatId);
 
   return ctx;
 }
@@ -227,5 +232,21 @@ function toPluginHabitatView(h: {
     teamId: h.teamId,
     createdAt: h.createdAt,
     updatedAt: h.updatedAt,
+  };
+}
+
+/** Scopes chat integration reads to the contribution's bound habitat; strips botToken (ADR-0019). */
+function buildChatIntegrationReader(habitatId: string | null): ChatIntegrationReader {
+  return {
+    getEnabledByHabitat: (queryHabitatId) => {
+      if (queryHabitatId !== habitatId) return Promise.resolve([]);
+      const integrations = chatIntegrationRepo.getEnabledIntegrationsByHabitat(queryHabitatId);
+      const views: ChatIntegrationView[] = integrations.map((i) => ({
+        provider: i.provider,
+        webhookUrl: i.webhookUrl,
+        channelId: i.channelId,
+      }));
+      return Promise.resolve(views);
+    },
   };
 }

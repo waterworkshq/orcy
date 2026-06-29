@@ -34,7 +34,8 @@ export type PluginCapabilityName =
   | "pulseWriter"
   | "commentReader"
   | "taskReader"
-  | "habitatReader";
+  | "habitatReader"
+  | "chatIntegrationReader";
 
 /** Discriminated union of the five contribution kinds a plugin may declare (ADR-0011). */
 export type Contribution =
@@ -52,7 +53,7 @@ export interface NotificationChannelContribution {
   label: string;
   configSchema?: ZodObjectAny;
   timeoutMs?: number;
-  requires: [];
+  requires: PluginCapabilityName[];
 }
 
 /** Habitat-scoped detector that observes source events and emits `detected` signals (ADR-0015). */
@@ -192,6 +193,18 @@ export interface TaskReader {
 /** Read surface for the stripped habitat projection. */
 export interface HabitatReader {
   getHabitat(habitatId: string): Promise<PluginHabitatView | null>;
+}
+
+/** Stripped projection of a chat integration — no botToken (ADR-0019 security boundary). */
+export interface ChatIntegrationView {
+  provider: "slack" | "discord";
+  webhookUrl: string;
+  channelId: string | null;
+}
+
+/** Read surface for habitat-scoped chat integrations (ADR-0019). Enables notification channel plugins to resolve per-habitat webhook URLs. */
+export interface ChatIntegrationReader {
+  getEnabledByHabitat(habitatId: string): Promise<ChatIntegrationView[]>;
 }
 
 /** Lifecycle state of a plugin run (ADR-0016 state machine). */
