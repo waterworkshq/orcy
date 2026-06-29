@@ -180,25 +180,25 @@ function capabilityMatrixViolation(c: Contribution): string | null {
 function orphanHandler(c: Contribution, mod: PluginModule): string | null {
   switch (c.kind) {
     case "notificationChannel":
-      return mod.channels?.[c.channelId]
+      return typeof mod.channels?.[c.channelId] === "function"
         ? null
         : `notificationChannel "${c.channelId}" declared but no matching handler in module.channels`;
     case "signalDetector":
-      return mod.detectors?.[c.detectorId]
+      return typeof mod.detectors?.[c.detectorId] === "function"
         ? null
         : `signalDetector "${c.detectorId}" declared but no matching handler in module.detectors`;
     case "lifecycleInterceptor":
-      return mod.interceptors?.[c.interceptorId]
+      return typeof mod.interceptors?.[c.interceptorId] === "function"
         ? null
         : `lifecycleInterceptor "${c.interceptorId}" declared but no matching handler in module.interceptors`;
     case "customMcpTool":
-      return mod.mcpHandlers?.[c.toolName]
+      return typeof mod.mcpHandlers?.[c.toolName] === "function"
         ? null
         : `customMcpTool "${c.toolName}" declared but no matching handler in module.mcpHandlers`;
     case "customHttpRoute":
-      return mod.routeHandlers
+      return typeof mod.routeHandlers === "function"
         ? null
-        : `customHttpRoute declared but module.routeHandlers is missing`;
+        : `customHttpRoute declared but module.routeHandlers is missing or not a function`;
   }
 }
 
@@ -273,15 +273,33 @@ async function loadPluginFromPath(pluginPath: string, name: string): Promise<Plu
 }
 
 function detectIdCollisions(mod: PluginModule): string | null {
+  const seenWithinManifest = new Set<string>();
   for (const c of mod.manifest.contributions) {
-    if (c.kind === "notificationChannel" && channelRegistry.has(c.channelId)) {
-      return `channelId "${c.channelId}" already registered by another plugin`;
+    if (c.kind === "notificationChannel") {
+      if (seenWithinManifest.has(`channel:${c.channelId}`)) {
+        return `duplicate channelId "${c.channelId}" within manifest`;
+      }
+      seenWithinManifest.add(`channel:${c.channelId}`);
+      if (channelRegistry.has(c.channelId)) {
+        return `channelId "${c.channelId}" already registered by another plugin`;
+      }
     }
     if (c.kind === "signalDetector") {
       const key = `${mod.manifest.id}:${c.detectorId}`;
+      if (seenWithinManifest.has(`detector:${c.detectorId}`)) {
+        return `duplicate detectorId "${c.detectorId}" within manifest`;
+      }
+      seenWithinManifest.add(`detector:${c.detectorId}`);
       if (detectorRegistry.has(key)) {
         return `detectorId "${c.detectorId}" already registered`;
       }
+    }
+    if (c.kind === "lifecycleInterceptor") {
+      const withinKey = `interceptor:${c.interceptorId}:${c.phase}:${c.event}`;
+      if (seenWithinManifest.has(withinKey)) {
+        return `duplicate interceptorId "${c.interceptorId}" (${c.phase}/${c.event}) within manifest`;
+      }
+      seenWithinManifest.add(withinKey);
     }
   }
   return null;
@@ -383,7 +401,7 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
     }
   }
 
-  loadEnrollmentCacheForAllHabitats();
+  enrollmentCache.clear();
 }
 
 function parseEnabledFromEnv(): string[] {
@@ -393,20 +411,6 @@ function parseEnabledFromEnv(): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-function loadEnrollmentCacheForAllHabitats(): void {
-  enrollmentCache.clear();
-  try {
-    const seen = new Set<string>();
-    for (const [, entry] of detectorRegistry) {
-      const key = `${entry.pluginId}:${entry.contribution.detectorId}`;
-      seen.add(key);
-    }
-    void seen;
-  } catch (err) {
-    logger.warn({ err }, "Failed to preload enrollment cache");
-  }
 }
 
 export async function initializePlugins(fastify: FastifyInstance): Promise<void> {
@@ -431,11 +435,10 @@ export function getLoadedPlugins(): PluginManifestView[] {
       id: mod.manifest.id,
       version: mod.manifest.version,
       description: mod.manifest.description,
-      enabled: true,
     });
   }
   for (const [name, error] of pluginErrors) {
-    result.push({ id: name, version: "0.0.0", description: "", enabled: false, error });
+    result.push({ id: name, version: "0.0.0", description: "", error });
   }
   return result;
 }
@@ -544,12 +547,15 @@ export function runPreInterceptors(
   const list = interceptorRegistry.pre.get(event) ?? [];
   for (const entry of list) {
     if (!isEnrolled(habitatId, `${entry.pluginId}:${entry.contribution.interceptorId}`)) continue;
-    const runId = cryptoRandom();
+    // Pre-interceptors are synchronous validation gates (ADR-0014). They don't get run
+    // tracking (no startRun/finishRun) because they're sub-millisecond synchronous checks
+    // that never need audit telemetry — the post-interceptor path handles that. A
+    // deterministic log correlation ID is used instead of a DB runId.
     const ctx = buildPluginContext({
       pluginId: entry.pluginId,
       contributionId: entry.contribution.interceptorId,
       habitatId,
-      runId,
+      runId: `pre:${entry.pluginId}:${entry.contribution.interceptorId}:${taskId}:${event}`,
       requires: entry.contribution.requires,
     });
     ctx.transition = { taskId, action: event, habitatId, context };
@@ -566,14 +572,6 @@ export function runPreInterceptors(
         );
       } else {
         const settled = raw as InterceptorPreResult;
-        void runRepo.startRun({
-          habitatId,
-          pluginId: entry.pluginId,
-          contributionId: entry.contribution.interceptorId,
-          contributionKind: "lifecycleInterceptor",
-          triggerEventId: taskId,
-          triggerType: `${event}:pre`,
-        });
         if (settled && settled.allow === false) {
           return { allow: false, reason: settled.reason, details: settled.details };
         }
@@ -657,17 +655,20 @@ async function dispatchInterceptorRun(
  * Fire-and-forget detector dispatch. Checks enrollment, quarantine, rate limit,
  * and per-habitat concurrency before invoking each eligible detector handler.
  */
-export function dispatchDetectionEvent(kind: EventSourceRef["kind"], ref: EventSourceRef): void {
+export function dispatchDetectionEvent(kind: EventSourceRef["kind"], ref: EventSourceRef): boolean {
+  let dispatched = false;
   for (const [key, entry] of detectorRegistry) {
     if (entry.contribution.detects !== kind) continue;
     if (!isEnrolled(ref.habitatId, key)) continue;
     if (quarantineSet.has(key)) continue;
     if (isRateLimited(key)) continue;
     if (!acquireConcurrencySlot(ref.habitatId)) continue;
+    dispatched = true;
     void runDetector(entry, ref).catch((err) => {
       logger.error({ err, pluginId: entry.pluginId }, "Detector run failed");
     });
   }
+  return dispatched;
 }
 
 async function runDetector(
@@ -698,7 +699,7 @@ async function runDetector(
     runRepo.finishRun(run.id, "succeeded", signals.length);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    incrementError(entry.pluginId);
+    incrementError(`${entry.pluginId}:${entry.contribution.detectorId}`);
     runRepo.finishRun(run.id, "failed", undefined, message);
   } finally {
     releaseConcurrencySlot(ref.habitatId);
@@ -780,6 +781,7 @@ function isRateLimited(pluginKey: string): boolean {
 
 function incrementError(pluginKey: string): void {
   const now = Date.now();
+  const pluginId = pluginKey.split(":")[0];
   const entry = errorCounters.get(pluginKey);
   if (!entry || now - entry.windowStart > 60_000) {
     errorCounters.set(pluginKey, { count: 1, windowStart: now });
@@ -794,7 +796,7 @@ function incrementError(pluginKey: string): void {
     try {
       quarantineRepo.upsert(
         pluginKey,
-        pluginKey.split(":")[0],
+        pluginId,
         `Error threshold reached (${entry.count} errors in 60s)`,
       );
     } catch (err) {
@@ -803,7 +805,7 @@ function incrementError(pluginKey: string): void {
     // Emit plugin.quarantined SSE to every habitat with this plugin enrolled so
     // the loader cache invalidates and the UI can surface quarantine state.
     try {
-      const enrollments = enrollmentRepo.listByPlugin(pluginKey);
+      const enrollments = enrollmentRepo.listByPlugin(pluginId);
       const habitats = new Set(enrollments.map((e) => e.habitatId));
       for (const habitatId of habitats) {
         sseBroadcaster.publish(habitatId, {
@@ -827,7 +829,12 @@ function acquireConcurrencySlot(habitatId: string): boolean {
 
 function releaseConcurrencySlot(habitatId: string): void {
   const current = activeRuns.get(habitatId) ?? 0;
-  activeRuns.set(habitatId, Math.max(0, current - 1));
+  const next = Math.max(0, current - 1);
+  if (next === 0) {
+    activeRuns.delete(habitatId);
+  } else {
+    activeRuns.set(habitatId, next);
+  }
 }
 
 function cryptoRandom(): string {

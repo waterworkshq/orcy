@@ -9,6 +9,7 @@ import type {
   ScopedComment,
   PluginCapabilityName,
 } from "@orcy/shared";
+import { detectedMetadataSchema } from "@orcy/shared";
 import type { PluginContext, PluginLogger, PluginAudit, AuditPayload } from "./types.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as pulseService from "../services/pulseService.js";
@@ -106,6 +107,14 @@ function buildPulseWriter(pluginId: string, runId: string, habitatId: string | n
         detector: pluginId,
         detectorRunId: runId,
       };
+      // Validate the merged metadata against the detected-signal schema (defense-in-depth,
+      // ADR-0013). The server injects detected/detector/detectorRunId, so this should always
+      // pass — but if a future refactor lets caller-supplied metadata override the stamped
+      // fields, this catches it.
+      const metaParse = detectedMetadataSchema.safeParse(merged);
+      if (!metaParse.success) {
+        throw new Error(`Detected signal metadata failed validation: ${metaParse.error.message}`);
+      }
       // Route through pulseService.createPulseAndNotify (not pulseRepo.createPulse directly) so
       // pulseCreatedHooks fire (skill ingestion via habitatSkillService.ingestFromPulse, detector
       // dispatch via pluginManager.registerDetectorHooks) AND broadcastPulse emits the SSE event

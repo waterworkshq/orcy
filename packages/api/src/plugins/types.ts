@@ -137,6 +137,5 @@ export interface PluginManifestView {
   id: string;
   version: string;
   description: string;
-  enabled: boolean;
   error?: string;
 }

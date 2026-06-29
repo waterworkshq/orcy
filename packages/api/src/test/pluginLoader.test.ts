@@ -42,7 +42,7 @@ describe("pluginLoader: manifest validation", () => {
       "valid",
       `{ manifest: { id: 'valid', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'valid-ch', label: 'l', requires: [] }] }, channels: { 'valid-ch': async () => ({ success: true }) } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(true);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeUndefined();
     await cleanup(dir);
   });
 
@@ -51,7 +51,7 @@ describe("pluginLoader: manifest validation", () => {
       "no-id",
       `{ manifest: { id: '', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'c', label: 'l', requires: [] }] }, channels: { c: async () => ({ success: true }) } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(false);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeDefined();
     await cleanup(dir);
   });
 
@@ -60,7 +60,7 @@ describe("pluginLoader: manifest validation", () => {
       "empty",
       `{ manifest: { id: 'empty', version: '1.0.0', description: 'x', contributions: [] } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(false);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeDefined();
     await cleanup(dir);
   });
 
@@ -69,7 +69,7 @@ describe("pluginLoader: manifest validation", () => {
       "badkind",
       `{ manifest: { id: 'badkind', version: '1.0.0', description: 'x', contributions: [{ kind: 'fake', requires: [] }] } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(false);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeDefined();
     await cleanup(dir);
   });
 
@@ -92,7 +92,7 @@ describe("pluginLoader: capability enforcement", () => {
       "det-bad",
       `{ manifest: { id: 'det-bad', version: '1.0.0', description: 'x', contributions: [{ kind: 'signalDetector', scope: 'habitat', detectorId: 'd', label: 'l', detects: 'pulseCreated', rateLimitDefaults: { maxDetectionsPerMinute: 1, maxSignalsPerHour: 1 }, requires: ['habitatReader'] }] }, detectors: { d: async () => [] } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(false);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeDefined();
     await cleanup(dir);
   });
 
@@ -102,7 +102,7 @@ describe("pluginLoader: capability enforcement", () => {
       `{ manifest: { id: 'pre-bad', version: '1.0.0', description: 'x', contributions: [{ kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'i', phase: 'pre', event: 'taskCreated', priority: 0, requires: ['pulseWriter'] }] }, interceptors: { i: async () => ({ allow: true }) } }`,
     );
     const entry = pluginManager.getLoadedPlugins()[0];
-    expect(entry.enabled).toBe(false);
+    expect(entry.error).toBeDefined();
     expect(entry.error).toContain("pulseWriter");
     await cleanup(dir);
   });
@@ -112,7 +112,7 @@ describe("pluginLoader: capability enforcement", () => {
       "post-ok",
       `{ manifest: { id: 'post-ok', version: '1.0.0', description: 'x', contributions: [{ kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'i', phase: 'post', event: 'taskCreated', priority: 0, requires: ['pulseWriter'] }] }, interceptors: { i: async () => ({ signals: [] }) } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(true);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeUndefined();
     await cleanup(dir);
   });
 });
@@ -126,7 +126,7 @@ describe("pluginLoader: old KanbanPlugin shape refusal", () => {
       "legacy",
       `{ name: 'legacy', version: '1.0.0', hooks: { onTaskCreated: () => {} } }`,
     );
-    expect(pluginManager.getLoadedPlugins()[0].enabled).toBe(false);
+    expect(pluginManager.getLoadedPlugins()[0].error).toBeDefined();
     await cleanup(dir);
   });
 });

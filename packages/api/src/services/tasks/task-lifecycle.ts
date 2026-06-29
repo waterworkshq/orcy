@@ -330,7 +330,8 @@ export function completeTask(
   }
 
   // Pre-interceptor seam (ADR-0014): veto before the completion DB write.
-  // Event is `taskApproved` because ACTION_EFFECTS maps completed → emitTaskApproved.
+  // Event is `taskApproved` because completeTask intentionally shares the taskApproved
+  // interceptor event with approveTask — both reach a terminal "done-ish" state.
   {
     const preHabitatId = getHabitatId(current);
     const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", preHabitatId, {
@@ -363,7 +364,7 @@ export function completeTask(
   });
 
   // Post-interceptor seam (ADR-0014): fire-and-forget after the transition.
-  // Event is `taskApproved` per ACTION_EFFECTS mapping (completed → emitTaskApproved).
+  // Event is `taskApproved` (shared with approveTask — both reach a terminal state).
   pluginManager.runPostInterceptors(taskId, "taskApproved", habitatId, {
     actorType: "agent",
     actorId: agentId,

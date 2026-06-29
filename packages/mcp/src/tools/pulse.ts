@@ -51,6 +51,11 @@ export async function pulsePost(
     experience?: ExperienceCategory;
   },
 ) {
+  if (args.signalType === "detected") {
+    throw new Error(
+      "signalType 'detected' is reserved for plugin detector output and cannot be posted by agents",
+    );
+  }
   if (args.signalType === "experience" && !args.experience) {
     throw new Error("experience is required when signalType='experience'");
   }

@@ -112,41 +112,60 @@ export function runScan(): void {
     let totalDispatched = 0;
 
     for (const enrollment of detectors) {
-      const detectorKey = `${enrollment.pluginId}:${enrollment.contributionId}`;
-      const detectorEntry = pluginManager.getDetectorEntry(detectorKey);
-      if (!detectorEntry) continue;
+      try {
+        const detectorKey = `${enrollment.pluginId}:${enrollment.contributionId}`;
+        const detectorEntry = pluginManager.getDetectorEntry(detectorKey);
+        if (!detectorEntry) continue;
 
-      const detects = detectorEntry.contribution.detects;
-      const since = enrollment.lastScannedAt ?? enrollment.enrolledAt;
+        const detects = detectorEntry.contribution.detects;
+        const since = enrollment.lastScannedAt ?? enrollment.enrolledAt;
 
-      const missedEvents = queryMissedEvents(detects, enrollment.habitatId, since);
-      if (missedEvents.length === 0) {
-        enrollmentRepo.updateLastScannedAt(enrollment.id, now);
-        continue;
-      }
-
-      let dispatched = 0;
-      for (const ref of missedEvents) {
-        if (
-          runRepo.existsForTriggerEvent(
-            enrollment.pluginId,
-            enrollment.contributionId,
-            ref.sourceId,
-          )
-        ) {
+        const missedEvents = queryMissedEvents(detects, enrollment.habitatId, since);
+        if (missedEvents.length === 0) {
+          enrollmentRepo.updateLastScannedAt(enrollment.id, now);
           continue;
         }
-        pluginManager.dispatchDetectionEvent(detects, ref);
-        dispatched++;
-      }
 
-      enrollmentRepo.updateLastScannedAt(enrollment.id, now);
-      totalDispatched += dispatched;
+        let dispatched = 0;
+        let allProcessed = true;
+        for (const ref of missedEvents) {
+          if (
+            runRepo.existsForTriggerEvent(
+              enrollment.pluginId,
+              enrollment.contributionId,
+              ref.sourceId,
+            )
+          ) {
+            continue;
+          }
+          const ok = pluginManager.dispatchDetectionEvent(detects, ref);
+          if (ok) {
+            dispatched++;
+          } else {
+            // Event was dropped (quarantine/rate-limit/concurrency cap). Don't advance
+            // the watermark past it — the next scan will retry.
+            allProcessed = false;
+          }
+        }
 
-      if (dispatched > 0) {
-        logger.info(
-          { pluginId: enrollment.pluginId, contributionId: enrollment.contributionId, dispatched },
-          "Detector catch-up scan dispatched missed events",
+        // Only advance the watermark if every eligible event was either already-processed
+        // (dedup) or successfully dispatched. Dropped events stay behind the watermark.
+        if (allProcessed) {
+          enrollmentRepo.updateLastScannedAt(enrollment.id, now);
+        }
+        totalDispatched += dispatched;
+
+        if (dispatched > 0) {
+          logger.info(
+            { pluginId: enrollment.pluginId, contributionId: enrollment.contributionId, dispatched },
+            "Detector catch-up scan dispatched missed events",
+          );
+        }
+      } catch (err) {
+        // Per-detector error — don't abort the entire scan for other detectors.
+        logger.error(
+          { err, pluginId: enrollment.pluginId, contributionId: enrollment.contributionId },
+          "Detector catch-up scan failed for this enrollment",
         );
       }
     }

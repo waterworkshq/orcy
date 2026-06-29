@@ -364,6 +364,12 @@ export function reclassifyCategory(signal: HabitatSkillSignal): SkillCategory {
   ) {
     return "domain_knowledge";
   }
+  // Detected signals must NEVER be promoted to "pattern" — they are plugin-attributed,
+  // not agent-observed, and must stay categorically distinct so v0.23 triage can weight
+  // them differently (ADR-0013).
+  if (signal.skillCategory === "detected_patterns") {
+    return "detected_patterns";
+  }
   if (signal.frequency >= 3 && signal.crossMissionCount >= 2) {
     return "pattern";
   }
@@ -453,6 +459,7 @@ export function generateSkillDocument(habitatId: string): string {
     antiPatterns: signals.filter((s) => s.skillCategory === "anti_patterns"),
     domain: signals.filter((s) => s.skillCategory === "domain_knowledge"),
     insights: signals.filter((s) => s.skillCategory === "agent_insight"),
+    detectedPatterns: signals.filter((s) => s.skillCategory === "detected_patterns"),
   };
 
   const avgStrength =
@@ -478,6 +485,7 @@ export function generateSkillDocument(habitatId: string): string {
   renderSection("Anti-Patterns", sections.antiPatterns);
   renderSection("Domain Knowledge", sections.domain);
   renderSection("Agent Insights", sections.insights);
+  renderSection("Plugin-Detected Patterns", sections.detectedPatterns);
 
   return md;
 }

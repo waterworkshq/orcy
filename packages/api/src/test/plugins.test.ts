@@ -45,7 +45,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
       expect(loaded[0].id).toBe("view-test");
       expect(loaded[0].version).toBe("1.0.0");
       expect(loaded[0].description).toBe("test plugin");
-      expect(loaded[0].enabled).toBe(true);
+      expect(loaded[0].error).toBeUndefined();
       await cleanup(dir);
     });
   });
@@ -64,7 +64,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
       );
       const loaded = pluginManager.getLoadedPlugins();
       expect(loaded).toHaveLength(1);
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       expect(loaded[0].error).toBeTruthy();
       await cleanup(dir);
     });
@@ -75,7 +75,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'empty-contrib', version: '1.0.0', description: 'x', contributions: [] } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       await cleanup(dir);
     });
 
@@ -85,7 +85,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'bad-kind', version: '1.0.0', description: 'x', contributions: [{ kind: 'mystery', requires: [] }] } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       await cleanup(dir);
     });
 
@@ -95,7 +95,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'orphan', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'orphan-ch', label: 'x', requires: [] }] } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       expect(loaded[0].error).toContain("no matching handler");
       await cleanup(dir);
     });
@@ -106,7 +106,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'wrong-name', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'c', label: 'l', requires: [] }] }, channels: { c: async () => ({ success: true }) } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       expect(loaded[0].error).toContain("mismatch");
       await cleanup(dir);
     });
@@ -119,7 +119,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'bad-cap', version: '1.0.0', description: 'x', contributions: [{ kind: 'signalDetector', scope: 'habitat', detectorId: 'd1', label: 'l', detects: 'pulseCreated', rateLimitDefaults: { maxDetectionsPerMinute: 10, maxSignalsPerHour: 100 }, requires: ['habitatReader'] }] }, detectors: { d1: async () => [] } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       await cleanup(dir);
     });
 
@@ -129,7 +129,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'bad-pre', version: '1.0.0', description: 'x', contributions: [{ kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'i1', phase: 'pre', event: 'taskCreated', priority: 0, requires: ['pulseWriter'] }] }, interceptors: { i1: async () => ({ allow: true }) } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       expect(loaded[0].error).toContain("pulseWriter");
       await cleanup(dir);
     });
@@ -140,7 +140,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ manifest: { id: 'bad-chan', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'c', label: 'l', requires: ['pulseReader'] }] } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       await cleanup(dir);
     });
   });
@@ -156,7 +156,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
       await writeFile(`${tmpDir}/plugin-b.mjs`, mk("plugin-b"));
       pluginManager.setPluginDirectory(tmpDir);
       await pluginManager.loadPlugins();
-      const loaded = pluginManager.getLoadedPlugins().filter((p) => p.enabled);
+      const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
       expect(loaded).toHaveLength(1);
       await cleanup(tmpDir);
     });
@@ -169,7 +169,7 @@ describe("Plugin Manager (v0.22 manifest contract)", () => {
         `{ name: 'legacy', version: '1.0.0', hooks: { onTaskCreated: () => {} } }`,
       );
       const loaded = pluginManager.getLoadedPlugins();
-      expect(loaded[0].enabled).toBe(false);
+      expect(loaded[0].error).toBeDefined();
       await cleanup(dir);
     });
   });
