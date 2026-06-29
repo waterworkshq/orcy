@@ -2,6 +2,39 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.10 — 2026-06-29
+
+### Features
+
+#### automation condition contribution kind + reference plugin ([`9abc949`](https://github.com/waterworkshq/orcy/commit/9abc949ba4889f5ee4e904941bba642b92c3cc4d))
+
+1. Second extraction using the v0.22.8 foundation (ADR-0022):
+
+3. Add 'plugin' variant to AutomationCondition union: { type: plugin,
+4. conditionId, params }. Plugin conditions are leaf nodes in the recursive
+5. condition tree (and/or/not composition stays in-tree).
+
+7. Add automationCondition as 7th contribution kind (system-scoped, no
+8. capabilities, no enrollment — condition handlers are stateless pure
+9. functions, the automation rule provides per-habitat scoping).
+
+11. Condition handlers are SYNCHRONOUS (evaluator + all callers are sync).
+12. No PluginContext — evaluation context passed directly as argument
+13. (same pattern as formatters).
+
+15. PluginEvaluationContext strips agent apiKeyHash/rateLimitPerMinute,
+16. uses PluginHabitatView for habitat, minimal projections for
+17. mission/sprint. Task passed as-is (no auth-bearing fields).
+
+19. Fail-safe contract: missing handler or handler error returns
+20. { matched: false } — critical because evaluateCondition runs on the
+21. workflow gate evaluation path where a throw would block transitions.
+
+23. Reference plugin: condition-rejection-spike (matches tasks with N+
+24. rejections, demonstrates params passing).
+
+
+
 ## 0.22.9 — 2026-06-29
 
 ### Features
@@ -55,24 +88,3 @@
 15. structured logging, rate cap (ORCY_PLUGIN_WRITE_CAP default 50).
 16. Ships DORMANT — no contribution kind in CAPABILITY_MATRIX allows it
 17. yet; unreachable until v0.22.11 wires it into automationAction.
-
-
-
-## 0.22.7 — 2026-06-29
-
-### Bug Fixes
-
-#### path traversal guard, timeout suppressor, scan sourceId, null habitat guard ([`98aa8e7`](https://github.com/waterworkshq/orcy/commit/98aa8e73da4118a0d609b28572c641453bf5974e))
-
-1. v0.22.7 Loose Ends — final TIER 3 cleanup from v0.22 code review:
-
-3. W19: realpath check in loadPlugins prevents symlink path traversal
-4. W20: withTimeout .catch suppressor prevents unhandledRejection
-5. W21: createDetectedSignal throws on null habitatId (was invalid FK)
-6. W22: createPulseAndNotify broadcast contract documented in JSDoc
-7. W23: task event sourceId now taskId:action (consistent live + scan)
-8. W24: InterceptorVeto.details widened to string | Record<string, unknown>
-
-10. API 3612 pass / 2 skipped, MCP 581 pass.
-
-12. v0.22 code review complete: 9 CRITICAL + 15 WARNING + 6 TIER 3 resolved.
