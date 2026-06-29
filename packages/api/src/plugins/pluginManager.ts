@@ -35,6 +35,7 @@ import { pathToFileURL } from "node:url";
 import { logger } from "../lib/logger.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
+import * as quarantineRepo from "../repositories/pluginQuarantine.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as pulseService from "../services/pulseService.js";
 import * as taskLifecycle from "../services/tasks/task-lifecycle.js";
@@ -70,7 +71,10 @@ const loadedPlugins: Map<string, PluginModule> = new Map();
 const pluginErrors: Map<string, string> = new Map();
 let pluginDirectory: string | null = null;
 
-const channelRegistry: Map<string, { pluginId: string; handler: ChannelHandler }> = new Map();
+const channelRegistry: Map<
+  string,
+  { pluginId: string; handler: ChannelHandler; timeoutMs?: number }
+> = new Map();
 const detectorRegistry: Map<
   string,
   { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
@@ -98,6 +102,34 @@ const enrollmentCache: Map<string, Set<string>> = new Map();
 const quarantineSet: Set<string> = new Set();
 const errorCounters: Map<string, { count: number; windowStart: number }> = new Map();
 const activeRuns: Map<string, number> = new Map();
+
+/** Default timeoutMs per contribution kind when the manifest doesn't declare one (ADR-0014 + ADR-0015 risk notes). 0 means no timeout. */
+const DEFAULT_TIMEOUT_MS: Record<string, number> = {
+  signalDetector: 5000,
+  lifecycleInterceptor: 0,
+  notificationChannel: 0,
+  customMcpTool: 5000,
+  customHttpRoute: 0,
+};
+
+/**
+ * Wraps a plugin handler Promise in a timeout race. On timeout, rejects with a
+ * `PluginTimeoutError` that the caller treats identically to a handler throw
+ * (incrementError + finishRun failed). A `timeoutMs` of 0 disables the watchdog.
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, pluginKey: string): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) return promise;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Plugin ${pluginKey} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 /** Custom MCP tool definition surfaced via `GET /plugins` (display-only in v0.22.0 per ADR-0018). */
 export interface McpToolDefinition {
@@ -261,6 +293,7 @@ function registerContributions(mod: PluginModule): void {
       channelRegistry.set(c.channelId, {
         pluginId: mod.manifest.id,
         handler: mod.channels[c.channelId],
+        timeoutMs: c.timeoutMs,
       });
     } else if (c.kind === "signalDetector" && mod.detectors?.[c.detectorId]) {
       detectorRegistry.set(`${mod.manifest.id}:${c.detectorId}`, {
@@ -437,6 +470,17 @@ export function getChannelHandler(channelId: string): ChannelHandler | undefined
 }
 
 /**
+ * Returns the detector registry entry for a `${pluginId}:${detectorId}` key, or `null`.
+ * Used by the catch-up scan service to look up a detector's `detects` kind without
+ * holding a reference to the private registry.
+ */
+export function getDetectorEntry(
+  key: string,
+): { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler } | null {
+  return detectorRegistry.get(key) ?? null;
+}
+
+/**
  * Dispatches a notification delivery to a registered channel plugin handler.
  * Returns `null` when no plugin has registered a handler for `channel`
  * (caller must fall through to the in-tree switch). On a registry hit, the
@@ -471,7 +515,12 @@ export async function dispatchToChannelPlugin(
   ctx.notificationPayload = { delivery, event };
 
   try {
-    const result = await entry.handler(ctx, ctx.notificationPayload);
+    const effectiveTimeout = entry.timeoutMs ?? DEFAULT_TIMEOUT_MS.notificationChannel ?? 0;
+    const result = await withTimeout(
+      entry.handler(ctx, ctx.notificationPayload),
+      effectiveTimeout,
+      entry.pluginId,
+    );
     runRepo.finishRun(run.id, result.success ? "succeeded" : "failed", undefined, result.error);
     return result;
   } catch (err) {
@@ -585,8 +634,14 @@ async function dispatchInterceptorRun(
   });
   ctx.transition = { taskId, action: event, habitatId, context };
   try {
-    const result = await entry.handler(ctx, ctx.transition);
-    const signals = (result as { signals?: DetectedSignalInput[] })?.signals ?? [];
+    const effectiveTimeout =
+      entry.contribution.timeoutMs ?? DEFAULT_TIMEOUT_MS.lifecycleInterceptor ?? 0;
+    const result = await withTimeout(
+      entry.handler(ctx, ctx.transition) as Promise<{ signals?: DetectedSignalInput[] }>,
+      effectiveTimeout,
+      entry.pluginId,
+    );
+    const signals = result?.signals ?? [];
     for (const signal of signals) {
       await ctx.pulseWriter?.createDetectedSignal(signal);
     }
@@ -635,7 +690,8 @@ async function runDetector(
     requires: entry.contribution.requires,
   });
   try {
-    const signals = await entry.handler(ctx, ref);
+    const effectiveTimeout = entry.contribution.timeoutMs ?? DEFAULT_TIMEOUT_MS.signalDetector ?? 0;
+    const signals = await withTimeout(entry.handler(ctx, ref), effectiveTimeout, entry.pluginId);
     for (const signal of signals) {
       await ctx.pulseWriter?.createDetectedSignal(signal);
     }
@@ -734,6 +790,16 @@ function incrementError(pluginKey: string): void {
   if (entry.count >= threshold) {
     quarantineSet.add(pluginKey);
     logger.warn({ pluginKey }, "Plugin quarantined after error threshold");
+    // Persist to DB so quarantine survives API restart (ADR-0016, v0.22.3).
+    try {
+      quarantineRepo.upsert(
+        pluginKey,
+        pluginKey.split(":")[0],
+        `Error threshold reached (${entry.count} errors in 60s)`,
+      );
+    } catch (err) {
+      logger.warn({ err, pluginKey }, "Failed to persist plugin quarantine");
+    }
     // Emit plugin.quarantined SSE to every habitat with this plugin enrolled so
     // the loader cache invalidates and the UI can surface quarantine state.
     try {
@@ -780,4 +846,40 @@ export function resetPlugins(): void {
   quarantineSet.clear();
   errorCounters.clear();
   activeRuns.clear();
+}
+
+/**
+ * Loads persistent quarantine state from the database at boot (ADR-0016, v0.22.3).
+ * Populates the in-memory `quarantineSet` so previously-quarantined plugins stay
+ * quarantined across API restarts. Called once at boot after DB initialization.
+ */
+export function loadQuarantinesFromDb(): void {
+  try {
+    const rows = quarantineRepo.listAll();
+    for (const row of rows) {
+      quarantineSet.add(row.pluginKey);
+    }
+    if (rows.length > 0) {
+      logger.info({ count: rows.length }, "Loaded persistent plugin quarantines from DB");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to load persistent plugin quarantines — starting with empty set");
+  }
+}
+
+/**
+ * Clears a plugin quarantine both in-memory and in the DB (admin operation, v0.22.3).
+ * Returns `true` if the plugin was quarantined and is now cleared, `false` if it was
+ * not quarantined.
+ */
+export function clearQuarantine(pluginKey: string): boolean {
+  const wasQuarantined = quarantineSet.has(pluginKey);
+  quarantineSet.delete(pluginKey);
+  errorCounters.delete(pluginKey);
+  try {
+    quarantineRepo.remove(pluginKey);
+  } catch (err) {
+    logger.warn({ err, pluginKey }, "Failed to remove persistent quarantine");
+  }
+  return wasQuarantined;
 }

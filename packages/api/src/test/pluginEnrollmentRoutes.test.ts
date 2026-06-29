@@ -409,7 +409,7 @@ describe("pluginEnrollmentService", () => {
 });
 
 describe("pluginRoutes", () => {
-  it("registers 5 routes with agentOrHumanAuth + requireHabitat prehandlers", async () => {
+  it("registers 6 routes with agentOrHumanAuth + requireHabitat prehandlers", async () => {
     const { pluginRoutes } = await import("../routes/plugins.js");
     const { agentOrHumanAuth } = await import("../middleware/auth.js");
 
@@ -431,7 +431,7 @@ describe("pluginRoutes", () => {
 
     await pluginRoutes(fakeFastify);
 
-    expect(routes).toHaveLength(5);
+    expect(routes).toHaveLength(6);
     for (const r of routes) {
       // 2 prehandlers: agentOrHumanAuth + requireHabitat() closure
       expect(r.preHandler).toHaveLength(2);

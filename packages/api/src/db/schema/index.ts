@@ -90,10 +90,13 @@ export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from 
 export {
   pluginEnrollments,
   pluginRuns,
+  pluginQuarantines,
   type PluginEnrollmentRow,
   type PluginRunRow,
   type PluginEnrollmentInsert,
   type PluginRunInsert,
+  type PluginQuarantineRow,
+  type PluginQuarantineInsert,
 } from "./plugin.js";
 export {
   habitatsRelations,

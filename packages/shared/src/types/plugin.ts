@@ -51,6 +51,7 @@ export interface NotificationChannelContribution {
   channelId: string;
   label: string;
   configSchema?: ZodObjectAny;
+  timeoutMs?: number;
   requires: [];
 }
 
@@ -63,6 +64,7 @@ export interface SignalDetectorContribution {
   detects: DetectorSourceEvent;
   rateLimitDefaults: { maxDetectionsPerMinute: number; maxSignalsPerHour: number };
   configSchema?: ZodObjectAny;
+  timeoutMs?: number;
   requires: PluginCapabilityName[];
 }
 
@@ -75,6 +77,7 @@ export interface LifecycleInterceptorContribution {
   event: InterceptorEvent;
   priority: number;
   configSchema?: ZodObjectAny;
+  timeoutMs?: number;
   requires: PluginCapabilityName[];
 }
 
@@ -85,6 +88,7 @@ export interface CustomMcpToolContribution {
   toolName: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  timeoutMs?: number;
   requires: [];
 }
 
@@ -94,6 +98,7 @@ export interface CustomHttpRouteContribution {
   scope: "system";
   method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
+  timeoutMs?: number;
   requires: [];
 }
 

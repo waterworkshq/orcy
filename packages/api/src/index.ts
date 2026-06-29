@@ -376,8 +376,13 @@ try {
   fastify.log.error({ err }, "Failed to load plugins - continuing without plugins");
 }
 
+pluginManager.loadQuarantinesFromDb();
+
 const { initDaemonWiring } = await import("./daemon-wiring.js");
 await initDaemonWiring();
+
+const { initDetectorScan } = await import("./services/detectorScanService.js");
+initDetectorScan();
 
 fastify.get("/api/plugins", async () => ({ plugins: pluginManager.getLoadedPlugins() }));
 

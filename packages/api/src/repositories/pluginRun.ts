@@ -110,3 +110,28 @@ export function listByHabitat(habitatId: string, filter?: ListRunsFilter): Plugi
     .limit(filter?.limit ?? 50)
     .all();
 }
+
+/**
+ * Checks whether a run already exists for the given (pluginId, contributionId, triggerEventId)
+ * triple. Used by the catch-up scan to skip events already processed by the live hook
+ * (dedup — prevents duplicate detected signals on re-scan).
+ */
+export function existsForTriggerEvent(
+  pluginId: string,
+  contributionId: string,
+  triggerEventId: string,
+): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: pluginRuns.id })
+    .from(pluginRuns)
+    .where(
+      and(
+        eq(pluginRuns.pluginId, pluginId),
+        eq(pluginRuns.contributionId, contributionId),
+        eq(pluginRuns.triggerEventId, triggerEventId),
+      ),
+    )
+    .get();
+  return row !== undefined;
+}

@@ -24,6 +24,7 @@ export const pluginEnrollments = sqliteTable(
     enrolledAt: text("enrolled_at").notNull(),
     updatedAt: text("updated_at").notNull(),
     disabledAt: text("disabled_at"),
+    lastScannedAt: text("last_scanned_at"),
   },
   (table) => [
     uniqueIndex("idx_plugin_enrollments_unique").on(
@@ -72,3 +73,18 @@ export type PluginEnrollmentRow = typeof pluginEnrollments.$inferSelect;
 export type PluginRunRow = typeof pluginRuns.$inferSelect;
 export type PluginEnrollmentInsert = typeof pluginEnrollments.$inferInsert;
 export type PluginRunInsert = typeof pluginRuns.$inferInsert;
+
+/**
+ * Persistent plugin quarantine state (ADR-0016, v0.22.3). One row per quarantined
+ * `pluginKey` — loaded at boot to re-populate the in-memory `quarantineSet` so that
+ * quarantined plugins stay quarantined across API restarts. Admin can clear via REST.
+ */
+export const pluginQuarantines = sqliteTable("plugin_quarantines", {
+  pluginKey: text("plugin_key").primaryKey(),
+  pluginId: text("plugin_id").notNull(),
+  quarantinedAt: text("quarantined_at").notNull(),
+  reason: text("reason"),
+});
+
+export type PluginQuarantineRow = typeof pluginQuarantines.$inferSelect;
+export type PluginQuarantineInsert = typeof pluginQuarantines.$inferInsert;

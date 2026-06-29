@@ -3,6 +3,7 @@ import { z } from "zod";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitat } from "./middleware/preHandlers.js";
 import * as service from "../services/pluginEnrollmentService.js";
+import * as pluginManager from "../plugins/pluginManager.js";
 import { badRequest } from "../errors.js";
 
 const createEnrollmentBody = z.object({
@@ -81,6 +82,15 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
       return service.listPluginRuns(request.params.habitatId, parsed.data);
+    },
+  );
+
+  fastify.delete<{ Params: { habitatId: string; pluginKey: string } }>(
+    "/habitats/:habitatId/plugins/:pluginKey/quarantine",
+    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    async (request, _reply) => {
+      const cleared = pluginManager.clearQuarantine(request.params.pluginKey);
+      return { cleared };
     },
   );
 }

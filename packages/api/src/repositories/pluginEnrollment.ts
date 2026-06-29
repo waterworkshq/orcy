@@ -2,6 +2,7 @@ import { getDb } from "../db/index.js";
 import { pluginEnrollments } from "../db/schema/index.js";
 import type { PluginEnrollmentInsert, PluginEnrollmentRow } from "../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
+import { isNull, isNotNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -113,6 +114,33 @@ export function listByHabitat(habitatId: string): PluginEnrollmentRow[] {
 export function listByPlugin(pluginId: string): PluginEnrollmentRow[] {
   const db = getDb();
   return db.select().from(pluginEnrollments).where(eq(pluginEnrollments.pluginId, pluginId)).all();
+}
+
+/**
+ * Lists every enabled signalDetector enrollment across all habitats. Used by the
+ * catch-up scan service to find detectors that may have missed events.
+ */
+export function listEnabledDetectors(): PluginEnrollmentRow[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(pluginEnrollments)
+    .where(
+      and(
+        eq(pluginEnrollments.contributionKind, "signalDetector"),
+        eq(pluginEnrollments.enabled, 1),
+      ),
+    )
+    .all();
+}
+
+/** Updates the `lastScannedAt` watermark on an enrollment (catch-up scan progress marker). */
+export function updateLastScannedAt(id: string, timestamp: string): void {
+  const db = getDb();
+  db.update(pluginEnrollments)
+    .set({ lastScannedAt: timestamp })
+    .where(eq(pluginEnrollments.id, id))
+    .run();
 }
 
 /**
