@@ -63,9 +63,7 @@ async function dispatchChannel(
       return { channel: "in_app", ...r };
     }
     case "webhook": {
-      const webhookUrl =
-        ((delivery.channels as unknown as Record<string, unknown>)?.webhookUrl as string) ??
-        (event.payload?.webhookUrl as string);
+      const webhookUrl = event.payload?.webhookUrl as string | undefined;
       if (!webhookUrl) {
         return { channel: "webhook", success: false, error: "No webhook URL configured" };
       }

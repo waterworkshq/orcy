@@ -28,7 +28,7 @@ const createSubscriptionSchema = z.object({
   eventType: z.string().min(1),
   enabled: z.boolean().optional(),
   required: z.boolean().optional(),
-  channels: z.array(z.enum(["in_app", "webhook", "slack", "discord"])).optional(),
+  channels: z.array(z.string()).optional(),
   cadence: z.enum(["immediate", "hourly", "daily", "weekly"]).optional(),
   timezone: z.string().optional(),
   localSendTime: z.string().optional(),
@@ -38,7 +38,7 @@ const createSubscriptionSchema = z.object({
 const updateSubscriptionSchema = z.object({
   enabled: z.boolean().optional(),
   required: z.boolean().optional(),
-  channels: z.array(z.enum(["in_app", "webhook", "slack", "discord"])).optional(),
+  channels: z.array(z.string()).optional(),
   cadence: z.enum(["immediate", "hourly", "daily", "weekly"]).optional(),
   timezone: z.string().nullable().optional(),
   localSendTime: z.string().nullable().optional(),

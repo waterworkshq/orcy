@@ -38,8 +38,8 @@ export type NotificationRecipientType = "human" | "agent" | "remote_human" | "re
 /** Urgency tier for a notification event: informational, warning, or critical. */
 export type NotificationSeverity = "info" | "warning" | "critical";
 
-/** Transport over which a notification may be delivered: in-app, webhook, Slack, or Discord. */
-export type NotificationChannel = "in_app" | "webhook" | "slack" | "discord";
+/** Transport over which a notification may be delivered. Known in-tree channels: "in_app", "webhook", "slack", "discord". Plugin-registered channels (e.g. "teams" from the teams-channel reference plugin) are also valid. */
+export type NotificationChannel = string;
 
 /** Lifecycle state of a {@link NotificationDelivery}, from pending through delivered, acknowledged, or cleared. */
 export type NotificationDeliveryStatus =

@@ -379,7 +379,7 @@ try {
 const { initDaemonWiring } = await import("./daemon-wiring.js");
 await initDaemonWiring();
 
-fastify.get("/plugins", async () => ({ plugins: pluginManager.getLoadedPlugins() }));
+fastify.get("/api/plugins", async () => ({ plugins: pluginManager.getLoadedPlugins() }));
 
 try {
   await fastify.listen({ port: PORT, host: HOST });
