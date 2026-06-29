@@ -249,7 +249,7 @@ describe("reference plugin: teams-channel (notificationChannel via webhook)", ()
     const handler = teamsChannel.channels!.teams;
     const result = await handler(buildCtx(), buildPayload());
     expect(result.success).toBe(false);
-    expect(result.error).toBe("ECONNREFUSED");
+    expect(result.error).toBe("Teams webhook request failed");
   });
 });
 

@@ -409,7 +409,7 @@ describe("pluginEnrollmentService", () => {
 });
 
 describe("pluginRoutes", () => {
-  it("registers 6 routes with agentOrHumanAuth + requireHabitat prehandlers", async () => {
+  it("registers 7 routes with agentOrHumanAuth + requireHabitat prehandlers", async () => {
     const { pluginRoutes } = await import("../routes/plugins.js");
     const { agentOrHumanAuth } = await import("../middleware/auth.js");
 
@@ -431,12 +431,17 @@ describe("pluginRoutes", () => {
 
     await pluginRoutes(fakeFastify);
 
-    expect(routes).toHaveLength(6);
+    expect(routes).toHaveLength(7);
     for (const r of routes) {
-      // 2 prehandlers: agentOrHumanAuth + requireHabitat() closure
-      expect(r.preHandler).toHaveLength(2);
       expect(r.preHandler[0]).toBe(agentOrHumanAuth);
-      expect(typeof r.preHandler[1]).toBe("function");
+      if (r.path === "/plugins") {
+        // Global catalog route: auth only, no habitat scope
+        expect(r.preHandler).toHaveLength(1);
+      } else {
+        // Habitat-scoped routes: agentOrHumanAuth + requireHabitat() closure
+        expect(r.preHandler).toHaveLength(2);
+        expect(typeof r.preHandler[1]).toBe("function");
+      }
     }
 
     const paths = routes.map((r) => `${r.method} ${r.path}`);

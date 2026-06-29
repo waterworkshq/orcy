@@ -96,6 +96,8 @@ export function createEnrollment(
   if (contribution.scope !== "habitat") {
     throw badRequest("Cannot enroll system-scoped contributions");
   }
+  // Only signalDetector and lifecycleInterceptor have scope: "habitat" (ADR-0011).
+  // TypeScript's discriminated union enforces this at compile time after the scope check.
   if (contribution.kind === "signalDetector" && !detectorAllowed(parsed.data.pluginId)) {
     throw forbidden(`Plugin '${parsed.data.pluginId}' not allowed by ORCY_DETECTOR_ALLOWLIST`);
   }

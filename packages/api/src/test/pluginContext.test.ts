@@ -26,6 +26,11 @@ vi.mock("../repositories/task.js", () => ({
   getTasksByHabitatId: (h: unknown, f?: unknown) => getTasksByHabitatIdMock(h, f),
 }));
 
+const getMissionByIdMock = vi.fn();
+vi.mock("../repositories/feature.js", () => ({
+  getMissionById: (i: unknown) => getMissionByIdMock(i),
+}));
+
 vi.mock("../repositories/comment.js", () => ({
   listByHabitatSince: (h: unknown, s: unknown) => listCommentsMock(h, s),
 }));
@@ -93,8 +98,14 @@ describe("pluginContext: capability projections", () => {
   });
 
   it("TaskReader.getTask returns the Task as-is (no auth fields stripped)", async () => {
-    const task = { id: "t1", title: "Sample", apiKeyHash: "should-not-exist-on-task" };
+    const task = {
+      id: "t1",
+      missionId: "m1",
+      title: "Sample",
+      apiKeyHash: "should-not-exist-on-task",
+    };
     getTaskByIdMock.mockReturnValue(task);
+    getMissionByIdMock.mockReturnValue({ id: "m1", habitatId: "h" });
     const ctx = buildPluginContext({
       pluginId: "p",
       contributionId: "c",
@@ -104,6 +115,21 @@ describe("pluginContext: capability projections", () => {
     });
     const result = await ctx.taskReader!.getTask("t1");
     expect(result).toEqual(task);
+  });
+
+  it("TaskReader.getTask returns null for cross-habitat access", async () => {
+    const task = { id: "t1", missionId: "m1", title: "Sample" };
+    getTaskByIdMock.mockReturnValue(task);
+    getMissionByIdMock.mockReturnValue({ id: "m1", habitatId: "other-habitat" });
+    const ctx = buildPluginContext({
+      pluginId: "p",
+      contributionId: "c",
+      habitatId: "h",
+      runId: "r",
+      requires: ["taskReader"],
+    });
+    const result = await ctx.taskReader!.getTask("t1");
+    expect(result).toBeNull();
   });
 
   it("HabitatReader.getHabitat returns PluginHabitatView (admin settings stripped)", async () => {

@@ -419,35 +419,6 @@ function unblockDependents(taskId: string): void {
   }
 }
 
-type TaskEventHook = (opts: {
-  taskId: string;
-  habitatId: string;
-  event: string;
-  actorType: string;
-  actorId: string;
-  metadata?: Record<string, unknown>;
-}) => void;
-const taskEventHooks: TaskEventHook[] = [];
-
-/** Registers a hook invoked when a notify-worthy task event occurs. */
-export function onTaskEvent(hook: TaskEventHook): () => void {
-  taskEventHooks.push(hook);
-  return () => {
-    const idx = taskEventHooks.indexOf(hook);
-    if (idx >= 0) taskEventHooks.splice(idx, 1);
-  };
-}
-
-function notifyTaskEvent(opts: Parameters<TaskEventHook>[0]): void {
-  for (const hook of taskEventHooks) {
-    try {
-      hook(opts);
-    } catch (err) {
-      logger.error({ err }, "Task event hook failed");
-    }
-  }
-}
-
 type TransitionHook = (opts: {
   taskId: string;
   action: TaskAction;
@@ -558,17 +529,6 @@ export function emitTransition(
       signalType: cfg.pulseExtra.type,
       subject: cfg.pulseExtra.subject(task),
       taskId: task.id,
-    });
-  }
-
-  if (habitatId && cfg.notifyTaskEvent) {
-    notifyTaskEvent({
-      taskId,
-      habitatId,
-      event: cfg.notifyTaskEvent,
-      actorType: context.actorType ?? "agent",
-      actorId: context.actorId ?? "",
-      metadata: context.metadata,
     });
   }
 

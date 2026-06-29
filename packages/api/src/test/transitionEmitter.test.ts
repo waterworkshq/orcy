@@ -56,7 +56,6 @@ import {
   emitTransition,
   setRecalcDebounceEnabled,
   isRecalcDebounceEnabled,
-  onTaskEvent,
   onTransition,
   type TaskAction,
   type TransitionContext,
@@ -408,64 +407,6 @@ describe("TransitionEmitter", () => {
     });
   });
 
-  describe("notifyTaskEvent (inconsistency #2 preserved)", () => {
-    it("fires task event for completed", () => {
-      const hook = vi.fn();
-      onTaskEvent(hook);
-      const task = makeTask({ status: "done" });
-      emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
-      expect(hook).toHaveBeenCalledWith(
-        expect.objectContaining({ event: "completed", taskId: "task-1" }),
-      );
-    });
-
-    it("fires task event for approved", () => {
-      const hook = vi.fn();
-      onTaskEvent(hook);
-      const task = makeTask();
-      emitTransition("task-1", "approved", "hab-1", baseCtx({ task, newStatus: "approved" }));
-      expect(hook).toHaveBeenCalledWith(expect.objectContaining({ event: "approved" }));
-    });
-
-    it("does NOT fire task event for claimed (per inventory #2)", () => {
-      const hook = vi.fn();
-      onTaskEvent(hook);
-      const task = makeTask();
-      emitTransition("task-1", "claimed", "hab-1", baseCtx({ task, newStatus: "claimed" }));
-      expect(hook).not.toHaveBeenCalled();
-    });
-
-    it("does NOT fire task event for submitted (per inventory #2)", () => {
-      const hook = vi.fn();
-      onTaskEvent(hook);
-      const task = makeTask();
-      emitTransition("task-1", "submitted", "hab-1", baseCtx({ task, newStatus: "submitted" }));
-      expect(hook).not.toHaveBeenCalled();
-    });
-
-    it("does NOT fire task event for released (per inventory #2)", () => {
-      const hook = vi.fn();
-      onTaskEvent(hook);
-      const task = makeTask();
-      emitTransition("task-1", "released", "hab-1", baseCtx({ task, newStatus: "pending" }));
-      expect(hook).not.toHaveBeenCalled();
-    });
-
-    it("continues to call other hooks even if one throws", () => {
-      const hook1 = vi.fn(() => {
-        throw new Error("hook1 boom");
-      });
-      const hook2 = vi.fn();
-      onTaskEvent(hook1);
-      onTaskEvent(hook2);
-
-      const task = makeTask({ status: "done" });
-      emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
-      expect(hook1).toHaveBeenCalled();
-      expect(hook2).toHaveBeenCalled();
-    });
-  });
-
   describe("onTransition (parallel channel, fires for all actions)", () => {
     beforeEach(() => {
       (missionService.recalculateMissionStatus as ReturnType<typeof vi.fn>).mockReset();
@@ -551,25 +492,20 @@ describe("TransitionEmitter", () => {
       unsub();
     });
 
-    it("does NOT affect onTaskEvent firing set (channels are independent)", () => {
+    it("channel is independent of task-lifecycle hooks", () => {
       const transitionHook = vi.fn();
-      const eventHook = vi.fn();
       const unsubT = onTransition(transitionHook);
-      const unsubE = onTaskEvent(eventHook);
       const task = makeTask({ status: "done" });
 
       emitTransition("task-1", "completed", "hab-1", baseCtx({ task, newStatus: "done" }));
 
       expect(transitionHook).toHaveBeenCalledTimes(1);
-      expect(eventHook).toHaveBeenCalledTimes(1);
 
       emitTransition("task-1", "submitted", "hab-1", baseCtx({ task, newStatus: "submitted" }));
 
       expect(transitionHook).toHaveBeenCalledTimes(2);
-      expect(eventHook).toHaveBeenCalledTimes(1);
 
       unsubT();
-      unsubE();
     });
 
     it("unsubscribes via the returned disposer", () => {

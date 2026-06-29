@@ -313,6 +313,22 @@ export function completeTask(
     }
   }
 
+  // Pre-interceptor seam (ADR-0014): veto BEFORE any completion DB writes.
+  // Event is `taskApproved` because completeTask intentionally shares the taskApproved
+  // interceptor event with approveTask — both reach a terminal "done-ish" state.
+  {
+    const preHabitatId = getHabitatId(current);
+    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", preHabitatId, {
+      actorType: "agent",
+      actorId: agentId,
+      oldStatus: current.status,
+      newStatus: "done",
+      metadata: { reviewNote },
+      task: current,
+    });
+    if (veto) throw new InterceptorVetoError(veto);
+  }
+
   timeTrackingService.calculateAndSetCompletionMetrics(taskId);
 
   try {
@@ -327,22 +343,6 @@ export function completeTask(
     const existingResult = current.result || "";
     const separator = existingResult ? "\n\n---\n\nReview: " : "Review: ";
     taskRepo.updateTask(taskId, { result: existingResult + separator + reviewNote });
-  }
-
-  // Pre-interceptor seam (ADR-0014): veto before the completion DB write.
-  // Event is `taskApproved` because completeTask intentionally shares the taskApproved
-  // interceptor event with approveTask — both reach a terminal "done-ish" state.
-  {
-    const preHabitatId = getHabitatId(current);
-    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", preHabitatId, {
-      actorType: "agent",
-      actorId: agentId,
-      oldStatus: current.status,
-      newStatus: "done",
-      metadata: { reviewNote },
-      task: current,
-    });
-    if (veto) throw new InterceptorVetoError(veto);
   }
 
   const task = taskRepo.markTaskDone(taskId);

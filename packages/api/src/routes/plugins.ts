@@ -68,8 +68,8 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId/plugins/enrollments/:id",
     { preHandler: [agentOrHumanAuth, requireHabitat()] },
     async (request, _reply) => {
-      service.deleteEnrollment(request.params.habitatId, request.params.id);
-      return { deleted: true };
+      const deleted = service.deleteEnrollment(request.params.habitatId, request.params.id);
+      return { deleted };
     },
   );
 
@@ -85,6 +85,17 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // Plugin catalog: lists loaded plugins (ids, versions, descriptions) and load errors.
+  // Authenticated but not habitat-scoped — it's a global catalog available to any authenticated user.
+  fastify.get("/plugins", { preHandler: [agentOrHumanAuth] }, async (_request, _reply) => {
+    return { plugins: pluginManager.getLoadedPlugins() };
+  });
+
+  // Quarantine clear: quarantine is system-global by design (a misbehaving plugin is
+  // misbehaving regardless of habitat). The :habitatId param gates access via requireHabitat
+  // — the caller must have plugin-management access to some habitat to manage quarantines.
+  // Per-habitat quarantine would require a schema change (habitat_id on plugin_quarantines)
+  // and is deferred to a future release if multi-tenant isolation demands it.
   fastify.delete<{ Params: { habitatId: string; pluginKey: string } }>(
     "/habitats/:habitatId/plugins/:pluginKey/quarantine",
     { preHandler: [agentOrHumanAuth, requireHabitat()] },

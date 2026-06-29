@@ -14,6 +14,7 @@ import type { PluginContext, PluginLogger, PluginAudit, AuditPayload } from "./t
 import * as pulseRepo from "../repositories/pulse.js";
 import * as pulseService from "../services/pulseService.js";
 import * as taskRepo from "../repositories/task.js";
+import * as missionRepo from "../repositories/feature.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/board.js";
 import { logger as rootLogger } from "../lib/logger.js";
@@ -46,11 +47,11 @@ export function buildPluginContext(opts: {
     audit,
   };
 
-  if (has("pulseReader")) ctx.pulseReader = buildPulseReader();
+  if (has("pulseReader")) ctx.pulseReader = buildPulseReader(habitatId);
   if (has("pulseWriter")) ctx.pulseWriter = buildPulseWriter(pluginId, runId, habitatId);
-  if (has("commentReader")) ctx.commentReader = buildCommentReader();
-  if (has("taskReader")) ctx.taskReader = buildTaskReader();
-  if (has("habitatReader")) ctx.habitatReader = buildHabitatReader();
+  if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
+  if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
+  if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
 
   return ctx;
 }
@@ -83,13 +84,21 @@ function buildPluginAudit(pluginId: string, runId: string): PluginAudit {
   };
 }
 
-function buildPulseReader(): PulseReader {
+/** Scopes reader queries to the contribution's bound habitat — a plugin enrolled in habitat A cannot read habitat B's data. */
+function buildPulseReader(habitatId: string | null): PulseReader {
   return {
-    listByHabitatSince: (habitatId, since) =>
-      Promise.resolve(pulseRepo.listByHabitatSince(habitatId, since)),
-    listByHabitatBetween: (habitatId, from, to) =>
-      Promise.resolve(pulseRepo.listByHabitatBetween(habitatId, from, to)),
-    getPulse: (pulseId) => Promise.resolve(pulseRepo.getPulseById(pulseId)),
+    listByHabitatSince: (queryHabitatId, since) => {
+      if (queryHabitatId !== habitatId) return Promise.resolve([]);
+      return Promise.resolve(pulseRepo.listByHabitatSince(queryHabitatId, since));
+    },
+    listByHabitatBetween: (queryHabitatId, from, to) => {
+      if (queryHabitatId !== habitatId) return Promise.resolve([]);
+      return Promise.resolve(pulseRepo.listByHabitatBetween(queryHabitatId, from, to));
+    },
+    getPulse: (pulseId) => {
+      const pulse = pulseRepo.getPulseById(pulseId);
+      return Promise.resolve(pulse && pulse.habitatId === habitatId ? pulse : null);
+    },
   };
 }
 
@@ -141,12 +150,15 @@ function buildPulseWriter(pluginId: string, runId: string, habitatId: string | n
   };
 }
 
-function buildCommentReader(): CommentReader {
+/** Scopes comment queries to the contribution's bound habitat. */
+function buildCommentReader(habitatId: string | null): CommentReader {
   return {
-    listByHabitatSince: (habitatId, since) =>
-      Promise.resolve(
-        commentRepo.listByHabitatSince(habitatId, since).map((c) => toScopedComment(c)),
-      ),
+    listByHabitatSince: (queryHabitatId, since) => {
+      if (queryHabitatId !== habitatId) return Promise.resolve([]);
+      return Promise.resolve(
+        commentRepo.listByHabitatSince(queryHabitatId, since).map((c) => toScopedComment(c)),
+      );
+    },
   };
 }
 
@@ -173,18 +185,28 @@ function toScopedComment(c: {
   };
 }
 
-function buildTaskReader(): TaskReader {
+/** Scopes task queries to the contribution's bound habitat — getTask returns null if the task belongs to a different habitat. */
+function buildTaskReader(habitatId: string | null): TaskReader {
   return {
-    getTask: (taskId) => Promise.resolve(taskRepo.getTaskById(taskId) ?? null),
-    listTasksByHabitat: (habitatId, filter) =>
-      Promise.resolve(taskRepo.getTasksByHabitatId(habitatId, filter).tasks),
+    getTask: (taskId) => {
+      const task = taskRepo.getTaskById(taskId);
+      if (!task) return Promise.resolve(null);
+      const mission = missionRepo.getMissionById(task.missionId);
+      return Promise.resolve(mission?.habitatId === habitatId ? task : null);
+    },
+    listTasksByHabitat: (queryHabitatId, filter) => {
+      if (queryHabitatId !== habitatId) return Promise.resolve([]);
+      return Promise.resolve(taskRepo.getTasksByHabitatId(queryHabitatId, filter).tasks);
+    },
   };
 }
 
-function buildHabitatReader(): HabitatReader {
+/** Scopes habitat reads to the contribution's bound habitat. */
+function buildHabitatReader(habitatId: string | null): HabitatReader {
   return {
-    getHabitat: (habitatId) => {
-      const h = habitatRepo.getHabitatById(habitatId);
+    getHabitat: (queryHabitatId) => {
+      if (queryHabitatId !== habitatId) return Promise.resolve(null);
+      const h = habitatRepo.getHabitatById(queryHabitatId);
       return Promise.resolve(h ? toPluginHabitatView(h) : null);
     },
   };

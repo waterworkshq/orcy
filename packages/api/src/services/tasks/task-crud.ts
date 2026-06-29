@@ -35,7 +35,8 @@ export function createTask(input: {
 
   // Pre-interceptor seam (ADR-0014): gates run BEFORE the task row is written.
   // No task exists yet, so the context carries only the prospective fields.
-  if (habitatId) {
+  // Always call — the runner's isEnrolled check handles empty habitatId.
+  {
     const veto = pluginManager.runPreInterceptors(input.missionId, "taskCreated", habitatId, {
       actorType: "human",
       actorId: input.createdBy,
@@ -55,16 +56,13 @@ export function createTask(input: {
     task,
   });
 
-  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition
-  // commits. The loader materializes any returned detected signals.
-  if (habitatId) {
-    pluginManager.runPostInterceptors(task.id, "taskCreated", habitatId, {
-      actorType: "human",
-      actorId: input.createdBy,
-      newStatus: task.status,
-      task,
-    });
-  }
+  // Post-interceptor seam (ADR-0014): fire-and-forget after the transition commits.
+  pluginManager.runPostInterceptors(task.id, "taskCreated", habitatId, {
+    actorType: "human",
+    actorId: input.createdBy,
+    newStatus: task.status,
+    task,
+  });
 
   if (habitatId) {
     autoAssignService.assignTask(task.id, habitatId);

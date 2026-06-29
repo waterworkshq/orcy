@@ -68,7 +68,7 @@ const teamsChannelPlugin: PluginModule = {
       } catch (err) {
         return {
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: "Teams webhook request failed",
         };
       }
     },
