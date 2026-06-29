@@ -2,6 +2,23 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.2 — 2026-06-29
+
+### Bug Fixes
+
+#### widen NotificationChannel type, fix audit source drift, re-mount plugins route ([`8114e98`](https://github.com/waterworkshq/orcy/commit/8114e98a69a291cc8e54831430859c6bce12ea2b))
+
+1. Widen NotificationChannel from closed 4-literal union to string so
+2. plugin-registered channels (e.g. teams) flow through delivery system
+3. Widen 2 Zod subscription validators to accept plugin channels
+4. Re-mount GET /plugins under /api/plugins (UI request() 404 fix)
+5. Fix audit source enum drift: add automation/notification/workflow to
+6. AUDIT_SOURCES, sourceFromAuditMetadata, isAuditSource (production
+7. events were coerced to unknown in cross-source audit views)
+8. Delete dead webhookUrl cast-hack in dispatchChannel
+
+
+
 ## 0.22.1 — 2026-06-29
 
 ### Chores
@@ -151,43 +168,3 @@
 5. domain to UI API client.
 
 7. Per ADRs 0013, 0016.
-
-
-
-## 0.21.6 — 2026-06-28
-
-### Refactors
-
-#### explicit handler-key dispatch with fail-loud guard; extract parseDurationWindow ([`4836a34`](https://github.com/waterworkshq/orcy/commit/4836a343d9ec0208e373c37b63d2a3942bb161a5))
-
-1. Hardening follow-up to the v0.21 cadence-execution work. Two coupled
-2. robustness fixes on the scheduled-task handler dispatch, plus a shared-helper
-3. extraction.
-
-5. 1. Explicit handler-key dispatch (replaces fragile name-prefix matching)
-6. v0.21.3 keyed the wiki-cadence handler dispatch on schedule.name.startsWith
-7. ("wiki-cadence:"), which silently broke if the name prefix was renamed and
-8. could in principle match unrelated schedules. Dispatch is now explicit: a
-9. new nullable `handler_key` column on `scheduled_tasks` (migration 0037),
-10. surfaced on the ScheduledTask shared type, the CreateScheduledTaskInput,
-11. and the drizzle schema. setCadence stamps handler_key = "wiki-cadence" on
-12. the schedule row; executeScheduledTask looks up the handler by that key.
-13. A schedule with handler_key = null (the default, including the chunk
-14. authoring tasks spawned by runCadence) takes the standard
-15. mission-from-template path. The old findHandlerForName prefix scan is gone.
-
-17. 2. Fail-loud guard against missing handlers
-18. The silent-failure footgun: if a handler-keyed schedule's handler is not
-19. registered at boot (e.g. initWikiScheduler was skipped), the old code would
-20. have silently fallen through to mission creation — producing the wrong
-21. artifact with no error signal. Now executeScheduledTask detects
-22. handler_key-set-but-no-handler-registered, logs an error, publishes
-23. scheduled_task.failed with a clear message naming the key and schedule, and
-24. returns {success: false}. The bug cannot recur silently.
-
-26. 3. parseDurationWindow extracted to @orcy/shared
-27. The duration parser was duplicated verbatim in habitatSkill.ts and pulse.ts
-28. (the pulse copy even said "Mirrors the habitat-skill helper"). Extracted to
-29. shared/src/duration.ts, exported from the shared package, and both repos now
-30. import it. Added a focused shared test (units, case-insensitivity,
-31. unparseable rejection).
