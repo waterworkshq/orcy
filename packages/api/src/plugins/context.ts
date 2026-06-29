@@ -115,6 +115,9 @@ function buildPulseWriter(pluginId: string, runId: string, habitatId: string | n
           `PulseWriter only accepts signalType "detected"; got "${input.signalType}"`,
         );
       }
+      if (!habitatId) {
+        throw new Error("createDetectedSignal requires a habitat-scoped plugin context");
+      }
       const merged: Record<string, unknown> = {
         ...input.metadata,
         detected: true,
@@ -137,7 +140,7 @@ function buildPulseWriter(pluginId: string, runId: string, habitatId: string | n
       // in registerDetectorHooks skips detected signals to prevent detector→detected→detector
       // infinite loops.
       const pulse = pulseService.createPulseAndNotify({
-        habitatId: habitatId ?? "",
+        habitatId,
         scope: "habitat",
         fromType: "system",
         fromId: pluginId,

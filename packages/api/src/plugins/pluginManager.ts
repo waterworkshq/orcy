@@ -29,8 +29,8 @@ import type {
 } from "./types.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { buildPluginContext } from "./context.js";
-import { readdir, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { readdir, stat, realpath } from "node:fs/promises";
+import { join, resolve, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { logger } from "../lib/logger.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
@@ -120,6 +120,10 @@ const DEFAULT_TIMEOUT_MS: Record<string, number> = {
  */
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, pluginKey: string): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) return promise;
+  // Suppress late rejection if timeout wins the race — the handler promise may
+  // later reject with no consumer, causing an unhandledRejection event. This
+  // no-op catch ensures the rejection is swallowed silently.
+  promise.catch(() => {});
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -335,7 +339,7 @@ function registerContributions(mod: PluginModule): void {
 }
 
 export async function loadPlugins(enabledList?: string[]): Promise<void> {
-  const dir = getPluginDirectory();
+  const dir = resolve(getPluginDirectory());
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -351,6 +355,20 @@ export async function loadPlugins(enabledList?: string[]): Promise<void> {
     try {
       const s = await stat(entryPath);
       isDir = s.isDirectory();
+    } catch {
+      continue;
+    }
+
+    // Path traversal guard: resolve symlinks and verify the real path stays
+    // inside the plugin directory. Prevents a symlinked entry from causing
+    // import() of code outside the trusted PLUGINS_DIR.
+    try {
+      const real = await realpath(entryPath);
+      const rel = relative(dir, real);
+      if (rel.startsWith("..") || resolve(dir, rel) !== real) {
+        pluginErrors.set(entry, `Plugin path escapes plugin directory (symlink?)`);
+        continue;
+      }
     } catch {
       continue;
     }
@@ -725,7 +743,7 @@ function registerDetectorHooks(): void {
   taskLifecycle.onTaskEvent((opts) => {
     dispatchDetectionEvent("taskEvent", {
       kind: "taskEvent",
-      sourceId: opts.taskId,
+      sourceId: `${opts.taskId}:${opts.event}`,
       habitatId: opts.habitatId,
       occurredAt: new Date().toISOString(),
     });

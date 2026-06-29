@@ -32,6 +32,23 @@ export function onPulseCreated(hook: PulseCreatedHook): () => void {
 /**
  * Persists a {@link pulseRepo.Pulse} and synchronously runs all registered `onPulseCreated` hooks, swallowing per-hook errors so one bad subscriber cannot block the others.
  */
+/**
+ * Creates a pulse and fires all registered `onPulseCreated` hooks (skill ingestion, detector
+ * dispatch). Does NOT broadcast via SSE — callers MUST separately call `broadcastPulse(pulse)`
+ * if they want the `pulse.signal_posted` SSE event emitted (for UI invalidation).
+ *
+ * This split is intentional: some callers (e.g. `emitAutoSignal` bookkeeping) don't want SSE.
+ * Most callers SHOULD pair this with `broadcastPulse`:
+ *
+ * ```ts
+ * const pulse = createPulseAndNotify(input);
+ * broadcastPulse(pulse);
+ * ```
+ *
+ * Failing to call `broadcastPulse` results in a pulse that's in the DB and ingested by skill
+ * hooks, but invisible to the SSE-driven UI (stale queries until next refetch).
+ */
+
 export function createPulseAndNotify(input: pulseRepo.CreatePulseInput): pulseRepo.Pulse {
   const pulse = pulseRepo.createPulse(input);
   for (const hook of pulseCreatedHooks) {

@@ -98,7 +98,7 @@ export function unprocessableEntity(message: string, code: string, details?: unk
 export interface InterceptorVeto {
   allow: false;
   reason: string;
-  details?: string;
+  details?: string | Record<string, unknown>;
 }
 
 /**

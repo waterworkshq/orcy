@@ -63,6 +63,7 @@ function queryMissedTaskEvents(habitatId: string, since: string): EventSourceRef
   const rows = db
     .select({
       taskId: taskEvents.taskId,
+      action: taskEvents.action,
       timestamp: taskEvents.timestamp,
     })
     .from(taskEvents)
@@ -72,7 +73,7 @@ function queryMissedTaskEvents(habitatId: string, since: string): EventSourceRef
     .all();
   return rows.map((r) => ({
     kind: "taskEvent" as const,
-    sourceId: r.taskId,
+    sourceId: `${r.taskId}:${r.action}`,
     habitatId,
     occurredAt: r.timestamp,
   }));
