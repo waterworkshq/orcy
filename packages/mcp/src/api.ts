@@ -2351,4 +2351,53 @@ export class KanbanApiClient
       `/api/habitats/${habitatId}/wiki/signal-surface${query ? `?${query}` : ""}`,
     );
   }
+
+  /** Lists finding triage records for a habitat, optionally filtered by status/bucket (v0.23 Triage). */
+  async listTriageFindings(
+    habitatId: string,
+    filters?: { status?: string; bucket?: string },
+  ): Promise<{ findings: Record<string, unknown>[] }> {
+    const params = new URLSearchParams({ habitatId });
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.bucket) params.set("bucket", filters.bucket);
+    return this.request<{ findings: Record<string, unknown>[] }>(
+      "GET",
+      `/api/triage/findings?${params.toString()}`,
+    );
+  }
+
+  /** Fetches a single finding triage record by id (v0.23 Triage). */
+  async getTriageFinding(id: string): Promise<{ finding: Record<string, unknown> }> {
+    return this.request<{ finding: Record<string, unknown> }>("GET", `/api/triage/findings/${id}`);
+  }
+
+  /** Looks up historical triage resolutions recorded against a cluster key (v0.23 Triage). */
+  async getTriageResolutions(
+    habitatId: string,
+    clusterKey: string,
+  ): Promise<{ resolutions: Record<string, unknown>[] }> {
+    const params = new URLSearchParams({ habitatId, clusterKey });
+    return this.request<{ resolutions: Record<string, unknown>[] }>(
+      "GET",
+      `/api/triage/resolutions?${params.toString()}`,
+    );
+  }
+
+  /** Returns the top unresolved triage clusters for a habitat, ranked by signal count (v0.23 Triage). */
+  async getTopTriageClusters(
+    habitatId: string,
+    limit?: number,
+  ): Promise<{
+    clusters: Array<{
+      clusterKey: string;
+      signalCount: number;
+      statuses: string[];
+      findingKinds: string[];
+      status: "under_investigation" | "awaiting_triage";
+    }>;
+  }> {
+    const params = new URLSearchParams({ habitatId });
+    if (limit !== undefined) params.set("limit", String(limit));
+    return this.request("GET", `/api/triage/clusters/top?${params.toString()}`);
+  }
 }
