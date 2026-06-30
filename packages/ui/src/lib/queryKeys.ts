@@ -242,4 +242,14 @@ export const queryKeys = {
     loaded: () => [...queryKeys.plugins.all, "loaded"] as const,
     runs: (habitatId: string) => [...queryKeys.plugins.all, "runs", habitatId] as const,
   },
+  triage: {
+    all: ["triage"] as const,
+    findings: (habitatId: string, filters?: { status?: string; bucket?: string }) =>
+      [...queryKeys.triage.all, "findings", habitatId, filters] as const,
+    finding: (id: string) => [...queryKeys.triage.all, "finding", id] as const,
+    resolutions: (habitatId: string, clusterKey: string) =>
+      [...queryKeys.triage.all, "resolutions", habitatId, clusterKey] as const,
+    top: (habitatId: string, limit?: number) =>
+      [...queryKeys.triage.all, "top", habitatId, limit] as const,
+  },
 };

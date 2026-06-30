@@ -160,6 +160,10 @@ import type {
   WorkflowTemplateVariable,
   WorkflowTemplateDefinition,
   AutomationCondition,
+  // Triage types (v0.23)
+  FindingTriageStatus,
+  SuggestedBucket,
+  ResolutionKind,
 } from "@orcy/shared";
 
 export type {
@@ -321,6 +325,10 @@ export type {
   WorkflowTemplateVariable,
   WorkflowTemplateDefinition,
   AutomationCondition,
+  // Triage types (v0.23)
+  FindingTriageStatus,
+  SuggestedBucket,
+  ResolutionKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -1156,4 +1164,69 @@ export interface WikiCadence {
   updatedAt?: string;
   watermark?: string | null;
   coverageGap?: { from: string | null; to: string };
+}
+
+// ---------------------------------------------------------------------------
+// Triage view-model interfaces (v0.23 "Triage") — mirror REST route outputs
+// ---------------------------------------------------------------------------
+
+/** Attribution actor for triage write paths — derived from request auth context. */
+export type TriageActorType = "human" | "agent" | "remote_human" | "remote_orcy" | "remote_pod";
+
+/** Finding triage record — mirrors GET /api/triage/findings response rows. */
+export interface FindingTriageView {
+  id: string;
+  habitatId: string;
+  pulseId: string;
+  clusterKey: string;
+  findingKind: string;
+  status: FindingTriageStatus;
+  bucket: SuggestedBucket | null;
+  targetRelease: string | null;
+  triageMissionId: string | null;
+  corroboratingPulseIds: string[];
+  triagedByType: TriageActorType | null;
+  triagedById: string | null;
+  triagedAt: string | null;
+  resolvedByType: TriageActorType | null;
+  resolvedById: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Resolution record — mirrors GET /api/triage/resolutions response rows. */
+export interface TriageResolutionView {
+  id: string;
+  habitatId: string;
+  clusterKey: string;
+  skillCategory: string;
+  source: "cluster_triage" | "finding_triage";
+  sourceId: string;
+  rootCause: string | null;
+  resolution: string | null;
+  resolutionKind: ResolutionKind | null;
+  resolvedByType: TriageActorType | null;
+  resolvedById: string | null;
+  resolvedAt: string;
+  metadata: Record<string, unknown>;
+}
+
+/** Top-cluster summary — mirrors GET /api/triage/clusters/top response rows. */
+export interface ClusterSummaryView {
+  clusterKey: string;
+  signalCount: number;
+  statuses: string[];
+  findingKinds: string[];
+  status: "under_investigation" | "awaiting_triage";
+}
+
+/** Habitat-configurable triage thresholds (UI-only form state; backend wiring TBD). */
+export interface TriageSettings {
+  minClusterSize: number;
+  clusterWindowDays: number;
+  agentQualityThreshold: number;
+  agentQualityMinSample: number;
 }

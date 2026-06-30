@@ -33,3 +33,4 @@ export { daemonsApi } from "./daemons.js";
 export { skillApi } from "./skill.js";
 export { wikiApi } from "./wiki.js";
 export { codeEvidenceApi } from "./codeEvidence.js";
+export { triageApi } from "./triage.js";
