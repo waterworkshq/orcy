@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
@@ -47,6 +47,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   closeDb();
 });
 
@@ -645,11 +646,9 @@ describe("wikiService.saveVersion", () => {
     const originalTo = markerBefore[0].coverageTo;
     const originalFrom = markerBefore[0].coverageFrom;
 
-    // Advance wall clock so the new coverage_to can be observed as a strict extension.
-    const before = new Date().toISOString();
-    while (new Date().toISOString() === before) {
-      // spin until ISO tick advances
-    }
+    // Advance the fake clock past page creation so saveVersion produces a strictly later coverage_to.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 2));
     const after = new Date().toISOString();
 
     wikiService.saveVersion(
@@ -721,10 +720,10 @@ describe("wikiService.restoreVersion", () => {
     const markerBefore = wikiCoverageRepo.getByPage(page.id);
     expect(markerBefore).toHaveLength(1);
 
+    // Advance the fake clock past prior saves so restoreVersion produces a strictly later coverage_to.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 2));
     const before = new Date().toISOString();
-    while (new Date().toISOString() === before) {
-      // spin until ISO tick advances
-    }
 
     wikiService.restoreVersion(page.id, 1, "human-1");
 

@@ -4,7 +4,7 @@
     "noEmit": false,
     "outDir": "./dist",
     "rootDir": "./src",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": ["ES2023", "DOM"],
     "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"]

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/board.js";
@@ -31,18 +31,12 @@ import {
   missionComments,
 } from "../db/schema/index.js";
 
-/** Spin-waits until the wall clock advances past `since`; used to disambiguate timestamps that
- * would otherwise be equal at millisecond resolution. */
+/** Deterministically advances the fake wall clock past `since` via `vi.setSystemTime`.
+ * Requires fake Date timers to be active (see delta-mode `beforeEach`).
+ * Returns the new ISO timestamp for assertion use. */
 function advanceClockPast(since: string): string {
-  let now = new Date().toISOString();
-  while (now <= since) {
-    const next = new Date(Date.now() + 2);
-    while (new Date().toISOString() <= since) {
-      // spin
-    }
-    now = new Date().toISOString();
-  }
-  return now;
+  vi.setSystemTime(new Date(new Date(since).getTime() + 2));
+  return new Date().toISOString();
 }
 
 function setupHabitat() {
@@ -89,10 +83,18 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   closeDb();
 });
 
 describe("wikiAugmentationService.getAuthoringContextForEdit — delta mode", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns empty arrays for a freshly-created page with no later activity", () => {
     const { habitat } = setupHabitat();
     const page = wikiService.createPage(

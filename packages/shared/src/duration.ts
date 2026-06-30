@@ -26,7 +26,7 @@ export function parseDurationWindow(
   const unit = match[2]!.toLowerCase();
   let ms: number;
   if (unit.startsWith("s")) ms = n * 1000;
-  else if (unit.startsWith("m") && !unit.startsWith("ms")) ms = n * 60 * 1000;
+  else if (unit.startsWith("m")) ms = n * 60 * 1000;
   else if (unit.startsWith("h")) ms = n * 60 * 60 * 1000;
   else if (unit.startsWith("d")) ms = n * 24 * 60 * 60 * 1000;
   else if (unit.startsWith("w")) ms = n * 7 * 24 * 60 * 60 * 1000;

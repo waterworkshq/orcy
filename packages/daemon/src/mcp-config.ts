@@ -53,7 +53,7 @@ export function writeMcpConfig(options: McpConfigOptions, targetDir?: string): s
   }
 
   const configPath = join(dir, ".mcp.json");
-  const safeConfig = JSON.parse(JSON.stringify(config));
+  const safeConfig = structuredClone(config);
   for (const server of Object.values(safeConfig.mcpServers) as Array<{
     env: Record<string, string>;
   }>) {

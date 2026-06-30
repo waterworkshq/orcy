@@ -448,7 +448,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
     Params: z.infer<typeof paramsWithHabitat>;
     Body: {
       enabled: boolean;
-      scheduleType: "interval" | "cron";
+      scheduleType?: "interval" | "cron";
       intervalMinutes?: number;
       cronExpression?: string;
       timezone?: string;
@@ -461,7 +461,7 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
         Params: z.infer<typeof paramsWithHabitat>;
         Body: {
           enabled: boolean;
-          scheduleType: "interval" | "cron";
+          scheduleType?: "interval" | "cron";
           intervalMinutes?: number;
           cronExpression?: string;
           timezone?: string;
@@ -473,10 +473,13 @@ export async function wikiRoutes(fastify: FastifyInstance): Promise<void> {
       const cadenceBody = z
         .object({
           enabled: z.boolean(),
-          scheduleType: z.enum(["interval", "cron"]),
+          scheduleType: z.enum(["interval", "cron"]).optional(),
           intervalMinutes: z.number().int().min(1).optional(),
           cronExpression: z.string().min(1).optional(),
           timezone: z.string().optional(),
+        })
+        .refine((data) => !data.enabled || data.scheduleType !== undefined, {
+          message: "scheduleType is required when enabled is true",
         })
         .safeParse(request.body);
       if (!cadenceBody.success) {

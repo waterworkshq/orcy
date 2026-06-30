@@ -82,7 +82,7 @@ export interface AutomationSettings {
  */
 export interface WikiSettings {
   enabled: boolean;
-  scheduleType: "interval" | "cron";
+  scheduleType?: "interval" | "cron";
   intervalMinutes?: number;
   cronExpression?: string;
   timezone: string;

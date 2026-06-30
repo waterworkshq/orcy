@@ -398,6 +398,8 @@ export function approveTask(
 
   if (!validateTransition(current.status, "approved")) return null;
 
+  const currentHabitatId = getHabitatId(current);
+
   if (reviewAssignment.hasAssignedReviewers(taskId)) {
     if (!reviewAssignment.isAssignedReviewer(taskId, reviewerId)) {
       return null;
@@ -405,8 +407,7 @@ export function approveTask(
 
     reviewAssignment.recordApproval(taskId, reviewerId);
 
-    const habitatId = getHabitatId(current);
-    sseBroadcaster.publish(habitatId, {
+    sseBroadcaster.publish(currentHabitatId, {
       type: "task.review_completed",
       data: { taskId, reviewerId, status: "approved" },
     });
@@ -422,8 +423,7 @@ export function approveTask(
 
   // Pre-interceptor seam (ADR-0014): veto before the approval DB write.
   {
-    const preHabitatId = getHabitatId(current);
-    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", preHabitatId, {
+    const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", currentHabitatId, {
       actorType: reviewerType,
       actorId: reviewerId,
       reviewerId,

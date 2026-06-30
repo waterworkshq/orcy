@@ -118,7 +118,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
         <Tooltip content={priorityTooltip[feature.priority] ?? ""} position="top">
           <Badge variant={PRIORITY_VARIANT[feature.priority] ?? "medium"}>{feature.priority}</Badge>
         </Tooltip>
-        <Badge variant={(FEATURE_STATUS_VARIANT[feature.status] ?? "pending") as any}>
+        <Badge variant={FEATURE_STATUS_VARIANT[feature.status] ?? "pending"}>
           {feature.status.replace("_", " ")}
         </Badge>
         {feature.sprintId && (

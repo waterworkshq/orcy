@@ -59,7 +59,7 @@ export function getCadence(habitatId: string): WikiSettings | null {
 /** Input for {@link setCadence}. */
 export interface SetCadenceInput {
   enabled: boolean;
-  scheduleType: "interval" | "cron";
+  scheduleType?: "interval" | "cron";
   intervalMinutes?: number;
   cronExpression?: string;
   timezone?: string;
@@ -79,20 +79,6 @@ export function setCadence(
   const habitat = habitatRepo.getHabitatById(habitatId);
   if (!habitat) throw notFound(`Habitat not found: ${habitatId}`);
 
-  if (input.enabled) {
-    if (input.scheduleType === "interval") {
-      if (!input.intervalMinutes || input.intervalMinutes < 1) {
-        throw badRequest("intervalMinutes is required and must be >= 1 for interval cadence");
-      }
-    } else if (input.scheduleType === "cron") {
-      if (!input.cronExpression) {
-        throw badRequest("cronExpression is required for cron cadence");
-      }
-    } else {
-      throw badRequest(`Invalid scheduleType: ${input.scheduleType}`);
-    }
-  }
-
   const priorScheduleId = habitat.wikiSettings?.scheduledTaskId ?? null;
   if (priorScheduleId) {
     try {
@@ -105,10 +91,24 @@ export function setCadence(
     }
   }
 
-  let scheduledTaskId: string | undefined = priorScheduleId ?? undefined;
+  let scheduledTaskId: string | undefined;
+  let validatedScheduleType: "interval" | "cron" | undefined;
   if (input.enabled) {
-    const timezone = input.timezone ?? "UTC";
     const scheduleType = input.scheduleType;
+    if (scheduleType === "interval") {
+      if (!input.intervalMinutes || input.intervalMinutes < 1) {
+        throw badRequest("intervalMinutes is required and must be >= 1 for interval cadence");
+      }
+    } else if (scheduleType === "cron") {
+      if (!input.cronExpression) {
+        throw badRequest("cronExpression is required for cron cadence");
+      }
+    } else {
+      throw badRequest("scheduleType is required when enabled is true");
+    }
+    validatedScheduleType = scheduleType;
+
+    const timezone = input.timezone ?? "UTC";
     const nextRunAt = scheduledTaskService.calculateNextRun(
       scheduleType,
       input.cronExpression ?? null,
@@ -140,7 +140,7 @@ export function setCadence(
 
   const next: WikiSettings = {
     enabled: input.enabled,
-    scheduleType: input.scheduleType,
+    scheduleType: validatedScheduleType,
     ...(input.intervalMinutes !== undefined ? { intervalMinutes: input.intervalMinutes } : {}),
     ...(input.cronExpression !== undefined ? { cronExpression: input.cronExpression } : {}),
     timezone: input.timezone ?? "UTC",
