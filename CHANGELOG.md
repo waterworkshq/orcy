@@ -2,6 +2,26 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.13 — 2026-06-30
+
+### Refactors
+
+#### optional scheduleType, deduplicate getHabitatId, export BadgeVariant ([`1d58a59`](https://github.com/waterworkshq/orcy/commit/1d58a59a95c2f99cd98600eb5246d434988f4ee5))
+
+1. Make scheduleType optional in WikiSettings and SetCadenceInput, moving validation
+2. into schema refine so it's only required when enabled is true. Extract currentHabitatId
+3. once in approveTask instead of calling getHabitatId multiple times.
+
+5. Replace JSON.parse(JSON.stringify) with structuredClone in MCP config writing.
+6. Simplify duration parsing by removing the redundant ms-unit guard in parseDurationWindow.
+
+8. Switch tests to vi.useFakeTimers for deterministic clock control instead of spin-waiting.
+9. Export BadgeVariant from Badge.tsx and import it in formatting.ts and MissionCard to
+10. remove the `as any` type cast. Apply consistent single-quote formatting across
+11. affected UI files and remove DOM.Iterable from ui tsconfig.
+
+
+
 ## 0.22.12 — 2026-06-29
 
 ### Bug Fixes
@@ -46,36 +66,3 @@
 
 27. Reference plugin: action-create-followup (creates a follow-up task
 28. using taskWriter.createTask, demonstrates params + evaluationCtx).
-
-
-
-## 0.22.10 — 2026-06-29
-
-### Features
-
-#### automation condition contribution kind + reference plugin ([`9abc949`](https://github.com/waterworkshq/orcy/commit/9abc949ba4889f5ee4e904941bba642b92c3cc4d))
-
-1. Second extraction using the v0.22.8 foundation (ADR-0022):
-
-3. Add 'plugin' variant to AutomationCondition union: { type: plugin,
-4. conditionId, params }. Plugin conditions are leaf nodes in the recursive
-5. condition tree (and/or/not composition stays in-tree).
-
-7. Add automationCondition as 7th contribution kind (system-scoped, no
-8. capabilities, no enrollment — condition handlers are stateless pure
-9. functions, the automation rule provides per-habitat scoping).
-
-11. Condition handlers are SYNCHRONOUS (evaluator + all callers are sync).
-12. No PluginContext — evaluation context passed directly as argument
-13. (same pattern as formatters).
-
-15. PluginEvaluationContext strips agent apiKeyHash/rateLimitPerMinute,
-16. uses PluginHabitatView for habitat, minimal projections for
-17. mission/sprint. Task passed as-is (no auth-bearing fields).
-
-19. Fail-safe contract: missing handler or handler error returns
-20. { matched: false } — critical because evaluateCondition runs on the
-21. workflow gate evaluation path where a throw would block transitions.
-
-23. Reference plugin: condition-rejection-spike (matches tasks with N+
-24. rejections, demonstrates params passing).
