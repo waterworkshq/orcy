@@ -5,8 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { shallow } from "zustand/shallow";
 import { Badge } from "../ui/Badge.js";
 import { Tooltip } from "../ui/Tooltip.js";
+import { AgentAvatar } from "./AgentAvatar.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
-import { useAgents } from "../../lib/useHabitatData.js";
 import { useModalStore } from "../../store/modalStore.js";
 import { api } from "../../api/index.js";
 import {
@@ -39,29 +39,6 @@ const statusTooltip: Record<string, string> = {
   approved: "Human approved - moving forward",
   rejected: "Human rejected - needs rework",
 };
-
-function AgentAvatar({ agentId }: { agentId: string }) {
-  const { data: agents = [] } = useAgents();
-  const agent = agents.find((a) => a.id === agentId) ?? null;
-  if (!agent) return null;
-
-  const initials = agent.name.slice(0, 2).toUpperCase();
-  const color =
-    agent.type === "claude-code"
-      ? "bg-[var(--agent-blue)]"
-      : agent.type === "codex"
-        ? "bg-[var(--agent-purple)]"
-        : "bg-[var(--agent-green)]";
-
-  return (
-    <div
-      className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-[var(--on-surface)] ${color}`}
-      title={agent.name}
-    >
-      {initials}
-    </div>
-  );
-}
 
 /**
  * Renders a single task card showing title, priority, status, assignee,

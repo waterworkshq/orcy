@@ -141,7 +141,7 @@ describe("TaskCard modal integration", () => {
       <TaskCard task={makeTask({ id: "task-with-agent", assignedAgentId: "agent-1" })} />,
     );
 
-    const avatar = container.querySelector('[title="Claude Agent"]');
+    const avatar = container.querySelector(".bg-\\[var\\(--agent-blue\\)\\]");
     expect(avatar).toBeTruthy();
     expect(avatar!.className).toContain("bg-[var(--agent-blue)]");
     expect(avatar!.className).not.toContain("bg-blue-500");
@@ -264,12 +264,12 @@ describe("TaskCard per-agent AgentAvatar selector", () => {
       { id: "agent-2", name: "Codex Agent", type: "codex" },
     ];
 
-    render(<TaskCard task={makeTask({ id: "task-agent-sel", assignedAgentId: "agent-1" })} />);
-
-    const agentAvatar = Array.from(document.querySelectorAll("[title]")).find(
-      (el) => el.getAttribute("title") === "Claude Agent",
+    const { container } = render(
+      <TaskCard task={makeTask({ id: "task-agent-sel", assignedAgentId: "agent-1" })} />,
     );
-    expect(agentAvatar).toBeTruthy();
+
+    const avatar = container.querySelector(".bg-\\[var\\(--agent-blue\\)\\]");
+    expect(avatar).toBeTruthy();
   });
 
   it("AgentAvatar returns null for non-existent agent", () => {
@@ -279,10 +279,8 @@ describe("TaskCard per-agent AgentAvatar selector", () => {
       <TaskCard task={makeTask({ id: "task-no-agent", assignedAgentId: "agent-999" })} />,
     );
 
-    const agentAvatar = Array.from(container.querySelectorAll("[title]")).find(
-      (el) => el.getAttribute("title") === "Claude Agent",
-    );
-    expect(agentAvatar).toBeUndefined();
+    const avatar = container.querySelector(".bg-\\[var\\(--agent-blue\\)\\]");
+    expect(avatar).toBeNull();
   });
 });
 

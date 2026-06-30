@@ -2,34 +2,9 @@ import * as React from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { shallow } from "zustand/shallow";
 import { Badge } from "../ui/Badge.js";
-import { Tooltip } from "../ui/Tooltip.js";
-import { useAgents } from "../../lib/useHabitatData.js";
+import { AgentAvatar } from "./AgentAvatar.js";
 import { PRIORITY_VARIANT, TASK_STATUS_VARIANT, formatMinutes } from "../../lib/formatting.js";
 import type { Task, TaskPriority, TaskStatus } from "../../types/index.js";
-
-function AgentAvatar({ agentId }: { agentId: string }) {
-  const { data: agents = [] } = useAgents();
-  const agent = agents.find((a) => a.id === agentId) ?? null;
-  if (!agent) return <span className="text-xs text-[var(--on-surface-variant)]">—</span>;
-
-  const initials = agent.name.slice(0, 2).toUpperCase();
-  const color =
-    agent.type === "claude-code"
-      ? "bg-[var(--agent-blue)]"
-      : agent.type === "codex"
-        ? "bg-[var(--agent-purple)]"
-        : "bg-[var(--agent-green)]";
-
-  return (
-    <Tooltip content={agent.name} position="top">
-      <div
-        className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-[var(--on-surface)] ${color}`}
-      >
-        {initials}
-      </div>
-    </Tooltip>
-  );
-}
 
 export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
   return [
@@ -98,7 +73,12 @@ export function getTaskTableColumns(): ColumnDef<Task, unknown>[] {
         const agentId = getValue() as string | null;
         if (!agentId)
           return <span className="text-xs text-[var(--on-surface-variant)]">Unassigned</span>;
-        return <AgentAvatar agentId={agentId} />;
+        return (
+          <AgentAvatar
+            agentId={agentId}
+            fallback={<span className="text-xs text-[var(--on-surface-variant)]">—</span>}
+          />
+        );
       },
       enableSorting: false,
       size: 100,

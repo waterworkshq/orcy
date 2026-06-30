@@ -27,9 +27,21 @@ vi.mock("../ui/Badge.js", () => ({
   Badge: ({ children, variant }: any) => <span data-testid={`badge-${variant}`}>{children}</span>,
 }));
 
+vi.mock("./AgentAvatar.js", () => ({
+  AgentAvatar: ({ agentId }: { agentId: string }) => (
+    <div data-testid={`avatar-${agentId}`}>AVATAR</div>
+  ),
+}));
+
 vi.mock("../../lib/formatting.js", () => ({
   truncateId: (id: string, prefix: string) => `${prefix}-${id.slice(0, 4)}`,
   PRIORITY_VARIANT: { critical: "critical", high: "high", medium: "medium", low: "low" },
+  PRIORITY_BORDER_CLASS: {
+    critical: "border-l-[3px] border-l-[var(--badge-critical)]",
+    high: "border-l-[3px] border-l-[var(--badge-high)]",
+    medium: "border-l-[3px] border-l-[var(--badge-medium)]",
+    low: "border-l-[3px] border-l-[var(--badge-low)]",
+  },
   TASK_STATUS_VARIANT: {
     pending: "default",
     in_progress: "active",
@@ -97,10 +109,10 @@ describe("TaskCardList", () => {
     expect(screen.getByText("critical")).toBeTruthy();
   });
 
-  it("renders agent name when assigned", () => {
+  it("renders agent avatar when assigned", () => {
     renderWithQC(<TaskCardList tasks={tasks} selectedIds={[]} onSelectionChange={vi.fn()} />);
-    expect(screen.getByText("Agent Alpha")).toBeTruthy();
-    expect(screen.getByText("Agent Beta")).toBeTruthy();
+    expect(screen.getByTestId("avatar-a1")).toBeTruthy();
+    expect(screen.getByTestId("avatar-a2")).toBeTruthy();
   });
 
   it("renders Unassigned when no agent", () => {

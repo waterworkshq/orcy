@@ -1,8 +1,13 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Badge } from "../ui/Badge.js";
+import { AgentAvatar } from "./AgentAvatar.js";
 import { useModalStore } from "../../store/modalStore.js";
-import { useAgents } from "../../lib/useHabitatData.js";
-import { truncateId, PRIORITY_VARIANT, TASK_STATUS_VARIANT } from "../../lib/formatting.js";
+import {
+  truncateId,
+  PRIORITY_VARIANT,
+  PRIORITY_BORDER_CLASS,
+  TASK_STATUS_VARIANT,
+} from "../../lib/formatting.js";
 import type { Task } from "../../types/index.js";
 import { User } from "lucide-react";
 
@@ -22,13 +27,13 @@ const TaskCardItem = React.memo(function TaskCardItem({
   onToggle: () => void;
 }) {
   const openModal = useModalStore((s) => s.openModal);
-  const { data: agents = [] } = useAgents();
-  const agent = agents.find((a) => a.id === task.assignedAgentId);
+  const borderClass = PRIORITY_BORDER_CLASS[task.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   return (
     <div
-      className="glass-card p-3 cursor-pointer transition-colors hover:bg-[var(--surface-container-high)]"
+      className={`glass-card ${borderClass} p-3 cursor-pointer transition-colors hover:bg-[var(--surface-container-high)]`}
       data-testid="task-card-item"
+      role="listitem"
     >
       <div className="flex items-start gap-3">
         <input
@@ -63,16 +68,17 @@ const TaskCardItem = React.memo(function TaskCardItem({
               {task.status.replace("_", " ")}
             </Badge>
             <Badge variant={PRIORITY_VARIANT[task.priority] ?? "medium"}>{task.priority}</Badge>
+            {task.rejectedCount > 0 && (
+              <span
+                className="text-xs text-[var(--badge-blocked-text)]"
+                title={`Rejected ${task.rejectedCount}x`}
+              >
+                ↩ {task.rejectedCount}
+              </span>
+            )}
             <div className="flex items-center gap-1 ml-auto text-xs text-[var(--on-surface-variant)]">
-              {agent ? (
-                <>
-                  <div className="h-4 w-4 rounded-full bg-[var(--primary)] flex items-center justify-center">
-                    <span className="text-[8px] font-bold text-[var(--primary-foreground)]">
-                      {agent.name.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <span className="truncate max-w-[80px]">{agent.name}</span>
-                </>
+              {task.assignedAgentId ? (
+                <AgentAvatar agentId={task.assignedAgentId} />
               ) : (
                 <>
                   <User className="h-3 w-3" />
@@ -88,8 +94,10 @@ const TaskCardItem = React.memo(function TaskCardItem({
 });
 
 export function TaskCardList({ tasks, selectedIds, onSelectionChange }: TaskCardListProps) {
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
   function handleToggle(taskId: string) {
-    const next = selectedIds.includes(taskId)
+    const next = selectedSet.has(taskId)
       ? selectedIds.filter((id) => id !== taskId)
       : [...selectedIds, taskId];
     onSelectionChange(next);
@@ -104,12 +112,12 @@ export function TaskCardList({ tasks, selectedIds, onSelectionChange }: TaskCard
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" role="list">
       {tasks.map((task) => (
         <TaskCardItem
           key={task.id}
           task={task}
-          isSelected={selectedIds.includes(task.id)}
+          isSelected={selectedSet.has(task.id)}
           onToggle={() => handleToggle(task.id)}
         />
       ))}

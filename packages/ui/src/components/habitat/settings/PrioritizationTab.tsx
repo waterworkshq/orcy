@@ -474,6 +474,7 @@ function SortableRuleCard({
               type="button"
               {...listeners}
               className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground flex-shrink-0"
+              aria-label={`Drag to reorder rule "${rule.name}"`}
             >
               <GripVertical className="h-4 w-4" />
             </button>

@@ -190,17 +190,26 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
           Loading tasks...
         </div>
       ) : isMobile ? (
-        <TaskCardList
-          tasks={tasks}
-          selectedIds={selectedTaskIds}
-          onSelectionChange={(ids) => {
-            const mapping: RowSelectionState = {};
-            ids.forEach((id) => {
-              mapping[id] = true;
-            });
-            setRowSelection(mapping);
-          }}
-        />
+        <div className="flex flex-col gap-2">
+          {sorting.length > 0 && (
+            <div className="flex items-center gap-1 text-xs text-[var(--on-surface-variant)]">
+              <span>
+                Sorted by {sorting[0].id} {sorting[0].desc ? "↓" : "↑"}
+              </span>
+            </div>
+          )}
+          <TaskCardList
+            tasks={tasks}
+            selectedIds={selectedTaskIds}
+            onSelectionChange={(ids) => {
+              const mapping: RowSelectionState = {};
+              ids.forEach((id) => {
+                mapping[id] = true;
+              });
+              setRowSelection(mapping);
+            }}
+          />
+        </div>
       ) : (
         <DataTable
           columns={columns}
