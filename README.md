@@ -195,7 +195,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.23** | Triage — reactive + proactive triage automation on clustered signals |
+| **v0.23.x** | Architecture deepening — integration adapter extraction + auto-release-detection for deferred findings |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
