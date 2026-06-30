@@ -19,7 +19,9 @@ export type AutomationScanType =
   | "mission_blocked"
   | "sprint_ending"
   | "agent_silent"
-  | "evidence_gap_open";
+  | "evidence_gap_open"
+  | "signal_pattern_clustered"
+  | "agent_quality_degraded";
 
 /** Union of all trigger discriminators, combining events and scans. */
 export type AutomationTriggerType = AutomationEventType | AutomationScanType;

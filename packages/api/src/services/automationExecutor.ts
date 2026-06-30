@@ -668,6 +668,7 @@ export async function executeAndRecordRuleRun(
   triggerEventId: string | null,
   targetType: AutomationTargetType | null,
   targetId: string | null,
+  payload?: Record<string, unknown>,
 ): Promise<{ run: AutomationRuleRun; outcome: AutomationRunStatus }> {
   const run = runRepo.startRuleRun({
     ruleId: rule.id,
@@ -692,6 +693,7 @@ export async function executeAndRecordRuleRun(
         habitatId,
         targetType,
         targetId,
+        payload,
       }),
     );
     const result = await executeActions(rule, run, ctx);

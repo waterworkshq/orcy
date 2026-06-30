@@ -87,6 +87,7 @@ export {
 export { remoteWebhookDeliveries } from "./remote-webhook.js";
 export { workflows, taskWorkflowGates, failureContexts } from "./workflow.js";
 export { wikiPages, wikiPageVersions, wikiPageLinks, wikiCoverageMarkers } from "./wiki.js";
+export { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
 export {
   pluginEnrollments,
   pluginRuns,
@@ -182,4 +183,7 @@ export {
   remoteGrantTaskSnapshotsRelations,
   remoteIdempotencyKeysRelations,
   remoteWebhookEndpointsRelations,
+  findingTriageRelations,
+  triageResolutionsRelations,
+  triageClusterMissionsRelations,
 } from "./relations.js";

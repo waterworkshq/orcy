@@ -43,6 +43,8 @@ bunfig.toml
 .serena/
 .gitnexus
 .claude/
+AGENTS.md
+CLAUDE.md
 docs/plans/
 docs/archive/
 docs/deferred/

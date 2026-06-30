@@ -84,6 +84,7 @@ import {
   taskQualityChecklists,
   taskQualityChecklistItems,
 } from "./quality.js";
+import { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
 
 export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   columns: many(columns),
@@ -1007,5 +1008,38 @@ export const remoteWebhookEndpointsRelations = relations(remoteWebhookEndpoints,
   habitat: one(habitats, {
     fields: [remoteWebhookEndpoints.habitatId],
     references: [habitats.id],
+  }),
+}));
+
+export const findingTriageRelations = relations(findingTriage, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [findingTriage.habitatId],
+    references: [habitats.id],
+  }),
+  pulse: one(pulses, {
+    fields: [findingTriage.pulseId],
+    references: [pulses.id],
+  }),
+  triageMission: one(missions, {
+    fields: [findingTriage.triageMissionId],
+    references: [missions.id],
+  }),
+}));
+
+export const triageResolutionsRelations = relations(triageResolutions, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [triageResolutions.habitatId],
+    references: [habitats.id],
+  }),
+}));
+
+export const triageClusterMissionsRelations = relations(triageClusterMissions, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [triageClusterMissions.habitatId],
+    references: [habitats.id],
+  }),
+  mission: one(missions, {
+    fields: [triageClusterMissions.missionId],
+    references: [missions.id],
   }),
 }));

@@ -328,6 +328,14 @@ export type { SkillCategory } from "./skill.js";
 export { SKILL_CATEGORIES } from "./skill.js";
 
 export type {
+  FindingTriageStatus,
+  ResolutionKind,
+  ClusterPayload,
+  AgentQualityPayload,
+} from "./triage.js";
+export { FINDING_TRIAGE_STATUSES, FINDING_TRIAGE_TRANSITIONS, RESOLUTION_KINDS } from "./triage.js";
+
+export type {
   PluginManifest,
   PluginScope,
   Contribution,
