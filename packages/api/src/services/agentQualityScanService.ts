@@ -57,7 +57,7 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
 
       for (const rule of rules) {
         try {
-          if (!applyGuards(rule, habitatId, SCAN_TYPE)) {
+          if (!applyGuards(rule, habitatId, SCAN_TYPE, triggerEventId, "agent", signal.agentId)) {
             skipped++;
             continue;
           }

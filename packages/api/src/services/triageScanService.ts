@@ -39,7 +39,12 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
     const windowMs = DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const now = new Date();
     const since = new Date(now.getTime() - windowMs).toISOString();
-    const pulses = pulseRepo.listByHabitatBetween(habitatId, since, now.toISOString());
+    const pulses = pulseRepo.listByHabitatBetween(
+      habitatId,
+      since,
+      now.toISOString(),
+      Number.MAX_SAFE_INTEGER,
+    );
 
     const clusterable = pulses.filter((p) => isClusterable(p));
     const groups = groupByClusterKey(clusterable);
@@ -76,7 +81,7 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
       const triggerEventId = `cluster:${clusterKey}:${habitatId}`;
       for (const rule of rules) {
         try {
-          if (!applyGuards(rule, habitatId, SCAN_TYPE)) {
+          if (!applyGuards(rule, habitatId, SCAN_TYPE, triggerEventId, "habitat", habitatId)) {
             skipped++;
             continue;
           }

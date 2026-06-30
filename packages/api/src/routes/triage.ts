@@ -113,11 +113,11 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
 
       const actor = actorFromRequest(request);
       let finding = existing;
-      if (parsed.data.bucket !== undefined) {
-        finding = findingTriageRepo.setBucket(request.params.id, parsed.data.bucket);
-      }
       if (parsed.data.status !== undefined) {
         finding = findingTriageRepo.transitionStatus(request.params.id, parsed.data.status, actor);
+      }
+      if (parsed.data.bucket !== undefined) {
+        finding = findingTriageRepo.setBucket(request.params.id, parsed.data.bucket);
       }
       return { finding };
     },
@@ -165,7 +165,13 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         createdBy: actor.id,
       });
 
-      findingTriageRepo.setTriageMissionId(request.params.id, mission.id);
+      try {
+        findingTriageRepo.setTriageMissionId(request.params.id, mission.id);
+      } catch {
+        // Mission created but back-link failed — the mission is usable, just
+        // unlinked from the finding_triage record. Non-critical: the finding is
+        // already promoted (in_progress) and the mission exists for work.
+      }
 
       return { missionId: mission.id };
     },

@@ -156,25 +156,31 @@ export function applyGuards(
   rule: AutomationRule,
   habitatId: string,
   scanType: AutomationScanType,
+  triggerEventId?: string,
+  targetType?: string,
+  targetId?: string,
 ): boolean {
+  const resolvedTriggerEventId = triggerEventId ?? `scan:${scanType}:${habitatId}`;
+  const resolvedTargetType = targetType ?? "habitat";
+  const resolvedTargetId = targetId ?? habitatId;
   const last = runRepo.getLastSuccessfulRunForFingerprint({
     habitatId,
     ruleId: rule.id,
     triggerType: scanType,
-    triggerEventId: `scan:${scanType}:${habitatId}`,
-    targetType: "habitat",
-    targetId: habitatId,
+    triggerEventId: resolvedTriggerEventId,
+    targetType: resolvedTargetType,
+    targetId: resolvedTargetId,
   });
   if (last) {
     const window = rule.cooldownSeconds * 1000;
     if (Date.now() - new Date(last.startedAt).getTime() < window) {
-      recordScanSkip(rule, habitatId, scanType, "cooldown", `scan:${scanType}:${habitatId}`);
+      recordScanSkip(rule, habitatId, scanType, "cooldown", resolvedTriggerEventId);
       return false;
     }
   }
   const count = runRepo.getHourlyRunCount(rule.id, new Date().toISOString());
   if (count >= rule.maxRunsPerHour) {
-    recordScanSkip(rule, habitatId, scanType, "rate_limited", `scan:${scanType}:${habitatId}`);
+    recordScanSkip(rule, habitatId, scanType, "rate_limited", resolvedTriggerEventId);
     return false;
   }
   return true;
