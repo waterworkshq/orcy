@@ -6167,3 +6167,72 @@ Write actions: `tasks.claim`, `tasks.heartbeat`, `tasks.submit`, `tasks.release`
 - Any action not in the allowlist
 
 **Local MCP unchanged:** When `ORCY_REMOTE_KEY` is not set, the client uses `X-Agent-API-Key` and the local agent path. Both modes can coexist.
+
+## Triage (v0.23)
+
+All triage routes require `agentOrHumanAuth` (X-Agent-API-Key or Bearer JWT).
+
+### Finding Triage Routes
+
+#### GET /triage/findings
+
+List finding triage records for a habitat.
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `habitatId` | Yes | Habitat UUID |
+| `status` | No | Filter by status: `open`, `triaged`, `in_progress`, `resolved`, `wontfix` |
+| `bucket` | No | Filter by routing bucket: `fix_now`, `defer_to_patch`, `defer_to_release`, `document_as_known_limitation`, `needs_investigation` |
+
+**Response:** `{ findings: FindingTriageView[] }`
+
+#### GET /triage/findings/:id
+
+Get a single finding triage record.
+
+**Response:** `{ finding: FindingTriageView }`
+
+#### PATCH /triage/findings/:id
+
+Transition status and/or set bucket. At least one of `status` or `bucket` must be provided. Status transitions are gated by the state machine (`open → triaged → in_progress → resolved | wontfix`); invalid transitions return `409 Conflict`.
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `status` | No* | Target status (must be a valid transition from current) |
+| `bucket` | No* | Routing bucket |
+
+*At least one required.
+
+**Response:** `{ finding: FindingTriageView }`
+
+#### POST /triage/findings/:id/promote
+
+Manually promote a deferred finding into active corrective work. Transitions `triaged → in_progress` and creates a corrective mission sourced from the finding's pulse context.
+
+**Response:** `{ missionId: string }`
+
+### Resolution Lookup
+
+#### GET /triage/resolutions
+
+Proactive lookup of historical resolutions by clusterKey.
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `habitatId` | Yes | Habitat UUID |
+| `clusterKey` | Yes | Normalized signal subject to match |
+
+**Response:** `{ resolutions: TriageResolutionView[] }`
+
+### Cluster Summary
+
+#### GET /triage/clusters/top
+
+Top unresolved clusters for the UI/MCP summary. Aggregated from open/triaged finding-triage records grouped by clusterKey, joined with active cluster-mission status.
+
+| Query Param | Required | Description |
+|-------------|----------|-------------|
+| `habitatId` | Yes | Habitat UUID |
+| `limit` | No | Max results (default 10, max 100) |
+
+**Response:** `{ clusters: ClusterSummaryView[] }` where each cluster has `{ clusterKey, signalCount, statuses[], findingKinds[], status: "under_investigation" | "awaiting_triage" }`

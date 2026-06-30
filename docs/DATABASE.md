@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (69 tables)
+### Entity-Relationship Diagram (72 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -2057,6 +2057,81 @@ bun run --watch packages/api/src/index.ts
 ls -lh orcy.db
 sqlite3 orcy.db "SELECT name, SUM(pgsize) as size FROM dbstat GROUP BY name ORDER BY size DESC;"
 ```
+
+---
+
+### Triage (v0.23)
+
+The v0.23 "Triage" release adds automated detection and response to systemic agent pain points. Three new tables store finding triage lifecycle records, resolution history for proactive lookup, and the cluster-to-mission junction for active-triage suppression.
+
+**Migrations:** `0042_finding_triage.sql`, `0043_triage_resolutions.sql`, `0044_triage_cluster_missions.sql`
+
+#### `finding_triage`
+
+Finding triage lifecycle record. Tracks an engineering finding's routing lifecycle from `open` through `triaged`/`in_progress` to `resolved`/`wontfix`, including the routing bucket decision. Outlives the triage mission — a `defer_to_patch` finding stays `triaged` until its target release ships.
+
+**Source:** `packages/api/src/db/schema/triage.ts`
+**Migration:** `0042_finding_triage.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `pulse_id` | TEXT | NOT NULL FK → pulses(id) ON DELETE CASCADE | Source finding pulse |
+| `cluster_key` | TEXT | NOT NULL | Denormalized `normalize(pulse.subject)` for dedup queries |
+| `finding_kind` | TEXT | NOT NULL | Denormalized `pulse.metadata.findingKind` for dedup queries |
+| `status` | TEXT | NOT NULL DEFAULT 'open' | Lifecycle state: open, triaged, in_progress, resolved, wontfix |
+| `bucket` | TEXT | | Routing bucket: fix_now, defer_to_patch, defer_to_release, document_as_known_limitation, needs_investigation |
+| `target_release` | TEXT | | Free-text tag (e.g. "v0.24") for deferred findings |
+| `triage_mission_id` | TEXT | FK → features(id) ON DELETE SET NULL | Linked triage mission |
+| `corroborating_pulse_ids` | TEXT | | JSON array of pulse IDs linked as corroborating evidence |
+| `triaged_by_type/id`, `resolved_by_type/id`, `triaged_at`, `resolved_at`, `resolution_note` | TEXT | | Attribution fields mirroring `code_evidence_gaps` pattern |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' | JSON metadata |
+| `created_at`, `updated_at` | TEXT | NOT NULL DEFAULT datetime('now') | Timestamps |
+
+**Indexes:** `(habitat_id, status)`, `(habitat_id, bucket)`, `(pulse_id)`, `(habitat_id, cluster_key, finding_kind)` [dedup], `(triage_mission_id)`
+
+#### `triage_resolutions`
+
+Unified resolution store for both cluster triage and finding triage, keyed by `cluster_key` for proactive historical matching.
+
+**Source:** `packages/api/src/db/schema/triage.ts`
+**Migration:** `0043_triage_resolutions.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `cluster_key` | TEXT | NOT NULL | The proactive-match key (normalized subject) |
+| `skill_category` | TEXT | NOT NULL | Primary skill category |
+| `source` | TEXT | NOT NULL | `cluster_triage` or `finding_triage` |
+| `source_id` | TEXT | NOT NULL | Triage mission ID or finding_triage ID |
+| `root_cause` | TEXT | | Free-text root cause analysis |
+| `resolution` | TEXT | | Free-text fix description |
+| `resolution_kind` | TEXT | | config_change, doc_clarification, code_fix, process_change, wontfix, other |
+| `resolved_by_type/id`, `resolved_at` | TEXT | | Attribution |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' | JSON metadata |
+
+**Indexes:** `(habitat_id, cluster_key)`, `(source, source_id)`
+
+#### `triage_cluster_missions`
+
+Lightweight junction table linking cluster triage missions to their `cluster_key` for active-triage suppression (loop guard 2).
+
+**Source:** `packages/api/src/db/schema/triage.ts`
+**Migration:** `0044_triage_cluster_missions.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Record identifier |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `cluster_key` | TEXT | NOT NULL | The cluster's normalized subject |
+| `mission_id` | TEXT | NOT NULL FK → features(id) ON DELETE CASCADE | The triage mission |
+| `status` | TEXT | NOT NULL DEFAULT 'open' | `open` or `resolved` |
+| `created_at` | TEXT | NOT NULL DEFAULT datetime('now') | Creation timestamp |
+| `resolved_at` | TEXT | | Resolution timestamp |
+
+**Indexes:** `(habitat_id, cluster_key, status)`, `(mission_id)`
 
 ---
 

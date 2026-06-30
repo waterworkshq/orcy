@@ -503,6 +503,31 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
 ---
 
+## Triage (v0.23)
+
+### Triage missions not being created
+
+1. **No automation rules configured.** The `signal_pattern_clustered` scan creates missions directly (even with zero rules), but only if clusters cross threshold. Check: `GET /api/triage/clusters/top?habitatId=X` — if empty, no clusters are detected.
+2. **Threshold not met.** Default is 3+ signals sharing the same normalized subject within 7 days. Fewer signals = no cluster. Adjust by posting more signals or waiting for accumulation.
+3. **Active-triage suppression.** If a triage mission already exists for the clusterKey (status `open` in `triage_cluster_missions`), new clusters for the same key are suppressed. Resolve or close the existing triage mission first.
+4. **All signals are triage-generated.** Signals with `metadata.triageGenerated: true` are excluded from clustering (loop prevention). Verify the pulses don't carry this flag.
+
+### Triage investigation task not getting claimed
+
+The investigation task is a normal task that requires a **configured daemon agent** (v0.14). Without a daemon + agent (Claude/Codex/etc.) registered in the habitat, the task sits unclaimed. Check daemon status via `GET /api/daemon/status`.
+
+### Finding triage record not created
+
+Finding triage records are created when a finding **enters triage** (either via critical-single event trigger or via cluster detection). Posting a finding via `orcy_pulse` alone does NOT create a `finding_triage` record — the finding must trigger triage first. Check: `GET /api/triage/findings?habitatId=X` to see existing records.
+
+### Agent quality triggers not firing
+
+1. **Sample size too small.** Default minimum is 5 tasks. Agents with fewer completed tasks are skipped.
+2. **Score above threshold.** Default threshold is 40/100. Healthy agents (score ≥ 40) are not flagged.
+3. **No rules configured.** The scan evaluates quality but only fires actions if automation rules with trigger `agent_quality_degraded` exist.
+
+---
+
 ## Error Code Reference
 
 All API errors follow this format:

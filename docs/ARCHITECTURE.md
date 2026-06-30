@@ -1358,3 +1358,44 @@ Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` cap
 | `api/src/repositories/pluginRun.ts` | Per-run telemetry |
 | `api/src/db/schema/plugin.ts` | 2 drizzle tables |
 | `api/src/routes/plugins.ts` | Enrollment + run-listing REST routes |
+
+## Triage System (v0.23)
+
+The v0.23 "Triage" release automates the detection and response to systemic agent pain points. When implicit signals (experience, finding, detected) cluster around a pattern, the system investigates, creates corrective work, and learns from resolutions.
+
+**ADRs:** 0024 (scan detection), 0025 (cross-provenance clustering), 0026 (triage mission structure), 0027 (finding_triage table)
+
+### Cluster Detection Scan
+
+A periodic scan (`signal_pattern_clustered`) queries time-windowed pulses (default 7 days), filters to clusterable signal types (experience, structured findings, detected — excluding triage-generated output), groups by normalized subject (`normalize(subject)` → clusterKey), and fires automation rules per-cluster with a typed `ClusterPayload`. Clusters below threshold (default 3 signals) are skipped. Active-triage suppression prevents duplicate triage missions for the same clusterKey.
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `api/src/services/triageScanService.ts` | Cluster detection algorithm + per-cluster rule firing |
+| `api/src/services/agentQualityScanService.ts` | Agent quality degradation scan |
+| `api/src/services/automationScanService.ts:19–29` | `runAllScans` habitat loop (extended with 2 new scan calls) |
+| `api/src/services/automationExecutor.ts:663` | `executeAndRecordRuleRun` (gains optional `payload` param for per-cluster context) |
+
+### Finding Triage Lifecycle
+
+Engineering findings enter a 5-state lifecycle (`open → triaged → in_progress → resolved | wontfix`) tracked in `finding_triage`. The lifecycle outlives the triage mission — a `defer_to_patch` finding stays `triaged` until its target release ships. Dedup by `(clusterKey, findingKind)` links duplicate findings as corroborating evidence. Bidirectional pulse linkage: `finding_triage.pulse_id` → pulse, pulse metadata `findingTriageId` → record (write-once pointer).
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `api/src/repositories/findingTriage.ts` | CRUD + dedup + state-machine-enforced transitions |
+| `api/src/services/findingTriageService.ts` | Lifecycle orchestration + bidirectional linkage |
+| `api/src/services/triageService.ts` | Triage mission creation, resolution recording, source-tagged analysis pulses |
+| `api/src/repositories/triageResolutions.ts` | Resolution CRUD + proactive clusterKey lookup |
+| `api/src/repositories/triageClusterMissions.ts` | Active-triage suppression junction |
+
+### Loop Prevention
+
+Two-layer defense: (1) triage-output analysis pulses carry `metadata.triageGenerated: true` and are excluded from cluster detection; (2) the scan checks `triage_cluster_missions` for an open record matching the clusterKey before creating a new triage mission.
+
+### MCP Tool
+
+`orcy_triage` dispatch tool with actions `investigate` (read cluster context), `top_issues` (ranked cluster summaries), `resolution_lookup` (historical resolutions). Tool count 20 → 21.
