@@ -2,6 +2,19 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.15 — 2026-06-30
+
+### Tests
+
+#### add null taskId edge case tests and sprint query invalidation assertions ([`d2f0fe6`](https://github.com/waterworkshq/orcy/commit/d2f0fe6ff02fa14b79b16007f45792197e63f60e))
+
+1. Add test cases in useSSE hook for handling null and missing taskId in SSE events
+2. to prevent crashes. Extend existing sprint.completed and sprint.started tests
+3. to verify detail query invalidation in addition to active query. Refactor
+4. TaskCardList tests with a makeTask helper for cleaner test data setup.
+
+
+
 ## 0.22.14 — 2026-06-30
 
 ### Refactors
@@ -35,13 +48,3 @@
 9. Export BadgeVariant from Badge.tsx and import it in formatting.ts and MissionCard to
 10. remove the `as any` type cast. Apply consistent single-quote formatting across
 11. affected UI files and remove DOM.Iterable from ui tsconfig.
-
-
-
-## 0.22.12 — 2026-06-29
-
-### Bug Fixes
-
-#### shared write cap counter, action quarantine, PluginRun type widening ([`06c37aa`](https://github.com/waterworkshq/orcy/commit/06c37aa5622974d2f51138eb3dba21db21823dc7))
-
-1. Code review fixes for the plugin extraction arc (v0.22.8–v0.22.11):
