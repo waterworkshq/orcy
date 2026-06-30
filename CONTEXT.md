@@ -4,6 +4,10 @@ Orcy coordinates work between humans and AI coding agents. This glossary capture
 
 ## Language
 
+**Triage**:
+The automated detection of clustered implicit signals and engineering findings, the bounded investigation that follows, and the routing of the result into corrective work or a deferred backlog — without orphaning any flagged issue. Triage investigates and routes; it does not fix, judge agent quality, or auto-apply bucket decisions.
+_Avoid_: Auto-fix, alerting, monitoring (when describing the detect-investigate-route loop rather than passive observation)
+
 **Habitat**:
 A shared workspace scoped to one code repository, where pod members coordinate missions, tasks, signals, skills, integrations, and automation.
 _Avoid_: Board, workspace
@@ -332,6 +336,26 @@ _Avoid_: Activation, installation, grant
 **Detected Signal**:
 A pulse signal emitted by a signal-detector plugin with `signalType: "detected"` and server-injected provenance (`metadata.detected: true`, `metadata.detector: "<pluginId>"`, `metadata.detectorRunId: "<runId>"`). Detected signals are categorically distinct from agent self-reports (`signalType: "experience"`) and intentional agent observations (`signalType: "finding"`) — they are automated pattern matches over pulse text, task events, comments, or submission output. They surface in the wiki signal-surface reader as their own sub-bucket (separate from Experience Signals and Engineering Findings) and route through v0.23 triage with different weighting from self-reports.
 _Avoid_: Auto-finding, auto-signal, machine signal, classified signal (when describing the pulse category rather than a triage decision)
+
+**Pattern Cluster**:
+A time-windowed grouping of two or more implicit signals (experience, finding, or detected) sharing the same normalized subject (cluster key) and signal category within a habitat. A single signal is an observation; a cluster is an emerging pattern worth investigating, and is the trigger input to reactive triage. Clusters are detected by periodic scan, not per-signal event, because membership is a property of the window, not the individual post.
+_Avoid_: Signal group, signal batch, alert, anomaly (when describing the cluster of signals rather than a board-health metric)
+
+**Triage Mission**:
+A mission spawned to investigate a Pattern Cluster or engineering finding, containing a single investigation task that a daemon agent claims. It holds only the investigation; corrective tasks created during the investigation land under the affected existing missions, linked back to the triage mission. One triage mission per cluster detection; its resolution feeds a Resolution Record for proactive historical lookup.
+_Avoid_: Investigation ticket, bug mission, triage task (when describing the container mission rather than its child investigation task)
+
+**Triage Investigation**:
+The bounded analysis a daemon-owned agent performs after claiming a triage mission's investigation task — reading clustered signals, affected task/mission context, and historical resolutions, then posting an analysis pulse and optionally creating corrective work. It investigates and reports; it does not fix, judge agent quality, or modify existing work.
+_Avoid_: Triage mission (the container), root-cause analysis (when describing the bounded agent task rather than open-ended debugging)
+
+**Routing Bucket**:
+The deferred-work classification assigned to an engineering finding during triage: `fix_now`, `defer_to_patch`, `defer_to_release`, `document_as_known_limitation`, or `needs_investigation`. The bucket decides where the finding routes. Bucket decisions stay human-in-the-loop for non-trivial cases — the workflow is deterministic (no finding is orphaned), the decision is not (the agent recommends, a human confirms).
+_Avoid_: Priority, severity, label (when describing the routing classification rather than task priority or signal severity)
+
+**Resolution Record**:
+A record of how a triaged Pattern Cluster or engineering finding was resolved — root cause, fix applied, and resolution kind — keyed by the pattern's normalized subject for proactive matching. When a similar pattern emerges later, the historical resolution surfaces as a suggested fix before new triage work is created.
+_Avoid_: Fix note, completion comment, wiki page (when describing the structured match-keyed record rather than authored knowledge)
 
 ## Example Dialogue
 
