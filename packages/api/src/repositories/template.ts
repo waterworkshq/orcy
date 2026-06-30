@@ -27,6 +27,13 @@ import {
   repositoryTransactionError,
 } from "../errors/repository.js";
 
+/**
+ * Deterministic ID for the default triage-investigation mission template seeded
+ * by {@link seedGlobalTemplates}. Referenced by `triageService.createTriageMission`
+ * to instantiate a triage mission per detected cluster (ADR-0026).
+ */
+export const TRIAGE_MISSION_TEMPLATE_ID = "c0a8triage-0000-4000-8000-triage0000001";
+
 export interface CreateTemplateInput {
   habitatId: string | null;
   name: string;
@@ -521,6 +528,7 @@ export function seedGlobalTemplates(): void {
   const now = new Date().toISOString();
 
   const templates: Array<{
+    id?: string;
     name: string;
     titlePattern: string;
     descriptionPattern: string;
@@ -692,6 +700,25 @@ export function seedGlobalTemplates(): void {
         ],
       },
     },
+    {
+      id: TRIAGE_MISSION_TEMPLATE_ID,
+      name: "Triage Investigation",
+      titlePattern: "Triage: {{clusterSubject}}",
+      descriptionPattern:
+        "## Cluster\n{{clusterSubject}}\n## Provenance\n{{provenanceBreakdown}}\n## Signal Count\n{{signalCount}}\n## Cross-Mission Count\n{{crossMissionCount}}\n## Affected Agents\n{{agentIds}}",
+      priority: "high",
+      labels: ["triage", "investigation"],
+      tasksTemplate: [
+        {
+          key: "investigate",
+          title: "Investigate cluster: {{clusterSubject}}",
+          description:
+            "Investigate the clustered signal pattern. Analyze root cause, recommend a routing bucket, and post an analysis pulse with findings.",
+          order: 0,
+          requiredCapabilities: ["investigation"],
+        },
+      ],
+    },
   ];
 
   for (const tmpl of templates) {
@@ -702,7 +729,7 @@ export function seedGlobalTemplates(): void {
       .get();
     if (existing) continue;
 
-    const id = uuid();
+    const id = tmpl.id ?? uuid();
     try {
       db.insert(missionTemplates)
         .values({

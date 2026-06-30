@@ -49,11 +49,11 @@ function getGlobalTemplateByName(name: string) {
 }
 
 describe("seedGlobalTemplates — idempotency fix", () => {
-  it("seeds all 8 default templates on a fresh DB", () => {
+  it("seeds all 9 default templates on a fresh DB", () => {
     templateRepo.seedGlobalTemplates();
 
     const globals = templateRepo.getGlobalTemplates();
-    expect(globals).toHaveLength(8);
+    expect(globals).toHaveLength(9);
     const names = globals.map((t) => t.name).sort();
     expect(names).toContain("Bug Fix");
     expect(names).toContain("Feature");
@@ -63,6 +63,7 @@ describe("seedGlobalTemplates — idempotency fix", () => {
     expect(names).toContain("Security Fix");
     expect(names).toContain("Build-Test-Review-Deploy");
     expect(names).toContain("Parallel Investigation");
+    expect(names).toContain("Triage Investigation");
   });
 
   it("is idempotent — running twice does not duplicate templates", () => {
@@ -70,7 +71,7 @@ describe("seedGlobalTemplates — idempotency fix", () => {
     templateRepo.seedGlobalTemplates();
 
     const globals = templateRepo.getGlobalTemplates();
-    expect(globals).toHaveLength(8);
+    expect(globals).toHaveLength(9);
   });
 
   it("preserves local edits to existing defaults", () => {
@@ -116,7 +117,7 @@ describe("seedGlobalTemplates — idempotency fix", () => {
     templateRepo.seedGlobalTemplates();
 
     const globals = templateRepo.getGlobalTemplates();
-    expect(globals).toHaveLength(8);
+    expect(globals).toHaveLength(9);
 
     for (const name of v19Names) {
       const tmpl = getGlobalTemplateByName(name);
@@ -127,6 +128,7 @@ describe("seedGlobalTemplates — idempotency fix", () => {
 
     expect(getGlobalTemplateByName("Build-Test-Review-Deploy")).not.toBeNull();
     expect(getGlobalTemplateByName("Parallel Investigation")).not.toBeNull();
+    expect(getGlobalTemplateByName("Triage Investigation")).not.toBeNull();
   });
 
   it("does not re-seed a user-deleted default's name if re-created locally", () => {

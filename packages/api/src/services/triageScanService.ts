@@ -7,6 +7,7 @@ import * as ruleRepo from "../repositories/automationRule.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
+import * as triageService from "./triageService.js";
 import type { Pulse } from "@orcy/shared";
 
 /**
@@ -34,7 +35,6 @@ const CLUSTERABLE_SIGNAL_TYPES = new Set(["experience", "finding", "detected"]);
 export async function runSignalPatternClusteredScan(habitatId: string): Promise<ScanReport[]> {
   try {
     const rules = ruleRepo.getEnabledRulesByHabitatAndTrigger(habitatId, SCAN_TYPE);
-    if (rules.length === 0) return [];
 
     const windowMs = DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const now = new Date();
@@ -59,6 +59,19 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
       const proactiveResolutions = triageResolutionsRepo.findByClusterKey(habitatId, clusterKey);
 
       const payload = buildClusterPayload(clusterKey, group, proactiveResolutions.length > 0);
+
+      // Create the triage mission BEFORE firing rules (ADR-0026). Mission
+      // creation is a direct service call, not an automation action, so the
+      // logic lives in one place. Even with zero rules the cluster crossed
+      // threshold — it needs investigation.
+      try {
+        triageService.createTriageMission(habitatId, payload);
+      } catch (err) {
+        errs.push(
+          `createTriageMission ${clusterKey}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
 
       const triggerEventId = `cluster:${clusterKey}:${habitatId}`;
       for (const rule of rules) {
