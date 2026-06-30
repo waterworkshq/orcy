@@ -2,6 +2,22 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.22.14 — 2026-06-30
+
+### Refactors
+
+#### consolidate AgentAvatar, add priority indicators and a11y improvements ([`ff1d595`](https://github.com/waterworkshq/orcy/commit/ff1d5958f78a2d3219647fb56ac1003e38cfefbf))
+
+1. Extract AgentAvatar into a shared component used by TaskCard, TaskCardList, and TaskTableColumns to replace duplicate inline implementations. The component accepts a fallback prop for customizable null states.
+
+3. Add priority-colored left borders to TaskCardList items using the new PRIORITY_BORDER_CLASS mapping. Display rejectedCount badges with ↩ indicator when rejections exist.
+
+5. Memoize selectedIds as a Set in TaskCardList to optimize selection lookups. Add sorting indicator to mobile card view. Add aria-labels to SprintSelector and drag handles in PrioritizationTab for screen reader compatibility.
+
+7. Update tests to mock AgentAvatar and use CSS class selectors instead of title attributes for deterministic assertions.
+
+
+
 ## 0.22.13 — 2026-06-30
 
 ### Refactors
@@ -29,40 +45,3 @@
 #### shared write cap counter, action quarantine, PluginRun type widening ([`06c37aa`](https://github.com/waterworkshq/orcy/commit/06c37aa5622974d2f51138eb3dba21db21823dc7))
 
 1. Code review fixes for the plugin extraction arc (v0.22.8–v0.22.11):
-
-
-
-## 0.22.11 — 2026-06-29
-
-### Features
-
-#### automation action contribution kind + write capabilities (taskWriter activated) ([`9a0d06a`](https://github.com/waterworkshq/orcy/commit/9a0d06adfdb63c797fcfa66d1f826a69cec7d08d))
-
-1. Third and final extraction in the plugin extraction arc (ADR-0023):
-
-3. Add 'plugin' variant to AutomationAction union: { type: plugin,
-4. actionId, params }. Plugin actions dispatch to registered handlers
-5. with full PluginContext (write capabilities).
-
-7. Add automationAction as 8th contribution kind (system-scoped, requires
-8. taskWriter/notificationSender/webhookCaller per handler declaration).
-9. CAPABILITY_MATRIX entry allows all 3 write capabilities.
-
-11. ACTIVATE taskWriter (ADR-0020) — dormant since v0.22.8, now reachable
-12. via automationAction contribution kind. Full write path tested.
-
-14. Add notificationSender capability: wraps enqueueNotificationForRecipients
-15. with habitat scoping, provenance stamping, rate cap.
-
-17. Add webhookCaller capability: wraps fetch() with SSRF guard (same
-18. patterns as in-tree executeCallWebhook), banned headers blocklist,
-19. rate cap, habitat scoping.
-
-21. dispatchActionHandler in pluginManager: startPluginRun + withTimeout
-22. + finishRun — full run tracking for plugin actions.
-
-24. Executor case 'plugin' dispatches via dynamic import (avoids circular
-25. dependency). Simulation previewAction also handles 'plugin' case.
-
-27. Reference plugin: action-create-followup (creates a follow-up task
-28. using taskWriter.createTask, demonstrates params + evaluationCtx).
