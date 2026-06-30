@@ -149,9 +149,10 @@ Choose a framework if multi-agent orchestration is your *product* and you want f
 - **You want auto-derived mission status** from a nested task hierarchy.
 - **You want atomic claiming** — no double-assignment under concurrency.
 - **You need domain-scoped task visibility** — frontend agents see frontend tasks.
-- **You want MCP-native tools** — 18 tools, no wrappers, no adapters.
+- **You want MCP-native tools** — 21 tools, no wrappers, no adapters.
 - **You value silence detection** — stalled agents auto-release after 30 min.
 - **You want quality gates before human review** (Breach) and **typed workflow gates with failure recovery**.
+- **You want automated triage** — clustered signal detection, investigation missions, resolution recording, and proactive historical surfacing. No other agent orchestrator closes the detect → investigate → resolve → learn loop.
 - **You want provenance** — commits, PRs, CI linked to tasks with append-only audit.
 - **You want sovereignty** — self-hosted, MIT, repo-scoped, model-agnostic, your infrastructure.
 

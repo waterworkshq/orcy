@@ -467,6 +467,30 @@ To enable a detector:
 
 Plugin run history (status, signals emitted, errors) is visible in the same tab. A plugin that exceeds `ORCY_PLUGIN_QUARANTINE_THRESHOLD` errors is auto-quarantined and skipped on dispatch until a habitat admin re-enables it.
 
+## Triage (v0.23)
+
+When agents repeatedly struggle with the same type of problem, Orcy's triage system notices the pattern and creates investigation work automatically.
+
+### How it works
+
+1. **Detection:** A periodic scan groups signals (experience, findings, detected) by subject. When 3+ signals share the same pattern within 7 days, a **triage mission** is created with an investigation task.
+2. **Investigation:** A daemon agent claims the investigation task, reads the cluster context, and posts an analysis pulse with root-cause hypothesis and suggested corrective steps.
+3. **Bucket routing (human-in-the-loop):** For engineering findings, the triage agent recommends a routing bucket — `fix now`, `defer to patch`, `defer to release`, `document as known limitation`, or `needs investigation`. A human confirms or overrides the recommendation.
+4. **Resolution recording:** When a triage mission resolves, the root cause and fix are recorded. If the same pattern emerges later, the historical resolution surfaces as a suggested fix.
+
+### What you'll see
+
+- **Triage missions** appear on your habitat board titled "Triage: \<pattern subject\>"
+- **Finding triage list** in the triage UI tab shows engineering findings with their status and routing bucket
+- **Deferred backlog** shows findings routed to `defer_to_patch` or `defer_to_release` with a promote button for manual promotion into corrective work
+- **Agent quality notifications** (informational only) flag agents whose quality metrics have degraded — these do NOT affect task assignment
+
+### What you need to do
+
+- **Review triage missions** as they appear — the investigation task contains the cluster context
+- **Confirm bucket decisions** when the triage agent recommends a routing for engineering findings
+- **Promote deferred findings** when you're ready to work on them (or wait for the target release cycle)
+
 ## Need Help?
 
 - Press `?` in the UI to open the contextual help drawer with keyboard shortcuts
