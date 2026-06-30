@@ -1,0 +1,252 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import {
+  FINDING_TRIAGE_STATUSES,
+  SUGGESTED_BUCKETS,
+  type FindingTriageStatus,
+  type SuggestedBucket,
+} from "@orcy/shared";
+import * as findingTriageRepo from "../repositories/findingTriage.js";
+import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
+import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
+import * as pulseRepo from "../repositories/pulse.js";
+import * as featureService from "../services/featureService.js";
+import * as findingTriageService from "../services/findingTriageService.js";
+import { agentOrHumanAuth } from "../middleware/auth.js";
+import { notFound, badRequest } from "../errors.js";
+
+/** Actor shared across triage write paths — derived from request auth context. */
+type TriageActor = { type: "human" | "agent"; id: string };
+
+function actorFromRequest(request: {
+  agent?: { id: string } | null;
+  user?: { id: string } | null;
+}): TriageActor {
+  if (request.agent) return { type: "agent", id: request.agent.id };
+  if (request.user) return { type: "human", id: request.user.id };
+  throw badRequest("Authenticated actor not found on request");
+}
+
+const listFindingsQuerySchema = z.object({
+  habitatId: z.string().min(1),
+  status: z
+    .enum(FINDING_TRIAGE_STATUSES as unknown as [FindingTriageStatus, ...FindingTriageStatus[]])
+    .optional(),
+  bucket: z
+    .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
+    .optional(),
+});
+
+const patchFindingBodySchema = z.object({
+  status: z
+    .enum(FINDING_TRIAGE_STATUSES as unknown as [FindingTriageStatus, ...FindingTriageStatus[]])
+    .optional(),
+  bucket: z
+    .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
+    .optional(),
+});
+
+const resolutionsQuerySchema = z.object({
+  habitatId: z.string().min(1),
+  clusterKey: z.string().min(1),
+});
+
+const topClustersQuerySchema = z.object({
+  habitatId: z.string().min(1),
+  limit: z.coerce.number().int().positive().max(100).default(10),
+});
+
+/**
+ * REST surface for the triage domain (ADR-0024 / ADR-0026 / ADR-0027). Finding
+ * triage lifecycle, bucket routing, manual promotion (with corrective work
+ * creation), historical resolution lookup, and a top-issues summary for the UI
+ * and MCP tool layers.
+ */
+export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
+  /** GET /triage/findings — list finding triage records for a habitat. */
+  fastify.get<{ Querystring: { habitatId: string; status?: string; bucket?: string } }>(
+    "/triage/findings",
+    { preHandler: agentOrHumanAuth },
+    async (request) => {
+      const parsed = listFindingsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const findings = findingTriageRepo.findByHabitat(parsed.data.habitatId, {
+        status: parsed.data.status,
+        bucket: parsed.data.bucket,
+      });
+      return { findings };
+    },
+  );
+
+  /** GET /triage/findings/:id — get a single finding triage record. */
+  fastify.get<{ Params: { id: string } }>(
+    "/triage/findings/:id",
+    { preHandler: agentOrHumanAuth },
+    async (request) => {
+      const finding = findingTriageRepo.getById(request.params.id);
+      if (!finding) throw notFound("Finding not found");
+      return { finding };
+    },
+  );
+
+  /**
+   * PATCH /triage/findings/:id — transition status and/or set bucket. At least
+   * one of `status` / `bucket` must be provided. Status transitions are gated
+   * by the state machine in the repository layer (throws conflict on invalid).
+   */
+  fastify.patch<{ Params: { id: string } }>(
+    "/triage/findings/:id",
+    { preHandler: agentOrHumanAuth },
+    async (request) => {
+      const parsed = patchFindingBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      if (parsed.data.status === undefined && parsed.data.bucket === undefined) {
+        throw badRequest("Provide at least one of `status` or `bucket`");
+      }
+
+      const existing = findingTriageRepo.getById(request.params.id);
+      if (!existing) throw notFound("Finding not found");
+
+      const actor = actorFromRequest(request);
+      let finding = existing;
+      if (parsed.data.bucket !== undefined) {
+        finding = findingTriageRepo.setBucket(request.params.id, parsed.data.bucket);
+      }
+      if (parsed.data.status !== undefined) {
+        finding = findingTriageRepo.transitionStatus(request.params.id, parsed.data.status, actor);
+      }
+      return { finding };
+    },
+  );
+
+  /**
+   * POST /triage/findings/:id/promote — manually promote a deferred (triaged)
+   * finding into active corrective work. Transitions `triaged → in_progress`
+   * and creates a corrective mission sourced from the finding's pulse, then
+   * links the mission back onto the finding triage record.
+   */
+  fastify.post<{ Params: { id: string } }>(
+    "/triage/findings/:id/promote",
+    { preHandler: agentOrHumanAuth },
+    async (request) => {
+      const existing = findingTriageRepo.getById(request.params.id);
+      if (!existing) throw notFound("Finding not found");
+
+      const actor = actorFromRequest(request);
+      findingTriageService.promote(request.params.id, actor);
+
+      // Build the corrective mission from the finding's source pulse so the
+      // daemon agent has the original signal context for investigation.
+      const pulse = pulseRepo.getPulseById(existing.pulseId);
+      const title = `Corrective: ${pulse?.subject ?? existing.clusterKey}`;
+      const description = [
+        "## Finding Triage",
+        `- Cluster: ${existing.clusterKey}`,
+        `- Kind: ${existing.findingKind}`,
+        `- Bucket: ${existing.bucket ?? "—"}`,
+        `- Finding triage id: ${existing.id}`,
+        "",
+        "## Source Pulse",
+        pulse?.body ?? "—",
+        "",
+        "## Task",
+        "Address the deferred finding captured in the source pulse. Resolve or document and close the triage record.",
+      ].join("\n");
+
+      const mission = featureService.createMission({
+        habitatId: existing.habitatId,
+        title,
+        description,
+        labels: ["triage", existing.findingKind],
+        createdBy: actor.id,
+      });
+
+      findingTriageRepo.setTriageMissionId(request.params.id, mission.id);
+
+      return { missionId: mission.id };
+    },
+  );
+
+  /** GET /triage/resolutions — proactive lookup of historical resolutions. */
+  fastify.get<{ Querystring: { habitatId: string; clusterKey: string } }>(
+    "/triage/resolutions",
+    { preHandler: agentOrHumanAuth },
+    async (request) => {
+      const parsed = resolutionsQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const resolutions = triageResolutionsRepo.findByClusterKey(
+        parsed.data.habitatId,
+        parsed.data.clusterKey,
+      );
+      return { resolutions };
+    },
+  );
+
+  /**
+   * GET /triage/clusters/top — top unresolved clusters for the UI/MCP summary.
+   * Aggregated from open finding-triage records grouped by clusterKey, joined
+   * with active cluster-mission suppression status.
+   */
+  fastify.get<{ Querystring: { habitatId: string; limit?: string } }>(
+    "/triage/clusters/top",
+    { preHandler: agentOrHumanAuth },
+    async (request) => {
+      const parsed = topClustersQuerySchema.safeParse({
+        ...request.query,
+        limit: request.query.limit,
+      });
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const { habitatId, limit } = parsed.data;
+
+      const unresolved = findingTriageRepo
+        .findByHabitat(habitatId)
+        .filter((f) => f.status === "open" || f.status === "triaged");
+
+      const byCluster = new Map<
+        string,
+        {
+          clusterKey: string;
+          signalCount: number;
+          statuses: Set<string>;
+          findingKinds: Set<string>;
+        }
+      >();
+      for (const f of unresolved) {
+        const entry = byCluster.get(f.clusterKey) ?? {
+          clusterKey: f.clusterKey,
+          signalCount: 0,
+          statuses: new Set<string>(),
+          findingKinds: new Set<string>(),
+        };
+        entry.signalCount += 1 + f.corroboratingPulseIds.length;
+        entry.statuses.add(f.status);
+        entry.findingKinds.add(f.findingKind);
+        byCluster.set(f.clusterKey, entry);
+      }
+
+      const clusters = [...byCluster.values()]
+        .sort((a, b) => b.signalCount - a.signalCount)
+        .slice(0, limit)
+        .map((c) => {
+          const active = triageClusterMissionsRepo.findActiveByClusterKey(habitatId, c.clusterKey);
+          return {
+            clusterKey: c.clusterKey,
+            signalCount: c.signalCount,
+            statuses: [...c.statuses],
+            findingKinds: [...c.findingKinds],
+            status: active ? ("under_investigation" as const) : ("awaiting_triage" as const),
+          };
+        });
+
+      return { clusters };
+    },
+  );
+}
