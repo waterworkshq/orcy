@@ -52,30 +52,67 @@ vi.mock("../../lib/formatting.js", () => ({
 }));
 
 import { TaskCardList } from "./TaskCardList.js";
+import type { Task } from "../../types/index.js";
+
+function makeTask(overrides: Partial<Task> & { id: string; title: string }): Task {
+  return {
+    missionId: "feat-1",
+    description: "",
+    status: "pending",
+    priority: "medium",
+    assignedAgentId: null,
+    delegatedToAgentId: null,
+    requiredDomain: null,
+    requiredCapabilities: [],
+    estimatedMinutes: null,
+    rejectionReason: null,
+    rejectedCount: 0,
+    result: null,
+    artifacts: [],
+    claimedAt: null,
+    startedAt: null,
+    submittedAt: null,
+    completedAt: null,
+    labels: [],
+    retryPolicy: null,
+    retryCount: 0,
+    nextRetryAt: null,
+    actualMinutes: null,
+    cycleTimeMinutes: null,
+    leadTimeMinutes: null,
+    estimationAccuracy: null,
+    createdBy: "test",
+    createdAt: "2024-01-01T00:00:00Z",
+    updatedAt: "2024-01-01T00:00:00Z",
+    version: 1,
+    order: 0,
+    ...overrides,
+  };
+}
 
 const tasks = [
-  {
+  makeTask({
     id: "t1",
     title: "Task One",
-    status: "pending" as const,
-    priority: "high" as const,
+    status: "pending",
+    priority: "high",
     assignedAgentId: "a1",
-  },
-  {
+  }),
+  makeTask({
     id: "t2",
     title: "Task Two",
-    status: "in_progress" as const,
-    priority: "medium" as const,
+    status: "in_progress",
+    priority: "medium",
     assignedAgentId: null,
-  },
-  {
+  }),
+  makeTask({
     id: "t3",
     title: "Task Three",
-    status: "submitted" as const,
-    priority: "critical" as const,
+    status: "submitted",
+    priority: "critical",
     assignedAgentId: "a2",
-  },
-] as any;
+  }),
+];
 
 function renderWithQC(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

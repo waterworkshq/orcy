@@ -175,6 +175,9 @@ describe("useSSE", () => {
     expect(mockInvalidateQueries).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "active", "b1"]) }),
     );
+    expect(mockInvalidateQueries).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "detail", "s1"]) }),
+    );
   });
 
   it("invalidates sprint queries on sprint.completed", async () => {
@@ -190,6 +193,9 @@ describe("useSSE", () => {
     );
     expect(mockInvalidateQueries).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "active", "b1"]) }),
+    );
+    expect(mockInvalidateQueries).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "detail", "s1"]) }),
     );
   });
 
@@ -219,6 +225,32 @@ describe("useSSE", () => {
     );
     expect(mockInvalidateQueries).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: ["agents", "listWithTasks"] }),
+    );
+  });
+
+  it("does not crash when task event has null taskId", async () => {
+    renderHook(() => useSSE("b1"), { wrapper });
+
+    await sendMessage({
+      type: "task.review_assigned",
+      data: { taskId: null as any, reviewerId: "r1", reviewerType: "human" },
+    });
+
+    expect(mockInvalidateQueries).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: expect.arrayContaining(["reviewers", null]) }),
+    );
+  });
+
+  it("does not crash when task event has missing taskId", async () => {
+    renderHook(() => useSSE("b1"), { wrapper });
+
+    await sendMessage({
+      type: "task.priority_changed",
+      data: { oldPriority: "medium", newPriority: "critical" } as any,
+    });
+
+    expect(mockInvalidateQueries).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: expect.arrayContaining(["detail", undefined]) }),
     );
   });
 });
