@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import type { FindingTriageView, SuggestedBucket } from "../../types/index.js";
+import type { FindingTriageView, ReleaseType, SuggestedBucket } from "../../types/index.js";
 import { useTransitionFinding } from "../../hooks/useTriage.js";
 
 interface BucketConfirmationProps {
@@ -36,6 +36,12 @@ const BUCKET_CHOICES: { value: SuggestedBucket; label: string; description: stri
   },
 ];
 
+const RELEASE_TYPE_CHOICES: { value: ReleaseType; label: string }[] = [
+  { value: "patch", label: "Patch" },
+  { value: "minor", label: "Minor" },
+  { value: "major", label: "Major" },
+];
+
 /**
  * Human-in-the-loop bucket confirmation modal. The agent surfaces a recommended
  * bucket (finding.bucket); the human reviews the recommendation and its
@@ -47,6 +53,9 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
   const recommendation = finding.bucket;
   const [selected, setSelected] = useState<SuggestedBucket | null>(recommendation);
   const [targetRelease, setTargetRelease] = useState(finding.targetRelease ?? "");
+  const [targetReleaseType, setTargetReleaseType] = useState<ReleaseType | null>(
+    finding.targetReleaseType ?? null,
+  );
   const mutation = useTransitionFinding();
 
   useEffect(() => {
@@ -67,6 +76,9 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
           ...(isDeferred && targetRelease.trim()
             ? { targetRelease: targetRelease.trim() }
             : { targetRelease: null }),
+          ...(isDeferred && targetReleaseType
+            ? { targetReleaseType }
+            : { targetReleaseType: null }),
         },
       },
       {
@@ -188,6 +200,37 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
             <p className="mt-0.5 text-xs text-muted-foreground">
               Version prefix or exact version — used for auto-promotion when the release ships.
             </p>
+
+            <fieldset className="mt-3">
+              <legend className="mb-1 text-sm font-medium">
+                Target release type <span className="text-muted-foreground">(optional)</span>
+              </legend>
+              <div className="flex gap-3">
+                {RELEASE_TYPE_CHOICES.map((choice) => (
+                  <label
+                    key={choice.value}
+                    className={`flex cursor-pointer items-center gap-1.5 rounded border px-2.5 py-1 text-xs ${
+                      targetReleaseType === choice.value
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-muted/50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="target-release-type"
+                      value={choice.value}
+                      checked={targetReleaseType === choice.value}
+                      onChange={() => setTargetReleaseType(choice.value)}
+                      className="h-3.5 w-3.5 text-primary focus:ring-primary"
+                    />
+                    <span>{choice.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Cascade-matched when the release ships — patch ⊂ minor ⊂ major.
+              </p>
+            </fieldset>
           </div>
         )}
 

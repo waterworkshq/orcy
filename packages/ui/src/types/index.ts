@@ -165,6 +165,8 @@ import type {
   SuggestedBucket,
   ResolutionKind,
   TriageSettings,
+  // Release types (v0.24)
+  ReleaseType,
 } from "@orcy/shared";
 
 export type {
@@ -331,6 +333,8 @@ export type {
   SuggestedBucket,
   ResolutionKind,
   TriageSettings,
+  // Release types (v0.24)
+  ReleaseType,
 };
 
 // ---------------------------------------------------------------------------
@@ -1185,6 +1189,7 @@ export interface FindingTriageView {
   status: FindingTriageStatus;
   bucket: SuggestedBucket | null;
   targetRelease: string | null;
+  targetReleaseType: ReleaseType | null;
   triageMissionId: string | null;
   corroboratingPulseIds: string[];
   triagedByType: TriageActorType | null;

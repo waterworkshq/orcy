@@ -47,7 +47,12 @@ export function useTransitionFinding() {
   return useMutation({
     mutationFn: (input: {
       id: string;
-      body: { status?: string; bucket?: string; targetRelease?: string | null };
+      body: {
+        status?: string;
+        bucket?: string;
+        targetRelease?: string | null;
+        targetReleaseType?: "patch" | "minor" | "major" | null;
+      };
     }) => api.triage.transitionFinding(input.id, input.body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });

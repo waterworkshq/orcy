@@ -1,5 +1,5 @@
 import React from "react";
-import type { FindingTriageView } from "../../types/index.js";
+import type { FindingTriageView, ReleaseType } from "../../types/index.js";
 import { useFindingTriage, usePromoteFinding } from "../../hooks/useTriage.js";
 
 interface DeferredBacklogProps {
@@ -11,6 +11,12 @@ interface BacklogGroup {
   targetRelease: string;
   findings: FindingTriageView[];
 }
+
+const RELEASE_TYPE_BADGE: Record<ReleaseType, string> = {
+  patch: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200",
+  minor: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+  major: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
+};
 
 /**
  * View of deferred findings (bucket = defer_to_patch or defer_to_release),
@@ -64,6 +70,16 @@ export function DeferredBacklog({ habitatId, onPromoted }: DeferredBacklogProps)
                   <p className="truncate text-sm font-medium">{f.clusterKey}</p>
                   <p className="truncate text-xs text-muted-foreground">
                     {f.findingKind} · bucket: {f.bucket ?? "—"}
+                    {f.targetReleaseType && (
+                      <>
+                        {" · "}
+                        <span
+                          className={`inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium ${RELEASE_TYPE_BADGE[f.targetReleaseType]}`}
+                        >
+                          {f.targetReleaseType}
+                        </span>
+                      </>
+                    )}
                   </p>
                 </div>
                 <button

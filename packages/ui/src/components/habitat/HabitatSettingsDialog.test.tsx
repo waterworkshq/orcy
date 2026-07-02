@@ -162,6 +162,7 @@ const mockHabitat: Habitat = {
   gitWorktreeSettings: null,
   wikiSettings: null,
   triageSettings: null,
+  releaseSettings: null,
   eventRetentionDays: null,
   createdAt: "2024-01-01",
   updatedAt: "2024-01-01",
