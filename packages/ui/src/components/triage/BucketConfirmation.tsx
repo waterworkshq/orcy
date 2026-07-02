@@ -46,6 +46,7 @@ const BUCKET_CHOICES: { value: SuggestedBucket; label: string; description: stri
 export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConfirmationProps) {
   const recommendation = finding.bucket;
   const [selected, setSelected] = useState<SuggestedBucket | null>(recommendation);
+  const [targetRelease, setTargetRelease] = useState(finding.targetRelease ?? "");
   const mutation = useTransitionFinding();
 
   useEffect(() => {
@@ -53,11 +54,19 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
   }, [recommendation]);
 
   const reasoning = extractReasoning(finding);
+  const isDeferred = selected === "defer_to_patch" || selected === "defer_to_release";
 
   const handleConfirm = () => {
     if (!selected) return;
     mutation.mutate(
-      { id: finding.id, body: { bucket: selected, status: "triaged" } },
+      {
+        id: finding.id,
+        body: {
+          bucket: selected,
+          status: "triaged",
+          ...(isDeferred && targetRelease.trim() ? { targetRelease: targetRelease.trim() } : {}),
+        },
+      },
       {
         onSuccess: (updated) => {
           onConfirmed?.(updated);
@@ -160,6 +169,25 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
             );
           })}
         </fieldset>
+
+        {isDeferred && (
+          <div className="mt-3">
+            <label htmlFor="target-release" className="mb-1 block text-sm font-medium">
+              Target release <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <input
+              id="target-release"
+              type="text"
+              value={targetRelease}
+              onChange={(e) => setTargetRelease(e.target.value)}
+              placeholder="e.g. v0.24 or v0.24.0"
+              className="w-full rounded border border-input px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Version prefix or exact version — used for auto-promotion when the release ships.
+            </p>
+          </div>
+        )}
 
         <div className="mt-5 flex items-center justify-between gap-2">
           <button

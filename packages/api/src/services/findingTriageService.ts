@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { pulses } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { repositoryUpdateError } from "../errors/repository.js";
 import type { SuggestedBucket } from "@orcy/shared";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
@@ -81,19 +81,29 @@ export function promote(id: string, _actor: TriageActor): { missionId?: string }
  * Write-once pointer from a finding pulse to its `finding_triage` record
  * (ADR-0027 bidirectional linkage). No-op if the pulse is gone or already
  * carries a pointer — the live status is never denormalized onto the pulse.
+ *
+ * Uses atomic `json_set` on a COALESCE'd base so only the `findingTriageId` key
+ * is touched — concurrent metadata writes from other code paths (detectors,
+ * triage-generated tags) are preserved (CS-21).
  */
 function writeFindingTriageIdPointer(pulseId: string, findingTriageId: string): void {
   const db = getDb();
-  const row = db.select().from(pulses).where(eq(pulses.id, pulseId)).get();
-  if (!row) return;
-
-  const metadata =
-    (row.metadata as Record<string, unknown> | null) ?? ({} as Record<string, unknown>);
-  if (metadata.findingTriageId !== undefined) return;
-
-  metadata.findingTriageId = findingTriageId;
   try {
-    db.update(pulses).set({ metadata }).where(eq(pulses.id, pulseId)).run();
+    const result = db
+      .update(pulses)
+      .set({
+        metadata: sql`json_set(COALESCE(${pulses.metadata}, '{}'), '$.findingTriageId', ${findingTriageId})`,
+      })
+      .where(
+        and(
+          eq(pulses.id, pulseId),
+          sql`json_extract(COALESCE(${pulses.metadata}, '{}'), '$.findingTriageId') IS NULL`,
+        ),
+      )
+      .run();
+    // Write-once: if the row was already updated (changes === 0 on sql.js / falsy),
+    // the pointer was already set — no-op, not an error.
+    void result;
   } catch (err) {
     throw repositoryUpdateError("pulse", err as Error, pulseId);
   }

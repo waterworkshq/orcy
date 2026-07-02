@@ -45,8 +45,10 @@ export function useTopTriageClusters(habitatId: string, limit?: number) {
 export function useTransitionFinding() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { id: string; body: { status?: string; bucket?: string } }) =>
-      api.triage.transitionFinding(input.id, input.body),
+    mutationFn: (input: {
+      id: string;
+      body: { status?: string; bucket?: string; targetRelease?: string | null };
+    }) => api.triage.transitionFinding(input.id, input.body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
     },

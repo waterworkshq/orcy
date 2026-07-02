@@ -2,7 +2,7 @@ import { getDb } from "../db/index.js";
 import { findingTriage } from "../db/schema/index.js";
 import { eq, and, desc, notInArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import type { FindingTriageStatus, SuggestedBucket } from "@orcy/shared";
+import type { FindingTriageStatus, SuggestedBucket, TriageActorType } from "@orcy/shared";
 import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
 import {
   repositoryCreateError,
@@ -11,15 +11,6 @@ import {
 } from "../errors/repository.js";
 import { conflict } from "../errors.js";
 import { normalize } from "../services/habitatSkillService.js";
-
-/** Actor type union reused across all attribution columns. */
-export type TriageActorType =
-  | "human"
-  | "agent"
-  | "system"
-  | "remote_human"
-  | "remote_orcy"
-  | "remote_pod";
 
 /** Projected finding triage record (corroboratingPulseIds parsed to string[]). */
 export interface FindingTriage {
@@ -295,6 +286,23 @@ export function setBucket(id: string, bucket: SuggestedBucket): FindingTriage {
   const now = new Date().toISOString();
   try {
     db.update(findingTriage).set({ bucket, updatedAt: now }).where(eq(findingTriage.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("findingTriage", err as Error, id);
+  }
+  const refreshed = getById(id);
+  if (!refreshed) throw repositoryNotFoundError("findingTriage", id);
+  return refreshed;
+}
+
+/** Sets the target release version for deferred findings (e.g. "v0.24", "v0.24.0"). Pass `null` to clear. */
+export function setTargetRelease(id: string, targetRelease: string | null): FindingTriage {
+  const db = getDb();
+  const now = new Date().toISOString();
+  try {
+    db.update(findingTriage)
+      .set({ targetRelease, updatedAt: now })
+      .where(eq(findingTriage.id, id))
+      .run();
   } catch (err) {
     throw repositoryUpdateError("findingTriage", err as Error, id);
   }

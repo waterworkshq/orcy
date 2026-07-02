@@ -2,17 +2,8 @@ import { getDb } from "../db/index.js";
 import { triageResolutions } from "../db/schema/index.js";
 import { eq, and, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-import type { ResolutionKind } from "@orcy/shared";
+import type { ResolutionKind, TriageActorType } from "@orcy/shared";
 import { repositoryCreateError, repositoryNotFoundError } from "../errors/repository.js";
-
-/** Actor type union reused across all attribution columns. */
-export type TriageActorType =
-  | "human"
-  | "agent"
-  | "system"
-  | "remote_human"
-  | "remote_orcy"
-  | "remote_pod";
 
 /** Source of a triage resolution record. */
 export type TriageResolutionSource = "cluster_triage" | "finding_triage";

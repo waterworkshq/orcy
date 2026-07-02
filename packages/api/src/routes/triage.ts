@@ -70,6 +70,7 @@ const patchFindingBodySchema = z.object({
   bucket: z
     .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
     .optional(),
+  targetRelease: z.string().max(100).nullable().optional(),
 });
 
 const resolutionsQuerySchema = z.object({
@@ -132,8 +133,12 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
-      if (parsed.data.status === undefined && parsed.data.bucket === undefined) {
-        throw badRequest("Provide at least one of `status` or `bucket`");
+      if (
+        parsed.data.status === undefined &&
+        parsed.data.bucket === undefined &&
+        parsed.data.targetRelease === undefined
+      ) {
+        throw badRequest("Provide at least one of `status`, `bucket`, or `targetRelease`");
       }
 
       const existing = findingTriageRepo.getById(request.params.id);
@@ -147,6 +152,9 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (parsed.data.bucket !== undefined) {
         finding = findingTriageRepo.setBucket(request.params.id, parsed.data.bucket);
+      }
+      if (parsed.data.targetRelease !== undefined) {
+        finding = findingTriageRepo.setTargetRelease(request.params.id, parsed.data.targetRelease);
       }
       return { finding };
     },

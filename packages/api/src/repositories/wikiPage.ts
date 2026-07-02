@@ -216,14 +216,21 @@ export function deletePage(id: string): boolean {
 }
 
 /**
- * Wraps an arbitrary user query in a FTS5 phrase match and escapes any embedded double quotes.
- * This is the safe subset of FTS5 MATCH syntax for v0.21 wiki search — see S3a done-when notes in
- * `docs/plans/v21/PROMPT-phase2-4-versioning-links-search.md` for the limitations (no OR/AND/NOT,
- * no prefix wildcards, no column filters). The LIKE fallback path does not need escaping because
- * its `%`/`_` wildcards are benign for free-text search.
+ * Splits a user query into FTS5 phrase-quoted terms joined by implicit AND.
+ * Each whitespace-separated token is individually phrase-quoted (embedded
+ * double quotes escaped per FTS5 syntax), so `"auth login"` becomes
+ * `"auth" "login"` — matching pages containing both terms in any order,
+ * not just the literal adjacent phrase.
+ *
+ * This is the safe subset of FTS5 MATCH syntax for wiki search — no OR/AND/NOT
+ * operators, no prefix wildcards, no column filters. The LIKE fallback path
+ * does not need escaping because its `%`/`_` wildcards are benign for
+ * free-text search.
  */
 function escapeFtsQuery(query: string): string {
-  return `"${query.replace(/"/g, '""')}"`;
+  const terms = query.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return '""';
+  return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(" ");
 }
 
 /**

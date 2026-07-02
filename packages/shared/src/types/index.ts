@@ -332,6 +332,7 @@ export { SKILL_CATEGORIES } from "./skill.js";
 export type {
   FindingTriageStatus,
   ResolutionKind,
+  TriageActorType,
   ClusterPayload,
   AgentQualityPayload,
 } from "./triage.js";

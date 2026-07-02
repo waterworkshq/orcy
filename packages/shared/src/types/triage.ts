@@ -21,6 +21,15 @@ export const FINDING_TRIAGE_STATUSES = [
 /** Lifecycle state of a finding_triage record. */
 export type FindingTriageStatus = (typeof FINDING_TRIAGE_STATUSES)[number];
 
+/** Attribution actor type for triage write paths (triage, resolution, promotion). Shared across finding triage and triage resolution repos. */
+export type TriageActorType =
+  | "human"
+  | "agent"
+  | "system"
+  | "remote_human"
+  | "remote_orcy"
+  | "remote_pod";
+
 /**
  * Valid forward transitions in the finding_triage state machine.
  *
