@@ -473,4 +473,44 @@ describe("triageScanService", () => {
       expect(after.every((t) => t.assignedAgentId === agent.id)).toBe(true);
     });
   });
+
+  describe("habitat-level triage thresholds", () => {
+    it("respects custom minClusterSize from habitat triageSettings", async () => {
+      createScanRule(habitatId, "signal_pattern_clustered");
+
+      // Set a high threshold: 5 signals needed to cluster (default is 3).
+      habitatRepo.updateHabitat(habitatId, {
+        triageSettings: {
+          minClusterSize: 5,
+          clusterWindowDays: 7,
+          agentQualityThreshold: 40,
+          agentQualityMinSample: 5,
+        },
+      });
+
+      // Seed only 3 signals — default would cluster them, but custom threshold of 5 won't.
+      seedPulse({ signalType: "experience", subject: "same problem" });
+      seedPulse({ signalType: "experience", subject: "same problem" });
+      seedPulse({ signalType: "experience", subject: "same problem" });
+
+      const reports = await runSignalPatternClusteredScan(habitatId);
+      expect(reports[0].rulesMatched).toBe(0);
+
+      // No triage mission should be created.
+      const active = triageClusterMissionsRepo.findActiveClusterKeys(habitatId, ["same problem"]);
+      expect(active.size).toBe(0);
+    });
+
+    it("falls back to defaults when triageSettings is null", async () => {
+      createScanRule(habitatId, "signal_pattern_clustered");
+
+      // 3 signals — default minClusterSize is 3, so this should cluster.
+      seedPulse({ signalType: "experience", subject: "default threshold" });
+      seedPulse({ signalType: "experience", subject: "default threshold" });
+      seedPulse({ signalType: "experience", subject: "default threshold" });
+
+      const reports = await runSignalPatternClusteredScan(habitatId);
+      expect(reports[0].rulesMatched).toBe(1);
+    });
+  });
 });

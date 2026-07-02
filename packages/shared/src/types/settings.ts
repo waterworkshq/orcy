@@ -73,6 +73,22 @@ export interface AutomationSettings {
   executeActions: boolean;
 }
 
+/** Per-habitat triage scan thresholds. Stored as a JSON column on `habitats.triage_settings`. Controls the cluster-detection and agent-quality scans. */
+export interface TriageSettings {
+  minClusterSize: number;
+  clusterWindowDays: number;
+  agentQualityThreshold: number;
+  agentQualityMinSample: number;
+}
+
+/** Default triage thresholds used when a habitat has no `triageSettings` configured. Single source of truth for both scan services and UI defaults. */
+export const DEFAULT_TRIAGE_SETTINGS: TriageSettings = {
+  minClusterSize: 3,
+  clusterWindowDays: 7,
+  agentQualityThreshold: 40,
+  agentQualityMinSample: 5,
+};
+
 /**
  * Per-habitat wiki cadence configuration. Stored as a JSON column on `habitats.wiki_settings`
  * (mirrors the v0.18.1 `automation_settings` precedent). When `enabled` is `true`, the

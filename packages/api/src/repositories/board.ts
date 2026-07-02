@@ -11,6 +11,7 @@ import type {
   GitWorktreeSettings,
   PrioritizationSettings,
   WikiSettings,
+  TriageSettings,
 } from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import {
@@ -37,6 +38,7 @@ export interface UpdateHabitatInput {
   prioritizationSettings?: PrioritizationSettings | null;
   automationSettings?: AutomationSettings | null;
   wikiSettings?: WikiSettings | null;
+  triageSettings?: TriageSettings | null;
 }
 
 export function createHabitat(input: CreateHabitatInput): Habitat {
@@ -111,6 +113,7 @@ export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | 
     values.prioritizationSettings = input.prioritizationSettings;
   if (input.automationSettings !== undefined) values.automationSettings = input.automationSettings;
   if (input.wikiSettings !== undefined) values.wikiSettings = input.wikiSettings;
+  if (input.triageSettings !== undefined) values.triageSettings = input.triageSettings;
 
   try {
     db.update(habitats).set(values).where(eq(habitats.id, id)).run();

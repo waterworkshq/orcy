@@ -218,12 +218,20 @@ export const autoAssignSettingsSchema = z.object({
   excludeOfflineAgents: z.boolean().optional().default(true),
 });
 
+export const triageSettingsSchema = z.object({
+  minClusterSize: z.number().int().min(2).max(20),
+  clusterWindowDays: z.number().int().min(1).max(90),
+  agentQualityThreshold: z.number().int().min(0).max(100),
+  agentQualityMinSample: z.number().int().min(1).max(50),
+});
+
 export const updateHabitatSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).optional(),
   retrySettings: retryPolicySchema.nullable().optional(),
   anomalySettings: anomalySettingsSchema.nullable().optional(),
   autoAssignSettings: autoAssignSettingsSchema.nullable().optional(),
+  triageSettings: triageSettingsSchema.nullable().optional(),
   eventRetentionDays: z.number().int().min(1).max(3650).optional(),
 });
 

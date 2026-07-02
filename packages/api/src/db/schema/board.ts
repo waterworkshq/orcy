@@ -21,6 +21,7 @@ import type {
   TaskPriority,
   ScheduleType,
   WikiSettings,
+  TriageSettings,
   WorkflowTemplateDefinition,
 } from "../../models/index.js";
 import { teams } from "./user.js";
@@ -54,6 +55,7 @@ export const habitats = sqliteTable(
       mode: "json",
     }).$type<AutomationSettings | null>(),
     wikiSettings: text("wiki_settings", { mode: "json" }).$type<WikiSettings | null>(),
+    triageSettings: text("triage_settings", { mode: "json" }).$type<TriageSettings | null>(),
     teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
     carryOverPolicy: text("carry_over_policy").notNull().default("backlog"),
   },

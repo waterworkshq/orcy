@@ -8,6 +8,7 @@ import type {
   GitWorktreeSettings,
   PrioritizationSettings,
   WikiSettings,
+  TriageSettings,
 } from "./settings.js";
 import type { TaskPriority } from "./task.js";
 import type { MissionStatus } from "./feature.js";
@@ -42,6 +43,7 @@ export interface Habitat {
   prioritizationSettings: PrioritizationSettings | null;
   automationSettings: AutomationSettings | null;
   wikiSettings: WikiSettings | null;
+  triageSettings: TriageSettings | null;
   eventRetentionDays: number | null;
   createdAt: string;
   updatedAt: string;

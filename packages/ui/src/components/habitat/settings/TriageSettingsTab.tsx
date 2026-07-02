@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { NumberField } from "../../ui/NumberField.js";
-import { notify } from "../../../lib/toast.js";
-import type { TriageSettings } from "../../../types/index.js";
+import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
+import { DEFAULT_TRIAGE_SETTINGS } from "@orcy/shared";
+import type { Habitat, TriageSettings } from "../../../types/index.js";
 
 interface TriageSettingsTabProps {
   habitatId: string;
-  /** Initial settings; loaded from persisted storage by the parent if available. */
-  triageSettings?: TriageSettings | null;
+  boardTriageSettings: TriageSettings | null;
+  onUpdate: (board: Habitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -14,38 +15,17 @@ export interface TriageSettingsTabHandle {
   save: () => Promise<void>;
 }
 
-const DEFAULTS: TriageSettings = {
-  minClusterSize: 3,
-  clusterWindowDays: 7,
-  agentQualityThreshold: 40,
-  agentQualityMinSample: 5,
-};
-
-function storageKey(habitatId: string): string {
-  return `orcy:triage-settings:${habitatId}`;
-}
-
-function loadPersisted(habitatId: string): TriageSettings | null {
-  try {
-    const raw = localStorage.getItem(storageKey(habitatId));
-    return raw ? (JSON.parse(raw) as TriageSettings) : null;
-  } catch {
-    return null;
-  }
-}
+const DEFAULTS: TriageSettings = DEFAULT_TRIAGE_SETTINGS;
 
 /**
  * Threshold configurability for the triage automation scans
  * (signal_pattern_clustered, agent_quality_degraded). Mirrors the
  * AnomalyDetectionTab pattern (forwardRef + imperative save handle).
- *
- * Backend storage wiring for `triageSettings` is not yet available on the
- * Habitat model; until it lands, settings persist to localStorage keyed by
- * habitat. See PROMPT-07 out-of-scope note.
+ * Settings persist to the backend via PATCH /habitats/:habitatId.
  */
 export const TriageSettingsTab = forwardRef<TriageSettingsTabHandle, TriageSettingsTabProps>(
-  function TriageSettingsTab({ habitatId, triageSettings, onSavingChange }, ref) {
-    const initial = triageSettings ?? loadPersisted(habitatId) ?? DEFAULTS;
+  function TriageSettingsTab({ habitatId, boardTriageSettings, onUpdate, onSavingChange }, ref) {
+    const initial = boardTriageSettings ?? DEFAULTS;
     const [minClusterSize, setMinClusterSize] = useState(String(initial.minClusterSize));
     const [clusterWindowDays, setClusterWindowDays] = useState(String(initial.clusterWindowDays));
     const [agentQualityThreshold, setAgentQualityThreshold] = useState(
@@ -54,30 +34,27 @@ export const TriageSettingsTab = forwardRef<TriageSettingsTabHandle, TriageSetti
     const [agentQualityMinSample, setAgentQualityMinSample] = useState(
       String(initial.agentQualityMinSample),
     );
-    const [saving, setSaving] = useState(false);
+
+    const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId, onUpdate });
 
     useEffect(() => {
       onSavingChange?.(saving);
     }, [saving, onSavingChange]);
 
     const handleSave = useCallback(async () => {
-      setSaving(true);
-      try {
-        const next: TriageSettings = {
-          minClusterSize: parseInt(minClusterSize, 10),
-          clusterWindowDays: parseInt(clusterWindowDays, 10),
-          agentQualityThreshold: parseInt(agentQualityThreshold, 10),
-          agentQualityMinSample: parseInt(agentQualityMinSample, 10),
-        };
-        localStorage.setItem(storageKey(habitatId), JSON.stringify(next));
-        notify.success("Triage settings saved");
-      } catch (err) {
-        notify.error((err as Error).message);
-      } finally {
-        setSaving(false);
-      }
+      await saveSettings(
+        {
+          triageSettings: {
+            minClusterSize: parseInt(minClusterSize, 10),
+            clusterWindowDays: parseInt(clusterWindowDays, 10),
+            agentQualityThreshold: parseInt(agentQualityThreshold, 10),
+            agentQualityMinSample: parseInt(agentQualityMinSample, 10),
+          },
+        },
+        "Triage settings saved",
+      );
     }, [
-      habitatId,
+      saveSettings,
       minClusterSize,
       clusterWindowDays,
       agentQualityThreshold,

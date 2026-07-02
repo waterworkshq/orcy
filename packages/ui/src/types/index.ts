@@ -164,6 +164,7 @@ import type {
   FindingTriageStatus,
   SuggestedBucket,
   ResolutionKind,
+  TriageSettings,
 } from "@orcy/shared";
 
 export type {
@@ -329,6 +330,7 @@ export type {
   FindingTriageStatus,
   SuggestedBucket,
   ResolutionKind,
+  TriageSettings,
 };
 
 // ---------------------------------------------------------------------------
@@ -1221,12 +1223,4 @@ export interface ClusterSummaryView {
   statuses: string[];
   findingKinds: string[];
   status: "under_investigation" | "awaiting_triage";
-}
-
-/** Habitat-configurable triage thresholds (UI-only form state; backend wiring TBD). */
-export interface TriageSettings {
-  minClusterSize: number;
-  clusterWindowDays: number;
-  agentQualityThreshold: number;
-  agentQualityMinSample: number;
 }

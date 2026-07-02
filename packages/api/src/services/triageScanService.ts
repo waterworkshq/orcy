@@ -1,4 +1,5 @@
 import type { AutomationScanType, ClusterPayload } from "@orcy/shared";
+import { DEFAULT_TRIAGE_SETTINGS } from "@orcy/shared";
 import type { ScanReport } from "./automationScanService.js";
 import { applyGuards } from "./automationScanService.js";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";
@@ -8,14 +9,21 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageService from "./triageService.js";
+import * as boardRepo from "../repositories/board.js";
 import type { Pulse } from "@orcy/shared";
 
-/**
- * Default thresholds for cluster detection. Hardcoded for now; habitat-settings
- * wiring lands in Phase 7 (T7.5).
- */
-const DEFAULT_WINDOW_DAYS = 7;
-const DEFAULT_MIN_CLUSTER_SIZE = 3;
+/** Resolves habitat-level triage thresholds, falling back to defaults. */
+function resolveThresholds(habitatId: string): {
+  windowDays: number;
+  minClusterSize: number;
+} {
+  const habitat = boardRepo.getHabitatById(habitatId);
+  const settings = habitat?.triageSettings;
+  return {
+    windowDays: settings?.clusterWindowDays ?? DEFAULT_TRIAGE_SETTINGS.clusterWindowDays,
+    minClusterSize: settings?.minClusterSize ?? DEFAULT_TRIAGE_SETTINGS.minClusterSize,
+  };
+}
 
 /** Scan types this service emits. */
 const SCAN_TYPE: AutomationScanType = "signal_pattern_clustered";
@@ -35,8 +43,9 @@ const CLUSTERABLE_SIGNAL_TYPES = new Set(["experience", "finding", "detected"]);
 export async function runSignalPatternClusteredScan(habitatId: string): Promise<ScanReport[]> {
   try {
     const rules = ruleRepo.getEnabledRulesByHabitatAndTrigger(habitatId, SCAN_TYPE);
+    const { windowDays, minClusterSize } = resolveThresholds(habitatId);
 
-    const windowMs = DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const windowMs = windowDays * 24 * 60 * 60 * 1000;
     const now = new Date();
     const since = new Date(now.getTime() - windowMs).toISOString();
     const pulses = pulseRepo.listByHabitatBetween(
@@ -54,7 +63,7 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
     let skipped = 0;
 
     for (const [clusterKey, group] of groups) {
-      if (group.length < DEFAULT_MIN_CLUSTER_SIZE) continue;
+      if (group.length < minClusterSize) continue;
 
       // Active-triage suppression: skip clusters already under investigation.
       const activeMission = triageClusterMissionsRepo.findActiveByClusterKey(habitatId, clusterKey);
@@ -63,7 +72,12 @@ export async function runSignalPatternClusteredScan(habitatId: string): Promise<
       // Proactive lookup: attach historical resolution as suggestion context.
       const proactiveResolutions = triageResolutionsRepo.findByClusterKey(habitatId, clusterKey);
 
-      const payload = buildClusterPayload(clusterKey, group, proactiveResolutions.length > 0);
+      const payload = buildClusterPayload(
+        clusterKey,
+        group,
+        proactiveResolutions.length > 0,
+        windowDays,
+      );
 
       // Create the triage mission BEFORE firing rules (ADR-0026). Mission
       // creation is a direct service call, not an automation action, so the
@@ -151,6 +165,7 @@ function buildClusterPayload(
   clusterKey: string,
   group: Pulse[],
   hasProactiveResolution: boolean,
+  windowDays: number,
 ): ClusterPayload {
   const provenanceBreakdown: Record<string, number> = {};
   const taskIds = new Set<string>();
@@ -193,7 +208,7 @@ function buildClusterPayload(
     agentIds: [...agentIds],
     crossMissionCount: missionIds.size,
     distinctAgentCount: agentIds.size,
-    timeWindowDays: DEFAULT_WINDOW_DAYS,
+    timeWindowDays: windowDays,
     firstSeenAt,
     lastSeenAt,
   };

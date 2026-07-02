@@ -1,16 +1,26 @@
 import type { AutomationScanType, AgentQualityPayload } from "@orcy/shared";
+import { DEFAULT_TRIAGE_SETTINGS } from "@orcy/shared";
 import type { ScanReport } from "./automationScanService.js";
 import { applyGuards } from "./automationScanService.js";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";
 import { getAgentQualitySignals } from "./agentQualityService.js";
 import * as ruleRepo from "../repositories/automationRule.js";
+import * as boardRepo from "../repositories/board.js";
 
-/**
- * Default thresholds for agent-quality degradation detection. Hardcoded for
- * now; habitat-settings wiring lands in Phase 7 (T7.5).
- */
-const DEFAULT_QUALITY_THRESHOLD = 40;
-const DEFAULT_QUALITY_MIN_SAMPLE = 5;
+/** Resolves habitat-level agent-quality thresholds, falling back to defaults. */
+function resolveThresholds(habitatId: string): {
+  qualityThreshold: number;
+  qualityMinSample: number;
+} {
+  const habitat = boardRepo.getHabitatById(habitatId);
+  const settings = habitat?.triageSettings;
+  return {
+    qualityThreshold:
+      settings?.agentQualityThreshold ?? DEFAULT_TRIAGE_SETTINGS.agentQualityThreshold,
+    qualityMinSample:
+      settings?.agentQualityMinSample ?? DEFAULT_TRIAGE_SETTINGS.agentQualityMinSample,
+  };
+}
 
 /** Scan type this service emits. */
 const SCAN_TYPE: AutomationScanType = "agent_quality_degraded";
@@ -30,14 +40,15 @@ export async function runAgentQualityDegradedScan(habitatId: string): Promise<Sc
     if (rules.length === 0) return [];
 
     const qualityResponse = getAgentQualitySignals(habitatId);
+    const { qualityThreshold, qualityMinSample } = resolveThresholds(habitatId);
 
     const errs: string[] = [];
     let matched = 0;
     let skipped = 0;
 
     for (const signal of qualityResponse.signals) {
-      if (signal.sampleSize < DEFAULT_QUALITY_MIN_SAMPLE) continue;
-      if (signal.score === null || signal.score >= DEFAULT_QUALITY_THRESHOLD) {
+      if (signal.sampleSize < qualityMinSample) continue;
+      if (signal.score === null || signal.score >= qualityThreshold) {
         continue;
       }
 
