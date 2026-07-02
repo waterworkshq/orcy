@@ -5,7 +5,9 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as featureService from "./featureService.js";
 import * as releaseSettingsService from "./releaseSettingsService.js";
 import { ingestEvent } from "./automationEventService.js";
-import { enqueueNotification } from "./notificationCommandService.js";
+import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
+import * as habitatRepo from "../repositories/board.js";
+import * as teamMemberRepo from "../repositories/teamMember.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { RepositoryError } from "../errors/repository.js";
 import { isSqliteError } from "../errors/sqlite.js";
@@ -29,6 +31,18 @@ interface ActivationCounts {
   promotedCount: number;
   createdMissionCount: number;
   skippedCount: number;
+}
+
+/** Resolves the human recipients for a habitat's release notification (team members). Returns [] for habitats without a team. */
+function getHabitatHumanRecipients(
+  habitatId: string,
+): Array<{ recipientType: "human"; recipientId: string }> {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat?.teamId) return [];
+  return teamMemberRepo.listMembers(habitat.teamId).map((m) => ({
+    recipientType: "human" as const,
+    recipientId: m.userId,
+  }));
 }
 
 /**
@@ -182,21 +196,31 @@ export async function detectAndActivate(
   }
 
   if (promotedCount > 0) {
-    enqueueNotification({
-      habitatId,
-      eventType: "release.activated",
-      sourceType: "system",
-      sourceId: release.id,
-      severity: "info",
-      payload: {
-        releaseId: release.id,
-        version: release.version,
-        releaseType: release.releaseType,
-        promotedCount,
-      },
-      createdByType: "system",
-      createdById: "release",
-    });
+    // Recipients = human habitat members (team members for team habitats).
+    // The notification resolver is explicit-recipient-based; habitat-default
+    // subscriptions configure channels/cadence but do not enumerate recipients,
+    // so the team membership must be sourced here (mirrors review assignment).
+    const recipients = getHabitatHumanRecipients(habitatId);
+    if (recipients.length > 0) {
+      enqueueNotificationForRecipients(
+        habitatId,
+        "release.activated",
+        "system",
+        "info",
+        recipients,
+        {
+          sourceId: release.id,
+          payload: {
+            releaseId: release.id,
+            version: release.version,
+            releaseType: release.releaseType,
+            promotedCount,
+          },
+          createdByType: "system",
+          createdById: "release",
+        },
+      );
+    }
   }
 
   const retrospectiveBody = [
