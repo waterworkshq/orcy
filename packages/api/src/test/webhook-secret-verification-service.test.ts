@@ -85,11 +85,11 @@ describe("webhook secret verification service", () => {
     expect(source.verifyGitLabToken("token")).toEqual({ matched: true, secretsPresent: true });
   });
 
-  it("rejects GitHub requests with missing events before checking signatures", () => {
+  it("rejects GitHub requests with missing events before checking signatures", async () => {
     const source = createCodeReviewSecretSource();
 
     expect(
-      handleGitHubWebhook(
+      await handleGitHubWebhook(
         source,
         {
           body: {},
@@ -103,11 +103,11 @@ describe("webhook secret verification service", () => {
     expect(secretCacheMocks.findHabitatIdByGithubSignature).not.toHaveBeenCalled();
   });
 
-  it("fail-opens unsigned GitHub requests only when no secrets are configured locally", () => {
+  it("fail-opens unsigned GitHub requests only when no secrets are configured locally", async () => {
     secretCacheMocks.hasGithubSecretsConfigured.mockReturnValue(false);
     const handler = vi.fn(() => ({ ok: true }));
 
-    const response = handleGitHubWebhook(
+    const response = await handleGitHubWebhook(
       createCodeReviewSecretSource(),
       {
         body: { action: "opened" },
@@ -122,11 +122,11 @@ describe("webhook secret verification service", () => {
     expect(handler).toHaveBeenCalledWith({ action: "opened" });
   });
 
-  it("fail-closes unsigned GitHub requests when secrets exist or remote posture is active", () => {
+  it("fail-closes unsigned GitHub requests when secrets exist or remote posture is active", async () => {
     secretCacheMocks.hasGithubSecretsConfigured.mockReturnValue(true);
 
     expect(
-      handleGitHubWebhook(
+      await handleGitHubWebhook(
         createCodeReviewSecretSource(),
         {
           body: {},
@@ -142,7 +142,7 @@ describe("webhook secret verification service", () => {
     integrationSecurityMocks.isRemotePosture.mockReturnValue(true);
 
     expect(
-      handleGitHubWebhook(
+      await handleGitHubWebhook(
         createCodeReviewSecretSource(),
         {
           body: {},

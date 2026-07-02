@@ -10,6 +10,7 @@ import {
   handleGitHubWebhook,
   handleGitLabWebhook,
 } from "../services/webhooks/webhook-secret-verification.js";
+import { parseVersion, isPreRelease } from "@orcy/shared";
 
 const secretSource = createCiCdSecretSource();
 
@@ -20,11 +21,11 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
     const body = request.body as Record<string, unknown>;
     const rawBody = (request.rawBody ?? JSON.stringify(body)) as string;
 
-    const result = handleGitHubWebhook(
+    const result = await handleGitHubWebhook(
       secretSource,
       { body, rawBody, event, signature },
       {
-        workflow_run: (b) => {
+        workflow_run: async (b) => {
           const event = b as Parameters<typeof ciCdService.handleGitHubWorkflowRunEvent>[0];
           const run = event.workflow_run;
           // Release-workflow convention. Habitat is resolved first via the CI/CD
@@ -41,21 +42,35 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
             run.conclusion === "success" &&
             typeof run.name === "string" &&
             run.name.includes(settings.releaseWorkflowName) &&
-            (!settings.requireVersionTag || /^v?\d+\.\d+\.\d+$/.test(run.head_branch));
+            (!settings.requireVersionTag ||
+              /^v?\d+\.\d+\.\d+(-[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)?$/.test(run.head_branch));
           if (isReleaseWorkflow && habitatId) {
-            return (async () => {
-              try {
-                await releaseTriggerService.detectAndActivate(habitatId, run.head_branch, {
-                  detectedBy: "cicd_pipeline",
-                });
-                return { status: "recorded" };
-              } catch (err) {
-                return {
-                  status: "error",
-                  error: err instanceof Error ? err.message : "Unknown error",
-                };
+            // Semver pre-release tags are skipped — not a real release event.
+            try {
+              if (isPreRelease(parseVersion(run.head_branch))) {
+                return { status: "ignored" };
               }
-            })();
+            } catch {
+              return {
+                status: "error",
+                statusCode: 400,
+                error: `Invalid version tag: ${run.head_branch}`,
+              };
+            }
+            try {
+              await releaseTriggerService.detectAndActivate(habitatId, run.head_branch, {
+                detectedBy: "cicd_pipeline",
+              });
+              return { status: "recorded" };
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Unknown error";
+              const isValidation = /invalid version|explicit type/i.test(message);
+              return {
+                status: "error",
+                statusCode: isValidation ? 400 : 500,
+                error: message,
+              };
+            }
           }
           return ciCdService.handleGitHubWorkflowRunEvent(event);
         },

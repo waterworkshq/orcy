@@ -95,10 +95,10 @@ export function createCiCdSecretSource(): WebhookSecretSource {
   };
 }
 
-type EventHandler = (body: unknown) => unknown;
+type EventHandler = (body: unknown) => unknown | Promise<unknown>;
 
 /** Validates a GitHub webhook signature and dispatches to the matching handler. */
-export function handleGitHubWebhook(
+export async function handleGitHubWebhook(
   source: WebhookSecretSource,
   params: {
     body: Record<string, unknown>;
@@ -108,7 +108,7 @@ export function handleGitHubWebhook(
   },
   handlers: Record<string, EventHandler>,
   options?: { failClosed?: boolean },
-): WebhookResponse {
+): Promise<WebhookResponse> {
   const { body, rawBody, event, signature } = params;
 
   if (!event) {
@@ -126,7 +126,14 @@ export function handleGitHubWebhook(
 
   const handler = handlers[event];
   if (handler) {
-    return { statusCode: 200, body: handler(body) };
+    const result = await handler(body);
+    // Handlers may include a statusCode to override the default 200
+    // (e.g. validation errors → 400 so GitHub redelivers).
+    const code =
+      result && typeof result === "object" && "statusCode" in result
+        ? (result as { statusCode: number }).statusCode
+        : 200;
+    return { statusCode: code, body: result };
   }
 
   return { statusCode: 200, body: { status: "ignored", event } };

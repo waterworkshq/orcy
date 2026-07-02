@@ -8,6 +8,7 @@ export {
   classifyReleaseType,
   matchesReleaseType,
   matchesReleaseVersion,
+  isPreRelease,
 } from "./semver.js";
 export type { SemverVersion } from "./semver.js";
 export * from "./types/index.js";

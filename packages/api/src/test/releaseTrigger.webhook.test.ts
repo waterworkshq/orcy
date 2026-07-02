@@ -9,6 +9,7 @@ import * as habitatRepo from "../repositories/board.js";
 import * as releaseRepo from "../repositories/release.js";
 import * as githubReleaseWebhook from "../services/githubReleaseWebhook.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
+import { parseVersion, isPreRelease } from "@orcy/shared";
 
 /**
  * AC-DETECT-6/7/8 — webhook-driven release detection. The GitHub `release`
@@ -99,16 +100,31 @@ describe("AC-DETECT-6: GitHub release webhook → detectAndActivate (github_rele
     expect(row!.releaseNotes).toBe("release notes");
   });
 
-  it("AC-DETECT-6: first release via webhook without prior — caller-type fallback surfaces error", async () => {
+  it("AC-DETECT-6: first release via webhook without prior — surfaces 400 for GitHub redelivery", async () => {
     const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
       buildReleasePayload({ tagName: "v1.0.0" }),
       { habitatId },
     );
 
-    // The service swallows detectAndActivate errors and returns {status:"error"}.
     expect(result.status).toBe("error");
+    expect(result.statusCode).toBe(400);
     expect(result.error).toMatch(/explicit type/i);
     expect(releaseRepo.findByHabitatAndVersion(habitatId, "1.0.0")).toBeNull();
+  });
+
+  it("successful recording returns no statusCode (dispatcher defaults to 200)", async () => {
+    await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
+      releaseType: "minor",
+      detectedBy: "api",
+    });
+
+    const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
+      buildReleasePayload({ tagName: "v0.1.1" }),
+      { habitatId },
+    );
+
+    expect(result.status).toBe("recorded");
+    expect(result.statusCode).toBeUndefined();
   });
 });
 
@@ -146,6 +162,36 @@ describe("AC-DETECT-6: ignored GitHub release payloads do NOT trigger", () => {
     expect(result.status).toBe("ignored");
     expect(releaseRepo.findByHabitatAndVersion(habitatId, "0.2.0")).toBeNull();
   });
+
+  it("ignores semver pre-release tags (v1.0.0-rc.1) even when GitHub prerelease=false", async () => {
+    const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
+      buildReleasePayload({ tagName: "v1.0.0-rc.1", prerelease: false }),
+      { habitatId },
+    );
+
+    expect(result.status).toBe("ignored");
+    expect(releaseRepo.findByHabitatAndVersion(habitatId, "1.0.0")).toBeNull();
+  });
+
+  it("ignores semver pre-release tags (v0.1.0-beta)", async () => {
+    const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
+      buildReleasePayload({ tagName: "v0.1.0-beta", prerelease: false }),
+      { habitatId },
+    );
+
+    expect(result.status).toBe("ignored");
+    expect(releaseRepo.findByHabitatAndVersion(habitatId, "0.1.0")).toBeNull();
+  });
+
+  it("ignores semver pre-release tags (v2.0.0-alpha.3)", async () => {
+    const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
+      buildReleasePayload({ tagName: "v2.0.0-alpha.3", prerelease: false }),
+      { habitatId },
+    );
+
+    expect(result.status).toBe("ignored");
+    expect(releaseRepo.findByHabitatAndVersion(habitatId, "2.0.0")).toBeNull();
+  });
 });
 
 describe("AC-DETECT-7: workflow_run release-workflow convention triggers cicd_pipeline detection", () => {
@@ -170,8 +216,15 @@ describe("AC-DETECT-7: workflow_run release-workflow convention triggers cicd_pi
       run.conclusion === "success" &&
       typeof run.name === "string" &&
       run.name.includes(settings.releaseWorkflowName) &&
-      (!settings.requireVersionTag || /^v?\d+\.\d+\.\d+/.test(run.head_branch));
+      (!settings.requireVersionTag ||
+        /^v?\d+\.\d+\.\d+(-[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)?$/.test(run.head_branch));
     if (!isReleaseWorkflow) return;
+    // Semver pre-release skip (mirrors ciCdWebhooks.ts convention).
+    try {
+      if (isPreRelease(parseVersion(run.head_branch))) return;
+    } catch {
+      return;
+    }
     await releaseTriggerService.detectAndActivate(habitatId, run.head_branch, {
       detectedBy: "cicd_pipeline",
     });
@@ -222,5 +275,15 @@ describe("AC-DETECT-7: workflow_run release-workflow convention triggers cicd_pi
     const db = getDb();
     const all = db.select().from(releasesTable).where(eq(releasesTable.habitatId, habitatId)).all();
     expect(all).toHaveLength(0);
+  });
+
+  it("ignores pre-release tags (v1.0.0-rc.1) even when convention matches", async () => {
+    await applyConventionAndTrigger({
+      conclusion: "success",
+      name: "release.yml",
+      head_branch: "v1.0.0-rc.1",
+    });
+
+    expect(releaseRepo.findByHabitatAndVersion(habitatId, "1.0.0")).toBeNull();
   });
 });

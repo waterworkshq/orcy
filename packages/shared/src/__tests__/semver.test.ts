@@ -4,24 +4,26 @@ import {
   classifyReleaseType,
   matchesReleaseType,
   matchesReleaseVersion,
+  isPreRelease,
 } from "../semver.js";
 
 describe("parseVersion", () => {
   it.each([
-    ["v0.24.1", { major: 0, minor: 24, patch: 1 }],
-    ["0.24.0", { major: 0, minor: 24, patch: 0 }],
-    ["V1.2.3", { major: 1, minor: 2, patch: 3 }],
-    ["0.0.0", { major: 0, minor: 0, patch: 0 }],
-    ["10.20.30", { major: 10, minor: 20, patch: 30 }],
+    ["v0.24.1", { major: 0, minor: 24, patch: 1, preRelease: null }],
+    ["0.24.0", { major: 0, minor: 24, patch: 0, preRelease: null }],
+    ["V1.2.3", { major: 1, minor: 2, patch: 3, preRelease: null }],
+    ["0.0.0", { major: 0, minor: 0, patch: 0, preRelease: null }],
+    ["10.20.30", { major: 10, minor: 20, patch: 30, preRelease: null }],
+    ["v1.0.0-rc.1", { major: 1, minor: 0, patch: 0, preRelease: "rc.1" }],
+    ["v1.0.0-beta", { major: 1, minor: 0, patch: 0, preRelease: "beta" }],
+    ["v0.24.0-alpha.3", { major: 0, minor: 24, patch: 0, preRelease: "alpha.3" }],
+    ["v1.0.0-rc.1+build.123", { major: 1, minor: 0, patch: 0, preRelease: "rc.1" }],
   ])("parses %s", (input, expected) => {
     expect(parseVersion(input)).toEqual(expected);
   });
 
   it.each([
     ["01.02.03"],
-    ["v1.0.0-rc.1"],
-    ["v1.0.0+build"],
-    ["v1.0.0-rc.1+build"],
     ["v1.0"],
     ["v1"],
     ["v1.0.0.0"],
@@ -108,6 +110,16 @@ describe("matchesReleaseVersion", () => {
     });
   });
 
+  describe("pre-release and build-metadata targets", () => {
+    it.each([
+      ["0.24.0-rc.1", "0.24.0", false], // pre-release ≠ strict release (different preRelease field)
+      ["0.24.0-rc.1", "0.24.0-rc.1", true], // same pre-release matches
+      ["v1.0.0+build", "1.0.0", true], // build metadata stripped, base matches
+    ])("target %s vs shipped %s → %s", (target, shipped, expected) => {
+      expect(matchesReleaseVersion(target, shipped)).toBe(expected);
+    });
+  });
+
   describe("malformed targets (never throws)", () => {
     it.each([
       ["0", "0.24.0"],
@@ -115,8 +127,6 @@ describe("matchesReleaseVersion", () => {
       ["0.24.0.0", "0.24.0"],
       ["banana", "0.24.0"],
       ["01.02", "0.24.0"],
-      ["0.24.0-rc.1", "0.24.0"],
-      ["v1.0.0+build", "1.0.0"],
       ["", "0.24.0"],
     ])("malformed target %s vs shipped %s → false", (target, shipped) => {
       expect(matchesReleaseVersion(target, shipped)).toBe(false);
@@ -126,5 +136,18 @@ describe("matchesReleaseVersion", () => {
       expect(matchesReleaseVersion("0.24.0", "banana")).toBe(false);
       expect(matchesReleaseVersion("0.24", "not-a-version")).toBe(false);
     });
+  });
+});
+
+describe("isPreRelease", () => {
+  it("returns false for strict releases", () => {
+    expect(isPreRelease(parseVersion("v1.0.0"))).toBe(false);
+    expect(isPreRelease(parseVersion("0.24.1"))).toBe(false);
+  });
+
+  it("returns true for pre-release versions", () => {
+    expect(isPreRelease(parseVersion("v1.0.0-rc.1"))).toBe(true);
+    expect(isPreRelease(parseVersion("v0.1.0-beta"))).toBe(true);
+    expect(isPreRelease(parseVersion("v1.0.0-alpha.3"))).toBe(true);
   });
 });

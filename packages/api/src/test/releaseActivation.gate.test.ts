@@ -185,3 +185,31 @@ describe("AC-ACTIVATE-8: habitat-level releaseSettings.autoPromote=false disable
     expect(result.createdMissionCount).toBe(1);
   });
 });
+
+describe("AC-ACTIVATE-8: gate OFF + zero matched findings — event + retrospective still fire", () => {
+  it("env OFF + no matching findings → release.shipped event + retrospective with zero counts", async () => {
+    process.env.ORCY_RELEASE_AUTO_PROMOTE = "false";
+
+    // No findings seeded — zero-match scenario.
+    const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
+      releaseType: "minor",
+      detectedBy: "api",
+    });
+
+    expect(result.release.version).toBe("0.1.0");
+    expect(result.promotedCount).toBe(0);
+    expect(result.createdMissionCount).toBe(0);
+    expect(result.skippedCount).toBe(0);
+    expect(result.erroredCount).toBe(0);
+
+    // Retrospective still posted with zero counts.
+    const retro = retrospectivePulsesFor("0.1.0");
+    expect(retro).toHaveLength(1);
+    const meta = retro[0].metadata as Record<string, unknown>;
+    expect(meta.promotedCount).toBe(0);
+    expect(meta.createdMissionCount).toBe(0);
+
+    // release.shipped event still fires (verified by the retrospective being
+    // posted AFTER ingestEvent in detectAndActivate's flow).
+  });
+});

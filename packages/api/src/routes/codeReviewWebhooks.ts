@@ -20,7 +20,7 @@ export async function codeReviewWebhookRoutes(fastify: FastifyInstance): Promise
     const body = request.body as Record<string, unknown>;
     const rawBody = (request.rawBody ?? JSON.stringify(body)) as string;
 
-    const result = handleGitHubWebhook(
+    const result = await handleGitHubWebhook(
       secretSource,
       { body, rawBody, event, signature },
       {

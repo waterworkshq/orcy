@@ -6,34 +6,40 @@
  * the two matching arms of auto-promotion: cascading-type match
  * (`matchesReleaseType`) and version-pin match (`matchesReleaseVersion`).
  *
- * Strict-semver only: pre-release tags and build metadata are rejected by
- * `parseVersion` (out of scope for v0.24.0 per the PRD risk row). A future
- * release may widen `parseVersion` without breaking stored `releases.version`
- * rows, which are always strict semver.
+ * Pre-release tags (e.g. `-rc.1`, `-beta`) are parsed and stored in the
+ * `preRelease` field. Build metadata (`+build`) is stripped. Callers that
+ * need strict-release-only semantics should check `isPreRelease()` after
+ * parsing.
  */
 
 import type { ReleaseType } from "./types/release.js";
 
-/** Parsed major.minor.patch triple (non-negative integers). */
+/** Parsed major.minor.patch triple with optional pre-release suffix. */
 export interface SemverVersion {
   major: number;
   minor: number;
   patch: number;
+  /** Pre-release suffix without the leading `-` (e.g. `"rc.1"`, `"beta"`), or `null` for strict releases. */
+  preRelease: string | null;
 }
 
 /**
- * Parses a strict `MAJOR.MINOR.PATCH` version string into a `SemverVersion`.
+ * Parses a `MAJOR.MINOR.PATCH[-prerelease][+build]` version string.
  *
- * Strips a single leading `v`/`V`. Rejects pre-release tags (`v1.0.0-rc.1`),
- * build metadata (`v1.0.0+build`), non-numeric components, missing components,
- * and leading-zero components (`01.02.03`) by throwing
+ * Strips a single leading `v`/`V`. Pre-release tags (`-rc.1`, `-beta`) are
+ * captured in the `preRelease` field. Build metadata (`+build`) is stripped
+ * and ignored. Rejects non-numeric components, missing components, and
+ * leading-zero components (`01.02.03`) by throwing
  * `Error("Invalid semver: <input>")`. `0.0.0` is valid.
  *
- * @example parseVersion("v0.24.1") → { major: 0, minor: 24, patch: 1 }
+ * @example parseVersion("v0.24.1") → { major: 0, minor: 24, patch: 1, preRelease: null }
+ * @example parseVersion("v1.0.0-rc.1") → { major: 1, minor: 0, patch: 0, preRelease: "rc.1" }
  */
 export function parseVersion(input: string): SemverVersion {
   const stripped = input.replace(/^[vV]/, "");
-  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(stripped);
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*))?(?:\+.*)?$/.exec(
+    stripped,
+  );
   if (!match) throw new Error(`Invalid semver: ${input}`);
   const [major, minor, patch] = [match[1], match[2], match[3]];
   if (
@@ -43,7 +49,17 @@ export function parseVersion(input: string): SemverVersion {
   ) {
     throw new Error(`Invalid semver: ${input}`);
   }
-  return { major: Number(major), minor: Number(minor), patch: Number(patch) };
+  return {
+    major: Number(major),
+    minor: Number(minor),
+    patch: Number(patch),
+    preRelease: match[4] ?? null,
+  };
+}
+
+/** Returns `true` when the parsed version has a pre-release suffix. */
+export function isPreRelease(v: SemverVersion): boolean {
+  return v.preRelease !== null;
 }
 
 /**
@@ -101,7 +117,18 @@ export function matchesReleaseVersion(targetRelease: string, shippedVersion: str
   }
 
   const stripped = targetRelease.replace(/^[vV]/, "");
-  const parts = stripped.split(".");
+  // Split on first two dots only — the third segment may contain pre-release
+  // dots (e.g. "0.24.0-rc.1" → ["0", "24", "0-rc.1"]).
+  const i = stripped.indexOf(".");
+  const parts =
+    i === -1
+      ? [stripped]
+      : (() => {
+          const j = stripped.indexOf(".", i + 1);
+          return j === -1
+            ? [stripped.slice(0, i), stripped.slice(i + 1)]
+            : [stripped.slice(0, i), stripped.slice(i + 1, j), stripped.slice(j + 1)];
+        })();
 
   if (parts.length === 3) {
     let target: SemverVersion;
@@ -113,7 +140,8 @@ export function matchesReleaseVersion(targetRelease: string, shippedVersion: str
     return (
       target.major === shipped.major &&
       target.minor === shipped.minor &&
-      target.patch === shipped.patch
+      target.patch === shipped.patch &&
+      target.preRelease === shipped.preRelease
     );
   }
 

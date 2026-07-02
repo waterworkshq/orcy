@@ -1,4 +1,5 @@
 import * as releaseTriggerService from "./releaseTriggerService.js";
+import { parseVersion, isPreRelease } from "@orcy/shared";
 
 interface GitHubReleaseEvent {
   action: string;
@@ -20,22 +21,32 @@ interface HandleContext {
 /**
  * Handles a GitHub `release` webhook event for the resolved habitat. Only
  * `published` actions on non-draft, non-prerelease releases proceed; drafts
- * and prereleases are ignored (consistent with the semver engine rejecting
- * pre-release tags). The version is parsed from `release.tag_name` (leading `v`
- * stripped by the trigger service) and recorded with provenance
- * `github_release_webhook`.
+ * and prereleases are ignored. Semver pre-release tags (e.g. `-rc.1`, `-beta`)
+ * are also skipped — they're a preview signal, not a release event.
+ * The version is parsed from `release.tag_name` (leading `v` stripped by the
+ * trigger service) and recorded with provenance `github_release_webhook`.
  *
- * A failure inside `detectAndActivate` is caught and surfaced as an
- * `{status:"error"}` body so one malformed release doesn't 500 the webhook
- * response for every subsequent delivery.
+ * Validation errors (bad version, first-release requires type) return
+ * `statusCode: 400` so the webhook dispatcher can propagate a non-2xx to
+ * GitHub, enabling redelivery (REL-1).
  */
 export async function handleGitHubReleaseEvent(
   body: GitHubReleaseEvent,
   ctx: HandleContext,
-): Promise<{ status: string; error?: string; release?: unknown }> {
+): Promise<{ status: string; statusCode?: number; error?: string; release?: unknown }> {
   const release = body.release;
   if (body.action !== "published" || !release || release.draft || release.prerelease) {
     return { status: "ignored" };
+  }
+
+  // Semver pre-release tags (v1.0.0-rc.1, v0.1.0-beta) are skipped even when
+  // GitHub's prerelease flag is false (user error or tooling mismatch).
+  try {
+    if (isPreRelease(parseVersion(release.tag_name))) {
+      return { status: "ignored" };
+    }
+  } catch {
+    return { status: "error", statusCode: 400, error: `Invalid version tag: ${release.tag_name}` };
   }
 
   try {
@@ -45,6 +56,10 @@ export async function handleGitHubReleaseEvent(
     });
     return { status: "recorded", release: result.release };
   } catch (err) {
-    return { status: "error", error: err instanceof Error ? err.message : "Unknown error" };
+    // Validation errors (bad version, first-release requires type) are 400;
+    // unexpected errors are 500.
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const isValidation = /invalid version|explicit type/i.test(message);
+    return { status: "error", statusCode: isValidation ? 400 : 500, error: message };
   }
 }

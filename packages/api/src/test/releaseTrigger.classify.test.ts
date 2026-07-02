@@ -114,11 +114,23 @@ describe("AC-DETECT — classification + idempotency", () => {
     ).rejects.toMatchObject({ statusCode: 400 });
 
     await expect(
-      releaseTriggerService.detectAndActivate(habitatId, "v1.0.0-rc.1", {
+      releaseTriggerService.detectAndActivate(habitatId, "v1.0.x", {
         releaseType: "patch",
         detectedBy: "cli",
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("parses pre-release versions without throwing (entry points skip them)", async () => {
+    // detectAndActivate normalizes to base version (1.0.0). Pre-release skip
+    // is enforced at the entry points (webhook, CI/CD, CLI), not here. This
+    // test verifies parseVersion accepts them — the normalization is expected.
+    const result = await releaseTriggerService.detectAndActivate(habitatId, "v1.0.0-rc.1", {
+      releaseType: "patch",
+      detectedBy: "cli",
+    });
+    // Normalized to base version — pre-release suffix stripped.
+    expect(result.release.version).toBe("1.0.0");
   });
 
   it("AC-DETECT-1: releases unique index guarantees (habitatId, version) idempotency", async () => {
@@ -193,6 +205,38 @@ describe("AC-DETECT — classification + idempotency", () => {
     expect(second.release.id).toBe(first.release.id);
     expect(second.release.releaseType).toBe("patch"); // unchanged.
 
+    const db = getDb();
+    const rows = db
+      .select()
+      .from(releasesTable)
+      .where(eq(releasesTable.habitatId, habitatId))
+      .all();
+    expect(rows).toHaveLength(1);
+  });
+
+  it("AC-DETECT-5: concurrent duplicate triggers — exactly one row, neither throws", async () => {
+    // Fire two concurrent detectAndActivate calls for the same new version.
+    // One wins the insert; the other hits the UNIQUE catch path. Neither
+    // should throw, and exactly one row should exist.
+    const [first, second] = await Promise.all([
+      releaseTriggerService.detectAndActivate(habitatId, "v2.0.0", {
+        releaseType: "major",
+        detectedBy: "cli",
+      }),
+      releaseTriggerService.detectAndActivate(habitatId, "v2.0.0", {
+        releaseType: "major",
+        detectedBy: "cli",
+      }),
+    ]);
+
+    // Both returned a result (no throw).
+    expect(first.release.version).toBe("2.0.0");
+    expect(second.release.version).toBe("2.0.0");
+
+    // Both point to the same row (idempotent).
+    expect(first.release.id).toBe(second.release.id);
+
+    // Exactly one row in the DB.
     const db = getDb();
     const rows = db
       .select()
