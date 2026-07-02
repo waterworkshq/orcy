@@ -2,8 +2,10 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   FINDING_TRIAGE_STATUSES,
+  RELEASE_TYPES,
   SUGGESTED_BUCKETS,
   type FindingTriageStatus,
+  type ReleaseType,
   type SuggestedBucket,
 } from "@orcy/shared";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
@@ -72,6 +74,10 @@ const patchFindingBodySchema = z.object({
     .enum(SUGGESTED_BUCKETS as unknown as [SuggestedBucket, ...SuggestedBucket[]])
     .optional(),
   targetRelease: z.string().max(100).nullable().optional(),
+  targetReleaseType: z
+    .enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]])
+    .nullable()
+    .optional(),
 });
 
 const resolutionsQuerySchema = z.object({
@@ -137,9 +143,12 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       if (
         parsed.data.status === undefined &&
         parsed.data.bucket === undefined &&
-        parsed.data.targetRelease === undefined
+        parsed.data.targetRelease === undefined &&
+        parsed.data.targetReleaseType === undefined
       ) {
-        throw badRequest("Provide at least one of `status`, `bucket`, or `targetRelease`");
+        throw badRequest(
+          "Provide at least one of `status`, `bucket`, `targetRelease`, or `targetReleaseType`",
+        );
       }
 
       const existing = findingTriageRepo.getById(request.params.id);
@@ -156,6 +165,12 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (parsed.data.targetRelease !== undefined) {
         finding = findingTriageRepo.setTargetRelease(request.params.id, parsed.data.targetRelease);
+      }
+      if (parsed.data.targetReleaseType !== undefined) {
+        finding = findingTriageRepo.setTargetReleaseType(
+          request.params.id,
+          parsed.data.targetReleaseType,
+        );
       }
       sseBroadcaster.publish(existing.habitatId, {
         type: "triage.finding_updated",

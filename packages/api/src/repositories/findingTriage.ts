@@ -327,6 +327,23 @@ export function setTargetRelease(id: string, targetRelease: string | null): Find
   return refreshed;
 }
 
+/** Sets the target release type for type-based deferrals (patch/minor/major). Pass `null` to clear. */
+export function setTargetReleaseType(id: string, targetReleaseType: string | null): FindingTriage {
+  const db = getDb();
+  const now = new Date().toISOString();
+  try {
+    db.update(findingTriage)
+      .set({ targetReleaseType, updatedAt: now })
+      .where(eq(findingTriage.id, id))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("findingTriage", err as Error, id);
+  }
+  const refreshed = getById(id);
+  if (!refreshed) throw repositoryNotFoundError("findingTriage", id);
+  return refreshed;
+}
+
 export function setTriageMissionId(id: string, missionId: string): FindingTriage {
   const db = getDb();
   const now = new Date().toISOString();

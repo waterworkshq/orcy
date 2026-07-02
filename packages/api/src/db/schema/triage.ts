@@ -33,6 +33,7 @@ export const findingTriage = sqliteTable(
       .default("open"),
     bucket: text("bucket", { enum: SUGGESTED_BUCKETS }),
     targetRelease: text("target_release"),
+    targetReleaseType: text("target_release_type"),
 
     triageMissionId: text("triage_mission_id").references(() => missions.id, {
       onDelete: "set null",

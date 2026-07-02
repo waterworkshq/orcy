@@ -338,6 +338,9 @@ export type {
 } from "./triage.js";
 export { FINDING_TRIAGE_STATUSES, FINDING_TRIAGE_TRANSITIONS, RESOLUTION_KINDS } from "./triage.js";
 
+export type { ReleaseType, DetectorSource, ReleaseShippedPayload } from "./release.js";
+export { RELEASE_TYPES, DETECTOR_SOURCES } from "./release.js";
+
 export type {
   PluginManifest,
   PluginScope,

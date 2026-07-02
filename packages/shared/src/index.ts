@@ -3,6 +3,13 @@ export { getOrcyConfig, getRemoteConfig, getAuthMode, resetConfig } from "./conf
 export type { OrcyConfig, OrcyRemoteConfig, AuthMode } from "./config.js";
 export { normalizeTaskId, normalizeMissionId } from "./id.js";
 export { parseDurationWindow } from "./duration.js";
+export {
+  parseVersion,
+  classifyReleaseType,
+  matchesReleaseType,
+  matchesReleaseVersion,
+} from "./semver.js";
+export type { SemverVersion } from "./semver.js";
 export * from "./types/index.js";
 export { ApiClientError, createApiClient } from "./api-client.js";
 export type { ApiClientConfig, ApiClient, RequestOptions } from "./api-client.js";
