@@ -2198,7 +2198,10 @@ export const api = {
     },
     getFinding: (id: string) =>
       request<{ finding: FindingTriageView }>(`/triage/findings/${id}`).then((r) => r.finding),
-    transitionFinding: (id: string, body: { status?: string; bucket?: string }) =>
+    transitionFinding: (
+      id: string,
+      body: { status?: string; bucket?: string; targetRelease?: string | null },
+    ) =>
       request<{ finding: FindingTriageView }>(`/triage/findings/${id}`, {
         method: "PATCH",
         body: JSON.stringify(body),

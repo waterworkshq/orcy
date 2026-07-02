@@ -25,6 +25,7 @@ export function DeferredBacklog({ habitatId, onPromoted }: DeferredBacklogProps)
   const [patchFindings, setPatchFilters] = useDeferQuery(habitatId, "defer_to_patch");
   const [releaseFindings, setReleaseFilters] = useDeferQuery(habitatId, "defer_to_release");
 
+  const isLoading = !patchFindings || !releaseFindings;
   const combined = [...(patchFindings ?? []), ...(releaseFindings ?? [])];
   const groups = groupByRelease(combined);
 
@@ -37,6 +38,10 @@ export function DeferredBacklog({ habitatId, onPromoted }: DeferredBacklogProps)
       },
     });
   };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading deferred findings…</p>;
+  }
 
   if (groups.length === 0) {
     return <p className="text-sm text-muted-foreground">No deferred findings in the backlog.</p>;

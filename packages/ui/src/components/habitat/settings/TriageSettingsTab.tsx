@@ -38,6 +38,14 @@ export const TriageSettingsTab = forwardRef<TriageSettingsTabHandle, TriageSetti
     const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId, onUpdate });
 
     useEffect(() => {
+      const s = boardTriageSettings ?? DEFAULTS;
+      setMinClusterSize(String(s.minClusterSize));
+      setClusterWindowDays(String(s.clusterWindowDays));
+      setAgentQualityThreshold(String(s.agentQualityThreshold));
+      setAgentQualityMinSample(String(s.agentQualityMinSample));
+    }, [boardTriageSettings]);
+
+    useEffect(() => {
       onSavingChange?.(saving);
     }, [saving, onSavingChange]);
 

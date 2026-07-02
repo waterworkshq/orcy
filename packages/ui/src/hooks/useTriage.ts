@@ -64,6 +64,7 @@ export function usePromoteFinding() {
     mutationFn: (id: string) => api.triage.promoteFinding(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.missions.all });
       notify.success("Finding promoted to corrective mission");
     },
     onError: (err) => {

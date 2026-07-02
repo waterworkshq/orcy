@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { findingTriage } from "../db/schema/index.js";
-import { eq, and, desc, notInArray } from "drizzle-orm";
+import { eq, and, desc, notInArray, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { FindingTriageStatus, SuggestedBucket, TriageActorType } from "@orcy/shared";
 import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
@@ -222,6 +222,26 @@ export function findByHabitat(habitatId: string, filters?: FindingTriageFilters)
     .where(and(...conditions))
     .orderBy(desc(findingTriage.createdAt))
     .limit(DEFAULT_LIST_LIMIT)
+    .all()
+    .map(rowToFindingTriage);
+}
+
+/**
+ * Returns all findings for a habitat matching ANY of the given statuses, with no
+ * truncation limit. Used by `/triage/clusters/top` aggregation which needs ALL
+ * open/triaged findings — not just the 100 most recent.
+ */
+export function findByHabitatInStatus(
+  habitatId: string,
+  statuses: FindingTriageStatus[],
+): FindingTriage[] {
+  if (statuses.length === 0) return [];
+  const db = getDb();
+  return db
+    .select()
+    .from(findingTriage)
+    .where(and(eq(findingTriage.habitatId, habitatId), inArray(findingTriage.status, statuses)))
+    .orderBy(desc(findingTriage.createdAt))
     .all()
     .map(rowToFindingTriage);
 }

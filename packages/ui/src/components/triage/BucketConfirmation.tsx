@@ -64,7 +64,9 @@ export function BucketConfirmation({ finding, onClose, onConfirmed }: BucketConf
         body: {
           bucket: selected,
           status: "triaged",
-          ...(isDeferred && targetRelease.trim() ? { targetRelease: targetRelease.trim() } : {}),
+          ...(isDeferred && targetRelease.trim()
+            ? { targetRelease: targetRelease.trim() }
+            : { targetRelease: null }),
         },
       },
       {

@@ -252,9 +252,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       const { habitatId, limit } = parsed.data;
       verifyHabitatAccess(request, habitatId);
 
-      const unresolved = findingTriageRepo
-        .findByHabitat(habitatId)
-        .filter((f) => f.status === "open" || f.status === "triaged");
+      const unresolved = findingTriageRepo.findByHabitatInStatus(habitatId, ["open", "triaged"]);
 
       const byCluster = new Map<
         string,
