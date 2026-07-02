@@ -10,7 +10,7 @@ import { useMissions } from "../../lib/useHabitatData.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
 import { truncateId } from "../../lib/formatting.js";
-import type { Sprint } from "../../types/index.js";
+import type { Sprint, MissionWithProgress } from "../../types/index.js";
 import { Plus, Play, CheckCircle, XCircle, ChevronRight, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "../ui/ConfirmDialog.js";
 
@@ -340,7 +340,7 @@ function SprintCard({
   sprint: Sprint;
   expanded: boolean;
   onToggle: () => void;
-  habitatFeatures: Array<{ id: string; title: string }>;
+  habitatFeatures: Pick<MissionWithProgress, "id" | "title">[];
   acting: string | null;
   missionLoading: string | null;
   onStart: (id: string) => void;

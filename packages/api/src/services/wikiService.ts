@@ -25,11 +25,15 @@ export type { WikiPageSearchResult, WikiPageSearchOptions } from "../repositorie
 /** Slug collision retry cap — keep the page from spinning forever on a saturated namespace. */
 const MAX_SLUG_ATTEMPTS = 200;
 
-/** Lowercases, hyphenates, trims; truncates to 64 chars; returns `untitled` for empty input. */
+/**
+ * Lowercases, hyphenates, trims; truncates to 64 chars; returns `untitled` for empty input.
+ * Unicode-aware: preserves letters (`\p{L}`) and numbers (`\p{N}`) from any script
+ * (CJK, accented Latin, Cyrillic, etc.) while stripping punctuation and symbols.
+ */
 export function slugifyTitle(title: string): string {
   const base = title
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{L}\p{N}-]+/gu, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
   return base || "untitled";

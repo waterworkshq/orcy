@@ -65,6 +65,28 @@ describe("wikiService.slugifyTitle", () => {
     expect(wikiService.slugifyTitle("")).toBe("untitled");
     expect(wikiService.slugifyTitle("!!!")).toBe("untitled");
   });
+
+  it("preserves CJK characters", () => {
+    expect(wikiService.slugifyTitle("日本語ページ")).toBe("日本語ページ");
+    expect(wikiService.slugifyTitle("한국어 문서")).toBe("한국어-문서");
+  });
+
+  it("preserves accented Latin characters", () => {
+    expect(wikiService.slugifyTitle("Ünïcödé Tïtlë")).toBe("ünïcödé-tïtlë");
+    expect(wikiService.slugifyTitle("Héllo Wörld!")).toBe("héllo-wörld");
+  });
+
+  it("handles mixed CJK and ASCII", () => {
+    expect(wikiService.slugifyTitle("日本語 English")).toBe("日本語-english");
+  });
+
+  it("strips emoji (not \\p{L} or \\p{N})", () => {
+    expect(wikiService.slugifyTitle("🚀 rocket")).toBe("rocket");
+  });
+
+  it("strips leading/trailing hyphens after Unicode processing", () => {
+    expect(wikiService.slugifyTitle("---test---")).toBe("test");
+  });
 });
 
 describe("wikiService.createPage", () => {
