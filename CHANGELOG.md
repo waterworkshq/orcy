@@ -2,6 +2,14 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.24.1 — 2026-07-02
+
+### Bug Fixes
+
+#### v0.24.1 — release detection reliability ([`2738394`](https://github.com/waterworkshq/orcy/commit/2738394c23649600181f6ef8fb79422351ab70f6))
+
+
+
 ## 0.24.0 — 2026-07-02
 
 ### Bug Fixes
@@ -80,22 +88,3 @@
 
 7. The MCP `investigate` tool response now includes `pulseId`,
 8. `clusterKey`, `corroboratingPulseIds`, and `clusterMissionId` on each open finding object, plus `clusterMissionId` at the top level. This eliminates the need for agents to issue follow-up REST calls to obtain the signal subject and corroboration chain.
-
-
-
-## 0.23.7 — 2026-07-02
-
-### Refactors
-
-#### enforce state-machine transitions and eliminate read-modify-write patterns in data layer ([`1fbccac`](https://github.com/waterworkshq/orcy/commit/1fbccac0cbda855499b1f7a74b0f5c100c16c8ca))
-
-1. Centralize finding promotion through `transitionStatus()` instead of inline status checks, atomically patch `promotedAt` metadata via SQL `json_set` rather than spreading the full metadata object, and switch `corroboratingPulseIds` appends from JS-side JSON parse/push/stringify to a single `json_each` existence guard + `json_insert` — all following the CS-21 atomic-update pattern established in v0.23.4.
-
-3. Tighten repository and service error handling:
-4. `syncConnection` throws typed `AppError` (`notFound`/`badRequest`) instead of bare `Error`, giving callers proper HTTP status codes
-5. `resolveImportColumn` hoisted to once-per-sync-run to avoid repeated queries inside the per-issue loop
-6. `getAdapter()` returns `IssueProviderAdapter` with explicit type annotation and normalizes the plugin handler path with a `provider` field so adapter consumers see a uniform shape
-
-8. Add partial unique index on `triage_cluster_missions(habitat_id, cluster_key) WHERE status='open'` (migration 0046) and make `create()` idempotent by catching the constraint violation and re-reading the existing row instead of propagating the error.
-
-10. Promote endpoint now returns the full `finding` object alongside `missionId` so the caller can inspect post-transition state in a single round trip.
