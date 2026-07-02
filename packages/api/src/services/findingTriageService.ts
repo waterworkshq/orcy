@@ -72,8 +72,8 @@ export function resolve(id: string, note: string, actor: TriageActor): void {
  * task/mission creation is delegated to the caller (Phase 5 routes) which has the
  * habitat's template context; this service owns the lifecycle transition only.
  */
-export function promote(id: string, _actor: TriageActor): { missionId?: string } {
-  findingTriageRepo.promote(id);
+export function promote(id: string, actor: TriageActor): { missionId?: string } {
+  findingTriageRepo.promote(id, { type: actor.type, id: actor.id });
   return {};
 }
 

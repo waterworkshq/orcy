@@ -211,7 +211,8 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         // already promoted (in_progress) and the mission exists for work.
       }
 
-      return { missionId: mission.id };
+      const finding = findingTriageRepo.getById(request.params.id);
+      return { finding, missionId: mission.id };
     },
   );
 

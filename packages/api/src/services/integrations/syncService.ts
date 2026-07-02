@@ -25,9 +25,9 @@ export async function syncConnection(
   adapter: IssueProviderAdapter,
 ): Promise<IntegrationSyncResult> {
   const connection = connectionRepo.getById(connectionId);
-  if (!connection) throw new Error(`Connection ${connectionId} not found`);
-  if (!connection.enabled) throw new Error("Connection is disabled");
-  if (!connection.pullEnabled) throw new Error("Pull sync is disabled for this connection");
+  if (!connection) throw notFound("Connection not found");
+  if (!connection.enabled) throw badRequest("Connection is disabled");
+  if (!connection.pullEnabled) throw badRequest("Pull sync is disabled for this connection");
 
   const syncRun = syncRunRepo.create({
     connectionId,
@@ -44,9 +44,12 @@ export async function syncConnection(
   try {
     const issues = await adapter.listIssues(connection);
 
+    // Resolve the import column once per sync run (habitat column doesn't change between issues)
+    const importColumn = resolveImportColumn(connection.habitatId);
+
     for (const issue of issues) {
       try {
-        const result = syncExternalIssue(connection, issue, syncRun.id);
+        const result = syncExternalIssue(connection, issue, syncRun.id, importColumn);
         if (result.action === "created") createdCount++;
         else if (result.action === "updated" || result.action === "closed") updatedCount++;
         else skippedCount++;
@@ -118,6 +121,7 @@ export function syncExternalIssue(
   connection: IntegrationConnection,
   issue: ExternalIssue,
   syncRunId?: string,
+  importColumn?: { columnId: string } | null,
 ): ExternalIssueSyncResult {
   const existingLink = linkRepo.findByConnectionAndExternalId(connection.id, issue.externalId);
 
@@ -143,9 +147,9 @@ export function syncExternalIssue(
     return { action: "skipped", missionId: "", linkId: "" };
   }
 
-  const col = resolveImportColumn(connection.habitatId);
+  const col = importColumn ?? resolveImportColumn(connection.habitatId);
   if (!col) {
-    throw new Error(`No non-terminal column found for habitat ${connection.habitatId}`);
+    throw badRequest(`No non-terminal column found for habitat ${connection.habitatId}`);
   }
 
   const labels = [...issue.labels, `external:${issue.provider}`];
@@ -248,7 +252,7 @@ function updateLinkedMission(
   syncRunId?: string,
 ): ExternalIssueSyncResult {
   const existingLink = linkRepo.getById(linkId);
-  if (!existingLink) throw new Error(`Link ${linkId} not found`);
+  if (!existingLink) throw notFound("External issue link not found");
 
   const currentLabels = missionRepo.getMissionById(missionId)?.labels ?? [];
   const previousProviderLabels = existingLink.providerLabels ?? [];

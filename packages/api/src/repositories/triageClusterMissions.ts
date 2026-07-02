@@ -33,6 +33,8 @@ function rowToTriageClusterMission(row: Record<string, unknown>): TriageClusterM
 /**
  * Insert a cluster-mission junction with status `'open'`. Called by
  * `triageService.createTriageMission` to register active triage on a cluster.
+ * If a duplicate open junction already exists (partial unique index), re-reads
+ * the existing record instead of throwing — idempotent on race.
  */
 export function create(
   habitatId: string,
@@ -51,7 +53,27 @@ export function create(
         status: "open",
       })
       .run();
-  } catch (err) {
+  } catch (err: any) {
+    // Partial unique index (migration 0046) prevents duplicate open junctions.
+    // If the insert hits the constraint, re-read the existing record (idempotent).
+    const cause = err?.cause ?? err;
+    if (
+      /UNIQUE constraint failed/i.test(cause?.message ?? "") ||
+      cause?.code === "SQLITE_CONSTRAINT_UNIQUE"
+    ) {
+      const existing = db
+        .select()
+        .from(triageClusterMissions)
+        .where(
+          and(
+            eq(triageClusterMissions.habitatId, habitatId),
+            eq(triageClusterMissions.clusterKey, clusterKey),
+            eq(triageClusterMissions.status, "open"),
+          ),
+        )
+        .get();
+      if (existing) return rowToTriageClusterMission(existing);
+    }
     throw repositoryCreateError("triageClusterMission", err as Error, id);
   }
 

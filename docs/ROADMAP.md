@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.23.6 | **Updated:** 2026-07-02
+> **Version:** v0.23.7 | **Updated:** 2026-07-02
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -68,6 +68,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.23.4 | "Deferred Items" — `TriageActorType` lifted to `@orcy/shared` (CS-22); `targetRelease` exposed on `PATCH /triage/findings/:id` + UI `BucketConfirmation` target-version capture (v0.24.0 prerequisite); `escapeFtsQuery` fixed for multi-word FTS5 search — splits on whitespace into implicit AND instead of literal phrase match (SU-1); `writeFindingTriageIdPointer` converted from read-modify-write to atomic `json_set` + `json_extract IS NULL` guard (CS-21). Deferred ADRs 001 (round-robin persistence) and 002 (mobile PWA) formally accepted. |
 | v0.23.5 | "Security Patch" — Webhook signature bypass fix (`webhookService.ts:89` — `if (signature && !verify...)` changed to `if (!signature \|\| !verify...)` so missing `x-hub-signature-256` header is rejected when secret is configured). Missing-signature test added. Triage route HTTP auth tests (8 tests covering `verifyHabitatAccess` on all 6 endpoints — anonymous → 401, agent-auth → 200/404, human-auth → 200). |
 | v0.23.6 | "Triage UI Fixes" — `/triage/clusters/top` aggregation now uses `findByHabitatInStatus()` (no limit, SQL-side status filter) instead of `findByHabitat()` (limit 100) then JS filter — fixes incorrect cluster counts for habitats with >100 findings. `TriageSettingsTab` now resyncs form values on habitat switch via `useEffect`. `BucketConfirmation` sends `targetRelease: null` on non-defer re-triage (clears stale target). `usePromoteFinding` invalidates missions list after promotion. UI `transitionFinding` body type includes `targetRelease`. `DeferredBacklog` shows loading state instead of empty-state flash. TriageSettingsTab UI tests added (5 tests). |
+| v0.23.7 | "Triage Data Layer Hardening" — `promote()` now delegates to `transitionStatus()` (state machine enforcement) + atomic `json_set` for `promotedAt` metadata (CS-21 pattern). `getAdapter()` has explicit `IssueProviderAdapter` return type + normalizes plugin handler with `provider` field. `POST /triage/findings/:id/promote` returns `{ finding, missionId }` instead of bare `{ missionId }`. `syncConnection` throws `AppError` (`notFound`/`badRequest`) instead of plain `Error`. `resolveImportColumn` hoisted to once-per-sync-run. `corroboratingPulseIds` append is now atomic via `json_each` + `json_insert`. Partial unique index on `triage_cluster_missions(habitat_id, cluster_key) WHERE status='open'` (migration 0046) — `create()` is idempotent on constraint hit. |
 
 ---
 

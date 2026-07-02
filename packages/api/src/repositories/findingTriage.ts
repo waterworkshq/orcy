@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { findingTriage } from "../db/schema/index.js";
-import { eq, and, desc, notInArray, inArray } from "drizzle-orm";
+import { eq, and, desc, notInArray, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { FindingTriageStatus, SuggestedBucket, TriageActorType } from "@orcy/shared";
 import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
@@ -126,24 +126,20 @@ export function createForPulse(pulse: FindingTriagePulseInput): FindingTriage {
 
   if (existing.length > 0) {
     const match = existing[0];
-    const rawCorroborating = (match.corroboratingPulseIds as string | null) ?? null;
-    let corroboratingPulseIds: string[] = [];
-    if (rawCorroborating) {
-      try {
-        const parsed = JSON.parse(rawCorroborating);
-        corroboratingPulseIds = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        corroboratingPulseIds = [];
-      }
-    }
-    if (!corroboratingPulseIds.includes(pulse.id)) {
-      corroboratingPulseIds.push(pulse.id);
-    }
     const now = new Date().toISOString();
     try {
+      // Atomic append via SQL: only inserts if pulse ID not already in the array.
+      // Uses json_each for existence check + json_insert for append (CS-21 pattern).
       db.update(findingTriage)
         .set({
-          corroboratingPulseIds: JSON.stringify(corroboratingPulseIds),
+          corroboratingPulseIds: sql`
+            (SELECT CASE WHEN EXISTS(
+              SELECT 1 FROM json_each(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'))
+              WHERE value = ${pulse.id}
+            ) THEN ${findingTriage.corroboratingPulseIds}
+            ELSE json_insert(COALESCE(${findingTriage.corroboratingPulseIds}, '[]'), '$[#]', ${pulse.id})
+            END)
+          `,
           updatedAt: now,
         })
         .where(eq(findingTriage.id, match.id as string))
@@ -348,23 +344,21 @@ export function setTriageMissionId(id: string, missionId: string): FindingTriage
 }
 
 /**
- * Marks a triaged finding as promoted: transitions `triaged → in_progress` and
- * records `promotedAt` in metadata. Throws `conflict(...)` if not currently
- * `triaged`.
+ * Marks a triaged finding as promoted: transitions `triaged → in_progress` via
+ * the central state machine, then atomically sets `promotedAt` in metadata via
+ * `json_set` (CS-21 pattern — no full-object overwrite).
  */
-export function promote(id: string): FindingTriage {
-  const current = getById(id);
-  if (!current) throw repositoryNotFoundError("findingTriage", id);
-  if (current.status !== "triaged") {
-    throw conflict(`Cannot promote finding in status: ${current.status}`);
-  }
+export function promote(id: string, actor: { type: TriageActorType; id: string }): FindingTriage {
+  transitionStatus(id, "in_progress", actor);
 
   const now = new Date().toISOString();
-  const metadata = { ...current.metadata, promotedAt: now };
   const db = getDb();
   try {
     db.update(findingTriage)
-      .set({ status: "in_progress", metadata, updatedAt: now })
+      .set({
+        metadata: sql`json_set(COALESCE(${findingTriage.metadata}, '{}'), '$.promotedAt', ${now})`,
+        updatedAt: now,
+      })
       .where(eq(findingTriage.id, id))
       .run();
   } catch (err) {
