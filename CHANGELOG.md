@@ -2,6 +2,22 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.2 — 2026-07-02
+
+### Bug Fixes
+
+#### add missing habitat membership checks to API endpoints ([`aa430a2`](https://github.com/waterworkshq/orcy/commit/aa430a28517e86437a55726f6e26d56df5a24a11))
+
+1. Triage routes shipped without authorization checks (v0.23.0). Add
+2. verifyHabitatAccess() helper mirroring middleware logic for querystring
+3. habitatId lookups. Apply to listFindings, getFinding, updateFinding,
+4. promoteFinding, and topClusters endpoints.
+
+6. Also add findActiveClusterKeys() batch query to avoid N+1 per-cluster
+7. queries when validating top cluster candidates.
+
+
+
 ## 0.23.1 — 2026-07-02
 
 ### Chores
@@ -88,16 +104,3 @@
 #### integration tests covering all v0.23 acceptance criteria ([`b3e9e30`](https://github.com/waterworkshq/orcy/commit/b3e9e30fbf3ab9667a683ba32455828c093ac0ce))
 
 1. Cluster detection (threshold, provenance, suppression, loop prevention), finding lifecycle (transitions, dedup, bidirectional linkage), resolution recording (proactive lookup), agent quality scan (threshold, sample-size gate), and MCP tool surface (investigate, top_issues, resolution_lookup). 34 new tests across 5 files covering all 25 acceptance criteria. Full suite: 5943 tests, 0 failures.
-
-
-
-## 0.22.15 — 2026-06-30
-
-### Tests
-
-#### add null taskId edge case tests and sprint query invalidation assertions ([`d2f0fe6`](https://github.com/waterworkshq/orcy/commit/d2f0fe6ff02fa14b79b16007f45792197e63f60e))
-
-1. Add test cases in useSSE hook for handling null and missing taskId in SSE events
-2. to prevent crashes. Extend existing sprint.completed and sprint.started tests
-3. to verify detail query invalidation in addition to active query. Refactor
-4. TaskCardList tests with a makeTask helper for cleaner test data setup.
