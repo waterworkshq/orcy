@@ -2,6 +2,14 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.24.2 — 2026-07-02
+
+### Bug Fixes
+
+#### provenance and polish ([`91c9312`](https://github.com/waterworkshq/orcy/commit/91c9312f7cf002f46978039806a490c6cbb6deec))
+
+
+
 ## 0.24.1 — 2026-07-02
 
 ### Bug Fixes
@@ -71,20 +79,3 @@
 #### integration coverage for release-aware automation ([`d6586c9`](https://github.com/waterworkshq/orcy/commit/d6586c92a82a6f0aeea9a34c55a7d749f764c2c0))
 
 1. Add integration tests proving the 27 v0.24.0 acceptance criteria: release classification and idempotency (incl. concurrent UNIQUE catch), GitHub release and workflow_run detection with negative cases, auth, CLI, the type-cascade plus version-pin matching matrix, unconditional promotion with the in_progress skip, retrospective pulse including the zero-match case, release.shipped rule firing, two-layer kill switch (env and habitat), subscription-based notifications, and the UI targetReleaseType selector.
-
-
-
-## 0.23.8 — 2026-07-02
-
-### Refactors
-
-#### decouple live-update propagation from stale-time polling and expose signal metadata to MCP agents ([`c5a823f`](https://github.com/waterworkshq/orcy/commit/c5a823f9fb04d3420258561e05b3693a0cd40fb6))
-
-1. The triage view previously relied on React Query staleTime to keep finding lists current — consumers had to poll or manually refetch after mutations. This change introduces an event-driven invalidation layer:
-
-3. Two new SSE event types (`triage.finding_created`,
-4. `triage.finding_updated`) are published from the data service (`enterTriage`) and route handlers (PATCH promote/triage paths).
-5. UI SSE registry subscribers invalidate `queryKeys.triage.all` on receipt, replacing staleTime-based freshness with push-driven cache coherence.
-
-7. The MCP `investigate` tool response now includes `pulseId`,
-8. `clusterKey`, `corroboratingPulseIds`, and `clusterMissionId` on each open finding object, plus `clusterMissionId` at the top level. This eliminates the need for agents to issue follow-up REST calls to obtain the signal subject and corroboration chain.
