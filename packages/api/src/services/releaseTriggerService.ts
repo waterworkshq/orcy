@@ -19,18 +19,20 @@ import {
   type DetectorSource,
 } from "@orcy/shared";
 
-/** Result of a detect+activate run. Phase 2 returns zero activation counts (stubbed — Phase 3 widens). */
+/** Result of a detect+activate run. */
 export interface DetectAndActivateResult {
   release: Release;
   promotedCount: number;
   createdMissionCount: number;
   skippedCount: number;
+  erroredCount: number;
 }
 
 interface ActivationCounts {
   promotedCount: number;
   createdMissionCount: number;
   skippedCount: number;
+  erroredCount: number;
 }
 
 /** Resolves the human recipients for a habitat's release notification (team members). Returns [] for habitats without a team. */
@@ -74,6 +76,7 @@ export async function detectAndActivate(
     promotedCount: 0,
     createdMissionCount: 0,
     skippedCount: 0,
+    erroredCount: 0,
   });
 
   const finish = (release: Release, counts: ActivationCounts): DetectAndActivateResult => ({
@@ -98,7 +101,7 @@ export async function detectAndActivate(
     releaseType = opts.releaseType;
     classificationMethod = "caller";
   } else {
-    const prior = releaseRepo.findMostRecentPrior(habitatId);
+    const prior = releaseRepo.findMostRecentPrior(habitatId, normalizedVersion);
     if (!prior) {
       throw badRequest("First detected release requires an explicit type");
     }
@@ -129,9 +132,13 @@ export async function detectAndActivate(
   }
 
   // --- Activation loop (ADR-0031: unconditional, no human gate) ---
+  // Per-finding isolation: a non-CONFLICT throw on finding N is counted as
+  // errored and the loop continues, so a mid-batch failure never orphans the
+  // remaining findings or skips the retrospective/event (which run after).
   let promotedCount = 0;
   let createdMissionCount = 0;
   let skippedCount = 0;
+  let erroredCount = 0;
 
   if (releaseSettingsService.isAutoPromoteEnabled(habitatId)) {
     const matched = findingTriageRepo.findReleaseMatched(
@@ -142,56 +149,68 @@ export async function detectAndActivate(
 
     for (const finding of matched) {
       try {
-        findingTriageRepo.promote(finding.id, { type: "system", id: "release" });
-      } catch (err) {
-        if (err instanceof AppError && err.code === "CONFLICT") {
-          skippedCount++;
-          continue;
+        try {
+          findingTriageRepo.promote(finding.id, { type: "system", id: "release" });
+        } catch (err) {
+          if (err instanceof AppError && err.code === "CONFLICT") {
+            skippedCount++;
+            continue;
+          }
+          throw err;
         }
-        throw err;
-      }
-      promotedCount++;
+        promotedCount++;
 
-      const pulse = pulseRepo.getPulseById(finding.pulseId);
-      const title = `Corrective: ${pulse?.subject ?? finding.clusterKey}`;
-      const description = [
-        "## Finding Triage",
-        `- Cluster: ${finding.clusterKey}`,
-        `- Kind: ${finding.findingKind}`,
-        `- Bucket: ${finding.bucket ?? "—"}`,
-        `- Finding triage id: ${finding.id}`,
-        "",
-        "## Source Pulse",
-        pulse?.body ?? "—",
-        "",
-        "## Task",
-        "Address the deferred finding captured in the source pulse. Resolve or document and close the triage record.",
-      ].join("\n");
+        const pulse = pulseRepo.getPulseById(finding.pulseId);
+        const title = `Corrective: ${pulse?.subject ?? finding.clusterKey}`;
+        const description = [
+          "## Finding Triage",
+          `- Cluster: ${finding.clusterKey}`,
+          `- Kind: ${finding.findingKind}`,
+          `- Bucket: ${finding.bucket ?? "—"}`,
+          `- Finding triage id: ${finding.id}`,
+          "",
+          "## Source Pulse",
+          pulse?.body ?? "—",
+          "",
+          "## Task",
+          "Address the deferred finding captured in the source pulse. Resolve or document and close the triage record.",
+        ].join("\n");
 
-      const mission = featureService.createMission({
-        habitatId,
-        title,
-        description,
-        labels: ["triage", finding.findingKind],
-        createdBy: "release",
-      });
-      createdMissionCount++;
-
-      try {
-        findingTriageRepo.setTriageMissionId(finding.id, mission.id);
-      } catch {
-        // Mission created but back-link failed — non-critical (mirror manual promote route).
-      }
-
-      sseBroadcaster.publish(habitatId, {
-        type: "triage.finding_updated",
-        data: {
+        const mission = featureService.createMission({
           habitatId,
-          findingId: finding.id,
-          status: "in_progress",
-          bucket: finding.bucket,
-        },
-      });
+          title,
+          description,
+          labels: ["triage", finding.findingKind],
+          createdBy: "release",
+        });
+        createdMissionCount++;
+
+        try {
+          findingTriageRepo.setTriageMissionId(finding.id, mission.id);
+        } catch {
+          // Mission created but back-link failed — non-critical (mirror manual promote route).
+        }
+
+        sseBroadcaster.publish(habitatId, {
+          type: "triage.finding_updated",
+          data: {
+            habitatId,
+            findingId: finding.id,
+            status: "in_progress",
+            bucket: finding.bucket,
+          },
+        });
+      } catch (err) {
+        // Per-finding isolation: a non-CONFLICT failure (e.g. createMission
+        // throw) must not abort the batch. The finding may already be promoted
+        // (triaged→in_progress); count it as errored and continue so the
+        // remaining findings, the retrospective, and the event still run.
+        erroredCount++;
+        console.warn(
+          `[release] activation error for finding ${finding.id} on ${release.version}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
   }
 
@@ -228,6 +247,7 @@ export async function detectAndActivate(
     `- Promoted findings: ${promotedCount}`,
     `- Corrective missions created: ${createdMissionCount}`,
     `- Skipped (already in progress): ${skippedCount}`,
+    `- Errored (promoted but mission failed): ${erroredCount}`,
   ].join("\n");
   pulseRepo.createPulse({
     habitatId,
@@ -246,6 +266,7 @@ export async function detectAndActivate(
       promotedCount,
       createdMissionCount,
       skippedCount,
+      erroredCount,
     },
   });
 
@@ -260,8 +281,9 @@ export async function detectAndActivate(
       promotedCount,
       createdMissionCount,
       skippedCount,
+      erroredCount,
     },
   });
 
-  return finish(release, { promotedCount, createdMissionCount, skippedCount });
+  return finish(release, { promotedCount, createdMissionCount, skippedCount, erroredCount });
 }

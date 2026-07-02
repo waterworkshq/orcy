@@ -27,6 +27,9 @@ export function resolveReleaseSettings(habitatId: string): ReleaseSettings {
  * `release.shipped` event fire regardless (PRD AC-ACTIVATE-8).
  */
 export function isAutoPromoteEnabled(habitatId: string): boolean {
-  if (process.env.ORCY_RELEASE_AUTO_PROMOTE === "false") return false;
+  const envFlag = process.env.ORCY_RELEASE_AUTO_PROMOTE?.toLowerCase();
+  if (envFlag === "false" || envFlag === "0" || envFlag === "off" || envFlag === "no") {
+    return false;
+  }
   return resolveReleaseSettings(habitatId).autoPromote;
 }

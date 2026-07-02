@@ -41,7 +41,7 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
             run.conclusion === "success" &&
             typeof run.name === "string" &&
             run.name.includes(settings.releaseWorkflowName) &&
-            (!settings.requireVersionTag || /^v?\d+\.\d+\.\d+/.test(run.head_branch));
+            (!settings.requireVersionTag || /^v?\d+\.\d+\.\d+$/.test(run.head_branch));
           if (isReleaseWorkflow && habitatId) {
             return (async () => {
               try {

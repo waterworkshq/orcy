@@ -35,4 +35,5 @@ export interface ReleaseShippedPayload {
   promotedCount: number;
   createdMissionCount: number;
   skippedCount: number;
+  erroredCount: number;
 }

@@ -29,7 +29,12 @@ export function rebuildCache(): void {
         ciCdGithubSecretToHabitatId.set(ciCdSettings.githubSecret, habitat.id);
       }
     } catch {
-      /* continue */
+      // Malformed ci_cd_settings JSON — the habitat's CI/CD release webhooks
+      // will fail to resolve a habitat until corrected. Log (without the
+      // secret) so a misconfigured habitat is visible, not silently inert.
+      console.warn(
+        `[boardSecretCache] habitat ${habitat.id} has malformed ci_cd_settings JSON; CI/CD webhook resolution disabled for this habitat`,
+      );
     }
   }
 }

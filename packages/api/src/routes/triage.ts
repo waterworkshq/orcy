@@ -95,13 +95,13 @@ const topClustersQuerySchema = z.object({
 
 const releaseTriggerBodySchema = z.object({
   habitatId: z.string().min(1),
-  version: z.string().min(1),
+  version: z.string().min(1).max(64),
   releaseType: z.enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]]).optional(),
   detectedBy: z
     .enum(DETECTOR_SOURCES as unknown as [DetectorSource, ...DetectorSource[]])
     .optional()
     .default("api"),
-  releaseNotes: z.string().optional(),
+  releaseNotes: z.string().max(10000).optional(),
 });
 
 /**

@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { releases } from "../db/schema/index.js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, ne, desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { ReleaseType, DetectorSource } from "@orcy/shared";
 import { repositoryCreateError, repositoryNotFoundError } from "../errors/repository.js";
@@ -57,14 +57,23 @@ export function findByHabitatAndVersion(habitatId: string, version: string): Rel
   return row ? rowToRelease(row) : null;
 }
 
-/** Most recent prior release for the habitat (semver-diff classification baseline). */
-export function findMostRecentPrior(habitatId: string): Release | null {
+/**
+ * Most recent prior release for the habitat (semver-diff classification
+ * baseline). Excludes `excludeVersion` so the incoming release is never
+ * diffed against itself; ties on `detectedAt` (same-second releases) break
+ * deterministically on `id`.
+ */
+export function findMostRecentPrior(habitatId: string, excludeVersion?: string): Release | null {
   const db = getDb();
   const row = db
     .select()
     .from(releases)
-    .where(eq(releases.habitatId, habitatId))
-    .orderBy(desc(releases.detectedAt))
+    .where(
+      excludeVersion
+        ? and(eq(releases.habitatId, habitatId), ne(releases.version, excludeVersion))
+        : eq(releases.habitatId, habitatId),
+    )
+    .orderBy(desc(releases.detectedAt), desc(releases.id))
     .limit(1)
     .get();
   return row ? rowToRelease(row) : null;
