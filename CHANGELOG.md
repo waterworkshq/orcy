@@ -2,6 +2,23 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.8 — 2026-07-02
+
+### Refactors
+
+#### decouple live-update propagation from stale-time polling and expose signal metadata to MCP agents ([`c5a823f`](https://github.com/waterworkshq/orcy/commit/c5a823f9fb04d3420258561e05b3693a0cd40fb6))
+
+1. The triage view previously relied on React Query staleTime to keep finding lists current — consumers had to poll or manually refetch after mutations. This change introduces an event-driven invalidation layer:
+
+3. Two new SSE event types (`triage.finding_created`,
+4. `triage.finding_updated`) are published from the data service (`enterTriage`) and route handlers (PATCH promote/triage paths).
+5. UI SSE registry subscribers invalidate `queryKeys.triage.all` on receipt, replacing staleTime-based freshness with push-driven cache coherence.
+
+7. The MCP `investigate` tool response now includes `pulseId`,
+8. `clusterKey`, `corroboratingPulseIds`, and `clusterMissionId` on each open finding object, plus `clusterMissionId` at the top level. This eliminates the need for agents to issue follow-up REST calls to obtain the signal subject and corroboration chain.
+
+
+
 ## 0.23.7 — 2026-07-02
 
 ### Refactors
@@ -37,21 +54,3 @@
 
 9. Broaden `transitionFinding` API client body type to accept
 10. `targetRelease?: string | null`. Add TriageSettingsTab component tests (5 cases). Bump roadmap to v0.23.6.
-
-
-
-## 0.23.5 — 2026-07-02
-
-### Bug Fixes
-
-#### reject GitHub issue webhooks with missing HMAC signature ([`cac5f55`](https://github.com/waterworkshq/orcy/commit/cac5f555e6b4c2f07d83acc30350044979ec0e4f))
-
-1. The previous guard only rejected requests with an *invalid* signature; requests that omitted the `x-hub-signature-256` header entirely were silently accepted and processed as unsigned, bypassing origin verification.
-
-3. Now any request without a valid signature header is dropped with a warning log before payload parsing occurs.
-
-5. Additional changes:
-6. Add triage route authorization test suite
-7. (packages/api/src/test/triageRoutesAuth.test.ts)
-8. Normalize string literals from single to double quotes in
-9. githubIssueWebhook test
