@@ -32,6 +32,7 @@ import { badRequest, notFound, forbidden, unauthorized } from "../errors.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { getHabitatById } from "../repositories/board.js";
 import { resolveImportColumn } from "../repositories/column.js";
+import { getProviderAdapter } from "../plugins/pluginManager.js";
 import { z } from "zod";
 import crypto from "crypto";
 import type { ExternalIntakeReviewStatus, IntegrationProvider } from "@orcy/shared";
@@ -77,6 +78,9 @@ function verifyConnectionAccess(request: FastifyRequest, habitatId: string): voi
 }
 
 function getAdapter(provider: string) {
+  const pluginAdapter = getProviderAdapter(provider);
+  if (pluginAdapter) return pluginAdapter;
+
   if (provider === "github") {
     try {
       return require("../services/integrations/githubAdapter.js").githubAdapter;

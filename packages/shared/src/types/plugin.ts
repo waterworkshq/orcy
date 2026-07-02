@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { SignalType } from "./signal.js";
 import type { Task, TaskPriority } from "./task.js";
+import type { IntegrationProvider, IntegrationAuthMethod } from "./integration.js";
 
 /** Zod object constructor alias used for declarative config schemas on contributions. */
 type ZodObjectAny = z.ZodType<any>;
@@ -40,7 +41,7 @@ export type PluginCapabilityName =
   | "notificationSender"
   | "webhookCaller";
 
-/** Discriminated union of the contribution kinds a plugin may declare (ADR-0011 + ADR-0021). */
+/** Discriminated union of the contribution kinds a plugin may declare (ADR-0011 + ADR-0021 + ADR-0028). */
 export type Contribution =
   | NotificationChannelContribution
   | SignalDetectorContribution
@@ -49,7 +50,8 @@ export type Contribution =
   | CustomHttpRouteContribution
   | WebhookFormatterContribution
   | AutomationConditionContribution
-  | AutomationActionContribution;
+  | AutomationActionContribution
+  | IntegrationProviderContribution;
 
 /** System-scoped notification delivery channel (e.g. Microsoft Teams webhook). */
 export interface NotificationChannelContribution {
@@ -138,6 +140,16 @@ export interface AutomationActionContribution {
   description: string;
   timeoutMs?: number;
   requires: PluginCapabilityName[];
+}
+
+/** System-scoped integration provider adapter that lists and fetches external issues (ADR-0028). */
+export interface IntegrationProviderContribution {
+  kind: "integrationProvider";
+  scope: "system";
+  provider: IntegrationProvider;
+  label: string;
+  authMethods: readonly IntegrationAuthMethod[];
+  requires: [];
 }
 
 /** Stripped evaluation context view for plugin condition handlers (ADR-0022). Agent apiKeyHash and rateLimitPerMinute are stripped. */
@@ -349,7 +361,11 @@ export interface PluginRun {
   habitatId: string;
   pluginId: string;
   contributionId: string;
-  contributionKind: "signalDetector" | "lifecycleInterceptor" | "notificationChannel" | "automationAction";
+  contributionKind:
+    | "signalDetector"
+    | "lifecycleInterceptor"
+    | "notificationChannel"
+    | "automationAction";
   triggerEventId: string | null;
   triggerType: string;
   status: PluginRunStatus;

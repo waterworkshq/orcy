@@ -18,7 +18,8 @@ type ContributionKind =
   | "customHttpRoute"
   | "webhookFormatter"
   | "automationCondition"
-  | "automationAction";
+  | "automationAction"
+  | "integrationProvider";
 import type {
   PluginModule,
   PluginContext,
@@ -30,6 +31,7 @@ import type {
   FormatterHandler,
   ConditionHandler,
   ActionListener,
+  ProviderHandler,
   PluginManifestView,
   EventSourceRef,
   InterceptorPreResult,
@@ -58,6 +60,7 @@ const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
   "webhookFormatter",
   "automationCondition",
   "automationAction",
+  "integrationProvider",
 ]);
 
 /** The whitelisted capability names (ADR-0012 + ADR-0019 + ADR-0020). */
@@ -118,6 +121,9 @@ const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPolicy>> = 
   automationAction: {
     allowed: ["taskWriter", "notificationSender", "webhookCaller"],
   },
+  integrationProvider: {
+    allowed: [],
+  },
 };
 
 const loadedPlugins: Map<string, PluginModule> = new Map();
@@ -134,6 +140,7 @@ const actionRegistry: Map<
   string,
   { pluginId: string; handler: ActionListener; timeoutMs?: number }
 > = new Map();
+const providerRegistry: Map<string, { pluginId: string; handler: ProviderHandler }> = new Map();
 const detectorRegistry: Map<
   string,
   { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
@@ -169,6 +176,7 @@ const DEFAULT_TIMEOUT_MS: Record<string, number> = {
   notificationChannel: 0,
   customMcpTool: 5000,
   customHttpRoute: 0,
+  integrationProvider: 0,
 };
 
 /**
@@ -291,6 +299,8 @@ function contributionLabel(c: Contribution): string {
       return c.conditionId;
     case "automationAction":
       return c.actionId;
+    case "integrationProvider":
+      return c.provider;
   }
 }
 
@@ -328,6 +338,12 @@ function orphanHandler(c: Contribution, mod: PluginModule): string | null {
       return typeof mod.actions?.[c.actionId] === "function"
         ? null
         : `automationAction "${c.actionId}" declared but no matching handler in module.actions`;
+    case "integrationProvider":
+      return typeof mod.providers?.[c.provider] === "object" &&
+        typeof mod.providers[c.provider]?.listIssues === "function" &&
+        typeof mod.providers[c.provider]?.getIssue === "function"
+        ? null
+        : `integrationProvider "${c.provider}" declared but no matching handler in module.providers`;
   }
 }
 
@@ -457,6 +473,15 @@ function detectIdCollisions(mod: PluginModule): string | null {
         return `actionId "${c.actionId}" already registered by another plugin`;
       }
     }
+    if (c.kind === "integrationProvider") {
+      if (seenWithinManifest.has(`provider:${c.provider}`)) {
+        return `duplicate provider "${c.provider}" within manifest`;
+      }
+      seenWithinManifest.add(`provider:${c.provider}`);
+      if (providerRegistry.has(c.provider)) {
+        return `provider "${c.provider}" already registered by another plugin`;
+      }
+    }
   }
   return null;
 }
@@ -500,6 +525,11 @@ function registerContributions(mod: PluginModule): void {
         pluginId: mod.manifest.id,
         handler: mod.actions[c.actionId],
         timeoutMs: c.timeoutMs,
+      });
+    } else if (c.kind === "integrationProvider" && mod.providers?.[c.provider]) {
+      providerRegistry.set(c.provider, {
+        pluginId: mod.manifest.id,
+        handler: mod.providers[c.provider],
       });
     }
   }
@@ -656,6 +686,15 @@ export function getCustomMcpTools(): McpToolDefinition[] {
 
 export function getChannelHandler(channelId: string): ChannelHandler | undefined {
   return channelRegistry.get(channelId)?.handler;
+}
+
+/**
+ * Returns the issue-provider adapter for a provider from the plugin registry, or `null`.
+ * The integration route's `getAdapter()` calls this first; a miss falls through to the
+ * in-tree dynamic `require()` (gradual migration per ADR-0017/ADR-0028).
+ */
+export function getProviderAdapter(provider: string): ProviderHandler | null {
+  return providerRegistry.get(provider)?.handler ?? null;
 }
 
 /**
@@ -1094,6 +1133,7 @@ export function resetPlugins(): void {
   formatterRegistry.clear();
   conditionRegistry.clear();
   actionRegistry.clear();
+  providerRegistry.clear();
   detectorRegistry.clear();
   interceptorRegistry.pre.clear();
   interceptorRegistry.post.clear();

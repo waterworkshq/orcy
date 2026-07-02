@@ -17,6 +17,7 @@ import type {
   NotificationEvent,
 } from "@orcy/shared";
 import type { TransitionContext } from "../services/tasks/transition-emitter.js";
+import type { IssueProviderAdapter } from "../services/integrations/types.js";
 
 /** Runtime object exported by a plugin module; pairs a manifest with its handler maps. */
 export interface PluginModule {
@@ -28,8 +29,12 @@ export interface PluginModule {
   formatters?: Record<string, FormatterHandler>;
   conditions?: Record<string, ConditionHandler>;
   actions?: Record<string, ActionListener>;
+  providers?: Record<string, ProviderHandler>;
   routeHandlers?: FastifyPluginCallback;
 }
+
+/** Issue-provider adapter handler that lists and fetches external issues (ADR-0028). Mirrors the in-tree `IssueProviderAdapter` minus the self-identifying `provider` field (the registry is keyed by provider). */
+export type ProviderHandler = Omit<IssueProviderAdapter, "provider">;
 
 /** Delivers a notification through a channel; invoked by the channel dispatcher. */
 export type ChannelHandler = (
