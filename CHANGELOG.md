@@ -2,6 +2,21 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.4 — 2026-07-02
+
+### Refactors
+
+#### consolidate shared types and harden concurrent-write paths ([`3a5793a`](https://github.com/waterworkshq/orcy/commit/3a5793aac8e4d8744302804207fbd5e362526247))
+
+1. Move `TriageActorType` out of duplicate repository-level definitions into the shared package so both `findingTriage` and `triageResolutions` repos import from a single source. Replace the read-modify-write race in `writeFindingTriageIdPointer` with an atomic `json_set` + COALESCE guarded by a NULL-extract predicate so concurrent metadata writes from detectors and triage-generated tags are preserved (CS-21).
+
+3. Additional changes:
+4. Split FTS5 wiki search into individually phrase-quoted terms so  `"auth login"` matches pages containing both words in any order rather than requiring an exact adjacent phrase
+5. Wire `targetRelease` through the PATCH finding endpoint, repo layer, and BucketConfirmation UI for deferred triage scheduling
+6. Update ROADMAP with missing patch release entries
+
+
+
 ## 0.23.3 — 2026-07-02
 
 ### Refactors
@@ -25,13 +40,3 @@
 
 6. Also add findActiveClusterKeys() batch query to avoid N+1 per-cluster
 7. queries when validating top cluster candidates.
-
-
-
-## 0.23.1 — 2026-07-02
-
-### Chores
-
-#### add integrationProvider contribution kind with registry lookup ([`3d140cb`](https://github.com/waterworkshq/orcy/commit/3d140cb951fc7f6b6c8922d36c977ae9ac3f4cb9))
-
-1. Introduce `integrationProvider` as a new contribution kind (ADR-0028) enabling plugins to register issue adapters. Plugin modules expose `providers` map with `listIssues` and `getIssue` handlers; pluginManager validates handler structure, detects within-manifest duplicates and cross-plugin collisions, and exposes `getProviderAdapter()` for registry lookup. Integration routes check plugin registry before falling back to built-in adapters. Scaffolds added for GitHub, Jira, and Linear plugins.
