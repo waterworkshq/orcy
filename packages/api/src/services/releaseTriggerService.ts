@@ -1,8 +1,15 @@
 import * as releaseRepo from "../repositories/release.js";
 import type { Release } from "../repositories/release.js";
+import * as findingTriageRepo from "../repositories/findingTriage.js";
+import * as pulseRepo from "../repositories/pulse.js";
+import * as featureService from "./featureService.js";
+import * as releaseSettingsService from "./releaseSettingsService.js";
+import { ingestEvent } from "./automationEventService.js";
+import { enqueueNotification } from "./notificationCommandService.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
 import { RepositoryError } from "../errors/repository.js";
 import { isSqliteError } from "../errors/sqlite.js";
-import { badRequest } from "../errors.js";
+import { badRequest, AppError } from "../errors.js";
 import {
   parseVersion,
   classifyReleaseType,
@@ -18,33 +25,46 @@ export interface DetectAndActivateResult {
   skippedCount: number;
 }
 
+interface ActivationCounts {
+  promotedCount: number;
+  createdMissionCount: number;
+  skippedCount: number;
+}
+
 /**
- * Detects a release, classifies its type, and records the `releases` row
- * (ADR-0030). The single orchestration seam converging all detectors: GitHub
- * release webhook, CI/CD pipeline completion, CLI, and the provider-agnostic
- * REST endpoint.
+ * Detects a release, classifies its type, records the `releases` row, and runs
+ * the activation loop (ADR-0030 / ADR-0031). The single orchestration seam
+ * converging all detectors: GitHub release webhook, CI/CD pipeline completion,
+ * CLI, and the provider-agnostic REST endpoint.
  *
  * Flow: normalise version → idempotency check → classify (caller-override or
  * semver-diff against the most recent prior row; first release requires an
- * explicit type) → record. **Phase 2 stubs activation** (the promote loop,
- * retrospective pulse, and `release.shipped` event land in Phase 3); the
- * returned counts are always zero for a fresh record.
+ * explicit type) → record → activation gate → matched-finding promotion loop →
+ * batched notification → retrospective pulse → `release.shipped` event.
  *
  * Idempotent on `(habitatId, version)`: a duplicate webhook re-delivery hits
  * the existing row and no-ops before any side effect. A concurrent same-version
  * webhook that wins the UNIQUE race between the pre-check and the insert is
- * caught and treated as a no-op too.
+ * caught and treated as a no-op too. The two-layer kill switch
+ * (`ORCY_RELEASE_AUTO_PROMOTE` env AND habitat `releaseSettings.autoPromote`)
+ * gates ONLY the promotion loop; detection, recording, the retrospective pulse,
+ * and the `release.shipped` event always run (PRD AC-ACTIVATE-8).
  */
-export function detectAndActivate(
+export async function detectAndActivate(
   habitatId: string,
   version: string,
   opts: { releaseType?: ReleaseType; detectedBy: DetectorSource; releaseNotes?: string },
-): DetectAndActivateResult {
+): Promise<DetectAndActivateResult> {
   const noop = (release: Release): DetectAndActivateResult => ({
     release,
     promotedCount: 0,
     createdMissionCount: 0,
     skippedCount: 0,
+  });
+
+  const finish = (release: Release, counts: ActivationCounts): DetectAndActivateResult => ({
+    release,
+    ...counts,
   });
 
   let parsed;
@@ -94,7 +114,130 @@ export function detectAndActivate(
     throw err;
   }
 
-  // Activation is stubbed for Phase 2. Phase 3 extends this with the promote
-  // loop, retrospective pulse, and `release.shipped` automation event.
-  return noop(release);
+  // --- Activation loop (ADR-0031: unconditional, no human gate) ---
+  let promotedCount = 0;
+  let createdMissionCount = 0;
+  let skippedCount = 0;
+
+  if (releaseSettingsService.isAutoPromoteEnabled(habitatId)) {
+    const matched = findingTriageRepo.findReleaseMatched(
+      habitatId,
+      release.releaseType,
+      release.version,
+    );
+
+    for (const finding of matched) {
+      try {
+        findingTriageRepo.promote(finding.id, { type: "system", id: "release" });
+      } catch (err) {
+        if (err instanceof AppError && err.code === "CONFLICT") {
+          skippedCount++;
+          continue;
+        }
+        throw err;
+      }
+      promotedCount++;
+
+      const pulse = pulseRepo.getPulseById(finding.pulseId);
+      const title = `Corrective: ${pulse?.subject ?? finding.clusterKey}`;
+      const description = [
+        "## Finding Triage",
+        `- Cluster: ${finding.clusterKey}`,
+        `- Kind: ${finding.findingKind}`,
+        `- Bucket: ${finding.bucket ?? "—"}`,
+        `- Finding triage id: ${finding.id}`,
+        "",
+        "## Source Pulse",
+        pulse?.body ?? "—",
+        "",
+        "## Task",
+        "Address the deferred finding captured in the source pulse. Resolve or document and close the triage record.",
+      ].join("\n");
+
+      const mission = featureService.createMission({
+        habitatId,
+        title,
+        description,
+        labels: ["triage", finding.findingKind],
+        createdBy: "release",
+      });
+      createdMissionCount++;
+
+      try {
+        findingTriageRepo.setTriageMissionId(finding.id, mission.id);
+      } catch {
+        // Mission created but back-link failed — non-critical (mirror manual promote route).
+      }
+
+      sseBroadcaster.publish(habitatId, {
+        type: "triage.finding_updated",
+        data: {
+          habitatId,
+          findingId: finding.id,
+          status: "in_progress",
+          bucket: finding.bucket,
+        },
+      });
+    }
+  }
+
+  if (promotedCount > 0) {
+    enqueueNotification({
+      habitatId,
+      eventType: "release.activated",
+      sourceType: "system",
+      sourceId: release.id,
+      severity: "info",
+      payload: {
+        releaseId: release.id,
+        version: release.version,
+        releaseType: release.releaseType,
+        promotedCount,
+      },
+      createdByType: "system",
+      createdById: "release",
+    });
+  }
+
+  const retrospectiveBody = [
+    `Release ${release.version} (${release.releaseType}) shipped via ${release.detectedBy}.`,
+    `- Promoted findings: ${promotedCount}`,
+    `- Corrective missions created: ${createdMissionCount}`,
+    `- Skipped (already in progress): ${skippedCount}`,
+  ].join("\n");
+  pulseRepo.createPulse({
+    habitatId,
+    scope: "habitat",
+    signalType: "context",
+    fromType: "system",
+    fromId: "release",
+    subject: `Release ${release.version} (${release.releaseType}) shipped`,
+    body: retrospectiveBody,
+    metadata: {
+      releaseRetrospective: true,
+      releaseId: release.id,
+      version: release.version,
+      releaseType: release.releaseType,
+      detectedBy: release.detectedBy,
+      promotedCount,
+      createdMissionCount,
+      skippedCount,
+    },
+  });
+
+  await ingestEvent(habitatId, {
+    type: "release.shipped",
+    data: {
+      eventId: release.id,
+      releaseId: release.id,
+      version: release.version,
+      releaseType: release.releaseType,
+      detectedBy: release.detectedBy,
+      promotedCount,
+      createdMissionCount,
+      skippedCount,
+    },
+  });
+
+  return finish(release, { promotedCount, createdMissionCount, skippedCount });
 }

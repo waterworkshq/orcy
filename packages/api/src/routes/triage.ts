@@ -353,8 +353,10 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
    * Converges the GitHub `release` webhook, the `workflow_run` release-workflow
    * convention, the CLI, and external callers. Classifies the release type
    * (caller-override or server-side semver-diff against the prior release),
-   * records the `releases` row, and is idempotent on `(habitatId, version)`.
-   * Activation (auto-promotion) is stubbed to zero counts pending Phase 3.
+   * records the `releases` row, runs the activation loop (promote matched
+   * findings into corrective missions), posts a retrospective pulse, and fires
+   * the `release.shipped` automation event. Idempotent on
+   * `(habitatId, version)`.
    */
   fastify.post<{
     Body: {
@@ -371,7 +373,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
     }
     const body = parsed.data;
     verifyHabitatAccess(request, body.habitatId);
-    const result = releaseTriggerService.detectAndActivate(body.habitatId, body.version, {
+    const result = await releaseTriggerService.detectAndActivate(body.habitatId, body.version, {
       releaseType: body.releaseType,
       detectedBy: body.detectedBy,
       releaseNotes: body.releaseNotes,

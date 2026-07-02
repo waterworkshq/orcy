@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as ciCdService from "../services/ciCdService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
+import * as releaseSettingsService from "../services/releaseSettingsService.js";
 import * as pipelineRepo from "../repositories/pipelineEvent.js";
 import { findHabitatIdByCiCdSignature } from "../services/boardSecretCache.js";
 import { humanAuth } from "../middleware/auth.js";
@@ -26,31 +27,35 @@ export async function ciCdWebhookRoutes(fastify: FastifyInstance): Promise<void>
         workflow_run: (b) => {
           const event = b as Parameters<typeof ciCdService.handleGitHubWorkflowRunEvent>[0];
           const run = event.workflow_run;
-          // Release-workflow convention. `resolveReleaseSettings` lands in Phase 3 (T3.10);
-          // defaults inlined here until then. A matching run resolves habitat via the CI/CD
-          // secret store (distinct from the code-review secret store) and triggers release
-          // detection; a non-matching run falls through to pipeline-status handling unchanged.
-          const releaseWorkflowName = "release";
-          const requireVersionTag = true;
+          // Release-workflow convention. Habitat is resolved first via the CI/CD
+          // secret store (distinct from the code-review secret store), then the
+          // per-habitat release settings drive the workflow-name + version-tag
+          // convention. A matching run triggers release detection; a non-matching
+          // run falls through to pipeline-status handling unchanged.
+          const habitatId = findHabitatIdByCiCdSignature(rawBody, signature ?? "");
+          const settings = habitatId
+            ? releaseSettingsService.resolveReleaseSettings(habitatId)
+            : null;
           const isReleaseWorkflow =
+            settings !== null &&
             run.conclusion === "success" &&
             typeof run.name === "string" &&
-            run.name.includes(releaseWorkflowName) &&
-            (!requireVersionTag || /^v?\d+\.\d+\.\d+/.test(run.head_branch));
-          if (isReleaseWorkflow) {
-            const habitatId = findHabitatIdByCiCdSignature(rawBody, signature ?? "");
-            if (!habitatId) return { status: "no_matching_habitat" };
-            try {
-              releaseTriggerService.detectAndActivate(habitatId, run.head_branch, {
-                detectedBy: "cicd_pipeline",
-              });
-              return { status: "recorded" };
-            } catch (err) {
-              return {
-                status: "error",
-                error: err instanceof Error ? err.message : "Unknown error",
-              };
-            }
+            run.name.includes(settings.releaseWorkflowName) &&
+            (!settings.requireVersionTag || /^v?\d+\.\d+\.\d+/.test(run.head_branch));
+          if (isReleaseWorkflow && habitatId) {
+            return (async () => {
+              try {
+                await releaseTriggerService.detectAndActivate(habitatId, run.head_branch, {
+                  detectedBy: "cicd_pipeline",
+                });
+                return { status: "recorded" };
+              } catch (err) {
+                return {
+                  status: "error",
+                  error: err instanceof Error ? err.message : "Unknown error",
+                };
+              }
+            })();
           }
           return ciCdService.handleGitHubWorkflowRunEvent(event);
         },

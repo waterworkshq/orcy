@@ -48,13 +48,18 @@ export type { ActorType, EventAction, PresenceType } from "./events.js";
 export type { PresenceEntry, SSEEvent, PresenceEvent } from "./events.js";
 
 export type { AutoAssignStrategy } from "./settings.js";
-export { DEFAULT_TRIAGE_SETTINGS } from "./settings.js";
+export {
+  DEFAULT_TRIAGE_SETTINGS,
+  DEFAULT_RELEASE_SETTINGS,
+  releaseSettingsSchema,
+} from "./settings.js";
 export type {
   AnomalySettings,
   Anomaly,
   AutoAssignSettings,
   AutomationSettings,
   TriageSettings,
+  ReleaseSettings,
   GitWorktreeSettings,
   CodeReviewSettings,
   CiCdSettings,

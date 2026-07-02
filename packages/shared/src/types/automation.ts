@@ -12,7 +12,8 @@ export type AutomationEventType =
   | "code_evidence.updated"
   | "anomaly.detected"
   | "sprint.started"
-  | "sprint.completed";
+  | "sprint.completed"
+  | "release.shipped";
 
 /** Discriminator for periodic scans that can fire an automation rule. */
 export type AutomationScanType =

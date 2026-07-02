@@ -10,7 +10,8 @@ export type NotificationEventType =
   | "pulse.signal_posted"
   | "workflow.recovery_started"
   | "workflow.recovery_succeeded"
-  | "workflow.recovery_unrecoverable";
+  | "workflow.recovery_unrecoverable"
+  | "release.activated";
 
 /** Identifies the originating domain of a notification. */
 export type NotificationSourceType =

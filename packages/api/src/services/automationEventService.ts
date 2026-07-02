@@ -23,6 +23,7 @@ const EVENT_ALLOWLIST: Set<string> = new Set([
   "anomaly.detected",
   "sprint.started",
   "sprint.completed",
+  "release.shipped",
 ]);
 
 interface IncomingEvent {

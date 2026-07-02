@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /** Configuration for the anomaly detection subsystem that emits {@link Anomaly} records. */
 export interface AnomalySettings {
   enabled: boolean;
@@ -88,6 +90,30 @@ export const DEFAULT_TRIAGE_SETTINGS: TriageSettings = {
   agentQualityThreshold: 40,
   agentQualityMinSample: 5,
 };
+
+/** Per-habitat release activation settings (ADR-0031 kill switch). Stored as a JSON column on `habitats.release_settings`. */
+export interface ReleaseSettings {
+  /** Master switch for the auto-promotion loop. Detection/recording/retrospective/event still occur when false. Default ON. */
+  autoPromote: boolean;
+  /** Release-workflow name substring for workflow_run detection. Default "release". */
+  releaseWorkflowName: string;
+  /** Whether the v* tag requirement is enforced for workflow_run detection. Default true. */
+  requireVersionTag: boolean;
+}
+
+/** Default release settings used when a habitat has no `releaseSettings` configured. */
+export const DEFAULT_RELEASE_SETTINGS: ReleaseSettings = {
+  autoPromote: true,
+  releaseWorkflowName: "release",
+  requireVersionTag: true,
+};
+
+/** Zod schema for validating `releaseSettings` patches (all fields optional). */
+export const releaseSettingsSchema = z.object({
+  autoPromote: z.boolean().optional(),
+  releaseWorkflowName: z.string().optional(),
+  requireVersionTag: z.boolean().optional(),
+});
 
 /**
  * Per-habitat wiki cadence configuration. Stored as a JSON column on `habitats.wiki_settings`

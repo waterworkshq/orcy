@@ -29,17 +29,17 @@ interface HandleContext {
  * `{status:"error"}` body so one malformed release doesn't 500 the webhook
  * response for every subsequent delivery.
  */
-export function handleGitHubReleaseEvent(
+export async function handleGitHubReleaseEvent(
   body: GitHubReleaseEvent,
   ctx: HandleContext,
-): { status: string; error?: string; release?: unknown } {
+): Promise<{ status: string; error?: string; release?: unknown }> {
   const release = body.release;
   if (body.action !== "published" || !release || release.draft || release.prerelease) {
     return { status: "ignored" };
   }
 
   try {
-    const result = releaseTriggerService.detectAndActivate(ctx.habitatId, release.tag_name, {
+    const result = await releaseTriggerService.detectAndActivate(ctx.habitatId, release.tag_name, {
       detectedBy: "github_release_webhook",
       releaseNotes: release.body ?? release.name ?? undefined,
     });

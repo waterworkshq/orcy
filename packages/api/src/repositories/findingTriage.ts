@@ -3,7 +3,12 @@ import { findingTriage } from "../db/schema/index.js";
 import { eq, and, desc, notInArray, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { FindingTriageStatus, SuggestedBucket, TriageActorType } from "@orcy/shared";
-import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
+import {
+  FINDING_TRIAGE_TRANSITIONS,
+  matchesReleaseType,
+  matchesReleaseVersion,
+} from "@orcy/shared";
+import type { ReleaseType } from "@orcy/shared";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -22,6 +27,7 @@ export interface FindingTriage {
   status: FindingTriageStatus;
   bucket: SuggestedBucket | null;
   targetRelease: string | null;
+  targetReleaseType: string | null;
   triageMissionId: string | null;
   corroboratingPulseIds: string[];
   triagedByType: TriageActorType | null;
@@ -72,6 +78,7 @@ function rowToFindingTriage(row: Record<string, unknown>): FindingTriage {
     status: row.status as FindingTriageStatus,
     bucket: (row.bucket as SuggestedBucket | null) ?? null,
     targetRelease: (row.targetRelease as string | null) ?? null,
+    targetReleaseType: (row.targetReleaseType as string | null) ?? null,
     triageMissionId: (row.triageMissionId as string | null) ?? null,
     corroboratingPulseIds,
     triagedByType: (row.triagedByType as TriageActorType | null) ?? null,
@@ -342,6 +349,30 @@ export function setTargetReleaseType(id: string, targetReleaseType: string | nul
   const refreshed = getById(id);
   if (!refreshed) throw repositoryNotFoundError("findingTriage", id);
   return refreshed;
+}
+
+/**
+ * Returns all `triaged` findings for a habitat whose release target matches the
+ * shipped release via EITHER arm (ADR-0029): type-cascade match on
+ * `targetReleaseType` OR version-pin match on `targetRelease`. The semver
+ * matchers are pure TS functions (not SQL-expressible), so the triaged set for
+ * the habitat is fetched and filtered in TypeScript — the triaged set per
+ * habitat is small.
+ */
+export function findReleaseMatched(
+  habitatId: string,
+  shippedType: ReleaseType,
+  shippedVersion: string,
+): FindingTriage[] {
+  const triaged = findByHabitatInStatus(habitatId, ["triaged"]);
+  return triaged.filter((f) => {
+    const typeArm =
+      f.targetReleaseType !== null &&
+      matchesReleaseType(f.targetReleaseType as ReleaseType, shippedType);
+    const versionArm =
+      f.targetRelease !== null && matchesReleaseVersion(f.targetRelease, shippedVersion);
+    return typeArm || versionArm;
+  });
 }
 
 export function setTriageMissionId(id: string, missionId: string): FindingTriage {
