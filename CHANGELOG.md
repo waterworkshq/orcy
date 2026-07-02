@@ -2,6 +2,25 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.7 — 2026-07-02
+
+### Refactors
+
+#### enforce state-machine transitions and eliminate read-modify-write patterns in data layer ([`1fbccac`](https://github.com/waterworkshq/orcy/commit/1fbccac0cbda855499b1f7a74b0f5c100c16c8ca))
+
+1. Centralize finding promotion through `transitionStatus()` instead of inline status checks, atomically patch `promotedAt` metadata via SQL `json_set` rather than spreading the full metadata object, and switch `corroboratingPulseIds` appends from JS-side JSON parse/push/stringify to a single `json_each` existence guard + `json_insert` — all following the CS-21 atomic-update pattern established in v0.23.4.
+
+3. Tighten repository and service error handling:
+4. `syncConnection` throws typed `AppError` (`notFound`/`badRequest`) instead of bare `Error`, giving callers proper HTTP status codes
+5. `resolveImportColumn` hoisted to once-per-sync-run to avoid repeated queries inside the per-issue loop
+6. `getAdapter()` returns `IssueProviderAdapter` with explicit type annotation and normalizes the plugin handler path with a `provider` field so adapter consumers see a uniform shape
+
+8. Add partial unique index on `triage_cluster_missions(habitat_id, cluster_key) WHERE status='open'` (migration 0046) and make `create()` idempotent by catching the constraint violation and re-reading the existing row instead of propagating the error.
+
+10. Promote endpoint now returns the full `finding` object alongside `missionId` so the caller can inspect post-transition state in a single round trip.
+
+
+
 ## 0.23.6 — 2026-07-02
 
 ### Bug Fixes
@@ -36,18 +55,3 @@
 7. (packages/api/src/test/triageRoutesAuth.test.ts)
 8. Normalize string literals from single to double quotes in
 9. githubIssueWebhook test
-
-
-
-## 0.23.4 — 2026-07-02
-
-### Refactors
-
-#### consolidate shared types and harden concurrent-write paths ([`3a5793a`](https://github.com/waterworkshq/orcy/commit/3a5793aac8e4d8744302804207fbd5e362526247))
-
-1. Move `TriageActorType` out of duplicate repository-level definitions into the shared package so both `findingTriage` and `triageResolutions` repos import from a single source. Replace the read-modify-write race in `writeFindingTriageIdPointer` with an atomic `json_set` + COALESCE guarded by a NULL-extract predicate so concurrent metadata writes from detectors and triage-generated tags are preserved (CS-21).
-
-3. Additional changes:
-4. Split FTS5 wiki search into individually phrase-quoted terms so  `"auth login"` matches pages containing both words in any order rather than requiring an exact adjacent phrase
-5. Wire `targetRelease` through the PATCH finding endpoint, repo layer, and BucketConfirmation UI for deferred triage scheduling
-6. Update ROADMAP with missing patch release entries
