@@ -187,3 +187,16 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Implementation-Finding Triage** | Engineering findings enter a 5-state lifecycle (`open → triaged → in_progress → resolved | wontfix`) with routing buckets (`fix_now / defer_to_patch / defer_to_release / document_as_known_limitation / needs_investigation`). Dedup by clusterKey+findingKind links duplicates as corroborating evidence. Bucket decisions are human-in-the-loop. | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Triage investigation via daemon** | Triage investigations run as daemon-owned tasks (same mechanism as v0.14 task execution). No server-side LLM — the configured external agent (Claude/Codex/etc.) claims the investigation task and performs the analysis. | [SKILL.md](SKILL.md) |
 | **`orcy_triage` MCP tool** | Agents investigate clusters (`investigate`), check top issues before starting work (`top_issues`), and look up historical resolutions (`resolution_lookup`). | [SKILL.md](SKILL.md) |
+
+## Release-Aware Automation (v0.24.0)
+
+Release shipping becomes a first-class automation trigger. When a release is detected (GitHub `release` webhook, `workflow_run` release-workflow completion, CLI, or REST), the system classifies it by semver type and auto-promotes every deferred finding whose target matches — closing the loop between "we know about this" and "now we're working on it" without a human re-surfacing each item.
+
+| Capability | What it does | Learn more |
+|---|---|---|
+| **Semver-targeted deferrals** | A finding tagged `defer_to_patch` / `defer_to_release` carries a release target — either a release-type tag (`targetReleaseType`: `patch`/`minor`/`major`, cascading match) or a version pin (`targetRelease`: exact `v0.24.0` or prefix `v0.24`). Set on `PATCH /triage/findings/:id`. | [DATABASE.md](DATABASE.md) |
+| **Release-type routing** | Pure semver engine (`@orcy/shared/semver.ts`) classifies each shipped release as patch/minor/major by diffing against the prior release, and matches targets under `patch ⊂ minor ⊂ major` (a `patch` target promotes on any release; `major` only on major). | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Provider-agnostic release detection** | `POST /triage/release-trigger` converges GitHub release/workflow_run detectors, CI/CD pipeline completion, the CLI, and external callers into one detect + classify + record + activate seam. Idempotent on `(habitatId, version)`. | [API.md](API.md) |
+| **Unconditional activation** | Matched deferred findings are promoted `triaged → in_progress` with a corrective mission created from the finding's pulse — no human gate. Per-finding isolation means a mid-batch failure is counted as errored and the loop continues (ADR-0031). | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Two-layer kill switch** | Global `ORCY_RELEASE_AUTO_PROMOTE` env var AND per-habitat `releaseSettings.autoPromote` gate only the promotion loop — detection, recording, the retrospective pulse, and the `release.shipped` event fire regardless. | [CONFIGURATION.md](CONFIGURATION.md) |
+| **Retrospective + event** | Every release posts a habitat-scoped retrospective pulse (promoted/skipped/errored counts) and a `release.shipped` automation event, feeding downstream automation and history. | [ARCHITECTURE.md](ARCHITECTURE.md) |

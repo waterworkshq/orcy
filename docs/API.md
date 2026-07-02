@@ -6194,12 +6194,14 @@ Get a single finding triage record.
 
 #### PATCH /triage/findings/:id
 
-Transition status and/or set bucket. At least one of `status` or `bucket` must be provided. Status transitions are gated by the state machine (`open → triaged → in_progress → resolved | wontfix`); invalid transitions return `409 Conflict`.
+Transition status and/or set bucket/target. At least one of `status`, `bucket`, `targetRelease`, or `targetReleaseType` must be provided. Status transitions are gated by the state machine (`open → triaged → in_progress → resolved | wontfix`); invalid transitions return `409 Conflict`.
 
 | Body Field | Required | Description |
 |------------|----------|-------------|
 | `status` | No* | Target status (must be a valid transition from current) |
 | `bucket` | No* | Routing bucket |
+| `targetRelease` | No* | Free-text version tag (e.g. `v0.24`) for version-pinned deferrals; pass `null` to clear |
+| `targetReleaseType` | No* | Release-type tag for semver-type-targeted deferrals: `patch`, `minor`, or `major` (cascading match, ADR-0029); pass `null` to clear |
 
 *At least one required.
 
@@ -6236,3 +6238,30 @@ Top unresolved clusters for the UI/MCP summary. Aggregated from open/triaged fin
 | `limit` | No | Max results (default 10, max 100) |
 
 **Response:** `{ clusters: ClusterSummaryView[] }` where each cluster has `{ clusterKey, signalCount, statuses[], findingKinds[], status: "under_investigation" | "awaiting_triage" }`
+
+### Release Trigger
+
+#### POST /triage/release-trigger
+
+Provider-agnostic release-detection seam (ADR-0030). Converges the GitHub `release` webhook, the `workflow_run` release-workflow convention, the CLI, and external callers into a single detect + classify + record + activate flow. Classifies the release type (caller override or server-side semver-diff against the most recent prior `releases` row), records the `releases` row, runs the activation loop (promotes matched deferred findings into corrective missions via the existing `promote()` + `createMission` path, unconditional — no human gate, ADR-0031), posts a retrospective pulse, and fires the `release.shipped` automation event.
+
+**Idempotent** on `(habitatId, version)`: a duplicate webhook re-delivery hits the existing `releases` row and no-ops before any side effect. The **first** release on a habitat requires an explicit `releaseType` (no prior baseline to diff against); subsequent releases classify themselves from the semver diff unless `releaseType` is supplied.
+
+The two-layer kill switch (global `ORCY_RELEASE_AUTO_PROMOTE` env var AND habitat `releaseSettings.autoPromote`) gates **only** the promotion loop — detection, recording, the retrospective pulse, and the `release.shipped` event always run. See [CONFIGURATION.md](CONFIGURATION.md).
+
+| Body Field | Required | Description |
+|------------|----------|-------------|
+| `habitatId` | Yes | Habitat UUID |
+| `version` | Yes | Released version, e.g. `v0.24.0` or `0.24.0` (normalised to strict `MAJOR.MINOR.PATCH`, leading `v` stripped; max 64 chars) |
+| `releaseType` | Conditional | `patch`, `minor`, or `major`. Required for the first release on a habitat; otherwise an optional caller override (defaults to server-side semver-diff classification) |
+| `detectedBy` | No | Provenance discriminator: `github_release_webhook`, `cicd_pipeline`, `cli`, `external`, `api` (default `api`) |
+| `releaseNotes` | No | Free-text release notes (max 10000 chars) |
+
+**Response:** `{ release: ReleaseView, promotedCount: number, createdMissionCount: number, skippedCount: number, erroredCount: number }`
+
+- `promotedCount` — findings transitioned `triaged → in_progress`
+- `createdMissionCount` — corrective missions created from each promoted finding's pulse
+- `skippedCount` — matched findings already `in_progress` (CONFLICT)
+- `erroredCount` — promoted findings whose mission creation failed (per-finding isolation; the batch still completes)
+
+**CLI:** `orcy triage release-trigger <habitat-id> --version <version> [--type <type>] [--notes <notes>]` (sets `detectedBy: "cli"`).

@@ -101,6 +101,12 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 | `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Max concurrent detector invocations per habitat. Excess triggers queue. |
 | `ORCY_DETECTOR_QUEUE_MAX` | `256` | Max queued detector triggers per habitat before overflow drop. Oldest trigger is dropped + `detector.queue_overflow` audit event emitted. |
 
+### Release Activation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCY_RELEASE_AUTO_PROMOTE` | `true` (enabled) | Global kill switch for the release auto-promotion loop (ADR-0031). Set to `false`, `0`, `off`, or `no` to disable. When disabled, releases are still detected, recorded, and emit a retrospective pulse + `release.shipped` automation event — only the matched-finding promotion loop is skipped. Per-habitat override via `releaseSettings.autoPromote` (`PATCH /habitats/:id`); both must be `true` for promotion to run. |
+
 ### Realtime (SSE / WebSocket)
 
 | Variable | Default | Description |

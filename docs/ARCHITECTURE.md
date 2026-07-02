@@ -1399,3 +1399,43 @@ Two-layer defense: (1) triage-output analysis pulses carry `metadata.triageGener
 ### MCP Tool
 
 `orcy_triage` dispatch tool with actions `investigate` (read cluster context), `top_issues` (ranked cluster summaries), `resolution_lookup` (historical resolutions). Tool count 20 → 21.
+
+## Release-Aware Automation (v0.24.0)
+
+The v0.24.0 "Cadence" release makes release shipping a first-class automation trigger. When a release is detected (GitHub `release` webhook, `workflow_run` release-workflow completion, CLI, or REST), the system classifies it by semver type (patch/minor/major) and auto-promotes every deferred finding whose target matches — unconditionally, with no human gate.
+
+**ADRs:** 0029 (targeting — cascading-type + version-pin matchers), 0030 (classification + the `releases` table), 0031 (unconditional promotion + two-layer kill switch)
+
+### Provider-Agnostic Trigger Seam
+
+All detectors converge on a single REST endpoint, `POST /triage/release-trigger`, which feeds the detect+activate seam. No provider-specific logic lives in the seam — GitHub release/webhook detectors, CI/CD pipeline completion, the CLI, and external callers all post the same `{ habitatId, version, releaseType?, detectedBy?, releaseNotes? }` body. The seam records the release, classifies its type, and runs activation.
+
+### Classification
+
+Release type is resolved one of two ways: (1) **caller override** — the caller supplies `releaseType`; or (2) **server-side semver-diff** — the pure semver engine (`@orcy/shared/semver.ts`, no DB/side effects) diffs the incoming version against the most recent prior `releases` row for the habitat. The **first** release on a habitat has no prior baseline and requires an explicit `releaseType`. Versions are normalised to strict `MAJOR.MINOR.PATCH` at ingestion; pre-release tags and build metadata are out of scope for v0.24.0.
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `shared/src/semver.ts` | Pure semver engine: `parseVersion`, `classifyReleaseType`, `matchesReleaseType`, `matchesReleaseVersion` |
+| `shared/src/types/release.ts` | `RELEASE_TYPES`, `DETECTOR_SOURCES`, `ReleaseShippedPayload` |
+| `api/src/services/releaseTriggerService.ts` | Detect + classify + record + activate seam (`detectAndActivate`) |
+
+### Activation Loop
+
+Matched deferred findings are promoted unconditionally (ADR-0031) via the existing triage `promote()` + `createMission` path — the same code the manual `POST /triage/findings/:id/promote` route uses. A finding matches when its `target_release_type` is satisfied by the shipped type under the cascading matcher (`patch ⊂ minor ⊂ major`) **or** its `target_release` version-pin matches (exact `v0.24.0` or prefix `v0.24`). Each promoted finding transitions `triaged → in_progress` and gets a corrective mission sourced from its pulse; per-finding isolation means a mid-batch failure is counted as errored and the loop continues. After the loop: a batched notification, a retrospective habitat-scoped pulse, and a `release.shipped` automation event fire.
+
+### Two-Layer Kill Switch
+
+The promotion loop is gated by two AND'd switches, both defaulting to on: the global `ORCY_RELEASE_AUTO_PROMOTE` env var and the per-habitat `releaseSettings.autoPromote` JSON column. The switch gates **only** the promotion loop — detection, recording, the retrospective pulse, and the `release.shipped` event fire regardless (PRD AC-ACTIVATE-8). This lets a deployment disable auto-promotion globally while still recording release history and emitting events for downstream consumers. See [CONFIGURATION.md](CONFIGURATION.md).
+
+**Key files:**
+
+| File | Role |
+|------|------|
+| `api/src/services/releaseSettingsService.ts` | `resolveReleaseSettings` (defaults merge) + `isAutoPromoteEnabled` (two-layer gate) |
+| `api/src/db/schema/release.ts` | `releases` table (idempotency + classification baseline) |
+| `api/src/repositories/findingTriage.ts` | `findReleaseMatched` (cascading-type + version-pin query) + `promote` |
+| `api/src/routes/triage.ts` | `POST /triage/release-trigger` + `targetReleaseType` on `PATCH /triage/findings/:id` |
+| `cli/src/commands/triage.ts` | `orcy triage release-trigger` CLI (sets `detectedBy: "cli"`) |

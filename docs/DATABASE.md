@@ -36,7 +36,7 @@ export default defineConfig({
 
 The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Schema uses `camelCase` TypeScript property names mapped to `snake_case` SQL column names via Drizzle column inference.
 
-### Entity-Relationship Diagram (72 tables)
+### Entity-Relationship Diagram (73 tables)
 
 ```
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
@@ -2082,7 +2082,8 @@ Finding triage lifecycle record. Tracks an engineering finding's routing lifecyc
 | `finding_kind` | TEXT | NOT NULL | Denormalized `pulse.metadata.findingKind` for dedup queries |
 | `status` | TEXT | NOT NULL DEFAULT 'open' | Lifecycle state: open, triaged, in_progress, resolved, wontfix |
 | `bucket` | TEXT | | Routing bucket: fix_now, defer_to_patch, defer_to_release, document_as_known_limitation, needs_investigation |
-| `target_release` | TEXT | | Free-text tag (e.g. "v0.24") for deferred findings |
+| `target_release` | TEXT | | Free-text tag (e.g. "v0.24") for version-pinned deferred findings |
+| `target_release_type` | TEXT | | Release-type tag for semver-type-targeted deferrals: `patch`, `minor`, or `major` (cascading match, ADR-0029). Added by migration `0047_finding_triage_target_release_type.sql` |
 | `triage_mission_id` | TEXT | FK → features(id) ON DELETE SET NULL | Linked triage mission |
 | `corroborating_pulse_ids` | TEXT | | JSON array of pulse IDs linked as corroborating evidence |
 | `triaged_by_type/id`, `resolved_by_type/id`, `triaged_at`, `resolved_at`, `resolution_note` | TEXT | | Attribution fields mirroring `code_evidence_gaps` pattern |
@@ -2132,6 +2133,42 @@ Lightweight junction table linking cluster triage missions to their `cluster_key
 | `resolved_at` | TEXT | | Resolution timestamp |
 
 **Indexes:** `(habitat_id, cluster_key, status)`, `(mission_id)`
+
+---
+
+### Release-Aware Automation (v0.24.0)
+
+The v0.24.0 "Cadence" release makes release shipping a first-class automation trigger. A new `releases` table records every detected release per habitat (single source of truth for classification, idempotency, and retrospective history), and two columns extend existing tables for release-type targeting and per-habitat activation control.
+
+**Migrations:** `0047_finding_triage_target_release_type.sql`, `0048_releases.sql`, `0049_release_settings.sql`
+
+#### `releases`
+
+Durable record of every detected release per habitat (ADR-0030). Single source of truth for (a) release-type classification — the most recent prior row is the semver-diff baseline, (b) idempotency — an existing row for `(habitat_id, version)` means a duplicate trigger and is a no-op, and (c) retrospective history — the release-log pulse cites real rows. `version` is normalised at ingestion to strict `MAJOR.MINOR.PATCH` (leading `v` stripped).
+
+**Source:** `packages/api/src/db/schema/release.ts`
+**Migration:** `0048_releases.sql`
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | TEXT | PK | Release identifier (UUID) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
+| `version` | TEXT | NOT NULL | Released version, normalised to strict `MAJOR.MINOR.PATCH` |
+| `release_type` | TEXT | NOT NULL | `patch`, `minor`, or `major` |
+| `detected_by` | TEXT | NOT NULL | Provenance: `github_release_webhook`, `cicd_pipeline`, `cli`, `external`, or `api` |
+| `release_notes` | TEXT | | Free-text release notes |
+| `detected_at` | TEXT | NOT NULL DEFAULT datetime('now') | Detection timestamp |
+| `metadata` | TEXT | NOT NULL DEFAULT '{}' | JSON; includes `classificationMethod` (`"caller"` or `"self"`) |
+
+**Indexes:** `idx_releases_habitat_version` UNIQUE `(habitat_id, version)` [idempotency], `idx_releases_habitat_detected (habitat_id, detected_at)`
+
+#### `finding_triage.target_release_type` (column)
+
+Nullable TEXT column added by migration `0047_finding_triage_target_release_type.sql`, alongside the existing `target_release`. Holds a release-type tag (`patch`, `minor`, or `major`) for semver-type-targeted deferrals (ADR-0029). The cascading matcher treats `patch ⊂ minor ⊂ major`: a `patch` target promotes on any release, a `minor` target on `minor`/`major`, a `major` target only on `major`.
+
+#### `habitats.release_settings` (JSON column)
+
+Per-habitat release activation settings added via migration `0049_release_settings.sql`. Stores `{ autoPromote, releaseWorkflowName, requireVersionTag }` (type `ReleaseSettings`). Defaults: `autoPromote: true`, `releaseWorkflowName: "release"`, `requireVersionTag: true`; a NULL column resolves to defaults. Managed via `PATCH /habitats/:id` (`releaseSettings` field). `autoPromote` is the per-habitat arm of the two-layer kill switch — both it and the global `ORCY_RELEASE_AUTO_PROMOTE` env var must be true for the promotion loop to run; detection, recording, the retrospective pulse, and the `release.shipped` event fire regardless (ADR-0031). See [CONFIGURATION.md](CONFIGURATION.md).
 
 ---
 

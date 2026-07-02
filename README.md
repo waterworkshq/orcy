@@ -188,6 +188,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 - **Plugin system** — safe, local-drop-in plugin platform with manifest contract (5 contribution kinds), capability whitelist, per-habitat enrollment, lifecycle interceptors, and notification channel registry. 3 reference plugins shipped. In-tree Slack/Discord/in-app/webhook channels migrate to the plugin surface in v0.22.1. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Pod Bridge** — federate trust so another admin's pod can collaborate safely in a shared habitat. See the Pod Bridge row in [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
+- **Release-Aware Automation** — release shipping is a first-class automation trigger. When a release is detected (GitHub release webhook, CI/CD release-workflow completion, CLI, or REST), Orcy classifies it by semver type and auto-promotes every deferred finding whose target matches — no human re-surfacing required. Findings defer to a release type (patch/minor/major) or a specific version; the release type is the routing key. A two-layer kill switch gates the promotion loop; a retrospective pulse and `release.shipped` automation event fire on every detection. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
 
 ---
 
@@ -195,7 +196,8 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.23.x** | Architecture deepening — integration adapter extraction + auto-release-detection for deferred findings |
+| **v0.24.x** | Release-aware automation hardening — webhook redelivery reliability, provenance, and action-coverage verification (see `docs/deferred/release/README.md`) |
+| **v0.25.0 (candidate)** | Roadmap Activation — structured planned releases with scoped items that auto-triage when the prior release lands |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

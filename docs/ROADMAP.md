@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.23.8 | **Updated:** 2026-07-02
+> **Version:** v0.24.0 | **Updated:** 2026-07-03
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -70,26 +70,19 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.23.6 | "Triage UI Fixes" — `/triage/clusters/top` aggregation now uses `findByHabitatInStatus()` (no limit, SQL-side status filter) instead of `findByHabitat()` (limit 100) then JS filter — fixes incorrect cluster counts for habitats with >100 findings. `TriageSettingsTab` now resyncs form values on habitat switch via `useEffect`. `BucketConfirmation` sends `targetRelease: null` on non-defer re-triage (clears stale target). `usePromoteFinding` invalidates missions list after promotion. UI `transitionFinding` body type includes `targetRelease`. `DeferredBacklog` shows loading state instead of empty-state flash. TriageSettingsTab UI tests added (5 tests). |
 | v0.23.7 | "Triage Data Layer Hardening" — `promote()` now delegates to `transitionStatus()` (state machine enforcement) + atomic `json_set` for `promotedAt` metadata (CS-21 pattern). `getAdapter()` has explicit `IssueProviderAdapter` return type + normalizes plugin handler with `provider` field. `POST /triage/findings/:id/promote` returns `{ finding, missionId }` instead of bare `{ missionId }`. `syncConnection` throws `AppError` (`notFound`/`badRequest`) instead of plain `Error`. `resolveImportColumn` hoisted to once-per-sync-run. `corroboratingPulseIds` append is now atomic via `json_each` + `json_insert`. Partial unique index on `triage_cluster_missions(habitat_id, cluster_key) WHERE status='open'` (migration 0046) — `create()` is idempotent on constraint hit. |
 | v0.23.8 | "Triage Real-Time + MCP Enrichment" — Two new SSE event types (`triage.finding_created`, `triage.finding_updated`) emitted from finding triage creation, PATCH, and promote paths. UI registry handlers invalidate `queryKeys.triage.all` on receipt — triage views now update in real-time without staleTime polling. MCP `investigate` action response enriched with `pulseId`, `clusterKey`, `corroboratingPulseIds`, and `clusterMissionId` — agents now have the signal subject and corroboration chain needed to investigate without raw REST calls. |
+| v0.24.0 | "Cadence" — Release shipping as a first-class automation trigger. Provider-agnostic release detection (`POST /triage/release-trigger` fed by GitHub `release` webhooks, GitHub Actions `workflow_run` release-workflow completion, CLI, or external systems) classifies each release by semver type via server-side diff against a new `releases` tracking table (caller-override allowed; first release per habitat requires explicit declaration; idempotent on habitat+version incl. concurrent-webhook UNIQUE catch). Semver-targeted deferrals: a new `targetReleaseType` (patch/minor/major) column on `finding_triage` plus the existing free-text `targetRelease` for version pins, with either-match (OR) semantics and a cascading-type matcher (patch ⊂ minor ⊂ major). Unconditional auto-promotion — every release-matched finding promotes into a corrective mission regardless of release type, no human gate (the human's decision point is deferral time, not release time); a two-layer kill switch (`ORCY_RELEASE_AUTO_PROMOTE` env + habitat `releaseSettings.autoPromote`) gates only the promotion loop. A source-tagged release retrospective pulse and a new `release.shipped` automation event fire on every detection; a `release.activated` notification enqueues to habitat team members. Pure semver engine in `@orcy/shared`. 5 ADRs would be expected but 3 shipped (0029–0031); the planning seed's proposed human-in-the-loop gate for minor/major was rejected (ADR-0031 — rebuilds v0.23's manual promote, defeats the feature's purpose). |
 
 ---
 
 ## Upcoming
 
-### v0.24.0 — "Cadence"
+### v0.24.x — Release-Aware Automation patches
 
-Release shipping as a first-class automation trigger. When a release lands, deferred work activates automatically — no one manually re-surfaces findings, pulls roadmap items into active work, or checks whether a patch fixes a known issue.
+Hardening patches for the v0.24.0 release-aware automation surface. Tracked in `docs/deferred/release/README.md` (REL-1 through REL-5): webhook redelivery reliability (HTTP 200 on detection failure blocks GitHub redelivery; the async webhook-dispatcher typing change unblocks it), client-asserted `detectedBy` provenance on the REST seam, GitHub `release` action coverage verification, and minor consistency cleanup.
 
-| Feature | Problem it solves |
-|---------|-------------------|
-| Semver-Targeted Deferrals | Findings tagged `defer_to_patch` / `defer_to_release` with optional `targetVersion` sit idle today until a human manually promotes them. This adds automatic promotion: when the matching release ships, the finding transitions `triaged → in_progress` with a corrective mission created — closing the loop between "we know about this" and "now we're working on it" without human re-surfacing. |
-| Release-Type Routing | A patch release shouldn't trigger minor-scope work, and a minor shouldn't trigger major-scope work. The release *type* (patch/minor/major via semver comparison) determines which deferred items activate — patch ships → only patch-tagged; minor → patch+minor; major → everything. No existing tool does this; GitHub milestones, Jira versions, and Linear cycles are tracking labels, not triggers. |
-| Release Detection | No current webhook or integration detects releases in tracked codebases. This adds a provider-agnostic trigger endpoint (`POST /triage/release-trigger`) fed by GitHub `release` webhook events, CI/CD pipeline completion, CLI manual triggers, or external systems — all calling the same auto-promotion logic. |
-| Human-in-the-Loop Gate | Auto-promotion creating missions silently is surprising for larger scope. Patch-deferred items auto-promote (they're small fixes); minor/major-deferred items create an intake review batch for human confirmation (they're scope decisions that may have changed priority). |
-| Release Retrospective | When auto-promotion fires, the system emits a source-tagged analysis pulse recording what shipped, what promoted, and what was created — feeding back into the habitat wiki as a release-log entry. |
+### v0.25.0 candidate — Roadmap Activation (Act 3)
 
-**Why here:** Release-aware automation needs the full triage lifecycle (v0.23), the automation engine with `executeAndRecordRuleRun` (v0.18), the intake candidate system for human-in-the-loop review (v0.12), and the plugin system for provider-specific release detectors (v0.22). The `targetRelease` column already exists in the `finding_triage` schema (migration 0042) and is exposed through the PATCH route as of v0.23.4 — the plumbing is ready. Roadmap activation (structured planned releases with scoped items that auto-triage on the previous release landing) is the heaviest piece and is sequenced as a potential v0.25.0 follow-up once the deferral loop is battle-tested.
-
-Planning seed: `docs/plans/v3/17-release-aware-automation.md`
+The heaviest piece of the release-aware automation seed (`docs/plans/v3/17-release-aware-automation.md`), sequenced after the v0.24.0 deferral loop is battle-tested. Turns the roadmap into structured data: planned releases with scoped work items, each linked to missions/tasks. When release N ships, release N+1's scoped items auto-triage. Requires a new entity type (planned releases + scoped items + dependency links), schema migrations, UI for roadmap authoring, and a migration path from markdown roadmaps to structured data. Acts 1+2 (delivered in v0.24.0) provide the core novel value; Act 3 extends it to planning.
 
 ---
 
