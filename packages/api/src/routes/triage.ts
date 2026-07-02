@@ -3,7 +3,9 @@ import { z } from "zod";
 import {
   FINDING_TRIAGE_STATUSES,
   RELEASE_TYPES,
+  DETECTOR_SOURCES,
   SUGGESTED_BUCKETS,
+  type DetectorSource,
   type FindingTriageStatus,
   type ReleaseType,
   type SuggestedBucket,
@@ -14,6 +16,7 @@ import * as triageClusterMissionsRepo from "../repositories/triageClusterMission
 import * as pulseRepo from "../repositories/pulse.js";
 import * as featureService from "../services/featureService.js";
 import * as findingTriageService from "../services/findingTriageService.js";
+import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/board.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
@@ -88,6 +91,17 @@ const resolutionsQuerySchema = z.object({
 const topClustersQuerySchema = z.object({
   habitatId: z.string().min(1),
   limit: z.coerce.number().int().positive().max(100).default(10),
+});
+
+const releaseTriggerBodySchema = z.object({
+  habitatId: z.string().min(1),
+  version: z.string().min(1),
+  releaseType: z.enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]]).optional(),
+  detectedBy: z
+    .enum(DETECTOR_SOURCES as unknown as [DetectorSource, ...DetectorSource[]])
+    .optional()
+    .default("api"),
+  releaseNotes: z.string().optional(),
 });
 
 /**
@@ -333,4 +347,35 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       return { clusters };
     },
   );
+
+  /**
+   * POST /triage/release-trigger — provider-agnostic release detection seam.
+   * Converges the GitHub `release` webhook, the `workflow_run` release-workflow
+   * convention, the CLI, and external callers. Classifies the release type
+   * (caller-override or server-side semver-diff against the prior release),
+   * records the `releases` row, and is idempotent on `(habitatId, version)`.
+   * Activation (auto-promotion) is stubbed to zero counts pending Phase 3.
+   */
+  fastify.post<{
+    Body: {
+      habitatId: string;
+      version: string;
+      releaseType?: ReleaseType;
+      detectedBy?: DetectorSource;
+      releaseNotes?: string;
+    };
+  }>("/triage/release-trigger", { preHandler: agentOrHumanAuth }, async (request) => {
+    const parsed = releaseTriggerBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw badRequest("Validation failed", parsed.error.flatten());
+    }
+    const body = parsed.data;
+    verifyHabitatAccess(request, body.habitatId);
+    const result = releaseTriggerService.detectAndActivate(body.habitatId, body.version, {
+      releaseType: body.releaseType,
+      detectedBy: body.detectedBy,
+      releaseNotes: body.releaseNotes,
+    });
+    return result;
+  });
 }

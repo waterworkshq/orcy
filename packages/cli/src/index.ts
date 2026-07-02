@@ -14,6 +14,7 @@ import { registerServeCommands } from "./commands/serve.js";
 import { registerIntegrationCommands } from "./commands/integration.js";
 import { registerDaemonCommands } from "./commands/daemon.js";
 import { registerSkillCommands } from "./commands/skill.js";
+import { registerTriageCommands } from "./commands/triage.js";
 
 const program = new Command();
 
@@ -33,6 +34,7 @@ registerServeCommands(program);
 registerIntegrationCommands(program);
 registerDaemonCommands(program);
 registerSkillCommands(program);
+registerTriageCommands(program);
 
 program.parse(process.argv);
 

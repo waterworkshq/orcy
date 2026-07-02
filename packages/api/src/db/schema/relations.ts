@@ -85,6 +85,7 @@ import {
   taskQualityChecklistItems,
 } from "./quality.js";
 import { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
+import { releases } from "./release.js";
 
 export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   columns: many(columns),
@@ -1041,5 +1042,12 @@ export const triageClusterMissionsRelations = relations(triageClusterMissions, (
   mission: one(missions, {
     fields: [triageClusterMissions.missionId],
     references: [missions.id],
+  }),
+}));
+
+export const releasesRelations = relations(releases, ({ one }) => ({
+  habitat: one(habitats, {
+    fields: [releases.habitatId],
+    references: [habitats.id],
   }),
 }));
