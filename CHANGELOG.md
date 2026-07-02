@@ -2,6 +2,24 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.5 — 2026-07-02
+
+### Bug Fixes
+
+#### reject GitHub issue webhooks with missing HMAC signature ([`cac5f55`](https://github.com/waterworkshq/orcy/commit/cac5f555e6b4c2f07d83acc30350044979ec0e4f))
+
+1. The previous guard only rejected requests with an *invalid* signature; requests that omitted the `x-hub-signature-256` header entirely were silently accepted and processed as unsigned, bypassing origin verification.
+
+3. Now any request without a valid signature header is dropped with a warning log before payload parsing occurs.
+
+5. Additional changes:
+6. Add triage route authorization test suite
+7. (packages/api/src/test/triageRoutesAuth.test.ts)
+8. Normalize string literals from single to double quotes in
+9. githubIssueWebhook test
+
+
+
 ## 0.23.4 — 2026-07-02
 
 ### Refactors
@@ -24,19 +42,3 @@
 #### centralize triage thresholds in shared package and remove localStorage persistence ([`643d034`](https://github.com/waterworkshq/orcy/commit/643d03438a497388d4a1313032dac141fd7da1bc))
 
 1. Moves DEFAULT_TRIAGE_SETTINGS to shared package as single source of truth, wires threshold resolution into triageScanService and agentQualityScanService, and migrates TriageSettingsTab to use backend persistence via PATCH /habitats/:id instead of localStorage.
-
-
-
-## 0.23.2 — 2026-07-02
-
-### Bug Fixes
-
-#### add missing habitat membership checks to API endpoints ([`aa430a2`](https://github.com/waterworkshq/orcy/commit/aa430a28517e86437a55726f6e26d56df5a24a11))
-
-1. Triage routes shipped without authorization checks (v0.23.0). Add
-2. verifyHabitatAccess() helper mirroring middleware logic for querystring
-3. habitatId lookups. Apply to listFindings, getFinding, updateFinding,
-4. promoteFinding, and topClusters endpoints.
-
-6. Also add findActiveClusterKeys() batch query to avoid N+1 per-cluster
-7. queries when validating top cluster candidates.
