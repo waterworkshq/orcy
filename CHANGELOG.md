@@ -2,6 +2,25 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.6 — 2026-07-02
+
+### Bug Fixes
+
+#### correct cluster-top query for large datasets and patch stale UI state ([`9196987`](https://github.com/waterworkshq/orcy/commit/9196987026308167c374a0034c69d04480729747))
+
+1. Replace `findByHabitat()` (limit 100) + JS filter with a dedicated `findByHabitatInStatus()` repository method that pushes the open/triaged status predicate into SQL via `inArray`, returning an untruncated result set so `/clusters/top` counts are accurate when a habitat exceeds 100 findings.
+
+3. UI state-management fixes across the triage surface:
+4. TriageSettingsTab form fields now resync via `useEffect` when the remote habitat settings payload changes, eliminating stale values after switching habitats
+5. BucketConfirmation unconditionally includes `targetRelease` (set to `null` when not deferring) so the backend clears stale release targets on re-triage
+6. DeferredBacklog renders a loading placeholder while queries are in-flight instead of flashing the empty-state message
+7. `usePromoteFinding` invalidates the missions query cache alongside the triage cache so the mission list updates immediately after promotion
+
+9. Broaden `transitionFinding` API client body type to accept
+10. `targetRelease?: string | null`. Add TriageSettingsTab component tests (5 cases). Bump roadmap to v0.23.6.
+
+
+
 ## 0.23.5 — 2026-07-02
 
 ### Bug Fixes
@@ -32,13 +51,3 @@
 4. Split FTS5 wiki search into individually phrase-quoted terms so  `"auth login"` matches pages containing both words in any order rather than requiring an exact adjacent phrase
 5. Wire `targetRelease` through the PATCH finding endpoint, repo layer, and BucketConfirmation UI for deferred triage scheduling
 6. Update ROADMAP with missing patch release entries
-
-
-
-## 0.23.3 — 2026-07-02
-
-### Refactors
-
-#### centralize triage thresholds in shared package and remove localStorage persistence ([`643d034`](https://github.com/waterworkshq/orcy/commit/643d03438a497388d4a1313032dac141fd7da1bc))
-
-1. Moves DEFAULT_TRIAGE_SETTINGS to shared package as single source of truth, wires threshold resolution into triageScanService and agentQualityScanService, and migrates TriageSettingsTab to use backend persistence via PATCH /habitats/:id instead of localStorage.
