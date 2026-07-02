@@ -53,19 +53,12 @@ export function createCiCdSecretSource(): WebhookSecretSource {
       let matched = false;
       let secretsPresent = false;
       for (const habitat of habitats) {
-        const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
-        if (!raw || typeof raw !== "string") continue;
-        try {
-          const settings = JSON.parse(raw) as { githubSecret?: string };
-          if (settings.githubSecret) {
-            secretsPresent = true;
-            if (signature && verifyGitHubHmac(rawBody, signature, settings.githubSecret)) {
-              matched = true;
-              break;
-            }
-          }
-        } catch {
-          /* continue */
+        const ciCd = habitat.ciCdSettings;
+        if (!ciCd?.githubSecret) continue;
+        secretsPresent = true;
+        if (signature && verifyGitHubHmac(rawBody, signature, ciCd.githubSecret)) {
+          matched = true;
+          break;
         }
       }
       return { matched, secretsPresent };
@@ -75,19 +68,12 @@ export function createCiCdSecretSource(): WebhookSecretSource {
       let matched = false;
       let secretsPresent = false;
       for (const habitat of habitats) {
-        const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
-        if (!raw || typeof raw !== "string") continue;
-        try {
-          const settings = JSON.parse(raw) as { gitlabSecret?: string };
-          if (settings.gitlabSecret) {
-            secretsPresent = true;
-            if (providedToken && verifyGitLabToken(providedToken, settings.gitlabSecret)) {
-              matched = true;
-              break;
-            }
-          }
-        } catch {
-          /* continue */
+        const ciCd = habitat.ciCdSettings;
+        if (!ciCd?.gitlabSecret) continue;
+        secretsPresent = true;
+        if (providedToken && verifyGitLabToken(providedToken, ciCd.gitlabSecret)) {
+          matched = true;
+          break;
         }
       }
       return { matched, secretsPresent };

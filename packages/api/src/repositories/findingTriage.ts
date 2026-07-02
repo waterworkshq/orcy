@@ -191,6 +191,7 @@ export function createForPulse(pulse: FindingTriagePulseInput): FindingTriage {
         status: "open",
         bucket: null,
         targetRelease: null,
+        targetReleaseType: null,
         triageMissionId: null,
         corroboratingPulseIds: JSON.stringify([pulse.id]),
         triagedByType: null,
@@ -358,6 +359,12 @@ export function setTargetReleaseType(id: string, targetReleaseType: string | nul
  * matchers are pure TS functions (not SQL-expressible), so the triaged set for
  * the habitat is fetched and filtered in TypeScript — the triaged set per
  * habitat is small.
+ */
+/**
+ * Finds triaged findings whose release-type or version-pin target matches the
+ * shipped release. Only `status === "triaged"` findings are considered —
+ * `in_progress`/`resolved`/`wontfix` findings are excluded at the query level
+ * (not via the `promote()` guard, which is defense-in-depth only).
  */
 export function findReleaseMatched(
   habitatId: string,

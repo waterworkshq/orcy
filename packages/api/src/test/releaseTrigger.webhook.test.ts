@@ -100,6 +100,23 @@ describe("AC-DETECT-6: GitHub release webhook → detectAndActivate (github_rele
     expect(row!.releaseNotes).toBe("release notes");
   });
 
+  it("records a release row when action=released (gh-release CLI path)", async () => {
+    await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
+      releaseType: "minor",
+      detectedBy: "api",
+    });
+
+    const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
+      buildReleasePayload({ action: "released", tagName: "v0.1.2" }),
+      { habitatId },
+    );
+
+    expect(result.status).toBe("recorded");
+    const row = releaseRepo.findByHabitatAndVersion(habitatId, "0.1.2");
+    expect(row).not.toBeNull();
+    expect(row!.detectedBy).toBe("github_release_webhook");
+  });
+
   it("AC-DETECT-6: first release via webhook without prior — surfaces 400 for GitHub redelivery", async () => {
     const result = await githubReleaseWebhook.handleGitHubReleaseEvent(
       buildReleasePayload({ tagName: "v1.0.0" }),

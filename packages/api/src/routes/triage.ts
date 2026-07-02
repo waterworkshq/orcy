@@ -3,9 +3,7 @@ import { z } from "zod";
 import {
   FINDING_TRIAGE_STATUSES,
   RELEASE_TYPES,
-  DETECTOR_SOURCES,
   SUGGESTED_BUCKETS,
-  type DetectorSource,
   type FindingTriageStatus,
   type ReleaseType,
   type SuggestedBucket,
@@ -97,10 +95,6 @@ const releaseTriggerBodySchema = z.object({
   habitatId: z.string().min(1),
   version: z.string().min(1).max(64),
   releaseType: z.enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]]).optional(),
-  detectedBy: z
-    .enum(DETECTOR_SOURCES as unknown as [DetectorSource, ...DetectorSource[]])
-    .optional()
-    .default("api"),
   releaseNotes: z.string().max(10000).optional(),
 });
 
@@ -363,7 +357,6 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       habitatId: string;
       version: string;
       releaseType?: ReleaseType;
-      detectedBy?: DetectorSource;
       releaseNotes?: string;
     };
   }>("/triage/release-trigger", { preHandler: agentOrHumanAuth }, async (request) => {
@@ -375,7 +368,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
     verifyHabitatAccess(request, body.habitatId);
     const result = await releaseTriggerService.detectAndActivate(body.habitatId, body.version, {
       releaseType: body.releaseType,
-      detectedBy: body.detectedBy,
+      detectedBy: "api",
       releaseNotes: body.releaseNotes,
     });
     return result;

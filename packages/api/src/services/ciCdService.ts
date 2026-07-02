@@ -34,14 +34,7 @@ export function verifyGitLabToken(providedToken: string, secret: string): boolea
 
 function getCiCdSettingsForHabitat(habitatId: string): CiCdSettings | null {
   const habitat = habitatRepo.getHabitatById(habitatId);
-  if (!habitat) return null;
-  const raw = (habitat as unknown as Record<string, unknown>).ci_cd_settings;
-  if (!raw || typeof raw !== "string") return null;
-  try {
-    return JSON.parse(raw) as CiCdSettings;
-  } catch {
-    return null;
-  }
+  return habitat?.ciCdSettings ?? null;
 }
 
 function findTaskAcrossHabitats(repo: string, branch: string): string | null {

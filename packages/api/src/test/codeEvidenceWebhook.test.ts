@@ -109,10 +109,11 @@ function setupHabitatWithPattern(pattern?: string) {
       githubSecret: "secret",
       taskPattern: pattern || "([0-9a-f-]{36})",
     }),
-    ci_cd_settings: JSON.stringify({
+    ciCdSettings: {
       githubSecret: "secret",
       taskPattern: pattern || "([0-9a-f-]{36})",
-    }),
+      gitlabSecret: null,
+    },
   });
 }
 

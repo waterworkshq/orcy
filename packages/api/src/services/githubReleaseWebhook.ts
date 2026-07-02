@@ -20,11 +20,17 @@ interface HandleContext {
 
 /**
  * Handles a GitHub `release` webhook event for the resolved habitat. Only
- * `published` actions on non-draft, non-prerelease releases proceed; drafts
- * and prereleases are ignored. Semver pre-release tags (e.g. `-rc.1`, `-beta`)
- * are also skipped — they're a preview signal, not a release event.
- * The version is parsed from `release.tag_name` (leading `v` stripped by the
- * trigger service) and recorded with provenance `github_release_webhook`.
+ * `published` and `released` actions on non-draft, non-prerelease releases
+ * proceed; drafts and prereleases are ignored. Semver pre-release tags
+ * (e.g. `-rc.1`, `-beta`) are also skipped — they're a preview signal, not
+ * a release event. The version is parsed from `release.tag_name` (leading
+ * `v` stripped by the trigger service) and recorded with provenance
+ * `github_release_webhook`.
+ *
+ * Both `published` and `released` are accepted because different GitHub
+ * tooling paths emit different actions (gh-release CLI emits `released`,
+ * GitHub UI emits `published`). The `draft` and `prerelease` filters
+ * already handle the distinction.
  *
  * Validation errors (bad version, first-release requires type) return
  * `statusCode: 400` so the webhook dispatcher can propagate a non-2xx to
@@ -35,7 +41,8 @@ export async function handleGitHubReleaseEvent(
   ctx: HandleContext,
 ): Promise<{ status: string; statusCode?: number; error?: string; release?: unknown }> {
   const release = body.release;
-  if (body.action !== "published" || !release || release.draft || release.prerelease) {
+  const isReleaseAction = body.action === "published" || body.action === "released";
+  if (!isReleaseAction || !release || release.draft || release.prerelease) {
     return { status: "ignored" };
   }
 

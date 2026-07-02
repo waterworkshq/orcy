@@ -63,12 +63,21 @@ describe("webhook secret verification service", () => {
     expect(secretCacheMocks.lookupHabitatIdBySecret).toHaveBeenCalledWith("gitlab-token");
   });
 
-  it("parses CI/CD habitat settings and ignores malformed rows", () => {
+  it("parses CI/CD habitat settings and ignores null rows", () => {
     habitatRepoMocks.listHabitats.mockReturnValue([
-      { id: "bad-json", ci_cd_settings: "{nope" },
-      { id: "no-secret", ci_cd_settings: JSON.stringify({}) },
-      { id: "github-secret", ci_cd_settings: JSON.stringify({ githubSecret: "gh-secret" }) },
-      { id: "gitlab-secret", ci_cd_settings: JSON.stringify({ gitlabSecret: "gl-secret" }) },
+      { id: "no-settings", ciCdSettings: null },
+      {
+        id: "no-secret",
+        ciCdSettings: { githubSecret: null, gitlabSecret: null, taskPattern: "" },
+      },
+      {
+        id: "github-secret",
+        ciCdSettings: { githubSecret: "gh-secret", gitlabSecret: null, taskPattern: "" },
+      },
+      {
+        id: "gitlab-secret",
+        ciCdSettings: { githubSecret: null, gitlabSecret: "gl-secret", taskPattern: "" },
+      },
     ]);
     integrationSecurityMocks.verifyGitHubHmac.mockImplementation(
       (_body, _sig, secret) => secret === "gh-secret",

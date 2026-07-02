@@ -219,27 +219,20 @@ export async function detectAndActivate(
     // The notification resolver is explicit-recipient-based; habitat-default
     // subscriptions configure channels/cadence but do not enumerate recipients,
     // so the team membership must be sourced here (mirrors review assignment).
+    // Always enqueue — the event row is created even with zero recipients, so
+    // the notification log records the activation for personal habitats too.
     const recipients = getHabitatHumanRecipients(habitatId);
-    if (recipients.length > 0) {
-      enqueueNotificationForRecipients(
-        habitatId,
-        "release.activated",
-        "system",
-        "info",
-        recipients,
-        {
-          sourceId: release.id,
-          payload: {
-            releaseId: release.id,
-            version: release.version,
-            releaseType: release.releaseType,
-            promotedCount,
-          },
-          createdByType: "system",
-          createdById: "release",
-        },
-      );
-    }
+    enqueueNotificationForRecipients(habitatId, "release.activated", "system", "info", recipients, {
+      sourceId: release.id,
+      payload: {
+        releaseId: release.id,
+        version: release.version,
+        releaseType: release.releaseType,
+        promotedCount,
+      },
+      createdByType: "system",
+      createdById: "release",
+    });
   }
 
   const retrospectiveBody = [
