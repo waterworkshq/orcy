@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.23.3 | **Updated:** 2026-07-02
+> **Version:** v0.23.5 | **Updated:** 2026-07-02
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -65,6 +65,7 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.23.1 | "Integration Adapter Surface" — Extract GitHub/Jira/Linear issue-provider adapters into `plugins/integration-{github,jira,linear}/` reference plugins behind a new `integrationProvider` contribution kind (ADR-0028). `providerRegistry` + `getProviderAdapter()` lookup in `pluginManager`, consulted first by `getAdapter()` with the existing dynamic `require()` retained as backward-compat fallback (gradual migration per ADR-0017). Adapter-only scope: OAuth, webhook ingestion, webhook creation stay in-tree (credential management + unauthenticated signature-verified routes deferred to future security-gated ADR). 3 reference plugins wrap the in-tree adapter objects (channel-plugin pattern). Plugin contribution kind count 8→9. |
 | v0.23.2 | "Triage Hardening" — Adds missing habitat membership checks (`verifyHabitatAccess()`) to all 6 triage endpoints that shipped without authorization in v0.23.0 (cross-tenant read/write vulnerability fix). Also introduces `findActiveClusterKeys()` batch query to eliminate N+1 per-cluster queries in `/triage/clusters/top`. |
 | v0.23.3 | "Triage Settings Backend Wiring" — `triageSettings` JSON column on habitats (migration 0045), `TriageSettings` type in `@orcy/shared`, `triageSettingsSchema` in `updateHabitatSchema`. Both scan services (`triageScanService`, `agentQualityScanService`) now resolve habitat-level thresholds via `resolveThresholds()` with fallback to `DEFAULT_TRIAGE_SETTINGS`. `TriageSettingsTab` migrated from localStorage to backend persistence via `PATCH /habitats/:id`; wired into `HabitatSettingsDialog` as a "Triage" tab. |
+| v0.23.4 | "Deferred Items" — `TriageActorType` lifted to `@orcy/shared` (CS-22); `targetRelease` exposed on `PATCH /triage/findings/:id` + UI `BucketConfirmation` target-version capture (v0.24.0 prerequisite); `escapeFtsQuery` fixed for multi-word FTS5 search — splits on whitespace into implicit AND instead of literal phrase match (SU-1); `writeFindingTriageIdPointer` converted from read-modify-write to atomic `json_set` + `json_extract IS NULL` guard (CS-21). Deferred ADRs 001 (round-robin persistence) and 002 (mobile PWA) formally accepted. |
 
 ---
 

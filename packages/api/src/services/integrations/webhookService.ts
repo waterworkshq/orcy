@@ -86,10 +86,10 @@ export function handleGitHubIssueWebhook(
   for (const connection of connections) {
     if (!connection.webhookSecret) continue;
 
-    if (signature && !verifyGitHubHmac(rawBody, signature, connection.webhookSecret)) {
+    if (!signature || !verifyGitHubHmac(rawBody, signature, connection.webhookSecret)) {
       logger.warn(
         { connectionId: connection.id },
-        "GitHub issue webhook signature verification failed",
+        "GitHub issue webhook signature missing or invalid",
       );
       continue;
     }
