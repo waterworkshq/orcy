@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.23.1 — 2026-07-02
+
+### Chores
+
+#### add integrationProvider contribution kind with registry lookup ([`3d140cb`](https://github.com/waterworkshq/orcy/commit/3d140cb951fc7f6b6c8922d36c977ae9ac3f4cb9))
+
+1. Introduce `integrationProvider` as a new contribution kind (ADR-0028) enabling plugins to register issue adapters. Plugin modules expose `providers` map with `listIssues` and `getIssue` handlers; pluginManager validates handler structure, detects within-manifest duplicates and cross-plugin collisions, and exposes `getProviderAdapter()` for registry lookup. Integration routes check plugin registry before falling back to built-in adapters. Scaffolds added for GitHub, Jira, and Linear plugins.
+
+
+
 ## 0.23.0 — 2026-06-30
 
 ### Bug Fixes
@@ -91,19 +101,3 @@
 2. to prevent crashes. Extend existing sprint.completed and sprint.started tests
 3. to verify detail query invalidation in addition to active query. Refactor
 4. TaskCardList tests with a makeTask helper for cleaner test data setup.
-
-
-
-## 0.22.14 — 2026-06-30
-
-### Refactors
-
-#### consolidate AgentAvatar, add priority indicators and a11y improvements ([`ff1d595`](https://github.com/waterworkshq/orcy/commit/ff1d5958f78a2d3219647fb56ac1003e38cfefbf))
-
-1. Extract AgentAvatar into a shared component used by TaskCard, TaskCardList, and TaskTableColumns to replace duplicate inline implementations. The component accepts a fallback prop for customizable null states.
-
-3. Add priority-colored left borders to TaskCardList items using the new PRIORITY_BORDER_CLASS mapping. Display rejectedCount badges with ↩ indicator when rejections exist.
-
-5. Memoize selectedIds as a Set in TaskCardList to optimize selection lookups. Add sorting indicator to mobile card view. Add aria-labels to SprintSelector and drag handles in PrioritizationTab for screen reader compatibility.
-
-7. Update tests to mock AgentAvatar and use CSS class selectors instead of title attributes for deterministic assertions.
