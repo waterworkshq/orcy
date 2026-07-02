@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { triageClusterMissions } from "../db/schema/index.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 
@@ -82,6 +82,28 @@ export function findActiveByClusterKey(
     )
     .get();
   return row ? rowToTriageClusterMission(row) : null;
+}
+
+/**
+ * Batch active-triage lookup for multiple cluster keys in a single query.
+ * Returns a Set of cluster keys that have at least one open junction record.
+ * Used by `GET /triage/clusters/top` to avoid N+1 per-cluster queries.
+ */
+export function findActiveClusterKeys(habitatId: string, clusterKeys: string[]): Set<string> {
+  if (clusterKeys.length === 0) return new Set();
+  const db = getDb();
+  const rows = db
+    .select({ clusterKey: triageClusterMissions.clusterKey })
+    .from(triageClusterMissions)
+    .where(
+      and(
+        eq(triageClusterMissions.habitatId, habitatId),
+        inArray(triageClusterMissions.clusterKey, clusterKeys),
+        eq(triageClusterMissions.status, "open"),
+      ),
+    )
+    .all();
+  return new Set(rows.map((r) => r.clusterKey as string));
 }
 
 /**

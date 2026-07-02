@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   FINDING_TRIAGE_STATUSES,
@@ -13,7 +13,9 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as featureService from "../services/featureService.js";
 import * as findingTriageService from "../services/findingTriageService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
-import { notFound, badRequest } from "../errors.js";
+import { getHabitatById } from "../repositories/board.js";
+import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
+import { notFound, badRequest, forbidden, unauthorized } from "../errors.js";
 
 /** Actor shared across triage write paths — derived from request auth context. */
 type TriageActor = { type: "human" | "agent"; id: string };
@@ -25,6 +27,30 @@ function actorFromRequest(request: {
   if (request.agent) return { type: "agent", id: request.agent.id };
   if (request.user) return { type: "human", id: request.user.id };
   throw badRequest("Authenticated actor not found on request");
+}
+
+/**
+ * Verifies that the authenticated requester has access to the given habitat.
+ * Mirrors `authorizeHabitatAccess` middleware logic but callable inline for
+ * routes where habitatId comes from querystring or a DB lookup (not path params).
+ * Fast-follow from v0.23.0 — triage routes shipped without habitat-membership checks.
+ */
+function verifyHabitatAccess(request: FastifyRequest, habitatId: string): void {
+  const habitat = getHabitatById(habitatId);
+  if (!habitat) throw notFound("Habitat not found");
+
+  if (request.agent) {
+    if (!habitat.teamId) return;
+    throw forbidden("Agents cannot access team habitats", "BOARD_ACCESS_DENIED");
+  }
+
+  if (request.user) {
+    if (!habitat.teamId) return;
+    if (isTeamMemberByHabitatId(habitatId, request.user.id)) return;
+    throw forbidden("You do not have access to this habitat", "BOARD_ACCESS_DENIED");
+  }
+
+  throw unauthorized("Authentication required");
 }
 
 const listFindingsQuerySchema = z.object({
@@ -72,6 +98,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
+      verifyHabitatAccess(request, parsed.data.habitatId);
       const findings = findingTriageRepo.findByHabitat(parsed.data.habitatId, {
         status: parsed.data.status,
         bucket: parsed.data.bucket,
@@ -87,6 +114,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const finding = findingTriageRepo.getById(request.params.id);
       if (!finding) throw notFound("Finding not found");
+      verifyHabitatAccess(request, finding.habitatId);
       return { finding };
     },
   );
@@ -110,6 +138,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
 
       const existing = findingTriageRepo.getById(request.params.id);
       if (!existing) throw notFound("Finding not found");
+      verifyHabitatAccess(request, existing.habitatId);
 
       const actor = actorFromRequest(request);
       let finding = existing;
@@ -135,6 +164,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
     async (request) => {
       const existing = findingTriageRepo.getById(request.params.id);
       if (!existing) throw notFound("Finding not found");
+      verifyHabitatAccess(request, existing.habitatId);
 
       const actor = actorFromRequest(request);
       findingTriageService.promote(request.params.id, actor);
@@ -186,6 +216,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success) {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
+      verifyHabitatAccess(request, parsed.data.habitatId);
       const resolutions = triageResolutionsRepo.findByClusterKey(
         parsed.data.habitatId,
         parsed.data.clusterKey,
@@ -211,6 +242,7 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
       const { habitatId, limit } = parsed.data;
+      verifyHabitatAccess(request, habitatId);
 
       const unresolved = findingTriageRepo
         .findByHabitat(habitatId)
@@ -238,19 +270,24 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         byCluster.set(f.clusterKey, entry);
       }
 
-      const clusters = [...byCluster.values()]
+      const sortedClusters = [...byCluster.values()]
         .sort((a, b) => b.signalCount - a.signalCount)
-        .slice(0, limit)
-        .map((c) => {
-          const active = triageClusterMissionsRepo.findActiveByClusterKey(habitatId, c.clusterKey);
-          return {
-            clusterKey: c.clusterKey,
-            signalCount: c.signalCount,
-            statuses: [...c.statuses],
-            findingKinds: [...c.findingKinds],
-            status: active ? ("under_investigation" as const) : ("awaiting_triage" as const),
-          };
-        });
+        .slice(0, limit);
+
+      const activeKeys = triageClusterMissionsRepo.findActiveClusterKeys(
+        habitatId,
+        sortedClusters.map((c) => c.clusterKey),
+      );
+
+      const clusters = sortedClusters.map((c) => ({
+        clusterKey: c.clusterKey,
+        signalCount: c.signalCount,
+        statuses: [...c.statuses],
+        findingKinds: [...c.findingKinds],
+        status: activeKeys.has(c.clusterKey)
+          ? ("under_investigation" as const)
+          : ("awaiting_triage" as const),
+      }));
 
       return { clusters };
     },
