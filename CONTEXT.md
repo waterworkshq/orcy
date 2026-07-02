@@ -354,8 +354,28 @@ The deferred-work classification assigned to an engineering finding during triag
 _Avoid_: Priority, severity, label (when describing the routing classification rather than task priority or signal severity)
 
 **Resolution Record**:
-A record of how a triaged Pattern Cluster or engineering finding was resolved — root cause, fix applied, and resolution kind — keyed by the pattern's normalized subject for proactive matching. When a similar pattern emerges later, the historical resolution surfaces as a suggested fix before new triage work is created.
+A record of how a triaged Pattern Cluster or engineering finding was resolved — root cause, fix, and resolution kind — keyed by the pattern's normalized subject for proactive matching. When a similar pattern emerges later, the historical resolution surfaces as a suggested fix before new triage work is created.
 _Avoid_: Fix note, completion comment, wiki page (when describing the structured match-keyed record rather than authored knowledge)
+
+**Release Detection**:
+The provider-agnostic recognition that a tracked codebase has shipped a release, fed by GitHub release webhooks, CI/CD pipeline completion of a release workflow, CLI manual triggers, or external systems calling a shared trigger endpoint. Detection supplies a version string; classification of the release type (patch / minor / major) is the system's responsibility, not the detector's.
+_Avoid_: Deploy, publish (when the event is the version bump, not the artifact drop)
+
+**Release-Type Routing**:
+The semver-aware determination of which deferred findings activate when a release ships. A patch release activates only patch-targeted findings; a minor activates patch + minor; a major activates everything. The release type is the routing key — patch ⊂ minor ⊂ major as cascading scopes — so a larger release covers everything a smaller one would.
+_Avoid_: Priority, severity (when describing the type-cascade filter, not the finding's importance)
+
+**Semver-Targeted Deferral**:
+Tagging a deferred finding with the type of release it waits for (`patch`, `minor`, or `major`) or a specific version (`v0.24.0`, or any `v0.24.x`). A finding with a type target activates on the next release of that type-or-greater; a finding with a version target activates when that exact or prefixed version ships. The Routing Bucket captures the human's coarse deferral intent; the type or version target is the precise activation rule.
+_Avoid_: Milestone, fix-version (when describing Orcy's type or version targeting, not an external tracker's label)
+
+**Release Activation**:
+The automatic transition of a deferred finding into active corrective work when its target release ships. Activation is unconditional — every release-matched finding promotes regardless of release type — because the human's decision was made at deferral time, not release time. The human's leverage is pre-release (re-defer or wontfix before the release ships) and post-promotion (triage the created missions), not a confirmation gate between detection and activation.
+_Avoid_: Auto-fix, deployment trigger (when describing the finding activation, not a CI/CD action)
+
+**Release Retrospective**:
+A source-tagged analysis pulse emitted when a release is detected and activation runs, recording what shipped, which findings activated, which corrective missions were created, and which were skipped. The retrospective feeds the habitat wiki as a release-log entry and gives humans and agents a queryable record of what a release triggered and why.
+_Avoid_: Release notes (when describing the in-system audit pulse, not the external changelog)
 
 ## Example Dialogue
 

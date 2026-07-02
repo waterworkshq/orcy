@@ -346,9 +346,16 @@ export function setTriageMissionId(id: string, missionId: string): FindingTriage
 /**
  * Marks a triaged finding as promoted: transitions `triaged → in_progress` via
  * the central state machine, then atomically sets `promotedAt` in metadata via
- * `json_set` (CS-21 pattern — no full-object overwrite).
+ * `json_set` (CS-21 pattern — no full-object overwrite). Only callable from
+ * `triaged` status — promotes from other statuses are rejected even if the
+ * state machine would allow the transition.
  */
 export function promote(id: string, actor: { type: TriageActorType; id: string }): FindingTriage {
+  const current = getById(id);
+  if (!current) throw repositoryNotFoundError("findingTriage", id);
+  if (current.status !== "triaged") {
+    throw conflict(`Cannot promote finding in status: ${current.status}`);
+  }
   transitionStatus(id, "in_progress", actor);
 
   const now = new Date().toISOString();
