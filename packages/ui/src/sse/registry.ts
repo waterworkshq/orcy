@@ -79,6 +79,8 @@ export const SSE_EVENT_TYPES = [
   "plugin.enrollment_toggled",
   "plugin.enrollment_removed",
   "plugin.quarantined",
+  "triage.finding_created",
+  "triage.finding_updated",
 ] as const satisfies readonly SSEEventType[];
 
 export type SSEEventRegistryMissingEvents = AssertNever<
@@ -559,6 +561,18 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({
         queryKey: queryKeys.plugins.runs(event.data.habitatId),
       });
+    },
+  }),
+  "triage.finding_created": defineSSEHandler<"triage.finding_created">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "triage.finding_created") return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
+    },
+  }),
+  "triage.finding_updated": defineSSEHandler<"triage.finding_updated">({
+    cache: ({ event, queryClient }) => {
+      if (event.type !== "triage.finding_updated") return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
     },
   }),
 } satisfies Record<SSEEventType, SSEEventHandler>;

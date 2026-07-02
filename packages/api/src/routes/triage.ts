@@ -16,6 +16,7 @@ import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/board.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { notFound, badRequest, forbidden, unauthorized } from "../errors.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
 
 /** Actor shared across triage write paths — derived from request auth context. */
 type TriageActor = { type: "human" | "agent"; id: string };
@@ -156,6 +157,15 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       if (parsed.data.targetRelease !== undefined) {
         finding = findingTriageRepo.setTargetRelease(request.params.id, parsed.data.targetRelease);
       }
+      sseBroadcaster.publish(existing.habitatId, {
+        type: "triage.finding_updated",
+        data: {
+          habitatId: existing.habitatId,
+          findingId: finding.id,
+          status: finding.status,
+          bucket: finding.bucket,
+        },
+      });
       return { finding };
     },
   );
@@ -212,6 +222,15 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const finding = findingTriageRepo.getById(request.params.id);
+      sseBroadcaster.publish(existing.habitatId, {
+        type: "triage.finding_updated",
+        data: {
+          habitatId: existing.habitatId,
+          findingId: request.params.id,
+          status: finding?.status ?? "in_progress",
+          bucket: finding?.bucket ?? null,
+        },
+      });
       return { finding, missionId: mission.id };
     },
   );

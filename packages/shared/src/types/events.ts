@@ -269,6 +269,19 @@ export type SSEEvent =
   | {
       type: "plugin.quarantined";
       data: { habitatId: string; pluginId: string };
+    }
+  | {
+      type: "triage.finding_created";
+      data: { habitatId: string; findingId: string; clusterKey: string };
+    }
+  | {
+      type: "triage.finding_updated";
+      data: {
+        habitatId: string;
+        findingId: string;
+        status: string;
+        bucket: string | null;
+      };
     };
 
 /** Subset of {@link SSEEvent} restricted to presence lifecycle updates such as join, leave, refresh, and summary. */

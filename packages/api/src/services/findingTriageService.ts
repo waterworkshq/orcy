@@ -5,6 +5,7 @@ import { repositoryUpdateError } from "../errors/repository.js";
 import type { SuggestedBucket } from "@orcy/shared";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
+import { sseBroadcaster } from "../sse/broadcaster.js";
 
 /** Attribution actor shared across triage write paths. */
 export type TriageActor = {
@@ -34,6 +35,10 @@ export function enterTriage(pulse: EnterTriagePulseInput): { findingTriageId: st
   if (record.pulseId === pulse.id) {
     writeFindingTriageIdPointer(pulse.id, record.id);
   }
+  sseBroadcaster.publish(pulse.habitatId, {
+    type: "triage.finding_created",
+    data: { habitatId: pulse.habitatId, findingId: record.id, clusterKey: record.clusterKey },
+  });
   return { findingTriageId: record.id };
 }
 

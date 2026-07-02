@@ -78,23 +78,28 @@ export async function triageInvestigate(
   }
 
   const hasActiveMission = clusterSummary?.status === "under_investigation";
+  const clusterMissionId = openFindings.find((f) => f.triageMissionId)?.triageMissionId ?? null;
 
   return {
     clusterKey,
     habitatId,
     signalCount: clusterSummary?.signalCount ?? openFindings.length,
     status: clusterSummary?.status ?? "awaiting_triage",
+    clusterMissionId,
     findingKinds: [...findingKinds],
     affectedTaskIds: [...affectedTaskIds],
     affectedMissionIds: [...affectedMissionIds],
     agentIds: [...agentIds],
     openFindings: openFindings.map((f) => ({
       id: f.id,
+      pulseId: f.pulseId,
+      clusterKey: f.clusterKey,
       findingKind: f.findingKind,
       status: f.status,
       bucket: f.bucket,
       targetRelease: f.targetRelease,
       triageMissionId: f.triageMissionId,
+      corroboratingPulseIds: f.corroboratingPulseIds,
       createdAt: f.createdAt,
     })),
     historicalResolutions: resolutionsResp.resolutions.map((r) => ({
