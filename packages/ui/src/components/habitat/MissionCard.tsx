@@ -7,7 +7,7 @@ import { Tooltip } from "../ui/Tooltip.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useMissionTasks, useAgents } from "../../lib/useHabitatData.js";
 import type { MissionWithProgress } from "../../types/index.js";
-import { GripVertical, Link2 } from "lucide-react";
+import { GripVertical, Link2, Lock } from "lucide-react";
 import {
   truncateId,
   formatDueDate,
@@ -126,6 +126,21 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
             <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
             {truncateId(feature.sprintId, "SPR")}
           </span>
+        )}
+        {(feature.releaseGateType || feature.releaseGateVersion) && (
+          <Tooltip
+            content={`Gated — auto-promotes when target release ships${
+              feature.releaseGateVersion ? ` (${feature.releaseGateVersion})` : ""
+            }`}
+            position="top"
+          >
+            <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              <Lock className="h-3 w-3" />
+              {feature.releaseGateVersion
+                ? `waits for ${feature.releaseGateVersion}`
+                : `waits for ${feature.releaseGateType}`}
+            </span>
+          </Tooltip>
         )}
       </div>
 

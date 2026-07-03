@@ -33,6 +33,8 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
   const [labels, setLabels] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [slaMinutes, setSlaMinutes] = useState("");
+  const [releaseGateType, setReleaseGateType] = useState<"patch" | "minor" | "major" | "">("");
+  const [releaseGateVersion, setReleaseGateVersion] = useState("");
   const createMission = useCreateMission(habitatId);
   const qc = useQueryClient();
 
@@ -45,6 +47,8 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
       setLabels("");
       setDueAt("");
       setSlaMinutes("");
+      setReleaseGateType("");
+      setReleaseGateVersion("");
     }
   }, [open]);
 
@@ -74,6 +78,8 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
         labels: labelList.length > 0 ? labelList : undefined,
         dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
         slaMinutes: slaMinutes ? parseInt(slaMinutes, 10) : undefined,
+        releaseGateType: releaseGateType || undefined,
+        releaseGateVersion: releaseGateVersion.trim() || undefined,
       });
       qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
       qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
@@ -190,6 +196,36 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Release Gate</label>
+                <select
+                  value={releaseGateType}
+                  onChange={(e) =>
+                    setReleaseGateType(e.target.value as "patch" | "minor" | "major" | "")
+                  }
+                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">No gate</option>
+                  <option value="patch">Patch</option>
+                  <option value="minor">Minor</option>
+                  <option value="major">Major</option>
+                </select>
+              </div>
+              {releaseGateType && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Gate Version</label>
+                  <input
+                    type="text"
+                    value={releaseGateVersion}
+                    onChange={(e) => setReleaseGateVersion(e.target.value)}
+                    placeholder="e.g. v0.25 or v0.25.0"
+                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>

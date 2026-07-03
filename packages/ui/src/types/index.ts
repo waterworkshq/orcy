@@ -524,6 +524,8 @@ export interface CreateMissionInput {
   blocks?: string[];
   dueAt?: string;
   slaMinutes?: number;
+  releaseGateType?: "patch" | "minor" | "major" | null;
+  releaseGateVersion?: string | null;
 }
 
 export interface CreateTaskInMissionInput {
