@@ -250,6 +250,16 @@ export function findByHabitatInStatus(
     .map(rowToFindingTriage);
 }
 
+export function findByTriageMissionId(missionId: string): FindingTriage | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(findingTriage)
+    .where(eq(findingTriage.triageMissionId, missionId))
+    .get();
+  return row ? rowToFindingTriage(row) : null;
+}
+
 export function findByBucket(habitatId: string, bucket: SuggestedBucket): FindingTriage[] {
   const db = getDb();
   return db
@@ -365,6 +375,9 @@ export function setTargetReleaseType(id: string, targetReleaseType: string | nul
  * shipped release. Only `status === "triaged"` findings are considered —
  * `in_progress`/`resolved`/`wontfix` findings are excluded at the query level
  * (not via the `promote()` guard, which is defense-in-depth only).
+ *
+ * @deprecated Use mission release-gate resolution via detectAndActivate instead.
+ * Retained for v0.24.0 test migration; removed after Phase 6 test rewrite.
  */
 export function findReleaseMatched(
   habitatId: string,

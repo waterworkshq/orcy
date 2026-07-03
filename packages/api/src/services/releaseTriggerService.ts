@@ -12,9 +12,14 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { RepositoryError } from "../errors/repository.js";
 import { isSqliteError } from "../errors/sqlite.js";
 import { badRequest, AppError } from "../errors.js";
+import { eq, and, or, isNotNull } from "drizzle-orm";
+import { getDb } from "../db/index.js";
+import { missions } from "../db/schema/index.js";
 import {
   parseVersion,
   classifyReleaseType,
+  matchesReleaseType,
+  matchesReleaseVersion,
   type ReleaseType,
   type DetectorSource,
 } from "@orcy/shared";
@@ -45,6 +50,34 @@ function getHabitatHumanRecipients(
     recipientType: "human" as const,
     recipientId: m.userId,
   }));
+}
+
+/** Finds missions with release-gates that match the shipped release. */
+function findGatedMissionsMatching(
+  habitatId: string,
+  shippedType: ReleaseType,
+  shippedVersion: string,
+): (typeof missions.$inferSelect)[] {
+  const db = getDb();
+  const gated = db
+    .select()
+    .from(missions)
+    .where(
+      and(
+        eq(missions.habitatId, habitatId),
+        eq(missions.status, "not_started"),
+        or(isNotNull(missions.releaseGateType), isNotNull(missions.releaseGateVersion)),
+      ),
+    )
+    .all();
+  return gated.filter((m) => {
+    const typeArm =
+      m.releaseGateType !== null &&
+      matchesReleaseType(m.releaseGateType as ReleaseType, shippedType);
+    const versionArm =
+      m.releaseGateVersion !== null && matchesReleaseVersion(m.releaseGateVersion, shippedVersion);
+    return typeArm || versionArm;
+  });
 }
 
 /**
@@ -140,6 +173,50 @@ export async function detectAndActivate(
   let skippedCount = 0;
   let erroredCount = 0;
 
+  // --- Gate resolution (ADR-0032: release-gates on missions resolve on release ship) ---
+  // Runs BEFORE the legacy finding-promotion loop so the legacy loop's CONFLICT
+  // guard naturally skips findings already promoted here.
+  let activatedMissionCount = 0;
+
+  if (releaseSettingsService.isAutoPromoteEnabled(habitatId)) {
+    const gatedMissions = findGatedMissionsMatching(
+      habitatId,
+      release.releaseType,
+      release.version,
+    );
+
+    for (const mission of gatedMissions) {
+      try {
+        const linkedFinding = findingTriageRepo.findByTriageMissionId(mission.id);
+        if (linkedFinding && linkedFinding.status === "triaged") {
+          try {
+            findingTriageRepo.promote(linkedFinding.id, { type: "system", id: "release" });
+          } catch (err) {
+            if (err instanceof AppError && err.code === "CONFLICT") continue;
+            throw err;
+          }
+          activatedMissionCount++;
+
+          sseBroadcaster.publish(habitatId, {
+            type: "triage.finding_updated",
+            data: {
+              habitatId,
+              findingId: linkedFinding.id,
+              status: "in_progress",
+              bucket: linkedFinding.bucket,
+            },
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[release] gate-resolution error for mission ${mission.id} on ${release.version}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  }
+
+  // --- Activation loop (ADR-0031: unconditional, no human gate) ---
   if (releaseSettingsService.isAutoPromoteEnabled(habitatId)) {
     const matched = findingTriageRepo.findReleaseMatched(
       habitatId,
@@ -214,7 +291,7 @@ export async function detectAndActivate(
     }
   }
 
-  if (promotedCount > 0) {
+  if (promotedCount > 0 || activatedMissionCount > 0) {
     // Recipients = human habitat members (team members for team habitats).
     // The notification resolver is explicit-recipient-based; habitat-default
     // subscriptions configure channels/cadence but do not enumerate recipients,
@@ -229,6 +306,7 @@ export async function detectAndActivate(
         version: release.version,
         releaseType: release.releaseType,
         promotedCount,
+        activatedMissionCount,
       },
       createdByType: "system",
       createdById: "release",
@@ -238,6 +316,7 @@ export async function detectAndActivate(
   const retrospectiveBody = [
     `Release ${release.version} (${release.releaseType}) shipped via ${release.detectedBy}.`,
     `- Promoted findings: ${promotedCount}`,
+    `- Gates resolved (missions activated): ${activatedMissionCount}`,
     `- Corrective missions created: ${createdMissionCount}`,
     `- Skipped (already in progress): ${skippedCount}`,
     `- Errored (promoted but mission failed): ${erroredCount}`,
@@ -257,6 +336,7 @@ export async function detectAndActivate(
       releaseType: release.releaseType,
       detectedBy: release.detectedBy,
       promotedCount,
+      activatedMissionCount,
       createdMissionCount,
       skippedCount,
       erroredCount,
@@ -272,6 +352,7 @@ export async function detectAndActivate(
       releaseType: release.releaseType,
       detectedBy: release.detectedBy,
       promotedCount,
+      activatedMissionCount,
       createdMissionCount,
       skippedCount,
       erroredCount,
