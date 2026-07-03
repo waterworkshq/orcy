@@ -377,6 +377,14 @@ _Avoid_: Auto-fix, deployment trigger (when describing the finding activation, n
 A source-tagged analysis pulse emitted when a release is detected and activation runs, recording what shipped, which findings activated, which corrective missions were created, and which were skipped. The retrospective feeds the habitat wiki as a release-log entry and gives humans and agents a queryable record of what a release triggered and why.
 _Avoid_: Release notes (when describing the in-system audit pulse, not the external changelog)
 
+**Roadmap**:
+The canonical plan for a habitat, expressed as the dependency-ordered structure of its missions. The mission dependency DAG _is_ the roadmap — there is no separate roadmap entity; release-gates and mission dependencies are the blocking conditions that shape what is claimable next. A habitat "follows a release-based workflow" when most of its missions carry release-gates, and "follows a feature-based workflow" when they do not; both are descriptive states of the same DAG, not separate modes.
+_Avoid_: Plan, backlog, roadmap entity, roadmap table (when describing the mission DAG as the living plan, not a separate artifact)
+
+**Release Gate**:
+A hard blocking condition on a mission that resolves when a matching release ships. A release-gated mission is visible in the roadmap but unclaimable until its target release is detected; resolution makes the mission's tasks available to claim. Release-gates layer alongside mission dependencies as parallel blocking conditions evaluated by the same work-surfacing path. The singular form ("after a release") ships in v0.25.0; the reverse form ("before a release") and the compound window ("after X, before Y") are deferred.
+_Avoid_: Release target (when describing the blocking condition on a mission, not a version pin), milestone (when describing Orcy's gate mechanism, not an external tracker's label)
+
 ## Example Dialogue
 
 Dev: "This mission shipped through three tasks. Where is the code evidence?"
