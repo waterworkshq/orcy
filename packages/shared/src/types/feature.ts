@@ -72,6 +72,9 @@ export interface Mission {
   sprintId: string | null;
   releaseGateType: "patch" | "minor" | "major" | null;
   releaseGateVersion: string | null;
+  /** RM-1: reverse-direction deadline — mission should complete before this release ships. Escalates on miss; does not block claiming. */
+  releaseDeadlineType: "patch" | "minor" | "major" | null;
+  releaseDeadlineVersion: string | null;
 }
 
 /** A {@link Mission} enriched with an aggregated progress rollup of its tasks. */

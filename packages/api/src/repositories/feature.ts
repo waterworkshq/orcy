@@ -36,6 +36,8 @@ export interface CreateMissionInput {
   displayOrder?: number;
   releaseGateType?: "patch" | "minor" | "major" | null;
   releaseGateVersion?: string | null;
+  releaseDeadlineType?: "patch" | "minor" | "major" | null;
+  releaseDeadlineVersion?: string | null;
 }
 
 export interface UpdateMissionInput {
@@ -55,6 +57,8 @@ export interface UpdateMissionInput {
   isArchived?: boolean;
   releaseGateType?: "patch" | "minor" | "major" | null;
   releaseGateVersion?: string | null;
+  releaseDeadlineType?: "patch" | "minor" | "major" | null;
+  releaseDeadlineVersion?: string | null;
 }
 
 export function createMission(input: CreateMissionInput): Mission {
@@ -108,6 +112,8 @@ export function createMission(input: CreateMissionInput): Mission {
           version: 1,
           releaseGateType: input.releaseGateType ?? null,
           releaseGateVersion: input.releaseGateVersion ?? null,
+          releaseDeadlineType: input.releaseDeadlineType ?? null,
+          releaseDeadlineVersion: input.releaseDeadlineVersion ?? null,
         })
         .run();
 
@@ -230,6 +236,9 @@ export function updateMission(
   if (input.isArchived !== undefined) set.isArchived = input.isArchived;
   if (input.releaseGateType !== undefined) set.releaseGateType = input.releaseGateType;
   if (input.releaseGateVersion !== undefined) set.releaseGateVersion = input.releaseGateVersion;
+  if (input.releaseDeadlineType !== undefined) set.releaseDeadlineType = input.releaseDeadlineType;
+  if (input.releaseDeadlineVersion !== undefined)
+    set.releaseDeadlineVersion = input.releaseDeadlineVersion;
 
   try {
     db.transaction((tx) => {

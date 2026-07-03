@@ -11,7 +11,8 @@ export type NotificationEventType =
   | "workflow.recovery_started"
   | "workflow.recovery_succeeded"
   | "workflow.recovery_unrecoverable"
-  | "release.activated";
+  | "release.activated"
+  | "release.deadline_missed";
 
 /** Identifies the originating domain of a notification. */
 export type NotificationSourceType =

@@ -35,6 +35,10 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
   const [slaMinutes, setSlaMinutes] = useState("");
   const [releaseGateType, setReleaseGateType] = useState<"patch" | "minor" | "major" | "">("");
   const [releaseGateVersion, setReleaseGateVersion] = useState("");
+  const [releaseDeadlineType, setReleaseDeadlineType] = useState<"patch" | "minor" | "major" | "">(
+    "",
+  );
+  const [releaseDeadlineVersion, setReleaseDeadlineVersion] = useState("");
   const createMission = useCreateMission(habitatId);
   const qc = useQueryClient();
 
@@ -49,6 +53,8 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
       setSlaMinutes("");
       setReleaseGateType("");
       setReleaseGateVersion("");
+      setReleaseDeadlineType("");
+      setReleaseDeadlineVersion("");
     }
   }, [open]);
 
@@ -80,6 +86,8 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
         slaMinutes: slaMinutes ? parseInt(slaMinutes, 10) : undefined,
         releaseGateType: releaseGateType || undefined,
         releaseGateVersion: releaseGateVersion.trim() || undefined,
+        releaseDeadlineType: releaseDeadlineType || undefined,
+        releaseDeadlineVersion: releaseDeadlineVersion.trim() || undefined,
       });
       qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
       qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
@@ -222,6 +230,36 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
                     value={releaseGateVersion}
                     onChange={(e) => setReleaseGateVersion(e.target.value)}
                     placeholder="e.g. v0.25 or v0.25.0"
+                    className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Release Deadline</label>
+                <select
+                  value={releaseDeadlineType}
+                  onChange={(e) =>
+                    setReleaseDeadlineType(e.target.value as "patch" | "minor" | "major" | "")
+                  }
+                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">No deadline</option>
+                  <option value="patch">Patch</option>
+                  <option value="minor">Minor</option>
+                  <option value="major">Major</option>
+                </select>
+              </div>
+              {releaseDeadlineType && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Deadline Version</label>
+                  <input
+                    type="text"
+                    value={releaseDeadlineVersion}
+                    onChange={(e) => setReleaseDeadlineVersion(e.target.value)}
+                    placeholder="e.g. v0.26 or v0.26.0"
                     className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>

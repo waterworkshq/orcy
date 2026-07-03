@@ -174,6 +174,8 @@ describe("Model Types: Mission Interface", () => {
       sprintId: null,
       releaseGateType: null,
       releaseGateVersion: null,
+      releaseDeadlineType: null,
+      releaseDeadlineVersion: null,
     };
     expect(mission.id).toBe("feat-1");
     expect(mission.status).toBe("not_started");

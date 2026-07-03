@@ -41,6 +41,8 @@ const baseFeature: MissionWithProgress = {
   sprintId: null,
   releaseGateType: null,
   releaseGateVersion: null,
+  releaseDeadlineType: null,
+  releaseDeadlineVersion: null,
   progress: {
     total: 4,
     pending: 1,

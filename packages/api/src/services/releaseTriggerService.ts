@@ -11,7 +11,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { RepositoryError } from "../errors/repository.js";
 import { isSqliteError } from "../errors/sqlite.js";
 import { badRequest, AppError } from "../errors.js";
-import { eq, and, or, isNotNull } from "drizzle-orm";
+import { eq, and, or, isNotNull, ne } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { missions } from "../db/schema/index.js";
 import {
@@ -29,6 +29,7 @@ export interface DetectAndActivateResult {
   createdMissionCount: number;
   skippedCount: number;
   erroredCount: number;
+  missedDeadlineCount: number;
 }
 
 interface ActivationCounts {
@@ -36,6 +37,7 @@ interface ActivationCounts {
   createdMissionCount: number;
   skippedCount: number;
   erroredCount: number;
+  missedDeadlineCount: number;
 }
 
 /** Resolves the human recipients for a habitat's release notification (team members). Returns [] for habitats without a team. */
@@ -78,6 +80,39 @@ function findGatedMissionsMatching(
 }
 
 /**
+ * Finds missions with a release-deadline matching the shipped release that are
+ * NOT done — i.e. missions that missed their deadline (RM-1). The deadline does
+ * NOT block claiming; these missions escalate on miss (notification + retrospective).
+ * Reuses {@link isReleaseGateSatisfied} (generic "does the shipped release match the
+ * target?") on the deadline fields — only the consequence differs from the gate path.
+ */
+function findDeadlineMissedMissions(
+  habitatId: string,
+  shippedType: ReleaseType,
+  shippedVersion: string,
+): (typeof missions.$inferSelect)[] {
+  const db = getDb();
+  const withDeadline = db
+    .select()
+    .from(missions)
+    .where(
+      and(
+        eq(missions.habitatId, habitatId),
+        ne(missions.status, "done"),
+        or(isNotNull(missions.releaseDeadlineType), isNotNull(missions.releaseDeadlineVersion)),
+      ),
+    )
+    .all();
+  return withDeadline.filter((m) =>
+    isReleaseGateSatisfied(
+      { releaseGateType: m.releaseDeadlineType, releaseGateVersion: m.releaseDeadlineVersion },
+      new Set([shippedType]),
+      [shippedVersion],
+    ),
+  );
+}
+
+/**
  * Detects a release, classifies its type, records the `releases` row, and runs
  * the activation loop (ADR-0030 / ADR-0031). The single orchestration seam
  * converging all detectors: GitHub release webhook, CI/CD pipeline completion,
@@ -107,6 +142,7 @@ export async function detectAndActivate(
     createdMissionCount: 0,
     skippedCount: 0,
     erroredCount: 0,
+    missedDeadlineCount: 0,
   });
 
   const finish = (release: Release, counts: ActivationCounts): DetectAndActivateResult => ({
@@ -223,6 +259,42 @@ export async function detectAndActivate(
   // `createdMissionCount`/`skippedCount`/`erroredCount` stay 0 and remain in the
   // result contract + retrospective for backward compatibility.
 
+  // --- Deadline escalation (RM-1: "before" release-deadline, enforcement-on-miss) ---
+  // A mission whose release-deadline matches the shipped release AND is not yet
+  // done missed its deadline. Escalate to habitat humans + record in the
+  // retrospective. NOT gated by isAutoPromoteEnabled (this is a notification
+  // concern, not promotion) and does NOT block claiming — a missed deadline is a
+  // signal, not a hard stop, so the mission can still be completed late.
+  const missedMissions = findDeadlineMissedMissions(
+    habitatId,
+    release.releaseType,
+    release.version,
+  );
+  const missedDeadlineCount = missedMissions.length;
+
+  if (missedDeadlineCount > 0) {
+    const recipients = getHabitatHumanRecipients(habitatId);
+    enqueueNotificationForRecipients(
+      habitatId,
+      "release.deadline_missed",
+      "system",
+      "warning",
+      recipients,
+      {
+        sourceId: release.id,
+        payload: {
+          releaseId: release.id,
+          version: release.version,
+          releaseType: release.releaseType,
+          missedDeadlineCount,
+          missionIds: missedMissions.map((m) => m.id),
+        },
+        createdByType: "system",
+        createdById: "release",
+      },
+    );
+  }
+
   if (promotedCount > 0 || activatedMissionCount > 0) {
     // Recipients = human habitat members (team members for team habitats).
     // The notification resolver is explicit-recipient-based; habitat-default
@@ -252,6 +324,7 @@ export async function detectAndActivate(
     `- Corrective missions created: ${createdMissionCount}`,
     `- Skipped (already in progress): ${skippedCount}`,
     `- Errored (promoted but mission failed): ${erroredCount}`,
+    `- Deadlines missed (mission not done when its deadline release shipped): ${missedDeadlineCount}`,
   ].join("\n");
   pulseRepo.createPulse({
     habitatId,
@@ -272,6 +345,7 @@ export async function detectAndActivate(
       createdMissionCount,
       skippedCount,
       erroredCount,
+      missedDeadlineCount,
     },
   });
 
@@ -288,8 +362,15 @@ export async function detectAndActivate(
       createdMissionCount,
       skippedCount,
       erroredCount,
+      missedDeadlineCount,
     },
   });
 
-  return finish(release, { promotedCount, createdMissionCount, skippedCount, erroredCount });
+  return finish(release, {
+    promotedCount,
+    createdMissionCount,
+    skippedCount,
+    erroredCount,
+    missedDeadlineCount,
+  });
 }

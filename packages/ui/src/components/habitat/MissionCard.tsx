@@ -142,6 +142,20 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
             </span>
           </Tooltip>
         )}
+        {(feature.releaseDeadlineType || feature.releaseDeadlineVersion) && (
+          <Tooltip
+            content={`Deadline — should complete before this release ships (escalates on miss)${
+              feature.releaseDeadlineVersion ? ` (${feature.releaseDeadlineVersion})` : ""
+            }`}
+            position="top"
+          >
+            <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
+              {feature.releaseDeadlineVersion
+                ? `due before ${feature.releaseDeadlineVersion}`
+                : `due before ${feature.releaseDeadlineType}`}
+            </span>
+          </Tooltip>
+        )}
       </div>
 
       {total > 0 && (

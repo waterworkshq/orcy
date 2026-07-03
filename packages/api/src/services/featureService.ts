@@ -22,6 +22,8 @@ export interface CreateMissionInput {
   createdBy: string;
   releaseGateType?: "patch" | "minor" | "major" | null;
   releaseGateVersion?: string | null;
+  releaseDeadlineType?: "patch" | "minor" | "major" | null;
+  releaseDeadlineVersion?: string | null;
 }
 
 /** {@link Mission} enriched with per-status task counts for UI progress display. */

@@ -71,6 +71,8 @@ function makeFeature(
     ...overrides,
     releaseGateType: overrides.releaseGateType ?? null,
     releaseGateVersion: overrides.releaseGateVersion ?? null,
+    releaseDeadlineType: overrides.releaseDeadlineType ?? null,
+    releaseDeadlineVersion: overrides.releaseDeadlineVersion ?? null,
   };
 }
 

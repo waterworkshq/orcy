@@ -33,6 +33,8 @@ export const createMissionSchema = z.object({
   columnId: z.string().uuid().optional(),
   releaseGateType: z.enum(["patch", "minor", "major"]).optional(),
   releaseGateVersion: z.string().optional(),
+  releaseDeadlineType: z.enum(["patch", "minor", "major"]).optional(),
+  releaseDeadlineVersion: z.string().optional(),
 });
 
 export const updateMissionSchema = z.object({
@@ -48,6 +50,8 @@ export const updateMissionSchema = z.object({
   version: z.number().int().optional(),
   releaseGateType: z.enum(["patch", "minor", "major"]).nullable().optional(),
   releaseGateVersion: z.string().nullable().optional(),
+  releaseDeadlineType: z.enum(["patch", "minor", "major"]).nullable().optional(),
+  releaseDeadlineVersion: z.string().nullable().optional(),
 });
 
 export const missionQuerySchema = z.object({

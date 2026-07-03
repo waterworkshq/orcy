@@ -20,6 +20,7 @@ const V18_EVENT_CATALOG: Set<string> = new Set([
   "workflow.recovery_succeeded",
   "workflow.recovery_unrecoverable",
   "release.activated",
+  "release.deadline_missed",
 ]);
 
 /** Returns whether the given event type is part of the supported notification event catalog. */

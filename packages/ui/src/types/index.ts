@@ -526,6 +526,8 @@ export interface CreateMissionInput {
   slaMinutes?: number;
   releaseGateType?: "patch" | "minor" | "major" | null;
   releaseGateVersion?: string | null;
+  releaseDeadlineType?: "patch" | "minor" | "major" | null;
+  releaseDeadlineVersion?: string | null;
 }
 
 export interface CreateTaskInMissionInput {

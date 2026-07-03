@@ -114,6 +114,8 @@ export const missions = sqliteTable(
     sprintId: text("sprint_id"),
     releaseGateType: text("release_gate_type", { enum: ["patch", "minor", "major"] }),
     releaseGateVersion: text("release_gate_version"),
+    releaseDeadlineType: text("release_deadline_type", { enum: ["patch", "minor", "major"] }),
+    releaseDeadlineVersion: text("release_deadline_version"),
   },
   (table) => [
     index("idx_missions_habitat_column").on(table.habitatId, table.columnId),
@@ -124,6 +126,7 @@ export const missions = sqliteTable(
     index("idx_missions_sla_deadline_at").on(table.slaDeadlineAt),
     index("idx_missions_sprint").on(table.sprintId),
     index("idx_missions_habitat_gate").on(table.habitatId, table.releaseGateType),
+    index("idx_missions_habitat_deadline").on(table.habitatId, table.releaseDeadlineType),
   ],
 );
 

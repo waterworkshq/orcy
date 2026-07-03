@@ -61,6 +61,8 @@ const makeFeature = (id: string, columnId: string): Mission => ({
   sprintId: null,
   releaseGateType: null,
   releaseGateVersion: null,
+  releaseDeadlineType: null,
+  releaseDeadlineVersion: null,
   actualMinutes: null,
   plannedMinutes: null,
   planningAccuracy: null,
