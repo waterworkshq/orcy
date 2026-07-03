@@ -5,6 +5,7 @@ import {
   missions,
   missionDependencies,
   taskWorkflowGates,
+  releases as releasesTable,
 } from "../db/schema/index.js";
 import {
   eq,
@@ -25,6 +26,8 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { Task, TaskStatus, TaskPriority } from "../models/index.js";
+import type { ReleaseType } from "@orcy/shared";
+import { matchesReleaseType, matchesReleaseVersion } from "@orcy/shared";
 
 export type TaskSortField =
   | "priority"
@@ -87,6 +90,24 @@ export function getTasksByMissionIds(missionIds: string[]): Task[] {
     .all();
 }
 
+/** Checks whether a mission's release-gate is satisfied by the habitat's detected releases. */
+function isGateSatisfied(
+  mission: { releaseGateType: string | null; releaseGateVersion: string | null },
+  habitatReleaseTypes: Set<ReleaseType>,
+  habitatReleaseVersions: string[],
+): boolean {
+  if (!mission.releaseGateType && !mission.releaseGateVersion) return true;
+  const typeArm = mission.releaseGateType
+    ? [...habitatReleaseTypes].some((shipped) =>
+        matchesReleaseType(mission.releaseGateType as ReleaseType, shipped),
+      )
+    : false;
+  const versionArm = mission.releaseGateVersion
+    ? habitatReleaseVersions.some((v) => matchesReleaseVersion(mission.releaseGateVersion!, v))
+    : false;
+  return typeArm || versionArm;
+}
+
 export function getAvailableTasksForAgent(
   habitatId: string,
   agentDomain: string,
@@ -109,7 +130,11 @@ export function getAvailableTasksForAgent(
   )!;
 
   const habitatMissions = db
-    .select({ id: missions.id })
+    .select({
+      id: missions.id,
+      releaseGateType: missions.releaseGateType,
+      releaseGateVersion: missions.releaseGateVersion,
+    })
     .from(missions)
     .where(eq(missions.habitatId, habitatId))
     .all();
@@ -128,6 +153,22 @@ export function getAvailableTasksForAgent(
       ),
     );
 
+  const habitatReleaseTypes = new Set(
+    db
+      .select({ releaseType: releasesTable.releaseType })
+      .from(releasesTable)
+      .where(eq(releasesTable.habitatId, habitatId))
+      .all()
+      .map((r) => r.releaseType as ReleaseType),
+  );
+  const habitatReleaseVersions = db
+    .select({ version: releasesTable.version })
+    .from(releasesTable)
+    .where(eq(releasesTable.habitatId, habitatId))
+    .all()
+    .map((r) => r.version);
+  const missionGateMap = new Map(habitatMissions.map((m) => [m.id, m]));
+
   const eligibleMissionIds = habitatMissionIds.filter((fid) => {
     const deps = db
       .select()
@@ -135,7 +176,11 @@ export function getAvailableTasksForAgent(
       .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
       .where(and(eq(missionDependencies.missionId, fid), notInArray(missions.status, ["done"])))
       .all();
-    return deps.length === 0;
+    if (deps.length > 0) return false;
+    const mission = missionGateMap.get(fid);
+    if (mission && !isGateSatisfied(mission, habitatReleaseTypes, habitatReleaseVersions))
+      return false;
+    return true;
   });
 
   if (eligibleMissionIds.length === 0) return [];
