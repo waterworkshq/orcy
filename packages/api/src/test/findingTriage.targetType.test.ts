@@ -67,13 +67,11 @@ describe("AC-DEFER-1: targetReleaseType column nullable with NULL default", () =
     expect(cols).toContain("target_release_type");
   });
 
-  it("pre-existing rows are not auto-promoted (NULL targetReleaseType matches nothing)", () => {
-    // A finding with NULL targetReleaseType and no targetRelease does NOT
-    // match any release via findReleaseMatched — verified via direct query.
-    const t = seedFinding();
-    const matched = findingTriageRepo.findReleaseMatched(habitatId, "patch", "0.1.0");
-    expect(matched.find((f) => f.id === t.id)).toBeUndefined();
-  });
+  // The "NULL targetReleaseType matches nothing via findReleaseMatched" case was
+  // removed in v0.25.1 (RM-12): the free-floating activation path was deleted,
+  // so release-target matching no longer runs at the finding level. The column
+  // stays as informational/denormalized per ADR-0032; gate-resolution is the
+  // sole activation path (covered by releaseGate.activation.test.ts).
 });
 
 describe("AC-DEFER-2: setTargetReleaseType persists type + clearable to NULL", () => {
@@ -111,5 +109,17 @@ describe("AC-DEFER-2: setTargetReleaseType persists type + clearable to NULL", (
     findingTriageRepo.setTargetReleaseType(t.id, "major");
     const record = findingTriageRepo.getById(t.id)!;
     expect(record.targetReleaseType).toBe("major");
+  });
+});
+
+describe("RM-10: setTriageMissionId unlink (accepts null)", () => {
+  it("links a finding to a mission then clears the link with null", () => {
+    const t = seedFinding();
+
+    findingTriageRepo.setTriageMissionId(t.id, missionId);
+    expect(findingTriageRepo.getById(t.id)!.triageMissionId).toBe(missionId);
+
+    findingTriageRepo.setTriageMissionId(t.id, null);
+    expect(findingTriageRepo.getById(t.id)!.triageMissionId).toBeNull();
   });
 });

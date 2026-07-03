@@ -251,6 +251,62 @@ describe("AC-SUPERSEDE-2: linked finding promotes on gate resolution", () => {
 });
 
 /**
+ * RM-8 — `findByTriageMissionId` N:1 safety. The schema permits multiple
+ * findings sharing one `triageMissionId` (no UNIQUE constraint), so every
+ * linked `triaged` finding must promote on gate resolution — not just the
+ * first `.get()` row.
+ */
+describe("RM-8: N:1 finding-mission linkage promotes all linked findings", () => {
+  it("two findings linked to one gated mission both promote on gate resolution", async () => {
+    await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
+      releaseType: "minor",
+      detectedBy: "api",
+    });
+
+    const mission = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: "N:1 gated mission",
+      createdBy: "triage-agent",
+      releaseGateType: "minor",
+    });
+
+    const linked: string[] = [];
+    for (const subject of ["n1-finding-a", "n1-finding-b"]) {
+      const pulse = pulseRepo.createPulse({
+        habitatId,
+        missionId,
+        scope: "mission",
+        fromType: "agent",
+        fromId: "agent-1",
+        signalType: "finding",
+        subject,
+        body: "",
+        metadata: { findingKind: "bug", severity: "minor", blocksCurrentWork: false },
+      });
+      const t = findingTriageRepo.createForPulse(pulse);
+      findingTriageRepo.transitionStatus(t.id, "triaged", ACTOR);
+      findingTriageRepo.setBucket(t.id, "defer_to_release");
+      findingTriageRepo.setTriageMissionId(t.id, mission.id);
+      linked.push(t.id);
+    }
+
+    // Repo contract: returns BOTH linked findings (N:1), not just the first.
+    expect(findingTriageRepo.findByTriageMissionId(mission.id)).toHaveLength(2);
+
+    const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.2.0", {
+      detectedBy: "api",
+    });
+
+    // activatedMissionCount is local to detectAndActivate (not on the result
+    // type); the N:1 proof is that BOTH linked findings promoted to in_progress.
+    expect(result.promotedCount).toBe(0);
+    expect(refreshFinding(linked[0]).status).toBe("in_progress");
+    expect(refreshFinding(linked[1]).status).toBe("in_progress");
+  });
+});
+
+/**
  * AC-SUPERSEDE-3 — `finding_triage.targetReleaseType` column is retained
  * (no destructive migration); existing rows are not orphaned.
  */
@@ -263,9 +319,12 @@ describe("AC-SUPERSEDE-3: finding_triage.targetReleaseType column retained", () 
     expect(cols).toContain("target_release_type");
   });
 
-  it("a v0.24.0-style finding with only targetReleaseType (no gated mission) still promotes via the legacy path", async () => {
-    // Backward compatibility: the legacy findReleaseMatched loop still fires for
-    // findings WITHOUT a linked gated mission. v0.24.0 rows are not orphaned.
+  it("a v0.24.0-style finding with only targetReleaseType (no gated mission) does NOT auto-promote (RM-12: legacy path removed)", async () => {
+    // RM-12 removed the legacy free-floating findReleaseMatched activation loop.
+    // A finding with targetReleaseType but no linked gated mission is no longer
+    // auto-promoted on release — gate-resolution is the sole activation path.
+    // The column stays as informational/denormalized (ADR-0032); the finding
+    // remains triaged until linked to a gated mission or handled manually.
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
@@ -291,8 +350,8 @@ describe("AC-SUPERSEDE-3: finding_triage.targetReleaseType column retained", () 
       detectedBy: "api",
     });
 
-    expect(result.promotedCount).toBe(1);
-    expect(refreshFinding(t.id).status).toBe("in_progress");
+    expect(result.promotedCount).toBe(0);
+    expect(refreshFinding(t.id).status).toBe("triaged");
   });
 });
 

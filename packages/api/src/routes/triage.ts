@@ -184,13 +184,13 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
       if (parsed.data.triageMissionId !== undefined) {
-        if (parsed.data.triageMissionId === null) {
-          throw badRequest("Clearing triageMissionId is not supported via this endpoint");
-        }
-        // Validate the mission belongs to the same habitat as the finding (R3 hardening)
-        const targetMission = missionRepo.getMissionById(parsed.data.triageMissionId);
-        if (!targetMission || targetMission.habitatId !== existing.habitatId) {
-          throw badRequest("Target mission must belong to the same habitat as the finding");
+        // null clears an existing link (RM-10 unlink). A non-null id must belong
+        // to the same habitat as the finding (R3 hardening).
+        if (parsed.data.triageMissionId !== null) {
+          const targetMission = missionRepo.getMissionById(parsed.data.triageMissionId);
+          if (!targetMission || targetMission.habitatId !== existing.habitatId) {
+            throw badRequest("Target mission must belong to the same habitat as the finding");
+          }
         }
         finding = findingTriageRepo.setTriageMissionId(
           request.params.id,

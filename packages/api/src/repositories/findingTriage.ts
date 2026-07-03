@@ -3,12 +3,7 @@ import { findingTriage } from "../db/schema/index.js";
 import { eq, and, desc, notInArray, inArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import type { FindingTriageStatus, SuggestedBucket, TriageActorType } from "@orcy/shared";
-import {
-  FINDING_TRIAGE_TRANSITIONS,
-  matchesReleaseType,
-  matchesReleaseVersion,
-} from "@orcy/shared";
-import type { ReleaseType } from "@orcy/shared";
+import { FINDING_TRIAGE_TRANSITIONS } from "@orcy/shared";
 import {
   repositoryCreateError,
   repositoryNotFoundError,
@@ -250,14 +245,20 @@ export function findByHabitatInStatus(
     .map(rowToFindingTriage);
 }
 
-export function findByTriageMissionId(missionId: string): FindingTriage | null {
+/**
+ * All findings linked to a triage mission via `triageMissionId`. The schema
+ * permits N:1 (no UNIQUE constraint), so every linked `triaged` finding is
+ * promoted on gate resolution — returning all rows here is the N:1 safety fix
+ * (RM-8). Callers that need a single finding should filter the result.
+ */
+export function findByTriageMissionId(missionId: string): FindingTriage[] {
   const db = getDb();
-  const row = db
+  return db
     .select()
     .from(findingTriage)
     .where(eq(findingTriage.triageMissionId, missionId))
-    .get();
-  return row ? rowToFindingTriage(row) : null;
+    .all()
+    .map(rowToFindingTriage);
 }
 
 export function findByBucket(habitatId: string, bucket: SuggestedBucket): FindingTriage[] {
@@ -362,40 +363,7 @@ export function setTargetReleaseType(id: string, targetReleaseType: string | nul
   return refreshed;
 }
 
-/**
- * Returns all `triaged` findings for a habitat whose release target matches the
- * shipped release via EITHER arm (ADR-0029): type-cascade match on
- * `targetReleaseType` OR version-pin match on `targetRelease`. The semver
- * matchers are pure TS functions (not SQL-expressible), so the triaged set for
- * the habitat is fetched and filtered in TypeScript — the triaged set per
- * habitat is small.
- */
-/**
- * Finds triaged findings whose release-type or version-pin target matches the
- * shipped release. Only `status === "triaged"` findings are considered —
- * `in_progress`/`resolved`/`wontfix` findings are excluded at the query level
- * (not via the `promote()` guard, which is defense-in-depth only).
- *
- * @deprecated Use mission release-gate resolution via detectAndActivate instead.
- * Retained for v0.24.0 test migration; removed after Phase 6 test rewrite.
- */
-export function findReleaseMatched(
-  habitatId: string,
-  shippedType: ReleaseType,
-  shippedVersion: string,
-): FindingTriage[] {
-  const triaged = findByHabitatInStatus(habitatId, ["triaged"]);
-  return triaged.filter((f) => {
-    const typeArm =
-      f.targetReleaseType !== null &&
-      matchesReleaseType(f.targetReleaseType as ReleaseType, shippedType);
-    const versionArm =
-      f.targetRelease !== null && matchesReleaseVersion(f.targetRelease, shippedVersion);
-    return typeArm || versionArm;
-  });
-}
-
-export function setTriageMissionId(id: string, missionId: string): FindingTriage {
+export function setTriageMissionId(id: string, missionId: string | null): FindingTriage {
   const db = getDb();
   const now = new Date().toISOString();
   try {

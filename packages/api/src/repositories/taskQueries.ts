@@ -26,8 +26,7 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { Task, TaskStatus, TaskPriority } from "../models/index.js";
-import type { ReleaseType } from "@orcy/shared";
-import { matchesReleaseType, matchesReleaseVersion } from "@orcy/shared";
+import { isReleaseGateSatisfied, type ReleaseType } from "@orcy/shared";
 
 export type TaskSortField =
   | "priority"
@@ -88,24 +87,6 @@ export function getTasksByMissionIds(missionIds: string[]): Task[] {
     .where(inArray(tasks.missionId, expanded))
     .orderBy(asc(tasks.order), asc(tasks.createdAt))
     .all();
-}
-
-/** Checks whether a mission's release-gate is satisfied by the habitat's detected releases. */
-function isGateSatisfied(
-  mission: { releaseGateType: string | null; releaseGateVersion: string | null },
-  habitatReleaseTypes: Set<ReleaseType>,
-  habitatReleaseVersions: string[],
-): boolean {
-  if (!mission.releaseGateType && !mission.releaseGateVersion) return true;
-  const typeArm = mission.releaseGateType
-    ? [...habitatReleaseTypes].some((shipped) =>
-        matchesReleaseType(mission.releaseGateType as ReleaseType, shipped),
-      )
-    : false;
-  const versionArm = mission.releaseGateVersion
-    ? habitatReleaseVersions.some((v) => matchesReleaseVersion(mission.releaseGateVersion!, v))
-    : false;
-  return typeArm || versionArm;
 }
 
 export function getAvailableTasksForAgent(
@@ -178,7 +159,7 @@ export function getAvailableTasksForAgent(
       .all();
     if (deps.length > 0) return false;
     const mission = missionGateMap.get(fid);
-    if (mission && !isGateSatisfied(mission, habitatReleaseTypes, habitatReleaseVersions))
+    if (mission && !isReleaseGateSatisfied(mission, habitatReleaseTypes, habitatReleaseVersions))
       return false;
     return true;
   });

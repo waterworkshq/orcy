@@ -4,6 +4,7 @@ import {
   classifyReleaseType,
   matchesReleaseType,
   matchesReleaseVersion,
+  isReleaseGateSatisfied,
   isPreRelease,
 } from "../semver.js";
 
@@ -149,5 +150,44 @@ describe("isPreRelease", () => {
     expect(isPreRelease(parseVersion("v1.0.0-rc.1"))).toBe(true);
     expect(isPreRelease(parseVersion("v0.1.0-beta"))).toBe(true);
     expect(isPreRelease(parseVersion("v1.0.0-alpha.3"))).toBe(true);
+  });
+});
+
+describe("isReleaseGateSatisfied", () => {
+  const none = { releaseGateType: null, releaseGateVersion: null };
+  const typeOnly = { releaseGateType: "minor" as const, releaseGateVersion: null };
+  const versionOnly = { releaseGateType: null, releaseGateVersion: "v0.24" };
+  const both = { releaseGateType: "minor" as const, releaseGateVersion: "v0.24.0" };
+
+  it("no gate (both null) is trivially satisfied regardless of shipped releases", () => {
+    expect(isReleaseGateSatisfied(none, new Set(), [])).toBe(true);
+    expect(isReleaseGateSatisfied(none, new Set(["patch"]), ["v1.0.0"])).toBe(true);
+  });
+
+  it("type arm matches via cascade (minor gate satisfied by minor or major)", () => {
+    expect(isReleaseGateSatisfied(typeOnly, new Set(["minor" as const]), [])).toBe(true);
+    expect(isReleaseGateSatisfied(typeOnly, new Set(["major" as const]), [])).toBe(true);
+    expect(isReleaseGateSatisfied(typeOnly, new Set(["patch" as const]), [])).toBe(false);
+  });
+
+  it("version arm matches via prefix/exact", () => {
+    expect(isReleaseGateSatisfied(versionOnly, new Set(), ["v0.24.5"])).toBe(true);
+    expect(isReleaseGateSatisfied(versionOnly, new Set(), ["v0.24.0"])).toBe(true);
+    expect(isReleaseGateSatisfied(versionOnly, new Set(), ["v0.25.0"])).toBe(false);
+  });
+
+  it("either-match semantics: either arm satisfies", () => {
+    // type fails (only patch shipped), version matches → satisfied
+    expect(isReleaseGateSatisfied(both, new Set(["patch" as const]), ["v0.24.0"])).toBe(true);
+    // type matches, version doesn't → satisfied
+    expect(isReleaseGateSatisfied(both, new Set(["minor" as const]), ["v0.99.0"])).toBe(true);
+    // neither matches → not satisfied
+    expect(isReleaseGateSatisfied(both, new Set(["patch" as const]), ["v0.99.0"])).toBe(false);
+  });
+
+  it("single-shipped-release activation path: wrap in 1-element set/array", () => {
+    // The releaseTriggerService path passes the one just-shipped release.
+    expect(isReleaseGateSatisfied(typeOnly, new Set(["minor" as const]), ["v0.2.0"])).toBe(true);
+    expect(isReleaseGateSatisfied(typeOnly, new Set(["patch" as const]), ["v0.2.0"])).toBe(false);
   });
 });

@@ -2,7 +2,6 @@ import * as releaseRepo from "../repositories/release.js";
 import type { Release } from "../repositories/release.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as pulseRepo from "../repositories/pulse.js";
-import * as featureService from "./featureService.js";
 import * as releaseSettingsService from "./releaseSettingsService.js";
 import { ingestEvent } from "./automationEventService.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
@@ -18,8 +17,7 @@ import { missions } from "../db/schema/index.js";
 import {
   parseVersion,
   classifyReleaseType,
-  matchesReleaseType,
-  matchesReleaseVersion,
+  isReleaseGateSatisfied,
   type ReleaseType,
   type DetectorSource,
 } from "@orcy/shared";
@@ -70,14 +68,13 @@ function findGatedMissionsMatching(
       ),
     )
     .all();
-  return gated.filter((m) => {
-    const typeArm =
-      m.releaseGateType !== null &&
-      matchesReleaseType(m.releaseGateType as ReleaseType, shippedType);
-    const versionArm =
-      m.releaseGateVersion !== null && matchesReleaseVersion(m.releaseGateVersion, shippedVersion);
-    return typeArm || versionArm;
-  });
+  return gated.filter((m) =>
+    isReleaseGateSatisfied(
+      { releaseGateType: m.releaseGateType, releaseGateVersion: m.releaseGateVersion },
+      new Set([shippedType]),
+      [shippedVersion],
+    ),
+  );
 }
 
 /**
@@ -187,8 +184,9 @@ export async function detectAndActivate(
 
     for (const mission of gatedMissions) {
       try {
-        const linkedFinding = findingTriageRepo.findByTriageMissionId(mission.id);
-        if (linkedFinding && linkedFinding.status === "triaged") {
+        const linkedFindings = findingTriageRepo.findByTriageMissionId(mission.id);
+        for (const linkedFinding of linkedFindings) {
+          if (linkedFinding.status !== "triaged") continue;
           try {
             findingTriageRepo.promote(linkedFinding.id, { type: "system", id: "release" });
           } catch (err) {
@@ -216,80 +214,14 @@ export async function detectAndActivate(
     }
   }
 
-  // --- Activation loop (ADR-0031: unconditional, no human gate) ---
-  if (releaseSettingsService.isAutoPromoteEnabled(habitatId)) {
-    const matched = findingTriageRepo.findReleaseMatched(
-      habitatId,
-      release.releaseType,
-      release.version,
-    );
-
-    for (const finding of matched) {
-      try {
-        try {
-          findingTriageRepo.promote(finding.id, { type: "system", id: "release" });
-        } catch (err) {
-          if (err instanceof AppError && err.code === "CONFLICT") {
-            skippedCount++;
-            continue;
-          }
-          throw err;
-        }
-        promotedCount++;
-
-        const pulse = pulseRepo.getPulseById(finding.pulseId);
-        const title = `Corrective: ${pulse?.subject ?? finding.clusterKey}`;
-        const description = [
-          "## Finding Triage",
-          `- Cluster: ${finding.clusterKey}`,
-          `- Kind: ${finding.findingKind}`,
-          `- Bucket: ${finding.bucket ?? "—"}`,
-          `- Finding triage id: ${finding.id}`,
-          "",
-          "## Source Pulse",
-          pulse?.body ?? "—",
-          "",
-          "## Task",
-          "Address the deferred finding captured in the source pulse. Resolve or document and close the triage record.",
-        ].join("\n");
-
-        const mission = featureService.createMission({
-          habitatId,
-          title,
-          description,
-          labels: ["triage", finding.findingKind],
-          createdBy: "release",
-        });
-        createdMissionCount++;
-
-        try {
-          findingTriageRepo.setTriageMissionId(finding.id, mission.id);
-        } catch {
-          // Mission created but back-link failed — non-critical (mirror manual promote route).
-        }
-
-        sseBroadcaster.publish(habitatId, {
-          type: "triage.finding_updated",
-          data: {
-            habitatId,
-            findingId: finding.id,
-            status: "in_progress",
-            bucket: finding.bucket,
-          },
-        });
-      } catch (err) {
-        // Per-finding isolation: a non-CONFLICT failure (e.g. createMission
-        // throw) must not abort the batch. The finding may already be promoted
-        // (triaged→in_progress); count it as errored and continue so the
-        // remaining findings, the retrospective, and the event still run.
-        erroredCount++;
-        console.warn(
-          `[release] activation error for finding ${finding.id} on ${release.version}:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }
-  }
+  // RM-12: the legacy free-floating `findReleaseMatched` activation loop was
+  // removed — release-gate resolution above is now the sole activation path
+  // (ADR-0032). The promote/createMission/SSE side effects of that loop are
+  // already covered by the gate-resolution path: linked findings promote there,
+  // and corrective missions are created up-front by the triage insertion flow
+  // (or the human authoring path), not at release time. `promotedCount`/
+  // `createdMissionCount`/`skippedCount`/`erroredCount` stay 0 and remain in the
+  // result contract + retrospective for backward compatibility.
 
   if (promotedCount > 0 || activatedMissionCount > 0) {
     // Recipients = human habitat members (team members for team habitats).

@@ -167,6 +167,23 @@ describe("Triage Route Authentication", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it("RM-10: agent-authenticated PATCH /triage/findings/:id with triageMissionId:null unlinks (no longer 400)", async () => {
+    const findings = findingTriageRepo.findByHabitat(habitatId);
+    const findingId = findings[0].id;
+    // First link the finding to the seeded mission, then clear it.
+    findingTriageRepo.setTriageMissionId(findingId, missionId);
+    expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBe(missionId);
+
+    const res = await app!.inject({
+      method: "PATCH",
+      url: `/api/triage/findings/${findingId}`,
+      payload: { triageMissionId: null },
+      headers: { "x-agent-api-key": agentApiKey },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(findingTriageRepo.getById(findingId)!.triageMissionId).toBeNull();
+  });
+
   it("human-authenticated GET /triage/findings succeeds for non-team habitat", async () => {
     const token = makeToken({ sub: "user-1", username: "test", role: "admin" });
     const res = await app!.inject({

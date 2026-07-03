@@ -11,7 +11,7 @@ import { getHabitatById } from "../repositories/board.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { forbidden, unauthorized, notFound } from "../errors.js";
 import * as releaseRepo from "../repositories/release.js";
-import { matchesReleaseType, matchesReleaseVersion, type ReleaseType } from "@orcy/shared";
+import { isReleaseGateSatisfied, type ReleaseType } from "@orcy/shared";
 
 const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 
@@ -104,15 +104,8 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
             }
           }
           if (m.releaseGateType || m.releaseGateVersion) {
-            const typeArm = m.releaseGateType
-              ? [...habitatReleaseTypes].some((shipped) =>
-                  matchesReleaseType(m.releaseGateType as ReleaseType, shipped),
-                )
-              : false;
-            const versionArm = m.releaseGateVersion
-              ? habitatReleaseVersions.some((v) => matchesReleaseVersion(m.releaseGateVersion!, v))
-              : false;
-            if (!typeArm && !versionArm) return false;
+            if (!isReleaseGateSatisfied(m, habitatReleaseTypes, habitatReleaseVersions))
+              return false;
           }
           return true;
         })

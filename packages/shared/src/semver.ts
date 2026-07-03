@@ -158,3 +158,36 @@ export function matchesReleaseVersion(targetRelease: string, shippedVersion: str
 
   return false;
 }
+
+/**
+ * Release-gate satisfaction check (ADR-0032). Pure, total, side-effect-free.
+ *
+ * A gate is satisfied if EITHER arm matches (mirrors ADR-0029 either-match):
+ * the type-cascade arm (`releaseGateType` via {@link matchesReleaseType}) OR the
+ * version-pin arm (`releaseGateVersion` via {@link matchesReleaseVersion}). A
+ * mission with no gate set (both fields null/empty) is trivially satisfied.
+ *
+ * `shippedTypes`/`shippedVersions` are the releases already detected for the
+ * habitat (for the work-surfacing/roadmap paths) OR the single release that
+ * just shipped (wrapped in a 1-element set/array for the activation path).
+ *
+ * @param gate - the gate fields, shaped after the `missions` columns.
+ * @param shippedTypes - detected release types for the habitat (or the just-shipped one).
+ * @param shippedVersions - detected release versions for the habitat (or the just-shipped one).
+ */
+export function isReleaseGateSatisfied(
+  gate: { releaseGateType: string | null; releaseGateVersion: string | null },
+  shippedTypes: Set<ReleaseType>,
+  shippedVersions: string[],
+): boolean {
+  if (!gate.releaseGateType && !gate.releaseGateVersion) return true;
+  const typeArm = gate.releaseGateType
+    ? [...shippedTypes].some((shipped) =>
+        matchesReleaseType(gate.releaseGateType as ReleaseType, shipped),
+      )
+    : false;
+  const versionArm = gate.releaseGateVersion
+    ? shippedVersions.some((v) => matchesReleaseVersion(gate.releaseGateVersion!, v))
+    : false;
+  return typeArm || versionArm;
+}
