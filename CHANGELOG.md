@@ -2,6 +2,28 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.2 — 2026-07-03
+
+### Bug Fixes
+
+#### enforce habitat membership on mission and plugin routes (v0.25.2) ([`02d2805`](https://github.com/waterworkshq/orcy/commit/02d2805922c21a8fe2a4ca3fe7ac439794dc8df7))
+
+1. Replace the existence-only requireHabitat middleware with requireHabitatAccess
+2. on the habitat-scoped mission and plugin routes, closing a cross-tenant access
+3. gap where any authenticated user could read or mutate another team's habitat.
+
+5. Plugin enrollment, run, and quarantine routes now require team membership.
+6. Mission create and list routes now require team membership; the redundant
+7. inline existence check on list is removed.
+8. Roadmap keeps its stricter inline check (which also blocks agents from team
+9. habitats) and drops the now-redundant requireHabitat call.
+10. The weak requireHabitat middleware is deleted (zero remaining callers).
+
+12. Agent access is unchanged — both middlewares let authenticated agents reach any
+13. habitat; only human cross-tenant access was the gap.
+
+
+
 ## 0.25.1 — 2026-07-03
 
 ### Refactors
@@ -142,11 +164,3 @@
 3. criteria. The v0.24.0 releaseActivation test suite is migrated from the
 4. free-floating-finding model to the gated-mission model. UI test fixtures
 5. synced with gate fields from Phase 3's shared type extension.
-
-
-
-## 0.24.4 — 2026-07-02
-
-### Bug Fixes
-
-#### code-style deferred items — unicode slugify, type alignment ([`e8f5591`](https://github.com/waterworkshq/orcy/commit/e8f5591e0001930a831a8692ceef60fc23cd1747))
