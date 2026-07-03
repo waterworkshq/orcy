@@ -15,6 +15,7 @@ import { habitatExportRoutes } from "./routes/board-export.js";
 import { columnRoutes } from "./routes/columns.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { missionRoutes } from "./routes/missions.js";
+import { roadmapRoutes } from "./routes/roadmap.js";
 import { agentRoutes } from "./routes/agents.js";
 import { sseRoutes } from "./routes/sse.js";
 import { authRoutes } from "./routes/auth.js";
@@ -175,6 +176,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(columnRoutes);
   await f.register(taskRoutes);
   await f.register(missionRoutes);
+  await f.register(roadmapRoutes);
   await f.register(agentRoutes);
   await f.register(authRoutes);
   await f.register(commentRoutes);

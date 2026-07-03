@@ -31,6 +31,8 @@ export const createMissionSchema = z.object({
   dueAt: z.string().datetime().optional(),
   slaMinutes: z.number().int().positive().optional(),
   columnId: z.string().uuid().optional(),
+  releaseGateType: z.enum(["patch", "minor", "major"]).optional(),
+  releaseGateVersion: z.string().optional(),
 });
 
 export const updateMissionSchema = z.object({
@@ -44,6 +46,8 @@ export const updateMissionSchema = z.object({
   dueAt: z.string().datetime().nullable().optional(),
   slaMinutes: z.number().int().positive().nullable().optional(),
   version: z.number().int().optional(),
+  releaseGateType: z.enum(["patch", "minor", "major"]).nullable().optional(),
+  releaseGateVersion: z.string().nullable().optional(),
 });
 
 export const missionQuerySchema = z.object({

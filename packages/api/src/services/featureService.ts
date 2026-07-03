@@ -20,6 +20,8 @@ export interface CreateMissionInput {
   dueAt?: string | null;
   slaMinutes?: number | null;
   createdBy: string;
+  releaseGateType?: "patch" | "minor" | "major" | null;
+  releaseGateVersion?: string | null;
 }
 
 /** {@link Mission} enriched with per-status task counts for UI progress display. */

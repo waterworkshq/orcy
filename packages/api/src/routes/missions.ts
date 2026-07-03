@@ -54,6 +54,8 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
         dueAt: parsed.dueAt,
         slaMinutes: parsed.slaMinutes,
         createdBy: actorId,
+        releaseGateType: parsed.releaseGateType,
+        releaseGateVersion: parsed.releaseGateVersion,
       });
 
       reply.code(201).send({ mission });

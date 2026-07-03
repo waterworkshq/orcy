@@ -78,6 +78,7 @@ import type {
   WikiClient as WikiClientIface,
   WikiSearchHit,
   WikiSignalSurface,
+  RoadmapContext,
 } from "./api/interfaces.js";
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -361,6 +362,8 @@ export class KanbanApiClient
       blocks?: string[];
       dueAt?: string;
       slaMinutes?: number;
+      releaseGateType?: "patch" | "minor" | "major";
+      releaseGateVersion?: string;
     },
   ): Promise<{ mission: Mission }> {
     return this.request<{ mission: Mission }>("POST", `/api/habitats/${habitatId}/missions`, {
@@ -373,6 +376,8 @@ export class KanbanApiClient
       blocks: input.blocks,
       dueAt: input.dueAt,
       slaMinutes: input.slaMinutes,
+      releaseGateType: input.releaseGateType,
+      releaseGateVersion: input.releaseGateVersion,
     });
   }
 
@@ -605,6 +610,11 @@ export class KanbanApiClient
   async getMissionProgress(missionId: string): Promise<MissionProgressResponse> {
     missionId = normalizeMissionId(missionId);
     return this.request<MissionProgressResponse>("GET", `/api/missions/${missionId}/progress`);
+  }
+
+  /** Roadmap DAG context (missions + deps + nextInLine + recentReleases) for the triage investigation surface. */
+  async getRoadmapContext(habitatId: string): Promise<RoadmapContext> {
+    return this.request<RoadmapContext>("GET", `/api/habitats/${habitatId}/roadmap`);
   }
 
   async claimTask(
@@ -2369,6 +2379,29 @@ export class KanbanApiClient
   /** Fetches a single finding triage record by id (v0.23 Triage). */
   async getTriageFinding(id: string): Promise<{ finding: Record<string, unknown> }> {
     return this.request<{ finding: Record<string, unknown> }>("GET", `/api/triage/findings/${id}`);
+  }
+
+  /**
+   * Updates a finding triage record (v0.25 Phase 3). Supports status/bucket
+   * transitions, release-target pinning, and `triageMissionId` linkage — the
+   * last is the seam used by the `insert_deferred_mission` triage action to
+   * back-link a newly created gated mission onto its source finding.
+   */
+  async updateTriageFinding(
+    id: string,
+    input: {
+      status?: string;
+      bucket?: string;
+      targetRelease?: string | null;
+      targetReleaseType?: string | null;
+      triageMissionId?: string;
+    },
+  ): Promise<{ finding: Record<string, unknown> }> {
+    return this.request<{ finding: Record<string, unknown> }>(
+      "PATCH",
+      `/api/triage/findings/${id}`,
+      input,
+    );
   }
 
   /** Looks up historical triage resolutions recorded against a cluster key (v0.23 Triage). */

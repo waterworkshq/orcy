@@ -79,6 +79,7 @@ const patchFindingBodySchema = z.object({
     .enum(RELEASE_TYPES as unknown as [ReleaseType, ...ReleaseType[]])
     .nullable()
     .optional(),
+  triageMissionId: z.string().max(200).nullable().optional(),
 });
 
 const resolutionsQuerySchema = z.object({
@@ -152,10 +153,11 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         parsed.data.status === undefined &&
         parsed.data.bucket === undefined &&
         parsed.data.targetRelease === undefined &&
-        parsed.data.targetReleaseType === undefined
+        parsed.data.targetReleaseType === undefined &&
+        parsed.data.triageMissionId === undefined
       ) {
         throw badRequest(
-          "Provide at least one of `status`, `bucket`, `targetRelease`, or `targetReleaseType`",
+          "Provide at least one of `status`, `bucket`, `targetRelease`, `targetReleaseType`, or `triageMissionId`",
         );
       }
 
@@ -178,6 +180,15 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
         finding = findingTriageRepo.setTargetReleaseType(
           request.params.id,
           parsed.data.targetReleaseType,
+        );
+      }
+      if (parsed.data.triageMissionId !== undefined) {
+        if (parsed.data.triageMissionId === null) {
+          throw badRequest("Clearing triageMissionId is not supported via this endpoint");
+        }
+        finding = findingTriageRepo.setTriageMissionId(
+          request.params.id,
+          parsed.data.triageMissionId,
         );
       }
       sseBroadcaster.publish(existing.habitatId, {

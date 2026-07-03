@@ -79,6 +79,23 @@ export function findMostRecentPrior(habitatId: string, excludeVersion?: string):
   return row ? rowToRelease(row) : null;
 }
 
+/**
+ * Recent releases for a habitat, newest first. Feeds the roadmap-context
+ * endpoint's `recentReleases` surface so the triage agent can see what has
+ * shipped and infer which gated missions may now be actionable.
+ */
+export function findRecentByHabitat(habitatId: string, limit = 10): Release[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(releases)
+    .where(eq(releases.habitatId, habitatId))
+    .orderBy(desc(releases.detectedAt), desc(releases.id))
+    .limit(limit)
+    .all();
+  return rows.map(rowToRelease);
+}
+
 export function create(input: CreateReleaseInput): Release {
   const db = getDb();
   const id = uuid();

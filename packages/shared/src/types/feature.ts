@@ -70,6 +70,8 @@ export interface Mission {
   completedAt: string | null;
   isArchived: boolean;
   sprintId: string | null;
+  releaseGateType: "patch" | "minor" | "major" | null;
+  releaseGateVersion: string | null;
 }
 
 /** A {@link Mission} enriched with an aggregated progress rollup of its tasks. */

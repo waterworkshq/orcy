@@ -34,6 +34,8 @@ export interface CreateMissionInput {
   slaMinutes?: number | null;
   createdBy: string;
   displayOrder?: number;
+  releaseGateType?: "patch" | "minor" | "major" | null;
+  releaseGateVersion?: string | null;
 }
 
 export interface UpdateMissionInput {
@@ -51,6 +53,8 @@ export interface UpdateMissionInput {
   slaDeadlineAt?: string | null;
   displayOrder?: number;
   isArchived?: boolean;
+  releaseGateType?: "patch" | "minor" | "major" | null;
+  releaseGateVersion?: string | null;
 }
 
 export function createMission(input: CreateMissionInput): Mission {
@@ -102,6 +106,8 @@ export function createMission(input: CreateMissionInput): Mission {
           createdAt: now,
           updatedAt: now,
           version: 1,
+          releaseGateType: input.releaseGateType ?? null,
+          releaseGateVersion: input.releaseGateVersion ?? null,
         })
         .run();
 
@@ -222,6 +228,8 @@ export function updateMission(
   if (input.slaDeadlineAt !== undefined) set.slaDeadlineAt = input.slaDeadlineAt;
   if (input.displayOrder !== undefined) set.displayOrder = input.displayOrder;
   if (input.isArchived !== undefined) set.isArchived = input.isArchived;
+  if (input.releaseGateType !== undefined) set.releaseGateType = input.releaseGateType;
+  if (input.releaseGateVersion !== undefined) set.releaseGateVersion = input.releaseGateVersion;
 
   try {
     db.transaction((tx) => {

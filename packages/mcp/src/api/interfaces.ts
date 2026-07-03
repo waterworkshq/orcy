@@ -75,6 +75,8 @@ export interface MissionClient {
       blocks?: string[];
       dueAt?: string;
       slaMinutes?: number;
+      releaseGateType?: "patch" | "minor" | "major";
+      releaseGateVersion?: string;
     },
   ): Promise<{ mission: Mission }>;
   deleteMission(missionId: string): Promise<void>;
@@ -82,6 +84,24 @@ export interface MissionClient {
   unarchiveMission(missionId: string): Promise<{ mission: Mission }>;
   getMissionContext(missionId: string): Promise<MissionContext>;
   getMissionProgress(missionId: string): Promise<MissionProgressResponse>;
+  /** Roadmap DAG context for a habitat (missions + deps + nextInLine + recentReleases). Feeds the triage investigation surface. */
+  getRoadmapContext(habitatId: string): Promise<RoadmapContext>;
+}
+
+/** Roadmap DAG snapshot returned by {@link MissionClient.getRoadmapContext}. */
+export interface RoadmapContext {
+  missions: Array<{
+    id: string;
+    title: string;
+    status: string;
+    releaseGateType: "patch" | "minor" | "major" | null;
+    releaseGateVersion: string | null;
+    priority: string;
+    displayOrder: number;
+  }>;
+  dependencies: Array<{ missionId: string; dependsOnId: string }>;
+  nextInLine: string[];
+  recentReleases: Array<{ version: string; releaseType: string; detectedAt: string }>;
 }
 
 export interface TaskClient {

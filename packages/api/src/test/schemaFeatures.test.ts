@@ -1,9 +1,23 @@
-import { describe, it, expect } from 'vitest';
-import { missions, missionDependencies, missionEvents, missionWatchers, missionTemplates, tasks } from '../db/schema/index.js';
-import type { MissionStatus, MissionEventAction, Mission, MissionWatcher, MissionEvent, MissionTemplate } from '../models/index.js';
+import { describe, it, expect } from "vitest";
+import {
+  missions,
+  missionDependencies,
+  missionEvents,
+  missionWatchers,
+  missionTemplates,
+  tasks,
+} from "../db/schema/index.js";
+import type {
+  MissionStatus,
+  MissionEventAction,
+  Mission,
+  MissionWatcher,
+  MissionEvent,
+  MissionTemplate,
+} from "../models/index.js";
 
-describe('Schema: Missions Table', () => {
-  it('missions table has correct column definitions', () => {
+describe("Schema: Missions Table", () => {
+  it("missions table has correct column definitions", () => {
     const columns = missions;
     expect(columns.id).toBeDefined();
     expect(columns.habitatId).toBeDefined();
@@ -26,27 +40,27 @@ describe('Schema: Missions Table', () => {
     expect(columns.version).toBeDefined();
   });
 
-  it('missions table has habitat and column foreign keys', () => {
+  it("missions table has habitat and column foreign keys", () => {
     const missionConfig = missions;
     expect(missionConfig.habitatId).toBeDefined();
     expect(missionConfig.columnId).toBeDefined();
   });
 });
 
-describe('Schema: Mission Dependencies Table', () => {
-  it('missionDependencies has composite primary key columns', () => {
+describe("Schema: Mission Dependencies Table", () => {
+  it("missionDependencies has composite primary key columns", () => {
     expect(missionDependencies.missionId).toBeDefined();
     expect(missionDependencies.dependsOnId).toBeDefined();
   });
 
-  it('both columns reference missions table', () => {
+  it("both columns reference missions table", () => {
     expect(missionDependencies.missionId).toBeDefined();
     expect(missionDependencies.dependsOnId).toBeDefined();
   });
 });
 
-describe('Schema: Mission Events Table', () => {
-  it('missionEvents has all required columns', () => {
+describe("Schema: Mission Events Table", () => {
+  it("missionEvents has all required columns", () => {
     expect(missionEvents.id).toBeDefined();
     expect(missionEvents.missionId).toBeDefined();
     expect(missionEvents.actorType).toBeDefined();
@@ -61,24 +75,24 @@ describe('Schema: Mission Events Table', () => {
   });
 });
 
-describe('Schema: Mission Watchers Table', () => {
-  it('missionWatchers has composite primary key columns', () => {
+describe("Schema: Mission Watchers Table", () => {
+  it("missionWatchers has composite primary key columns", () => {
     expect(missionWatchers.missionId).toBeDefined();
     expect(missionWatchers.userId).toBeDefined();
     expect(missionWatchers.createdAt).toBeDefined();
   });
 });
 
-describe('Schema: Tasks Table Modifications', () => {
-  it('tasks table has missionId column', () => {
+describe("Schema: Tasks Table Modifications", () => {
+  it("tasks table has missionId column", () => {
     expect(tasks.missionId).toBeDefined();
   });
 
-  it('tasks table has order column', () => {
+  it("tasks table has order column", () => {
     expect(tasks.order).toBeDefined();
   });
 
-  it('tasks table does not have removed habitat-level fields', () => {
+  it("tasks table does not have removed habitat-level fields", () => {
     const t = tasks as unknown as Record<string, unknown>;
     expect(t.habitatId).toBeUndefined();
     expect(t.columnId).toBeUndefined();
@@ -91,12 +105,12 @@ describe('Schema: Tasks Table Modifications', () => {
   });
 });
 
-describe('Schema: Mission Templates Table', () => {
-  it('missionTemplates has tasksTemplate column', () => {
+describe("Schema: Mission Templates Table", () => {
+  it("missionTemplates has tasksTemplate column", () => {
     expect(missionTemplates.tasksTemplate).toBeDefined();
   });
 
-  it('missionTemplates has all expected columns', () => {
+  it("missionTemplates has all expected columns", () => {
     expect(missionTemplates.id).toBeDefined();
     expect(missionTemplates.habitatId).toBeDefined();
     expect(missionTemplates.name).toBeDefined();
@@ -114,37 +128,41 @@ describe('Schema: Mission Templates Table', () => {
   });
 });
 
-describe('Model Types: Mission Status', () => {
-  it('MissionStatus has correct enum values', () => {
+describe("Model Types: Mission Status", () => {
+  it("MissionStatus has correct enum values", () => {
     const validStatuses: MissionStatus[] = [
-      'not_started', 'in_progress', 'review', 'done', 'failed'
+      "not_started",
+      "in_progress",
+      "review",
+      "done",
+      "failed",
     ];
     expect(validStatuses).toHaveLength(5);
     for (const status of validStatuses) {
-      expect(typeof status).toBe('string');
+      expect(typeof status).toBe("string");
     }
   });
 });
 
-describe('Model Types: Mission Interface', () => {
-  it('Mission interface compiles with correct shape', () => {
+describe("Model Types: Mission Interface", () => {
+  it("Mission interface compiles with correct shape", () => {
     const mission: Mission = {
-      id: 'feat-1',
-      habitatId: 'habitat-1',
-      columnId: 'col-1',
-      title: 'Test Mission',
-      description: 'A test mission',
-      acceptanceCriteria: 'All tests pass',
-      priority: 'medium',
-      labels: ['test'],
-      status: 'not_started',
+      id: "feat-1",
+      habitatId: "habitat-1",
+      columnId: "col-1",
+      title: "Test Mission",
+      description: "A test mission",
+      acceptanceCriteria: "All tests pass",
+      priority: "medium",
+      labels: ["test"],
+      status: "not_started",
       displayOrder: 0,
       dependsOn: [],
       blocks: [],
       dueAt: null,
       slaMinutes: null,
       slaDeadlineAt: null,
-      createdBy: 'user-1',
+      createdBy: "user-1",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       version: 1,
@@ -154,65 +172,72 @@ describe('Model Types: Mission Interface', () => {
       completedAt: null,
       isArchived: false,
       sprintId: null,
+      releaseGateType: null,
+      releaseGateVersion: null,
     };
-    expect(mission.id).toBe('feat-1');
-    expect(mission.status).toBe('not_started');
+    expect(mission.id).toBe("feat-1");
+    expect(mission.status).toBe("not_started");
   });
 });
 
-describe('Model Types: MissionEvent Interface', () => {
-  it('MissionEventAction has correct values', () => {
+describe("Model Types: MissionEvent Interface", () => {
+  it("MissionEventAction has correct values", () => {
     const validActions: MissionEventAction[] = [
-      'created', 'updated', 'moved', 'status_changed',
-      'completed', 'deleted', 'dependency_resolved'
+      "created",
+      "updated",
+      "moved",
+      "status_changed",
+      "completed",
+      "deleted",
+      "dependency_resolved",
     ];
     expect(validActions).toHaveLength(7);
   });
 
-  it('MissionEvent interface compiles with correct shape', () => {
+  it("MissionEvent interface compiles with correct shape", () => {
     const event: MissionEvent = {
-      id: 'evt-1',
-      missionId: 'feat-1',
-      actorType: 'system',
-      actorId: 'system',
-      action: 'status_changed',
-      fromColumnId: 'col-1',
-      toColumnId: 'col-2',
-      fromStatus: 'not_started',
-      toStatus: 'in_progress',
+      id: "evt-1",
+      missionId: "feat-1",
+      actorType: "system",
+      actorId: "system",
+      action: "status_changed",
+      fromColumnId: "col-1",
+      toColumnId: "col-2",
+      fromStatus: "not_started",
+      toStatus: "in_progress",
       metadata: {},
       timestamp: new Date().toISOString(),
     };
-    expect(event.action).toBe('status_changed');
+    expect(event.action).toBe("status_changed");
   });
 });
 
-describe('Model Types: MissionWatcher Interface', () => {
-  it('MissionWatcher interface compiles with correct shape', () => {
+describe("Model Types: MissionWatcher Interface", () => {
+  it("MissionWatcher interface compiles with correct shape", () => {
     const watcher: MissionWatcher = {
-      missionId: 'feat-1',
-      userId: 'user-1',
+      missionId: "feat-1",
+      userId: "user-1",
       createdAt: new Date().toISOString(),
     };
-    expect(watcher.missionId).toBe('feat-1');
+    expect(watcher.missionId).toBe("feat-1");
   });
 });
 
-describe('Model Types: MissionTemplate Interface', () => {
-  it('MissionTemplate interface compiles with tasksTemplate', () => {
+describe("Model Types: MissionTemplate Interface", () => {
+  it("MissionTemplate interface compiles with tasksTemplate", () => {
     const template: MissionTemplate = {
-      id: 'tmpl-1',
+      id: "tmpl-1",
       habitatId: null,
-      name: 'Test Template',
-      titlePattern: 'Test ',
-      descriptionPattern: '',
-      priority: 'medium',
+      name: "Test Template",
+      titlePattern: "Test ",
+      descriptionPattern: "",
+      priority: "medium",
       labels: [],
       requiredDomain: null,
       requiredCapabilities: [],
       isDefault: false,
       usageCount: 0,
-      createdBy: 'system',
+      createdBy: "system",
       createdAt: new Date().toISOString(),
       tasksTemplate: [],
     };

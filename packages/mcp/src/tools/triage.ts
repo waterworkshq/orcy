@@ -36,6 +36,11 @@ function requireClusterKey(args: { clusterKey?: string }): string {
  * finding triage records for the cluster, and any historical resolution. Does
  * NOT create a mission — the signal_pattern_clustered scan already did that. If
  * no cluster mission exists yet, the response notes it so the agent can verify.
+ *
+ * v0.25 Phase 3: the response now also carries a `roadmap` section with the
+ * habitat's DAG (missions, dependency edges, gate-satisfied `nextInLine`, and
+ * recent detected releases) so the agent can position any deferred corrective
+ * work it chooses to insert.
  */
 export async function triageInvestigate(
   client: KanbanApiClient,
@@ -44,10 +49,11 @@ export async function triageInvestigate(
   const habitatId = requireHabitatId(args);
   const clusterKey = requireClusterKey(args);
 
-  const [topResp, findingsResp, resolutionsResp] = await Promise.all([
+  const [topResp, findingsResp, resolutionsResp, roadmap] = await Promise.all([
     client.getTopTriageClusters(habitatId),
     client.listTriageFindings(habitatId),
     client.getTriageResolutions(habitatId, clusterKey),
+    client.getRoadmapContext(habitatId),
   ]);
 
   const clusterSummary = topResp.clusters.find((c) => c.clusterKey === clusterKey);
@@ -109,6 +115,12 @@ export async function triageInvestigate(
       resolution: r.resolution,
       resolvedAt: r.resolvedAt,
     })),
+    roadmap: {
+      nextInLine: roadmap.nextInLine,
+      missions: roadmap.missions,
+      dependencies: roadmap.dependencies,
+      recentReleases: roadmap.recentReleases,
+    },
     investigationNote: hasActiveMission
       ? "A triage mission already exists for this cluster — claim it and use this context during the investigation."
       : "No active triage mission detected. The scan may not have crossed threshold yet; check the mission board before starting new work.",
@@ -159,5 +171,71 @@ export async function triageResolutionLookup(
     clusterKey,
     resolutions: resp.resolutions,
     count: resp.resolutions.length,
+  };
+}
+
+/**
+ * @requires TriageClient
+ *
+ * The bootstrapping path (ADR-0033). Creates a gated corrective mission
+ * positioned in the habitat's roadmap DAG and links the source finding to it.
+ * The mission carries `releaseGateType` / `releaseGateVersion` so the gate
+ * resolution derived at read-time controls when it becomes actionable, and a
+ * `dependsOn` list so the agent can place it after the in-flight work it
+ * corrects. The finding's `triageMissionId` is set so subsequent investigations
+ * surface the mission as the cluster's active corrective track.
+ *
+ * Returns the created mission, the updated finding, and a placementNote that
+ * the daemon agent echoes into its investigation output pulse.
+ */
+export async function triageInsertDeferredMission(
+  client: KanbanApiClient,
+  args: {
+    habitatId?: string;
+    findingId?: string;
+    missionTitle?: string;
+    missionDescription?: string;
+    dependsOn?: string[];
+    releaseGateType?: "patch" | "minor" | "major";
+    releaseGateVersion?: string;
+  },
+) {
+  const habitatId = requireHabitatId(args);
+  const findingId = args.findingId;
+  const missionTitle = args.missionTitle;
+  const releaseGateType = args.releaseGateType;
+  if (!findingId || typeof findingId !== "string") {
+    throw new Error("findingId is required");
+  }
+  if (!missionTitle || typeof missionTitle !== "string") {
+    throw new Error("missionTitle is required");
+  }
+  if (!releaseGateType) {
+    throw new Error("releaseGateType is required (patch | minor | major)");
+  }
+
+  const { mission } = await client.createMission(habitatId, {
+    title: missionTitle,
+    description: args.missionDescription,
+    labels: ["triage", "deferred"],
+    dependsOn: args.dependsOn,
+    releaseGateType,
+    releaseGateVersion: args.releaseGateVersion,
+  });
+
+  const { finding } = await client.updateTriageFinding(findingId, {
+    triageMissionId: mission.id,
+  });
+
+  const depsList = (args.dependsOn ?? []).length;
+  const placementNote =
+    `Inserted deferred mission ${mission.id} gated on ${releaseGateType}` +
+    (args.releaseGateVersion ? `@${args.releaseGateVersion}` : "") +
+    ` with ${depsList} dependency edge(s); linked to finding ${findingId}.`;
+
+  return {
+    mission,
+    finding,
+    placementNote,
   };
 }
