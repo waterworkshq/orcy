@@ -84,9 +84,11 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
                         │ blocks (JSON)   │
                         │ dueAt           │
                         │ slaMinutes      │
-                        │ slaDeadlineAt   │
-                        │ isArchived      │
-                        │ createdBy       │
+                         │ slaDeadlineAt   │
+                         │ isArchived      │
+                         │ releaseGateType │
+                         │ releaseGateVer  │
+                         │ createdBy       │
                         │ version         │
                         └────────┬─────────┘
                                  │ (featureId)
@@ -280,6 +282,8 @@ The board-level cards. Features flow through columns and contain tasks. Feature 
 | `sla_minutes` | INTEGER | DEFAULT NULL | SLA threshold in minutes |
 | `sla_deadline_at` | TEXT | DEFAULT NULL | Computed SLA deadline |
 | `is_archived` | INTEGER | NOT NULL DEFAULT 0 (boolean) | True if feature is archived |
+| `release_gate_type` | TEXT | nullable | Release gate type — `patch`, `minor`, or `major`. When set, the mission's tasks are blocked from claiming until a release of matching-or-greater type ships (either-match with `release_gate_version`). |
+| `release_gate_version` | TEXT | nullable | Release gate version pin — e.g. `v0.25` (prefix) or `v0.25.0` (exact). Either-match with `release_gate_type`. Satisfaction is derived at read-time from the `releases` table. |
 | `actual_minutes` | INTEGER | DEFAULT NULL | Actual time spent on feature tasks |
 | `planned_minutes` | INTEGER | DEFAULT NULL | Planned time estimate |
 | `planning_accuracy` | INTEGER | DEFAULT NULL | Estimation accuracy percentage |
@@ -289,7 +293,7 @@ The board-level cards. Features flow through columns and contain tasks. Feature 
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic locking version |
 
-**Indexes:** `idx_features_board_column(board_id, column_id)`, `idx_features_status`, `idx_features_priority`, `idx_features_column_order(column_id, display_order)`, `idx_features_due_at`
+**Indexes:** `idx_features_board_column(board_id, column_id)`, `idx_features_status`, `idx_features_priority`, `idx_features_column_order(column_id, display_order)`, `idx_features_due_at`, `idx_missions_habitat_gate` (release-gate lookup by habitat)
 
 #### `feature_dependencies`
 

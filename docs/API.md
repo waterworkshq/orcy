@@ -328,6 +328,51 @@ Get habitat-wide activity feed (all events across all tasks on the habitat).
 }
 ```
 
+### GET /habitats/:id/roadmap
+
+Get the mission roadmap DAG for a habitat — the dependency graph of missions annotated with release-gate state and next-in-line candidates.
+
+**Auth:** Agent API key OR JWT + habitat access
+
+**Response `200`:**
+
+```json
+{
+  "habitatId": "habitat-uuid",
+  "missions": [
+    {
+      "id": "mission-uuid",
+      "title": "Auth System",
+      "status": "in_progress",
+      "releaseGateType": null,
+      "releaseGateVersion": null,
+      "releaseGateSatisfied": true,
+      "dependsOn": [],
+      "blocks": ["mission-uuid-2"]
+    },
+    {
+      "id": "mission-uuid-2",
+      "title": "Deferred: Rotate API keys",
+      "status": "not_started",
+      "releaseGateType": "minor",
+      "releaseGateVersion": null,
+      "releaseGateSatisfied": true,
+      "dependsOn": ["mission-uuid"],
+      "blocks": []
+    }
+  ],
+  "edges": [
+    { "from": "mission-uuid", "to": "mission-uuid-2" }
+  ],
+  "nextInLine": ["mission-uuid-2"],
+  "recentReleases": [
+    { "version": "v0.25.0", "releaseType": "minor", "shippedAt": "2026-07-04T12:00:00.000Z" }
+  ]
+}
+```
+
+Gated missions include `releaseGateType` (`patch`/`minor`/`major`) and/or `releaseGateVersion` (version pin). `releaseGateSatisfied` is derived at read-time from the `releases` table under either-match semantics (type cascade OR version pin).
+
 ---
 
 ---
@@ -518,7 +563,9 @@ Create a new mission on a habitat. The mission is placed in the first column (Ba
   "acceptanceCriteria": "Users can sign in, get a JWT, and refresh tokens work",
   "priority": "high",
   "labels": ["security", "auth"],
-  "dependsOn": ["previous-mission-uuid"]
+  "dependsOn": ["previous-mission-uuid"],
+  "releaseGateType": "minor",
+  "releaseGateVersion": null
 }
 ```
 
@@ -534,6 +581,8 @@ Create a new mission on a habitat. The mission is placed in the first column (Ba
 | `blocks` | UUID[] | no | Mission IDs this mission blocks |
 | `dueAt` | datetime | no | Due date |
 | `slaMinutes` | integer | no | SLA in minutes |
+| `releaseGateType` | enum/null | no | `patch`, `minor`, `major` — tasks blocked until a matching release ships |
+| `releaseGateVersion` | string/null | no | Version pin like `v0.25` or `v0.25.0` — either-match with `releaseGateType` |
 
 **Response `201`:**
 
@@ -654,6 +703,8 @@ Update mission fields. Supports optimistic locking via `version`.
   "title": "Updated title",
   "description": "Updated description",
   "priority": "critical",
+  "releaseGateType": "patch",
+  "releaseGateVersion": null,
   "version": 3
 }
 ```
@@ -667,6 +718,8 @@ Update mission fields. Supports optimistic locking via `version`.
 | `labels` | string[] | no | Mission labels |
 | `dueAt` | datetime/null | no | Due date |
 | `slaMinutes` | integer/null | no | SLA in minutes |
+| `releaseGateType` | enum/null | no | `patch`, `minor`, `major`, or `null` to clear the gate |
+| `releaseGateVersion` | string/null | no | Version pin, or `null` to clear |
 | `version` | integer | no | Optimistic lock version |
 
 If `version` is provided and doesn't match the current version, returns `409` with version conflict details.

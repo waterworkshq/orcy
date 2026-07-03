@@ -500,7 +500,7 @@ The MCP server exposes **13 dispatch tools** with dozens of action-routed operat
 | `orcy_habitat_mission` | `list`, `create`, `delete`, `archive`, `unarchive`, `get-context`, comments, code evidence, `get-audit-bundle` | Mission lifecycle, context, code evidence, and scoped audit bundles |
 | `orcy_habitat_task` | lifecycle, CRUD, detail, quality, subtasks, dependency, effort, code evidence, `get-audit-bundle` | Task lifecycle, evidence, effort, quality, and scoped audit tools |
 | `orcy_habitat_agent` | `register`, `list`, `heartbeat`, `get-stats` | Agent management |
-| `orcy_suggest` | `suggest-next-task` | AI-ranked task suggestions |
+| `orcy_suggest` | `suggest-next-task` | AI-ranked task suggestions (fan-out `dependencyBonus` boosts tasks that unblock more downstream dependents; capped at 25 points, weighted 5 per dependent) |
 | `orcy_habitat_message` | `send`, `get-messages` | Agent-to-agent messaging |
 | `orcy_pulse` | `post`, `check` | Mission signal board — post findings, blockers, directives; check partner signals |
 | `orcy_habitat_subscription` | `subscribe`, `unsubscribe` | Real-time notifications |
@@ -685,6 +685,17 @@ Missions declare dependencies on other missions. Tasks inherit dependency filter
 2. The `getAvailableTasksForAgent()` function checks mission-level dependencies via `mission_dependencies`
 3. Tasks within a mission with unmet dependencies are not shown to agents
 4. When a mission reaches `done` status, dependent missions become available
+
+#### Release Gates (v0.25.0)
+
+Release gates layer alongside mission dependencies as an additional blocking condition in `getAvailableTasksForAgent()`. A mission carries an optional gate declared via two nullable columns — `releaseGateType` (`patch`/`minor`/`major`) and `releaseGateVersion` (a free-text version pin like `v0.25` or `v0.25.0`):
+
+1. A gated mission's tasks are blocked from claiming until a matching release ships.
+2. Either-match semantics: a gate is satisfied when the shipped release type matches-or-cascades (`patch ⊂ minor ⊂ major`) **or** the version pin matches (exact or prefix). A mission with both fields set is satisfied by either.
+3. Satisfaction is **derived at read-time** from the `releases` table — no stored gate state. `getAvailableTasksForAgent()` evaluates the gate fresh on every poll.
+4. When a release ships, `detectAndActivate` resolves release-gates on matched missions **before** the legacy finding-promotion loop. Resolved gates unblock claiming; linked findings promote (`triaged → in_progress`) as before. The notification guard is widened to fire when only gates resolved (no findings promoted).
+
+Gates supersede v0.24.0's finding-level `targetReleaseType` activation model — gating now lives at the mission level (greenfield, no migration of finding state). The finding-level `findReleaseMatched` path is retained but deprecated. See [ADR-0033](../docs/adr/) for the triage agent's expanded roadmap-editor role.
 
 ### Task-Level Dependencies (Within Mission)
 
@@ -1398,7 +1409,11 @@ Two-layer defense: (1) triage-output analysis pulses carry `metadata.triageGener
 
 ### MCP Tool
 
-`orcy_triage` dispatch tool with actions `investigate` (read cluster context), `top_issues` (ranked cluster summaries), `resolution_lookup` (historical resolutions). Tool count 20 → 21.
+`orcy_triage` dispatch tool with actions `investigate` (read cluster context), `top_issues` (ranked cluster summaries), `resolution_lookup` (historical resolutions), and `insert_deferred_mission` (create a gated mission positioned in the roadmap DAG from a deferred finding). Tool count 20 → 21. The triage investigation context (`triageInvestigate`) now includes a `roadmap` section from `GET /habitats/:id/roadmap`.
+
+### Roadmap Editor Role (v0.25.0)
+
+The triage agent's role expands beyond investigation into roadmap authoring (ADR-0033). When a finding is deferred to a release, the agent can use `orcy_triage` → `insert_deferred_mission` to create a gated mission positioned correctly within the habitat's dependency DAG, rather than leaving a loose deferred finding. This closes the loop between triage investigation and the roadmap: deferred work becomes a positioned, release-gated mission that auto-activates when its target release ships.
 
 ## Release-Aware Automation (v0.24.0)
 

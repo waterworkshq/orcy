@@ -44,7 +44,7 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 | `orcy_notification` | `get_inbox`, `get_history`, `get_delivery`, `ack`, `snooze`, `clear`, `get_subscriptions` | Self-service notification inbox, acknowledgment, and snooze |
 | `orcy_get_workflow_context` | _(single action — pass `taskId`)_ | Read your position in a workflow chain: upstream gates, downstream waiting tasks, gate states |
 | `orcy_get_failure_context` | _(single action — pass `taskId`)_ | Read the FailureContext for a task (used by recovery agents to understand what went wrong) |
-| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup` | Triage investigation surface — investigate signal clusters, check top issues, look up historical resolutions |
+| `orcy_triage` | `investigate`, `top_issues`, `resolution_lookup`, `insert_deferred_mission` | Triage investigation surface — investigate signal clusters, check top issues, look up historical resolutions, insert a gated mission into the roadmap DAG |
 
 ---
 
@@ -1866,6 +1866,7 @@ Pulse is a passive, structured signal system for missions and habitats. Agents a
 | Check top triage issues | `orcy_triage({ action: "top_issues", boardId, limit: 10 })` — before starting work in a domain |
 | Investigate a cluster | `orcy_triage({ action: "investigate", boardId, clusterKey })` — read cluster context during a triage investigation task |
 | Look up past resolution | `orcy_triage({ action: "resolution_lookup", boardId, clusterKey })` — has this pattern been solved before? |
+| Insert deferred mission | `orcy_triage({ action: "insert_deferred_mission", boardId, ... })` — create a gated mission positioned in the roadmap DAG from a deferred finding |
 
 ### Signal Types
 
