@@ -7,7 +7,6 @@ import * as taskService from "../services/tasks/index.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
 import * as decompositionService from "../services/decompositionService.js";
-import * as habitatRepo from "../repositories/board.js";
 import {
   createMissionSchema,
   updateMissionSchema,
@@ -16,7 +15,7 @@ import {
   createTaskInMissionSchema,
 } from "../models/schemas.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
-import { requireHabitat } from "./middleware/preHandlers.js";
+import { requireHabitatAccess } from "../middleware/team.js";
 import {
   badRequest,
   notFound,
@@ -35,7 +34,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId/missions",
     {
       schema: { params: habitatIdParamsSchema, body: createMissionSchema },
-      preHandler: [agentOrHumanAuth, requireHabitat()],
+      preHandler: [agentOrHumanAuth, requireHabitatAccess],
     },
     async (request, reply) => {
       const parsed = request.body;
@@ -66,14 +65,10 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId/missions",
     {
       schema: { params: habitatIdParamsSchema, querystring: missionQuerySchema },
-      preHandler: [agentOrHumanAuth],
+      preHandler: [agentOrHumanAuth, requireHabitatAccess],
     },
     async (request, _reply) => {
       const parsed = request.query;
-      const habitat = habitatRepo.getHabitatById(request.params.habitatId);
-      if (!habitat) {
-        throw notFound("Habitat not found");
-      }
 
       const result = missionService.listMissions(request.params.habitatId, {
         status: parsed.status,

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agentOrHumanAuth } from "../middleware/auth.js";
-import { requireHabitat } from "./middleware/preHandlers.js";
+import { requireHabitatAccess } from "../middleware/team.js";
 import * as service from "../services/pluginEnrollmentService.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { badRequest } from "../errors.js";
@@ -33,7 +33,7 @@ const listRunsQuery = z.object({
 export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/plugins/enrollments",
-    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, _reply) => {
       const parsed = createEnrollmentBody.safeParse(request.body);
       if (!parsed.success) {
@@ -46,7 +46,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch<{ Params: { habitatId: string; id: string } }>(
     "/habitats/:habitatId/plugins/enrollments/:id",
-    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, _reply) => {
       const parsed = updateEnrollmentBody.safeParse(request.body);
       if (!parsed.success) {
@@ -58,7 +58,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { habitatId: string } }>(
     "/habitats/:habitatId/plugins/enrollments",
-    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, _reply) => {
       return service.listEnrollments(request.params.habitatId);
     },
@@ -66,7 +66,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete<{ Params: { habitatId: string; id: string } }>(
     "/habitats/:habitatId/plugins/enrollments/:id",
-    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, _reply) => {
       const deleted = service.deleteEnrollment(request.params.habitatId, request.params.id);
       return { deleted };
@@ -75,7 +75,7 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get<{ Params: { habitatId: string }; Querystring: Record<string, string | undefined> }>(
     "/habitats/:habitatId/plugins/runs",
-    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, _reply) => {
       const parsed = listRunsQuery.safeParse(request.query);
       if (!parsed.success) {
@@ -92,13 +92,13 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // Quarantine clear: quarantine is system-global by design (a misbehaving plugin is
-  // misbehaving regardless of habitat). The :habitatId param gates access via requireHabitat
-  // — the caller must have plugin-management access to some habitat to manage quarantines.
+  // misbehaving regardless of habitat). The :habitatId param gates access via
+  // requireHabitatAccess — the caller must have habitat access to manage quarantines.
   // Per-habitat quarantine would require a schema change (habitat_id on plugin_quarantines)
   // and is deferred to a future release if multi-tenant isolation demands it.
   fastify.delete<{ Params: { habitatId: string; pluginKey: string } }>(
     "/habitats/:habitatId/plugins/:pluginKey/quarantine",
-    { preHandler: [agentOrHumanAuth, requireHabitat()] },
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
     async (request, _reply) => {
       const cleared = pluginManager.clearQuarantine(request.params.pluginKey);
       return { cleared };

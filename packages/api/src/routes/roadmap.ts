@@ -6,7 +6,6 @@ import { missions, missionDependencies, releases as releasesTable } from "../db/
 import { getDb } from "../db/index.js";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
-import { requireHabitat } from "./middleware/preHandlers.js";
 import { getHabitatById } from "../repositories/board.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { forbidden, unauthorized, notFound } from "../errors.js";
@@ -27,12 +26,13 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
     "/habitats/:habitatId/roadmap",
     {
       schema: { params: habitatIdParamsSchema },
-      preHandler: [agentOrHumanAuth, requireHabitat()],
+      preHandler: [agentOrHumanAuth],
     },
     async (request) => {
       const { habitatId } = request.params;
 
-      // Habitat membership check (mirrors triage verifyHabitatAccess pattern)
+      // Habitat membership check (stricter than requireHabitatAccess: also blocks
+      // agents from team habitats — mirrors the triage verifyHabitatAccess pattern).
       const habitat = getHabitatById(habitatId);
       if (!habitat) throw notFound("Habitat not found");
       if (request.agent) {

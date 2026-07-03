@@ -409,7 +409,7 @@ describe("pluginEnrollmentService", () => {
 });
 
 describe("pluginRoutes", () => {
-  it("registers 7 routes with agentOrHumanAuth + requireHabitat prehandlers", async () => {
+  it("registers 7 routes with agentOrHumanAuth + requireHabitatAccess prehandlers", async () => {
     const { pluginRoutes } = await import("../routes/plugins.js");
     const { agentOrHumanAuth } = await import("../middleware/auth.js");
 
@@ -438,7 +438,7 @@ describe("pluginRoutes", () => {
         // Global catalog route: auth only, no habitat scope
         expect(r.preHandler).toHaveLength(1);
       } else {
-        // Habitat-scoped routes: agentOrHumanAuth + requireHabitat() closure
+        // Habitat-scoped routes: agentOrHumanAuth + requireHabitatAccess
         expect(r.preHandler).toHaveLength(2);
         expect(typeof r.preHandler[1]).toBe("function");
       }
