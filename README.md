@@ -197,7 +197,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 | Release | Theme |
 |---------|-------|
 | **v0.24.x** | Release-aware automation hardening — webhook redelivery reliability, provenance, and action-coverage verification (see `docs/deferred/release/README.md`) |
-| **v0.25.x** | Roadmap Activation patches — release-deadline "before" gates, compound release windows, alternative scoring algorithms + user-selectable setting, orphan-mission auto-mapping, N:1 safety (see `docs/plans/v25/PATCHES.md`) |
+| **v0.25.x** | Roadmap Activation patches — release-deadline "before" gates, compound release windows, alternative scoring algorithms + user-selectable setting, orphan-mission auto-mapping, N:1 safety, isGateSatisfied extraction, finding-mission unlink, requireHabitat() systemic authz, findReleaseMatched cleanup, mission edit form, triageInvestigate payload size (see `docs/plans/v25/PATCHES.md`) |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
