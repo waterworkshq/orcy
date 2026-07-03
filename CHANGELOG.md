@@ -2,6 +2,25 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.1 — 2026-07-03
+
+### Refactors
+
+#### consolidate release-gate logic, finding-mission safety, and drop legacy activation (v0.25.1) ([`305b836`](https://github.com/waterworkshq/orcy/commit/305b836b065dfbc747ecccb7322d10789ddd832c))
+
+1. Extract isReleaseGateSatisfied into @orcy/shared, collapsing the three
+2. duplicated gate-satisfaction sites (taskQueries, the roadmap route, and
+3. findGatedMissionsMatching) into a single pure shared helper.
+4. findByTriageMissionId now returns all linked findings and the activation
+5. loop promotes each one, so a mission shared by several findings no longer
+6. silently drops the extras.
+7. setTriageMissionId accepts null; PATCH /triage/findings/:id may now clear a
+8. finding's mission link instead of returning 400.
+9. Remove the deprecated findReleaseMatched query and its free-floating
+10. activation loop, leaving release-gate resolution as the sole activation path.
+
+
+
 ## 0.25.0 — 2026-07-03
 
 ### Bug Fixes
@@ -131,11 +150,3 @@
 ### Bug Fixes
 
 #### code-style deferred items — unicode slugify, type alignment ([`e8f5591`](https://github.com/waterworkshq/orcy/commit/e8f5591e0001930a831a8692ceef60fc23cd1747))
-
-
-
-## 0.24.3 — 2026-07-02
-
-### Tests
-
-#### end-to-end validation of release detection via real Fastify routes ([`c0eb0f5`](https://github.com/waterworkshq/orcy/commit/c0eb0f5e234f4f2c81c8aab54565104077aa16f4))
