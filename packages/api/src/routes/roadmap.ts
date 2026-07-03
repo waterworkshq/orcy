@@ -7,6 +7,9 @@ import { getDb } from "../db/index.js";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitat } from "./middleware/preHandlers.js";
+import { getHabitatById } from "../repositories/board.js";
+import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
+import { forbidden, unauthorized, notFound } from "../errors.js";
 import * as releaseRepo from "../repositories/release.js";
 import { matchesReleaseType, matchesReleaseVersion, type ReleaseType } from "@orcy/shared";
 
@@ -28,6 +31,21 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const { habitatId } = request.params;
+
+      // Habitat membership check (mirrors triage verifyHabitatAccess pattern)
+      const habitat = getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
+      if (request.agent) {
+        if (habitat.teamId)
+          throw forbidden("Agents cannot access team habitats", "BOARD_ACCESS_DENIED");
+      } else if (request.user) {
+        if (habitat.teamId && !isTeamMemberByHabitatId(habitatId, request.user.id)) {
+          throw forbidden("You do not have access to this habitat", "BOARD_ACCESS_DENIED");
+        }
+      } else {
+        throw unauthorized("Authentication required");
+      }
+
       const db = getDb();
 
       const priorityOrder = priorityOrderExpr(missions.priority);

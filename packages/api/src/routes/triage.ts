@@ -17,6 +17,7 @@ import * as findingTriageService from "../services/findingTriageService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/board.js";
+import * as missionRepo from "../repositories/feature.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { notFound, badRequest, forbidden, unauthorized } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
@@ -185,6 +186,11 @@ export async function triageRoutes(fastify: FastifyInstance): Promise<void> {
       if (parsed.data.triageMissionId !== undefined) {
         if (parsed.data.triageMissionId === null) {
           throw badRequest("Clearing triageMissionId is not supported via this endpoint");
+        }
+        // Validate the mission belongs to the same habitat as the finding (R3 hardening)
+        const targetMission = missionRepo.getMissionById(parsed.data.triageMissionId);
+        if (!targetMission || targetMission.habitatId !== existing.habitatId) {
+          throw badRequest("Target mission must belong to the same habitat as the finding");
         }
         finding = findingTriageRepo.setTriageMissionId(
           request.params.id,
