@@ -47,6 +47,8 @@ function makeFeature(
       percentage: 0,
     },
     ...overrides,
+    releaseGateType: overrides.releaseGateType ?? null,
+    releaseGateVersion: overrides.releaseGateVersion ?? null,
   };
 }
 

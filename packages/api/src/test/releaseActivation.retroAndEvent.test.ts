@@ -49,10 +49,19 @@ afterEach(() => closeDb());
 
 const ACTOR = { type: "human" as const, id: "user-1" };
 
-function seedTriagedFinding(opts: {
-  subject: string;
-  targetReleaseType?: "patch" | "minor" | "major";
-}) {
+/**
+ * Migrated seeding: a patch-gated mission linked to a triaged finding. The
+ * retrospective + automation-event mechanisms are preserved; only the seeding
+ * fixture moves from free-floating finding → gated mission.
+ */
+function seedGatedPatchMission(subject: string) {
+  const gatedMission = missionRepo.createMission({
+    habitatId,
+    columnId,
+    title: `gated-${subject}`,
+    createdBy: "triage-agent",
+    releaseGateType: "patch",
+  });
   const pulse = pulseRepo.createPulse({
     habitatId,
     missionId,
@@ -60,17 +69,15 @@ function seedTriagedFinding(opts: {
     fromType: "agent",
     fromId: "agent-1",
     signalType: "finding",
-    subject: opts.subject,
+    subject,
     body: "",
     metadata: { findingKind: "bug", severity: "minor", blocksCurrentWork: false },
   });
   const t = findingTriageRepo.createForPulse(pulse);
   findingTriageRepo.transitionStatus(t.id, "triaged", ACTOR);
-  findingTriageRepo.setBucket(t.id, "defer_to_release");
-  if (opts.targetReleaseType) {
-    findingTriageRepo.setTargetReleaseType(t.id, opts.targetReleaseType);
-  }
-  return t;
+  findingTriageRepo.setBucket(t.id, "defer_to_patch");
+  findingTriageRepo.setTriageMissionId(t.id, gatedMission.id);
+  return { mission: gatedMission, finding: t };
 }
 
 function retrospectivePulses() {
@@ -86,27 +93,27 @@ function retrospectivePulses() {
     });
 }
 
-describe("AC-ACTIVATE-6: release retrospective pulse", () => {
-  it("posts exactly one retrospective pulse per release-detection event with correct counts", async () => {
+describe("AC-ACTIVATE-6: release retrospective pulse (migrated)", () => {
+  it("posts exactly one retrospective per release with correct counts (activatedMissionCount)", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
-    seedTriagedFinding({ subject: "f1", targetReleaseType: "patch" });
-    seedTriagedFinding({ subject: "f2", targetReleaseType: "patch" });
+    seedGatedPatchMission("f1");
+    seedGatedPatchMission("f2");
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
     });
 
-    expect(result.promotedCount).toBe(2);
+    // Two patch-gated missions → 2 gate activations; legacy loop sees nothing
+    // (linked findings already promoted via gate resolution).
+    expect(result.promotedCount).toBe(0);
+    expect(result.createdMissionCount).toBe(0);
 
     const retros = retrospectivePulses();
-    // Every detect+activate run posts exactly one retrospective, so two triggers
-    // (the prior v0.1.0 caller-typed + the v0.1.1 self-classified) yield two rows.
     expect(retros.length).toBe(2);
 
-    // The v0.1.1 retrospective carries the right counts.
     const latest = retros.find((p) => {
       const meta = p.metadata as Record<string, unknown>;
       return meta.version === "0.1.1";
@@ -117,18 +124,19 @@ describe("AC-ACTIVATE-6: release retrospective pulse", () => {
     expect(meta.version).toBe("0.1.1");
     expect(meta.releaseType).toBe("patch");
     expect(meta.detectedBy).toBe("api");
-    expect(meta.promotedCount).toBe(2);
-    expect(meta.createdMissionCount).toBe(2);
+    expect(meta.promotedCount).toBe(0);
+    expect(meta.createdMissionCount).toBe(0);
+    expect(meta.activatedMissionCount).toBe(2);
     expect(meta.skippedCount).toBe(0);
     expect(meta.releaseId).toBe(result.release.id);
   });
 
-  it("AC-ACTIVATE-6 (zero-match): retrospective STILL posted with zero counts when no findings match", async () => {
+  it("AC-ACTIVATE-6 (zero-match): retrospective STILL posted with zero counts when no gates match", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
-    // No findings seeded at all — the v0.1.1 trigger matches nothing.
+    // No gated missions seeded at all — the v0.1.1 trigger activates nothing.
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
@@ -139,7 +147,6 @@ describe("AC-ACTIVATE-6: release retrospective pulse", () => {
     expect(result.skippedCount).toBe(0);
 
     const retros = retrospectivePulses();
-    // The v0.1.1 retrospective exists despite zero matches.
     const latest = retros.find((p) => {
       const meta = p.metadata as Record<string, unknown>;
       return meta.version === "0.1.1";
@@ -148,13 +155,13 @@ describe("AC-ACTIVATE-6: release retrospective pulse", () => {
     const meta = latest!.metadata as Record<string, unknown>;
     expect(meta.promotedCount).toBe(0);
     expect(meta.createdMissionCount).toBe(0);
+    expect(meta.activatedMissionCount).toBe(0);
     expect(meta.skippedCount).toBe(0);
   });
 });
 
-describe("AC-ACTIVATE-7: release.shipped automation event fires user-authored rules", () => {
+describe("AC-ACTIVATE-7: release.shipped automation event fires user-authored rules (mechanism)", () => {
   it("a rule bound to release.shipped records a run via executeAndRecordRuleRun", async () => {
-    // Set up a rule whose trigger is release.shipped, condition always, action notify.
     ruleRepo.createAutomationRule({
       habitatId,
       name: "release-shipped-rule",
@@ -178,7 +185,6 @@ describe("AC-ACTIVATE-7: release.shipped automation event fires user-authored ru
       .from(automationRuleRuns)
       .where(eq(automationRuleRuns.habitatId, habitatId))
       .all();
-    // A rule run was recorded for the release.shipped trigger.
     expect(runs.length).toBeGreaterThanOrEqual(1);
     const ruleRun = runs.find((r) => r.triggerType === "release.shipped");
     expect(ruleRun).toBeDefined();

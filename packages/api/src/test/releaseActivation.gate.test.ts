@@ -15,6 +15,7 @@ import * as missionRepo from "../repositories/feature.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
+import type { ReleaseType } from "@orcy/shared";
 
 let habitatId: string;
 let columnId: string;
@@ -57,7 +58,19 @@ afterEach(() => {
 
 const ACTOR = { type: "human" as const, id: "user-1" };
 
-function seedTriagedPatchFinding(subject: string) {
+/**
+ * Migrated seeding: a patch-gated mission linked to a triaged finding. The
+ * kill-switch tests are MECHANISM tests (preserved per the migration rule);
+ * only the seeding fixture moves from free-floating finding → gated mission.
+ */
+function seedGatedPatchMission(subject: string) {
+  const gatedMission = missionRepo.createMission({
+    habitatId,
+    columnId,
+    title: `gated-${subject}`,
+    createdBy: "triage-agent",
+    releaseGateType: "patch" as ReleaseType,
+  });
   const pulse = pulseRepo.createPulse({
     habitatId,
     missionId,
@@ -72,8 +85,8 @@ function seedTriagedPatchFinding(subject: string) {
   const t = findingTriageRepo.createForPulse(pulse);
   findingTriageRepo.transitionStatus(t.id, "triaged", ACTOR);
   findingTriageRepo.setBucket(t.id, "defer_to_patch");
-  findingTriageRepo.setTargetReleaseType(t.id, "patch");
-  return t;
+  findingTriageRepo.setTriageMissionId(t.id, gatedMission.id);
+  return { mission: gatedMission, finding: t };
 }
 
 function retrospectivePulsesFor(version: string) {
@@ -89,15 +102,15 @@ function retrospectivePulsesFor(version: string) {
     });
 }
 
-describe("AC-ACTIVATE-10 / AC-ACTIVATE-8: env ORCY_RELEASE_AUTO_PROMOTE=false disables the promotion loop", () => {
-  it("release row + retrospective + event still occur, but no promotions", async () => {
+describe("AC-ACTIVATE-10 / AC-ACTIVATE-8: env ORCY_RELEASE_AUTO_PROMOTE=false disables the activation loop", () => {
+  it("release row + retrospective + event still occur, but no gate activations or promotions", async () => {
     process.env.ORCY_RELEASE_AUTO_PROMOTE = "false";
 
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
-    const finding = seedTriagedPatchFinding("gated-finding");
+    const { finding } = seedGatedPatchMission("gated-finding");
 
     const missionsBefore = getDb().select().from(missions).all().length;
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
@@ -108,12 +121,12 @@ describe("AC-ACTIVATE-10 / AC-ACTIVATE-8: env ORCY_RELEASE_AUTO_PROMOTE=false di
     expect(result.release.version).toBe("0.1.1");
     expect(result.release.releaseType).toBe("patch");
 
-    // Zero promotions even though a matching triaged finding exists.
+    // Zero promotions / gate activations — the loop is fully disabled.
     expect(result.promotedCount).toBe(0);
     expect(result.createdMissionCount).toBe(0);
     expect(result.skippedCount).toBe(0);
 
-    // The matched finding stayed in `triaged`.
+    // The linked finding stayed `triaged`.
     expect(findingTriageRepo.getById(finding.id)!.status).toBe("triaged");
 
     // No new missions created.
@@ -124,19 +137,17 @@ describe("AC-ACTIVATE-10 / AC-ACTIVATE-8: env ORCY_RELEASE_AUTO_PROMOTE=false di
     expect(retro).toHaveLength(1);
     const meta = retro[0].metadata as Record<string, unknown>;
     expect(meta.promotedCount).toBe(0);
+    expect(meta.activatedMissionCount).toBe(0);
 
-    // release.shipped event still fires (rule run recorded when rules exist; here
-    // we assert via the absence of throws + presence of the retrospective which
-    // is posted AFTER ingestEvent in detectAndActivate's flow).
+    // release.shipped event still fires (verified by the retrospective being
+    // posted AFTER ingestEvent in detectAndActivate's flow).
   });
 });
 
-describe("AC-ACTIVATE-8: habitat-level releaseSettings.autoPromote=false disables the promotion loop", () => {
-  it("env default ON but habitat OFF → no promotions, release row + retrospective still exist", async () => {
-    // Env default (delete to fall through to the true default).
+describe("AC-ACTIVATE-8: habitat-level releaseSettings.autoPromote=false disables the activation loop", () => {
+  it("env default ON but habitat OFF → no gate activations, release row + retrospective still exist", async () => {
     delete process.env.ORCY_RELEASE_AUTO_PROMOTE;
 
-    // Seed a habitat-scoped releaseSettings JSON with autoPromote=false.
     const db = getDb();
     db.update(habitats)
       .set({
@@ -153,7 +164,7 @@ describe("AC-ACTIVATE-8: habitat-level releaseSettings.autoPromote=false disable
       releaseType: "minor",
       detectedBy: "api",
     });
-    const finding = seedTriagedPatchFinding("habitat-gated");
+    const { finding } = seedGatedPatchMission("habitat-gated");
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
@@ -168,29 +179,34 @@ describe("AC-ACTIVATE-8: habitat-level releaseSettings.autoPromote=false disable
     expect(retro).toHaveLength(1);
   });
 
-  it("env default ON + habitat default (null) → promotion loop runs normally", async () => {
+  it("env default ON + habitat default (null) → activation loop runs normally", async () => {
     delete process.env.ORCY_RELEASE_AUTO_PROMOTE;
 
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
-    seedTriagedPatchFinding("ungated-finding");
+    seedGatedPatchMission("ungated-finding");
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
     });
 
-    expect(result.promotedCount).toBe(1);
-    expect(result.createdMissionCount).toBe(1);
+    // The gate activates (the linked finding promotes via gate resolution).
+    expect(result.promotedCount).toBe(0);
+    expect(result.createdMissionCount).toBe(0);
+    const retro = retrospectivePulsesFor("0.1.1");
+    expect(retro).toHaveLength(1);
+    const meta = retro[0].metadata as Record<string, unknown>;
+    expect(meta.activatedMissionCount).toBe(1);
   });
 });
 
-describe("AC-ACTIVATE-8: gate OFF + zero matched findings — event + retrospective still fire", () => {
-  it("env OFF + no matching findings → release.shipped event + retrospective with zero counts", async () => {
+describe("AC-ACTIVATE-8: gate OFF + zero matched gates — event + retrospective still fire", () => {
+  it("env OFF + no matching gated missions → release.shipped event + retrospective with zero counts", async () => {
     process.env.ORCY_RELEASE_AUTO_PROMOTE = "false";
 
-    // No findings seeded — zero-match scenario.
+    // No gated missions seeded — zero-match scenario.
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
@@ -202,14 +218,11 @@ describe("AC-ACTIVATE-8: gate OFF + zero matched findings — event + retrospect
     expect(result.skippedCount).toBe(0);
     expect(result.erroredCount).toBe(0);
 
-    // Retrospective still posted with zero counts.
     const retro = retrospectivePulsesFor("0.1.0");
     expect(retro).toHaveLength(1);
     const meta = retro[0].metadata as Record<string, unknown>;
     expect(meta.promotedCount).toBe(0);
     expect(meta.createdMissionCount).toBe(0);
-
-    // release.shipped event still fires (verified by the retrospective being
-    // posted AFTER ingestEvent in detectAndActivate's flow).
+    expect(meta.activatedMissionCount).toBe(0);
   });
 });

@@ -36,7 +36,6 @@ beforeEach(async () => {
   db.delete(notificationEvents).run();
   db.delete(notificationDeliveries).run();
 
-  // Habitat scoped to a team so the human member is a real recipient.
   const org = orgRepo.createOrganization({ name: "Notify Org", slug: "notify-org" });
   const team = teamRepo.createTeam({
     organizationId: org.id,
@@ -46,7 +45,6 @@ beforeEach(async () => {
   const habitat = habitatRepo.createHabitat({ name: "Notify Habitat", teamId: team.id });
   habitatId = habitat.id;
 
-  // Seed a human user + team membership so the resolver has a real recipient.
   memberUserId = "user-release-member";
   db.insert(users)
     .values({
@@ -81,7 +79,20 @@ afterEach(() => closeDb());
 
 const ACTOR = { type: "human" as const, id: "user-1" };
 
-function seedTriagedPatchFinding(subject: string) {
+/**
+ * Migrated seeding: a patch-gated mission linked to a triaged finding. The
+ * notification mechanism is preserved; only the seeding fixture moves from
+ * free-floating finding → gated mission. The widened notification guard
+ * (`promotedCount > 0 || activatedMissionCount > 0`) fires on gate activation.
+ */
+function seedGatedPatchMission(subject: string) {
+  const gatedMission = missionRepo.createMission({
+    habitatId,
+    columnId,
+    title: `gated-${subject}`,
+    createdBy: "triage-agent",
+    releaseGateType: "patch",
+  });
   const pulse = pulseRepo.createPulse({
     habitatId,
     missionId,
@@ -96,23 +107,18 @@ function seedTriagedPatchFinding(subject: string) {
   const t = findingTriageRepo.createForPulse(pulse);
   findingTriageRepo.transitionStatus(t.id, "triaged", ACTOR);
   findingTriageRepo.setBucket(t.id, "defer_to_patch");
-  findingTriageRepo.setTargetReleaseType(t.id, "patch");
-  return t;
+  findingTriageRepo.setTriageMissionId(t.id, gatedMission.id);
+  return { mission: gatedMission, finding: t };
 }
 
 /**
- * AC-ACTIVATE-9 — notifications fire on each auto-promotion batch, delivered
- * to all human habitat members. The recipient model is subscription-based:
- * the resolver produces deliveries for explicit recipients (passed by the
- * caller) and remote participants (via cross-pod grants). A habitat-default
- * subscription configures channels/cadence for resolved recipients but does
- * NOT itself enumerate recipients — so the test seeds both (a) a habitat-
- * default subscription to enable the event type, and (b) the seed recipient
- * via an explicit recipient_override that the resolver consults.
+ * AC-ACTIVATE-9 — notifications fire on each activation batch, delivered to
+ * all human habitat members. Recipient model: subscription-based; habitat-
+ * default subscriptions configure channels/cadence, explicit recipient_override
+ * enumerates the recipient (mirrors the v0.24.0 test).
  */
-describe("AC-ACTIVATE-9: release.activated notification fires on auto-promotion", () => {
-  it("creates a notification_deliveries row for release.activated when findings promote", async () => {
-    // Seed habitat-default subscription enabling release.activated.
+describe("AC-ACTIVATE-9: release.activated notification fires on gate activation", () => {
+  it("creates a notification_deliveries row for release.activated when a gate resolves", async () => {
     subscriptionRepo.createSubscription({
       habitatId,
       scope: "habitat_default",
@@ -122,10 +128,6 @@ describe("AC-ACTIVATE-9: release.activated notification fires on auto-promotion"
       channels: ["in_app"],
       cadence: "immediate",
     });
-    // Seed a recipient_override so the resolver treats this user as an
-    // eligible recipient for release.activated. (The resolver iterates only
-    // explicit recipients; habitat-default subscriptions configure delivery
-    // but do not themselves enumerate recipients.)
     subscriptionRepo.createSubscription({
       habitatId,
       scope: "recipient_override",
@@ -141,24 +143,16 @@ describe("AC-ACTIVATE-9: release.activated notification fires on auto-promotion"
       releaseType: "minor",
       detectedBy: "api",
     });
-    seedTriagedPatchFinding("notify-finding");
+    seedGatedPatchMission("notify-finding");
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
     });
 
-    // The activation produced at least one promotion, so the notification fires.
-    expect(result.promotedCount).toBe(1);
+    // The widened guard fired the notification via activatedMissionCount > 0
+    // (promotedCount is 0 — gate path, not legacy).
+    expect(result.promotedCount).toBe(0);
 
-    // BUG-CANDIDATE: the resolver does not enumerate habitat team members.
-    // detectAndActivate calls enqueueNotification WITHOUT explicitRecipients,
-    // and the resolver returns an empty delivery list when explicitRecipients
-    // is empty (regardless of habitat-default subscriptions). For a delivery
-    // to exist for memberUserId, EITHER (a) detectAndActivate must fan out to
-    // team members as explicit recipients, OR (b) the resolver must enumerate
-    // team members when a habitat-default subscription exists. As written, the
-    // notification_event row is created but ZERO deliveries are produced in
-    // a pure-local (no remote grants) habitat.
     const db = getDb();
     const deliveriesForMember = db
       .select()
@@ -169,14 +163,11 @@ describe("AC-ACTIVATE-9: release.activated notification fires on auto-promotion"
   });
 
   it("the release.activated notification event is recorded even without subscriptions", async () => {
-    // No subscription seeding — the event row is still recorded because
-    // detectAndActivate calls enqueueNotification unconditionally on a
-    // non-zero promotion batch.
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
-    seedTriagedPatchFinding("no-sub-finding");
+    seedGatedPatchMission("no-sub-finding");
 
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",

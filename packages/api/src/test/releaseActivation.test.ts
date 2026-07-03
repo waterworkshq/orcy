@@ -48,13 +48,27 @@ afterEach(() => closeDb());
 
 const ACTOR = { type: "human" as const, id: "user-1" };
 
-/** Seed a triaged finding pinned to a specific release type / version. */
-function seedFinding(opts: {
+/**
+ * v0.25.0 migrated seeding: a gated mission linked to a triaged finding. The
+ * release trigger resolves the gate and promotes the linked finding via the
+ * gate-resolution path (not the legacy findReleaseMatched path). The linked
+ * finding's `triaged → in_progress` flip is the activation signal.
+ */
+function seedGatedMissionWithFinding(opts: {
   subject: string;
-  targetReleaseType?: ReleaseType;
-  targetRelease?: string;
+  releaseGateType?: ReleaseType;
+  releaseGateVersion?: string;
   status?: "triaged" | "in_progress";
 }) {
+  const mission = missionRepo.createMission({
+    habitatId,
+    columnId,
+    title: `gated-${opts.subject}`,
+    createdBy: "triage-agent",
+    releaseGateType: opts.releaseGateType,
+    releaseGateVersion: opts.releaseGateVersion,
+  });
+
   const pulse = pulseRepo.createPulse({
     habitatId,
     missionId,
@@ -69,16 +83,11 @@ function seedFinding(opts: {
   const t = findingTriageRepo.createForPulse(pulse);
   findingTriageRepo.transitionStatus(t.id, "triaged", ACTOR);
   findingTriageRepo.setBucket(t.id, "defer_to_release");
-  if (opts.targetReleaseType) {
-    findingTriageRepo.setTargetReleaseType(t.id, opts.targetReleaseType);
-  }
-  if (opts.targetRelease !== undefined) {
-    findingTriageRepo.setTargetRelease(t.id, opts.targetRelease);
-  }
+  findingTriageRepo.setTriageMissionId(t.id, mission.id);
   if (opts.status === "in_progress") {
     findingTriageRepo.promote(t.id, ACTOR);
   }
-  return t;
+  return { mission, finding: t };
 }
 
 function refresh(findingId: string) {
@@ -89,30 +98,53 @@ function missionCount(): number {
   return getDb().select().from(missions).all().length;
 }
 
+function retroMeta(version: string): Record<string, unknown> | undefined {
+  const retro = getDb()
+    .select()
+    .from(pulses)
+    .where(eq(pulses.habitatId, habitatId))
+    .all()
+    .find((p) => {
+      const meta = p.metadata as Record<string, unknown> | null;
+      return meta?.releaseRetrospective === true && meta.version === version;
+    });
+  return retro?.metadata as Record<string, unknown> | undefined;
+}
+
 /**
- * AC-DEFER-5 + AC-ACTIVATE-1/2/3 — the cascading-type matcher.
+ * AC-ACTIVATE-1/2/3 — the gate-perspective cascade. A gate is satisfied by
+ * releases of equal-or-larger scope (patch gate → any release; minor gate →
+ * minor|major; major gate → major only).
  *
- * Hand-traced cascade (matches the semver engine's `matchesReleaseType`):
- *   target="patch"  → matches shipped patch | minor | major  (largest scope)
- *   target="minor"  → matches shipped minor | major
- *   target="major"  → matches shipped major only
+ * Hand-traced cascade (matches the semver engine's gate-perspective matcher):
+ *   gate=patch  → satisfied by shipped patch | minor | major
+ *   gate=minor  → satisfied by shipped minor | major
+ *   gate=major  → satisfied by shipped major only
  *
  * Therefore:
- *   shipped "patch" → only patch-tagged findings promote.
- *   shipped "minor" → patch + minor tagged promote; major untouched.
- *   shipped "major" → all three promote.
+ *   shipped "patch" → only patch-gated missions resolve.
+ *   shipped "minor" → patch + minor gated resolve; major-gated untouched.
+ *   shipped "major" → all three resolve.
  */
-describe("AC-ACTIVATE-1/2/3: type-cascade matching matrix", () => {
-  it("AC-ACTIVATE-1: patch release promotes ONLY patch-tagged findings", async () => {
-    // Prior release for self-classification.
+describe("AC-ACTIVATE-1/2/3 (migrated): type-cascade matching matrix (gate perspective)", () => {
+  it("AC-ACTIVATE-1: patch release resolves ONLY patch-gated missions", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
-    const patch = seedFinding({ subject: "patch-finding", targetReleaseType: "patch" });
-    const minor = seedFinding({ subject: "minor-finding", targetReleaseType: "minor" });
-    const major = seedFinding({ subject: "major-finding", targetReleaseType: "major" });
+    const patchLinked = seedGatedMissionWithFinding({
+      subject: "patch-gated",
+      releaseGateType: "patch",
+    });
+    const minorLinked = seedGatedMissionWithFinding({
+      subject: "minor-gated",
+      releaseGateType: "minor",
+    });
+    const majorLinked = seedGatedMissionWithFinding({
+      subject: "major-gated",
+      releaseGateType: "major",
+    });
 
     const before = missionCount();
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
@@ -120,24 +152,38 @@ describe("AC-ACTIVATE-1/2/3: type-cascade matching matrix", () => {
     });
 
     expect(result.release.releaseType).toBe("patch");
-    expect(result.promotedCount).toBe(1);
-    expect(result.createdMissionCount).toBe(1);
-    expect(missionCount()).toBe(before + 1);
+    // No NEW missions created — gates resolve linked findings, not create.
+    expect(result.createdMissionCount).toBe(0);
+    expect(missionCount()).toBe(before);
 
-    expect(refresh(patch.id).status).toBe("in_progress");
-    expect(refresh(minor.id).status).toBe("triaged"); // untouched.
-    expect(refresh(major.id).status).toBe("triaged"); // untouched.
+    // Only the patch-gated mission's finding promotes.
+    expect(refresh(patchLinked.finding.id).status).toBe("in_progress");
+    expect(refresh(minorLinked.finding.id).status).toBe("triaged");
+    expect(refresh(majorLinked.finding.id).status).toBe("triaged");
+
+    // Retrospective records exactly one gate resolution.
+    const meta = retroMeta("0.1.1");
+    expect(meta?.activatedMissionCount).toBe(1);
   });
 
-  it("AC-ACTIVATE-2: minor release promotes patch + minor; major untouched", async () => {
+  it("AC-ACTIVATE-2: minor release resolves patch + minor gated; major untouched", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
-    const patch = seedFinding({ subject: "patch-finding", targetReleaseType: "patch" });
-    const minor = seedFinding({ subject: "minor-finding", targetReleaseType: "minor" });
-    const major = seedFinding({ subject: "major-finding", targetReleaseType: "major" });
+    const patchLinked = seedGatedMissionWithFinding({
+      subject: "patch-gated",
+      releaseGateType: "patch",
+    });
+    const minorLinked = seedGatedMissionWithFinding({
+      subject: "minor-gated",
+      releaseGateType: "minor",
+    });
+    const majorLinked = seedGatedMissionWithFinding({
+      subject: "major-gated",
+      releaseGateType: "major",
+    });
 
     const before = missionCount();
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.2.0", {
@@ -145,24 +191,35 @@ describe("AC-ACTIVATE-1/2/3: type-cascade matching matrix", () => {
     });
 
     expect(result.release.releaseType).toBe("minor");
-    expect(result.promotedCount).toBe(2);
-    expect(result.createdMissionCount).toBe(2);
-    expect(missionCount()).toBe(before + 2);
+    expect(result.createdMissionCount).toBe(0);
+    expect(missionCount()).toBe(before);
 
-    expect(refresh(patch.id).status).toBe("in_progress");
-    expect(refresh(minor.id).status).toBe("in_progress");
-    expect(refresh(major.id).status).toBe("triaged"); // untouched.
+    expect(refresh(patchLinked.finding.id).status).toBe("in_progress");
+    expect(refresh(minorLinked.finding.id).status).toBe("in_progress");
+    expect(refresh(majorLinked.finding.id).status).toBe("triaged");
+
+    const meta = retroMeta("0.2.0");
+    expect(meta?.activatedMissionCount).toBe(2);
   });
 
-  it("AC-ACTIVATE-3: major release promotes all three type-tagged findings", async () => {
+  it("AC-ACTIVATE-3: major release resolves all three gate types", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
-    const patch = seedFinding({ subject: "patch-finding", targetReleaseType: "patch" });
-    const minor = seedFinding({ subject: "minor-finding", targetReleaseType: "minor" });
-    const major = seedFinding({ subject: "major-finding", targetReleaseType: "major" });
+    const patchLinked = seedGatedMissionWithFinding({
+      subject: "patch-gated",
+      releaseGateType: "patch",
+    });
+    const minorLinked = seedGatedMissionWithFinding({
+      subject: "minor-gated",
+      releaseGateType: "minor",
+    });
+    const majorLinked = seedGatedMissionWithFinding({
+      subject: "major-gated",
+      releaseGateType: "major",
+    });
 
     const before = missionCount();
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v1.0.0", {
@@ -170,125 +227,145 @@ describe("AC-ACTIVATE-1/2/3: type-cascade matching matrix", () => {
     });
 
     expect(result.release.releaseType).toBe("major");
-    expect(result.promotedCount).toBe(3);
-    expect(result.createdMissionCount).toBe(3);
-    expect(missionCount()).toBe(before + 3);
+    expect(result.createdMissionCount).toBe(0);
+    expect(missionCount()).toBe(before);
 
-    expect(refresh(patch.id).status).toBe("in_progress");
-    expect(refresh(minor.id).status).toBe("in_progress");
-    expect(refresh(major.id).status).toBe("in_progress");
+    expect(refresh(patchLinked.finding.id).status).toBe("in_progress");
+    expect(refresh(minorLinked.finding.id).status).toBe("in_progress");
+    expect(refresh(majorLinked.finding.id).status).toBe("in_progress");
+
+    const meta = retroMeta("1.0.0");
+    expect(meta?.activatedMissionCount).toBe(3);
   });
 });
 
-describe("AC-ACTIVATE-4: in_progress findings are skipped (no re-promote, no duplicate mission)", () => {
-  it("skips a finding already in_progress without creating a duplicate mission", async () => {
+/**
+ * AC-ACTIVATE-4 — findings already in_progress are skipped (no re-promote, no
+ * duplicate mission). MECHANISM TEST (preserved as-is per the migration rule).
+ *
+ * The skip mechanism now fires inside the gate-resolution loop: the
+ * gate-resolution loop only promotes findings still in `triaged` status. An
+ * already-promoted finding is filtered out, so no re-promotion or counting.
+ */
+describe("AC-ACTIVATE-4 (migrated): in_progress findings are skipped", () => {
+  it("skips a finding already in_progress (manually promoted earlier) without counting it", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
-    // Seed a patch-tagged finding that is ALREADY in_progress (manually promoted earlier).
-    const alreadyPromoted = seedFinding({
-      subject: "already-patched",
-      targetReleaseType: "patch",
+    // Seed a patch-gated mission whose linked finding is ALREADY in_progress.
+    const alreadyPromoted = seedGatedMissionWithFinding({
+      subject: "already-promoted",
+      releaseGateType: "patch",
       status: "in_progress",
     });
-    const alreadyMissionId = refresh(alreadyPromoted.id).triageMissionId;
-    // And a normal triaged one that should still match.
-    const fresh = seedFinding({ subject: "fresh-patch", targetReleaseType: "patch" });
+    // And a normal triaged one that should still resolve.
+    const fresh = seedGatedMissionWithFinding({
+      subject: "fresh-patch",
+      releaseGateType: "patch",
+    });
 
-    const missionsBefore = missionCount();
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
     });
 
     expect(result.release.releaseType).toBe("patch");
-    // Only the fresh triaged finding is promoted. The in_progress finding is
-    // filtered out of the matched set (only status='triaged' is matched), so
-    // it neither promotes nor shows up in skippedCount — that count is for
-    // race-condition promote conflicts, not pre-existing non-triaged state.
-    expect(result.promotedCount).toBe(1);
+    expect(result.promotedCount).toBe(0);
     expect(result.skippedCount).toBe(0);
-    expect(result.createdMissionCount).toBe(1);
-    // Only one new mission was created (for the fresh finding).
-    expect(missionCount()).toBe(missionsBefore + 1);
+    expect(result.createdMissionCount).toBe(0);
 
-    // The already-promoted finding kept its prior state and mission link — no re-promote.
-    const stillPromoted = refresh(alreadyPromoted.id);
+    // The already-promoted finding kept its prior state.
+    const stillPromoted = refresh(alreadyPromoted.finding.id);
     expect(stillPromoted.status).toBe("in_progress");
-    expect(stillPromoted.triageMissionId).toBe(alreadyMissionId);
-    expect(refresh(fresh.id).status).toBe("in_progress");
+    expect(stillPromoted.triageMissionId).toBe(alreadyPromoted.mission.id);
+
+    // The fresh triaged finding promoted via the gate-resolution path.
+    expect(refresh(fresh.finding.id).status).toBe("in_progress");
+
+    // Only 1 gate activated (the fresh one) — the already-promoted is skipped.
+    const meta = retroMeta("0.1.1");
+    expect(meta?.activatedMissionCount).toBe(1);
   });
 
   it("skippedCount counts promote-conflict race findings (CONFLICT catch path)", async () => {
-    // The skippedCount metric is the catch path for findings that were triaged
-    // when matched but transitioned out before promote fired (a true race).
-    // Verify the metric exists and surfaces 0 when no race occurs.
+    // Mechanism preserved: skippedCount is the race-condition catch path.
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
-    seedFinding({ subject: "lone-finding", targetReleaseType: "patch" });
+    seedGatedMissionWithFinding({
+      subject: "lone-finding",
+      releaseGateType: "patch",
+    });
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.1.1", {
       detectedBy: "api",
     });
 
-    expect(result.promotedCount).toBe(1);
     expect(result.skippedCount).toBe(0);
   });
 });
 
-describe("AC-ACTIVATE-5: version-pin finding activates regardless of release type classification", () => {
-  it("version-pin finding promotes when its exact targetRelease ships", async () => {
+/**
+ * AC-ACTIVATE-5 — version-pin gate activates regardless of release-type
+ * classification.
+ */
+describe("AC-ACTIVATE-5 (migrated): version-pin gate", () => {
+  it("version-pinned gate resolves when its exact targetRelease ships", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
-    // Pin to v0.2.0 — no type target. Whatever 0.1.0 → 0.2.0 classifies as
-    // (minor), the version arm should still match.
-    const pinned = seedFinding({ subject: "pin-v0.2.0", targetRelease: "v0.2.0" });
+    const pinned = seedGatedMissionWithFinding({
+      subject: "pin-v0.2.0",
+      releaseGateVersion: "v0.2.0",
+    });
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.2.0", {
       detectedBy: "api",
     });
 
     expect(result.release.releaseType).toBe("minor"); // sanity.
-    expect(result.promotedCount).toBe(1);
-    expect(refresh(pinned.id).status).toBe("in_progress");
+    expect(refresh(pinned.finding.id).status).toBe("in_progress");
   });
 
-  it("version-pin finding does NOT promote on a non-matching version", async () => {
+  it("version-pinned gate does NOT resolve on a non-matching version", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
-    // Pin to v0.9.9 — not the version being shipped.
-    const pinned = seedFinding({ subject: "pin-v0.9.9", targetRelease: "v0.9.9" });
+    const pinned = seedGatedMissionWithFinding({
+      subject: "pin-v0.9.9",
+      releaseGateVersion: "v0.9.9",
+    });
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.2.0", {
       detectedBy: "api",
     });
 
     expect(result.promotedCount).toBe(0);
-    expect(refresh(pinned.id).status).toBe("triaged"); // untouched.
+    expect(refresh(pinned.finding.id).status).toBe("triaged"); // untouched.
   });
 });
 
-describe("AC-DEFER-7: dual-target OR — type arm OR version arm matches", () => {
-  it("dual-target finding promotes when type arm matches even if version arm does not", async () => {
+/**
+ * AC-DEFER-7 — dual-target OR — type arm OR version arm matches.
+ */
+describe("AC-DEFER-7 (migrated): dual-target OR", () => {
+  it("dual-target gate resolves when the type arm matches even if the version arm does not", async () => {
     await releaseTriggerService.detectAndActivate(habitatId, "v0.1.0", {
       releaseType: "minor",
       detectedBy: "api",
     });
 
     // Both arms set: type=minor (matches minor release), version=v9.9.9 (won't match).
-    const dual = seedFinding({
+    const dual = seedGatedMissionWithFinding({
       subject: "dual-or",
-      targetReleaseType: "minor",
-      targetRelease: "v9.9.9",
+      releaseGateType: "minor",
+      releaseGateVersion: "v9.9.9",
     });
 
     const result = await releaseTriggerService.detectAndActivate(habitatId, "v0.2.0", {
@@ -296,7 +373,6 @@ describe("AC-DEFER-7: dual-target OR — type arm OR version arm matches", () =>
     });
 
     expect(result.release.releaseType).toBe("minor");
-    expect(result.promotedCount).toBe(1);
-    expect(refresh(dual.id).status).toBe("in_progress");
+    expect(refresh(dual.finding.id).status).toBe("in_progress");
   });
 });

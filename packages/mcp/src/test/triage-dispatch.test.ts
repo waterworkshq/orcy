@@ -8,6 +8,14 @@ function createMockClient(overrides?: Partial<KanbanApiClient>): KanbanApiClient
     getTopTriageClusters: async () => ({ clusters: [] }),
     listTriageFindings: async () => ({ findings: [] }),
     getTriageResolutions: async () => ({ resolutions: [] }),
+    // v0.25.0 Phase 3 added getRoadmapContext to triageInvestigate's Promise.all;
+    // the mock returns an empty roadmap so the roadmpa field serialises cleanly.
+    getRoadmapContext: async () => ({
+      missions: [],
+      dependencies: [],
+      nextInLine: [],
+      recentReleases: [],
+    }),
     ...overrides,
   } as unknown as KanbanApiClient;
 }
