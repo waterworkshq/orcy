@@ -9,11 +9,13 @@ import * as missionRepo from "../repositories/feature.js";
 import * as agentRepo from "../repositories/agent.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 import { getDb } from "../db/index.js";
-import { tasks } from "../db/schema/index.js";
-import { eq, and, sql } from "drizzle-orm";
+import { tasks, taskDependencies } from "../db/schema/index.js";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import type { Task, Agent } from "../models/index.js";
 
 const MS_PER_DAY = 86_400_000;
+const FAN_OUT_WEIGHT = 5;
+const MAX_FAN_OUT_BONUS = 25;
 
 /** Weighted components contributing to a task suggestion score, exposed for transparency and debugging. */
 export interface SuggestionFactors {
@@ -51,6 +53,22 @@ export interface SuggestionResult {
   agentWorkload: AgentWorkload;
 }
 
+/** Builds a map of taskId → downstream-dependent count for the given tasks. One query (batched), not per-task. Task-level fan-out only in v0.25.0; mission-level fan-out deferred to patch (RM-3). */
+function buildFanOutMap(taskIds: string[]): Map<string, number> {
+  if (taskIds.length === 0) return new Map();
+  const db = getDb();
+  const rows = db
+    .select({ dependsOnId: taskDependencies.dependsOnId })
+    .from(taskDependencies)
+    .where(inArray(taskDependencies.dependsOnId, taskIds))
+    .all();
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.dependsOnId, (counts.get(row.dependsOnId) ?? 0) + 1);
+  }
+  return counts;
+}
+
 /** Scores pending tasks in a habitat for a specific agent and returns the top-ranked suggestions with workload-aware penalties applied. */
 export function getSuggestionsForAgent(
   habitatId: string,
@@ -78,8 +96,10 @@ export function getSuggestionsForAgent(
     }
   }
 
+  const fanOutMap = buildFanOutMap(availableTasks.map((t) => t.id));
+
   const suggestions: TaskSuggestion[] = availableTasks
-    .map((task) => scoreWithFactors(task, agent, claimed, inProgress, missionMap))
+    .map((task) => scoreWithFactors(task, agent, claimed, inProgress, missionMap, fanOutMap))
     .toSorted((a, b) => b.score - a.score)
     .slice(0, limit);
 
@@ -95,22 +115,31 @@ function scoreWithFactors(
   claimedCount: number,
   inProgressCount: number,
   missionMap: Map<string, string>,
+  fanOutMap: Map<string, number>,
 ): TaskSuggestion {
   const reasons: string[] = [];
   const baseScore = scoreTask(task, undefined, agent.capabilities);
+
+  const fanOut = fanOutMap.get(task.id) ?? 0;
+  const dependencyBonus = Math.min(FAN_OUT_WEIGHT * fanOut, MAX_FAN_OUT_BONUS);
 
   const factors: SuggestionFactors = {
     priorityWeight: PRIORITY_WEIGHTS[task.priority] ?? 20,
     urgencyWeight: 0,
     slaUrgencyWeight: 0,
     capabilityWeight: computeCapabilityWeight(task, undefined, agent.capabilities),
-    dependencyBonus: 0,
+    dependencyBonus,
     specializationBonus: 0,
     workloadPenalty: 0,
     stalePickupBonus: 0,
   };
 
   let totalScore = baseScore;
+
+  if (fanOut > 0) {
+    totalScore += dependencyBonus;
+    reasons.push(`Unblocks ${fanOut} downstream task${fanOut > 1 ? "s" : ""}`);
+  }
 
   const mission = task.missionId ? missionRepo.getMissionById(task.missionId) : null;
   const slaDeadline = mission?.slaDeadlineAt ?? null;

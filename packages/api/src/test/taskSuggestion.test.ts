@@ -35,7 +35,10 @@ vi.mock("../db/index.js", () => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
-        where: () => ({ get: () => ({ count: 0 }) }),
+        where: () => ({
+          get: () => ({ count: 0 }),
+          all: () => [],
+        }),
       }),
     }),
   }),
@@ -43,6 +46,7 @@ vi.mock("../db/index.js", () => ({
 
 vi.mock("../db/schema/index.js", () => ({
   tasks: { assignedAgentId: "a_id", status: "status" },
+  taskDependencies: { dependsOnId: "depends_on_id", taskId: "task_id" },
 }));
 
 vi.mock("drizzle-orm", async () => {
@@ -52,6 +56,7 @@ vi.mock("drizzle-orm", async () => {
     eq: vi.fn((_c, _v) => ({ _type: "eq" })),
     and: vi.fn((..._c) => ({ _type: "and" })),
     sql: vi.fn((_s, ..._v) => ({ _type: "sql" })),
+    inArray: vi.fn(() => ({ _type: "inArray" })),
   };
 });
 
