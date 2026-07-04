@@ -30,6 +30,7 @@ export interface DetectAndActivateResult {
   skippedCount: number;
   erroredCount: number;
   missedDeadlineCount: number;
+  cappedCount: number;
 }
 
 interface ActivationCounts {
@@ -38,6 +39,7 @@ interface ActivationCounts {
   skippedCount: number;
   erroredCount: number;
   missedDeadlineCount: number;
+  cappedCount: number;
 }
 
 /** Resolves the human recipients for a habitat's release notification (team members). Returns [] for habitats without a team. */
@@ -143,6 +145,7 @@ export async function detectAndActivate(
     skippedCount: 0,
     erroredCount: 0,
     missedDeadlineCount: 0,
+    cappedCount: 0,
   });
 
   const finish = (release: Release, counts: ActivationCounts): DetectAndActivateResult => ({
@@ -205,11 +208,15 @@ export async function detectAndActivate(
   let createdMissionCount = 0;
   let skippedCount = 0;
   let erroredCount = 0;
+  let cappedCount = 0;
 
   // --- Gate resolution (ADR-0032: release-gates on missions resolve on release ship) ---
   // Runs BEFORE the legacy finding-promotion loop so the legacy loop's CONFLICT
   // guard naturally skips findings already promoted here.
   let activatedMissionCount = 0;
+  // REL-9: per-release promotion cap (prevents a major release from flooding the
+  // habitat). Null = unlimited. Excess findings stay triaged; counted as cappedCount.
+  const { maxPromotionsPerRelease } = releaseSettingsService.resolveReleaseSettings(habitatId);
 
   if (releaseSettingsService.isAutoPromoteEnabled(habitatId)) {
     const gatedMissions = findGatedMissionsMatching(
@@ -223,6 +230,13 @@ export async function detectAndActivate(
         const linkedFindings = findingTriageRepo.findByTriageMissionId(mission.id);
         for (const linkedFinding of linkedFindings) {
           if (linkedFinding.status !== "triaged") continue;
+          if (
+            maxPromotionsPerRelease !== null &&
+            activatedMissionCount >= maxPromotionsPerRelease
+          ) {
+            cappedCount++;
+            continue;
+          }
           try {
             findingTriageRepo.promote(linkedFinding.id, { type: "system", id: "release" });
           } catch (err) {
@@ -325,6 +339,7 @@ export async function detectAndActivate(
     `- Skipped (already in progress): ${skippedCount}`,
     `- Errored (promoted but mission failed): ${erroredCount}`,
     `- Deadlines missed (mission not done when its deadline release shipped): ${missedDeadlineCount}`,
+    `- Capped (not promoted — per-release promotion cap reached): ${cappedCount}`,
   ].join("\n");
   pulseRepo.createPulse({
     habitatId,
@@ -372,5 +387,6 @@ export async function detectAndActivate(
     skippedCount,
     erroredCount,
     missedDeadlineCount,
+    cappedCount,
   });
 }

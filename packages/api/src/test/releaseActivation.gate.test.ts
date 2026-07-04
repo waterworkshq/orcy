@@ -155,6 +155,7 @@ describe("AC-ACTIVATE-8: habitat-level releaseSettings.autoPromote=false disable
           autoPromote: false,
           releaseWorkflowName: "release",
           requireVersionTag: true,
+          maxPromotionsPerRelease: null,
         },
       })
       .where(eq(habitats.id, habitatId))

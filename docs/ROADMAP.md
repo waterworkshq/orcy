@@ -78,9 +78,9 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 
 ## Upcoming
 
-### v0.24.x — Release-Aware Automation patches
+### v0.24.x — Release-Aware Automation patches ✅ DELIVERED
 
-Hardening patches for the v0.24.0 release-aware automation surface. Tracked in `docs/deferred/release/README.md` (REL-1 through REL-5): webhook redelivery reliability (HTTP 200 on detection failure blocks GitHub redelivery; the async webhook-dispatcher typing change unblocks it), client-asserted `detectedBy` provenance on the REST seam, GitHub `release` action coverage verification, and minor consistency cleanup.
+All REL-1..8, REL-10, REL-11 resolved across v0.24.1–v0.24.3 + the code-style patch. REL-9 (per-release promotion cap, `releaseSettings.maxPromotionsPerRelease`) shipped with the v0.25.x cadence. No open items remain.
 
 ### v0.25.x — Roadmap Activation patches ✅ DELIVERED (v0.25.1–v0.25.7)
 

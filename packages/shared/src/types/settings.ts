@@ -99,6 +99,8 @@ export interface ReleaseSettings {
   releaseWorkflowName: string;
   /** Whether the v* tag requirement is enforced for workflow_run detection. Default true. */
   requireVersionTag: boolean;
+  /** REL-9: per-release promotion cap. Limits how many findings promote in one release-detection event (prevents a major release from flooding the habitat). Null = unlimited (default). Excess findings are counted as cappedCount in the retrospective. */
+  maxPromotionsPerRelease: number | null;
 }
 
 /** Default release settings used when a habitat has no `releaseSettings` configured. */
@@ -106,6 +108,7 @@ export const DEFAULT_RELEASE_SETTINGS: ReleaseSettings = {
   autoPromote: true,
   releaseWorkflowName: "release",
   requireVersionTag: true,
+  maxPromotionsPerRelease: null,
 };
 
 /** Zod schema for validating `releaseSettings` patches (all fields optional). */
@@ -113,6 +116,7 @@ export const releaseSettingsSchema = z.object({
   autoPromote: z.boolean().optional(),
   releaseWorkflowName: z.string().optional(),
   requireVersionTag: z.boolean().optional(),
+  maxPromotionsPerRelease: z.number().int().positive().nullable().optional(),
 });
 
 /**

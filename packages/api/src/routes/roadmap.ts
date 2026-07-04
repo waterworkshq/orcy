@@ -6,7 +6,7 @@ import { missions, missionDependencies, releases as releasesTable } from "../db/
 import { getDb } from "../db/index.js";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById, updateHabitat } from "../repositories/board.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { forbidden, unauthorized, notFound } from "../errors.js";
 import * as releaseRepo from "../repositories/release.js";
@@ -150,6 +150,50 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
           detectedAt: r.detectedAt,
         })),
       };
+    },
+  );
+
+  // RM-15 fast-follow: agent-callable focus-goal setter. Sets roadmapSettings.focusMissionId
+  // (merging into existing roadmapSettings, not overwriting). Scoped route — agents can't
+  // PATCH /habitats/:id directly (humanAuth only), so this gives the triage/daemon agent
+  // a narrow write surface for designating the focus goal.
+  fastify.withTypeProvider<ZodTypeProvider>().patch(
+    "/habitats/:habitatId/roadmap-focus",
+    {
+      schema: {
+        params: habitatIdParamsSchema,
+        body: z.object({ focusMissionId: z.string().nullable() }),
+      },
+      preHandler: [agentOrHumanAuth],
+    },
+    async (request) => {
+      const { habitatId } = request.params;
+      const { focusMissionId } = request.body;
+
+      const habitat = getHabitatById(habitatId);
+      if (!habitat) throw notFound("Habitat not found");
+      if (request.agent) {
+        if (habitat.teamId)
+          throw forbidden("Agents cannot access team habitats", "BOARD_ACCESS_DENIED");
+      } else if (request.user) {
+        if (habitat.teamId && !isTeamMemberByHabitatId(habitatId, request.user.id)) {
+          throw forbidden("You do not have access to this habitat", "BOARD_ACCESS_DENIED");
+        }
+      } else {
+        throw unauthorized("Authentication required");
+      }
+
+      // Merge focusMissionId into existing roadmapSettings (don't overwrite the blob).
+      const existing = habitat.roadmapSettings ?? {
+        scoringAlgorithm: "fanout" as const,
+        mode: "release" as const,
+        focusMissionId: null,
+      };
+      const updated = updateHabitat(habitatId, {
+        roadmapSettings: { ...existing, focusMissionId },
+      });
+      if (!updated) throw notFound("Habitat not found");
+      return { roadmapSettings: updated.roadmapSettings };
     },
   );
 }

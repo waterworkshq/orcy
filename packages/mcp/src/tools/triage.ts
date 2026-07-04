@@ -310,3 +310,28 @@ export async function triageMapOrphanMission(
   void habitatId;
   return { mission, placementNote };
 }
+
+/**
+ * @requires TriageClient
+ *
+ * Sets the habitat's roadmap focus goal (RM-15). Pass a missionId to designate
+ * it as the focus (goal_directed scoring will boost its prerequisite chain), or
+ * null to clear the focus (revert to auto-derive — highest-fan-out mission).
+ */
+export async function triageSetFocusMission(
+  client: KanbanApiClient,
+  args: { habitatId?: string; missionId?: string | null },
+) {
+  const habitatId = requireHabitatId(args);
+  const focusMissionId = args.missionId ?? null;
+  const { roadmapSettings } = await client.setRoadmapFocus(habitatId, focusMissionId);
+  return {
+    habitatId,
+    focusMissionId,
+    roadmapSettings,
+    note:
+      focusMissionId === null
+        ? "Focus cleared — goal_directed scoring will auto-derive the highest-fan-out mission each pass."
+        : `Focus set to mission ${focusMissionId}. goal_directed scoring boosts its prerequisite chain.`,
+  };
+}

@@ -641,6 +641,18 @@ export class KanbanApiClient
     return this.request<RoadmapContext>("GET", `/api/habitats/${habitatId}/roadmap${qs}`);
   }
 
+  /** RM-15: set the roadmap focus goal (agent-callable scoped route). */
+  async setRoadmapFocus(
+    habitatId: string,
+    focusMissionId: string | null,
+  ): Promise<{ roadmapSettings: unknown }> {
+    return this.request<{ roadmapSettings: unknown }>(
+      "PATCH",
+      `/api/habitats/${habitatId}/roadmap-focus`,
+      { focusMissionId },
+    );
+  }
+
   async claimTask(
     taskId: string,
   ): Promise<

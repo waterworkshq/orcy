@@ -196,7 +196,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.24.x** | Release-aware automation hardening — webhook redelivery reliability, provenance, and action-coverage verification (see `docs/deferred/release/README.md`) |
+| **v0.24.x** ✅ | Release-aware automation hardening — delivered (REL-1..11 resolved, incl. REL-9 promotion cap shipped with v0.25.x). |
 | **v0.25.x** ✅ | Roadmap Activation patches — **delivered** (v0.25.1–v0.25.7): release-deadline gates + compound window, selectable scoring algorithms (fanout/depth-from-root/release-proximity/goal-directed), authz hardening, mission edit form + feature mode, orphan-mission auto-mapping, payload summary mode, goal-directed scoring (ADR-0034). One fast-follow: agent `set_focus_mission` MCP action. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**

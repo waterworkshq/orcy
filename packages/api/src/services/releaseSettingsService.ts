@@ -16,6 +16,9 @@ export function resolveReleaseSettings(habitatId: string): ReleaseSettings {
       habitat.releaseSettings.releaseWorkflowName ?? DEFAULT_RELEASE_SETTINGS.releaseWorkflowName,
     requireVersionTag:
       habitat.releaseSettings.requireVersionTag ?? DEFAULT_RELEASE_SETTINGS.requireVersionTag,
+    maxPromotionsPerRelease:
+      habitat.releaseSettings.maxPromotionsPerRelease ??
+      DEFAULT_RELEASE_SETTINGS.maxPromotionsPerRelease,
   };
 }
 
