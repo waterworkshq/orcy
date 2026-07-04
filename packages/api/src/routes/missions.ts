@@ -15,7 +15,7 @@ import {
   createTaskInMissionSchema,
 } from "../models/schemas.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
-import { requireHabitatAccess } from "../middleware/team.js";
+import { requireHabitatAccess, requireMissionAccess } from "../middleware/team.js";
 import {
   badRequest,
   notFound,
@@ -135,7 +135,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/missions/:missionId",
     {
       schema: { params: missionIdParamsSchema, body: updateMissionSchema },
-      preHandler: agentOrHumanAuth,
+      preHandler: [agentOrHumanAuth, requireMissionAccess],
     },
     async (request, reply) => {
       const parsed = request.body;
@@ -227,7 +227,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/missions/:missionId/move",
     {
       schema: { params: missionIdParamsSchema, body: moveMissionSchema },
-      preHandler: agentOrHumanAuth,
+      preHandler: [agentOrHumanAuth, requireMissionAccess],
     },
     async (request, _reply) => {
       const parsed = request.body;
@@ -267,7 +267,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     "/missions/:missionId/tasks",
     {
       schema: { params: missionIdParamsSchema, body: createTaskInMissionSchema },
-      preHandler: agentOrHumanAuth,
+      preHandler: [agentOrHumanAuth, requireMissionAccess],
     },
     async (request, reply) => {
       const parsed = request.body;
@@ -329,7 +329,7 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
     .withTypeProvider<ZodTypeProvider>()
     .post(
       "/missions/:missionId/decompose",
-      { schema: { params: missionIdParamsSchema }, preHandler: humanAuth },
+      { schema: { params: missionIdParamsSchema }, preHandler: [humanAuth, requireMissionAccess] },
       async (request, _reply) => {
         const mission = missionRepo.getMissionById(request.params.missionId);
         if (!mission) {

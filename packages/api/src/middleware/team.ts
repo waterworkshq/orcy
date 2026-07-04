@@ -1,4 +1,7 @@
-export { authorizeHabitatAccess as requireHabitatAccess } from "./realtimeAuth.js";
+export {
+  authorizeHabitatAccess as requireHabitatAccess,
+  authorizeMissionAccess as requireMissionAccess,
+} from "./realtimeAuth.js";
 
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { isTeamMemberByHabitatId, getMember } from "../repositories/teamMember.js";

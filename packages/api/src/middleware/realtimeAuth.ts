@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import * as agentService from "../services/agentService.js";
 import { getHabitatById } from "../repositories/board.js";
+import { getMissionById } from "../repositories/feature.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import type { HumanRole } from "./auth.js";
 import { extractAndVerifyJwt } from "./jwt-verification.js";
@@ -47,13 +48,8 @@ export async function authenticateRealtime(
   request.user = { ...user!, role: user!.role as HumanRole };
 }
 
-export async function authorizeHabitatAccess(
-  request: FastifyRequest,
-  _reply: FastifyReply,
-): Promise<void> {
-  const habitatId = getHabitatIdFromParams(request);
-  if (!habitatId) return;
-
+/** Shared habitat-membership check used by both habitat-param and mission-param authorization. */
+async function checkHabitatAccess(request: FastifyRequest, habitatId: string): Promise<void> {
   const habitat = getHabitatById(habitatId);
   if (!habitat) {
     throw notFound("Habitat not found");
@@ -87,4 +83,32 @@ export async function authorizeHabitatAccess(
   }
 
   throw unauthorized("Authentication required");
+}
+
+export async function authorizeHabitatAccess(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  const habitatId = getHabitatIdFromParams(request);
+  if (!habitatId) return;
+  return checkHabitatAccess(request, habitatId);
+}
+
+/**
+ * Mission-id-keyed authorization (closes the RM-11 gap for `/missions/:missionId/*` routes).
+ * Derives the habitatId from the mission, then runs the same membership check as
+ * {@link authorizeHabitatAccess}. Throws 404 if the mission doesn't exist (no information
+ * leak about cross-habitat missions).
+ */
+export async function authorizeMissionAccess(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  const missionId = (request.params as { missionId?: string }).missionId;
+  if (!missionId) return;
+  const mission = getMissionById(missionId);
+  if (!mission) {
+    throw notFound("Mission not found");
+  }
+  return checkHabitatAccess(request, mission.habitatId);
 }
