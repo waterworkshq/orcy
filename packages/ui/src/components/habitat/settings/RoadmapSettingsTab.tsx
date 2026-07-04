@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
+import { useBoard } from "../../../lib/useHabitatData.js";
 import { DEFAULT_ROADMAP_SETTINGS } from "@orcy/shared";
 import type { Habitat, RoadmapSettings, RoadmapScoringAlgorithm } from "../../../types/index.js";
 
@@ -32,6 +33,12 @@ const ALGORITHMS: Array<{ value: RoadmapScoringAlgorithm; label: string; descrip
     label: "Release proximity",
     description: "Prioritise work whose release-gate just resolved (freshly unblocked).",
   },
+  {
+    value: "goal_directed",
+    label: "Goal-directed",
+    description:
+      "Prioritise the prerequisite chain of a focus mission (set below, or auto-derived as the biggest bottleneck).",
+  },
 ];
 
 /**
@@ -43,6 +50,9 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
     const initial = boardRoadmapSettings ?? DEFAULTS;
     const [algorithm, setAlgorithm] = useState<RoadmapScoringAlgorithm>(initial.scoringAlgorithm);
     const [mode, setMode] = useState<"release" | "feature">(initial.mode);
+    const [focusMissionId, setFocusMissionId] = useState<string | null>(initial.focusMissionId);
+    const { data: boardData } = useBoard(habitatId);
+    const missions = boardData?.features ?? [];
 
     const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId, onUpdate });
 
@@ -50,6 +60,7 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
       const s = boardRoadmapSettings ?? DEFAULTS;
       setAlgorithm(s.scoringAlgorithm);
       setMode(s.mode);
+      setFocusMissionId(s.focusMissionId);
     }, [boardRoadmapSettings]);
 
     useEffect(() => {
@@ -58,10 +69,10 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
 
     const handleSave = useCallback(async () => {
       await saveSettings(
-        { roadmapSettings: { scoringAlgorithm: algorithm, mode } },
+        { roadmapSettings: { scoringAlgorithm: algorithm, mode, focusMissionId } },
         "Roadmap settings saved",
       );
-    }, [saveSettings, algorithm, mode]);
+    }, [saveSettings, algorithm, mode, focusMissionId]);
 
     useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 
@@ -111,6 +122,31 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
           </select>
           {selected && <p className="text-xs text-muted-foreground">{selected.description}</p>}
         </div>
+        {algorithm === "goal_directed" && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium" htmlFor="roadmap-focus-mission">
+              Focus mission (goal)
+            </label>
+            <select
+              id="roadmap-focus-mission"
+              value={focusMissionId ?? ""}
+              onChange={(e) => setFocusMissionId(e.target.value || null)}
+              className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Auto-derive (biggest bottleneck)</option>
+              {missions.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.title}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {focusMissionId
+                ? "Tasks on this mission's prerequisite chain get a priority boost (soft — never blocks other work)."
+                : "No explicit focus — the mission blocking the most downstream work is auto-derived each pass."}
+            </p>
+          </div>
+        )}
       </div>
     );
   },

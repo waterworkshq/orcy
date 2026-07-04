@@ -14,5 +14,7 @@ export function resolveRoadmapSettings(habitatId: string): RoadmapSettings {
     scoringAlgorithm:
       habitat.roadmapSettings.scoringAlgorithm ?? DEFAULT_ROADMAP_SETTINGS.scoringAlgorithm,
     mode: habitat.roadmapSettings.mode ?? DEFAULT_ROADMAP_SETTINGS.mode,
+    focusMissionId:
+      habitat.roadmapSettings.focusMissionId ?? DEFAULT_ROADMAP_SETTINGS.focusMissionId,
   };
 }

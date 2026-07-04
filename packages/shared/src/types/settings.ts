@@ -117,10 +117,13 @@ export const releaseSettingsSchema = z.object({
 
 /**
  * Selectable roadmap scoring algorithms (v0.25.4). `fanout` is the v0.25.0 default.
- * A goal/direction-aware algorithm (critical-path toward an orcy-chosen or self-derived
- * target) is deferred to its own patch — see `docs/plans/v25/PATCHES.md`.
+ * `goal_directed` (v0.25.7) boosts the focus mission's prerequisite chain.
  */
-export type RoadmapScoringAlgorithm = "fanout" | "depth_from_root" | "release_proximity";
+export type RoadmapScoringAlgorithm =
+  | "fanout"
+  | "depth_from_root"
+  | "release_proximity"
+  | "goal_directed";
 
 /** Per-habitat roadmap scoring configuration. Stored as JSON on `habitats.roadmap_settings`. */
 export interface RoadmapSettings {
@@ -128,18 +131,24 @@ export interface RoadmapSettings {
   scoringAlgorithm: RoadmapScoringAlgorithm;
   /** Authoring mode: `release` (default) shows release-gate/deadline selectors in mission forms; `feature` hides them for teams not shipping on a release cadence. Display of existing gates is unaffected. */
   mode: "release" | "feature";
+  /** RM-15: the mission currently designated as the focus goal (goal_directed scoring boosts its prerequisite chain). Null = self-derive (highest-fan-out mission) each pass. */
+  focusMissionId: string | null;
 }
 
 /** Default roadmap settings used when a habitat has no `roadmapSettings` configured. */
 export const DEFAULT_ROADMAP_SETTINGS: RoadmapSettings = {
   scoringAlgorithm: "fanout",
   mode: "release",
+  focusMissionId: null,
 };
 
 /** Zod schema for validating `roadmapSettings` patches (all fields optional). */
 export const roadmapSettingsSchema = z.object({
-  scoringAlgorithm: z.enum(["fanout", "depth_from_root", "release_proximity"]).optional(),
+  scoringAlgorithm: z
+    .enum(["fanout", "depth_from_root", "release_proximity", "goal_directed"])
+    .optional(),
   mode: z.enum(["release", "feature"]).optional(),
+  focusMissionId: z.string().nullable().optional(),
 });
 
 /**

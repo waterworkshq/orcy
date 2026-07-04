@@ -59,15 +59,68 @@ function seedTask(missionId: string, title: string) {
   return taskRepo.createTask({ missionId, title, createdBy: "user-1" });
 }
 
-function setAlgorithm(algorithm: "fanout" | "depth_from_root" | "release_proximity") {
+function setAlgorithm(
+  algorithm: "fanout" | "depth_from_root" | "release_proximity" | "goal_directed",
+) {
   habitatRepo.updateHabitat(habitatId, {
-    roadmapSettings: { scoringAlgorithm: algorithm, mode: "release" },
+    roadmapSettings: { scoringAlgorithm: algorithm, mode: "release", focusMissionId: null },
   });
 }
 
 function suggest() {
   return getSuggestionsForAgent(habitatId, agentId, 50);
 }
+
+function setGoal(missionId: string) {
+  habitatRepo.updateHabitat(habitatId, {
+    roadmapSettings: {
+      scoringAlgorithm: "goal_directed",
+      mode: "release",
+      focusMissionId: missionId,
+    },
+  });
+}
+
+describe("goal_directed strategy (RM-15)", () => {
+  it("boosts the focus goal's prerequisite chain; an unrelated mission gets no boost", () => {
+    // Goal G depends on P (so P is a prerequisite, depth 1). X is unrelated.
+    const g = seedMission("M-goal");
+    const p = seedMission("M-prereq");
+    const x = seedMission("M-unrelated");
+    dependencyRepo.addMissionDependency(g.id, p.id); // G depends on P
+    const pTask = seedTask(p.id, "P-task");
+    const xTask = seedTask(x.id, "X-task");
+    setGoal(g.id);
+
+    const map = new Map(suggest().suggestions.map((s) => [s.taskId, s]));
+    // P's task is on the goal's prerequisite chain → boosted.
+    expect(map.get(pTask.id)!.factors.dependencyBonus).toBeGreaterThan(0);
+    expect(map.get(pTask.id)!.reasons).toContain("Advances focus goal (1 prerequisite hop away)");
+    // X is unrelated to the goal → no goal boost.
+    expect(map.get(xTask.id)!.factors.dependencyBonus).toBe(0);
+  });
+
+  it("self-derives the goal as the highest-fan-out mission when no focus is set", () => {
+    // P has two dependents (G1, G2) → highest fan-out. X has none.
+    const p = seedMission("M-bottleneck");
+    const g1 = seedMission("M-g1");
+    const g2 = seedMission("M-g2");
+    const x = seedMission("M-loner");
+    dependencyRepo.addMissionDependency(g1.id, p.id);
+    dependencyRepo.addMissionDependency(g2.id, p.id);
+    const pTask = seedTask(p.id, "P-task");
+    const xTask = seedTask(x.id, "X-task");
+    // goal_directed, NO explicit focus → self-derive.
+    setAlgorithm("goal_directed");
+
+    const map = new Map(suggest().suggestions.map((s) => [s.taskId, s]));
+    // P self-derives as the goal (highest fan-out); its own task is the focus (depth 0).
+    expect(map.get(pTask.id)!.factors.dependencyBonus).toBeGreaterThan(0);
+    expect(map.get(pTask.id)!.reasons).toContain("Focus goal");
+    // X is not the derived goal and not in its chain → no boost.
+    expect(map.get(xTask.id)!.factors.dependencyBonus).toBe(0);
+  });
+});
 
 describe("depth_from_root strategy", () => {
   it("boosts root-mission tasks over deeper-mission tasks (foundational-first)", () => {
