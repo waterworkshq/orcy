@@ -2,6 +2,35 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.7 — 2026-07-04
+
+### Features
+
+#### goal-directed scoring toward a focus mission (v0.25.7 — RM-15) ([`b4e0de3`](https://github.com/waterworkshq/orcy/commit/b4e0de333803e64f283ad1a80177b2b2f05a035f))
+
+1. Add a goal_directed scoring algorithm that boosts work toward an
+2. orcy-chosen focus goal — the last roadmap-scoring piece, designed in review
+3. after the earlier critical-path framing was rejected.
+
+5. roadmapSettings gains focusMissionId (single active focus per habitat;
+6. additive — no migration, reuses the v0.25.4 JSON column).
+7. goal_directed resolves the focus from the explicit setting, or self-derives
+8. it as the active mission with the most direct dependents (the biggest
+9. bottleneck) when unset. It then BFS-computes the focus's transitive
+10. prerequisite chain and soft-boosts candidate tasks by proximity (shortest
+11. hop count to the goal). Batched per suggestion pass.
+12. The boost is strictly soft — it never gates claiming; off-chain work and the
+13. other algorithms are unchanged.
+14. The Roadmap settings tab gains the goal_directed option and a focus-mission
+15. selector (or auto-derive).
+16. ADR-0034 records the approved decision (single focus mission + self-derived
+17. highest-fan-out + soft-boost-not-gate).
+
+19. The agent MCP set_focus_mission action is a deferred fast-follow —
+20. self-derivation makes the feature useful without explicit setting.
+
+
+
 ## 0.25.6 — 2026-07-04
 
 ### Features
@@ -64,29 +93,3 @@
 11. affordances only — existing gated missions still display their badges.
 12. No backend or migration: mode reuses the roadmap_settings column from v0.25.4,
 13. and the PATCH route/schema/service/repo already supported every edited field.
-
-
-
-## 0.25.4 — 2026-07-04
-
-### Features
-
-#### selectable roadmap scoring algorithms (v0.25.4) ([`3a8155f`](https://github.com/waterworkshq/orcy/commit/3a8155ff60b9c0717b2ded7e872a8571ebd16501))
-
-1. Make the roadmap-position bonus strategy-driven and selectable per habitat,
-2. adding depth-from-root and release-proximity algorithms alongside the existing
-3. fan-out default.
-
-5. A new roadmap_settings JSON column on habitats (migration 0052) holds the
-6. chosen scoringAlgorithm; default fanout preserves v0.25.0 behavior.
-7. taskSuggestion's dependency bonus is now produced by a pluggable strategy
-8. (services/roadmapScoring.ts), batched into one map per suggestion pass so the
-9. poll-tick hot path stays O(V+E). Strategies: fanout (direct dependents),
-10. depth_from_root (mission depth from the dependency roots, foundational-first),
-11. release_proximity (boost work whose release-gate just resolved).
-12. A Roadmap settings tab in the habitat dialog selects the algorithm.
-
-14. A goal/direction-aware critical-path algorithm was scoped out of this patch:
-15. the goal concept is a deliberate focus feature (an orcy-settable or
-16. self-derived target that boosts work toward it, never a hard gate), not a
-17. scoring detail, and needs its own design pass. Tracked as a follow-up patch.
