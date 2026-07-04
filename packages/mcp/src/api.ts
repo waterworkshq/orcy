@@ -634,9 +634,11 @@ export class KanbanApiClient
     return this.request<MissionProgressResponse>("GET", `/api/missions/${missionId}/progress`);
   }
 
-  /** Roadmap DAG context (missions + deps + nextInLine + recentReleases) for the triage investigation surface. */
-  async getRoadmapContext(habitatId: string): Promise<RoadmapContext> {
-    return this.request<RoadmapContext>("GET", `/api/habitats/${habitatId}/roadmap`);
+  /** Roadmap DAG context (missions + deps + nextInLine + recentReleases) for the triage investigation surface.
+   * RM-14: pass `summary=true` to bound the payload on large habitats (counts + nextInLine, arrays omitted). */
+  async getRoadmapContext(habitatId: string, summary = false): Promise<RoadmapContext> {
+    const qs = summary ? "?summary=true" : "";
+    return this.request<RoadmapContext>("GET", `/api/habitats/${habitatId}/roadmap${qs}`);
   }
 
   async claimTask(

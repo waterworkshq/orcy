@@ -103,13 +103,21 @@ export interface MissionClient {
   unarchiveMission(missionId: string): Promise<{ mission: Mission }>;
   getMissionContext(missionId: string): Promise<MissionContext>;
   getMissionProgress(missionId: string): Promise<MissionProgressResponse>;
-  /** Roadmap DAG context for a habitat (missions + deps + nextInLine + recentReleases). Feeds the triage investigation surface. */
-  getRoadmapContext(habitatId: string): Promise<RoadmapContext>;
+  /** Roadmap DAG context for a habitat (missions + deps + nextInLine + recentReleases). Feeds the triage investigation surface. RM-14: summary=true bounds the payload (counts + nextInLine, arrays omitted). */
+  getRoadmapContext(habitatId: string, summary?: boolean): Promise<RoadmapContext>;
 }
 
-/** Roadmap DAG snapshot returned by {@link MissionClient.getRoadmapContext}. */
+/** Roadmap DAG snapshot returned by {@link MissionClient.getRoadmapContext}. In
+ * `summary` mode (RM-14) the raw `missions`/`dependencies` arrays are omitted in
+ * favour of counts — used by the triage signal-cluster investigation to bound the
+ * payload on large habitats. Full mode (default, and required for orphan-positioning)
+ * returns the arrays. */
 export interface RoadmapContext {
-  missions: Array<{
+  /** Present and true when the response is a summary (arrays omitted). */
+  summary?: true;
+  missionCount?: number;
+  dependencyCount?: number;
+  missions?: Array<{
     id: string;
     title: string;
     status: string;
@@ -118,7 +126,7 @@ export interface RoadmapContext {
     priority: string;
     displayOrder: number;
   }>;
-  dependencies: Array<{ missionId: string; dependsOnId: string }>;
+  dependencies?: Array<{ missionId: string; dependsOnId: string }>;
   nextInLine: string[];
   recentReleases: Array<{ version: string; releaseType: string; detectedAt: string }>;
 }

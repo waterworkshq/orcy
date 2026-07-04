@@ -25,11 +25,15 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().get(
     "/habitats/:habitatId/roadmap",
     {
-      schema: { params: habitatIdParamsSchema },
+      schema: {
+        params: habitatIdParamsSchema,
+        querystring: z.object({ summary: z.enum(["true", "false"]).optional() }),
+      },
       preHandler: [agentOrHumanAuth],
     },
     async (request) => {
       const { habitatId } = request.params;
+      const summary = request.query.summary === "true";
 
       // Habitat membership check (stricter than requireHabitatAccess: also blocks
       // agents from team habitats — mirrors the triage verifyHabitatAccess pattern).
@@ -110,6 +114,23 @@ export async function roadmapRoutes(fastify: FastifyInstance): Promise<void> {
           return true;
         })
         .map((m) => m.id);
+
+      // RM-14: summary mode bounds the payload for large habitats — counts + the
+      // actionable nextInLine set + recent releases, omitting the raw mission/edge
+      // arrays. Full mode (default, and required for orphan-positioning) returns arrays.
+      if (summary) {
+        return {
+          summary: true as const,
+          missionCount: missionRows.length,
+          dependencyCount: depRows.length,
+          nextInLine,
+          recentReleases: recentReleases.map((r) => ({
+            version: r.version,
+            releaseType: r.releaseType,
+            detectedAt: r.detectedAt,
+          })),
+        };
+      }
 
       return {
         missions: missionRows.map((m) => ({

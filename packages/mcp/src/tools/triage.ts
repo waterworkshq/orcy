@@ -78,7 +78,10 @@ export async function triageInvestigate(
     client.getTopTriageClusters(habitatId),
     client.listTriageFindings(habitatId),
     client.getTriageResolutions(habitatId, clusterKey),
-    client.getRoadmapContext(habitatId),
+    // RM-14: the signal-cluster investigation only needs nextInLine + counts, not
+    // the raw mission/edge arrays — summary mode bounds the payload on large habitats.
+    // (The orphan-mission branch below uses full mode — it needs edges for positioning.)
+    client.getRoadmapContext(habitatId, true),
   ]);
 
   const clusterSummary = topResp.clusters.find((c) => c.clusterKey === clusterKey);
@@ -140,12 +143,10 @@ export async function triageInvestigate(
       resolution: r.resolution,
       resolvedAt: r.resolvedAt,
     })),
-    roadmap: {
-      nextInLine: roadmap.nextInLine,
-      missions: roadmap.missions,
-      dependencies: roadmap.dependencies,
-      recentReleases: roadmap.recentReleases,
-    },
+    // RM-14: spread the roadmap as-returned — in summary mode this carries
+    // missionCount/dependencyCount/nextInLine/recentReleases (no raw arrays);
+    // in full mode it carries the arrays too.
+    roadmap,
     investigationNote: hasActiveMission
       ? "A triage mission already exists for this cluster — claim it and use this context during the investigation."
       : "No active triage mission detected. The scan may not have crossed threshold yet; check the mission board before starting new work.",

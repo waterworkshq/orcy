@@ -205,6 +205,65 @@ describe("orcy_triage dispatch", () => {
     expect(TRIAGE_ACTIONS.map_orphan_mission).toBe(triageMapOrphanMission);
   });
 
+  it("RM-14: signal-cluster investigate fetches the roadmap in summary mode (bounds payload)", async () => {
+    let summaryArg: unknown;
+    const client = createMockClient({
+      getRoadmapContext: async (_habitatId: string, summary?: boolean) => {
+        summaryArg = summary;
+        // Summary-mode shape: counts + nextInLine + recentReleases, no raw arrays.
+        return {
+          summary: true as const,
+          missionCount: 42,
+          dependencyCount: 7,
+          nextInLine: ["m-1"],
+          recentReleases: [],
+        } as never;
+      },
+    });
+
+    const result = (await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "some-cluster",
+    })) as {
+      roadmap: {
+        summary?: boolean;
+        missionCount?: number;
+        nextInLine: string[];
+        missions?: unknown[];
+      };
+    };
+
+    expect(summaryArg).toBe(true);
+    expect(result.roadmap.summary).toBe(true);
+    expect(result.roadmap.missionCount).toBe(42);
+    expect(result.roadmap.nextInLine).toEqual(["m-1"]);
+    // Raw arrays are omitted in summary mode.
+    expect(result.roadmap.missions).toBeUndefined();
+  });
+
+  it("RM-14: orphan-mission investigate fetches the roadmap in FULL mode (needs edges for positioning)", async () => {
+    let summaryArg: unknown;
+    const client = createMockClient({
+      getRoadmapContext: async (_habitatId: string, summary?: boolean) => {
+        summaryArg = summary;
+        return {
+          missions: [],
+          dependencies: [{ missionId: "m-y", dependsOnId: "m-x" }],
+          nextInLine: ["m-x"],
+          recentReleases: [],
+        } as never;
+      },
+    });
+
+    await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-orphan-1",
+    });
+
+    // Full mode — the agent needs the dependency edges to position the orphan.
+    expect(summaryArg).toBeFalsy();
+  });
+
   it("RM-7: investigate branches on orphan-mission:{id} and returns orphan + roadmap context", async () => {
     const client = createMockClient({
       getRoadmapContext: async () => ({
