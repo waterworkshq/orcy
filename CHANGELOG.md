@@ -2,6 +2,75 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.8 — 2026-07-04
+
+### Bug Fixes
+
+#### require habitat membership on mission-id-keyed routes ([`d1360d8`](https://github.com/waterworkshq/orcy/commit/d1360d88ce62e96d48306ac94ca92060e8b54cda))
+
+1. Close the authz gap on /missions/:missionId/* routes (the RM-11 scope
+2. deferred to a follow-up). A new authorizeMissionAccess middleware derives
+3. the habitatId from the mission param and runs the same membership check as
+4. requireHabitatAccess. The shared check logic is extracted into checkHabitatAccess
+5. so both habitat-param and mission-param authorization use one implementation.
+
+7. All 11 mission-id-keyed routes in missions.ts now require membership: GET,
+8. GET details, PATCH, archive, unarchive, delete, move, tasks (GET+POST),
+9. progress, decompose.
+
+
+
+### Chores
+
+#### bump Node floor to >=22, lib to ES2025, @types/node to ^22 ([`28bc4f7`](https://github.com/waterworkshq/orcy/commit/28bc4f72a616bbb89e00a2841800a296ac80d0a7))
+
+1. The runtime has been Node 24 for months; the declared floor (>=20) and
+2. @types/node (^20.12.0) lagged behind, blocking ES2025 APIs in types.
+
+4. engines.node: >=20 → >=22 across all 7 packages.
+5. @types/node: ^20.12.0 → ^22.0.0 across all 7 packages.
+6. tsconfig lib: ES2022/ES2023 → ES2025 across all 7 packages (additive —
+7. byte-identical emit, unlocks Promise.try and other ES2025 standard types).
+8. pnpm-lock.yaml updated.
+
+10. CS status: CS-20 (Promise.try) has no remaining call sites (refactored away).
+11. CS-16 (Map.getOrInsert) needs the Stage 2 proposal to ship to Node — deferred.
+12. CS-17 (Temporal) is L effort — deferred. The floor bump unblocks all future
+13. ES2025 adoption.
+
+
+
+### Documentation
+
+#### mark v0.25.x patch cadence delivered (v0.25.1–v0.25.7) ([`7e3aafa`](https://github.com/waterworkshq/orcy/commit/7e3aafa951b465b7378d4679d3ac9cf525ee0255))
+
+1. Move the Roadmap Activation patches from Upcoming to Delivered in ROADMAP.md
+2. and update README What's Next. All RM-1..15 items shipped across 7 patch
+3. releases; one fast-follow remains (agent set_focus_mission MCP action).
+
+
+
+### Features
+
+#### per-release promotion cap, set_focus_mission MCP action, ROADMAP sync ([`3447cf6`](https://github.com/waterworkshq/orcy/commit/3447cf6ff817fb6e1383084ee2bbdad240dfe397))
+
+1. Three deferred items cleared:
+
+3. REL-9 — per-release promotion cap. releaseSettings gains
+4. maxPromotionsPerRelease (default null/unlimited). The gate-resolution loop
+5. promotes up to the cap and records excess findings as cappedCount in the
+6. result + retrospective — a major release can no longer flood a habitat.
+
+8. set_focus_mission — the RM-15 agent-set fast-follow. A scoped
+9. PATCH /habitats/:id/roadmap-focus route (agentOrHumanAuth + habitat
+10. membership) lets the triage/daemon agent designate the focus goal (or clear
+11. it to auto-derive). Registered as a triage MCP action.
+
+13. ROADMAP/README sync — the stale v0.24.x entry (claimed REL-1..5 pending, but
+14. those were resolved in v0.24.1-0.24.3) is corrected to delivered.
+
+
+
 ## 0.25.7 — 2026-07-04
 
 ### Features
@@ -71,25 +140,3 @@
 9. dependency edges to position an orphan.
 10. getRoadmapContext and the RoadmapContext type thread the summary flag;
 11. full mode (the default) is unchanged, so existing consumers are unaffected.
-
-
-
-## 0.25.5 — 2026-07-04
-
-### Features
-
-#### mission edit form and feature-based authoring mode (v0.25.5) ([`963e420`](https://github.com/waterworkshq/orcy/commit/963e42076e27f71fef5bfd7f4070fd9c16f72030))
-
-1. Add a full edit form for existing missions and a habitat mode that de-emphasizes
-2. release-gate authoring for teams not shipping on a release cadence.
-
-4. New EditMissionForm dialog (title, description, priority, labels, due, SLA,
-5. release-gate, release-deadline), pre-filled from the mission and PATCHing with
-6. version for optimistic concurrency; a 409 surfaces a refresh hint. Wired into
-7. the mission detail header via a new useUpdateMission hook.
-8. roadmapSettings gains an authoring mode (release default | feature). In feature
-9. mode the create and edit forms hide the release-gate and release-deadline
-10. selectors; the Roadmap settings tab toggles it. Mode affects authoring
-11. affordances only — existing gated missions still display their badges.
-12. No backend or migration: mode reuses the roadmap_settings column from v0.25.4,
-13. and the PATCH route/schema/service/repo already supported every edited field.
