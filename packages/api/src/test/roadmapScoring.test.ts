@@ -60,7 +60,9 @@ function seedTask(missionId: string, title: string) {
 }
 
 function setAlgorithm(algorithm: "fanout" | "depth_from_root" | "release_proximity") {
-  habitatRepo.updateHabitat(habitatId, { roadmapSettings: { scoringAlgorithm: algorithm } });
+  habitatRepo.updateHabitat(habitatId, {
+    roadmapSettings: { scoringAlgorithm: algorithm, mode: "release" },
+  });
 }
 
 function suggest() {

@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/index.js";
 import { queryKeys } from "./queryKeys.js";
-import type { CreateMissionInput, CreateTaskInMissionInput } from "../types/index.js";
+import type { CreateMissionInput, CreateTaskInMissionInput, Mission } from "../types/index.js";
 
 export function useBoards() {
   return useQuery({
@@ -110,6 +110,18 @@ export function useCreateMission(habitatId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
       qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
+    },
+  });
+}
+
+export function useUpdateMission(missionId: string, habitatId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<Mission> & { version?: number }) =>
+      api.missions.update(missionId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
+      qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
     },
   });
 }

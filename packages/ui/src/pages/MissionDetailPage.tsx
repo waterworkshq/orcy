@@ -21,6 +21,7 @@ import {
 import { FeatureMetrics } from "../components/habitat/MissionMetrics.js";
 import { FeatureTaskKanban } from "../components/habitat/MissionTaskKanban.js";
 import { PipelineContextSidebar } from "../components/habitat/PipelineContextSidebar.js";
+import { EditMissionForm } from "../components/habitat/EditMissionForm.js";
 import { RiskAnalysisSidebar } from "../components/habitat/RiskAnalysisSidebar.js";
 import { CodeReviewSection } from "../components/habitat/CodeReviewSection.js";
 import { AgentReasoningTrace } from "../components/habitat/AgentReasoningTrace.js";
@@ -119,6 +120,7 @@ export function MissionDetailPage() {
   const [activeTab, setActiveTab] = useState<
     "tasks" | "pulse" | "activity" | "comments" | "workflow"
   >("tasks");
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.missions.details(id ?? ""),
@@ -168,7 +170,7 @@ export function MissionDetailPage() {
         <PipelineContextSidebar feature={feature} tasks={tasks} />
 
         <section className="flex-1 flex flex-col min-w-0">
-          <FeatureHeader feature={feature} />
+          <FeatureHeader feature={feature} onEdit={() => setEditOpen(true)} />
 
           <div className="flex border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/50">
             {tabs.map(({ key, label, icon: Icon }) => (
@@ -242,6 +244,8 @@ export function MissionDetailPage() {
           dependencies={dependencies}
         />
       </div>
+
+      <EditMissionForm open={editOpen} onClose={() => setEditOpen(false)} mission={feature} />
     </div>
   );
 }

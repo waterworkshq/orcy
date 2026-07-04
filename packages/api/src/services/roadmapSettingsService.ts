@@ -13,5 +13,6 @@ export function resolveRoadmapSettings(habitatId: string): RoadmapSettings {
   return {
     scoringAlgorithm:
       habitat.roadmapSettings.scoringAlgorithm ?? DEFAULT_ROADMAP_SETTINGS.scoringAlgorithm,
+    mode: habitat.roadmapSettings.mode ?? DEFAULT_ROADMAP_SETTINGS.mode,
   };
 }

@@ -126,16 +126,20 @@ export type RoadmapScoringAlgorithm = "fanout" | "depth_from_root" | "release_pr
 export interface RoadmapSettings {
   /** Active scoring algorithm for the roadmap-position bonus. Default `fanout`. */
   scoringAlgorithm: RoadmapScoringAlgorithm;
+  /** Authoring mode: `release` (default) shows release-gate/deadline selectors in mission forms; `feature` hides them for teams not shipping on a release cadence. Display of existing gates is unaffected. */
+  mode: "release" | "feature";
 }
 
 /** Default roadmap settings used when a habitat has no `roadmapSettings` configured. */
 export const DEFAULT_ROADMAP_SETTINGS: RoadmapSettings = {
   scoringAlgorithm: "fanout",
+  mode: "release",
 };
 
 /** Zod schema for validating `roadmapSettings` patches (all fields optional). */
 export const roadmapSettingsSchema = z.object({
   scoringAlgorithm: z.enum(["fanout", "depth_from_root", "release_proximity"]).optional(),
+  mode: z.enum(["release", "feature"]).optional(),
 });
 
 /**

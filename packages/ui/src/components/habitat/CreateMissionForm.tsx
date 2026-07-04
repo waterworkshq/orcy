@@ -11,7 +11,7 @@ import { Button } from "../ui/Button.js";
 import { RichTextEditor } from "../ui/RichTextEditor.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { notify } from "../../lib/toast.js";
-import { useTemplates, useCreateMission } from "../../lib/useHabitatData.js";
+import { useTemplates, useCreateMission, useBoard } from "../../lib/useHabitatData.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys.js";
 import type { TaskPriority } from "../../types/index.js";
@@ -41,6 +41,9 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
   const [releaseDeadlineVersion, setReleaseDeadlineVersion] = useState("");
   const createMission = useCreateMission(habitatId);
   const qc = useQueryClient();
+  const { data: boardData } = useBoard(habitatId);
+  // Feature-based habitats hide release-gate/deadline authoring (RM-6). Existing gates still display.
+  const releaseMode = boardData?.board?.roadmapSettings?.mode !== "feature";
 
   useEffect(() => {
     if (open) {
@@ -206,65 +209,69 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium">Release Gate</label>
-                <select
-                  value={releaseGateType}
-                  onChange={(e) =>
-                    setReleaseGateType(e.target.value as "patch" | "minor" | "major" | "")
-                  }
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="">No gate</option>
-                  <option value="patch">Patch</option>
-                  <option value="minor">Minor</option>
-                  <option value="major">Major</option>
-                </select>
-              </div>
-              {releaseGateType && (
+            {releaseMode && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Gate Version</label>
-                  <input
-                    type="text"
-                    value={releaseGateVersion}
-                    onChange={(e) => setReleaseGateVersion(e.target.value)}
-                    placeholder="e.g. v0.25 or v0.25.0"
+                  <label className="mb-1 block text-sm font-medium">Release Gate</label>
+                  <select
+                    value={releaseGateType}
+                    onChange={(e) =>
+                      setReleaseGateType(e.target.value as "patch" | "minor" | "major" | "")
+                    }
                     className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
+                  >
+                    <option value="">No gate</option>
+                    <option value="patch">Patch</option>
+                    <option value="minor">Minor</option>
+                    <option value="major">Major</option>
+                  </select>
                 </div>
-              )}
-            </div>
+                {releaseGateType && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Gate Version</label>
+                    <input
+                      type="text"
+                      value={releaseGateVersion}
+                      onChange={(e) => setReleaseGateVersion(e.target.value)}
+                      placeholder="e.g. v0.25 or v0.25.0"
+                      className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium">Release Deadline</label>
-                <select
-                  value={releaseDeadlineType}
-                  onChange={(e) =>
-                    setReleaseDeadlineType(e.target.value as "patch" | "minor" | "major" | "")
-                  }
-                  className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="">No deadline</option>
-                  <option value="patch">Patch</option>
-                  <option value="minor">Minor</option>
-                  <option value="major">Major</option>
-                </select>
-              </div>
-              {releaseDeadlineType && (
+            {releaseMode && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Deadline Version</label>
-                  <input
-                    type="text"
-                    value={releaseDeadlineVersion}
-                    onChange={(e) => setReleaseDeadlineVersion(e.target.value)}
-                    placeholder="e.g. v0.26 or v0.26.0"
+                  <label className="mb-1 block text-sm font-medium">Release Deadline</label>
+                  <select
+                    value={releaseDeadlineType}
+                    onChange={(e) =>
+                      setReleaseDeadlineType(e.target.value as "patch" | "minor" | "major" | "")
+                    }
                     className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
+                  >
+                    <option value="">No deadline</option>
+                    <option value="patch">Patch</option>
+                    <option value="minor">Minor</option>
+                    <option value="major">Major</option>
+                  </select>
                 </div>
-              )}
-            </div>
+                {releaseDeadlineType && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Deadline Version</label>
+                    <input
+                      type="text"
+                      value={releaseDeadlineVersion}
+                      onChange={(e) => setReleaseDeadlineVersion(e.target.value)}
+                      placeholder="e.g. v0.26 or v0.26.0"
+                      className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
 

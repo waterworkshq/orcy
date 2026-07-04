@@ -42,11 +42,14 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
   function RoadmapSettingsTab({ habitatId, boardRoadmapSettings, onUpdate, onSavingChange }, ref) {
     const initial = boardRoadmapSettings ?? DEFAULTS;
     const [algorithm, setAlgorithm] = useState<RoadmapScoringAlgorithm>(initial.scoringAlgorithm);
+    const [mode, setMode] = useState<"release" | "feature">(initial.mode);
 
     const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId, onUpdate });
 
     useEffect(() => {
-      setAlgorithm((boardRoadmapSettings ?? DEFAULTS).scoringAlgorithm);
+      const s = boardRoadmapSettings ?? DEFAULTS;
+      setAlgorithm(s.scoringAlgorithm);
+      setMode(s.mode);
     }, [boardRoadmapSettings]);
 
     useEffect(() => {
@@ -55,10 +58,10 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
 
     const handleSave = useCallback(async () => {
       await saveSettings(
-        { roadmapSettings: { scoringAlgorithm: algorithm } },
-        "Roadmap scoring saved",
+        { roadmapSettings: { scoringAlgorithm: algorithm, mode } },
+        "Roadmap settings saved",
       );
-    }, [saveSettings, algorithm]);
+    }, [saveSettings, algorithm, mode]);
 
     useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave]);
 
@@ -67,10 +70,29 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
     return (
       <div className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          Choose how the roadmap-position bonus ranks available tasks. This layers on top of
-          priority, SLA, and capability scoring; it only changes which roadmap-position signal is
-          used.
+          Choose how the roadmap-position bonus ranks available tasks, and whether mission forms
+          offer release-gate authoring. Mode affects authoring affordances only — existing gated
+          missions still display their badges.
         </p>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium" htmlFor="roadmap-mode">
+            Authoring mode
+          </label>
+          <select
+            id="roadmap-mode"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as "release" | "feature")}
+            className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="release">Release-based (show release-gate fields in forms)</option>
+            <option value="feature">Feature-based (hide release-gate fields in forms)</option>
+          </select>
+          <p className="text-xs text-muted-foreground">
+            {mode === "release"
+              ? "Mission forms show the release-gate and release-deadline selectors."
+              : "Mission forms hide the release-gate and release-deadline selectors (for teams not shipping on a release cadence)."}
+          </p>
+        </div>
         <div className="space-y-2">
           <label className="block text-sm font-medium" htmlFor="roadmap-scoring-algorithm">
             Scoring algorithm

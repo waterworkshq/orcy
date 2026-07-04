@@ -1,16 +1,16 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import Markdown from 'react-markdown';
-import { Badge } from '../ui/Badge.js';
-import { Button } from '../ui/Button.js';
-import { ArrowLeft, Clock, Tag, Calendar } from 'lucide-react';
-import type { MissionWithProgress } from '../../types/index.js';
+import React from "react";
+import { Link } from "react-router-dom";
+import Markdown from "react-markdown";
+import { Badge } from "../ui/Badge.js";
+import { Button } from "../ui/Button.js";
+import { ArrowLeft, Clock, Tag, Calendar, Pencil } from "lucide-react";
+import type { MissionWithProgress } from "../../types/index.js";
 
 export function formatRelativeTime(dateStr: string | null): string {
-  if (!dateStr) return '\u2014';
+  if (!dateStr) return "\u2014";
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
+  if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
@@ -19,26 +19,23 @@ export function formatRelativeTime(dateStr: string | null): string {
 }
 
 export function formatStatus(status: string): string {
-  return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function statusBadgeVariant(status: string) {
-  if (status === 'done') return 'done';
-  if (status === 'failed') return 'failed';
-  if (status === 'in_progress') return 'in_progress';
-  return 'default';
+  if (status === "done") return "done";
+  if (status === "failed") return "failed";
+  if (status === "in_progress") return "in_progress";
+  return "default";
 }
 
 interface FeatureHeaderProps {
   feature: MissionWithProgress;
+  onEdit?: () => void;
 }
 
-export function FeatureHeader({ feature }: FeatureHeaderProps) {
-  const priorityVariant = feature.priority as
-    | 'critical'
-    | 'high'
-    | 'medium'
-    | 'low';
+export function FeatureHeader({ feature, onEdit }: FeatureHeaderProps) {
+  const priorityVariant = feature.priority as "critical" | "high" | "medium" | "low";
 
   return (
     <div className="cool-glow px-6 py-4 border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/40">
@@ -94,6 +91,12 @@ export function FeatureHeader({ feature }: FeatureHeaderProps) {
             )}
           </div>
           <div className="flex gap-2 ml-4 shrink-0">
+            {onEdit && (
+              <Button variant="ghost" size="sm" onClick={onEdit}>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            )}
             <Link to={`/boards/${feature.habitatId}`}>
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
