@@ -2,6 +2,28 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.5 — 2026-07-04
+
+### Features
+
+#### mission edit form and feature-based authoring mode (v0.25.5) ([`963e420`](https://github.com/waterworkshq/orcy/commit/963e42076e27f71fef5bfd7f4070fd9c16f72030))
+
+1. Add a full edit form for existing missions and a habitat mode that de-emphasizes
+2. release-gate authoring for teams not shipping on a release cadence.
+
+4. New EditMissionForm dialog (title, description, priority, labels, due, SLA,
+5. release-gate, release-deadline), pre-filled from the mission and PATCHing with
+6. version for optimistic concurrency; a 409 surfaces a refresh hint. Wired into
+7. the mission detail header via a new useUpdateMission hook.
+8. roadmapSettings gains an authoring mode (release default | feature). In feature
+9. mode the create and edit forms hide the release-gate and release-deadline
+10. selectors; the Roadmap settings tab toggles it. Mode affects authoring
+11. affordances only — existing gated missions still display their badges.
+12. No backend or migration: mode reuses the roadmap_settings column from v0.25.4,
+13. and the PATCH route/schema/service/repo already supported every edited field.
+
+
+
 ## 0.25.4 — 2026-07-04
 
 ### Features
@@ -50,25 +72,3 @@
 14. release window: the gate claim-blocks until its release ships, the deadline
 15. escalates on its own miss. The two mechanisms stay independent.
 16. Mission form gains a deadline selector; mission cards show a deadline badge.
-
-
-
-## 0.25.2 — 2026-07-03
-
-### Bug Fixes
-
-#### enforce habitat membership on mission and plugin routes (v0.25.2) ([`02d2805`](https://github.com/waterworkshq/orcy/commit/02d2805922c21a8fe2a4ca3fe7ac439794dc8df7))
-
-1. Replace the existence-only requireHabitat middleware with requireHabitatAccess
-2. on the habitat-scoped mission and plugin routes, closing a cross-tenant access
-3. gap where any authenticated user could read or mutate another team's habitat.
-
-5. Plugin enrollment, run, and quarantine routes now require team membership.
-6. Mission create and list routes now require team membership; the redundant
-7. inline existence check on list is removed.
-8. Roadmap keeps its stricter inline check (which also blocks agents from team
-9. habitats) and drops the now-redundant requireHabitat call.
-10. The weak requireHabitat middleware is deleted (zero remaining callers).
-
-12. Agent access is unchanged — both middlewares let authenticated agents reach any
-13. habitat; only human cross-tenant access was the gap.
