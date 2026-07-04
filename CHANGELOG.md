@@ -2,6 +2,32 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.4 — 2026-07-04
+
+### Features
+
+#### selectable roadmap scoring algorithms (v0.25.4) ([`3a8155f`](https://github.com/waterworkshq/orcy/commit/3a8155ff60b9c0717b2ded7e872a8571ebd16501))
+
+1. Make the roadmap-position bonus strategy-driven and selectable per habitat,
+2. adding depth-from-root and release-proximity algorithms alongside the existing
+3. fan-out default.
+
+5. A new roadmap_settings JSON column on habitats (migration 0052) holds the
+6. chosen scoringAlgorithm; default fanout preserves v0.25.0 behavior.
+7. taskSuggestion's dependency bonus is now produced by a pluggable strategy
+8. (services/roadmapScoring.ts), batched into one map per suggestion pass so the
+9. poll-tick hot path stays O(V+E). Strategies: fanout (direct dependents),
+10. depth_from_root (mission depth from the dependency roots, foundational-first),
+11. release_proximity (boost work whose release-gate just resolved).
+12. A Roadmap settings tab in the habitat dialog selects the algorithm.
+
+14. A goal/direction-aware critical-path algorithm was scoped out of this patch:
+15. the goal concept is a deliberate focus feature (an orcy-settable or
+16. self-derived target that boosts work toward it, never a hard gate), not a
+17. scoring detail, and needs its own design pass. Tracked as a follow-up patch.
+
+
+
 ## 0.25.3 — 2026-07-03
 
 ### Features
@@ -46,22 +72,3 @@
 
 12. Agent access is unchanged — both middlewares let authenticated agents reach any
 13. habitat; only human cross-tenant access was the gap.
-
-
-
-## 0.25.1 — 2026-07-03
-
-### Refactors
-
-#### consolidate release-gate logic, finding-mission safety, and drop legacy activation (v0.25.1) ([`305b836`](https://github.com/waterworkshq/orcy/commit/305b836b065dfbc747ecccb7322d10789ddd832c))
-
-1. Extract isReleaseGateSatisfied into @orcy/shared, collapsing the three
-2. duplicated gate-satisfaction sites (taskQueries, the roadmap route, and
-3. findGatedMissionsMatching) into a single pure shared helper.
-4. findByTriageMissionId now returns all linked findings and the activation
-5. loop promotes each one, so a mission shared by several findings no longer
-6. silently drops the extras.
-7. setTriageMissionId accepts null; PATCH /triage/findings/:id may now clear a
-8. finding's mission link instead of returning 400.
-9. Remove the deprecated findReleaseMatched query and its free-floating
-10. activation loop, leaving release-gate resolution as the sole activation path.
