@@ -10,6 +10,7 @@ import type {
   WikiSettings,
   TriageSettings,
   ReleaseSettings,
+  RoadmapSettings,
 } from "./settings.js";
 import type { TaskPriority } from "./task.js";
 import type { MissionStatus } from "./feature.js";
@@ -46,6 +47,7 @@ export interface Habitat {
   wikiSettings: WikiSettings | null;
   triageSettings: TriageSettings | null;
   releaseSettings: ReleaseSettings | null;
+  roadmapSettings: RoadmapSettings | null;
   eventRetentionDays: number | null;
   createdAt: string;
   updatedAt: string;

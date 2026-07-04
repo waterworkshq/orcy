@@ -167,6 +167,9 @@ import type {
   TriageSettings,
   // Release types (v0.24)
   ReleaseType,
+  // Roadmap scoring types (v0.25)
+  RoadmapSettings,
+  RoadmapScoringAlgorithm,
 } from "@orcy/shared";
 
 export type {
@@ -335,6 +338,9 @@ export type {
   TriageSettings,
   // Release types (v0.24)
   ReleaseType,
+  // Roadmap scoring types (v0.25)
+  RoadmapSettings,
+  RoadmapScoringAlgorithm,
 };
 
 // ---------------------------------------------------------------------------

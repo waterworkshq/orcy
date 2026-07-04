@@ -23,6 +23,7 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
         prioritizationSettings?: import("../types/index.js").PrioritizationSettings | null;
         gitWorktreeSettings?: import("../types/index.js").GitWorktreeSettings | null;
         triageSettings?: import("../types/index.js").TriageSettings | null;
+        roadmapSettings?: import("../types/index.js").RoadmapSettings | null;
       },
       successMessage: string,
     ) => {

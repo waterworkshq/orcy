@@ -51,7 +51,9 @@ export type { AutoAssignStrategy } from "./settings.js";
 export {
   DEFAULT_TRIAGE_SETTINGS,
   DEFAULT_RELEASE_SETTINGS,
+  DEFAULT_ROADMAP_SETTINGS,
   releaseSettingsSchema,
+  roadmapSettingsSchema,
 } from "./settings.js";
 export type {
   AnomalySettings,
@@ -60,6 +62,8 @@ export type {
   AutomationSettings,
   TriageSettings,
   ReleaseSettings,
+  RoadmapSettings,
+  RoadmapScoringAlgorithm,
   GitWorktreeSettings,
   CodeReviewSettings,
   CiCdSettings,

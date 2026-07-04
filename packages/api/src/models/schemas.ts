@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_TYPES, releaseSettingsSchema } from "@orcy/shared";
+import { AGENT_TYPES, releaseSettingsSchema, roadmapSettingsSchema } from "@orcy/shared";
 
 const artifactSchema = z.object({
   type: z.enum(["file", "pr", "commit", "log", "screenshot"]),
@@ -241,6 +241,7 @@ export const updateHabitatSchema = z.object({
   autoAssignSettings: autoAssignSettingsSchema.nullable().optional(),
   triageSettings: triageSettingsSchema.nullable().optional(),
   releaseSettings: releaseSettingsSchema.nullable().optional(),
+  roadmapSettings: roadmapSettingsSchema.nullable().optional(),
   eventRetentionDays: z.number().int().min(1).max(3650).optional(),
 });
 

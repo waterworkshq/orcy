@@ -49,6 +49,10 @@ vi.mock("../db/schema/index.js", () => ({
   taskDependencies: { dependsOnId: "depends_on_id", taskId: "task_id" },
 }));
 
+// resolveRoadmapSettings (called by getSuggestionsForAgent) reads habitat settings;
+// stub the board repo so it returns no habitat → default `fanout` algorithm.
+vi.mock("../repositories/board.js", () => ({ getHabitatById: () => null }));
+
 vi.mock("drizzle-orm", async () => {
   const actual = await vi.importActual("drizzle-orm");
   return {

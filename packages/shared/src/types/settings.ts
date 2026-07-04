@@ -116,6 +116,29 @@ export const releaseSettingsSchema = z.object({
 });
 
 /**
+ * Selectable roadmap scoring algorithms (v0.25.4). `fanout` is the v0.25.0 default.
+ * A goal/direction-aware algorithm (critical-path toward an orcy-chosen or self-derived
+ * target) is deferred to its own patch — see `docs/plans/v25/PATCHES.md`.
+ */
+export type RoadmapScoringAlgorithm = "fanout" | "depth_from_root" | "release_proximity";
+
+/** Per-habitat roadmap scoring configuration. Stored as JSON on `habitats.roadmap_settings`. */
+export interface RoadmapSettings {
+  /** Active scoring algorithm for the roadmap-position bonus. Default `fanout`. */
+  scoringAlgorithm: RoadmapScoringAlgorithm;
+}
+
+/** Default roadmap settings used when a habitat has no `roadmapSettings` configured. */
+export const DEFAULT_ROADMAP_SETTINGS: RoadmapSettings = {
+  scoringAlgorithm: "fanout",
+};
+
+/** Zod schema for validating `roadmapSettings` patches (all fields optional). */
+export const roadmapSettingsSchema = z.object({
+  scoringAlgorithm: z.enum(["fanout", "depth_from_root", "release_proximity"]).optional(),
+});
+
+/**
  * Per-habitat wiki cadence configuration. Stored as a JSON column on `habitats.wiki_settings`
  * (mirrors the v0.18.1 `automation_settings` precedent). When `enabled` is `true`, the
  * {@link wikiSchedulerService} registers a `scheduled_tasks` row that runs `runCadence` on the

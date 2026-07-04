@@ -23,6 +23,7 @@ import type {
   WikiSettings,
   TriageSettings,
   ReleaseSettings,
+  RoadmapSettings,
   WorkflowTemplateDefinition,
 } from "../../models/index.js";
 import { teams } from "./user.js";
@@ -58,6 +59,7 @@ export const habitats = sqliteTable(
     wikiSettings: text("wiki_settings", { mode: "json" }).$type<WikiSettings | null>(),
     triageSettings: text("triage_settings", { mode: "json" }).$type<TriageSettings | null>(),
     releaseSettings: text("release_settings", { mode: "json" }).$type<ReleaseSettings | null>(),
+    roadmapSettings: text("roadmap_settings", { mode: "json" }).$type<RoadmapSettings | null>(),
     teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
     carryOverPolicy: text("carry_over_policy").notNull().default("backlog"),
   },

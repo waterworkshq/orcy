@@ -20,6 +20,10 @@ import { WorktreeTab, type WorktreeTabHandle } from "./settings/WorktreeTab.js";
 import { RepositoryTab, type RepositoryTabHandle } from "./settings/RepositoryTab.js";
 import { PluginsTab } from "./settings/PluginsTab.js";
 import { TriageSettingsTab, type TriageSettingsTabHandle } from "./settings/TriageSettingsTab.js";
+import {
+  RoadmapSettingsTab,
+  type RoadmapSettingsTabHandle,
+} from "./settings/RoadmapSettingsTab.js";
 import { ExportHabitatDialog } from "./ExportHabitatDialog.js";
 import { ImportHabitatDialog } from "./ImportHabitatDialog.js";
 import { api } from "../../api/index.js";
@@ -41,7 +45,8 @@ type SettingsTab =
   | "worktree"
   | "repository"
   | "plugins"
-  | "triage";
+  | "triage"
+  | "roadmap";
 
 const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "general", label: "General" },
@@ -59,6 +64,7 @@ const TAB_CONFIG: Array<{ key: SettingsTab; label: string }> = [
   { key: "repository", label: "Repository" },
   { key: "plugins", label: "Plugins" },
   { key: "triage", label: "Triage" },
+  { key: "roadmap", label: "Roadmap" },
 ];
 
 const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
@@ -71,6 +77,7 @@ const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
   worktree: "Save Worktree Settings",
   repository: "Save Repository",
   triage: "Save Triage Settings",
+  roadmap: "Save Roadmap Settings",
 };
 
 interface HabitatSettingsDialogProps {
@@ -104,6 +111,7 @@ export function HabitatSettingsDialog({
   const worktreeRef = useRef<WorktreeTabHandle>(null);
   const repositoryRef = useRef<RepositoryTabHandle>(null);
   const triageRef = useRef<TriageSettingsTabHandle>(null);
+  const roadmapRef = useRef<RoadmapSettingsTabHandle>(null);
 
   const handleTabSavingChange = useCallback((saving: boolean) => {
     setTabSaving(saving);
@@ -131,6 +139,8 @@ export function HabitatSettingsDialog({
         return repositoryRef;
       case "triage":
         return triageRef;
+      case "roadmap":
+        return roadmapRef;
       default:
         return { current: null };
     }
@@ -275,6 +285,15 @@ export function HabitatSettingsDialog({
               ref={triageRef}
               habitatId={board.id}
               boardTriageSettings={board.triageSettings}
+              onUpdate={onUpdate}
+              onSavingChange={handleTabSavingChange}
+            />
+          </div>
+          <div className={activeTab !== "roadmap" ? "hidden" : ""}>
+            <RoadmapSettingsTab
+              ref={roadmapRef}
+              habitatId={board.id}
+              boardRoadmapSettings={board.roadmapSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
