@@ -2,6 +2,49 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.25.6 — 2026-07-04
+
+### Features
+
+#### orphan-mission scan maps disconnected work into the roadmap (v0.25.6) ([`ade17c6`](https://github.com/waterworkshq/orcy/commit/ade17c684f588329d24586cf3a89fb335b354906))
+
+1. A periodic scan (orphan_mission_unmapped) detects missions with no dependency
+2. edges — disconnected from the roadmap DAG — and spawns a triage investigation
+3. for each. The daemon triage agent reads the roadmap context and positions the
+4. orphan by setting its dependencies (its judgment, not a hardcoded heuristic),
+5. closing the last roadmap-bootstrap path.
+
+7. New orphanScanService: detects dep-less active missions, suppresses re-firing
+8. per-orphan via the triage_cluster_missions junction (keyed
+9. orphan-mission:{id}), and creates a triage investigation reusing the existing
+10. triage mission template. Registered in runAllScans.
+11. triageService gains createOrphanTriageMission (template + junction).
+12. orcy_triage investigate branches on the orphan-mission:{id} clusterKey prefix
+13. to return orphan + roadmap context, and a new map_orphan_mission action sets
+14. deps (+ optional gate) on an existing mission via a new MCP updateMission
+15. method. Positioning is the agent's call; the action only writes the chosen edges.
+
+17. RM-14 (triageInvestigate payload mitigation) is deferred — no habitat has
+18. demonstrated payload bloat, and the repo layer already supports limit/offset if
+19. needed later.
+
+
+#### summary mode for the triage roadmap payload (v0.25.6 — RM-14) ([`5d97d08`](https://github.com/waterworkshq/orcy/commit/5d97d08c04037a7f6dbfea172ea607d005ce3000))
+
+1. Bound the triage investigation's roadmap section on large habitats. The roadmap
+2. route gains a ?summary=true query mode that returns mission/dependency counts
+3. plus the actionable nextInLine set and recent releases, omitting the raw
+4. mission and edge arrays that dominate the payload at scale.
+
+6. The signal-cluster investigation fetches the roadmap in summary mode by
+7. default (it only needs nextInLine + counts, not the raw graph).
+8. The orphan-mission investigation (RM-7) uses full mode — it needs the
+9. dependency edges to position an orphan.
+10. getRoadmapContext and the RoadmapContext type thread the summary flag;
+11. full mode (the default) is unchanged, so existing consumers are unaffected.
+
+
+
 ## 0.25.5 — 2026-07-04
 
 ### Features
@@ -47,28 +90,3 @@
 15. the goal concept is a deliberate focus feature (an orcy-settable or
 16. self-derived target that boosts work toward it, never a hard gate), not a
 17. scoring detail, and needs its own design pass. Tracked as a follow-up patch.
-
-
-
-## 0.25.3 — 2026-07-03
-
-### Features
-
-#### release-deadline gate and compound release window (v0.25.3) ([`ef53ec7`](https://github.com/waterworkshq/orcy/commit/ef53ec72aae4941e5ffe036a0818ba6f09020f8c))
-
-1. Add the reverse-direction release-deadline: a mission that should complete
-2. before a target release ships. When a matching release lands and the mission
-3. is not done, the release trigger escalates to habitat humans (new
-4. release.deadline_missed notification) and records the miss in the release
-5. retrospective. The deadline does NOT block claiming — a missed deadline is a
-6. signal, not a hard stop, so the mission can still be completed late.
-
-8. releaseDeadlineType / releaseDeadlineVersion columns on missions (migration
-9. 0051) plus a habitat-deadline index; both flow through create/update mission
-10. inputs, zod schemas, the shared Mission type, and the route.
-11. detectAndActivate gains a deadline-miss scan (reusing the shared release-gate
-12. matcher on the deadline fields) and a missedDeadlineCount in its result.
-13. A mission may carry both an after-gate and a before-deadline, composing into a
-14. release window: the gate claim-blocks until its release ships, the deadline
-15. escalates on its own miss. The two mechanisms stay independent.
-16. Mission form gains a deadline selector; mission cards show a deadline badge.
