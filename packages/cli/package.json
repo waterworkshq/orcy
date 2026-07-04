@@ -9,7 +9,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "type": "module",
   "bin": {
@@ -28,7 +28,7 @@
     "commander": "^13.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.12.0",
+    "@types/node": "^22.0.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"

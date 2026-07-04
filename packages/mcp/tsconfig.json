@@ -4,7 +4,7 @@
     "noEmit": false,
     "outDir": "./dist",
     "rootDir": "./src",
-    "lib": ["ES2022"],
+    "lib": ["ES2025"],
     "types": ["node"]
   },
   "include": ["src/**/*"],

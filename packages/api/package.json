@@ -10,7 +10,7 @@
     "drizzle"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "orcy-api": "./dist/index.js"
@@ -51,7 +51,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^20.12.0",
+    "@types/node": "^22.0.0",
     "@types/nodemailer": "^8.0.0",
     "@types/uuid": "^10.0.0",
     "drizzle-kit": "^0.31.10",
