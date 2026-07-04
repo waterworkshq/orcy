@@ -8,6 +8,7 @@ import type { AutomationScanType, AutomationRule } from "@orcy/shared";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";
 import { runSignalPatternClusteredScan } from "./triageScanService.js";
 import { runAgentQualityDegradedScan } from "./agentQualityScanService.js";
+import { runOrphanMissionUnmappedScan } from "./orphanScanService.js";
 
 /** Result summary of one automation scan pass over a habitat's automation rules. */
 export interface ScanReport {
@@ -29,6 +30,7 @@ export async function runAllScans(): Promise<ScanReport[]> {
     reports.push(...(await runEvidenceGapScan(h.id)));
     reports.push(...(await runSignalPatternClusteredScan(h.id)));
     reports.push(...(await runAgentQualityDegradedScan(h.id)));
+    reports.push(...(await runOrphanMissionUnmappedScan(h.id)));
   }
   return reports;
 }

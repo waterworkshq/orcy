@@ -79,6 +79,25 @@ export interface MissionClient {
       releaseGateVersion?: string;
     },
   ): Promise<{ mission: Mission }>;
+  /** PATCH an existing mission (used by map_orphan_mission to set deps/gate). */
+  updateMission(
+    missionId: string,
+    input: {
+      title?: string;
+      description?: string;
+      priority?: "low" | "medium" | "high" | "critical";
+      labels?: string[];
+      dependsOn?: string[];
+      blocks?: string[];
+      dueAt?: string | null;
+      slaMinutes?: number | null;
+      releaseGateType?: "patch" | "minor" | "major" | null;
+      releaseGateVersion?: string | null;
+      releaseDeadlineType?: "patch" | "minor" | "major" | null;
+      releaseDeadlineVersion?: string | null;
+      version?: number;
+    },
+  ): Promise<{ mission: Mission }>;
   deleteMission(missionId: string): Promise<void>;
   archiveMission(missionId: string): Promise<{ mission: Mission }>;
   unarchiveMission(missionId: string): Promise<{ mission: Mission }>;

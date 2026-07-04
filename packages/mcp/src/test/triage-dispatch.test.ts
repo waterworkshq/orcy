@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { KanbanApiClient } from "../api.js";
-import { triageInvestigate, triageTopIssues, triageResolutionLookup } from "../tools/triage.js";
+import {
+  triageInvestigate,
+  triageTopIssues,
+  triageResolutionLookup,
+  triageMapOrphanMission,
+} from "../tools/triage.js";
 import { TRIAGE_ACTIONS, TRIAGE_DISPATCH_TOOL } from "../tools/triage-dispatch.js";
 
 function createMockClient(overrides?: Partial<KanbanApiClient>): KanbanApiClient {
@@ -194,6 +199,63 @@ describe("orcy_triage dispatch", () => {
     await expect(
       triageResolutionLookup(createMockClient(), { habitatId: "hab-1" }),
     ).rejects.toThrow("clusterKey");
+  });
+
+  it("RM-7: registers the map_orphan_mission action", () => {
+    expect(TRIAGE_ACTIONS.map_orphan_mission).toBe(triageMapOrphanMission);
+  });
+
+  it("RM-7: investigate branches on orphan-mission:{id} and returns orphan + roadmap context", async () => {
+    const client = createMockClient({
+      getRoadmapContext: async () => ({
+        missions: [
+          {
+            id: "m-x",
+            title: "X",
+            status: "not_started",
+            releaseGateType: null,
+            releaseGateVersion: null,
+            priority: "medium",
+            displayOrder: 0,
+          },
+        ],
+        dependencies: [],
+        nextInLine: ["m-x"],
+        recentReleases: [],
+      }),
+    });
+
+    const result = await triageInvestigate(client, {
+      habitatId: "hab-1",
+      clusterKey: "orphan-mission:m-orphan-1",
+    });
+
+    expect(result.orphanMissionId).toBe("m-orphan-1");
+    expect(result.roadmap.nextInLine).toEqual(["m-x"]);
+    expect(result.investigationNote).toContain("map_orphan_mission");
+    // The signal-cluster fields are absent for the orphan branch.
+    expect(result.openFindings).toBeUndefined();
+  });
+
+  it("RM-7: map_orphan_mission PATCHes the existing mission's deps and returns a placement note", async () => {
+    let patched: { missionId?: string; dependsOn?: string[] } = {};
+    const client = createMockClient({
+      updateMission: async (missionId: string, input: { dependsOn?: string[] }) => {
+        patched = { missionId, dependsOn: input.dependsOn };
+        return { mission: { id: missionId } } as never;
+      },
+    });
+
+    const result = await triageMapOrphanMission(client, {
+      habitatId: "hab-1",
+      missionId: "m-orphan-1",
+      dependsOn: ["m-x"],
+    });
+
+    expect(patched.missionId).toBe("m-orphan-1");
+    expect(patched.dependsOn).toEqual(["m-x"]);
+    expect(result.placementNote).toContain("1 dependency edge");
+    expect(result.mission.id).toBe("m-orphan-1");
   });
 });
 

@@ -381,6 +381,28 @@ export class KanbanApiClient
     });
   }
 
+  /** PATCH an existing mission (RM-7 map_orphan_mission uses this to set deps/gate). */
+  async updateMission(
+    missionId: string,
+    input: {
+      title?: string;
+      description?: string;
+      priority?: "low" | "medium" | "high" | "critical";
+      labels?: string[];
+      dependsOn?: string[];
+      blocks?: string[];
+      dueAt?: string | null;
+      slaMinutes?: number | null;
+      releaseGateType?: "patch" | "minor" | "major" | null;
+      releaseGateVersion?: string | null;
+      releaseDeadlineType?: "patch" | "minor" | "major" | null;
+      releaseDeadlineVersion?: string | null;
+      version?: number;
+    },
+  ): Promise<{ mission: Mission }> {
+    return this.request<{ mission: Mission }>("PATCH", `/api/missions/${missionId}`, input);
+  }
+
   async deleteMission(missionId: string): Promise<void> {
     missionId = normalizeMissionId(missionId);
     await this.request<void>("DELETE", `/api/missions/${missionId}`);

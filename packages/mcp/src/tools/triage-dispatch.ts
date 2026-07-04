@@ -5,6 +5,7 @@ import {
   triageTopIssues,
   triageResolutionLookup,
   triageInsertDeferredMission,
+  triageMapOrphanMission,
 } from "./triage.js";
 
 /** MCP {@link Tool} descriptor registering the `orcy_triage` tool surface. */
@@ -19,8 +20,16 @@ export const TRIAGE_DISPATCH_TOOL: Tool = createDispatchTool({
     'in-progress investigation. Use action="resolution_lookup" with a clusterKey to retrieve ' +
     'prior resolutions for a recurring pain point. Use action="insert_deferred_mission" to ' +
     "create a gated corrective mission positioned in the DAG and link it to a finding " +
-    "(bootstrapping path, ADR-0033). All actions are habitat-scoped (habitatId required).",
-  actions: ["investigate", "top_issues", "resolution_lookup", "insert_deferred_mission"],
+    '(bootstrapping path, ADR-0033). Use action="map_orphan_mission" to position an ' +
+    "existing orphan mission in the DAG (set its dependencies/gate) — paired with an " +
+    "orphan-mission:{id} investigation. All actions are habitat-scoped (habitatId required).",
+  actions: [
+    "investigate",
+    "top_issues",
+    "resolution_lookup",
+    "insert_deferred_mission",
+    "map_orphan_mission",
+  ],
   sharedParams: {
     habitatId: {
       type: "string",
@@ -66,12 +75,18 @@ export const TRIAGE_DISPATCH_TOOL: Tool = createDispatchTool({
       description:
         'Optional version-pin gate (e.g. "v0.25" or "v0.25.0") — either-match semantics with releaseGateType',
     },
+    missionId: {
+      type: "string",
+      description:
+        "Existing mission UUID to position — required for map_orphan_mission (sets its dependencies/gate)",
+    },
   },
   requiredFor: {
     investigate: ["habitatId", "clusterKey"],
     top_issues: ["habitatId"],
     resolution_lookup: ["habitatId", "clusterKey"],
     insert_deferred_mission: ["habitatId", "findingId", "missionTitle", "releaseGateType"],
+    map_orphan_mission: ["habitatId", "missionId"],
   },
 });
 
@@ -81,6 +96,7 @@ export const TRIAGE_ACTIONS: Record<string, Handler> = {
   top_issues: triageTopIssues,
   resolution_lookup: triageResolutionLookup,
   insert_deferred_mission: triageInsertDeferredMission,
+  map_orphan_mission: triageMapOrphanMission,
 };
 
 /** Top-level {@link ToolHandler} that resolves incoming `orcy_triage` calls to their action handler. */
@@ -89,4 +105,5 @@ export const TRIAGE_DISPATCH_HANDLER = createDispatchHandler(TRIAGE_ACTIONS, {
   top_issues: ["habitatId"],
   resolution_lookup: ["habitatId", "clusterKey"],
   insert_deferred_mission: ["habitatId", "findingId", "missionTitle", "releaseGateType"],
+  map_orphan_mission: ["habitatId", "missionId"],
 });

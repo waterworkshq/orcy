@@ -1,4 +1,5 @@
 import type { ClusterPayload, ResolutionKind } from "@orcy/shared";
+import type { Mission } from "../models/index.js";
 import { getDb } from "../db/index.js";
 import { triageClusterMissions } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
@@ -50,6 +51,54 @@ export function createTriageMission(
 
   const missionId = result.mission.id;
   triageClusterMissionsRepo.create(habitatId, payload.clusterKey, missionId);
+  return { missionId };
+}
+
+/**
+ * Instantiate a triage investigation that asks the daemon agent to POSITION an
+ * orphan mission (RM-7) — one disconnected from the roadmap DAG. Reuses the triage
+ * mission template (so the investigate task + daemon-claim flow are identical) and
+ * the `triage_cluster_missions` junction for active-triage suppression, keyed
+ * `orphan-mission:{missionId}`. The agent reads the roadmap DAG via
+ * `orcy_triage investigate` (which branches on the `orphan-mission:` prefix) and
+ * positions the orphan via `orcy_triage map_orphan_mission`. Positioning is the
+ * agent's judgment, not a hardcoded heuristic.
+ */
+export function createOrphanTriageMission(
+  habitatId: string,
+  orphan: Mission,
+): { missionId: string } {
+  const clusterKey = `orphan-mission:${orphan.id}`;
+  const description = [
+    "## Orphan mission (unmapped in the roadmap DAG)",
+    `- Mission: ${orphan.title} (${orphan.id})`,
+    `- Status: ${orphan.status}`,
+    `- Priority: ${orphan.priority}`,
+    "",
+    "This mission has no dependency edges, so it is disconnected from the habitat's",
+    "roadmap DAG. Investigate the roadmap (`roadmap` in the investigate response),",
+    "decide where this mission fits, and position it via `orcy_triage",
+    "map_orphan_mission` with the appropriate `dependsOn` (and a release-gate if",
+    "release-coupling fits).",
+    orphan.description ? `\n## Mission description\n${orphan.description}` : "",
+  ].join("\n");
+
+  const result = applyTemplate(
+    TRIAGE_MISSION_TEMPLATE_ID,
+    habitatId,
+    {
+      title: `Triage: position orphan mission — ${orphan.title}`,
+      description,
+      variables: { clusterSubject: clusterKey },
+    },
+    "system",
+  );
+  if (!result) {
+    throw repositoryNotFoundError("missionTemplate", TRIAGE_MISSION_TEMPLATE_ID);
+  }
+
+  const missionId = result.mission.id;
+  triageClusterMissionsRepo.create(habitatId, clusterKey, missionId);
   return { missionId };
 }
 

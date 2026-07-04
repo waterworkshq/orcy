@@ -49,6 +49,31 @@ export async function triageInvestigate(
   const habitatId = requireHabitatId(args);
   const clusterKey = requireClusterKey(args);
 
+  // RM-7 orphan-mapping branch: a clusterKey of the form `orphan-mission:{missionId}`
+  // denotes a triage investigation asking the agent to POSITION an existing orphan
+  // mission in the roadmap DAG. Return orphan context (the mission to position + the
+  // roadmap) instead of signal-cluster data; the agent positions it via
+  // `map_orphan_mission`.
+  if (clusterKey.startsWith("orphan-mission:")) {
+    const orphanMissionId = clusterKey.slice("orphan-mission:".length);
+    const roadmap = await client.getRoadmapContext(habitatId);
+    return {
+      clusterKey,
+      habitatId,
+      orphanMissionId,
+      roadmap: {
+        nextInLine: roadmap.nextInLine,
+        missions: roadmap.missions,
+        dependencies: roadmap.dependencies,
+        recentReleases: roadmap.recentReleases,
+      },
+      investigationNote:
+        `Orphan mission ${orphanMissionId} is unmapped in the roadmap DAG (no dependency edges). ` +
+        `Review the roadmap, decide where this mission fits, and position it via ` +
+        `action=map_orphan_mission with the appropriate dependsOn (and a release-gate if release-coupling fits).`,
+    };
+  }
+
   const [topResp, findingsResp, resolutionsResp, roadmap] = await Promise.all([
     client.getTopTriageClusters(habitatId),
     client.listTriageFindings(habitatId),
@@ -238,4 +263,49 @@ export async function triageInsertDeferredMission(
     finding,
     placementNote,
   };
+}
+
+/**
+ * @requires TriageClient
+ *
+ * Positions an EXISTING orphan mission in the roadmap DAG (RM-7). Sets the
+ * mission's `dependsOn` (and optionally a release-gate) via PATCH, recording the
+ * placement. The daemon triage agent calls this after investigating the roadmap
+ * context for a `orphan-mission:{id}` cluster. Positioning is the agent's
+ * judgment; this action only writes the chosen edges.
+ *
+ * Returns the updated mission and a placementNote the daemon echoes into its
+ * investigation output pulse.
+ */
+export async function triageMapOrphanMission(
+  client: KanbanApiClient,
+  args: {
+    habitatId?: string;
+    missionId?: string;
+    dependsOn?: string[];
+    releaseGateType?: "patch" | "minor" | "major";
+    releaseGateVersion?: string;
+  },
+) {
+  const habitatId = requireHabitatId(args);
+  const missionId = args.missionId;
+  if (!missionId || typeof missionId !== "string") {
+    throw new Error("missionId is required");
+  }
+
+  const { mission } = await client.updateMission(missionId, {
+    dependsOn: args.dependsOn,
+    releaseGateType: args.releaseGateType,
+    releaseGateVersion: args.releaseGateVersion,
+  });
+
+  const depsList = (args.dependsOn ?? []).length;
+  const placementNote =
+    `Positioned orphan mission ${mission.id} with ${depsList} dependency edge(s)` +
+    (args.releaseGateType
+      ? ` + ${args.releaseGateType} gate${args.releaseGateVersion ? `@${args.releaseGateVersion}` : ""}`
+      : "") +
+    ".";
+  void habitatId;
+  return { mission, placementNote };
 }
