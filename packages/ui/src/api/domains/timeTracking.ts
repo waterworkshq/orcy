@@ -1,3 +1,12 @@
-import { api } from "../index.js";
+import { request } from "../transport.js";
+import type { Task, TaskTimeReport, HabitatTimeMetrics } from "../../types/index.js";
 
-export const timeTrackingApi = api.timeTracking;
+export const timeTrackingApi = {
+  getTaskReport: (taskId: string) => request<TaskTimeReport>(`/tasks/${taskId}/time-report`),
+  getBoardMetrics: (boardId: string) => request<HabitatTimeMetrics>(`/habitats/${boardId}/metrics`),
+  updateEstimate: (taskId: string, estimatedMinutes: number) =>
+    request<{ task: Task }>(`/tasks/${taskId}/estimate`, {
+      method: "PUT",
+      body: JSON.stringify({ estimatedMinutes }),
+    }).then((r) => r.task),
+};
