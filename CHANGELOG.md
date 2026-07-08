@@ -4,9 +4,58 @@
 
 ## 0.26.0 — 2026-07-08
 
+### Chores
+
+#### add workspace-concurrency safeguard and fix rawBody type augmentation ([`9f1d188`](https://github.com/waterworkshq/orcy/commit/9f1d188377d29856b2ba8bfaee026b8aa8c981ba))
+
+1. .npmrc sets workspace-concurrency=1 to prevent parallel tsc builds
+2. from triggering the NTFS IMA deadlock that corrupted dist files
+3. during the v0.25.8 release.
+
+5. The rawBody type augmentation in middleware/idempotency.ts fixes a
+6. regression caused by the @types/node ^20→^22 bump in v0.25.8: the
+7. fastify-raw-body plugin's declare module augmentation stopped
+8. resolving under the newer Node types. The local augmentation
+9. restores typecheck without depending on plugin type resolution.
+
+
+
+### Documentation
+
+#### add v0.26–v0.29 release themes, bump version to v0.25.8 ([`d5ccdbe`](https://github.com/waterworkshq/orcy/commit/d5ccdbefc3ac4241b9c129952b7a293abdbcb7e1))
+
+1. Replace delivered v0.24.x/v0.25.x entries with upcoming release themes:
+2. Workflow Gate Core (v0.26), UI API Locality (v0.27), Plugin Contribution
+3. Runtime (v0.28), and Audit Projection Internals (v0.29 candidate). Sync
+4. roadmap version to v0.25.8 and update date.
+
+
+#### mark v0.26.0 Workflow Gate Core delivered ([`fc2b4e7`](https://github.com/waterworkshq/orcy/commit/fc2b4e7edf8b6290a1c5f8ea6cf4f835e1076874))
+
+1. Updates ROADMAP (Upcoming → Delivered), README What's Next (removes
+2. v0.26.0, bumps v0.27.0 to top), CHANGELOG (adds v0.26.0 entry with
+3. refactor/test/chore sections), ARCHITECTURE.md (adds Store/Evaluator
+4. to Key Files table, documents internal module structure and error
+5. isolation in evaluator), PROJECT-STRUCTURE.md (notes workflow/
+6. subdirectory), and TESTING.md (adds evaluator unit test file and
+7. pattern description).
+
+
+
 ### Refactors
 
-#### extract WorkflowGateEvaluator for trigger matching ([`a464379`](https://github.com/waterworkshq/orcy/commit/a464379))
+#### extract WorkflowGateStore for gate lookup and satisfaction ([`8ce6b91`](https://github.com/waterworkshq/orcy/commit/8ce6b91797d124aac6b693f2bb0981d857368fb2))
+
+1. Moves active-gate DB lookups and idempotent satisfaction updates from
+2. inline queries in handleTransition, handlePulseCreated,
+3. handleAutomationRunCompleted, and manualUnblockGate into an internal
+4. WorkflowGateStore module. Preserves WHERE-clause asymmetry (lifecycle
+5. does not pre-filter satisfied; Pulse/Automation do) and the
+6. always-emit-audit behavior of manualUnblockGate. No behavior change
+7. observable from existing tests.
+
+
+#### extract WorkflowGateEvaluator for trigger matching ([`a464379`](https://github.com/waterworkshq/orcy/commit/a464379a27eb099afebfdd29703b73a6c4c550dc))
 
 1. Moves actionToGateType, readSignalMatch, signalMatchEqualsPulse,
 2. pulseMatchesScope, readAutomationMatch, and automationMatchEqualsRun
@@ -18,39 +67,17 @@
 
 
 
-#### extract WorkflowGateStore for gate lookup and satisfaction ([`8ce6b91`](https://github.com/waterworkshq/orcy/commit/8ce6b91))
-
-1. Moves active-gate DB lookups and idempotent satisfaction updates from
-2. inline queries in handleTransition, handlePulseCreated,
-3. handleAutomationRunCompleted, and manualUnblockGate into an internal
-4. WorkflowGateStore module. Preserves WHERE-clause asymmetry (lifecycle
-5. does not pre-filter satisfied; Pulse/Automation do) and the
-6. always-emit-audit behavior of manualUnblockGate. No behavior change
-7. observable from existing tests.
-
-
-
 ### Tests
 
-#### add characterization tests for detached-workflow gate gap ([`34f2b7a`](https://github.com/waterworkshq/orcy/commit/34f2b7a))
+#### add characterization tests for detached-workflow gate gap ([`34f2b7a`](https://github.com/waterworkshq/orcy/commit/34f2b7ac6e52a0e4b99d7c6d95d0be1e6f13a619))
 
 1. Closes AC-CHAR-5 (detached Workflow does not satisfy gates) with two
 2. real-DB tests proving handleTransition and handlePulseCreated filter
 3. on workflows.status = 'active'. Also closes AC-CHAR-4 scope-matching
 4. gap with two mock-based tests for on_automation matchScope task/mission.
 
-
-
-### Chores
-
-#### add workspace-concurrency safeguard and fix rawBody type augmentation ([`9f1d188`](https://github.com/waterworkshq/orcy/commit/9f1d188))
-
-1. .npmrc sets workspace-concurrency=1 to prevent parallel tsc builds
-2. from triggering the NTFS IMA deadlock that corrupted dist files
-3. during the v0.25.8 release. The rawBody type augmentation fixes a
-4. regression caused by the @types/node ^20→^22 bump: the fastify-raw-body
-5. plugin's declare module augmentation stopped resolving under the newer
-6. Node types.
+6. All AC-CHAR-1 through AC-CHAR-9 now have passing characterization tests,
+7. locking current Workflow Gate behavior before Store/Evaluator extraction.
 
 
 
@@ -149,46 +176,3 @@
 
 19. The agent MCP set_focus_mission action is a deferred fast-follow —
 20. self-derivation makes the feature useful without explicit setting.
-
-
-
-## 0.25.6 — 2026-07-04
-
-### Features
-
-#### orphan-mission scan maps disconnected work into the roadmap (v0.25.6) ([`ade17c6`](https://github.com/waterworkshq/orcy/commit/ade17c684f588329d24586cf3a89fb335b354906))
-
-1. A periodic scan (orphan_mission_unmapped) detects missions with no dependency
-2. edges — disconnected from the roadmap DAG — and spawns a triage investigation
-3. for each. The daemon triage agent reads the roadmap context and positions the
-4. orphan by setting its dependencies (its judgment, not a hardcoded heuristic),
-5. closing the last roadmap-bootstrap path.
-
-7. New orphanScanService: detects dep-less active missions, suppresses re-firing
-8. per-orphan via the triage_cluster_missions junction (keyed
-9. orphan-mission:{id}), and creates a triage investigation reusing the existing
-10. triage mission template. Registered in runAllScans.
-11. triageService gains createOrphanTriageMission (template + junction).
-12. orcy_triage investigate branches on the orphan-mission:{id} clusterKey prefix
-13. to return orphan + roadmap context, and a new map_orphan_mission action sets
-14. deps (+ optional gate) on an existing mission via a new MCP updateMission
-15. method. Positioning is the agent's call; the action only writes the chosen edges.
-
-17. RM-14 (triageInvestigate payload mitigation) is deferred — no habitat has
-18. demonstrated payload bloat, and the repo layer already supports limit/offset if
-19. needed later.
-
-
-#### summary mode for the triage roadmap payload (v0.25.6 — RM-14) ([`5d97d08`](https://github.com/waterworkshq/orcy/commit/5d97d08c04037a7f6dbfea172ea607d005ce3000))
-
-1. Bound the triage investigation's roadmap section on large habitats. The roadmap
-2. route gains a ?summary=true query mode that returns mission/dependency counts
-3. plus the actionable nextInLine set and recent releases, omitting the raw
-4. mission and edge arrays that dominate the payload at scale.
-
-6. The signal-cluster investigation fetches the roadmap in summary mode by
-7. default (it only needs nextInLine + counts, not the raw graph).
-8. The orphan-mission investigation (RM-7) uses full mode — it needs the
-9. dependency edges to position an orphan.
-10. getRoadmapContext and the RoadmapContext type thread the summary flag;
-11. full mode (the default) is unchanged, so existing consumers are unaffected.
