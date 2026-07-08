@@ -4,43 +4,36 @@
 
 ## 0.27.0 — 2026-07-08
 
+### Bug Fixes
+
+#### remove redundant rawBody augmentation conflicting with fastify-raw-body types ([`9c761fe`](https://github.com/waterworkshq/orcy/commit/9c761fe75796daef28ca3ac9391198329973d56a))
+
+1. The local 'declare module "fastify" { rawBody?: string }' in idempotency.ts was added in v0.26.0 as a workaround when @types/node@22 broke the fastify-raw-body plugin's type resolution. Investigation found the plugin's own plugin.d.ts (rawBody?: string | Buffer) is now resolving and the local declaration conflicts (TS2717). Removed the redundant line — the plugin provides the type and all consumers already handle the wider union via 'as string' casts or typeof guards. Full recursive typecheck now passes clean across all 7 packages.
+
+3. Also updates ROADMAP (v0.27.0 → Delivered), README What's Next (promote v0.28.0), and CHANGELOG with v0.27.0 release entries.
+
+
+
 ### Refactors
 
-#### extract transport helpers into transport-only module ([`388940f`](https://github.com/waterworkshq/orcy/commit/388940f))
+#### extract transport helpers into transport-only module ([`388940f`](https://github.com/waterworkshq/orcy/commit/388940f67ea82a19da6c44989fae1c4b28dddf78))
 
-1. Move request, requestBlob, and uploadFile from api/index.ts into
-2. api/transport.ts as the shared transport seam for the upcoming domain
-3. module migration. api/index.ts temporarily imports transport helpers
-4. until composition rebuild removes inline endpoints.
+1. Move request, requestBlob, and uploadFile from api/index.ts into api/transport.ts as the shared transport seam for the upcoming domain module migration. api/index.ts temporarily imports transport helpers until composition rebuild removes inline endpoints. Adds focused behavior tests for auth header injection, JSON content-type defaults, SSE base-path handling, 204 responses, error parsing, blob download, and XHR upload paths (13 tests).
+
+
+#### migrate endpoint ownership into real domain modules ([`54078f0`](https://github.com/waterworkshq/orcy/commit/54078f0bf0e4ff9720d91137b624f0fa5c7ea3aa))
+
+1. Move all 42 API namespace implementations from api/index.ts into per-domain modules under api/domains/. api/index.ts becomes a pure composition surface (96 lines) that imports domain APIs and exports the api object — no endpoint implementations remain inline. Adds 6 missing domain modules (automation, metrics, notificationsV2, plugins, remoteAccess, workflows). Moves myTeams into teamsApi with api.myTeams compatibility alias. Replaces alias-identity tests with method-shape compatibility tests (85 tests) and a direct reviewersApi behavior test. Full UI suite green: 1533 tests across 126 files.
+
+
 
 ### Tests
 
-#### add transport behavior tests ([`388940f`](https://github.com/waterworkshq/orcy/commit/388940f))
+#### harden transport and domain test coverage ([`7c1699c`](https://github.com/waterworkshq/orcy/commit/7c1699c18259c4b2ec66cee05ddd14ec2367919a))
 
-1. 13 tests covering auth header injection, JSON content-type defaults,
-2. SSE base-path handling, 204 responses, error parsing (JSON + fallback),
-3. blob download, and XHR upload paths (success/error/abort).
+1. Add upload-progress test (onProgress callback fires with correct percentage), non-JSON error-body fallback test (statusText used when response body is not parseable JSON), and independent method-name snapshots for 5 representative domains (reviewers, dashboard, metrics, workflows, agents) so method-loss during migration is caught independently of the composition wiring.
 
-#### migrate endpoint ownership into real domain modules ([`54078f0`](https://github.com/waterworkshq/orcy/commit/54078f0))
 
-1. Move all 42 API namespace implementations from api/index.ts into
-2. per-domain modules under api/domains/. api/index.ts becomes a 96-line
-3. pure composition surface that imports domain APIs and exports the api
-4. object — no endpoint implementations remain inline. Adds 6 missing
-5. domain modules (automation, metrics, notificationsV2, plugins,
-6. remoteAccess, workflows). Moves myTeams into teamsApi with
-7. api.myTeams compatibility alias. Replaces alias-identity tests with
-8. method-shape compatibility tests (85 tests) and a direct
-9. reviewersApi.list behavior test.
-
-#### harden transport and domain test coverage ([`7c1699c`](https://github.com/waterworkshq/orcy/commit/7c1699c))
-
-1. Add upload-progress test (onProgress callback fires with correct
-2. percentage), non-JSON error-body fallback test (statusText used when
-3. response body is not parseable JSON), and independent method-name
-4. snapshots for 5 representative domains (reviewers, dashboard, metrics,
-5. workflows, agents) so method-loss during migration is caught
-6. independently of the composition wiring.
 
 ## 0.26.0 — 2026-07-08
 
@@ -187,32 +180,3 @@
 
 13. ROADMAP/README sync — the stale v0.24.x entry (claimed REL-1..5 pending, but
 14. those were resolved in v0.24.1-0.24.3) is corrected to delivered.
-
-
-
-## 0.25.7 — 2026-07-04
-
-### Features
-
-#### goal-directed scoring toward a focus mission (v0.25.7 — RM-15) ([`b4e0de3`](https://github.com/waterworkshq/orcy/commit/b4e0de333803e64f283ad1a80177b2b2f05a035f))
-
-1. Add a goal_directed scoring algorithm that boosts work toward an
-2. orcy-chosen focus goal — the last roadmap-scoring piece, designed in review
-3. after the earlier critical-path framing was rejected.
-
-5. roadmapSettings gains focusMissionId (single active focus per habitat;
-6. additive — no migration, reuses the v0.25.4 JSON column).
-7. goal_directed resolves the focus from the explicit setting, or self-derives
-8. it as the active mission with the most direct dependents (the biggest
-9. bottleneck) when unset. It then BFS-computes the focus's transitive
-10. prerequisite chain and soft-boosts candidate tasks by proximity (shortest
-11. hop count to the goal). Batched per suggestion pass.
-12. The boost is strictly soft — it never gates claiming; off-chain work and the
-13. other algorithms are unchanged.
-14. The Roadmap settings tab gains the goal_directed option and a focus-mission
-15. selector (or auto-derive).
-16. ADR-0034 records the approved decision (single focus mission + self-derived
-17. highest-fan-out + soft-boost-not-gate).
-
-19. The agent MCP set_focus_mission action is a deferred fast-follow —
-20. self-derivation makes the feature useful without explicit setting.
