@@ -22,7 +22,6 @@ declare module "fastify" {
       isReplay: boolean;
       action: string;
     };
-    rawBody?: string;
   }
 }
 

@@ -2,6 +2,46 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.27.0 — 2026-07-08
+
+### Refactors
+
+#### extract transport helpers into transport-only module ([`388940f`](https://github.com/waterworkshq/orcy/commit/388940f))
+
+1. Move request, requestBlob, and uploadFile from api/index.ts into
+2. api/transport.ts as the shared transport seam for the upcoming domain
+3. module migration. api/index.ts temporarily imports transport helpers
+4. until composition rebuild removes inline endpoints.
+
+### Tests
+
+#### add transport behavior tests ([`388940f`](https://github.com/waterworkshq/orcy/commit/388940f))
+
+1. 13 tests covering auth header injection, JSON content-type defaults,
+2. SSE base-path handling, 204 responses, error parsing (JSON + fallback),
+3. blob download, and XHR upload paths (success/error/abort).
+
+#### migrate endpoint ownership into real domain modules ([`54078f0`](https://github.com/waterworkshq/orcy/commit/54078f0))
+
+1. Move all 42 API namespace implementations from api/index.ts into
+2. per-domain modules under api/domains/. api/index.ts becomes a 96-line
+3. pure composition surface that imports domain APIs and exports the api
+4. object — no endpoint implementations remain inline. Adds 6 missing
+5. domain modules (automation, metrics, notificationsV2, plugins,
+6. remoteAccess, workflows). Moves myTeams into teamsApi with
+7. api.myTeams compatibility alias. Replaces alias-identity tests with
+8. method-shape compatibility tests (85 tests) and a direct
+9. reviewersApi.list behavior test.
+
+#### harden transport and domain test coverage ([`7c1699c`](https://github.com/waterworkshq/orcy/commit/7c1699c))
+
+1. Add upload-progress test (onProgress callback fires with correct
+2. percentage), non-JSON error-body fallback test (statusText used when
+3. response body is not parseable JSON), and independent method-name
+4. snapshots for 5 representative domains (reviewers, dashboard, metrics,
+5. workflows, agents) so method-loss during migration is caught
+6. independently of the composition wiring.
+
 ## 0.26.0 — 2026-07-08
 
 ### Chores
