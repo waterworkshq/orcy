@@ -64,4 +64,18 @@ describe("UI per-domain API organization", () => {
   it("api.myTeams is teamsApi.myTeams", () => {
     expect(api.myTeams).toBe(domains.teamsApi.myTeams);
   });
+
+  it.each([
+    ["reviewersApi", ["list"]],
+    ["dashboardApi", ["get"]],
+    ["metricsApi", ["experience", "workflow"]],
+    ["workflowsApi", ["getForMission", "detach", "unblockGate"]],
+    [
+      "agentsApi",
+      ["list", "listWithTasks", "get", "create", "heartbeat", "delete", "stats", "allStats"],
+    ],
+  ] as const)("%s has exactly the expected method names", (exportName, expected) => {
+    const obj = (domains as Record<string, unknown>)[exportName] as object;
+    expect(Object.keys(obj).sort()).toEqual([...expected].sort());
+  });
 });

@@ -91,6 +91,19 @@ describe("transport.request", () => {
 
     await expect(request("/thing")).rejects.toThrow("HTTP 500");
   });
+
+  it("falls back to statusText when response body is not valid JSON", async () => {
+    fetchMock.mockReturnValue(
+      Promise.resolve({
+        ok: false,
+        status: 502,
+        statusText: "Bad Gateway",
+        json: () => Promise.reject(new Error("not JSON")),
+      }),
+    );
+
+    await expect(request("/thing")).rejects.toThrow("Bad Gateway");
+  });
 });
 
 describe("transport.requestBlob", () => {
@@ -123,18 +136,33 @@ function stubUploadXhr(opts: {
   status?: number;
   responseText?: string;
   fireOnSend?: "load" | "error" | "abort";
+  fireProgress?: { loaded: number; total: number };
 }) {
   const listeners: Record<string, EventListener> = {};
+  const uploadListeners: Record<string, EventListener> = {};
   const instance = {
     status: opts.status ?? 200,
     responseText: opts.responseText ?? "{}",
     open: vi.fn(),
     setRequestHeader: vi.fn(),
-    upload: { addEventListener: vi.fn() },
+    upload: {
+      addEventListener: (event: string, fn: EventListener) => {
+        uploadListeners[event] = fn;
+      },
+    },
     addEventListener: (event: string, fn: EventListener) => {
       listeners[event] = fn;
     },
     send: vi.fn(() => {
+      if (opts.fireProgress) {
+        Promise.resolve().then(() =>
+          uploadListeners.progress?.({
+            lengthComputable: true,
+            loaded: opts.fireProgress!.loaded,
+            total: opts.fireProgress!.total,
+          } as unknown as Event),
+        );
+      }
       const evt = opts.fireOnSend ?? "load";
       Promise.resolve().then(() => listeners[evt]?.({} as Event));
     }),
@@ -177,5 +205,18 @@ describe("transport.uploadFile", () => {
     await expect(uploadFile("/attachments", new File(["x"], "f.txt"))).rejects.toThrow(
       "Upload aborted",
     );
+  });
+
+  it("reports upload progress via onProgress callback", async () => {
+    stubUploadXhr({
+      status: 200,
+      responseText: "{}",
+      fireProgress: { loaded: 50, total: 100 },
+    });
+
+    const onProgress = vi.fn();
+    await uploadFile("/attachments", new File(["x"], "f.txt"), onProgress);
+
+    expect(onProgress).toHaveBeenCalledWith(50);
   });
 });
