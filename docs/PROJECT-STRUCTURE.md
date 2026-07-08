@@ -23,7 +23,7 @@ orcy/
 │   │   │   ├── db/schema.ts       # Drizzle ORM schema (55+ tables including habitat_skills, habitat_skill_signals)
 │   │   │   ├── db/drizzle/        # Drizzle schema migrations
 │   │   │   ├── routes/            # REST endpoints (30+ route files including habitatSkill)
-│   │   │   ├── services/          # Business logic (40+ service files including habitatSkillService)
+│   │   │   ├── services/          # Business logic (40+ service files including habitatSkillService, workflow/)
 │   │   │   ├── repositories/      # Drizzle-backed data access
 │   │   │   ├── models/            # TypeScript types + Zod schemas
 │   │   │   ├── middleware/        # Authentication and RBAC

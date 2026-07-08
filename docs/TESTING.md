@@ -430,7 +430,9 @@ hooks[0]({ taskId: "task-1", action: "completed", habitatId: "h1", /* ... */ });
 expect(updateCallCount).toBe(1);
 ```
 
-Used by: [`workflowService.test.ts`](../packages/api/src/test/workflowService.test.ts), [`workflowServiceRecovery.test.ts`](../packages/api/src/test/workflowServiceRecovery.test.ts), [`workflowServiceRedemption.test.ts`](../packages/api/src/test/workflowServiceRedemption.test.ts).
+Used by: [`workflowService.test.ts`](../packages/api/src/test/workflowService.test.ts), [`workflowServiceRecovery.test.ts`](../packages/api/src/test/workflowServiceRecovery.test.ts), [`workflowServiceRedemption.test.ts`](../packages/api/src/test/workflowServiceRedemption.test.ts), [`workflowGateEvaluator.test.ts`](../packages/api/src/test/workflowGateEvaluator.test.ts).
+
+**Evaluator unit tests (v0.26.0):** Pure function tests for `WorkflowGateEvaluator` — no DB, no mocks beyond a stub `GateConditionChecker`. Test action-to-gate-type mapping, signal/automation matching logic, condition-false skip, and the universal satisfied-skip rule. These complement the integration tests above by exercising matching logic in isolation.
 
 **Per-gate-type patterns:**
 - `on_complete` → fire `completed` action on upstream task

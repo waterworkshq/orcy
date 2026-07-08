@@ -1153,7 +1153,9 @@ onPulseCreated ────────┘   handlePulseCreated()
 
 **Initialization:** `initWorkflowService()` called from `api/src/index.ts` alongside `initSkillHooks()`. Registers `onTransition` and `onPulseCreated` subscribers.
 
-**Error isolation:** Per-gate try/catch (one failing gate doesn't block others). Top-level try/catch (subscriber errors don't propagate to the emitter). Predicate evaluation errors (`ConditionDepthExceededError`, `InvalidConditionError`) are caught and logged.
+**Error isolation:** Per-gate try/catch inside `WorkflowGateEvaluator` (one failing gate doesn't block others — errors returned as `GateEvaluationDecision` with `status: "error"`). Top-level try/catch in each handler (subscriber errors don't propagate to the emitter). Predicate evaluation errors (`ConditionDepthExceededError`, `InvalidConditionError`) are caught and logged.
+
+**Internal module structure (v0.26.0):** Gate lookup queries and idempotent satisfaction updates live in `WorkflowGateStore`. Pure trigger matching (signal/automation/lifecycle) lives in `WorkflowGateEvaluator`. `workflowService.ts` delegates to both but owns audit emission, recovery spawning, and redemption orchestration. The evaluator returns satisfaction decisions; it does not touch the DB or emit side effects.
 
 ### Recovery Subsystem
 
@@ -1202,6 +1204,8 @@ workflowService.handleRedemptionIfNeeded()
 | File | Role |
 |------|------|
 | `api/src/services/workflowService.ts` | Orchestration brain — gate evaluation, recovery spawning, redemption |
+| `api/src/services/workflow/workflowGateStore.ts` | Internal: active-gate DB lookup + idempotent satisfaction + manual unblock persistence |
+| `api/src/services/workflow/workflowGateEvaluator.ts` | Internal: pure trigger matching for lifecycle/Pulse Signal/Automation Run gates |
 | `api/src/services/failureContextService.ts` | Builds and reads FailureBundle |
 | `api/src/services/experienceMetricsService.ts` | Per-agent experience signal metrics |
 | `api/src/services/workflowMetricsService.ts` | Workflow metrics for admin dashboard |

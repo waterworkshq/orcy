@@ -2,6 +2,58 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.26.0 — 2026-07-08
+
+### Refactors
+
+#### extract WorkflowGateEvaluator for trigger matching ([`a464379`](https://github.com/waterworkshq/orcy/commit/a464379))
+
+1. Moves actionToGateType, readSignalMatch, signalMatchEqualsPulse,
+2. pulseMatchesScope, readAutomationMatch, and automationMatchEqualsRun
+3. from workflowService.ts into a pure WorkflowGateEvaluator module.
+4. The evaluator returns satisfaction decisions including per-gate error
+5. isolation; handlers iterate decisions and delegate satisfaction to the
+6. Store. Preserves the Automation Run no-condition-evaluation asymmetry
+7. and the universal satisfied-skip rule for all trigger kinds.
+
+
+
+#### extract WorkflowGateStore for gate lookup and satisfaction ([`8ce6b91`](https://github.com/waterworkshq/orcy/commit/8ce6b91))
+
+1. Moves active-gate DB lookups and idempotent satisfaction updates from
+2. inline queries in handleTransition, handlePulseCreated,
+3. handleAutomationRunCompleted, and manualUnblockGate into an internal
+4. WorkflowGateStore module. Preserves WHERE-clause asymmetry (lifecycle
+5. does not pre-filter satisfied; Pulse/Automation do) and the
+6. always-emit-audit behavior of manualUnblockGate. No behavior change
+7. observable from existing tests.
+
+
+
+### Tests
+
+#### add characterization tests for detached-workflow gate gap ([`34f2b7a`](https://github.com/waterworkshq/orcy/commit/34f2b7a))
+
+1. Closes AC-CHAR-5 (detached Workflow does not satisfy gates) with two
+2. real-DB tests proving handleTransition and handlePulseCreated filter
+3. on workflows.status = 'active'. Also closes AC-CHAR-4 scope-matching
+4. gap with two mock-based tests for on_automation matchScope task/mission.
+
+
+
+### Chores
+
+#### add workspace-concurrency safeguard and fix rawBody type augmentation ([`9f1d188`](https://github.com/waterworkshq/orcy/commit/9f1d188))
+
+1. .npmrc sets workspace-concurrency=1 to prevent parallel tsc builds
+2. from triggering the NTFS IMA deadlock that corrupted dist files
+3. during the v0.25.8 release. The rawBody type augmentation fixes a
+4. regression caused by the @types/node ^20→^22 bump: the fastify-raw-body
+5. plugin's declare module augmentation stopped resolving under the newer
+6. Node types.
+
+
+
 ## 0.25.8 — 2026-07-04
 
 ### Bug Fixes
