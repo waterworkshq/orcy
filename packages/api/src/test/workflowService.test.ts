@@ -1417,4 +1417,106 @@ describe("workflowService on_automation gate evaluation", () => {
 
     expect(mockDb.update).not.toHaveBeenCalled();
   });
+
+  it("matchScope 'task' requires the run target to be the gate's upstream task", async () => {
+    const gates = [
+      {
+        id: "gate-a-scope-task",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        downstreamTaskId: "task-down",
+        workflowId: "wf-1",
+        missionId: "m1",
+        matchConfig: { ruleId: "rule-1", matchScope: "task" },
+        condition: null,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+
+    // Positive: run target is the gate's upstream task → satisfies
+    automationHook!({
+      run: { id: "run-pos", targetType: "task", targetId: "task-up" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+    expect(updateRun).toHaveBeenCalledTimes(1);
+
+    // Negative: run target is a different task → does not satisfy
+    automationHook!({
+      run: { id: "run-neg", targetType: "task", targetId: "task-other" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("matchScope 'mission' requires the run target to be the gate's mission", async () => {
+    const gates = [
+      {
+        id: "gate-a-scope-mission",
+        satisfied: false,
+        upstreamTaskId: "task-up",
+        downstreamTaskId: "task-down",
+        workflowId: "wf-1",
+        missionId: "m1",
+        matchConfig: { ruleId: "rule-1", matchScope: "mission" },
+        condition: null,
+      },
+    ];
+    mockDb.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            all: vi.fn().mockReturnValue(gates),
+          }),
+        }),
+      }),
+    });
+    const updateRun = vi.fn();
+    mockDb.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ run: updateRun }),
+      }),
+    });
+
+    const { initWorkflowService } = await import("../services/workflowService.js");
+    initWorkflowService();
+
+    // Positive: run target is the gate's mission → satisfies
+    automationHook!({
+      run: { id: "run-pos", targetType: "mission", targetId: "m1" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+    expect(updateRun).toHaveBeenCalledTimes(1);
+
+    // Negative: run target is a task (not the mission) → does not satisfy
+    automationHook!({
+      run: { id: "run-neg", targetType: "task", targetId: "task-up" },
+      rule: { id: "rule-1" },
+      outcome: "succeeded",
+      habitatId: "h1",
+    });
+    expect(updateRun).toHaveBeenCalledTimes(1);
+  });
 });

@@ -394,4 +394,62 @@ describe("workflowService — deferred audit events", () => {
       expect(meta.triggeredBy).toBe("failed");
     });
   });
+
+  describe("detached workflow gate suppression (AC-CHAR-5)", () => {
+    it("does not satisfy on_complete gate via transition when workflow is detached", () => {
+      const { habitat, col } = setupHabitat();
+      const mission = setupMission(habitat.id, col.id);
+      const upstream = setupTask(mission.id, "Upstream");
+      const downstream = setupTask(mission.id, "Downstream");
+      const wfId = attachSequentialWorkflow(
+        mission.id,
+        habitat.id,
+        upstream.id,
+        downstream.id,
+        "on_complete",
+      );
+
+      // Detach the workflow directly, bypassing the detachWorkflow audit-emission path.
+      getDb().update(workflows).set({ status: "detached" }).where(eq(workflows.id, wfId)).run();
+
+      emitTransitionForTask(upstream.id, "completed", habitat.id);
+
+      const events = readWorkflowTaskEvents(downstream.id, "workflow_gate_satisfied");
+      expect(events).toHaveLength(0);
+    });
+
+    it("does not satisfy on_signal gate via pulse when workflow is detached", () => {
+      const { habitat, col } = setupHabitat();
+      const mission = setupMission(habitat.id, col.id);
+      const upstream = setupTask(mission.id, "Upstream");
+      const downstream = setupTask(mission.id, "Downstream");
+
+      const definition: WorkflowTemplateDefinition = {
+        gates: [
+          {
+            upstreamTaskKey: upstream.id,
+            downstreamTaskKey: downstream.id,
+            gateType: "on_signal",
+            matchConfig: { signalType: "blocker", matchScope: "task" },
+          },
+        ],
+      };
+      const wfId = attachWorkflow(mission.id, habitat.id, definition, {}, "test");
+
+      getDb().update(workflows).set({ status: "detached" }).where(eq(workflows.id, wfId)).run();
+
+      pulseService.createPulseAndNotify({
+        missionId: mission.id,
+        habitatId: habitat.id,
+        fromType: "agent",
+        fromId: "agent-1",
+        signalType: "blocker",
+        subject: "Something blocked",
+        taskId: upstream.id,
+      });
+
+      const events = readWorkflowTaskEvents(downstream.id, "workflow_gate_satisfied");
+      expect(events).toHaveLength(0);
+    });
+  });
 });
