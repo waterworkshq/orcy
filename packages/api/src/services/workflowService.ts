@@ -22,6 +22,8 @@ import type {
   AutomationCondition,
 } from "../models/index.js";
 
+import { workflowGateStore } from "./workflow/workflowGateStore.js";
+
 export { areAllWorkflowGatesSatisfied };
 
 let initialized = false;
@@ -112,34 +114,10 @@ function handleTransition(opts: {
     }
   }
 
-  const db = getDb();
-  const gates = db
-    .select({
-      id: taskWorkflowGates.id,
-      workflowId: taskWorkflowGates.workflowId,
-      missionId: taskWorkflowGates.missionId,
-      habitatId: taskWorkflowGates.habitatId,
-      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
-      satisfied: taskWorkflowGates.satisfied,
-      recoveryDepth: taskWorkflowGates.recoveryDepth,
-      recoveryTaskId: taskWorkflowGates.recoveryTaskId,
-      matchConfig: taskWorkflowGates.matchConfig,
-      condition: taskWorkflowGates.condition,
-    })
-    .from(taskWorkflowGates)
-    .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
-    .where(
-      and(
-        eq(taskWorkflowGates.upstreamTaskId, opts.taskId),
-        eq(taskWorkflowGates.gateType, gateType),
-        eq(workflows.status, "active"),
-      ),
-    )
-    .all();
+  const gates = workflowGateStore.findActiveLifecycleGates(opts.taskId, gateType);
 
   if (gates.length === 0) return;
 
-  const now = new Date().toISOString();
   const newlySatisfied: (typeof gates)[number][] = [];
   for (const gate of gates) {
     if (gate.satisfied) continue;
@@ -161,10 +139,8 @@ function handleTransition(opts: {
         })
       )
         continue;
-      db.update(taskWorkflowGates)
-        .set({ satisfied: true, satisfiedAt: now })
-        .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
-        .run();
+      const result = workflowGateStore.satisfyGateIfUnsatisfied(gate);
+      if (result.status === "already_satisfied") continue;
       newlySatisfied.push(gate);
       emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
         gateId: gate.id,
@@ -598,33 +574,10 @@ function actionToGateType(action: string): GateType | null {
 type GateType = "on_complete" | "on_approve" | "on_fail";
 
 function handlePulseCreated(pulse: Pulse): void {
-  const db = getDb();
-  const gates = db
-    .select({
-      id: taskWorkflowGates.id,
-      satisfied: taskWorkflowGates.satisfied,
-      upstreamTaskId: taskWorkflowGates.upstreamTaskId,
-      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
-      workflowId: taskWorkflowGates.workflowId,
-      missionId: taskWorkflowGates.missionId,
-      matchConfig: taskWorkflowGates.matchConfig,
-      condition: taskWorkflowGates.condition,
-    })
-    .from(taskWorkflowGates)
-    .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
-    .where(
-      and(
-        eq(taskWorkflowGates.gateType, "on_signal"),
-        eq(taskWorkflowGates.habitatId, pulse.habitatId),
-        eq(taskWorkflowGates.satisfied, false),
-        eq(workflows.status, "active"),
-      ),
-    )
-    .all();
+  const gates = workflowGateStore.findActiveSignalGates(pulse.habitatId);
 
   if (gates.length === 0) return;
 
-  const now = new Date().toISOString();
   for (const gate of gates) {
     if (gate.satisfied) continue;
     try {
@@ -646,14 +599,8 @@ function handlePulseCreated(pulse: Pulse): void {
         })
       )
         continue;
-      db.update(taskWorkflowGates)
-        .set({
-          satisfied: true,
-          satisfiedAt: now,
-          satisfiedByEventId: pulse.id,
-        })
-        .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
-        .run();
+      const result = workflowGateStore.satisfyGateIfUnsatisfied(gate, pulse.id);
+      if (result.status === "already_satisfied") continue;
       emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
         gateId: gate.id,
         workflowId: gate.workflowId,
@@ -731,47 +678,18 @@ function handleAutomationRunCompleted(opts: {
   outcome: string;
   habitatId: string;
 }): void {
-  const db = getDb();
-  const gates = db
-    .select({
-      id: taskWorkflowGates.id,
-      satisfied: taskWorkflowGates.satisfied,
-      upstreamTaskId: taskWorkflowGates.upstreamTaskId,
-      downstreamTaskId: taskWorkflowGates.downstreamTaskId,
-      workflowId: taskWorkflowGates.workflowId,
-      missionId: taskWorkflowGates.missionId,
-      matchConfig: taskWorkflowGates.matchConfig,
-      condition: taskWorkflowGates.condition,
-    })
-    .from(taskWorkflowGates)
-    .innerJoin(workflows, eq(taskWorkflowGates.workflowId, workflows.id))
-    .where(
-      and(
-        eq(taskWorkflowGates.gateType, "on_automation"),
-        eq(taskWorkflowGates.habitatId, opts.habitatId),
-        eq(taskWorkflowGates.satisfied, false),
-        eq(workflows.status, "active"),
-      ),
-    )
-    .all();
+  const gates = workflowGateStore.findActiveAutomationGates(opts.habitatId);
 
   if (gates.length === 0) return;
 
-  const now = new Date().toISOString();
   for (const gate of gates) {
     if (gate.satisfied) continue;
     try {
       const match = readAutomationMatch(gate.matchConfig);
       if (!match) continue;
       if (!automationMatchEqualsRun(match, opts, gate)) continue;
-      db.update(taskWorkflowGates)
-        .set({
-          satisfied: true,
-          satisfiedAt: now,
-          satisfiedByEventId: opts.run.id,
-        })
-        .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
-        .run();
+      const result = workflowGateStore.satisfyGateIfUnsatisfied(gate, opts.run.id);
+      if (result.status === "already_satisfied") continue;
       emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
         gateId: gate.id,
         workflowId: gate.workflowId,
@@ -956,17 +874,10 @@ export function getTaskWorkflowContext(taskId: string): {
 
 /** Manually satisfies an on_manual gate, typically called by an admin via the unblock endpoint. Emits a `workflow_gate_unblocked` audit event. */
 export function manualUnblockGate(gateId: string, _unblockerId: string): boolean {
-  const db = getDb();
-  const gate = db.select().from(taskWorkflowGates).where(eq(taskWorkflowGates.id, gateId)).get();
-  if (!gate) return false;
-  if (gate.gateType !== "on_manual") return false;
+  const result = workflowGateStore.satisfyManualGateIfEligible(gateId);
+  if (result.status === "not_found" || result.status === "wrong_gate_type") return false;
 
-  const now = new Date().toISOString();
-  db.update(taskWorkflowGates)
-    .set({ satisfied: true, satisfiedAt: now })
-    .where(and(eq(taskWorkflowGates.id, gateId), eq(taskWorkflowGates.satisfied, false)))
-    .run();
-
+  const gate = result.gate;
   emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_unblocked", {
     gateId: gate.id,
     workflowId: gate.workflowId,
