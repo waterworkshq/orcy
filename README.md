@@ -196,8 +196,10 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.24.x** ✅ | Release-aware automation hardening — delivered (REL-1..11 resolved, incl. REL-9 promotion cap shipped with v0.25.x). |
-| **v0.25.x** ✅ | Roadmap Activation patches — **delivered** (v0.25.1–v0.25.7): release-deadline gates + compound window, selectable scoring algorithms (fanout/depth-from-root/release-proximity/goal-directed), authz hardening, mission edit form + feature mode, orphan-mission auto-mapping, payload summary mode, goal-directed scoring (ADR-0034). One fast-follow: agent `set_focus_mission` MCP action. |
+| **v0.26.0** | Deepen Workflow Gate Core — internal `WorkflowGateStore`/`WorkflowGateEvaluator` seam with characterization coverage; no task lifecycle contract changes. |
+| **v0.27.0** | Deepen UI API Locality — replace shallow per-domain API aliases with real domain modules while preserving `api.<domain>` compatibility. |
+| **v0.28.0** | Deepen Plugin Contribution Runtime — contribution adapter catalog + shared dispatch skeleton target for plugin contribution kinds. |
+| **v0.29.0 candidate** | Deepen Audit Projection Internals — conditional; only if a new Audit Source or projection bug makes the internal catalog concrete. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

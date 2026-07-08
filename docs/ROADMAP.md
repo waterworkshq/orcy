@@ -1,6 +1,6 @@
 # Orcy — Product Roadmap
 
-> **Version:** v0.25.0 | **Updated:** 2026-07-04
+> **Version:** v0.25.8 | **Updated:** 2026-07-08
 
 Each minor release tells a story — a coherent set of changes with a clear "why."
 Release boundaries are risk management decisions: breaking changes, fragile features, and big refactors never ship together.
@@ -72,19 +72,43 @@ Release boundaries are risk management decisions: breaking changes, fragile feat
 | v0.23.8 | "Triage Real-Time + MCP Enrichment" — Two new SSE event types (`triage.finding_created`, `triage.finding_updated`) emitted from finding triage creation, PATCH, and promote paths. UI registry handlers invalidate `queryKeys.triage.all` on receipt — triage views now update in real-time without staleTime polling. MCP `investigate` action response enriched with `pulseId`, `clusterKey`, `corroboratingPulseIds`, and `clusterMissionId` — agents now have the signal subject and corroboration chain needed to investigate without raw REST calls. |
 | v0.24.0 | "Cadence" — Release shipping as a first-class automation trigger. Provider-agnostic release detection (`POST /triage/release-trigger` fed by GitHub `release` webhooks, GitHub Actions `workflow_run` release-workflow completion, CLI, or external systems) classifies each release by semver type via server-side diff against a new `releases` tracking table (caller-override allowed; first release per habitat requires explicit declaration; idempotent on habitat+version incl. concurrent-webhook UNIQUE catch). Semver-targeted deferrals: a new `targetReleaseType` (patch/minor/major) column on `finding_triage` plus the existing free-text `targetRelease` for version pins, with either-match (OR) semantics and a cascading-type matcher (patch ⊂ minor ⊂ major). Unconditional auto-promotion — every release-matched finding promotes into a corrective mission regardless of release type, no human gate (the human's decision point is deferral time, not release time); a two-layer kill switch (`ORCY_RELEASE_AUTO_PROMOTE` env + habitat `releaseSettings.autoPromote`) gates only the promotion loop. A source-tagged release retrospective pulse and a new `release.shipped` automation event fire on every detection; a `release.activated` notification enqueues to habitat team members. Pure semver engine in `@orcy/shared`. 5 ADRs would be expected but 3 shipped (0029–0031); the planning seed's proposed human-in-the-loop gate for minor/major was rejected (ADR-0031 — rebuilds v0.23's manual promote, defeats the feature's purpose). |
 | v0.25.0 | "Roadmap Activation" — Elevates the mission dependency DAG from a passive blocker into the habitat's canonical roadmap. The DAG *is* the roadmap; no separate entity (ADR-0032). Three composing changes: (1) **release-gates** — missions gain optional `releaseGateType`/`releaseGateVersion` columns acting as hard blocking conditions in `getAvailableTasksForAgent`, resolved derive-at-read-time from the `releases` table; (2) **triage-agent insertion** — the triage investigation creates gated missions positioned in the DAG at deferral time (ADR-0033), bootstrapping the roadmap through the existing triage flow; `GET /habitats/:id/roadmap` exposes the DAG to the agent; `insert_deferred_mission` MCP action creates + links; (3) **roadmap-aware guidance** — the dead `dependencyBonus` placeholder becomes a batched fan-out computation directing agents toward work that unblocks the most downstream tasks. `detectAndActivate` resolves gates BEFORE the legacy finding-promotion loop (superseded v0.24.0's free-floating `targetReleaseType` path — greenfield, no migration). Human mission form gains a release-gate selector; gated missions show a lock badge. 2 ADRs (0032–0033), 2 CONTEXT.md terms (Roadmap, Release Gate). Deferred to patch (RM-1..14, `docs/plans/v25/PATCHES.md`): release-deadline "before" + compound window, alternative scoring algorithms + user-selectable setting, orphan-mission auto-mapping, lax UI mode, `findByTriageMissionId` N:1 safety, `isGateSatisfied` extraction, finding-mission unlink, `requireHabitat()` systemic authz, `findReleaseMatched` cleanup, mission edit form, triageInvestigate payload size. |
-| v0.25.1–v0.25.7 | "Roadmap Activation patches" — the full RM-1..15 cadence delivered across 7 patch releases. v0.25.1: gate-logic extraction to `@orcy/shared` + N:1 finding-mission safety + unlink + legacy `findReleaseMatched` cleanup. v0.25.2: `requireHabitat`→`requireHabitatAccess` authz hardening on mission/plugin routes. v0.25.3: release-deadline "before" gate (escalation-on-miss, no claim-blocking) + compound release window; new `release.deadline_missed` notification. v0.25.4: selectable scoring (fanout/depth-from-root/release-proximity) via `roadmap_settings`; strategy-dispatch refactor. v0.25.5: mission edit form + feature-based authoring mode (`roadmapSettings.mode`). v0.25.6: orphan-mission scan → triage agent positions disconnected work via `map_orphan_mission`; `triageInvestigate` summary mode (payload bound). v0.25.7: goal-directed scoring toward a focus mission (explicit or self-derived highest-fan-out; soft-boost-not-gate, ADR-0034). 1 ADR (0034). Deferred fast-follow: agent MCP `set_focus_mission` action. |
+| v0.25.1–v0.25.8 | "Roadmap Activation patches" — the full RM-1..15 cadence plus final fast-follow delivered across 8 patch releases. v0.25.1: gate-logic extraction to `@orcy/shared` + N:1 finding-mission safety + unlink + legacy `findReleaseMatched` cleanup. v0.25.2: `requireHabitat`→`requireHabitatAccess` authz hardening on mission/plugin routes. v0.25.3: release-deadline "before" gate (escalation-on-miss, no claim-blocking) + compound release window; new `release.deadline_missed` notification. v0.25.4: selectable scoring (fanout/depth-from-root/release-proximity) via `roadmap_settings`; strategy-dispatch refactor. v0.25.5: mission edit form + feature-based authoring mode (`roadmapSettings.mode`). v0.25.6: orphan-mission scan → triage agent positions disconnected work via `map_orphan_mission`; `triageInvestigate` summary mode (payload bound). v0.25.7: goal-directed scoring toward a focus mission (explicit or self-derived highest-fan-out; soft-boost-not-gate, ADR-0034). v0.25.8: per-release promotion cap, agent `set_focus_mission` MCP action, and mission-id route authz hardening. 1 ADR (0034). |
 
 ---
 
 ## Upcoming
 
-### v0.24.x — Release-Aware Automation patches ✅ DELIVERED
+### v0.26.0 — "Deepen: Workflow Gate Core"
 
-All REL-1..8, REL-10, REL-11 resolved across v0.24.1–v0.24.3 + the code-style patch. REL-9 (per-release promotion cap, `releaseSettings.maxPromotionsPerRelease`) shipped with the v0.25.x cadence. No open items remain.
+Architecture-deepening release for the Workflow Gate core. Turns trigger-specific DB logic inside `workflowService.ts` into a deeper internal module with better locality, characterization coverage, and no task lifecycle contract changes.
 
-### v0.25.x — Roadmap Activation patches ✅ DELIVERED (v0.25.1–v0.25.7)
+Seed: `docs/plans/v4/01-workflow-gate-deepening.md`
 
-All RM-1..15 items shipped across 7 patch releases (see Delivered table above). One fast-follow remains: the agent MCP `set_focus_mission` action (the human UI sets the focus today; the agent-set path + self-derivation covers the interim).
+Planned scope: characterize lifecycle/Pulse/Automation Run gate behavior, introduce internal `WorkflowGateStore` and `WorkflowGateEvaluator` seams, preserve exported `workflowService.ts` functions, and keep Recovery Redemption independent of ordinary gate satisfaction.
+
+### v0.27.0 — "Deepen: UI API Locality"
+
+Architecture-deepening release for UI API locality. Replaces shallow per-domain API aliases with real domain modules while keeping the central `api` composition surface stable.
+
+Seed: `docs/plans/v4/02-ui-api-domain-deepening.md`
+
+Planned scope: split shared transport from endpoint implementations, move endpoints out of `packages/ui/src/api/index.ts` into `packages/ui/src/api/domains/*` in small mechanical batches, preserve both `api.<domain>` and `<domain>Api` import paths, and replace alias-identity tests with behavior/shape tests.
+
+### v0.28.0 — "Deepen: Plugin Contribution Runtime"
+
+Architecture-deepening release for the Plugin contribution runtime. Localizes contribution-kind behavior behind an internal adapter catalog so new kinds do not require synchronized edits across validation, labels, orphan checks, registries, and dispatch loops.
+
+Seed: `docs/plans/v4/03-plugin-contribution-adapter-catalog.md`
+
+Planned scope: inventory contribution-kind branches in `pluginManager.ts`, preserve ADR-0011/0012 contracts, introduce a `ContributionAdapterCatalog`, and add a shared dispatch skeleton only after detector/channel/action/post-interceptor behavior is characterized. `dispatchPluginRun` is a target seam, not existing shipped code.
+
+### v0.29.0 Candidate — "Deepen: Audit Projection Internals"
+
+Conditional architecture-deepening candidate. Only schedule this if a new Audit Source or source-specific projection bug creates concrete pressure; `queryAuditEvents` is currently externally deep and should remain the public audit projection interface.
+
+Seed: `docs/plans/v4/04-audit-projection-catalog.md`
+
+Possible scope: preserve `queryAuditEvents` as the canonical audit query seam, introduce an internal source projection catalog one source family at a time, keep completeness summaries/source caveats/pagination/event shapes stable, and use the catalog to reduce Audit Source enumeration drift rather than create another public query surface.
 
 ---
 
