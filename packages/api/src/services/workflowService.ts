@@ -17,24 +17,16 @@ import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
   WorkflowFailureHandlerConfig,
-  SignalMatch,
-  AutomationMatch,
   AutomationCondition,
 } from "../models/index.js";
 
 import { workflowGateStore } from "./workflow/workflowGateStore.js";
+import { workflowGateEvaluator } from "./workflow/workflowGateEvaluator.js";
+import type { ConditionTrigger } from "./workflow/workflowGateEvaluator.js";
 
 export { areAllWorkflowGatesSatisfied };
 
 let initialized = false;
-
-type ConditionTrigger = {
-  habitatId: string;
-  targetType: "task" | "mission" | "agent" | "sprint" | "habitat" | "none";
-  targetId: string | null;
-  eventId?: string | null;
-  payload?: Record<string, unknown>;
-};
 
 function gateConditionMatches(condition: AutomationCondition, trigger: ConditionTrigger): boolean {
   const ctx = buildEvaluationContext(
@@ -99,7 +91,7 @@ function handleTransition(opts: {
   newStatus?: string;
   metadata?: Record<string, unknown>;
 }): void {
-  const gateType = actionToGateType(opts.action);
+  const gateType = workflowGateEvaluator.actionToGateType(opts.action);
   if (!gateType) return;
 
   // F4 redemption runs BEFORE the gate-satisfaction loop because a recovery task
@@ -118,27 +110,26 @@ function handleTransition(opts: {
 
   if (gates.length === 0) return;
 
+  const decisions = workflowGateEvaluator.evaluateLifecycleTrigger(
+    gates,
+    opts,
+    gateConditionMatches,
+  );
   const newlySatisfied: (typeof gates)[number][] = [];
-  for (const gate of gates) {
-    if (gate.satisfied) continue;
+  for (const decision of decisions) {
+    if (decision.status === "skip") continue;
+    const gate = decision.gate;
+    if (decision.status === "error") {
+      logger.error({ err: decision.error, gateId: gate.id }, "Failed to satisfy workflow gate");
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        error: decision.error instanceof Error ? decision.error.message : String(decision.error),
+        phase: "gate_satisfaction",
+      });
+      continue;
+    }
     try {
-      if (
-        gate.condition &&
-        !gateConditionMatches(gate.condition, {
-          habitatId: opts.habitatId,
-          targetType: "task",
-          targetId: opts.taskId,
-          payload: {
-            action: opts.action,
-            actorType: opts.actorType,
-            actorId: opts.actorId,
-            oldStatus: opts.oldStatus,
-            newStatus: opts.newStatus,
-            metadata: opts.metadata,
-          },
-        })
-      )
-        continue;
       const result = workflowGateStore.satisfyGateIfUnsatisfied(gate);
       if (result.status === "already_satisfied") continue;
       newlySatisfied.push(gate);
@@ -556,49 +547,26 @@ export function substituteTemplate(text: string, vars: Record<string, string>): 
   return text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? "");
 }
 
-function actionToGateType(action: string): GateType | null {
-  switch (action) {
-    case "completed":
-      return "on_complete";
-    case "approved":
-      return "on_approve";
-    case "failed":
-    case "rejected":
-    case "released":
-      return "on_fail";
-    default:
-      return null;
-  }
-}
-
-type GateType = "on_complete" | "on_approve" | "on_fail";
-
 function handlePulseCreated(pulse: Pulse): void {
   const gates = workflowGateStore.findActiveSignalGates(pulse.habitatId);
 
   if (gates.length === 0) return;
 
-  for (const gate of gates) {
-    if (gate.satisfied) continue;
+  const decisions = workflowGateEvaluator.evaluatePulseTrigger(gates, pulse, gateConditionMatches);
+  for (const decision of decisions) {
+    if (decision.status === "skip") continue;
+    const gate = decision.gate;
+    if (decision.status === "error") {
+      logger.error({ err: decision.error, gateId: gate.id }, "Failed to evaluate on_signal gate");
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        error: decision.error instanceof Error ? decision.error.message : String(decision.error),
+        phase: "signal_gate_evaluation",
+      });
+      continue;
+    }
     try {
-      const match = readSignalMatch(gate.matchConfig);
-      if (!match) continue;
-      if (!signalMatchEqualsPulse(match, pulse, gate)) continue;
-      if (
-        gate.condition &&
-        !gateConditionMatches(gate.condition, {
-          habitatId: pulse.habitatId,
-          targetType: pulse.taskId ? "task" : pulse.missionId ? "mission" : "none",
-          targetId: pulse.taskId ?? pulse.missionId,
-          eventId: pulse.id,
-          payload: {
-            signalType: pulse.signalType,
-            subject: pulse.subject,
-            metadata: pulse.metadata,
-          },
-        })
-      )
-        continue;
       const result = workflowGateStore.satisfyGateIfUnsatisfied(gate, pulse.id);
       if (result.status === "already_satisfied") continue;
       emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
@@ -622,56 +590,6 @@ function handlePulseCreated(pulse: Pulse): void {
   }
 }
 
-function readSignalMatch(raw: Record<string, unknown> | null | undefined): SignalMatch | null {
-  if (!raw) return null;
-  if (typeof raw["signalType"] !== "string") return null;
-  return {
-    signalType: raw["signalType"] as SignalMatch["signalType"],
-    experience: raw["experience"] as SignalMatch["experience"],
-    subjectContains: raw["subjectContains"] as SignalMatch["subjectContains"],
-    matchScope: raw["matchScope"] as SignalMatch["matchScope"],
-  };
-}
-
-function signalMatchEqualsPulse(
-  match: SignalMatch,
-  pulse: Pulse,
-  gate: { upstreamTaskId: string; missionId: string },
-): boolean {
-  if (match.signalType !== pulse.signalType) return false;
-
-  if (match.experience !== undefined) {
-    if (pulse.metadata?.["experience"] !== match.experience) return false;
-  }
-
-  if (match.subjectContains !== undefined) {
-    const subject = pulse.subject.toLowerCase();
-    const needle = match.subjectContains.toLowerCase();
-    if (!subject.includes(needle)) return false;
-  }
-
-  const scope = match.matchScope ?? "task";
-  return pulseMatchesScope(pulse, gate, scope);
-}
-
-function pulseMatchesScope(
-  pulse: Pulse,
-  gate: { upstreamTaskId: string; missionId: string },
-  scope: "task" | "mission" | "either",
-): boolean {
-  switch (scope) {
-    case "task":
-      return pulse.taskId === gate.upstreamTaskId;
-    case "mission":
-      return pulse.missionId !== null && pulse.missionId === gate.missionId;
-    case "either":
-      return (
-        pulse.taskId === gate.upstreamTaskId ||
-        (pulse.missionId !== null && pulse.missionId === gate.missionId)
-      );
-  }
-}
-
 function handleAutomationRunCompleted(opts: {
   run: { id: string; targetType: string | null; targetId: string | null };
   rule: { id: string };
@@ -682,12 +600,24 @@ function handleAutomationRunCompleted(opts: {
 
   if (gates.length === 0) return;
 
-  for (const gate of gates) {
-    if (gate.satisfied) continue;
+  const decisions = workflowGateEvaluator.evaluateAutomationTrigger(gates, opts);
+  for (const decision of decisions) {
+    if (decision.status === "skip") continue;
+    const gate = decision.gate;
+    if (decision.status === "error") {
+      logger.error(
+        { err: decision.error, gateId: gate.id },
+        "Failed to evaluate on_automation gate",
+      );
+      emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_evaluation_error", {
+        gateId: gate.id,
+        workflowId: gate.workflowId,
+        error: decision.error instanceof Error ? decision.error.message : String(decision.error),
+        phase: "automation_gate_evaluation",
+      });
+      continue;
+    }
     try {
-      const match = readAutomationMatch(gate.matchConfig);
-      if (!match) continue;
-      if (!automationMatchEqualsRun(match, opts, gate)) continue;
       const result = workflowGateStore.satisfyGateIfUnsatisfied(gate, opts.run.id);
       if (result.status === "already_satisfied") continue;
       emitWorkflowTaskAudit(gate.downstreamTaskId, "workflow_gate_satisfied", {
@@ -710,46 +640,6 @@ function handleAutomationRunCompleted(opts: {
       });
     }
   }
-}
-
-function readAutomationMatch(
-  raw: Record<string, unknown> | null | undefined,
-): AutomationMatch | null {
-  if (!raw) return null;
-  if (typeof raw["ruleId"] !== "string") return null;
-  return {
-    ruleId: raw["ruleId"],
-    outcome: raw["outcome"] as AutomationMatch["outcome"],
-    matchScope: raw["matchScope"] as AutomationMatch["matchScope"],
-  };
-}
-
-function automationMatchEqualsRun(
-  match: AutomationMatch,
-  opts: {
-    run: { targetType: string | null; targetId: string | null };
-    rule: { id: string };
-    outcome: string;
-  },
-  gate: { upstreamTaskId: string; missionId: string },
-): boolean {
-  if (match.ruleId !== opts.rule.id) return false;
-
-  if (match.outcome !== undefined) {
-    if (match.outcome === "skipped" && opts.outcome !== "skipped") return false;
-    if (match.outcome === "succeeded" && opts.outcome !== "succeeded") return false;
-    if (match.outcome === "failed" && opts.outcome !== "failed") return false;
-  }
-
-  const scope = match.matchScope ?? "either";
-  const runTargetId = opts.run.targetId;
-  if (scope === "task") {
-    return runTargetId === gate.upstreamTaskId;
-  }
-  if (scope === "mission") {
-    return runTargetId === gate.missionId;
-  }
-  return true;
 }
 
 /** Attaches a workflow DAG to a mission, creating the workflow row and all gate rows from the template definition. */

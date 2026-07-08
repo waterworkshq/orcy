@@ -3,7 +3,7 @@ import { workflows, taskWorkflowGates } from "../../db/schema/index.js";
 import { eq, and } from "drizzle-orm";
 import type { AutomationCondition } from "../../models/index.js";
 
-type WorkflowGateRecord = {
+export type WorkflowGateRecord = {
   id: string;
   workflowId: string;
   missionId: string;
