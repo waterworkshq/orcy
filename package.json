@@ -1,6 +1,6 @@
 {
   "name": "orcy",
-  "version": "0.27.2",
+  "version": "0.28.0",
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@9.0.0",

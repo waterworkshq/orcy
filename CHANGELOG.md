@@ -2,6 +2,60 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.28.0 — 2026-07-09
+
+### Documentation
+
+#### record v0.28.0 delivery and refresh plugin architecture docs ([`8bace0d`](https://github.com/waterworkshq/orcy/commit/8bace0dac6b3e5ce804ceccaa95c2aa1040059dd))
+
+
+
+### Refactors
+
+#### add contribution adapter catalog module ([`24f9193`](https://github.com/waterworkshq/orcy/commit/24f919320afdd856c83ba9cc4e450af98c557892))
+
+1. New ContributionAdapter interface (4 callbacks), CONTRIBUTION_KIND_KEYS, CAPABILITY_MATRIX moved verbatim, and a buildContributionCatalog factory. Unconsumed foundation for plugin contribution registration locality; pluginManager wiring follows in a later change. No behavior change.
+
+
+#### enrich contribution adapter catalog to own collision detection ([`ca989eb`](https://github.com/waterworkshq/orcy/commit/ca989ebd265ff7690d113689d0374355265820b0))
+
+1. Add a grouped collisions sub-object per adapter (idFieldName, crossRegistry, withinError/crossError) with factory template helpers, so the catalog fully owns collision error formatting and the cross-registry check. Tier-C kinds omit it; lifecycleInterceptor has within-only (no cross). No behavior change; unconsumed until pluginManager is wired.
+
+
+#### wire pluginManager to the contribution adapter catalog ([`a977ea4`](https://github.com/waterworkshq/orcy/commit/a977ea46f0433b481cb008ca0098baf4cf8419c0))
+
+1. Collapse the four contribution-kind switches (contributionLabel, orphanHandler, detectIdCollisions, registerContributions) into CATALOG[c.kind] lookups. Derive VALID_KINDS from CONTRIBUTION_KIND_KEYS; move CAPABILITY_MATRIX and the ContributionKind type out of pluginManager into the catalog. detectIdCollisions is now pure delegation (zero kind-branches); dispatch functions and DEFAULT_TIMEOUT_MS are byte-for-byte unchanged. pluginManager.ts: 1180 -> 985 lines.
+
+
+#### fold findContribution into the contribution adapter catalog ([`e6cee0b`](https://github.com/waterworkshq/orcy/commit/e6cee0b4001a5f729e27025711d401963217a414))
+
+1. Replace the 5-branch kind-switch in pluginEnrollmentService.findContribution with a single pluginManager.CATALOG label lookup, auto-covering the 4 previously-missing kinds (webhookFormatter, automationCondition, automationAction, integrationProvider) so they resolve to the scope error instead of not found. Exports CATALOG from pluginManager for the read-only consumer. Adds a test pinning the webhookFormatter scope-error path.
+
+
+
+### Tests
+
+#### characterize plugin registration behavior across contribution kinds ([`86c341a`](https://github.com/waterworkshq/orcy/commit/86c341aa7f95829d315ebdd811a959c066553829))
+
+1. Pins contributionLabel, orphanHandler, detectIdCollisions, and register-to-getter round-trips for all 9 contribution kinds. Adds validatePlugin check-order fixtures, cross-kind manifest-first-error ordering, and byte-for-byte error-string assertions. 65 tests; no production changes.
+
+
+#### characterize plugin dispatch contract and quarantine chain ([`779324c`](https://github.com/waterworkshq/orcy/commit/779324c5204956308b5d247da5f7627908e0c572))
+
+1. Pins dispatchActionHandler fail-safe, post-interceptor signal emission, per-kind fail-open/fail-safe asymmetry, and the detector quarantine chain (incrementError to threshold to DB plus SSE to observable skip). Characterizes the action-quarantine no-skip asymmetry. 16 tests; no production changes.
+
+
+#### characterize plugin dispatch guards ([`324b649`](https://github.com/waterworkshq/orcy/commit/324b64977a2a0413c410a9b874bbb2596a8b6ed1))
+
+1. Pins isRateLimited threshold, acquireConcurrencySlot saturation, release, and per-habitat isolation, plus withTimeout late-rejection swallowing. 7 tests; no production changes.
+
+
+#### make cross-plugin collision assertions readdir-order independent ([`9228f1b`](https://github.com/waterworkshq/orcy/commit/9228f1b0219aa8d9eb67b8ad2007209732cb216f))
+
+1. Loosen the 5 cross-plugin collision winner-identity assertions (errored id === "bb") to exactly one of {aa,bb} fails while the other loads, since readdir order is filesystem-dependent and not a stable Orcy contract. Removes CI-flake risk without weakening byte-for-byte error-string coverage.
+
+
+
 ## 0.27.2 — 2026-07-09
 
 ### Bug Fixes
@@ -74,36 +128,3 @@
 ### Tests
 
 #### close deferred test gaps TG-1 and TG-2 ([`103c750`](https://github.com/waterworkshq/orcy/commit/103c750deba963c8498c4b701c9f50279ed402d9))
-
-
-
-## 0.27.0 — 2026-07-08
-
-### Bug Fixes
-
-#### remove redundant rawBody augmentation conflicting with fastify-raw-body types ([`9c761fe`](https://github.com/waterworkshq/orcy/commit/9c761fe75796daef28ca3ac9391198329973d56a))
-
-1. The local 'declare module "fastify" { rawBody?: string }' in idempotency.ts was added in v0.26.0 as a workaround when @types/node@22 broke the fastify-raw-body plugin's type resolution. Investigation found the plugin's own plugin.d.ts (rawBody?: string | Buffer) is now resolving and the local declaration conflicts (TS2717). Removed the redundant line — the plugin provides the type and all consumers already handle the wider union via 'as string' casts or typeof guards. Full recursive typecheck now passes clean across all 7 packages.
-
-3. Also updates ROADMAP (v0.27.0 → Delivered), README What's Next (promote v0.28.0), and CHANGELOG with v0.27.0 release entries.
-
-
-
-### Refactors
-
-#### extract transport helpers into transport-only module ([`388940f`](https://github.com/waterworkshq/orcy/commit/388940f67ea82a19da6c44989fae1c4b28dddf78))
-
-1. Move request, requestBlob, and uploadFile from api/index.ts into api/transport.ts as the shared transport seam for the upcoming domain module migration. api/index.ts temporarily imports transport helpers until composition rebuild removes inline endpoints. Adds focused behavior tests for auth header injection, JSON content-type defaults, SSE base-path handling, 204 responses, error parsing, blob download, and XHR upload paths (13 tests).
-
-
-#### migrate endpoint ownership into real domain modules ([`54078f0`](https://github.com/waterworkshq/orcy/commit/54078f0bf0e4ff9720d91137b624f0fa5c7ea3aa))
-
-1. Move all 42 API namespace implementations from api/index.ts into per-domain modules under api/domains/. api/index.ts becomes a pure composition surface (96 lines) that imports domain APIs and exports the api object — no endpoint implementations remain inline. Adds 6 missing domain modules (automation, metrics, notificationsV2, plugins, remoteAccess, workflows). Moves myTeams into teamsApi with api.myTeams compatibility alias. Replaces alias-identity tests with method-shape compatibility tests (85 tests) and a direct reviewersApi behavior test. Full UI suite green: 1533 tests across 126 files.
-
-
-
-### Tests
-
-#### harden transport and domain test coverage ([`7c1699c`](https://github.com/waterworkshq/orcy/commit/7c1699c18259c4b2ec66cee05ddd14ec2367919a))
-
-1. Add upload-progress test (onProgress callback fires with correct percentage), non-JSON error-body fallback test (statusText used when response body is not parseable JSON), and independent method-name snapshots for 5 representative domains (reviewers, dashboard, metrics, workflows, agents) so method-loss during migration is caught independently of the composition wiring.
