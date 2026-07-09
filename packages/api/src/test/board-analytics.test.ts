@@ -36,6 +36,7 @@ function captureHabitatRoutes(): CapturedRoute[] {
     register: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
+    put: vi.fn(),
     delete: vi.fn(),
     get: vi.fn((path: string, opts: any, _handler: any) => {
       const preHandler = opts?.preHandler;

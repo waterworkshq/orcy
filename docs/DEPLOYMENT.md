@@ -253,9 +253,19 @@ These are configured per-board via the API (not environment variables):
 
 | Setting | Routes Affected |
 |---------|----------------|
-| `githubSecret` / `gitlabToken` | CI/CD and code review webhook verification |
+| `githubSecret` / `gitlabToken` (HMAC) | CI/CD and code review webhook verification |
 | `slackSigningSecret` | Slack slash command verification |
 | `discordPublicKey` | Discord interaction verification |
+
+The non-secret fields on each board are persisted via `PATCH /habitats/:habitatId`
+using the corresponding Zod subset (`codeReviewSettingsSchema` exposes
+`taskPattern` and `autoApproveOnMerge`; `ciCdSettingsSchema` exposes
+`taskPattern` only). HMAC secrets are write-only: `PUT /habitats/:habitatId/webhook-secrets`
+takes a `provider` (`code_review` or `ci_cd`) plus optional `githubSecret` /
+`gitlabSecret` (omit = no change, string = set, `null` = clear) and merges them
+into the existing settings JSON. The response carries `hasGithubSecret` /
+`hasGitlabSecret` presence booleans only — the raw secret never leaves the
+handler.
 
 In remote posture, unsigned inbound requests are **rejected** when secrets are configured but no signature matches.
 
@@ -273,6 +283,6 @@ In remote posture, unsigned inbound requests are **rejected** when secrets are c
 - [ ] Configure log aggregation
 - [ ] Set up health check monitoring
 - [ ] Review and update rate limit thresholds
-- [ ] Configure webhook secrets for inbound integrations
+- [ ] Configure webhook secrets for inbound integrations (set HMAC secrets per board via `PUT /api/habitats/:habitatId/webhook-secrets`; configure non-secret fields like `taskPattern` and `autoApproveOnMerge` via `PATCH /api/habitats/:habitatId`)
 - [ ] Run `bun typecheck && bun test` before deploying
 - [ ] Verify `bun audit` reports no high vulnerabilities
