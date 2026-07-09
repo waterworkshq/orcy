@@ -59,11 +59,12 @@ export type ContributionKind = (typeof CONTRIBUTION_KIND_KEYS)[number];
 
 /**
  * Per-kind registration-time behavior. Dispatch is NOT part of the adapter
- * — only the four validation/registration callbacks below. `label` and
- * `orphanCheck` are required for all 9 kinds; `collisionKey` and `register`
- * are present only for the 7 registry kinds (Tier-C `customMcpTool` and
- * `customHttpRoute` omit them — their runtime exposure lives outside the
- * catalog in `getCustomMcpTools()` and `initializePlugins()` respectively).
+ * — only the validation/registration callbacks below. `label` and
+ * `orphanCheck` are required for all 9 kinds; `collisionKey`, `collisions`,
+ * and `register` are present only for the 7 registry kinds (Tier-C
+ * `customMcpTool` and `customHttpRoute` omit them — their runtime exposure
+ * lives outside the catalog in `getCustomMcpTools()` and
+ * `initializePlugins()` respectively).
  */
 export interface ContributionAdapter {
   /** Human-readable identifier for error messages (e.g. `detectorId`, `channelId`). */
@@ -84,6 +85,28 @@ export interface ContributionAdapter {
    * Undefined for Tier-C kinds, which don't track collisions.
    */
   collisionKey?: (c: Contribution, manifestId: string) => { within: string; cross?: string };
+  /**
+   * Collision detection metadata. Owns the per-kind error format and the
+   * cross-registry reference so `detectIdCollisions` in `pluginManager.ts`
+   * can be a pure delegation loop with zero kind-switches.
+   *
+   * `lifecycleInterceptor` is the one kind with partial collision tracking:
+   * it has a compound within-key and a within-error, but no `crossRegistry`
+   * (its registration is append-into-bucket, not registry-key collision-checked)
+   * and no `crossError`.
+   *
+   * Undefined for Tier-C kinds, which don't track collisions.
+   */
+  collisions?: {
+    /** Field name used in error messages (e.g. "channelId", "detectorId", "provider"). */
+    idFieldName: string;
+    /** The registry Map to check for cross-plugin collisions. Absent for lifecycleInterceptor. */
+    crossRegistry?: Map<string, unknown>;
+    /** Within-manifest duplicate error string for this kind. */
+    withinError: (c: Contribution) => string;
+    /** Cross-plugin duplicate error string for this kind. Absent for lifecycleInterceptor. */
+    crossError?: (c: Contribution) => string;
+  };
   /**
    * Writes to the kind's registry Map. `lifecycleInterceptor` uniquely sorts
    * its phase/event bucket by `contribution.priority` after every insert
@@ -220,6 +243,24 @@ export function buildContributionCatalog(
     providerRegistry,
   } = registries;
 
+  // Collision-error template helpers. The catalog owns the per-kind error
+  // format and the cross-registry reference so `detectIdCollisions` in
+  // `pluginManager.ts` is a pure delegation loop with zero kind-switches.
+  // Templates:
+  //   within: `duplicate ${idFieldName} "${label(c)}"${withinSuffix} within manifest`
+  //   cross:  `${idFieldName} "${label(c)}" already registered${crossSuffix}`
+  // Default crossSuffix is " by another plugin"; signalDetector uses "".
+  // lifecycleInterceptor's withinSuffix is ` (${phase}/${event})`; others use "".
+  const makeWithinError =
+    (idFieldName: string, label: (c: Contribution) => string, withinSuffix?: (c: Contribution) => string) =>
+    (c: Contribution): string =>
+      `duplicate ${idFieldName} "${label(c)}"${withinSuffix ? withinSuffix(c) : ""} within manifest`;
+
+  const makeCrossError =
+    (idFieldName: string, label: (c: Contribution) => string, crossSuffix: string) =>
+    (c: Contribution): string =>
+      `${idFieldName} "${label(c)}" already registered${crossSuffix}`;
+
   return {
     notificationChannel: {
       label: (c) => (c.kind === "notificationChannel" ? c.channelId : ""),
@@ -232,6 +273,12 @@ export function buildContributionCatalog(
       collisionKey: (c) => {
         if (c.kind !== "notificationChannel") return { within: "" };
         return { within: `channel:${c.channelId}`, cross: c.channelId };
+      },
+      collisions: {
+        idFieldName: "channelId",
+        crossRegistry: channelRegistry,
+        withinError: makeWithinError("channelId", (c) => (c.kind === "notificationChannel" ? c.channelId : "")),
+        crossError: makeCrossError("channelId", (c) => (c.kind === "notificationChannel" ? c.channelId : ""), " by another plugin"),
       },
       register: (c, mod) => {
         if (c.kind !== "notificationChannel") return;
@@ -265,6 +312,15 @@ export function buildContributionCatalog(
           cross: `${manifestId}:${c.detectorId}`,
         };
       },
+      collisions: {
+        idFieldName: "detectorId",
+        crossRegistry: detectorRegistry,
+        // Documented asymmetry: signalDetector's cross-error omits the
+        // "by another plugin" suffix (byte-for-byte fidelity with the
+        // pre-catalog switch).
+        withinError: makeWithinError("detectorId", (c) => (c.kind === "signalDetector" ? c.detectorId : "")),
+        crossError: makeCrossError("detectorId", (c) => (c.kind === "signalDetector" ? c.detectorId : ""), ""),
+      },
       register: (c, mod) => {
         if (c.kind !== "signalDetector") return;
         const handler = mod.detectors?.[c.detectorId];
@@ -292,6 +348,17 @@ export function buildContributionCatalog(
         return {
           within: `interceptor:${c.interceptorId}:${c.phase}:${c.event}`,
         };
+      },
+      collisions: {
+        idFieldName: "interceptorId",
+        // No crossRegistry: append-into-bucket, not registry-key collision-checked.
+        // Within-error carries the phase/event suffix: `(pre/taskCreated)`.
+        withinError: makeWithinError(
+          "interceptorId",
+          (c) => (c.kind === "lifecycleInterceptor" ? c.interceptorId : ""),
+          (c) => (c.kind === "lifecycleInterceptor" ? ` (${c.phase}/${c.event})` : ""),
+        ),
+        // No crossError: lifecycleInterceptor has no cross-plugin check.
       },
       // Unique to this kind: append into the phase/event bucket, then sort by
       // `contribution.priority` (ADR-0014). Sort is in-place (`.sort()`, not
@@ -352,6 +419,12 @@ export function buildContributionCatalog(
         if (c.kind !== "webhookFormatter") return { within: "" };
         return { within: `formatter:${c.formatId}`, cross: c.formatId };
       },
+      collisions: {
+        idFieldName: "formatId",
+        crossRegistry: formatterRegistry,
+        withinError: makeWithinError("formatId", (c) => (c.kind === "webhookFormatter" ? c.formatId : "")),
+        crossError: makeCrossError("formatId", (c) => (c.kind === "webhookFormatter" ? c.formatId : ""), " by another plugin"),
+      },
       register: (c, mod) => {
         if (c.kind !== "webhookFormatter") return;
         const handler = mod.formatters?.[c.formatId];
@@ -375,6 +448,12 @@ export function buildContributionCatalog(
         if (c.kind !== "automationCondition") return { within: "" };
         return { within: `condition:${c.conditionId}`, cross: c.conditionId };
       },
+      collisions: {
+        idFieldName: "conditionId",
+        crossRegistry: conditionRegistry,
+        withinError: makeWithinError("conditionId", (c) => (c.kind === "automationCondition" ? c.conditionId : "")),
+        crossError: makeCrossError("conditionId", (c) => (c.kind === "automationCondition" ? c.conditionId : ""), " by another plugin"),
+      },
       register: (c, mod) => {
         if (c.kind !== "automationCondition") return;
         const handler = mod.conditions?.[c.conditionId];
@@ -397,6 +476,12 @@ export function buildContributionCatalog(
       collisionKey: (c) => {
         if (c.kind !== "automationAction") return { within: "" };
         return { within: `action:${c.actionId}`, cross: c.actionId };
+      },
+      collisions: {
+        idFieldName: "actionId",
+        crossRegistry: actionRegistry,
+        withinError: makeWithinError("actionId", (c) => (c.kind === "automationAction" ? c.actionId : "")),
+        crossError: makeCrossError("actionId", (c) => (c.kind === "automationAction" ? c.actionId : ""), " by another plugin"),
       },
       register: (c, mod) => {
         if (c.kind !== "automationAction") return;
@@ -428,6 +513,12 @@ export function buildContributionCatalog(
       collisionKey: (c) => {
         if (c.kind !== "integrationProvider") return { within: "" };
         return { within: `provider:${c.provider}`, cross: c.provider };
+      },
+      collisions: {
+        idFieldName: "provider",
+        crossRegistry: providerRegistry,
+        withinError: makeWithinError("provider", (c) => (c.kind === "integrationProvider" ? c.provider : "")),
+        crossError: makeCrossError("provider", (c) => (c.kind === "integrationProvider" ? c.provider : ""), " by another plugin"),
       },
       register: (c, mod) => {
         if (c.kind !== "integrationProvider") return;
