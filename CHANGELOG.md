@@ -2,6 +2,65 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.27.2 — 2026-07-09
+
+### Bug Fixes
+
+#### resolve getSettingsForHabitat snake_case property access ([`3ceb641`](https://github.com/waterworkshq/orcy/commit/3ceb64168d2760ffcdc3e161e97f93e7d8cf7a86))
+
+1. getSettingsForHabitat in githubWebhook.ts and gitlabWebhook.ts read code_review_settings
+2. (snake_case DB column) via an erasing cast, but getHabitatById returns drizzle
+3. camelCase objects (codeReviewSettings). The property was always undefined, so the
+4. function always returned null — silently disabling PR/MR task-linking since the
+5. initial commit. Mirrors the already-correct getCiCdSettingsForHabitat.
+6. Test mocks corrected from fiction snake_case strings to production camelCase.
+
+
+#### persist webhook settings in repo and fix habitat relation query ([`cb5ff35`](https://github.com/waterworkshq/orcy/commit/cb5ff35c6dc60c463b0fa05eb9888b0e9c66b6d2))
+
+1. UpdateHabitatInput interface and repo allowlist extended for
+2. codeReviewSettings/ciCdSettings (previously validated by Zod but silently
+3. dropped). Also fixes getHabitatWithColumnsAndTasks: replaced the drizzle
+4. relational query (db.query.findFirst with relations) that returned malformed
+5. data under sql.js with plain db.select() queries matching every other repo
+6. function.
+
+
+
+### Features
+
+#### add webhook settings schemas and public habitat types ([`42ba67f`](https://github.com/waterworkshq/orcy/commit/42ba67f3c208d9c54f39204cf543e92bf98ed9f7))
+
+1. codeReviewSettingsSchema and ciCdSettingsSchema (non-secret Zod subsets for
+2. PATCH validation). PublicCodeReviewSettings/PublicCiCdSettings/PublicHabitat
+3. types (masked views where HMAC secrets are replaced by presence booleans).
+4. Wired into updateHabitatSchema.
+
+
+#### write-only webhook secrets endpoint and habitat secret masking ([`4b7fbef`](https://github.com/waterworkshq/orcy/commit/4b7fbef31329b76907a24f3e13653d34cc321d45))
+
+1. PUT /habitats/:id/webhook-secrets accepts HMAC secrets, returns only presence
+2. booleans. maskSecretSettings applied at every boardService habitat-returning
+3. boundary (getHabitat, listHabitats, createHabitat, updateHabitat, importHabitat
+4. + SSE events). PublicHabitat type imported from @orcy/shared for compile-time
+5. secret safety. PATCH updateHabitat merges settings to preserve secrets set via
+6. PUT (prevents the PATCH-clobers-secrets sequencing bug).
+
+
+
+### Tests
+
+#### webhook config integration tests, mock fixups, and deployment docs ([`1ead7fe`](https://github.com/waterworkshq/orcy/commit/1ead7fe4cce557240568d0746029c5f767151925))
+
+1. Config-path integration tests: PATCH round-trip, PUT secret + cache resolution,
+2. PATCH+PUT merge both orders (including PUT->PATCH secret-survival), feature-review
+3. end-to-end PR trace (opened/linked/SSE/merged+autoApproveOnMerge).
+4. Mock fastify objects in board-analytics/board-export/boardAccess tests extended
+5. with .put method for the new secrets route.
+6. DEPLOYMENT.md updated to reference both config endpoints.
+
+
+
 ## 0.27.1 — 2026-07-09
 
 ### Refactors
@@ -48,82 +107,3 @@
 #### harden transport and domain test coverage ([`7c1699c`](https://github.com/waterworkshq/orcy/commit/7c1699c18259c4b2ec66cee05ddd14ec2367919a))
 
 1. Add upload-progress test (onProgress callback fires with correct percentage), non-JSON error-body fallback test (statusText used when response body is not parseable JSON), and independent method-name snapshots for 5 representative domains (reviewers, dashboard, metrics, workflows, agents) so method-loss during migration is caught independently of the composition wiring.
-
-
-
-## 0.26.0 — 2026-07-08
-
-### Chores
-
-#### add workspace-concurrency safeguard and fix rawBody type augmentation ([`9f1d188`](https://github.com/waterworkshq/orcy/commit/9f1d188377d29856b2ba8bfaee026b8aa8c981ba))
-
-1. .npmrc sets workspace-concurrency=1 to prevent parallel tsc builds
-2. from triggering the NTFS IMA deadlock that corrupted dist files
-3. during the v0.25.8 release.
-
-5. The rawBody type augmentation in middleware/idempotency.ts fixes a
-6. regression caused by the @types/node ^20→^22 bump in v0.25.8: the
-7. fastify-raw-body plugin's declare module augmentation stopped
-8. resolving under the newer Node types. The local augmentation
-9. restores typecheck without depending on plugin type resolution.
-
-
-
-### Documentation
-
-#### add v0.26–v0.29 release themes, bump version to v0.25.8 ([`d5ccdbe`](https://github.com/waterworkshq/orcy/commit/d5ccdbefc3ac4241b9c129952b7a293abdbcb7e1))
-
-1. Replace delivered v0.24.x/v0.25.x entries with upcoming release themes:
-2. Workflow Gate Core (v0.26), UI API Locality (v0.27), Plugin Contribution
-3. Runtime (v0.28), and Audit Projection Internals (v0.29 candidate). Sync
-4. roadmap version to v0.25.8 and update date.
-
-
-#### mark v0.26.0 Workflow Gate Core delivered ([`fc2b4e7`](https://github.com/waterworkshq/orcy/commit/fc2b4e7edf8b6290a1c5f8ea6cf4f835e1076874))
-
-1. Updates ROADMAP (Upcoming → Delivered), README What's Next (removes
-2. v0.26.0, bumps v0.27.0 to top), CHANGELOG (adds v0.26.0 entry with
-3. refactor/test/chore sections), ARCHITECTURE.md (adds Store/Evaluator
-4. to Key Files table, documents internal module structure and error
-5. isolation in evaluator), PROJECT-STRUCTURE.md (notes workflow/
-6. subdirectory), and TESTING.md (adds evaluator unit test file and
-7. pattern description).
-
-
-
-### Refactors
-
-#### extract WorkflowGateStore for gate lookup and satisfaction ([`8ce6b91`](https://github.com/waterworkshq/orcy/commit/8ce6b91797d124aac6b693f2bb0981d857368fb2))
-
-1. Moves active-gate DB lookups and idempotent satisfaction updates from
-2. inline queries in handleTransition, handlePulseCreated,
-3. handleAutomationRunCompleted, and manualUnblockGate into an internal
-4. WorkflowGateStore module. Preserves WHERE-clause asymmetry (lifecycle
-5. does not pre-filter satisfied; Pulse/Automation do) and the
-6. always-emit-audit behavior of manualUnblockGate. No behavior change
-7. observable from existing tests.
-
-
-#### extract WorkflowGateEvaluator for trigger matching ([`a464379`](https://github.com/waterworkshq/orcy/commit/a464379a27eb099afebfdd29703b73a6c4c550dc))
-
-1. Moves actionToGateType, readSignalMatch, signalMatchEqualsPulse,
-2. pulseMatchesScope, readAutomationMatch, and automationMatchEqualsRun
-3. from workflowService.ts into a pure WorkflowGateEvaluator module.
-4. The evaluator returns satisfaction decisions including per-gate error
-5. isolation; handlers iterate decisions and delegate satisfaction to the
-6. Store. Preserves the Automation Run no-condition-evaluation asymmetry
-7. and the universal satisfied-skip rule for all trigger kinds.
-
-
-
-### Tests
-
-#### add characterization tests for detached-workflow gate gap ([`34f2b7a`](https://github.com/waterworkshq/orcy/commit/34f2b7ac6e52a0e4b99d7c6d95d0be1e6f13a619))
-
-1. Closes AC-CHAR-5 (detached Workflow does not satisfy gates) with two
-2. real-DB tests proving handleTransition and handlePulseCreated filter
-3. on workflows.status = 'active'. Also closes AC-CHAR-4 scope-matching
-4. gap with two mock-based tests for on_automation matchScope task/mission.
-
-6. All AC-CHAR-1 through AC-CHAR-9 now have passing characterization tests,
-7. locking current Workflow Gate behavior before Store/Evaluator extraction.
