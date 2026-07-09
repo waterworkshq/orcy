@@ -524,20 +524,21 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await mkdir(tmpDir, { recursive: true });
     const mk = (id: string) =>
       `export default { manifest: { id: '${id}', version: '1.0.0', description: 'x', contributions: [{ kind: 'notificationChannel', scope: 'system', channelId: 'shared-ch', label: 'l', requires: [] }] }, channels: { 'shared-ch': async () => ({ success: true }) } };`;
-    // Filenames 'aa' and 'bb' ensure deterministic readdir order on tmpfs/ext4.
+    // Filenames 'aa'/'bb' match manifest ids; assertions are order-independent
+    // (readdir order is filesystem-dependent, so we pin "exactly one fails", not which).
     await writeFile(`${tmpDir}/aa.mjs`, mk("aa"));
     await writeFile(`${tmpDir}/bb.mjs`, mk("bb"));
     pluginManager.setPluginDirectory(tmpDir);
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].id).toBe("bb");
     expect(errored[0].error).toBe(
       'channelId "shared-ch" already registered by another plugin',
     );
     const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
     expect(loaded).toHaveLength(1);
-    expect(loaded[0].id).toBe("aa");
+    // readdir order is filesystem-dependent; pin exactly one of {aa,bb} fails, the other loads (not which).
+    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -642,10 +643,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].id).toBe("bb");
     expect(errored[0].error).toBe(
       'formatId "shared-fmt" already registered by another plugin',
     );
+    const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
+    expect(loaded).toHaveLength(1);
+    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -671,10 +674,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].id).toBe("bb");
     expect(errored[0].error).toBe(
       'conditionId "shared-cond" already registered by another plugin',
     );
+    const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
+    expect(loaded).toHaveLength(1);
+    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -700,10 +705,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].id).toBe("bb");
     expect(errored[0].error).toBe(
       'actionId "shared-act" already registered by another plugin',
     );
+    const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
+    expect(loaded).toHaveLength(1);
+    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
@@ -729,10 +736,12 @@ describe("v0.28-T1: detectIdCollisions (within + cross-plugin)", () => {
     await pluginManager.loadPlugins();
     const errored = pluginManager.getLoadedPlugins().filter((p) => p.error);
     expect(errored).toHaveLength(1);
-    expect(errored[0].id).toBe("bb");
     expect(errored[0].error).toBe(
       'provider "github" already registered by another plugin',
     );
+    const loaded = pluginManager.getLoadedPlugins().filter((p) => !p.error);
+    expect(loaded).toHaveLength(1);
+    expect([errored[0].id, loaded[0].id].sort()).toEqual(["aa", "bb"]);
     await cleanup(tmpDir);
   });
 
