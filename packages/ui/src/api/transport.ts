@@ -6,7 +6,6 @@
 export type RequestOptions = RequestInit;
 
 const BASE = "/api";
-const SSE_BASE = "/sse";
 
 function getToken(): string | null {
   return localStorage.getItem("orcy_token");
