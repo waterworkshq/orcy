@@ -8,18 +8,6 @@ import type {
   LifecycleInterceptorContribution,
   DetectedSignalInput,
 } from "@orcy/shared";
-
-/** Discriminator string for {@link Contribution}. */
-type ContributionKind =
-  | "notificationChannel"
-  | "signalDetector"
-  | "lifecycleInterceptor"
-  | "customMcpTool"
-  | "customHttpRoute"
-  | "webhookFormatter"
-  | "automationCondition"
-  | "automationAction"
-  | "integrationProvider";
 import type {
   PluginModule,
   PluginContext,
@@ -38,6 +26,14 @@ import type {
 } from "./types.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { buildPluginContext } from "./context.js";
+import {
+  CAPABILITY_MATRIX,
+  CONTRIBUTION_KIND_KEYS,
+  buildContributionCatalog,
+  type CapabilityPolicy,
+  type ContributionKind,
+  type PluginRegistries,
+} from "./contributionAdapters.js";
 import { readdir, stat, realpath } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,18 +46,11 @@ import * as pulseService from "../services/pulseService.js";
 import * as taskLifecycle from "../services/tasks/task-lifecycle.js";
 import * as commentService from "../services/commentService.js";
 
-/** Valid contribution kinds (ADR-0011 discriminated union). */
-const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>([
-  "notificationChannel",
-  "signalDetector",
-  "lifecycleInterceptor",
-  "customMcpTool",
-  "customHttpRoute",
-  "webhookFormatter",
-  "automationCondition",
-  "automationAction",
-  "integrationProvider",
-]);
+/** Valid contribution kinds (ADR-0011 discriminated union). Derived from the static
+ * catalog key set so kind-validity is independent of factory construction. */
+const VALID_KINDS: ReadonlySet<ContributionKind> = new Set<ContributionKind>(
+  CONTRIBUTION_KIND_KEYS,
+);
 
 /** The whitelisted capability names (ADR-0012 + ADR-0019 + ADR-0020). */
 const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapabilityName>([
@@ -75,56 +64,6 @@ const VALID_CAPABILITIES: ReadonlySet<PluginCapabilityName> = new Set<PluginCapa
   "notificationSender",
   "webhookCaller",
 ]);
-
-/**
- * Data-driven capability policy per contribution kind (ADR-0012 whitelist).
- * Replaces the former hardcoded `if/else` chain in `capabilityMatrixViolation`.
- * Adding a new contribution kind is a data entry here, not a code change.
- */
-interface CapabilityPolicy {
-  /** Capabilities this kind is allowed to declare in its `requires` array. */
-  allowed: readonly PluginCapabilityName[];
-  /** Capabilities forbidden when a phase-specific field matches the key (e.g. `{ pre: ["pulseWriter"] }`). */
-  forbiddenByPhase?: Readonly<Record<string, readonly PluginCapabilityName[]>>;
-}
-
-const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPolicy>> = {
-  signalDetector: {
-    allowed: ["pulseReader", "pulseWriter", "commentReader", "taskReader"],
-  },
-  lifecycleInterceptor: {
-    allowed: [
-      "pulseReader",
-      "pulseWriter",
-      "commentReader",
-      "taskReader",
-      "habitatReader",
-      "chatIntegrationReader",
-    ],
-    forbiddenByPhase: { pre: ["pulseWriter"] },
-  },
-  notificationChannel: {
-    allowed: ["chatIntegrationReader"],
-  },
-  customMcpTool: {
-    allowed: [],
-  },
-  customHttpRoute: {
-    allowed: [],
-  },
-  webhookFormatter: {
-    allowed: [],
-  },
-  automationCondition: {
-    allowed: [],
-  },
-  automationAction: {
-    allowed: ["taskWriter", "notificationSender", "webhookCaller"],
-  },
-  integrationProvider: {
-    allowed: [],
-  },
-};
 
 const loadedPlugins: Map<string, PluginModule> = new Map();
 const pluginErrors: Map<string, string> = new Map();
@@ -163,6 +102,23 @@ const interceptorRegistry: {
     }>
   >;
 } = { pre: new Map(), post: new Map() };
+
+/** Bag of the 7 module-level registries passed to the catalog factory. Also passed (by
+ * reference) to each adapter's `register` callback for downstream flexibility, even
+ * though the built-in adapters close over the Maps from the factory destructure. */
+const REGISTRIES: PluginRegistries = {
+  channelRegistry,
+  detectorRegistry,
+  interceptorRegistry,
+  formatterRegistry,
+  conditionRegistry,
+  actionRegistry,
+  providerRegistry,
+};
+
+/** v0.28 catalog of per-kind registration behavior (label/orphanCheck/collisionKey/register).
+ * Built once at module init; collapsed switches in this file delegate to it. */
+const CATALOG = buildContributionCatalog(REGISTRIES);
 
 const enrollmentCache: Map<string, Set<string>> = new Map();
 const quarantineSet: Set<string> = new Set();
@@ -282,69 +238,11 @@ function capabilityMatrixViolation(c: Contribution): string | null {
 
 /** Extracts the human-readable identifier from a contribution for error messages. */
 function contributionLabel(c: Contribution): string {
-  switch (c.kind) {
-    case "signalDetector":
-      return c.detectorId;
-    case "lifecycleInterceptor":
-      return c.interceptorId;
-    case "notificationChannel":
-      return c.channelId;
-    case "customMcpTool":
-      return c.toolName;
-    case "customHttpRoute":
-      return c.path;
-    case "webhookFormatter":
-      return c.formatId;
-    case "automationCondition":
-      return c.conditionId;
-    case "automationAction":
-      return c.actionId;
-    case "integrationProvider":
-      return c.provider;
-  }
+  return CATALOG[c.kind].label(c);
 }
 
 function orphanHandler(c: Contribution, mod: PluginModule): string | null {
-  switch (c.kind) {
-    case "notificationChannel":
-      return typeof mod.channels?.[c.channelId] === "function"
-        ? null
-        : `notificationChannel "${c.channelId}" declared but no matching handler in module.channels`;
-    case "signalDetector":
-      return typeof mod.detectors?.[c.detectorId] === "function"
-        ? null
-        : `signalDetector "${c.detectorId}" declared but no matching handler in module.detectors`;
-    case "lifecycleInterceptor":
-      return typeof mod.interceptors?.[c.interceptorId] === "function"
-        ? null
-        : `lifecycleInterceptor "${c.interceptorId}" declared but no matching handler in module.interceptors`;
-    case "customMcpTool":
-      return typeof mod.mcpHandlers?.[c.toolName] === "function"
-        ? null
-        : `customMcpTool "${c.toolName}" declared but no matching handler in module.mcpHandlers`;
-    case "customHttpRoute":
-      return typeof mod.routeHandlers === "function"
-        ? null
-        : `customHttpRoute declared but module.routeHandlers is missing or not a function`;
-    case "webhookFormatter":
-      return typeof mod.formatters?.[c.formatId] === "function"
-        ? null
-        : `webhookFormatter "${c.formatId}" declared but no matching handler in module.formatters`;
-    case "automationCondition":
-      return typeof mod.conditions?.[c.conditionId] === "function"
-        ? null
-        : `automationCondition "${c.conditionId}" declared but no matching handler in module.conditions`;
-    case "automationAction":
-      return typeof mod.actions?.[c.actionId] === "function"
-        ? null
-        : `automationAction "${c.actionId}" declared but no matching handler in module.actions`;
-    case "integrationProvider":
-      return typeof mod.providers?.[c.provider] === "object" &&
-        typeof mod.providers[c.provider]?.listIssues === "function" &&
-        typeof mod.providers[c.provider]?.getIssue === "function"
-        ? null
-        : `integrationProvider "${c.provider}" declared but no matching handler in module.providers`;
-  }
+  return CATALOG[c.kind].orphanCheck(c, mod);
 }
 
 function validatePlugin(mod: unknown, _source: string): mod is PluginModule {
@@ -420,66 +318,16 @@ async function loadPluginFromPath(pluginPath: string, name: string): Promise<Plu
 function detectIdCollisions(mod: PluginModule): string | null {
   const seenWithinManifest = new Set<string>();
   for (const c of mod.manifest.contributions) {
-    if (c.kind === "notificationChannel") {
-      if (seenWithinManifest.has(`channel:${c.channelId}`)) {
-        return `duplicate channelId "${c.channelId}" within manifest`;
-      }
-      seenWithinManifest.add(`channel:${c.channelId}`);
-      if (channelRegistry.has(c.channelId)) {
-        return `channelId "${c.channelId}" already registered by another plugin`;
-      }
+    const adapter = CATALOG[c.kind];
+    const key = adapter.collisionKey?.(c, mod.manifest.id);
+    if (!key) continue;
+    if (seenWithinManifest.has(key.within)) {
+      return adapter.collisions!.withinError(c);
     }
-    if (c.kind === "signalDetector") {
-      const key = `${mod.manifest.id}:${c.detectorId}`;
-      if (seenWithinManifest.has(`detector:${c.detectorId}`)) {
-        return `duplicate detectorId "${c.detectorId}" within manifest`;
-      }
-      seenWithinManifest.add(`detector:${c.detectorId}`);
-      if (detectorRegistry.has(key)) {
-        return `detectorId "${c.detectorId}" already registered`;
-      }
-    }
-    if (c.kind === "lifecycleInterceptor") {
-      const withinKey = `interceptor:${c.interceptorId}:${c.phase}:${c.event}`;
-      if (seenWithinManifest.has(withinKey)) {
-        return `duplicate interceptorId "${c.interceptorId}" (${c.phase}/${c.event}) within manifest`;
-      }
-      seenWithinManifest.add(withinKey);
-    }
-    if (c.kind === "webhookFormatter") {
-      if (seenWithinManifest.has(`formatter:${c.formatId}`)) {
-        return `duplicate formatId "${c.formatId}" within manifest`;
-      }
-      seenWithinManifest.add(`formatter:${c.formatId}`);
-      if (formatterRegistry.has(c.formatId)) {
-        return `formatId "${c.formatId}" already registered by another plugin`;
-      }
-    }
-    if (c.kind === "automationCondition") {
-      if (seenWithinManifest.has(`condition:${c.conditionId}`)) {
-        return `duplicate conditionId "${c.conditionId}" within manifest`;
-      }
-      seenWithinManifest.add(`condition:${c.conditionId}`);
-      if (conditionRegistry.has(c.conditionId)) {
-        return `conditionId "${c.conditionId}" already registered by another plugin`;
-      }
-    }
-    if (c.kind === "automationAction") {
-      if (seenWithinManifest.has(`action:${c.actionId}`)) {
-        return `duplicate actionId "${c.actionId}" within manifest`;
-      }
-      seenWithinManifest.add(`action:${c.actionId}`);
-      if (actionRegistry.has(c.actionId)) {
-        return `actionId "${c.actionId}" already registered by another plugin`;
-      }
-    }
-    if (c.kind === "integrationProvider") {
-      if (seenWithinManifest.has(`provider:${c.provider}`)) {
-        return `duplicate provider "${c.provider}" within manifest`;
-      }
-      seenWithinManifest.add(`provider:${c.provider}`);
-      if (providerRegistry.has(c.provider)) {
-        return `provider "${c.provider}" already registered by another plugin`;
+    seenWithinManifest.add(key.within);
+    if (key.cross !== undefined && adapter.collisions?.crossRegistry) {
+      if (adapter.collisions.crossRegistry.has(key.cross)) {
+        return adapter.collisions.crossError!(c);
       }
     }
   }
@@ -488,50 +336,7 @@ function detectIdCollisions(mod: PluginModule): string | null {
 
 function registerContributions(mod: PluginModule): void {
   for (const c of mod.manifest.contributions) {
-    if (c.kind === "notificationChannel" && mod.channels?.[c.channelId]) {
-      channelRegistry.set(c.channelId, {
-        pluginId: mod.manifest.id,
-        handler: mod.channels[c.channelId],
-        timeoutMs: c.timeoutMs,
-      });
-    } else if (c.kind === "signalDetector" && mod.detectors?.[c.detectorId]) {
-      detectorRegistry.set(`${mod.manifest.id}:${c.detectorId}`, {
-        pluginId: mod.manifest.id,
-        contribution: c,
-        handler: mod.detectors[c.detectorId],
-      });
-    } else if (c.kind === "lifecycleInterceptor" && mod.interceptors?.[c.interceptorId]) {
-      const bucket = interceptorRegistry[c.phase];
-      const list = bucket.get(c.event) ?? [];
-      list.push({
-        pluginId: mod.manifest.id,
-        contribution: c,
-        handler: mod.interceptors[c.interceptorId],
-      });
-      list.sort((a, b) => a.contribution.priority - b.contribution.priority);
-      bucket.set(c.event, list);
-    } else if (c.kind === "webhookFormatter" && mod.formatters?.[c.formatId]) {
-      formatterRegistry.set(c.formatId, {
-        pluginId: mod.manifest.id,
-        handler: mod.formatters[c.formatId],
-      });
-    } else if (c.kind === "automationCondition" && mod.conditions?.[c.conditionId]) {
-      conditionRegistry.set(c.conditionId, {
-        pluginId: mod.manifest.id,
-        handler: mod.conditions[c.conditionId],
-      });
-    } else if (c.kind === "automationAction" && mod.actions?.[c.actionId]) {
-      actionRegistry.set(c.actionId, {
-        pluginId: mod.manifest.id,
-        handler: mod.actions[c.actionId],
-        timeoutMs: c.timeoutMs,
-      });
-    } else if (c.kind === "integrationProvider" && mod.providers?.[c.provider]) {
-      providerRegistry.set(c.provider, {
-        pluginId: mod.manifest.id,
-        handler: mod.providers[c.provider],
-      });
-    }
+    CATALOG[c.kind].register?.(c, mod, REGISTRIES);
   }
 }
 
