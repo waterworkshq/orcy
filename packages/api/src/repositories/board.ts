@@ -14,6 +14,8 @@ import type {
   TriageSettings,
   ReleaseSettings,
   RoadmapSettings,
+  CodeReviewSettings,
+  CiCdSettings,
 } from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import {
@@ -43,6 +45,8 @@ export interface UpdateHabitatInput {
   triageSettings?: TriageSettings | null;
   releaseSettings?: ReleaseSettings | null;
   roadmapSettings?: RoadmapSettings | null;
+  codeReviewSettings?: CodeReviewSettings | null;
+  ciCdSettings?: CiCdSettings | null;
 }
 
 export function createHabitat(input: CreateHabitatInput): Habitat {
@@ -120,6 +124,8 @@ export function updateHabitat(id: string, input: UpdateHabitatInput): Habitat | 
   if (input.triageSettings !== undefined) values.triageSettings = input.triageSettings;
   if (input.releaseSettings !== undefined) values.releaseSettings = input.releaseSettings;
   if (input.roadmapSettings !== undefined) values.roadmapSettings = input.roadmapSettings;
+  if (input.codeReviewSettings !== undefined) values.codeReviewSettings = input.codeReviewSettings;
+  if (input.ciCdSettings !== undefined) values.ciCdSettings = input.ciCdSettings;
 
   try {
     db.update(habitats).set(values).where(eq(habitats.id, id)).run();
@@ -142,27 +148,25 @@ export function getHabitatWithColumnsAndTasks(
   habitatId: string,
 ): { habitat: Habitat; columns: Column[] } | null {
   const db = getDb();
-  const result = db.query.habitats
-    .findFirst({
-      where: eq(habitats.id, habitatId),
-      with: {
-        columns: {
-          orderBy: columns.order,
-          with: {
-            missions: true,
-          },
-        },
-      },
-    })
-    .prepare()
+  // Use two plain select queries rather than the relational `db.query.*.findFirst({ with })`
+  // API: under the sql.js driver used by the test DB, the relational query path returns
+  // habitat fields in snake_case and serializes the `columns` relation as a JSON string
+  // rather than an array, breaking `result.columns.map(...)` and the camelCase
+  // expectations of the {@link Habitat} type. Plain selects decode JSON columns and
+  // camelCase the row identically across both drivers used in this package.
+  const habitat = db
+    .select()
+    .from(habitats)
+    .where(eq(habitats.id, habitatId))
     .get();
+  if (!habitat) return null;
 
-  if (!result) return null;
+  const cols = db
+    .select()
+    .from(columns)
+    .where(eq(columns.habitatId, habitatId))
+    .orderBy(columns.order)
+    .all();
 
-  const cols = result.columns.map((c: Record<string, unknown>) => {
-    const { missions: _, ...col } = c;
-    return col as unknown as Column;
-  });
-  const { columns: _, ...habitatData } = result;
-  return { habitat: habitatData as unknown as Habitat, columns: cols };
+  return { habitat: habitat as Habitat, columns: cols as Column[] };
 }
