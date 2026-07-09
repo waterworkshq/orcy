@@ -284,6 +284,51 @@ describe("workflowService — deferred audit events", () => {
       expect(meta.unblockedBy).toBe("admin-1");
       expect(meta.audit).toEqual({ source: "workflow" });
     });
+
+    // CR-13 / TG-1: manualUnblockGate emits a workflow_gate_unblocked audit
+    // event on BOTH the first unblock (unsatisfied → satisfied) and a repeat
+    // unblock (already_satisfied). satisfyManualGateIfEligible returns
+    // "already_satisfied" on the second call, but manualUnblockGate only
+    // short-circuits on not_found/wrong_gate_type — so the audit fires again.
+    it("emits an audit event on a repeat unblock of an already-satisfied gate", () => {
+      const { habitat, col } = setupHabitat();
+      const mission = setupMission(habitat.id, col.id);
+      const upstream = setupTask(mission.id, "Upstream");
+      const downstream = setupTask(mission.id, "Downstream");
+
+      const definition: WorkflowTemplateDefinition = {
+        gates: [
+          {
+            upstreamTaskKey: upstream.id,
+            downstreamTaskKey: downstream.id,
+            gateType: "on_manual",
+          },
+        ],
+      };
+      const wfId = attachWorkflow(mission.id, habitat.id, definition, {}, "test");
+
+      const gates = getDb()
+        .select()
+        .from(taskWorkflowGates)
+        .where(eq(taskWorkflowGates.workflowId, wfId))
+        .all();
+      const gateId = gates[0].id;
+
+      const first = manualUnblockGate(gateId, "admin-1");
+      const second = manualUnblockGate(gateId, "admin-1");
+
+      expect(first).toBe(true);
+      expect(second).toBe(true);
+
+      const events = readWorkflowTaskEvents(downstream.id, "workflow_gate_unblocked");
+      expect(events).toHaveLength(2);
+      for (const e of events) {
+        const m = e.metadata as Record<string, unknown>;
+        expect(m.gateId).toBe(gateId);
+        expect(m.unblockedBy).toBe("admin-1");
+        expect(m.audit).toEqual({ source: "workflow" });
+      }
+    });
   });
 
   describe("workflow_evaluation_error", () => {

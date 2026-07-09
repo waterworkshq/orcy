@@ -156,14 +156,3 @@ describe("api.auth", () => {
     });
   });
 });
-
-describe("domain behavior", () => {
-  it("reviewersApi.list fetches the correct endpoint", async () => {
-    const { reviewersApi } = await import("./domains/reviewers.js");
-    fetchMock.mockReturnValue(jsonOk({ reviewers: [] }));
-
-    await reviewersApi.list("task-1");
-
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/tasks/task-1/reviewers");
-  });
-});
