@@ -14,11 +14,43 @@ import * as missionService from "./featureService.js";
 import * as skillRepo from "../repositories/habitatSkill.js";
 import type {
   Habitat,
+  PublicHabitat,
   Column,
   MissionTemplate,
   AutoAssignSettings,
+  CodeReviewSettings,
+  CiCdSettings,
   TaskPriority,
 } from "../models/index.js";
+
+/**
+ * Returns a deep-copy of `habitat` with `githubSecret` / `gitlabSecret` stripped from
+ * `codeReviewSettings` and `ciCdSettings`, replaced with `hasGithubSecret` / `hasGitlabSecret`
+ * booleans. The presence flags let UIs render a "configured" indicator without ever
+ * exposing the secret value through GET/PATCH/POST responses or `habitat.created` /
+ * `habitat.updated` SSE events. Pure: never mutates the input. Callers handle the
+ * `null | undefined` case (this function asserts non-null at the boundary).
+ */
+export function maskSecretSettings(habitat: Habitat): PublicHabitat {
+  return {
+    ...habitat,
+    codeReviewSettings: habitat.codeReviewSettings
+      ? {
+          hasGithubSecret: !!habitat.codeReviewSettings.githubSecret,
+          hasGitlabSecret: !!habitat.codeReviewSettings.gitlabSecret,
+          taskPattern: habitat.codeReviewSettings.taskPattern,
+          autoApproveOnMerge: habitat.codeReviewSettings.autoApproveOnMerge,
+        }
+      : null,
+    ciCdSettings: habitat.ciCdSettings
+      ? {
+          hasGithubSecret: !!habitat.ciCdSettings.githubSecret,
+          hasGitlabSecret: !!habitat.ciCdSettings.gitlabSecret,
+          taskPattern: habitat.ciCdSettings.taskPattern,
+        }
+      : null,
+  };
+}
 
 /** Input payload for {@link createHabitat} describing the new board's name, description, team binding, and whether the default column flow should be seeded. */
 export interface CreateHabitatInput {
@@ -28,8 +60,11 @@ export interface CreateHabitatInput {
   teamId?: string | null;
 }
 
-/** Creates a new {@link Habitat}, seeding builtin saved filters and the default skill and (optionally) a default column flow; side effects: publishes `habitat.created` SSE, fires a plugin `habitat.created` event, and rebuilds the board secret cache. */
-export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; columns: Column[] } {
+/** Creates a new {@link Habitat}, seeding builtin saved filters and the default skill and (optionally) a default column flow; side effects: publishes `habitat.created` SSE, fires a plugin `habitat.created` event, and rebuilds the board secret cache. Returns the public (masked) shape so the response and SSE payload never carry webhook secrets. */
+export function createHabitat(input: CreateHabitatInput): {
+  habitat: PublicHabitat;
+  columns: Column[];
+} {
   const habitat = habitatRepo.createHabitat({
     name: input.name,
     description: input.description,
@@ -44,29 +79,36 @@ export function createHabitat(input: CreateHabitatInput): { habitat: Habitat; co
   savedFilterRepo.seedBuiltinFilters(habitat.id);
   skillRepo.getOrCreateSkill(habitat.id);
 
-  sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: habitat });
+  const masked = maskSecretSettings(habitat);
+  sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: masked });
   rebuildHabitatSecretCache();
-  return { habitat, columns };
+  return { habitat: masked, columns };
 }
 
 /** Returns the {@link Habitat}, its {@link Column}s, and its non-archived missions joined with progress, or null when the habitat does not exist. */
-export function getHabitat(
-  habitatId: string,
-): { habitat: Habitat; columns: Column[]; missions: missionService.MissionWithProgress[] } | null {
+export function getHabitat(habitatId: string): {
+  habitat: PublicHabitat;
+  columns: Column[];
+  missions: missionService.MissionWithProgress[];
+} | null {
   const result = habitatRepo.getHabitatWithColumnsAndTasks(habitatId);
   if (!result) return null;
 
   const { missions: missionList } = missionService.listMissions(habitatId, { isArchived: false });
 
-  return { habitat: result.habitat, columns: result.columns, missions: missionList };
+  return {
+    habitat: maskSecretSettings(result.habitat),
+    columns: result.columns,
+    missions: missionList,
+  };
 }
 
 /** Returns the list of {@link Habitat}s, optionally filtered by a case-insensitive name match and a set of team ids. */
-export function listHabitats(name?: string, teamIds?: string[]): Habitat[] {
-  return habitatRepo.listHabitats(name, teamIds);
+export function listHabitats(name?: string, teamIds?: string[]): PublicHabitat[] {
+  return habitatRepo.listHabitats(name, teamIds).map(maskSecretSettings);
 }
 
-/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. */
+/** Applies a partial update to a {@link Habitat}'s editable fields; side effect: rebuilds the board secret cache and publishes `habitat.updated` SSE when the update succeeds. For `codeReviewSettings`/`ciCdSettings`, non-null updates are merged with existing values to preserve secret fields (`githubSecret`/`gitlabSecret`) that are set via the dedicated `PUT /webhook-secrets` endpoint and are absent from the PATCH payload. */
 export function updateHabitat(
   habitatId: string,
   input: {
@@ -75,14 +117,25 @@ export function updateHabitat(
     retrySettings?: import("../models/index.js").RetryPolicy | null;
     anomalySettings?: import("../models/index.js").AnomalySettings | null;
     autoAssignSettings?: AutoAssignSettings | null;
+    codeReviewSettings?: CodeReviewSettings | null;
+    ciCdSettings?: CiCdSettings | null;
   },
-): Habitat | null {
-  const habitat = habitatRepo.updateHabitat(habitatId, input);
-  if (habitat) {
-    rebuildHabitatSecretCache();
-    sseBroadcaster.publish(habitatId, { type: "habitat.updated", data: habitat });
+): PublicHabitat | null {
+  if (input.codeReviewSettings || input.ciCdSettings) {
+    const current = habitatRepo.getHabitatById(habitatId);
+    if (input.codeReviewSettings && current?.codeReviewSettings) {
+      input.codeReviewSettings = { ...current.codeReviewSettings, ...input.codeReviewSettings };
+    }
+    if (input.ciCdSettings && current?.ciCdSettings) {
+      input.ciCdSettings = { ...current.ciCdSettings, ...input.ciCdSettings };
+    }
   }
-  return habitat;
+  const habitat = habitatRepo.updateHabitat(habitatId, input);
+  if (!habitat) return null;
+  const masked = maskSecretSettings(habitat);
+  rebuildHabitatSecretCache();
+  sseBroadcaster.publish(habitatId, { type: "habitat.updated", data: masked });
+  return masked;
 }
 
 /** Removes a {@link Habitat} and all of its dependents; side effect: rebuilds the board secret cache and publishes `habitat.deleted` SSE. */
@@ -214,7 +267,7 @@ export interface HabitatExportData {
 
 /** Outcome of {@link importHabitat}: the reconstructed habitat and columns, per-kind import counts, and any non-fatal warnings collected during reconstruction. */
 export interface ImportResult {
-  habitat: Habitat;
+  habitat: PublicHabitat;
   columns: Column[];
   imported: {
     missions: number;
@@ -529,10 +582,13 @@ export function importHabitat(
     webhookCount++;
   }
 
-  sseBroadcaster.publish(habitat.id, { type: "habitat.created", data: habitat });
+  sseBroadcaster.publish(habitat.id, {
+    type: "habitat.created",
+    data: maskSecretSettings(habitat),
+  });
 
   return {
-    habitat,
+    habitat: maskSecretSettings(habitat),
     columns: columnRepo.getColumnsByHabitatId(habitatId),
     imported: {
       missions: missionsData.length || 0,
@@ -543,4 +599,62 @@ export function importHabitat(
     },
     warnings,
   };
+}
+
+/** Settings bag for {@link setWebhookSecrets}. Either field may be set, omitted (no change), or explicitly `null` to clear. */
+export interface WebhookSecretsInput {
+  githubSecret?: string | null;
+  gitlabSecret?: string | null;
+}
+
+/** Identifies which settings block the secret write targets. */
+export type WebhookSecretProvider = "code_review" | "ci_cd";
+
+/**
+ * Write-only entrypoint for HMAC webhook secrets on a habitat. Reads the current
+ * settings JSON, merges the supplied secret fields (preserving non-secret fields
+ * like `taskPattern` and `autoApproveOnMerge`), writes the merged value back, and
+ * rebuilds the in-memory secret cache. Returns ONLY the masked public shape —
+ * the raw secrets never appear in the response.
+ */
+export function setWebhookSecrets(
+  habitatId: string,
+  provider: WebhookSecretProvider,
+  input: WebhookSecretsInput,
+): PublicHabitat | null {
+  const habitat = habitatRepo.getHabitatById(habitatId);
+  if (!habitat) return null;
+
+  if (provider === "code_review") {
+    const existing: CodeReviewSettings = habitat.codeReviewSettings ?? {
+      autoApproveOnMerge: false,
+      githubSecret: null,
+      gitlabSecret: null,
+      taskPattern: "",
+    };
+    const merged: CodeReviewSettings = {
+      autoApproveOnMerge: existing.autoApproveOnMerge,
+      taskPattern: existing.taskPattern,
+      githubSecret: input.githubSecret === undefined ? existing.githubSecret : input.githubSecret,
+      gitlabSecret: input.gitlabSecret === undefined ? existing.gitlabSecret : input.gitlabSecret,
+    };
+    habitatRepo.updateHabitat(habitatId, { codeReviewSettings: merged });
+  } else {
+    const existing: CiCdSettings = habitat.ciCdSettings ?? {
+      githubSecret: null,
+      gitlabSecret: null,
+      taskPattern: "",
+    };
+    const merged: CiCdSettings = {
+      taskPattern: existing.taskPattern,
+      githubSecret: input.githubSecret === undefined ? existing.githubSecret : input.githubSecret,
+      gitlabSecret: input.gitlabSecret === undefined ? existing.gitlabSecret : input.gitlabSecret,
+    };
+    habitatRepo.updateHabitat(habitatId, { ciCdSettings: merged });
+  }
+
+  rebuildHabitatSecretCache();
+  const updated = habitatRepo.getHabitatById(habitatId);
+  if (!updated) return null;
+  return maskSecretSettings(updated);
 }
