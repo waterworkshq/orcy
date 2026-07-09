@@ -117,8 +117,11 @@ const REGISTRIES: PluginRegistries = {
 };
 
 /** v0.28 catalog of per-kind registration behavior (label/orphanCheck/collisionKey/register).
- * Built once at module init; collapsed switches in this file delegate to it. */
-const CATALOG = buildContributionCatalog(REGISTRIES);
+ * Built once at module init; collapsed switches in this file delegate to it.
+ * Exported (read-only) so consumers like `pluginEnrollmentService.findContribution`
+ * can use the single canonical adapter record for label lookups without building
+ * a duplicate catalog instance. */
+export const CATALOG = buildContributionCatalog(REGISTRIES);
 
 const enrollmentCache: Map<string, Set<string>> = new Map();
 const quarantineSet: Set<string> = new Set();

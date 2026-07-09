@@ -24,9 +24,9 @@ export type UpdateEnrollmentPatch = z.infer<typeof updateEnrollmentSchema>;
 export type ListRunsFilter = RunListFilter;
 
 /**
- * Locates a contribution on a loaded plugin's manifest by id. Matches the
- * id field appropriate to each contribution kind (`detectorId`, `interceptorId`,
- * `channelId`, `toolName`, `path`). Returns `null` if the plugin isn't loaded
+ * Locates a contribution on a loaded plugin's manifest by id. The id field is
+ * derived per-kind via `CATALOG[c.kind].label(c)`, so all 9 kinds are covered
+ * from a single delegation point. Returns `null` if the plugin isn't loaded
  * or the contribution id is unknown. System-scoped kinds are returned so the
  * caller's scope check produces a meaningful "cannot enroll system-scoped"
  * error rather than a generic "not found".
@@ -35,11 +35,7 @@ function findContribution(pluginId: string, contributionId: string): Contributio
   const manifest = pluginManager.getPluginManifest(pluginId);
   if (!manifest) return null;
   for (const c of manifest.contributions) {
-    if (c.kind === "signalDetector" && c.detectorId === contributionId) return c;
-    if (c.kind === "lifecycleInterceptor" && c.interceptorId === contributionId) return c;
-    if (c.kind === "notificationChannel" && c.channelId === contributionId) return c;
-    if (c.kind === "customMcpTool" && c.toolName === contributionId) return c;
-    if (c.kind === "customHttpRoute" && c.path === contributionId) return c;
+    if (pluginManager.CATALOG[c.kind].label(c) === contributionId) return c;
   }
   return null;
 }

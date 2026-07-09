@@ -12,10 +12,20 @@ vi.mock("../repositories/pluginRun.js", () => ({
   listByHabitat: vi.fn(),
 }));
 
-vi.mock("../plugins/pluginManager.js", () => ({
-  getPluginManifest: vi.fn(),
-  invalidateEnrollmentCache: vi.fn(),
-}));
+vi.mock("../plugins/pluginManager.js", async (importOriginal) => {
+  // v0.28-T5: spread the real module so the exported `CATALOG` (built with the
+  // real registries at pluginManager module init) is available to
+  // `findContribution`, which delegates id extraction to it. Mock only the two
+  // methods the enrollment service actually invokes; keep `CATALOG` real so
+  // the test exercises the same single-instance catalog that production uses
+  // (no parallel stub catalog).
+  const actual = await importOriginal<typeof import("../plugins/pluginManager.js")>();
+  return {
+    ...actual,
+    getPluginManifest: vi.fn(),
+    invalidateEnrollmentCache: vi.fn(),
+  };
+});
 
 vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: { publish: vi.fn() },
@@ -90,6 +100,26 @@ const systemScopedManifest = {
       scope: "system" as const,
       channelId: "ref-channel-1",
       label: "Reference channel",
+      requires: [],
+    },
+  ],
+};
+
+// v0.28-T5: webhookFormatter was one of 4 kinds missing from the old
+// id-extraction switch, so enroll-by-formatId used to fall through to
+// "not found" instead of the cleaner "cannot enroll system-scoped" error.
+// After folding `findContribution` to `CATALOG[c.kind].label(c)`, all 9 kinds
+// resolve and the scope check at createEnrollment catches them.
+const systemScopedFormatterManifest = {
+  id: "ref-formatter",
+  version: "1.0.0",
+  description: "System-scoped webhook formatter plugin",
+  contributions: [
+    {
+      kind: "webhookFormatter" as const,
+      scope: "system" as const,
+      formatId: "ref-formatter-1",
+      label: "Reference formatter",
       requires: [],
     },
   ],
@@ -240,6 +270,30 @@ describe("pluginEnrollmentService", () => {
       } catch (err) {
         expect((err as AppError).statusCode).toBe(400);
         expect((err as AppError).message).toContain("system-scoped");
+      }
+    });
+
+    // v0.28-T5: pins the bug fix for the 4 previously-missing kinds. Before
+    // the catalog fold, `findContribution` only handled 5 kinds — enrolling a
+    // webhookFormatter by id returned "not found" instead of the cleaner
+    // "Cannot enroll system-scoped contributions". After folding, all 9 kinds
+    // resolve via `CATALOG[c.kind].label(c)` and the scope check fires.
+    it("resolves webhookFormatter by id and hits the scope error (T5 bug fix)", () => {
+      (pluginManager.getPluginManifest as any).mockReturnValue(
+        systemScopedFormatterManifest,
+      );
+
+      try {
+        service.createEnrollment(
+          "hab-1",
+          { pluginId: "ref-formatter", contributionId: "ref-formatter-1" },
+          "user-1",
+        );
+        fail("expected throw");
+      } catch (err) {
+        expect((err as AppError).statusCode).toBe(400);
+        // Specifically the scope error — not the generic "not found".
+        expect((err as AppError).message).toBe("Cannot enroll system-scoped contributions");
       }
     });
 
