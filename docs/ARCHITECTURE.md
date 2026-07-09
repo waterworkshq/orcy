@@ -1319,22 +1319,23 @@ Trigger-based fire-and-forget-after-commit — same execution seam as post-inter
 
 ### Plugin Storage (ADR-0016)
 
-Two new tables:
+Three tables:
 
 | Table | Purpose |
 |-------|---------|
 | `plugin_enrollments` | Per-contribution habitat enrollment. `UNIQUE (habitat_id, plugin_id, contribution_id)` — Mixed Plugin contributions enroll independently. |
 | `plugin_runs` | Per-invocation telemetry: `pluginId`, `contributionId`, `triggerType`, `status` (`running`/`succeeded`/`failed`/`rate_limited`/`skipped`), `signals_emitted`, `error`, `started_at`, `finished_at`. |
+| `plugin_quarantines` | Persistent quarantine state (added v0.22.3); re-populated into memory at boot by `loadQuarantinesFromDb()`. Admin-clearable via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. |
 
-Auto-quarantine state is in-memory only (no `plugin_quarantines` table in v0.22); the per-plugin error counter resets on restart. `ORCY_DETECTOR_ALLOWLIST` (comma-separated plugin ids, unset = fail-closed, `*` = open) gates which detectors can be habitat-enrolled.
+Quarantine state persists across API restart via the `plugin_quarantines` table (added v0.22.3), re-populated into memory at boot by `loadQuarantinesFromDb()`; the per-plugin error *counter* is in-memory and resets on restart. Admin can clear a quarantine via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. `ORCY_DETECTOR_ALLOWLIST` (comma-separated plugin ids, unset = fail-closed, `*` = open) gates which detectors can be habitat-enrolled.
 
 ### Notification Channel Registry (ADR-0017)
 
-`notificationDeliveryService` consults a `channelRegistry` (built at boot from loaded plugins' `notificationChannel` contributions) BEFORE the existing 4-case switch. Registry hit → plugin handler invoked with `ctx.notificationPayload`. Registry miss → existing `in_app`/`webhook`/`slack`/`discord` cases run unchanged. v0.22.0 ships one new real channel (Microsoft Teams via `plugins/teams-channel/`); in-tree channel migration to the registry is v0.22.1 Architecture Deepening.
+`notificationDeliveryService` consults a `channelRegistry` (built at boot from loaded plugins' `notificationChannel` contributions) BEFORE the existing 4-case switch. Registry hit → plugin handler invoked with `ctx.notificationPayload`. Registry miss → existing `in_app`/`webhook`/`slack`/`discord` cases run unchanged. v0.22.0 ships one new real channel (Microsoft Teams via `plugins/teams-channel/`); the four in-tree channels (in-app, webhook, Slack, Discord) migrated to thin channel plugins in v0.22.6 (`channel-in-app`/`-webhook`/`-slack`/`-discord`), with the hardcoded `dispatchChannel` switch retained as a backward-compat fallback (ADR-0019).
 
 ### Custom MCP Tool (ADR-0018)
 
-`customMcpTool` is a first-class manifest kind in v0.22.0. The loader validates the contribution and registers the handler in `pluginManager`'s in-memory map. **The MCP server does NOT consume `getCustomMcpTools()` in v0.22.0** — the `orcy_*` count stays at 20. The cross-process wiring (REST endpoint for tool definitions + dispatcher route + MCP-server boot polling) is a v0.22.1 deliverable.
+`customMcpTool` is a first-class manifest kind in v0.22.0. The loader validates the contribution; the tool is surfaced via `getCustomMcpTools()` (scanning loaded plugin modules — no dedicated registry for this Tier-C kind). **The MCP server does NOT consume `getCustomMcpTools()` in v0.22.0** — the `orcy_*` count stays at 20. The cross-process wiring (REST endpoint for tool definitions + dispatcher route + MCP-server boot polling) is a v0.22.1 deliverable.
 
 ### Audit Source "plugin"
 
@@ -1351,13 +1352,25 @@ Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` cap
 | `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector invocations |
 | `ORCY_DETECTOR_QUEUE_MAX` | `256` | Per-habitat queue cap before overflow drop |
 
-### Reference Plugins (3 shipped)
+### Reference Plugins (15 shipped)
 
 | Plugin | Contribution kind | Scope |
 |--------|-------------------|-------|
-| `plugins/auto-label/` | `lifecycleInterceptor` (phase: post, event: taskCreated) | habitat |
+| `plugins/auto-label/` | `lifecycleInterceptor` (post/taskCreated) | habitat |
 | `plugins/detector-regex-frustration/` | `signalDetector` (detects: pulseCreated) | habitat |
-| `plugins/teams-channel/` | `notificationChannel` (channelId: teams) | system |
+| `plugins/channel-in-app/` | `notificationChannel` | system |
+| `plugins/channel-webhook/` | `notificationChannel` | system |
+| `plugins/channel-slack/` | `notificationChannel` | system |
+| `plugins/channel-discord/` | `notificationChannel` | system |
+| `plugins/teams-channel/` | `notificationChannel` | system |
+| `plugins/formatter-standard/` | `webhookFormatter` | system |
+| `plugins/formatter-slack/` | `webhookFormatter` | system |
+| `plugins/formatter-discord/` | `webhookFormatter` | system |
+| `plugins/condition-rejection-spike/` | `automationCondition` | system |
+| `plugins/action-create-followup/` | `automationAction` | system |
+| `plugins/integration-github/` | `integrationProvider` | system |
+| `plugins/integration-jira/` | `integrationProvider` | system |
+| `plugins/integration-linear/` | `integrationProvider` | system |
 
 ### Key Files
 
@@ -1367,11 +1380,12 @@ Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` cap
 | `shared/src/types/signal.ts` | `SIGNAL_TYPES` (11 values including `"detected"`) |
 | `api/src/plugins/types.ts` | `PluginModule`, `ChannelHandler`, `DetectorHandler`, `InterceptorHandler`, `TransitionRef` |
 | `api/src/plugins/context.ts` | `PluginContext` construction with capability whitelist |
-| `api/src/plugins/pluginManager.ts` | Loader, channel registry, detector dispatcher, in-memory quarantine |
+| `api/src/plugins/pluginManager.ts` | Loader, channel registry, detector dispatcher, quarantine (DB-persisted state + in-memory cache) |
+| `api/src/plugins/contributionAdapters.ts` | Contribution adapter catalog — per-kind label/orphan/collision/register behavior (v0.28 locality extraction) |
 | `api/src/services/pluginEnrollmentService.ts` | REST-layer enrollment CRUD + allowlist gate |
 | `api/src/repositories/pluginEnrollment.ts` | Enrollment CRUD + loader cache |
 | `api/src/repositories/pluginRun.ts` | Per-run telemetry |
-| `api/src/db/schema/plugin.ts` | 2 drizzle tables |
+| `api/src/db/schema/plugin.ts` | 3 drizzle tables (enrollments, runs, quarantines) |
 | `api/src/routes/plugins.ts` | Enrollment + run-listing REST routes |
 
 ## Triage System (v0.23)

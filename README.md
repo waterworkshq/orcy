@@ -196,7 +196,6 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.28.0** | Deepen Plugin Contribution Runtime — contribution adapter catalog + shared dispatch skeleton target for plugin contribution kinds. |
 | **v0.29.0 candidate** | Deepen Audit Projection Internals — conditional; only if a new Audit Source or projection bug makes the internal catalog concrete. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
