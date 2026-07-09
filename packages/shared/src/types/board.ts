@@ -53,6 +53,12 @@ export interface Habitat {
   updatedAt: string;
 }
 
+/** Public (masked) view of {@link Habitat} where `codeReviewSettings` / `ciCdSettings` have their webhook secret fields stripped and replaced with presence booleans. This is the shape of every habitat API response and SSE event — the raw `githubSecret` / `gitlabSecret` never leaves the server. */
+export type PublicHabitat = Omit<Habitat, "codeReviewSettings" | "ciCdSettings"> & {
+  codeReviewSettings: import("./settings.js").PublicCodeReviewSettings | null;
+  ciCdSettings: import("./settings.js").PublicCiCdSettings | null;
+};
+
 /** Rollup of cycle time, throughput, and per-column WIP health derived from activity across a {@link Habitat}. */
 export interface HabitatStats {
   cycleTime: {

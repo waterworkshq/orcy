@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { AGENT_TYPES, releaseSettingsSchema, roadmapSettingsSchema } from "@orcy/shared";
+import {
+  AGENT_TYPES,
+  releaseSettingsSchema,
+  roadmapSettingsSchema,
+  codeReviewSettingsSchema,
+  ciCdSettingsSchema,
+} from "@orcy/shared";
 
 const artifactSchema = z.object({
   type: z.enum(["file", "pr", "commit", "log", "screenshot"]),
@@ -242,6 +248,8 @@ export const updateHabitatSchema = z.object({
   triageSettings: triageSettingsSchema.nullable().optional(),
   releaseSettings: releaseSettingsSchema.nullable().optional(),
   roadmapSettings: roadmapSettingsSchema.nullable().optional(),
+  codeReviewSettings: codeReviewSettingsSchema.nullable().optional(),
+  ciCdSettings: ciCdSettingsSchema.nullable().optional(),
   eventRetentionDays: z.number().int().min(1).max(3650).optional(),
 });
 

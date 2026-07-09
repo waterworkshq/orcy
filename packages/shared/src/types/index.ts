@@ -1,7 +1,7 @@
 export type { AgentType, AgentDomain, AgentStatus } from "./agent.js";
 export type { Agent, AgentStats, AllAgentStats } from "./agent.js";
 
-export type { Habitat, Column, HabitatStats, HabitatExport } from "./board.js";
+export type { Habitat, PublicHabitat, Column, HabitatStats, HabitatExport } from "./board.js";
 
 export type {
   AuditActorRef,
@@ -54,6 +54,8 @@ export {
   DEFAULT_ROADMAP_SETTINGS,
   releaseSettingsSchema,
   roadmapSettingsSchema,
+  codeReviewSettingsSchema,
+  ciCdSettingsSchema,
 } from "./settings.js";
 export type {
   AnomalySettings,
@@ -67,6 +69,8 @@ export type {
   GitWorktreeSettings,
   CodeReviewSettings,
   CiCdSettings,
+  PublicCodeReviewSettings,
+  PublicCiCdSettings,
   PrioritizationSettings,
   PrioritizationRule,
   PrioritizationRuleCondition,

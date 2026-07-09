@@ -55,10 +55,25 @@ export interface CodeReviewSettings {
   taskPattern: string;
 }
 
+/** Public (masked) view of {@link CodeReviewSettings} where HMAC secrets are replaced by presence booleans. This is what API responses and SSE events carry — the raw secret never leaves the server. */
+export interface PublicCodeReviewSettings {
+  hasGithubSecret: boolean;
+  hasGitlabSecret: boolean;
+  taskPattern: string;
+  autoApproveOnMerge: boolean;
+}
+
 /** Configuration for the CI/CD webhook integration. */
 export interface CiCdSettings {
   githubSecret: string | null;
   gitlabSecret: string | null;
+  taskPattern: string;
+}
+
+/** Public (masked) view of {@link CiCdSettings} where HMAC secrets are replaced by presence booleans. */
+export interface PublicCiCdSettings {
+  hasGithubSecret: boolean;
+  hasGitlabSecret: boolean;
   taskPattern: string;
 }
 
@@ -117,6 +132,33 @@ export const releaseSettingsSchema = z.object({
   releaseWorkflowName: z.string().optional(),
   requireVersionTag: z.boolean().optional(),
   maxPromotionsPerRelease: z.number().int().positive().nullable().optional(),
+});
+
+/**
+ * Zod schema for validating `codeReviewSettings` patches via PATCH /habitats/:id.
+ *
+ * INTENTIONALLY a NON-SECRET subset of `CodeReviewSettings`. `githubSecret` and
+ * `gitlabSecret` are deliberately omitted so a GET round-trip of the habitat
+ * cannot leak them; secrets are configured via a dedicated endpoint (added in
+ * a later ticket). The wider `CodeReviewSettings` TS type continues to carry
+ * the secret fields for internal/read paths that already authorize access.
+ */
+export const codeReviewSettingsSchema = z.object({
+  taskPattern: z.string(),
+  autoApproveOnMerge: z.boolean().default(false),
+});
+
+/**
+ * Zod schema for validating `ciCdSettings` patches via PATCH /habitats/:id.
+ *
+ * INTENTIONALLY a NON-SECRET subset of `CiCdSettings`. `githubSecret` and
+ * `gitlabSecret` are deliberately omitted; secrets are configured via a
+ * dedicated endpoint (added in a later ticket). `CiCdSettings` has no
+ * `autoApproveOnMerge` field — CI approvals are not the same flow as code
+ * review approvals.
+ */
+export const ciCdSettingsSchema = z.object({
+  taskPattern: z.string(),
 });
 
 /**
