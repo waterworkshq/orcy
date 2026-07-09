@@ -104,11 +104,12 @@ function setupHabitatWithPattern(pattern?: string) {
   mockListHabitats.mockReturnValue([{ id: HABITAT_ID }]);
   mockGetHabitatById.mockReturnValue({
     id: HABITAT_ID,
-    code_review_settings: JSON.stringify({
+    codeReviewSettings: {
       autoApproveOnMerge: false,
       githubSecret: "secret",
+      gitlabSecret: null,
       taskPattern: pattern || "([0-9a-f-]{36})",
-    }),
+    },
     ciCdSettings: {
       githubSecret: "secret",
       taskPattern: pattern || "([0-9a-f-]{36})",

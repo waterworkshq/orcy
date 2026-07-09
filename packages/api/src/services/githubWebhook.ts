@@ -56,14 +56,7 @@ function mapReviewState(reviewState: string): "pending" | "approved" | "changes_
 
 function getSettingsForHabitat(habitatId: string): CodeReviewSettings | null {
   const habitat = habitatRepo.getHabitatById(habitatId);
-  if (!habitat) return null;
-  const raw = (habitat as unknown as Record<string, unknown>).code_review_settings;
-  if (!raw || typeof raw !== "string") return null;
-  try {
-    return JSON.parse(raw) as CodeReviewSettings;
-  } catch {
-    return null;
-  }
+  return habitat?.codeReviewSettings ?? null;
 }
 
 function findTaskForPR(
