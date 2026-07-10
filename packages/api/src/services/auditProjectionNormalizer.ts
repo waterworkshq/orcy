@@ -1,21 +1,8 @@
 import type { AuditActorRef, AuditProvenance, AuditSource } from "@orcy/shared/types";
+import { AUDIT_SOURCES } from "@orcy/shared/types";
 import type { ActorType } from "../models/index.js";
 
-const AUDIT_SOURCES = new Set<AuditSource>([
-  "rest_api",
-  "mcp_tool",
-  "webhook",
-  "daemon",
-  "system",
-  "integration_sync",
-  "scheduler",
-  "migration",
-  "automation",
-  "notification",
-  "workflow",
-  "plugin",
-  "unknown",
-]);
+const AUDIT_SOURCE_SET = new Set<AuditSource>(AUDIT_SOURCES);
 
 const SYSTEM_ACTOR_MAP: Record<string, { id: string; source: AuditSource }> = {
   "status-engine": { id: "system:status-engine", source: "system" },
@@ -51,7 +38,7 @@ function getAuditMetadata(
 }
 
 function readSource(value: unknown): AuditSource | null {
-  return typeof value === "string" && AUDIT_SOURCES.has(value as AuditSource)
+  return typeof value === "string" && AUDIT_SOURCE_SET.has(value as AuditSource)
     ? (value as AuditSource)
     : null;
 }

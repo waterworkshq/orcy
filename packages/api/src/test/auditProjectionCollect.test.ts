@@ -1,8 +1,11 @@
 /**
- * v0.29 Phase 2 — collectAuditProjection skeleton test.
+ * v0.29 Phase 3 — collectAuditProjection + catalog coverage.
  *
- * With the empty catalog, the function returns `{ events: [], warnings: [], caveats: [] }`.
- * Phase 3/4 will populate the catalog; this test only proves the dispatch wiring is sound.
+ * The catalog is populated by Phase 3 with the existing families (lifecycle,
+ * effort, code_evidence, integration_sync, webhook_delivery, health_snapshot).
+ * `assertCatalogCoverage` still throws because operational types
+ * (automation_run, notification_event, notification_delivery, plugin_run) are
+ * added in Phase 4.
  */
 import { describe, expect, it } from "vitest";
 import { collectAuditProjection } from "../services/auditProjection/collectAuditProjection.js";
@@ -11,31 +14,34 @@ import {
   AUDIT_CATALOG,
   selectCollectors,
 } from "../services/auditProjection/catalog.js";
+import {
+  AUDIT_QUERY_ENTITY_TYPES,
+  type AuditQueryEntityType,
+} from "@orcy/shared/types";
 
 describe("auditProjection catalog", () => {
-  it("AUDIT_CATALOG is empty in Phase 2", () => {
-    expect(AUDIT_CATALOG).toHaveLength(0);
+  it("AUDIT_CATALOG is populated in Phase 3 with 6 existing-family collectors", () => {
+    expect(AUDIT_CATALOG.length).toBe(6);
   });
 
-  it("selectCollectors returns no collectors when AUDIT_CATALOG is empty", () => {
-    const selected = selectCollectors(new Set());
-    expect(selected).toHaveLength(0);
+  it("selectCollectors filters the catalog by selected entity types", () => {
+    const taskOnly = selectCollectors(new Set<AuditQueryEntityType>(["task"]));
+    expect(taskOnly.map((c) => c.key)).toEqual(["lifecycle"]);
+
+    const everything = selectCollectors(new Set(AUDIT_QUERY_ENTITY_TYPES));
+    expect(everything.length).toBe(6);
+
+    const empty = selectCollectors(new Set());
+    expect(empty.length).toBe(0);
   });
 
-  it("assertCatalogCoverage throws until Phase 3/4 populates every entity type", () => {
+  it("assertCatalogCoverage throws until Phase 4 adds operational collectors", () => {
     expect(() => assertCatalogCoverage()).toThrow(/has no collector/);
   });
 });
 
-describe("collectAuditProjection (Phase 2 skeleton)", () => {
-  it("returns empty results with empty catalog", () => {
-    const result = collectAuditProjection({ habitatId: "habitat-x" });
-    expect(result.events).toEqual([]);
-    expect(result.warnings).toEqual([]);
-    expect(result.caveats).toEqual([]);
-  });
-
-  it("still applies normalizeFilters (rejects taskId + missionId conflict)", () => {
+describe("collectAuditProjection", () => {
+  it("applies normalizeFilters (rejects taskId + missionId conflict)", () => {
     expect(() =>
       collectAuditProjection({
         habitatId: "habitat-x",
@@ -43,5 +49,18 @@ describe("collectAuditProjection (Phase 2 skeleton)", () => {
         missionId: "mission-1",
       }),
     ).toThrow(/taskId and missionId cannot be combined/);
+  });
+
+  it("selects no collectors when entityType is unknown and no includeHealthSnapshots", () => {
+    expect(
+      selectCollectors(
+        new Set<AuditQueryEntityType>([
+          "automation_run",
+          "notification_event",
+          "notification_delivery",
+          "plugin_run",
+        ]),
+      ),
+    ).toEqual([]);
   });
 });

@@ -2,9 +2,22 @@ import {
   AUDIT_QUERY_ENTITY_TYPES,
   type AuditQueryEntityType,
 } from "@orcy/shared/types";
+import { codeEvidenceCollector } from "./codeEvidenceCollector.js";
+import { effortCollector } from "./effortCollector.js";
+import { healthSnapshotCollector } from "./healthSnapshotCollector.js";
+import { integrationSyncCollector } from "./integrationSyncCollector.js";
+import { lifecycleCollector } from "./lifecycleCollector.js";
+import { webhookDeliveryCollector } from "./webhookDeliveryCollector.js";
 import type { AuditProjectionCollector } from "./types.js";
 
-export const AUDIT_CATALOG: readonly AuditProjectionCollector[] = [];
+export const AUDIT_CATALOG: readonly AuditProjectionCollector[] = [
+  lifecycleCollector,
+  effortCollector,
+  codeEvidenceCollector,
+  integrationSyncCollector,
+  webhookDeliveryCollector,
+  healthSnapshotCollector,
+];
 
 export function selectCollectors(
   selectedEntityTypes: ReadonlySet<AuditQueryEntityType>,
