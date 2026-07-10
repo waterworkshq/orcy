@@ -9,6 +9,8 @@ import type {
   AutoAssignSettings,
   AutomationSettings,
   PrioritizationSettings,
+  TriageSettings,
+  RoadmapSettings,
   CapacityReport,
   PredictionResponse,
   BurndownResponse,
@@ -39,6 +41,8 @@ export const habitatsApi = {
       automationSettings?: AutomationSettings | null;
       prioritizationSettings?: PrioritizationSettings | null;
       gitWorktreeSettings?: import("../../types/index.js").GitWorktreeSettings | null;
+      triageSettings?: TriageSettings | null;
+      roadmapSettings?: RoadmapSettings | null;
     },
   ) =>
     request<{ board: Habitat }>(`/habitats/${id}`, {
