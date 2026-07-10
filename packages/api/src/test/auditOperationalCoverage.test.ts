@@ -43,14 +43,23 @@ afterEach(() => {
 
 function setupHabitat() {
   const habitat = boardRepo.createHabitat({ name: "Operational Habitat" });
-  const column = columnRepo.createColumn({ habitatId: habitat.id, name: "Backlog", order: 0, requiresClaim: false });
+  const column = columnRepo.createColumn({
+    habitatId: habitat.id,
+    name: "Backlog",
+    order: 0,
+    requiresClaim: false,
+  });
   const mission = missionRepo.createMission({
     habitatId: habitat.id,
     columnId: column.id,
     title: "Op Mission",
     createdBy: "user-1",
   });
-  const task = taskRepo.createTask({ missionId: mission.id, title: "Op Task", createdBy: "user-1" });
+  const task = taskRepo.createTask({
+    missionId: mission.id,
+    title: "Op Task",
+    createdBy: "user-1",
+  });
   return { habitat, mission, task };
 }
 
@@ -329,6 +338,7 @@ describe("audit operational coverage", () => {
       expect(e.entity.type).toBe("time_record");
       expect(e.completeness.status).toBe("source_unavailable");
     }
+    expect(result.warnings.map((w) => w.code)).not.toContain("source_unavailable");
   });
 
   it("default query does NOT include time_record events", () => {

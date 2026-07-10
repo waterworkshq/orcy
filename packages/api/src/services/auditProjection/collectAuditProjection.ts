@@ -171,12 +171,16 @@ export function collectAuditProjection(input: AuditQueryInput): AuditProjectionS
   if (filteredEvents.some((event) => event.completeness.status === "legacy_partial")) {
     allWarnings.push({
       code: "legacy_partial_history",
-      message:
-        "Some events predate canonical provenance capture and may have partial source data.",
+      message: "Some events predate canonical provenance capture and may have partial source data.",
     });
   }
 
-  if (filteredEvents.some((event) => event.completeness.status === "source_unavailable")) {
+  if (
+    filteredEvents.some(
+      (event) =>
+        event.completeness.status === "source_unavailable" && event.entity.type !== "time_record",
+    )
+  ) {
     allWarnings.push({
       code: "source_unavailable",
       message: "Some provider-derived code evidence records lack delivery provenance.",
