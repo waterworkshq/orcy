@@ -34,6 +34,8 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import { badRequest } from "../errors.js";
 import { normalizeAuditActorAndSource } from "./auditProjectionNormalizer.js";
 
+export { collectAuditProjection } from "./auditProjection/collectAuditProjection.js";
+
 /** Filter and pagination parameters for querying the canonical audit projection across task, mission, effort, code evidence, and system sources. */
 export interface AuditQueryInput {
   habitatId: string;
@@ -303,7 +305,7 @@ function pushEvidenceTarget(
   map.set(key, existing);
 }
 
-function normalizeFilters(input: AuditQueryInput): AuditQueryInput {
+export function normalizeFilters(input: AuditQueryInput): AuditQueryInput {
   if (input.taskId && input.missionId) {
     throw badRequest("taskId and missionId cannot be combined; use bundle/query modes instead");
   }
@@ -887,7 +889,7 @@ function projectHealthSnapshotRow(row: HabitatHealthSnapshotRow): AuditEvent {
   };
 }
 
-function matchesFilters(event: AuditEvent, query: AuditQueryInput): boolean {
+export function matchesFilters(event: AuditEvent, query: AuditQueryInput): boolean {
   if (event.habitatId !== query.habitatId) return false;
   if (query.since && event.occurredAt < query.since) return false;
   if (query.until && event.occurredAt > query.until) return false;
@@ -899,13 +901,73 @@ function matchesFilters(event: AuditEvent, query: AuditQueryInput): boolean {
   return true;
 }
 
-function sortEvents(events: AuditEvent[], order: "asc" | "desc"): AuditEvent[] {
+export function sortEvents(events: AuditEvent[], order: "asc" | "desc"): AuditEvent[] {
   return events.toSorted((a, b) => {
     const time = a.occurredAt.localeCompare(b.occurredAt);
     const direction = order === "asc" ? time : -time;
     if (direction !== 0) return direction;
     return a.id.localeCompare(b.id);
   });
+}
+
+/** Resolves display names for human and remote actors that arrived without a `name`, mutating events in place. */
+export function enrichAuditActorNames(events: AuditEvent[]): void {
+  if (events.length === 0) return;
+  const db = getDb();
+  const humanActorIds = [
+    ...new Set(
+      events
+        .filter((e) => e.actor.type === "human" && e.actor.id && !e.actor.name)
+        .map((e) => e.actor.id!),
+    ),
+  ];
+  if (humanActorIds.length > 0) {
+    const userRows = db
+      .select({ id: users.id, username: users.username, displayName: users.displayName })
+      .from(users)
+      .where(inArray(users.id, humanActorIds))
+      .all();
+    const nameMap = new Map(userRows.map((u) => [u.id, u.displayName || u.username]));
+    for (const event of events) {
+      if (event.actor.type === "human" && event.actor.id && !event.actor.name) {
+        event.actor.name = nameMap.get(event.actor.id) ?? null;
+      }
+    }
+  }
+
+  const remoteActorIds = [
+    ...new Set(
+      events
+        .filter(
+          (e) =>
+            (e.actor.type === "remote_human" || e.actor.type === "remote_orcy") &&
+            e.actor.id &&
+            !e.actor.name,
+        )
+        .map((e) => e.actor.id!),
+    ),
+  ];
+  if (remoteActorIds.length > 0) {
+    const remoteRows = db
+      .select({
+        id: remoteParticipants.id,
+        displayName: remoteParticipants.displayName,
+        remotePodId: remoteParticipants.remotePodId,
+      })
+      .from(remoteParticipants)
+      .where(inArray(remoteParticipants.id, remoteActorIds))
+      .all();
+    const remoteNameMap = new Map(remoteRows.map((r) => [r.id, r.displayName]));
+    for (const event of events) {
+      if (
+        (event.actor.type === "remote_human" || event.actor.type === "remote_orcy") &&
+        event.actor.id &&
+        !event.actor.name
+      ) {
+        event.actor.name = remoteNameMap.get(event.actor.id) ?? null;
+      }
+    }
+  }
 }
 
 /** Aggregates per-event completeness statuses into counts by status and a deduplicated list of caveats. */
@@ -1330,61 +1392,7 @@ export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
     });
   }
 
-  const humanActorIds = [
-    ...new Set(
-      events
-        .filter((e) => e.actor.type === "human" && e.actor.id && !e.actor.name)
-        .map((e) => e.actor.id!),
-    ),
-  ];
-  if (humanActorIds.length > 0) {
-    const userRows = db
-      .select({ id: users.id, username: users.username, displayName: users.displayName })
-      .from(users)
-      .where(inArray(users.id, humanActorIds))
-      .all();
-    const nameMap = new Map(userRows.map((u) => [u.id, u.displayName || u.username]));
-    for (const event of events) {
-      if (event.actor.type === "human" && event.actor.id && !event.actor.name) {
-        event.actor.name = nameMap.get(event.actor.id) ?? null;
-      }
-    }
-  }
-
-  // Phase E — resolve remote actor display names from remote_participants table
-  const remoteActorIds = [
-    ...new Set(
-      events
-        .filter(
-          (e) =>
-            (e.actor.type === "remote_human" || e.actor.type === "remote_orcy") &&
-            e.actor.id &&
-            !e.actor.name,
-        )
-        .map((e) => e.actor.id!),
-    ),
-  ];
-  if (remoteActorIds.length > 0) {
-    const remoteRows = db
-      .select({
-        id: remoteParticipants.id,
-        displayName: remoteParticipants.displayName,
-        remotePodId: remoteParticipants.remotePodId,
-      })
-      .from(remoteParticipants)
-      .where(inArray(remoteParticipants.id, remoteActorIds))
-      .all();
-    const remoteNameMap = new Map(remoteRows.map((r) => [r.id, r.displayName]));
-    for (const event of events) {
-      if (
-        (event.actor.type === "remote_human" || event.actor.type === "remote_orcy") &&
-        event.actor.id &&
-        !event.actor.name
-      ) {
-        event.actor.name = remoteNameMap.get(event.actor.id) ?? null;
-      }
-    }
-  }
+  enrichAuditActorNames(events);
 
   const sortedEvents = sortEvents(events, query.order ?? "desc");
   const paginatedEvents = sortedEvents.slice(effectiveOffset, effectiveOffset + effectiveLimit);
