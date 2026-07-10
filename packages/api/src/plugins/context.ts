@@ -16,6 +16,7 @@ import type {
   PluginNotificationInput,
   ScopedComment,
   PluginCapabilityName,
+  NotificationEventType,
 } from "@orcy/shared";
 import { detectedMetadataSchema } from "@orcy/shared";
 import type { TaskPriority } from "@orcy/shared";
@@ -29,6 +30,8 @@ import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
+import { isValidEventType } from "../services/notificationSubscriptionResolver.js";
+import { badRequest } from "../errors.js";
 import { logger as rootLogger } from "../lib/logger.js";
 
 /**
@@ -350,12 +353,15 @@ function buildNotificationSender(
       if (writeCounter.count >= writeCounter.cap) {
         throw new Error(`Plugin write cap exceeded (${writeCounter.count}/${writeCounter.cap})`);
       }
+      if (!isValidEventType(input.eventType)) {
+        throw badRequest(`Unknown notification event type: ${input.eventType}`);
+      }
       writeCounter.count++;
       const result = enqueueNotificationForRecipients(
         habitatId,
-        input.eventType as any,
+        input.eventType as NotificationEventType,
         "automation",
-        (input.severity ?? "info") as any,
+        input.severity ?? "info",
         input.recipients,
         {
           payload: { renderedTemplate: input.template, pluginId },
