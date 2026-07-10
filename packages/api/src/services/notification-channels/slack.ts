@@ -2,6 +2,7 @@ import * as attemptRepo from "../../repositories/notificationDeliveryAttempt.js"
 import * as chatIntegrationRepo from "../../repositories/chatIntegration.js";
 import { sendToSlack, formatSlackMessage } from "../slackService.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
+import { redactError } from "./truncate.js";
 
 /** Delivers a notification to the habitat's configured Slack webhook and records the delivery attempt outcome. */
 export async function deliverSlack(
@@ -51,10 +52,10 @@ export async function deliverSlack(
     });
     return { success: false, attemptId: attempt.id, error: "Slack delivery failed" };
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = redactError(err instanceof Error ? err.message : String(err));
     attemptRepo.updateDeliveryAttempt(attempt.id, {
       status: "failed",
-      error: errorMsg.slice(0, 500),
+      error: errorMsg,
       finishedAt: new Date().toISOString(),
     });
     return { success: false, attemptId: attempt.id, error: errorMsg };
