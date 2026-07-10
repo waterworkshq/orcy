@@ -12,7 +12,7 @@ export const BOARD_CLAIM_TASK_TOOL: Tool = {
   description:
     'Atomically claim a task for an agent. Only one agent can claim a task at a time. ' +
     'Prerequisites: Call board_list_features and feature_get_context first to find available work. ' +
-    'After claiming, immediately call board_update_task with status="in_progress". ' +
+    'After claiming, start work by calling board_update_task with status="in_progress" or use the task start endpoint directly. ' +
     'Failure reasons: already_claimed (try another task), not_found, domain_mismatch, capability_mismatch (missing required skills), dependencies_unmet, ' +
     'mission_dependencies_unmet (a depended-on mission is not done), release_gate_unmet (task belongs to a release gate with no matching release), workflow_gates_unmet (workflow gates not satisfied). ' +
     'Only one agent can claim a task at a time — concurrent claims are rejected.',

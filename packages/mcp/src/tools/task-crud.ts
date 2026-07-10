@@ -9,10 +9,11 @@ import { PRIORITY_LEVELS, TASK_UPDATE_STATUSES } from './constants.js';
 export const BOARD_UPDATE_TASK_TOOL: Tool = {
   name: 'board_update_task',
   description:
-    'Update a task\'s fields, transition its status, or manage subtasks. ' +
-    'NOTE: These operations are mutually exclusive in a single call — if status is set, any field updates or subtask operations are ignored. Use separate calls for combined changes. ' +
-    'FIELDS: Update title, description, priority, or estimated time. ' +
-    'STATUS: Set status="in_progress" after claiming. "submitted" to submit for review (provide result). "approved" to approve a submitted task. "done" to mark an approved task as done. "failed" when the task cannot be completed (provide failureReason). ' +
+    'Update a task\'s METADATA fields only (title, description, priority, requiredDomain, ' +
+    'requiredCapabilities, estimatedMinutes, result, artifacts, retryPolicy, version). ' +
+    'Lifecycle status transitions are NOT available here — use dedicated lifecycle tools instead: ' +
+    'board_claim_task (claim), board_submit_task (submit for review), board_complete_task (mark done), ' +
+    'board_retry_task (retry), or board_fail_task (fail). ' +
     'SUBTASKS: Provide subtaskId to update/delete a specific subtask. ' +
     'set subtaskCompleted=true/false to toggle completion, subtaskTitle to rename, ' +
     'subtaskAssigneeId to reassign, subtaskOrder to reorder. ' +

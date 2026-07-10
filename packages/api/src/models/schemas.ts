@@ -282,32 +282,20 @@ export const createTaskSchema = z.object({
   estimatedMinutes: z.number().int().min(1).nullable().optional(),
 });
 
-export const updateTaskSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().max(5000).optional(),
-  priority: z.enum(["low", "medium", "high", "critical"]).optional(),
-  requiredDomain: z.string().nullable().optional(),
-  requiredCapabilities: z.array(z.string()).optional(),
-  status: z
-    .enum([
-      "pending",
-      "claimed",
-      "in_progress",
-      "submitted",
-      "approved",
-      "rejected",
-      "done",
-      "failed",
-    ])
-    .optional(),
-  result: z.string().nullable().optional(),
-  artifacts: z.array(artifactSchema).optional(),
-  rejectedCount: z.number().int().min(0).optional(),
-  rejectionReason: z.string().nullable().optional(),
-  version: z.number().int().optional(),
-  estimatedMinutes: z.number().int().min(1).nullable().optional(),
-  retryPolicy: retryPolicySchema.nullable().optional(),
-});
+export const updateTaskSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().max(5000).optional(),
+    priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+    requiredDomain: z.string().nullable().optional(),
+    requiredCapabilities: z.array(z.string()).optional(),
+    result: z.string().nullable().optional(),
+    artifacts: z.array(artifactSchema).optional(),
+    version: z.number().int().optional(),
+    estimatedMinutes: z.number().int().min(1).nullable().optional(),
+    retryPolicy: retryPolicySchema.nullable().optional(),
+  })
+  .strict();
 
 export const claimTaskSchema = z.object({
   agentId: z.string().uuid().optional(),
