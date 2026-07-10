@@ -7,9 +7,8 @@ import type { Agent, AgentStatus, Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 
 /**
- * Creates a new {@link Agent} and returns it together with a freshly generated
- * plaintext API key. Asynchronously fires the `agent.registered` plugin event
- * (errors are swallowed) so subscribers can react without blocking the caller.
+ * Creates a new {@link Agent} and returns it with a freshly generated
+ * plaintext API key.
  */
 export function createAgent(input: Parameters<typeof agentRepo.createAgent>[0]): {
   agent: Omit<Agent, "apiKeyHash">;

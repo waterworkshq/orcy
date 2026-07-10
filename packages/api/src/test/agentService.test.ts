@@ -18,9 +18,6 @@ vi.mock("../repositories/task.js", () => ({
 }));
 vi.mock("./timeTrackingService.js", () => ({ recordWork: vi.fn() }));
 vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: vi.fn() } }));
-vi.mock("../plugins/pluginManager.js", () => ({
-  emitAgentRegistered: vi.fn(() => Promise.resolve()),
-}));
 vi.mock("../lib/logger.js", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
 
 import {
@@ -44,7 +41,7 @@ describe("agentService", () => {
     vi.clearAllMocks();
   });
 
-  it("createAgent delegates and emits event", () => {
+  it("createAgent delegates", () => {
     vi.mocked(agentRepo.createAgent).mockReturnValue({
       agent: { id: "a1", name: "B" },
       plainApiKey: "k1",
