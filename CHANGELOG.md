@@ -2,6 +2,17 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.29.4 — 2026-07-10
+
+### Bug Fixes
+
+#### add release-gate and mission-dependency guards to canonical claim path ([`708f041`](https://github.com/waterworkshq/orcy/commit/708f041b73c986f5bfa87a21be26ddc80a737d40))
+
+
+#### widen claim failure-reason union to include all derived-gate reasons ([`964f11f`](https://github.com/waterworkshq/orcy/commit/964f11f8dd1bc38a79df531e881dd7a0db123cb2))
+
+
+
 ## 0.29.3 — 2026-07-10
 
 ### Tests
@@ -129,51 +140,3 @@
 
 
 #### extract duplicated trigger-type narrowing in automationRules ([`e6a50f3`](https://github.com/waterworkshq/orcy/commit/e6a50f32c3d659adb21e39cff1c939b8c293e5a4))
-
-
-
-## 0.29.1 — 2026-07-10
-
-### Bug Fixes
-
-#### pass caveats to completeness summary in canonical audit event export ([`1ccf5dd`](https://github.com/waterworkshq/orcy/commit/1ccf5ddd3204c4f6d9c2721ff137eebbc7bf1a04))
-
-
-#### move inferred presence warning to post-filter so scoped queries don't trigger false warnings ([`b64f8f8`](https://github.com/waterworkshq/orcy/commit/b64f8f89203c222a84de8872dffd92a59653f28f))
-
-
-#### surface orphan webhook delivery count as projection warning instead of silently dropping ([`45e7b02`](https://github.com/waterworkshq/orcy/commit/45e7b028019065597734cc93d53fc23e71dff091))
-
-
-
-### Refactors
-
-#### remove redundant normalizeFilters call on queryAuditEvents path ([`38aa0f4`](https://github.com/waterworkshq/orcy/commit/38aa0f41442288c136bf5af88706440c5a4cb874))
-
-1. queryAuditEvents called normalizeFilters at line 75, then passed the
-2. result to collectAuditProjection which calls normalizeFilters again at
-3. line 142. The second call is idempotent on already-normalized input.
-4. Removed the first call — collectAuditProjection remains the single
-5. normalization point for all three caller paths (queryAuditEvents,
-6. getAuditSummary, direct test calls).
-
-
-#### use query.order instead of input.order in collectAuditProjection ([`3531942`](https://github.com/waterworkshq/orcy/commit/35319424c1ec30fa097beca8d1a1b0050630a2de))
-
-
-#### hoist CSV filter parsing out of per-event export filter predicate ([`8f0b254`](https://github.com/waterworkshq/orcy/commit/8f0b254ec856b549a1c83d772567902022f34648))
-
-
-
-### Tests
-
-#### verify automation runs with mission target contribute to topMissions ranking ([`673e748`](https://github.com/waterworkshq/orcy/commit/673e74869113dcb11ccafbc5d74fdcd2331814b8))
-
-
-#### verify mission bundle pre-pagination scope isolates notification events by mission ([`3b240e3`](https://github.com/waterworkshq/orcy/commit/3b240e3dc89c2ef25d2c3f77b5064e5c08863683))
-
-
-#### verify operational events survive export serialization and filter pipelines ([`70d868c`](https://github.com/waterworkshq/orcy/commit/70d868c283f95f7dd95a75b06dbd5a1b624f740b))
-
-
-#### verify operational events contribute to summary count aggregations ([`c41b6c2`](https://github.com/waterworkshq/orcy/commit/c41b6c2c3355788e55231f755b61773a6687d9e3))
