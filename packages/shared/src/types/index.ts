@@ -3,6 +3,13 @@ export type { Agent, AgentStats, AllAgentStats } from "./agent.js";
 
 export type { Habitat, PublicHabitat, Column, HabitatStats, HabitatExport } from "./board.js";
 
+export {
+  AUDIT_ENTITY_TYPES,
+  AUDIT_QUERY_ENTITY_TYPES,
+  AUDIT_SOURCES,
+  DEFAULT_AUDIT_QUERY_ENTITY_TYPES,
+} from "./audit.js";
+
 export type {
   AuditActorRef,
   AuditCompleteness,
@@ -12,8 +19,12 @@ export type {
   AuditEvent,
   AuditIntegrity,
   AuditProvenance,
+  AuditQueryEntityType,
   AuditSource,
   AuditWarning,
+  AutomationAuditProvenance,
+  NotificationAuditProvenance,
+  PluginAuditProvenance,
 } from "./audit.js";
 
 export type { MissionStatus, MissionEventAction } from "./feature.js";
