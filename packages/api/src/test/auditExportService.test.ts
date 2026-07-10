@@ -4,6 +4,8 @@ import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/task.js";
+import * as ruleRepo from "../repositories/automationRule.js";
+import * as ruleRunRepo from "../repositories/automationRuleRun.js";
 import * as eventRepo from "../repositories/events/index.js";
 import {
   createSchedule,
@@ -15,6 +17,8 @@ import {
 } from "../services/auditExportService.js";
 import {
   auditExportSchedules,
+  automationRuleRuns,
+  automationRules,
   columns,
   habitatCodeRepositories,
   habitats,
@@ -28,6 +32,8 @@ beforeEach(async () => {
   await initTestDb();
   const db = getDb();
   db.delete(auditExportSchedules).run();
+  db.delete(automationRuleRuns).run();
+  db.delete(automationRules).run();
   db.delete(pipelineEvents).run();
   db.delete(habitatCodeRepositories).run();
   db.delete(taskEvents).run();
@@ -235,5 +241,71 @@ describe("auditExportService", () => {
     ]);
     expect(summary.completenessSummary.totalEvents).toBe(2);
     expect(summary.completenessSummary.byStatus.legacy_partial).toBe(2);
+  });
+
+  it("getAuditSummary topMissions counts missions targeted by automation runs", () => {
+    const habitat = habitatRepo.createHabitat({ name: "Top Missions Habitat" });
+    const targetedColumn = columnRepo.createColumn({
+      habitatId: habitat.id,
+      name: "Targeted",
+      order: 0,
+      requiresClaim: false,
+    });
+    const untargetedColumn = columnRepo.createColumn({
+      habitatId: habitat.id,
+      name: "Untargeted",
+      order: 1,
+      requiresClaim: false,
+    });
+    const targetedMission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: targetedColumn.id,
+      title: "Targeted Mission",
+      createdBy: "user-1",
+    });
+    const untargetedMission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: untargetedColumn.id,
+      title: "Untargeted Mission",
+      createdBy: "user-1",
+    });
+
+    const rule = ruleRepo.createAutomationRule({
+      habitatId: habitat.id,
+      name: "Mission Nudge",
+      trigger: { type: "event", eventType: "mission.stale" } as any,
+      actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "T" }],
+      createdBy: "user-1",
+    });
+
+    const run1 = ruleRunRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: habitat.id,
+      triggerType: "mission.stale",
+      triggerEventId: "evt-m-1",
+      targetType: "mission",
+      targetId: targetedMission.id,
+    });
+    ruleRunRepo.finishRuleRun(run1.id, { status: "succeeded" });
+
+    const run2 = ruleRunRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: habitat.id,
+      triggerType: "mission.stale",
+      triggerEventId: "evt-m-2",
+      targetType: "mission",
+      targetId: targetedMission.id,
+    });
+    ruleRunRepo.finishRuleRun(run2.id, { status: "failed" });
+
+    const summary = getAuditSummary(habitat.id);
+
+    const targetedEntry = summary.topMissions.find((m) => m.missionId === targetedMission.id);
+    expect(targetedEntry).toEqual({
+      missionId: targetedMission.id,
+      missionTitle: "Targeted Mission",
+      count: 2,
+    });
+    expect(summary.topMissions.some((m) => m.missionId === untargetedMission.id)).toBe(false);
   });
 });
