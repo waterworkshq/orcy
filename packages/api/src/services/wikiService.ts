@@ -216,7 +216,7 @@ export type WikiPageWithLinks = WikiPage & { links: (WikiPageLink & { dangling: 
  * Creates a draft (or published) wiki page plus its initial version-1 snapshot atomically.
  * Slug is derived from the title; on collision within the same sibling set, `-2`, `-3`, ... are appended.
  * `createdBy` is always an orcy id (ADR-0006 authored-only boundary). Side effect: writes 2 rows.
- * SSE event `wiki_page_created` is wired in Phase 8 (E8a) — see the TODO marker below.
+ * SSE event `wiki_page_created` is wired in Phase 8 (E8a).
  */
 export function createPage(
   habitatId: string,
@@ -438,7 +438,7 @@ export function updatePageMetadata(
  * - `stayGone: false`/absent — plain delete; cascade removes page-type markers; watermark may revert;
  *   cadence will re-author on its next run.
  * Throws 404 when the page is missing, 409 when the page has children (`ON DELETE NO ACTION` on `parent_id`).
- * SSE event `wiki_page_deleted` is wired in Phase 8 (E8a) — see TODO marker.
+ * SSE event `wiki_page_deleted` is wired in Phase 8 (E8a).
  */
 export function deletePage(pageId: string, options: DeleteWikiPageInput, deletedBy: string): void {
   const page = wikiPageRepo.getById(pageId);
@@ -519,7 +519,7 @@ export function deletePage(pageId: string, options: DeleteWikiPageInput, deleted
  * coverage marker mutation occurs (a draft has no watermark contribution).
  *
  * Side effect: writes 1 version row + updates 1 page row (+ updates 0..N coverage markers). Throws 404
- * when the page is missing. SSE event `wiki_page_updated` is wired in Phase 8 (E8a) — see TODO marker.
+ * when the page is missing. SSE event `wiki_page_updated` is wired in Phase 8 (E8a).
  */
 export function saveVersion(
   pageId: string,
