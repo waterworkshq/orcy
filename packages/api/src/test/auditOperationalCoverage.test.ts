@@ -354,4 +354,36 @@ describe("audit operational coverage", () => {
 
     expect(result.events.some((e) => e.entity.type === "time_record")).toBe(false);
   });
+
+  it("notification deliveries do NOT appear in task bundle via referencedEntities", () => {
+    const { habitat, task } = setupHabitat();
+    const event = eventRepo.createNotificationEvent({
+      habitatId: habitat.id,
+      eventType: "task.assigned",
+      sourceType: "task",
+      sourceId: task.id,
+      targetType: "task",
+      targetId: task.id,
+      severity: "info",
+      title: "Task assigned",
+      body: "Test",
+      createdByType: "system",
+    });
+    deliveryRepo.createNotificationDelivery({
+      eventId: event.id,
+      habitatId: habitat.id,
+      recipientType: "human",
+      recipientId: "user-1",
+      channels: ["in_app"],
+    });
+
+    const result = queryAuditEvents({
+      habitatId: habitat.id,
+      referencedEntities: [{ type: "task", id: task.id }],
+      order: "asc",
+    });
+
+    expect(result.events.some((e) => e.entity.type === "notification_event")).toBe(true);
+    expect(result.events.some((e) => e.entity.type === "notification_delivery")).toBe(false);
+  });
 });

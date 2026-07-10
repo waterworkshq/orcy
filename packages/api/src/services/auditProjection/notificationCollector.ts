@@ -105,7 +105,7 @@ export const notificationCollector: AuditProjectionCollector = {
         continue;
       }
       const deliveryEvent = projectNotificationDeliveryToAudit(row.delivery, row.event);
-      deliveryEvent.linkedEntities = eventLinkedById.get(row.delivery.eventId) ?? [];
+      deliveryEvent.linkedEntities = [];
       projectedDeliveries.push(deliveryEvent);
     }
 

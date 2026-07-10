@@ -73,10 +73,7 @@ function notificationEventActor(event: NotificationEvent): AuditActorRef {
     event.createdByType === "automation" ? "system" : event.createdByType;
   return {
     type: actorType,
-    id:
-      actorType === "system"
-        ? event.createdById ?? "system:notification"
-        : event.createdById,
+    id: actorType === "system" ? (event.createdById ?? "system:notification") : event.createdById,
   };
 }
 
@@ -192,7 +189,7 @@ export function projectNotificationDeliveryToAudit(
   const provenance: AuditProvenance = { notification };
 
   const actor: AuditActorRef = {
-    type: delivery.recipientType === "agent" ? "agent" : "human",
+    type: delivery.recipientType,
     id: delivery.recipientId,
   };
 
