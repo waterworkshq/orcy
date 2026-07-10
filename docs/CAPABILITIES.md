@@ -60,7 +60,7 @@ Orcy coordinates a pod of orcys on shared habitats. Here is what it does under t
 | **Repository identity** | Per-habitat repository configuration links code evidence to the correct repo context. | [CONFIGURATION.md](CONFIGURATION.md) |
 | **Effort Logging** | Deliberate effort entries (human_manual, agent_reported, correction_adjustment) with append-only corrections. Separate from inferred heartbeat tracking. | [SKILL.md](SKILL.md) |
 | **Time Tracking (inferred + deliberate)** | Inferred time from heartbeat stays is tracked separately from deliberate effort logging. Quality gate covers both: timeTracking (inferred) and effortLogging (deliberate). | [SKILL.md](SKILL.md) |
-| **Audit Trail V2** | Canonical, provenance-aware audit projection across lifecycle, effort, code evidence, pipeline, integration, webhook, and optional health snapshot sources. Exports and bundles carry completeness caveats. | [API.md](API.md#audit-log-export) |
+| **Audit Trail V2** | Canonical, provenance-aware audit projection across lifecycle, effort, code evidence, pipeline, integration, webhook, optional health snapshot, and operational sources (automation rule runs, notification events/deliveries, plugin runs). Exports and bundles carry completeness caveats and collector warnings. | [API.md](API.md#audit-log-export) |
 | **Scoped evidence bundles** | Task and mission audit bundles expose metadata-only evidence with completeness summaries. Mission bundles separate direct mission evidence from rolled-up task evidence. | [SKILL.md](SKILL.md) |
 
 ## Visibility & Insights

@@ -7,6 +7,9 @@ import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/task.js";
 import * as eventRepo from "../repositories/events/index.js";
+import * as ruleRepo from "../repositories/automationRule.js";
+import * as runRepo from "../repositories/automationRuleRun.js";
+import * as pluginRunRepo from "../repositories/pluginRun.js";
 import { archiveOldEvents } from "../services/auditArchivalService.js";
 import {
   columns,
@@ -15,6 +18,8 @@ import {
   missions,
   taskEvents,
   tasks,
+  automationRuleRuns,
+  pluginRuns,
 } from "../db/schema/index.js";
 
 const workspaceRoot = resolve(process.cwd(), "../..");
@@ -22,6 +27,8 @@ const workspaceRoot = resolve(process.cwd(), "../..");
 beforeEach(async () => {
   await initTestDb();
   const db = getDb();
+  db.delete(pluginRuns).run();
+  db.delete(automationRuleRuns).run();
   db.delete(taskEvents).run();
   db.delete(missionEvents).run();
   db.delete(tasks).run();
@@ -111,6 +118,58 @@ describe("auditArchivalService", () => {
 
     expect(getDb().select().from(taskEvents).all()).toHaveLength(0);
     expect(getDb().select().from(missionEvents).all()).toHaveLength(0);
+
+    const archiveDir = join(workspaceRoot, "archives", fixture.habitat.id);
+    rmSync(archiveDir, { recursive: true, force: true });
+  });
+
+  it("does not archive or delete automation run or plugin run source rows", () => {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const fixture = createFixture();
+    eventRepo.createEvent({
+      taskId: fixture.task.id,
+      actorType: "agent",
+      actorId: "agent-1",
+      action: "claimed",
+    });
+    const rule = ruleRepo.createAutomationRule({
+      habitatId: fixture.habitat.id,
+      name: "Isolation Rule",
+      trigger: { type: "event", eventType: "task.rejected" } as any,
+      actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
+      createdBy: "user-1",
+    });
+    const run = runRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: fixture.habitat.id,
+      triggerType: "task.rejected",
+      targetType: "task",
+      targetId: fixture.task.id,
+    });
+    runRepo.finishRuleRun(run.id, { status: "succeeded" });
+
+    const pluginRun = pluginRunRepo.startRun({
+      habitatId: fixture.habitat.id,
+      pluginId: "iso-plugin",
+      contributionId: "iso-detector",
+      contributionKind: "signalDetector",
+      triggerType: "task.created",
+    });
+    pluginRunRepo.finishRun(pluginRun.id, "succeeded", 0);
+
+    vi.setSystemTime(new Date("2026-06-04T00:00:00.000Z"));
+    const result = archiveOldEvents(fixture.habitat.id);
+
+    expect(result.archivedCount).toBe(1);
+    expect(
+      getDb().select().from(taskEvents).all(),
+    ).toHaveLength(0);
+    expect(
+      getDb().select().from(automationRuleRuns).all(),
+    ).toHaveLength(1);
+    expect(
+      getDb().select().from(pluginRuns).all(),
+    ).toHaveLength(1);
 
     const archiveDir = join(workspaceRoot, "archives", fixture.habitat.id);
     rmSync(archiveDir, { recursive: true, force: true });

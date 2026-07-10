@@ -1,9 +1,17 @@
 import type {
+  AuditEntityRef,
   AuditEntityType,
+  AuditEvent,
+  AuditQueryEntityType,
   AuditSource,
 } from "@orcy/shared/types";
 import { AUDIT_SOURCES } from "@orcy/shared/types";
 import { normalizeAuditActorAndSource } from "../auditProjectionNormalizer.js";
+import type { AuditQueryInput } from "../auditQueryService.js";
+import { badRequest } from "../../errors.js";
+import { getDb } from "../../db/index.js";
+import { missions, tasks } from "../../db/schema/index.js";
+import { eq, inArray } from "drizzle-orm";
 
 export const AUDIT_SOURCE_SET = new Set<AuditSource>(AUDIT_SOURCES);
 
@@ -16,6 +24,186 @@ export interface MissionInfo {
 export interface TaskInfo extends MissionInfo {
   taskId: string;
   taskTitle: string;
+}
+
+/** Coerces and validates an audit query, converting `taskId`/`missionId` shortcuts into explicit entity-type/entity-id pairs and rejecting conflicting combinations. */
+export function normalizeFilters(input: AuditQueryInput): AuditQueryInput {
+  if (input.taskId && input.missionId) {
+    throw badRequest("taskId and missionId cannot be combined; use bundle/query modes instead");
+  }
+
+  if (input.taskId) {
+    if (
+      (input.entityType && input.entityType !== "task") ||
+      (input.entityId && input.entityId !== input.taskId)
+    ) {
+      throw badRequest("taskId conflicts with entityType/entityId filters");
+    }
+    return { ...input, entityType: "task", entityId: input.taskId };
+  }
+
+  if (input.missionId) {
+    if (
+      (input.entityType && input.entityType !== "mission") ||
+      (input.entityId && input.entityId !== input.missionId)
+    ) {
+      throw badRequest("missionId conflicts with entityType/entityId filters");
+    }
+    return { ...input, entityType: "mission", entityId: input.missionId };
+  }
+
+  return input;
+}
+
+/** Returns true when an {@link AuditEvent} satisfies every filter field of an {@link AuditQueryInput}. */
+export function matchesFilters(event: AuditEvent, query: AuditQueryInput): boolean {
+  if (event.habitatId !== query.habitatId) return false;
+  if (query.since && event.occurredAt < query.since) return false;
+  if (query.until && event.occurredAt > query.until) return false;
+  if (query.entityType && event.entity.type !== query.entityType) return false;
+  if (
+    query.entityTypes &&
+    query.entityTypes.length > 0 &&
+    !query.entityTypes.includes(event.entity.type as AuditQueryEntityType)
+  ) {
+    return false;
+  }
+  if (query.entityId && event.entity.id !== query.entityId) return false;
+  if (query.actorType && event.actor.type !== query.actorType) return false;
+  if (query.actorId && event.actor.id !== query.actorId) return false;
+  if (query.source && event.source !== query.source) return false;
+  return true;
+}
+
+/** Returns audit events sorted by `occurredAt` then `id`, breaking ties deterministically. */
+export function sortEvents(events: AuditEvent[], order: "asc" | "desc"): AuditEvent[] {
+  return events.toSorted((a, b) => {
+    const time = a.occurredAt.localeCompare(b.occurredAt);
+    const direction = order === "asc" ? time : -time;
+    if (direction !== 0) return direction;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+interface ResolvedRef {
+  ref: AuditEntityRef;
+  /** For task refs, the owning mission id (resolved and verified within habitat). */
+  owningMissionId?: string;
+}
+
+/**
+ * Batch-resolves `(type, id)` pairs against the task and mission tables,
+ * returning the deduplicated list of resolved {@link AuditEntityRef}s (with
+ * titles) plus a list of unresolved pair warnings. Cross-habitat or missing
+ * references are reported as warnings and omitted from the resolved list.
+ */
+export function resolveEntityReferences(
+  habitatId: string,
+  references: Iterable<{ type: "task" | "mission"; id: string | null }>,
+): { resolved: AuditEntityRef[]; unresolved: { type: "task" | "mission"; id: string }[]; byKey: Map<string, ResolvedRef> } {
+  const taskIds = new Set<string>();
+  const missionIds = new Set<string>();
+  const seen = new Set<string>();
+  for (const ref of references) {
+    if (!ref.id) continue;
+    const key = `${ref.type}:${ref.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (ref.type === "task") taskIds.add(ref.id);
+    else missionIds.add(ref.id);
+  }
+  const byKey = new Map<string, ResolvedRef>();
+  const resolved: AuditEntityRef[] = [];
+  const unresolved: { type: "task" | "mission"; id: string }[] = [];
+
+  if (taskIds.size === 0 && missionIds.size === 0) {
+    return { resolved, unresolved, byKey };
+  }
+
+  const db = getDb();
+
+  if (taskIds.size > 0) {
+    const taskRows = db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        missionId: tasks.missionId,
+        habitatId: missions.habitatId,
+      })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(inArray(tasks.id, Array.from(taskIds)))
+      .all();
+
+    const foundTaskIds = new Set<string>();
+    for (const row of taskRows) {
+      foundTaskIds.add(row.id);
+      if (row.habitatId !== habitatId) {
+        unresolved.push({ type: "task", id: row.id });
+        continue;
+      }
+      const taskRef: AuditEntityRef = { type: "task", id: row.id, title: row.title };
+      resolved.push(taskRef);
+      byKey.set(`task:${row.id}`, { ref: taskRef, owningMissionId: row.missionId });
+    }
+    for (const taskId of taskIds) {
+      if (!foundTaskIds.has(taskId)) unresolved.push({ type: "task", id: taskId });
+    }
+  }
+
+  if (missionIds.size > 0) {
+    const missionRows = db
+      .select({ id: missions.id, title: missions.title, habitatId: missions.habitatId })
+      .from(missions)
+      .where(inArray(missions.id, Array.from(missionIds)))
+      .all();
+    const foundMissionIds = new Set<string>();
+    for (const row of missionRows) {
+      foundMissionIds.add(row.id);
+      if (row.habitatId !== habitatId) {
+        unresolved.push({ type: "mission", id: row.id });
+        continue;
+      }
+      const missionRef: AuditEntityRef = {
+        type: "mission",
+        id: row.id,
+        title: row.title,
+      };
+      resolved.push(missionRef);
+      byKey.set(`mission:${row.id}`, { ref: missionRef });
+    }
+    for (const missionId of missionIds) {
+      if (!foundMissionIds.has(missionId)) unresolved.push({ type: "mission", id: missionId });
+    }
+  }
+
+  // Attach owning-mission refs for any task that's been resolved.
+  const owningMissionIds = new Set<string>();
+  for (const entry of byKey.values()) {
+    if (entry.owningMissionId) owningMissionIds.add(entry.owningMissionId);
+  }
+  if (owningMissionIds.size > 0) {
+    const missing = Array.from(owningMissionIds).filter((id) => !byKey.has(`mission:${id}`));
+    if (missing.length > 0) {
+      const owningRows = db
+        .select({ id: missions.id, title: missions.title, habitatId: missions.habitatId })
+        .from(missions)
+        .where(inArray(missions.id, missing))
+        .all();
+      for (const row of owningRows) {
+        if (row.habitatId !== habitatId) continue;
+        const missionRef: AuditEntityRef = {
+          type: "mission",
+          id: row.id,
+          title: row.title,
+        };
+        resolved.push(missionRef);
+        byKey.set(`mission:${row.id}`, { ref: missionRef });
+      }
+    }
+  }
+
+  return { resolved, unresolved, byKey };
 }
 
 export function readString(value: unknown): string | null {

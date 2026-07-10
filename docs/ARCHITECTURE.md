@@ -978,17 +978,38 @@ Source tables (~16)                    Projection (query time)
 ┌──────────────────────┐              ┌─────────────────────────┐
 │ taskEvents           │──┐           │                         │
 │ missionEvents        │  │           │  auditQueryService      │
-│ effortEntries        │  ├──► project*Row() ──►  AuditEvent    │
-│ codeEvidenceLinks    │  │    per-source         (canonical)   │
-│ codeCommits          │  │    functions          ├── id: prefix:PK
-│ pullRequests         │  │                       ├── completeness
-│ pipelineEvents       │  │                       ├── provenance
-│ integrationSyncRuns  │  │                       └── summary
-│ webhookDeliveries    │──┘              │         └─────────────┘
-│ habitatHealthSnapshots│                │
-└──────────────────────┘                ├──► auditExportService (CSV/JSON/JSONL)
-                                        └──► auditBundleService (task/mission bundles)
+│ effortEntries        │  │           │  auditProjection/       │
+│ codeEvidenceLinks    │  ├──► collector ──►  AuditEvent         │
+│ codeCommits          │  │   catalog    (canonical)            │
+│ pullRequests         │  │              ├── id: prefix:PK       │
+│ pipelineEvents       │  │              ├── completeness       │
+│ integrationSyncRuns  │  │              ├── provenance         │
+│ webhookDeliveries    │──┘              └── summary            │
+│ habitatHealthSnapshots│                │       └─────────────┘
+│ automationRuleRuns  │──┐                │
+│ notificationEvents  │  ├──► operational ├──► auditExportService (CSV/JSON/JSONL)
+│ notificationDeliveries│ │  collectors   └──► auditBundleService (task/mission bundles)
+│ pluginRuns          │──┘
+└──────────────────────┘
 ```
+
+### Collector Catalog (v0.29)
+
+Nine collectors register exactly one source family each (enforced by `assertCatalogCoverage`). Fatal collectors propagate errors; warning collectors swallow errors into a `collector_unavailable` warning + caveat so a single broken source cannot blind the query:
+
+| Key | Entity types | Failure policy |
+|---|---|---|
+| `lifecycle` | `task`, `mission` | fatal |
+| `effort` | `effort_entry`, `time_record` | fatal |
+| `code_evidence` | `code_evidence_link`, `code_evidence_gap`, `commit`, `changed_file`, `pull_request`, `code_review`, `pipeline_event` | fatal |
+| `integration_sync` | `integration_sync_run` | warning |
+| `webhook_delivery` | `webhook_delivery` | warning |
+| `health_snapshot` | `health_snapshot` | warning |
+| `automation_run` | `automation_run` | warning |
+| `notification` | `notification_event`, `notification_delivery` | warning |
+| `plugin_run` | `plugin_run` | warning |
+
+Automation Run, Notification Event/Delivery, and Plugin Run events each carry typed provenance namespaces (`automation`, `notification`, `plugin`) and resolved `linkedEntities` to tasks/missions where applicable. Bundle queries scope by `referencedEntities` BEFORE pagination so that operational events linking to a task/mission survive even when the habitat contains far more lifecycle events than the default page size.
 
 ### Projection-on-Read
 

@@ -5,11 +5,16 @@ import type {
   AuditSource,
   AuditWarning,
 } from "@orcy/shared/types";
-import { badRequest } from "../errors.js";
-import type { AuditEntityReferenceFilter } from "./auditProjection/types.js";
 import { collectAuditProjection } from "./auditProjection/collectAuditProjection.js";
+import { normalizeFilters } from "./auditProjection/helpers.js";
+import type { AuditEntityReferenceFilter } from "./auditProjection/types.js";
 
 export { collectAuditProjection } from "./auditProjection/collectAuditProjection.js";
+export {
+  matchesFilters,
+  normalizeFilters,
+  sortEvents,
+} from "./auditProjection/helpers.js";
 
 export interface AuditQueryInput {
   habitatId: string;
@@ -35,62 +40,6 @@ export interface AuditQueryResult {
   events: AuditEvent[];
   warnings: AuditWarning[];
   completenessSummary: AuditCompletenessSummary;
-}
-
-export function normalizeFilters(input: AuditQueryInput): AuditQueryInput {
-  if (input.taskId && input.missionId) {
-    throw badRequest("taskId and missionId cannot be combined; use bundle/query modes instead");
-  }
-
-  if (input.taskId) {
-    if (
-      (input.entityType && input.entityType !== "task") ||
-      (input.entityId && input.entityId !== input.taskId)
-    ) {
-      throw badRequest("taskId conflicts with entityType/entityId filters");
-    }
-    return { ...input, entityType: "task", entityId: input.taskId };
-  }
-
-  if (input.missionId) {
-    if (
-      (input.entityType && input.entityType !== "mission") ||
-      (input.entityId && input.entityId !== input.missionId)
-    ) {
-      throw badRequest("missionId conflicts with entityType/entityId filters");
-    }
-    return { ...input, entityType: "mission", entityId: input.missionId };
-  }
-
-  return input;
-}
-
-export function matchesFilters(event: AuditEvent, query: AuditQueryInput): boolean {
-  if (event.habitatId !== query.habitatId) return false;
-  if (query.since && event.occurredAt < query.since) return false;
-  if (query.until && event.occurredAt > query.until) return false;
-  if (query.entityType && event.entity.type !== query.entityType) return false;
-  if (
-    query.entityTypes &&
-    query.entityTypes.length > 0 &&
-    !query.entityTypes.includes(event.entity.type as AuditQueryEntityType)
-  ) {
-    return false;
-  }
-  if (query.entityId && event.entity.id !== query.entityId) return false;
-  if (query.actorType && event.actor.type !== query.actorType) return false;
-  if (query.actorId && event.actor.id !== query.actorId) return false;
-  if (query.source && event.source !== query.source) return false;
-  return true;
-}
-
-export function sortEvents(events: AuditEvent[], order: "asc" | "desc"): AuditEvent[] {
-  return events.toSorted((a, b) => {
-    const time = a.occurredAt.localeCompare(b.occurredAt);
-    const direction = order === "asc" ? time : -time;
-    if (direction !== 0) return direction;
-    return a.id.localeCompare(b.id);
-  });
 }
 
 /** Aggregates per-event completeness statuses into counts by status and a deduplicated list of caveats. */

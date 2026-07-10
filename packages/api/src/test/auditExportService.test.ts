@@ -9,6 +9,7 @@ import {
   createSchedule,
   deleteSchedule,
   generateAuditExportContent,
+  getAuditSummary,
   getScheduleById,
   listSchedules,
 } from "../services/auditExportService.js";
@@ -197,5 +198,42 @@ describe("auditExportService", () => {
 
     expect(deleteSchedule(schedule.id)).toBe(true);
     expect(getScheduleById(schedule.id)).toBeNull();
+  });
+
+  it("getAuditSummary aggregates through canonical projection with warnings and completeness", () => {
+    const fixture = createFixture();
+    eventRepo.createEvent({
+      taskId: fixture.task.id,
+      actorType: "human",
+      actorId: "user-1",
+      action: "created",
+    });
+    eventRepo.createMissionEvent({
+      missionId: fixture.mission.id,
+      actorType: "system",
+      actorId: "status-engine",
+      action: "status_changed",
+    });
+
+    const summary = getAuditSummary(fixture.habitat.id);
+
+    expect(summary.totalEvents).toBe(2);
+    expect(summary.byAction.created).toBe(1);
+    expect(summary.byAction.status_changed).toBe(1);
+    expect(summary.byActorType.human).toBe(1);
+    expect(summary.byActorType.system).toBe(1);
+    expect(summary.byDay).toHaveLength(1);
+    expect(summary.topMissions).toEqual([
+      expect.objectContaining({
+        missionId: fixture.mission.id,
+        missionTitle: "Mission",
+        count: 2,
+      }),
+    ]);
+    expect(summary.warnings).toEqual([
+      expect.objectContaining({ code: "legacy_partial_history" }),
+    ]);
+    expect(summary.completenessSummary.totalEvents).toBe(2);
+    expect(summary.completenessSummary.byStatus.legacy_partial).toBe(2);
   });
 });

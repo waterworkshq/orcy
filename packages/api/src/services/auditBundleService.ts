@@ -62,10 +62,9 @@ export function getTaskAuditBundle(
     habitatId: mission.habitatId,
     order: "asc",
     includeHealthSnapshots: options.includeHealthSnapshots,
+    referencedEntities: [{ type: "task", id: task.id }],
   });
-  const events = sortChronologically(
-    result.events.filter((event) => eventReferencesEntity(event, "task", task.id)),
-  );
+  const events = sortChronologically(result.events);
 
   return {
     target: {
@@ -95,6 +94,10 @@ export function getMissionAuditBundle(
     habitatId: mission.habitatId,
     order: "asc",
     includeHealthSnapshots: options.includeHealthSnapshots,
+    referencedEntities: [
+      { type: "mission", id: mission.id },
+      ...tasks.map((t) => ({ type: "task" as const, id: t.id })),
+    ],
   });
 
   const directMissionEvidence = result.events.filter((event) => {

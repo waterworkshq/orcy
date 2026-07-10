@@ -34,6 +34,12 @@ const {
     byActorType: {},
     byDay: [],
     topMissions: [],
+    warnings: [],
+    completenessSummary: {
+      totalEvents: 0,
+      byStatus: { complete: 0, legacy_partial: 0, source_unavailable: 0 },
+      caveats: [],
+    },
   })),
   mockCreateSchedule: vi.fn(() => ({ id: "schedule-1", habitatId: "habitat-1" })),
   mockListSchedules: vi.fn(() => []),

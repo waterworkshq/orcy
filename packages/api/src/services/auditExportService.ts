@@ -1,11 +1,18 @@
 import type { FastifyReply } from "fastify";
 import type {
   AuditCompletenessSummary,
+  AuditEntityType,
   AuditEvent,
+  AuditQueryEntityType,
   AuditSource,
   AuditWarning,
 } from "@orcy/shared/types";
 import {
+  AUDIT_QUERY_ENTITY_TYPES,
+  AUDIT_SOURCES,
+} from "@orcy/shared/types";
+import {
+  collectAuditProjection,
   queryAuditEvents,
   summarizeAuditCompleteness,
   type AuditQueryInput,
@@ -44,13 +51,15 @@ export interface CanonicalAuditEventResult {
   completenessSummary: AuditCompletenessSummary;
 }
 
-/** Aggregated audit activity for a habitat over an optional time window: total event count, per-action and per-actor-type tallies, a daily series, and the top ten most active missions. */
+/** Aggregated audit activity for a habitat over an optional time window: total event count, per-action and per-actor-type tallies, a daily series, the top ten most active missions, and projection-level degradation evidence. */
 export interface AuditSummary {
   totalEvents: number;
   byAction: Record<string, number>;
   byActorType: Record<string, number>;
   byDay: { date: string; count: number }[];
-  topMissions: { missionId: string; missionTitle: string; count: number }[];
+  topMissions: { missionId: string; missionTitle: string | null; count: number }[];
+  warnings: AuditWarning[];
+  completenessSummary: AuditCompletenessSummary;
 }
 
 function csvEscape(value: unknown): string {
@@ -75,54 +84,37 @@ function includeStructuredField(value: string | undefined): boolean {
   return value === "true" || value === "1";
 }
 
-function isAuditEntityType(
-  value: string | undefined,
-): value is NonNullable<AuditQueryInput["entityType"]> {
+function isAuditEntityType(value: string | undefined): value is AuditQueryEntityType {
   if (!value) return false;
-  return [
-    "task",
-    "mission",
-    "effort_entry",
-    "code_evidence_link",
-    "code_evidence_gap",
-    "commit",
-    "changed_file",
-    "pull_request",
-    "code_review",
-    "pipeline_event",
-    "integration_sync_run",
-    "webhook_delivery",
-    "health_snapshot",
-  ].includes(value);
+  return (AUDIT_QUERY_ENTITY_TYPES as readonly string[]).includes(value);
 }
 
 function isAuditSource(value: string | undefined): value is AuditSource {
   if (!value) return false;
-  return [
-    "rest_api",
-    "mcp_tool",
-    "webhook",
-    "daemon",
-    "system",
-    "integration_sync",
-    "scheduler",
-    "migration",
-    "automation",
-    "notification",
-    "workflow",
-    "plugin",
-    "unknown",
-  ].includes(value);
+  return (AUDIT_SOURCES as readonly string[]).includes(value);
+}
+
+function parseEntityTypesCsv(value: string | undefined): AuditQueryEntityType[] | undefined {
+  if (!value) return undefined;
+  const items = parseCsvFilter(value);
+  if (items.length === 0) return undefined;
+  const filtered: AuditQueryEntityType[] = [];
+  for (const item of items) {
+    if (isAuditEntityType(item)) filtered.push(item);
+  }
+  return filtered.length > 0 ? filtered : undefined;
 }
 
 function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInput {
   const entityType = isAuditEntityType(query.entityType) ? query.entityType : undefined;
   const source = isAuditSource(query.source) ? query.source : undefined;
+  const entityTypes = parseEntityTypesCsv(query.entityTypes);
   return {
     habitatId,
     since: query.since,
     until: query.until,
     entityType,
+    entityTypes,
     entityId: query.entityId,
     taskId: query.taskId,
     missionId: query.missionId,
@@ -286,30 +278,38 @@ export async function streamAuditExport(
   return reply.send(format === "json" ? JSON.parse(content) : content);
 }
 
-/** Aggregates audit events for a habitat within an optional time window into a {@link AuditSummary} containing total counts, per-action and per-actor-type tallies, a per-day series, and the top ten most active missions. */
+/** Aggregates audit events for a habitat within an optional time window into a {@link AuditSummary} containing total counts, per-action and per-actor-type tallies, a per-day series, the top ten most active missions, plus projection-level warnings and a completeness summary. */
 export function getAuditSummary(habitatId: string, since?: string, until?: string): AuditSummary {
-  const allRows = auditExportRepo.getAuditSummaryRows(habitatId, since, until);
+  const projection = collectAuditProjection({
+    habitatId,
+    since,
+    until,
+    order: "asc",
+  });
 
   const byAction: Record<string, number> = {};
   const byActorType: Record<string, number> = {};
   const byDayMap = new Map<string, number>();
-  const missionMap = new Map<string, { missionId: string; missionTitle: string; count: number }>();
+  const missionMap = new Map<string, { missionId: string; missionTitle: string | null; count: number }>();
 
-  for (const row of allRows) {
-    byAction[row.action] = (byAction[row.action] || 0) + 1;
-    byActorType[row.actorType] = (byActorType[row.actorType] || 0) + 1;
+  for (const event of projection.events) {
+    byAction[event.action] = (byAction[event.action] ?? 0) + 1;
+    byActorType[event.actor.type] = (byActorType[event.actor.type] ?? 0) + 1;
 
-    const day = row.timestamp.slice(0, 10);
-    byDayMap.set(day, (byDayMap.get(day) || 0) + 1);
+    const day = event.occurredAt.slice(0, 10);
+    byDayMap.set(day, (byDayMap.get(day) ?? 0) + 1);
 
-    if (row.missionId) {
-      const existing = missionMap.get(row.missionId);
+    const primaryMission = event.entity.type === ("mission" as AuditEntityType) ? event.entity : null;
+    const linkedMission = event.linkedEntities.find((l) => l.type === "mission") ?? null;
+    const missionRef = primaryMission ?? linkedMission;
+    if (missionRef) {
+      const existing = missionMap.get(missionRef.id);
       if (existing) {
         existing.count++;
       } else {
-        missionMap.set(row.missionId, {
-          missionId: row.missionId,
-          missionTitle: row.missionTitle,
+        missionMap.set(missionRef.id, {
+          missionId: missionRef.id,
+          missionTitle: missionRef.title ?? null,
           count: 1,
         });
       }
@@ -325,11 +325,13 @@ export function getAuditSummary(habitatId: string, since?: string, until?: strin
     .slice(0, 10);
 
   return {
-    totalEvents: allRows.length,
+    totalEvents: projection.events.length,
     byAction,
     byActorType,
     byDay,
     topMissions,
+    warnings: projection.warnings,
+    completenessSummary: summarizeAuditCompleteness(projection.events, projection.caveats),
   };
 }
 

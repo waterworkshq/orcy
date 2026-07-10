@@ -1,21 +1,7 @@
 import { getDb } from "../db/index.js";
-import {
-  auditExportSchedules,
-  missionEvents,
-  missions,
-  taskEvents,
-  tasks,
-} from "../db/schema/index.js";
-import { and, eq, sql } from "drizzle-orm";
+import { auditExportSchedules } from "../db/schema/index.js";
+import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
-
-export interface AuditSummaryRow {
-  action: string;
-  actorType: string;
-  timestamp: string;
-  missionId: string;
-  missionTitle: string;
-}
 
 export interface CreateAuditExportScheduleInput {
   name: string;
@@ -38,51 +24,6 @@ export interface AuditExportSchedule {
   nextRunAt: string;
   createdBy: string;
   createdAt: string;
-}
-
-export function getAuditSummaryRows(
-  habitatId: string,
-  since?: string,
-  until?: string,
-): AuditSummaryRow[] {
-  const db = getDb();
-
-  const taskCondition = [eq(missions.habitatId, habitatId)];
-  if (since) taskCondition.push(sql`${taskEvents.timestamp} >= ${since}`);
-  if (until) taskCondition.push(sql`${taskEvents.timestamp} <= ${until}`);
-
-  const taskRows = db
-    .select({
-      action: taskEvents.action,
-      actorType: taskEvents.actorType,
-      timestamp: taskEvents.timestamp,
-      missionId: missions.id,
-      missionTitle: missions.title,
-    })
-    .from(taskEvents)
-    .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(and(...taskCondition))
-    .all();
-
-  const missionCondition = [eq(missions.habitatId, habitatId)];
-  if (since) missionCondition.push(sql`${missionEvents.timestamp} >= ${since}`);
-  if (until) missionCondition.push(sql`${missionEvents.timestamp} <= ${until}`);
-
-  const missionRows = db
-    .select({
-      action: missionEvents.action,
-      actorType: missionEvents.actorType,
-      timestamp: missionEvents.timestamp,
-      missionId: missions.id,
-      missionTitle: missions.title,
-    })
-    .from(missionEvents)
-    .innerJoin(missions, eq(missionEvents.missionId, missions.id))
-    .where(and(...missionCondition))
-    .all();
-
-  return [...taskRows, ...missionRows];
 }
 
 export function createScheduleRecord(

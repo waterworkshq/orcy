@@ -15,7 +15,8 @@ import type {
   AuditProjectionCollector,
   AuditProjectionSet,
 } from "./types.js";
-import { normalizeFilters, type AuditQueryInput } from "../auditQueryService.js";
+import type { AuditQueryInput } from "../auditQueryService.js";
+import { matchesFilters, normalizeFilters, sortEvents } from "./helpers.js";
 
 function resolveSelectedEntityTypes(
   entityType: AuditQueryEntityType | undefined,
@@ -61,25 +62,6 @@ function dispatchCollector(
       caveats: [`Audit projection source '${collector.key}' was unavailable.`],
     };
   }
-}
-
-function matchesEvent(event: AuditEvent, query: AuditQueryInput): boolean {
-  if (event.habitatId !== query.habitatId) return false;
-  if (query.since && event.occurredAt < query.since) return false;
-  if (query.until && event.occurredAt > query.until) return false;
-  if (query.entityType && event.entity.type !== query.entityType) return false;
-  if (
-    query.entityTypes &&
-    query.entityTypes.length > 0 &&
-    !query.entityTypes.includes(event.entity.type as AuditQueryEntityType)
-  ) {
-    return false;
-  }
-  if (query.entityId && event.entity.id !== query.entityId) return false;
-  if (query.actorType && event.actor.type !== query.actorType) return false;
-  if (query.actorId && event.actor.id !== query.actorId) return false;
-  if (query.source && event.source !== query.source) return false;
-  return true;
 }
 
 function matchesReferencedEntities(
@@ -155,34 +137,9 @@ function enrichAuditActorNames(events: AuditEvent[]): void {
   }
 }
 
-function sortEvents(events: AuditEvent[], order: "asc" | "desc"): AuditEvent[] {
-  return events.toSorted((a, b) => {
-    const time = a.occurredAt.localeCompare(b.occurredAt);
-    const direction = order === "asc" ? time : -time;
-    if (direction !== 0) return direction;
-    return a.id.localeCompare(b.id);
-  });
-}
-
-export interface CollectAuditProjectionInput {
-  habitatId: string;
-  since?: string;
-  until?: string;
-  entityType?: AuditQueryEntityType;
-  entityTypes?: readonly AuditQueryEntityType[];
-  entityId?: string;
-  taskId?: string;
-  missionId?: string;
-  actorType?: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
-  actorId?: string;
-  source?: string;
-  order?: "asc" | "desc";
-  includeHealthSnapshots?: boolean;
-  referencedEntities?: readonly AuditEntityReferenceFilter[];
-}
-
-export function collectAuditProjection(input: CollectAuditProjectionInput): AuditProjectionSet {
-  const query = normalizeFilters(input as AuditQueryInput);
+/** Projects source tables into a normalized, filtered, sorted, actor-enriched {@link AuditProjectionSet} for a habitat; orchestrates the collector catalog. */
+export function collectAuditProjection(input: AuditQueryInput): AuditProjectionSet {
+  const query = normalizeFilters(input);
   const selectedEntityTypes = resolveSelectedEntityTypes(
     query.entityType,
     query.entityTypes,
@@ -201,7 +158,7 @@ export function collectAuditProjection(input: CollectAuditProjectionInput): Audi
     allCaveats.push(...result.caveats);
   }
 
-  let filteredEvents = allEvents.filter((event) => matchesEvent(event, query));
+  let filteredEvents = allEvents.filter((event) => matchesFilters(event, query));
 
   if (query.referencedEntities && query.referencedEntities.length > 0) {
     filteredEvents = filteredEvents.filter((event) =>
