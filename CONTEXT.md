@@ -133,6 +133,10 @@ _Avoid_: Audit event when the record is only one source in the broader audit tra
 The origin path of an audit event, such as REST API, MCP tool, webhook, scheduler, integration sync, daemon, migration, or system process.
 _Avoid_: Actor; source explains where the change came from, actor explains who or what performed it
 
+**Audit Provenance**:
+The structured trace context that explains how an Audit Event originated and which source-specific execution produced it. Shared request, route, provider, and remote-participant fields coexist with typed, namespaced context for mechanisms such as automation, notifications, and plugins; result payloads and domain state remain event metadata rather than provenance.
+_Avoid_: Audit Source (the origin channel), actor, arbitrary event payload
+
 **Evidence Bundle**:
 A task- or mission-scoped audit package that gathers lifecycle history, code evidence metadata, CI/review metadata, effort records, and integration evidence. It contains references and summaries, not source code, full diffs, or raw provider payloads by default.
 _Avoid_: Source archive, eDiscovery package
