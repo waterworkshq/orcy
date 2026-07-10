@@ -1,7 +1,11 @@
-import type { AuditEvent } from "@orcy/shared/types";
+import type {
+  AuditEvent,
+  AuditWarning,
+} from "@orcy/shared/types";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../db/index.js";
 import { agents, effortEntries, missions, tasks } from "../../db/schema/index.js";
+import { listForAudit as listTimeRecordsForAudit } from "../../repositories/auditProjection/timeRecords.js";
 import type { AuditProjectionCollector } from "./types.js";
 import {
   buildCompleteness,
@@ -111,11 +115,59 @@ export const effortCollector: AuditProjectionCollector = {
           .all() as EffortAuditRow[])
       : [];
 
-    // time_record query is gated behind explicit selection until Phase 4 T4.7 adds the projector.
-    // Currently no-op so the collector satisfies assertCatalogCoverage without querying task_time_records.
+    // time_record query is gated behind explicit selection — DEFAULT_AUDIT_QUERY_ENTITY_TYPES
+    // excludes `time_record`. The projector is added in Phase 4 T4.7.
+    const shouldQueryTimeRecords = request.selectedEntityTypes.has("time_record");
+    const timeRecordRows = shouldQueryTimeRecords
+      ? listTimeRecordsForAudit(habitatId)
+      : [];
 
-    const events: AuditEvent[] = effortRows.map(projectEffortRow);
+    const timeRecordEvents: AuditEvent[] = timeRecordRows.map((row) => {
+      const caveats: string[] = ["Inferred presence record has no heartbeat session provenance."];
+      if (!row.record.agentId) caveats.push("Inferred presence record has no agent attribution.");
 
-    return { events, warnings: [], caveats: [] };
+      return {
+        id: `time_record:${row.record.id}`,
+        habitatId: row.missionHabitatId,
+        occurredAt: row.record.recordedAt,
+        entity: {
+          type: "time_record",
+          id: row.record.id,
+          title: `${row.record.minutesSpent}m inferred presence`,
+        },
+        action: "presence_recorded",
+        actor: row.record.agentId
+          ? {
+              type: "agent",
+              id: row.record.agentId,
+              ...(row.agentName ? { name: row.agentName } : {}),
+            }
+          : { type: "system", id: "system:presence" },
+        source: row.record.agentId ? "daemon" : "unknown",
+        provenance: {},
+        linkedEntities: [
+          { type: "task", id: row.record.taskId, title: row.taskTitle },
+          { type: "mission", id: row.missionId, title: row.missionTitle },
+        ],
+        summary: `Inferred presence recorded: ${row.record.minutesSpent}m on ${row.taskTitle}`,
+        metadata: {
+          minutesSpent: row.record.minutesSpent,
+          statusDuringWork: row.record.statusDuringWork,
+        },
+        completeness: { status: "source_unavailable", caveats },
+      };
+    });
+
+    const warnings: AuditWarning[] = [];
+    if (timeRecordEvents.length > 0) {
+      warnings.push({
+        code: "inferred_presence_source_unavailable",
+        message: "Time record events have no heartbeat session provenance.",
+      });
+    }
+
+    const events: AuditEvent[] = [...effortRows.map(projectEffortRow), ...timeRecordEvents];
+
+    return { events, warnings, caveats: [] };
   },
 };

@@ -17,7 +17,7 @@ describe("projectPluginRunToAudit", () => {
   });
   afterEach(() => closeDb());
 
-  it("projects a succeeded run with correct AuditEvent shape", () => {
+  it("projects a succeeded run with typed plugin provenance", () => {
     const habitat = setupHabitat();
     const run = pluginRunRepo.startRun({
       habitatId: habitat.id,
@@ -34,7 +34,7 @@ describe("projectPluginRunToAudit", () => {
 
     expect(audit.id).toBe(`plugin_run:${run.id}`);
     expect(audit.habitatId).toBe(habitat.id);
-    expect(audit.occurredAt).toBe(fetched.startedAt);
+    expect(audit.occurredAt).toBe(fetched.finishedAt ?? fetched.startedAt);
     expect(audit.source).toBe("plugin");
     expect(audit.entity).toEqual({
       type: "plugin_run",
@@ -44,11 +44,14 @@ describe("projectPluginRunToAudit", () => {
     expect(audit.action).toBe("plugin.succeeded");
     expect(audit.actor).toEqual({ type: "system", id: "plugin-a" });
     expect(audit.provenance).toEqual({
-      pluginId: "plugin-a",
-      contributionId: "detector-1",
-      contributionKind: "signalDetector",
-      triggerType: "task.created",
-      runId: run.id,
+      plugin: {
+        runId: run.id,
+        pluginId: "plugin-a",
+        contributionId: "detector-1",
+        contributionKind: "signalDetector",
+        triggerType: "task.created",
+        status: "succeeded",
+      },
     });
     expect(audit.linkedEntities).toEqual([]);
     expect(audit.summary).toBe("Plugin plugin-a detector-1 succeeded (3 signals)");
@@ -60,11 +63,14 @@ describe("projectPluginRunToAudit", () => {
       triggerEventId: "evt-1",
       status: "succeeded",
       signalsEmitted: 3,
+      hasError: false,
     });
+    expect(audit.metadata.error).toBeUndefined();
+    expect(audit.metadata.fingerprint).toBeUndefined();
     expect(audit.completeness).toEqual({ status: "complete", caveats: [] });
   });
 
-  it("projects a failed run with action plugin.failed and error in metadata", () => {
+  it("projects a failed run with hasError boolean (no error text)", () => {
     const habitat = setupHabitat();
     const run = pluginRunRepo.startRun({
       habitatId: habitat.id,
@@ -79,13 +85,14 @@ describe("projectPluginRunToAudit", () => {
     const audit = projectPluginRunToAudit(fetched);
 
     expect(audit.action).toBe("plugin.failed");
-    expect(audit.metadata.error).toBe("boom");
     expect(audit.metadata.status).toBe("failed");
-    expect(audit.summary).toContain("error: boom");
+    expect(audit.metadata.hasError).toBe(true);
+    expect(audit.metadata.error).toBeUndefined();
+    expect(audit.summary).not.toContain("boom");
     expect(audit.completeness.status).toBe("complete");
   });
 
-  it("projects a rate_limited run as partial completeness", () => {
+  it("projects a rate_limited run as complete (no more partial branch)", () => {
     const habitat = setupHabitat();
     const run = pluginRunRepo.startRun({
       habitatId: habitat.id,
@@ -100,7 +107,7 @@ describe("projectPluginRunToAudit", () => {
     const audit = projectPluginRunToAudit(fetched);
 
     expect(audit.action).toBe("plugin.rate_limited");
-    expect(audit.completeness.status).toBe("partial");
+    expect(audit.completeness.status).toBe("complete");
   });
 
   it("always sets source to 'plugin'", () => {
@@ -118,5 +125,23 @@ describe("projectPluginRunToAudit", () => {
     const audit = projectPluginRunToAudit(fetched);
 
     expect(audit.source).toBe("plugin");
+  });
+
+  it("normalizes unknown contributionKind to 'unknown' in provenance, retains original in metadata", () => {
+    const habitat = setupHabitat();
+    const run = pluginRunRepo.startRun({
+      habitatId: habitat.id,
+      pluginId: "plugin-e",
+      contributionId: "detector-x",
+      contributionKind: "obsoleteKind",
+      triggerType: "task.created",
+    });
+    pluginRunRepo.finishRun(run.id, "succeeded", 1);
+    const fetched = pluginRunRepo.getById(run.id)!;
+
+    const audit = projectPluginRunToAudit(fetched);
+
+    expect(audit.provenance.plugin?.contributionKind).toBe("unknown");
+    expect(audit.metadata.contributionKind).toBe("obsoleteKind");
   });
 });
