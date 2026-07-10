@@ -1,4 +1,4 @@
-import type { AuditEvent, AuditQueryEntityType } from "@orcy/shared/types";
+import type { AuditEvent, AuditQueryEntityType, AuditWarning } from "@orcy/shared/types";
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../../db/index.js";
 import {
@@ -76,12 +76,19 @@ export const webhookDeliveryCollector: AuditProjectionCollector = {
     const subscriptionById = new Map(subscriptionRows.map((row) => [row.id, row]));
 
     const events: AuditEvent[] = [];
+    const warnings: AuditWarning[] = [];
     let skippedRows = 0;
     for (const row of deliveryRows) {
       const event = projectWebhookDeliveryRow(row, subscriptionById.get(row.subscriptionId));
       if (event) events.push(event);
       else skippedRows++;
     }
-    return { events, warnings: [], caveats: [] };
+    if (skippedRows > 0) {
+      warnings.push({
+        code: "webhook_delivery_orphan",
+        message: `${skippedRows} webhook delivery record(s) could not be tied to a subscription and were not projected.`,
+      });
+    }
+    return { events, warnings, caveats: [] };
   },
 };
