@@ -187,7 +187,7 @@ export function collectAuditProjection(input: AuditQueryInput): AuditProjectionS
     });
   }
 
-  const sortedEvents = sortEvents(filteredEvents, input.order ?? "desc");
+  const sortedEvents = sortEvents(filteredEvents, query.order ?? "desc");
 
   return {
     events: sortedEvents,
