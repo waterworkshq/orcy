@@ -20,6 +20,7 @@ import * as taskReviewerRepo from "../repositories/taskReviewer.js";
 import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import type { AssignResult } from "./autoAssignService.js";
+import { logger } from "../lib/logger.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
 
@@ -639,6 +640,7 @@ function notifyAutomationRunCompleted(opts: Parameters<AutomationRunCompletedHoo
       hook(opts);
     } catch (err) {
       // Swallow per-hook errors so one bad subscriber cannot block the others.
+      logger.warn({ err, hookName: hook.name }, "Automation run completed hook failed");
     }
   }
 }
