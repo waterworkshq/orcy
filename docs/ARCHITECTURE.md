@@ -969,12 +969,12 @@ Notification V2 is the only notification path — Automation never calls legacy 
 
 ## Audit Trail V2 (v0.17)
 
-Audit Trail V2 provides a canonical, provenance-aware audit projection over all lifecycle, effort, code-evidence, pipeline, integration, webhook, and health-snapshot sources. It uses virtual projection-on-read rather than a materialized audit table — every source row is transformed into the canonical `AuditEvent` shape at query time.
+Audit Trail V2 provides a canonical, provenance-aware audit projection over all lifecycle, effort, code-evidence, pipeline, integration, webhook, health-snapshot, and operational (automation, notification, plugin) sources. It uses virtual projection-on-read rather than a materialized audit table — every source row is transformed into the canonical `AuditEvent` shape at query time.
 
 ### Architecture
 
 ```
-Source tables (~16)                    Projection (query time)
+Source tables (~21)                    Projection (query time)
 ┌──────────────────────┐              ┌─────────────────────────┐
 │ taskEvents           │──┐           │                         │
 │ missionEvents        │  │           │  auditQueryService      │
@@ -1013,7 +1013,7 @@ Automation Run, Notification Event/Delivery, and Plugin Run events each carry ty
 
 ### Projection-on-Read
 
-The ~16 source tables are read on-demand, each projected via a dedicated `project*Row` function into the canonical `AuditEvent` shape. No materialized `audit_events` table exists. This trades read cost for write simplicity — every domain keeps a single source of truth, and audit never drifts from the systems it observes.
+The ~21 source tables are read on-demand, each projected via a dedicated `project*Row` function into the canonical `AuditEvent` shape. No materialized `audit_events` table exists. This trades read cost for write simplicity — every domain keeps a single source of truth, and audit never drifts from the systems it observes.
 
 ### Provenance Flow
 
@@ -1027,16 +1027,22 @@ Every projected `AuditEvent.id` is `"prefix:<source-PK>"` (e.g. `task_event:<uui
 
 | File | Role |
 |------|------|
-| `packages/api/src/services/auditQueryService.ts` | Canonical projection query layer — reads source tables, projects to AuditEvent |
+| `packages/api/src/services/auditQueryService.ts` | Public audit query seam — delegates to `collectAuditProjection`, applies pagination and truncation warnings |
+| `packages/api/src/services/auditProjection/collectAuditProjection.ts` | Internal pipeline — collector dispatch, filtering, actor enrichment, sorting (no pagination) |
+| `packages/api/src/services/auditProjection/catalog.ts` | Static 9-collector registry with `selectCollectors` and `assertCatalogCoverage` |
+| `packages/api/src/services/auditProjection/helpers.ts` | Shared helpers — `normalizeFilters`, `matchesFilters`, `sortEvents`, `sanitizeMetadata`, `resolveEntityReferences` |
 | `packages/api/src/services/auditExportService.ts` | CSV/JSON/JSONL streaming exports with filters, presets, and metadata sanitization |
-| `packages/api/src/services/auditBundleService.ts` | Scoped evidence bundles for individual tasks or missions |
+| `packages/api/src/services/auditBundleService.ts` | Scoped evidence bundles for individual tasks or missions (pre-pagination `referencedEntities` scope) |
 | `packages/api/src/services/auditProvenanceContext.ts` | AsyncLocalStorage-based provenance injection via Fastify hooks |
 | `packages/api/src/services/auditArchivalService.ts` | Retention-driven archival (task/mission events only, default 90 days) |
-| `packages/shared/src/types/audit.ts` | AuditEvent, AuditCompleteness, AuditProvenance, AuditWarning types |
+| `packages/api/src/services/automationAuditProjection.ts` | Operational projectors — automation run, notification event/delivery, plugin run (typed provenance, metadata allowlists) |
+| `packages/shared/src/types/audit.ts` | AuditEvent, AuditCompleteness, AuditProvenance (with automation/notification/plugin namespaces), AuditWarning, AUDIT_SOURCES, AUDIT_ENTITY_TYPES const arrays |
 
 ### Design Decisions
 
 - **Projection-on-read, no audit store** — all source tables projected at query time for a single source of truth per domain
+- **Collector catalog (v0.29)** — 9 cohesive projection-family collectors with entity-type-based selection, fatal/warning failure policies, and `assertCatalogCoverage` completeness enforcement
+- **Operational metadata allowlists** — automation, notification, and plugin projectors expose only safe identifiers; raw payloads, error text, and fingerprints are excluded
 - **Deterministic prefixed IDs** — `prefix:<source-PK>` enables tagging, stable sorting, and reversible archival
 - **Completeness as first-class** — per-event status (complete/legacy_partial/source_unavailable) + caveats + query-level warnings
 - **Metadata sanitization** — raw provider payloads, diffs, and patches are scrubbed before projection (security boundary)

@@ -4336,7 +4336,9 @@ Get a scoped audit evidence bundle for a mission.
 Get audit summary statistics.
 
 **Auth:** JWT required (human)
-**Response `200`:** `{ "totalEvents": 150, "byAction": {...}, "byActorType": {...}, "byDay": [...], "topMissions": [...] }`
+**Response `200`:** `{ "totalEvents": 150, "byAction": {...}, "byActorType": {...}, "byDay": [...], "topMissions": [...], "warnings": [...], "completenessSummary": {...} }`
+
+Aggregates all default-selected canonical audit events (lifecycle, code evidence, operational sources). `warnings` and `completenessSummary` are additive fields (v0.29) that surface degraded-collector caveats.
 
 ### POST /habitats/:id/audit/schedule
 

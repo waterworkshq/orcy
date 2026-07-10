@@ -196,7 +196,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| **v0.29.0 candidate** | Deepen Audit Projection Internals — conditional; only if a new Audit Source or projection bug makes the internal catalog concrete. |
+| No scheduled next release | v0.29 shipped the last architecture-deepening candidate from the 2026-06-04 review. Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) are unscheduled pending prerequisite foundations. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
