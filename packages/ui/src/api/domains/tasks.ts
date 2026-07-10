@@ -16,6 +16,7 @@ import type {
   BatchTaskRequest,
   BatchTaskResponse,
 } from "../../types/index.js";
+import type { TaskDetailsData } from "../../lib/useTaskData.js";
 
 export const tasksApi = {
   get: (id: string) =>
@@ -91,35 +92,7 @@ export const tasksApi = {
       `/tasks/${id}/events${qs ? `?${qs}` : ""}`,
     );
   },
-  details: (id: string) =>
-    request<{
-      task: Task;
-      feature: {
-        id: string;
-        title: string;
-        description: string;
-        acceptanceCriteria: string;
-        priority: string;
-        status: string;
-        dueAt: string | null;
-        slaMinutes: number | null;
-      } | null;
-      siblingTasks: { id: string; title: string; status: string; result: string | null }[];
-      subtasks: Subtask[];
-      pullRequests: PullRequest[];
-      pipelineEvents: PipelineEvent[];
-      events: TaskEvent[];
-      comments: TaskComment[];
-      totalComments: number;
-      attachments: TaskAttachment[];
-      watchers: TaskWatcher[];
-      isWatching: boolean;
-      dependencies: Task[];
-      crossHabitatDependsOn: CrossHabitatDependency[];
-      blockedBy: Task[];
-      blocking: Task[];
-      habitatContext: { name: string; columns: { name: string; featureCount: number }[] };
-    }>(`/tasks/${id}/details`),
+  details: (id: string) => request<TaskDetailsData>(`/tasks/${id}/details`),
   decompose: (id: string) =>
     request<DecompositionResult>(`/tasks/${id}/decompose`, {
       method: "POST",

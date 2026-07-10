@@ -4,6 +4,7 @@ import { queryKeys } from "../lib/queryKeys.js";
 import { api } from "../api/index.js";
 import { notify } from "../lib/toast.js";
 import { initEditForm } from "../lib/task-helpers.js";
+import type { TaskDetailsData } from "../lib/useTaskData.js";
 import type { Task } from "../types/index.js";
 
 interface EditFormState {
@@ -45,7 +46,7 @@ export function useTaskEdit(
   task: Task | undefined,
   editTaskId: string | null | undefined,
   selectedTaskId: string | null,
-  detailsData: any,
+  detailsData: TaskDetailsData | undefined,
 ): UseTaskEditResult {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);

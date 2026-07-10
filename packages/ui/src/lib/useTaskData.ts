@@ -17,6 +17,8 @@ export interface FeatureContextData {
   acceptanceCriteria: string;
   priority: string;
   status: MissionStatus;
+  dueAt: string | null;
+  slaMinutes: number | null;
 }
 
 export interface TaskDetailsData {
