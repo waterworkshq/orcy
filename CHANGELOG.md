@@ -2,6 +2,54 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.29.1 — 2026-07-10
+
+### Bug Fixes
+
+#### pass caveats to completeness summary in canonical audit event export ([`1ccf5dd`](https://github.com/waterworkshq/orcy/commit/1ccf5ddd3204c4f6d9c2721ff137eebbc7bf1a04))
+
+
+#### move inferred presence warning to post-filter so scoped queries don't trigger false warnings ([`b64f8f8`](https://github.com/waterworkshq/orcy/commit/b64f8f89203c222a84de8872dffd92a59653f28f))
+
+
+#### surface orphan webhook delivery count as projection warning instead of silently dropping ([`45e7b02`](https://github.com/waterworkshq/orcy/commit/45e7b028019065597734cc93d53fc23e71dff091))
+
+
+
+### Refactors
+
+#### remove redundant normalizeFilters call on queryAuditEvents path ([`38aa0f4`](https://github.com/waterworkshq/orcy/commit/38aa0f41442288c136bf5af88706440c5a4cb874))
+
+1. queryAuditEvents called normalizeFilters at line 75, then passed the
+2. result to collectAuditProjection which calls normalizeFilters again at
+3. line 142. The second call is idempotent on already-normalized input.
+4. Removed the first call — collectAuditProjection remains the single
+5. normalization point for all three caller paths (queryAuditEvents,
+6. getAuditSummary, direct test calls).
+
+
+#### use query.order instead of input.order in collectAuditProjection ([`3531942`](https://github.com/waterworkshq/orcy/commit/35319424c1ec30fa097beca8d1a1b0050630a2de))
+
+
+#### hoist CSV filter parsing out of per-event export filter predicate ([`8f0b254`](https://github.com/waterworkshq/orcy/commit/8f0b254ec856b549a1c83d772567902022f34648))
+
+
+
+### Tests
+
+#### verify automation runs with mission target contribute to topMissions ranking ([`673e748`](https://github.com/waterworkshq/orcy/commit/673e74869113dcb11ccafbc5d74fdcd2331814b8))
+
+
+#### verify mission bundle pre-pagination scope isolates notification events by mission ([`3b240e3`](https://github.com/waterworkshq/orcy/commit/3b240e3dc89c2ef25d2c3f77b5064e5c08863683))
+
+
+#### verify operational events survive export serialization and filter pipelines ([`70d868c`](https://github.com/waterworkshq/orcy/commit/70d868c283f95f7dd95a75b06dbd5a1b624f740b))
+
+
+#### verify operational events contribute to summary count aggregations ([`c41b6c2`](https://github.com/waterworkshq/orcy/commit/c41b6c2c3355788e55231f755b61773a6687d9e3))
+
+
+
 ## 0.29.0 — 2026-07-10
 
 ### Bug Fixes
@@ -262,62 +310,3 @@
 #### make cross-plugin collision assertions readdir-order independent ([`9228f1b`](https://github.com/waterworkshq/orcy/commit/9228f1b0219aa8d9eb67b8ad2007209732cb216f))
 
 1. Loosen the 5 cross-plugin collision winner-identity assertions (errored id === "bb") to exactly one of {aa,bb} fails while the other loads, since readdir order is filesystem-dependent and not a stable Orcy contract. Removes CI-flake risk without weakening byte-for-byte error-string coverage.
-
-
-
-## 0.27.2 — 2026-07-09
-
-### Bug Fixes
-
-#### resolve getSettingsForHabitat snake_case property access ([`3ceb641`](https://github.com/waterworkshq/orcy/commit/3ceb64168d2760ffcdc3e161e97f93e7d8cf7a86))
-
-1. getSettingsForHabitat in githubWebhook.ts and gitlabWebhook.ts read code_review_settings
-2. (snake_case DB column) via an erasing cast, but getHabitatById returns drizzle
-3. camelCase objects (codeReviewSettings). The property was always undefined, so the
-4. function always returned null — silently disabling PR/MR task-linking since the
-5. initial commit. Mirrors the already-correct getCiCdSettingsForHabitat.
-6. Test mocks corrected from fiction snake_case strings to production camelCase.
-
-
-#### persist webhook settings in repo and fix habitat relation query ([`cb5ff35`](https://github.com/waterworkshq/orcy/commit/cb5ff35c6dc60c463b0fa05eb9888b0e9c66b6d2))
-
-1. UpdateHabitatInput interface and repo allowlist extended for
-2. codeReviewSettings/ciCdSettings (previously validated by Zod but silently
-3. dropped). Also fixes getHabitatWithColumnsAndTasks: replaced the drizzle
-4. relational query (db.query.findFirst with relations) that returned malformed
-5. data under sql.js with plain db.select() queries matching every other repo
-6. function.
-
-
-
-### Features
-
-#### add webhook settings schemas and public habitat types ([`42ba67f`](https://github.com/waterworkshq/orcy/commit/42ba67f3c208d9c54f39204cf543e92bf98ed9f7))
-
-1. codeReviewSettingsSchema and ciCdSettingsSchema (non-secret Zod subsets for
-2. PATCH validation). PublicCodeReviewSettings/PublicCiCdSettings/PublicHabitat
-3. types (masked views where HMAC secrets are replaced by presence booleans).
-4. Wired into updateHabitatSchema.
-
-
-#### write-only webhook secrets endpoint and habitat secret masking ([`4b7fbef`](https://github.com/waterworkshq/orcy/commit/4b7fbef31329b76907a24f3e13653d34cc321d45))
-
-1. PUT /habitats/:id/webhook-secrets accepts HMAC secrets, returns only presence
-2. booleans. maskSecretSettings applied at every boardService habitat-returning
-3. boundary (getHabitat, listHabitats, createHabitat, updateHabitat, importHabitat
-4. + SSE events). PublicHabitat type imported from @orcy/shared for compile-time
-5. secret safety. PATCH updateHabitat merges settings to preserve secrets set via
-6. PUT (prevents the PATCH-clobers-secrets sequencing bug).
-
-
-
-### Tests
-
-#### webhook config integration tests, mock fixups, and deployment docs ([`1ead7fe`](https://github.com/waterworkshq/orcy/commit/1ead7fe4cce557240568d0746029c5f767151925))
-
-1. Config-path integration tests: PATCH round-trip, PUT secret + cache resolution,
-2. PATCH+PUT merge both orders (including PUT->PATCH secret-survival), feature-review
-3. end-to-end PR trace (opened/linked/SSE/merged+autoApproveOnMerge).
-4. Mock fastify objects in board-analytics/board-export/boardAccess tests extended
-5. with .put method for the new secrets route.
-6. DEPLOYMENT.md updated to reference both config endpoints.
