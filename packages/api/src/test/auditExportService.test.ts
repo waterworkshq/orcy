@@ -7,6 +7,9 @@ import * as taskRepo from "../repositories/task.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as ruleRunRepo from "../repositories/automationRuleRun.js";
 import * as eventRepo from "../repositories/events/index.js";
+import * as notificationEventRepo from "../repositories/notificationEvent.js";
+import * as deliveryRepo from "../repositories/notificationDelivery.js";
+import * as pluginRunRepo from "../repositories/pluginRun.js";
 import {
   createSchedule,
   deleteSchedule,
@@ -23,7 +26,10 @@ import {
   habitatCodeRepositories,
   habitats,
   missions,
+  notificationDeliveries,
+  notificationEvents,
   pipelineEvents,
+  pluginRuns,
   taskEvents,
   tasks,
 } from "../db/schema/index.js";
@@ -32,6 +38,9 @@ beforeEach(async () => {
   await initTestDb();
   const db = getDb();
   db.delete(auditExportSchedules).run();
+  db.delete(pluginRuns).run();
+  db.delete(notificationDeliveries).run();
+  db.delete(notificationEvents).run();
   db.delete(automationRuleRuns).run();
   db.delete(automationRules).run();
   db.delete(pipelineEvents).run();
@@ -307,5 +316,72 @@ describe("auditExportService", () => {
       count: 2,
     });
     expect(summary.topMissions.some((m) => m.missionId === untargetedMission.id)).toBe(false);
+  });
+
+  it("getAuditSummary aggregates operational events into totalEvents, byAction, byActorType, and byDay", () => {
+    const fixture = createFixture();
+
+    const rule = ruleRepo.createAutomationRule({
+      habitatId: fixture.habitat.id,
+      name: "Op Summary Rule",
+      trigger: { type: "event", eventType: "task.rejected" } as any,
+      actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "T" }],
+      createdBy: "user-1",
+    });
+    const automationRun = ruleRunRepo.startRuleRun({
+      ruleId: rule.id,
+      habitatId: fixture.habitat.id,
+      triggerType: "task.rejected",
+      targetType: "task",
+      targetId: fixture.task.id,
+    });
+    ruleRunRepo.finishRuleRun(automationRun.id, { status: "succeeded" });
+
+    const notification = notificationEventRepo.createNotificationEvent({
+      habitatId: fixture.habitat.id,
+      eventType: "task.assigned",
+      sourceType: "task",
+      sourceId: fixture.task.id,
+      targetType: "task",
+      targetId: fixture.task.id,
+      severity: "info",
+      title: "Assigned",
+      body: "B",
+      createdByType: "system",
+    });
+    deliveryRepo.createNotificationDelivery({
+      eventId: notification.id,
+      habitatId: fixture.habitat.id,
+      recipientType: "human",
+      recipientId: "user-1",
+      channels: ["in_app"],
+    });
+
+    const pluginRun = pluginRunRepo.startRun({
+      habitatId: fixture.habitat.id,
+      pluginId: "plugin-summary",
+      contributionId: "detector-summary",
+      contributionKind: "signalDetector",
+      triggerType: "task.created",
+    });
+    pluginRunRepo.finishRun(pluginRun.id, "succeeded", 1);
+
+    const summary = getAuditSummary(fixture.habitat.id);
+
+    expect(summary.totalEvents).toBe(4);
+    expect(summary.byAction).toEqual(
+      expect.objectContaining({
+        "automation.rule_run.succeeded": 1,
+        "notification.task.assigned": 1,
+        "notification.delivery.pending": 1,
+        "plugin.succeeded": 1,
+      }),
+    );
+    expect(summary.byActorType).toEqual(
+      expect.objectContaining({ system: 3, human: 1 }),
+    );
+    expect(summary.byDay).toEqual([
+      { date: new Date().toISOString().slice(0, 10), count: 4 },
+    ]);
   });
 });
