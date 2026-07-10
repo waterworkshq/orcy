@@ -7,6 +7,20 @@ export type RequestOptions = RequestInit;
 
 const BASE = "/api";
 
+/**
+ * Error thrown when the server returns a non-2xx response. Carries the HTTP
+ * status so callers (e.g. react-query retry predicates) can branch on it
+ * without resorting to `error: any`.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 function getToken(): string | null {
   return localStorage.getItem("orcy_token");
 }
@@ -30,7 +44,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+    throw new ApiError(
+      (body as { error?: string }).error ?? `HTTP ${res.status}`,
+      res.status,
+    );
   }
 
   if (res.status === 204) return {} as T;
@@ -56,7 +73,10 @@ async function requestBlob(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+    throw new ApiError(
+      (body as { error?: string }).error ?? `HTTP ${res.status}`,
+      res.status,
+    );
   }
 
   const blob = await res.blob();
@@ -92,9 +112,9 @@ async function uploadFile<T>(
       } else {
         try {
           const body = JSON.parse(xhr.responseText);
-          reject(new Error(body.error ?? `HTTP ${xhr.status}`));
+          reject(new ApiError(body.error ?? `HTTP ${xhr.status}`, xhr.status));
         } catch {
-          reject(new Error(`HTTP ${xhr.status}`));
+          reject(new ApiError(`HTTP ${xhr.status}`, xhr.status));
         }
       }
     });

@@ -16,6 +16,7 @@ import { AdminWorkflowsPage } from "./pages/AdminWorkflowsPage.js";
 import { WikiPage } from "./pages/WikiPage.js";
 import { AppShell } from "./components/layout/AppShell.js";
 import { useHabitatStore } from "./store/habitatStore.js";
+import { ApiError } from "./api/transport.js";
 
 const DashboardPage = React.lazy(() =>
   import("./pages/DashboardPage.js").then((m) => ({ default: m.DashboardPage })),
@@ -26,8 +27,8 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 60_000,
       gcTime: 10 * 60_000,
-      retry: (failureCount, error: any) => {
-        if (error?.status === 429) return false;
+      retry: (failureCount, error: unknown) => {
+        if (error instanceof ApiError && error.status === 429) return false;
         return failureCount < 1;
       },
       refetchOnWindowFocus: false,
