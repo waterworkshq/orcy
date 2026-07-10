@@ -126,11 +126,14 @@ function toAuditQuery(habitatId: string, query: AuditEventQuery): AuditQueryInpu
   };
 }
 
-function eventMatchesExportFilters(event: AuditEvent, query: AuditEventQuery): boolean {
-  const actions = parseCsvFilter(query.actions);
+function eventMatchesExportFilters(
+  event: AuditEvent,
+  actions: string[],
+  entityTypes: string[],
+  query: AuditEventQuery,
+): boolean {
   if (actions.length > 0 && !actions.includes(event.action)) return false;
 
-  const entityTypes = parseCsvFilter(query.entityTypes);
   if (entityTypes.length > 0 && !entityTypes.includes(event.entity.type)) return false;
 
   if (query.provider) {
@@ -157,7 +160,9 @@ function eventMatchesExportFilters(event: AuditEvent, query: AuditEventQuery): b
 
 function collectCanonicalAuditEvents(habitatId: string, query: AuditEventQuery): AuditEvent[] {
   const result = queryAuditEvents(toAuditQuery(habitatId, query));
-  return result.events.filter((event) => eventMatchesExportFilters(event, query));
+  const actions = parseCsvFilter(query.actions);
+  const entityTypes = parseCsvFilter(query.entityTypes);
+  return result.events.filter((event) => eventMatchesExportFilters(event, actions, entityTypes, query));
 }
 
 /** Returns the canonical {@link CanonicalAuditEventResult} for a habitat after applying export filters, including the events, any warnings, and a completeness summary. */
@@ -166,7 +171,11 @@ export function getCanonicalAuditEvents(
   query: AuditEventQuery,
 ): CanonicalAuditEventResult {
   const result = queryAuditEvents(toAuditQuery(habitatId, query));
-  const events = result.events.filter((event) => eventMatchesExportFilters(event, query));
+  const actions = parseCsvFilter(query.actions);
+  const entityTypes = parseCsvFilter(query.entityTypes);
+  const events = result.events.filter((event) =>
+    eventMatchesExportFilters(event, actions, entityTypes, query),
+  );
   return {
     events,
     warnings: result.warnings,
