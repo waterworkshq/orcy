@@ -40,6 +40,11 @@ const simulateSchema = z.object({
   payload: z.object({}).passthrough().optional(),
 });
 
+function deriveTriggerType(trigger: unknown, defaultIfEvent: string): string {
+  const t = trigger as { type?: string; scanType?: string; eventType?: string };
+  return t.type === "scan" ? (t.scanType ?? "unknown") : (t.eventType ?? defaultIfEvent);
+}
+
 export async function automationRoutes(fastify: FastifyInstance): Promise<void> {
   // List rules for habitat
   fastify.get<{ Params: { habitatId: string } }>(
@@ -151,10 +156,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
         throw badRequest("Validation failed", parsed.error.flatten());
       }
       const trigger = buildTriggerContext({
-        triggerType:
-          (rule.trigger as any).type === "scan"
-            ? (rule.trigger as any).scanType
-            : ((rule.trigger as any).eventType ?? "task.rejected"),
+        triggerType: deriveTriggerType(rule.trigger, "task.rejected"),
         triggerEventId: parsed.data.triggerEventId ?? null,
         habitatId: rule.habitatId,
         targetType: parsed.data.targetType as any,
@@ -182,10 +184,7 @@ export async function automationRoutes(fastify: FastifyInstance): Promise<void> 
       const run = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: rule.habitatId,
-        triggerType:
-          (rule.trigger as any).type === "scan"
-            ? (rule.trigger as any).scanType
-            : ((rule.trigger as any).eventType ?? "manual"),
+        triggerType: deriveTriggerType(rule.trigger, "manual"),
         triggerEventId: "manual",
         targetType: "none",
         targetId: null,
