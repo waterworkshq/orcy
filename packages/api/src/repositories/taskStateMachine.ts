@@ -6,7 +6,11 @@ import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { getTaskById } from "./taskCrud.js";
-import { areAllDependenciesMet } from "./taskQueries.js";
+import {
+  areAllDependenciesMet,
+  areAllMissionDependenciesMet,
+  isReleaseGateSatisfiedForTask,
+} from "./taskQueries.js";
 import { areAllWorkflowGatesSatisfied } from "./workflow.js";
 
 export function claimTask(
@@ -27,6 +31,14 @@ export function claimTask(
 
       if (!areAllDependenciesMet(taskId)) {
         return { success: false as const, reason: "dependencies_unmet" };
+      }
+
+      if (!areAllMissionDependenciesMet(taskId)) {
+        return { success: false as const, reason: "mission_dependencies_unmet" };
+      }
+
+      if (!isReleaseGateSatisfiedForTask(taskId)) {
+        return { success: false as const, reason: "release_gate_unmet" };
       }
 
       if (!areAllWorkflowGatesSatisfied(taskId)) {
@@ -77,6 +89,14 @@ export function claimTaskByRemoteParticipant(
 
       if (!areAllDependenciesMet(taskId)) {
         return { success: false as const, reason: "dependencies_unmet" };
+      }
+
+      if (!areAllMissionDependenciesMet(taskId)) {
+        return { success: false as const, reason: "mission_dependencies_unmet" };
+      }
+
+      if (!isReleaseGateSatisfiedForTask(taskId)) {
+        return { success: false as const, reason: "release_gate_unmet" };
       }
 
       if (!areAllWorkflowGatesSatisfied(taskId)) {

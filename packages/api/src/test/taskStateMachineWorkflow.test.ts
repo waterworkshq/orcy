@@ -64,6 +64,8 @@ vi.mock("../repositories/taskCrud.js", () => ({
 
 vi.mock("../repositories/taskQueries.js", () => ({
   areAllDependenciesMet: vi.fn().mockReturnValue(true),
+  areAllMissionDependenciesMet: vi.fn().mockReturnValue(true),
+  isReleaseGateSatisfiedForTask: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock("../repositories/workflow.js", () => ({
@@ -72,7 +74,11 @@ vi.mock("../repositories/workflow.js", () => ({
 
 import { claimTask, claimTaskByRemoteParticipant } from "../repositories/taskStateMachine.js";
 import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
-import { areAllDependenciesMet } from "../repositories/taskQueries.js";
+import {
+  areAllDependenciesMet,
+  areAllMissionDependenciesMet,
+  isReleaseGateSatisfiedForTask,
+} from "../repositories/taskQueries.js";
 
 const mockTask = {
   id: "task-1",
@@ -86,6 +92,8 @@ describe("claimTask workflow gates guard (W4)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (areAllDependenciesMet as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (areAllMissionDependenciesMet as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (isReleaseGateSatisfiedForTask as ReturnType<typeof vi.fn>).mockReturnValue(true);
     (areAllWorkflowGatesSatisfied as ReturnType<typeof vi.fn>).mockReturnValue(true);
     mockTask.status = "pending";
     mockTask.assignedAgentId = null;
@@ -122,6 +130,38 @@ describe("claimTask workflow gates guard (W4)", () => {
       expect(result.success).toBe(false);
       expect((result as { reason: string }).reason).toBe("workflow_gates_unmet");
     });
+
+    it("returns mission_dependencies_unmet when mission deps fail", () => {
+      (areAllMissionDependenciesMet as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const result = claimTask("task-1", "agent-1");
+      expect(result.success).toBe(false);
+      expect(result).toEqual({ success: false, reason: "mission_dependencies_unmet" });
+    });
+
+    it("returns release_gate_unmet when release gate fails", () => {
+      (isReleaseGateSatisfiedForTask as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const result = claimTask("task-1", "agent-1");
+      expect(result.success).toBe(false);
+      expect(result).toEqual({ success: false, reason: "release_gate_unmet" });
+    });
+
+    it("ordering: mission-dep checked before release-gate (both unmet → mission first)", () => {
+      (areAllMissionDependenciesMet as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      (isReleaseGateSatisfiedForTask as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const result = claimTask("task-1", "agent-1");
+      expect(result.success).toBe(false);
+      expect((result as { reason: string }).reason).toBe("mission_dependencies_unmet");
+      expect(isReleaseGateSatisfiedForTask).not.toHaveBeenCalled();
+    });
+
+    it("ordering: release-gate checked before workflow-gates", () => {
+      (isReleaseGateSatisfiedForTask as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      (areAllWorkflowGatesSatisfied as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const result = claimTask("task-1", "agent-1");
+      expect(result.success).toBe(false);
+      expect((result as { reason: string }).reason).toBe("release_gate_unmet");
+      expect(areAllWorkflowGatesSatisfied).not.toHaveBeenCalled();
+    });
   });
 
   describe("claimTaskByRemoteParticipant", () => {
@@ -145,6 +185,20 @@ describe("claimTask workflow gates guard (W4)", () => {
       expect(result.success).toBe(false);
       expect((result as { reason: string }).reason).toBe("dependencies_unmet");
       expect(areAllWorkflowGatesSatisfied).not.toHaveBeenCalled();
+    });
+
+    it("returns mission_dependencies_unmet when mission deps fail (remote parity)", () => {
+      (areAllMissionDependenciesMet as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const result = claimTaskByRemoteParticipant("task-1", "participant-1");
+      expect(result.success).toBe(false);
+      expect(result).toEqual({ success: false, reason: "mission_dependencies_unmet" });
+    });
+
+    it("returns release_gate_unmet when release gate fails (remote parity)", () => {
+      (isReleaseGateSatisfiedForTask as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      const result = claimTaskByRemoteParticipant("task-1", "participant-1");
+      expect(result.success).toBe(false);
+      expect(result).toEqual({ success: false, reason: "release_gate_unmet" });
     });
   });
 });

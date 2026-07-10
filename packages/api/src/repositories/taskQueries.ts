@@ -93,11 +93,7 @@ export function getTasksByIds(ids: string[]): Task[] {
   if (ids.length === 0) return [];
   const db = getDb();
   const normalized: string[] = [...new Set(ids.map(normalizeTaskId))];
-  return db
-    .select()
-    .from(tasks)
-    .where(inArray(tasks.id, normalized))
-    .all();
+  return db.select().from(tasks).where(inArray(tasks.id, normalized)).all();
 }
 
 export function getAvailableTasksForAgent(
@@ -226,6 +222,63 @@ export function areAllDependenciesMet(taskId: string): boolean {
     .where(and(eq(taskDependencies.taskId, taskId), notInArray(tasks.status, ["done", "approved"])))
     .get();
   return (result?.count ?? 0) === 0;
+}
+
+/**
+ * Canonical-path mirror of the read-path mission-dependency filter
+ * (`getAvailableTasksForAgent` lines ~164-170). Returns true when every mission
+ * this task's mission depends on is `done` (or there are no deps / no mission).
+ */
+export function areAllMissionDependenciesMet(taskId: string): boolean {
+  const db = getDb();
+  const task = db
+    .select({ missionId: tasks.missionId })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .get();
+  if (!task?.missionId) return true;
+  const result = db
+    .select({ count: count() })
+    .from(missionDependencies)
+    .innerJoin(missions, eq(missionDependencies.dependsOnId, missions.id))
+    .where(
+      and(eq(missionDependencies.missionId, task.missionId), notInArray(missions.status, ["done"])),
+    )
+    .get();
+  return (result?.count ?? 0) === 0;
+}
+
+/**
+ * Canonical-path mirror of the read-path release-gate check
+ * (`getAvailableTasksForAgent` lines ~148-174). Returns true when the task's
+ * mission has no gate set, is missing, or its gate is satisfied by shipped
+ * habitat releases.
+ */
+export function isReleaseGateSatisfiedForTask(taskId: string): boolean {
+  const db = getDb();
+  const task = db
+    .select({ missionId: tasks.missionId })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .get();
+  if (!task?.missionId) return true;
+  const mission = db.select().from(missions).where(eq(missions.id, task.missionId)).get();
+  if (!mission) return true;
+  const habitatReleaseTypes = new Set(
+    db
+      .select({ releaseType: releasesTable.releaseType })
+      .from(releasesTable)
+      .where(eq(releasesTable.habitatId, mission.habitatId))
+      .all()
+      .map((r) => r.releaseType as ReleaseType),
+  );
+  const habitatReleaseVersions = db
+    .select({ version: releasesTable.version })
+    .from(releasesTable)
+    .where(eq(releasesTable.habitatId, mission.habitatId))
+    .all()
+    .map((r) => r.version);
+  return isReleaseGateSatisfied(mission, habitatReleaseTypes, habitatReleaseVersions);
 }
 
 export function getTasksPendingRetry(): Task[] {
