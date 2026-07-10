@@ -53,7 +53,7 @@ export function register(
   for (const hid of habitatIds) {
     const h = habitatRepo.getHabitatById(hid);
     if (!h) {
-      throw new Error(`Habitat ${hid} not found`);
+      throw badRequest(`Habitat ${hid} not found`);
     }
   }
 
