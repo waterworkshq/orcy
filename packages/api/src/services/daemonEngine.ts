@@ -13,6 +13,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/board.js";
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import { generateDaemonToken } from "../lib/daemonToken.js";
+import { logger } from "../lib/logger.js";
 import {
   getSessionManager,
   getClaimStrategy,
@@ -164,7 +165,7 @@ export function start(daemonId: string, dataDir: string = "/tmp/orcy-daemon"): v
   daemonRepo.updateDaemonHeartbeat(daemonId);
 
   sessionManager.startTimeoutCheck();
-  tick(running).catch(() => {});
+  tick(running).catch((err) => logger.warn({ err, daemonId: running.daemonId }, "Daemon poll tick failed"));
   running.pollTimer = setInterval(() => tick(running), 30000);
   running.heartbeatTimer = setInterval(() => daemonRepo.updateDaemonHeartbeat(daemonId), 30000);
 
