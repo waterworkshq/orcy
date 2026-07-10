@@ -20,8 +20,8 @@ export function useTaskDependencies(selectedTaskId: string | null): UseTaskDepen
     try {
       await api.dependencies.addTaskDependency(selectedTaskId, dependsOnTaskId);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(selectedTaskId) });
-    } catch (err: any) {
-      const msg = err?.message ?? '';
+    } catch (err) {
+      const msg = (err as Error).message;
       if (msg.includes('409') || msg.toLowerCase().includes('circular')) {
         notify.error('Cannot add: would create a circular dependency');
       } else {
