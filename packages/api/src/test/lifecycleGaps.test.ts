@@ -257,6 +257,88 @@ describe('Dependency Validation', () => {
     expect(graph.nodes.length).toBeGreaterThanOrEqual(2);
     expect(graph.edges.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('prevents mission self-dependency', () => {
+    const result = dependencyService.addMissionDependency(missionId, missionId);
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('self_dependency');
+  });
+
+  it('prevents circular mission dependencies across a 3-node chain', () => {
+    const missionB = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: 'Circular Mission B',
+      createdBy: 'test-user',
+    });
+    const missionC = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: 'Circular Mission C',
+      createdBy: 'test-user',
+    });
+
+    // missionId (A) -> B -> C is the existing forward chain.
+    expect(dependencyService.addMissionDependency(missionId, missionB.id).success).toBe(true);
+    expect(dependencyService.addMissionDependency(missionB.id, missionC.id).success).toBe(true);
+
+    // Closing the loop (C -> A) must be rejected by wouldCreateMissionCycle.
+    const result = dependencyService.addMissionDependency(missionC.id, missionId);
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('circular_dependency');
+  });
+
+  it('validateMissionCompletion fails with INCOMPLETE_TASKS when mission has undone tasks', () => {
+    taskRepo.createTask({ missionId, title: 'Undone task', createdBy: 'test-user' });
+
+    const validation = dependencyService.validateMissionCompletion(missionId);
+    expect(validation.canComplete).toBe(false);
+    expect(validation.reason).toBe('INCOMPLETE_TASKS');
+    expect(validation.incompleteTasks).toHaveLength(1);
+    expect(validation.incompleteTasks![0].title).toBe('Undone task');
+  });
+
+  it('validateMissionCompletion fails with BLOCKED_BY_FEATURE_DEPENDENCIES when upstream mission not done', () => {
+    const upstream = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: 'Upstream Mission',
+      createdBy: 'test-user',
+    });
+
+    dependencyService.addMissionDependency(missionId, upstream.id);
+
+    // missionId has no tasks, so the INCOMPLETE_TASKS branch is skipped.
+    // The upstream mission defaults to "not_started", which is not "done",
+    // so the BLOCKED_BY_FEATURE_DEPENDENCIES branch must fire.
+    const validation = dependencyService.validateMissionCompletion(missionId);
+    expect(validation.canComplete).toBe(false);
+    expect(validation.reason).toBe('BLOCKED_BY_FEATURE_DEPENDENCIES');
+    expect(validation.blockedBy).toHaveLength(1);
+    expect(validation.blockedBy![0].taskId).toBe(upstream.id);
+  });
+
+  it('removeMissionDependency is a no-op for non-existent dependencies', () => {
+    const missionX = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: 'No Dep X',
+      createdBy: 'test-user',
+    });
+    const missionY = missionRepo.createMission({
+      habitatId,
+      columnId,
+      title: 'No Dep Y',
+      createdBy: 'test-user',
+    });
+
+    // No dependency was ever added between missionX and missionY.
+    // The repository DELETE silently affects zero rows, and the service
+    // wrapper must surface that as a benign success (idempotent removal)
+    // rather than throwing or returning false.
+    const removed = dependencyService.removeMissionDependency(missionX.id, missionY.id);
+    expect(removed).toBe(true);
+  });
 });
 
 describe('Quality Gates', () => {
