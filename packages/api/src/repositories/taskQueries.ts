@@ -26,7 +26,7 @@ import {
 import { alias } from "drizzle-orm/sqlite-core";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { Task, TaskStatus, TaskPriority } from "../models/index.js";
-import { isReleaseGateSatisfied, type ReleaseType } from "@orcy/shared";
+import { isReleaseGateSatisfied, normalizeTaskId, type ReleaseType } from "@orcy/shared";
 
 export type TaskSortField =
   | "priority"
@@ -86,6 +86,17 @@ export function getTasksByMissionIds(missionIds: string[]): Task[] {
     .from(tasks)
     .where(inArray(tasks.missionId, expanded))
     .orderBy(asc(tasks.order), asc(tasks.createdAt))
+    .all();
+}
+
+export function getTasksByIds(ids: string[]): Task[] {
+  if (ids.length === 0) return [];
+  const db = getDb();
+  const normalized: string[] = [...new Set(ids.map(normalizeTaskId))];
+  return db
+    .select()
+    .from(tasks)
+    .where(inArray(tasks.id, normalized))
     .all();
 }
 

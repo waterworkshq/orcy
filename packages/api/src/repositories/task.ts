@@ -15,6 +15,7 @@ export type { TaskSortField, TaskListFilters } from "./taskQueries.js";
 export {
   getTasksByMissionId,
   getTasksByMissionIds,
+  getTasksByIds,
   getAvailableTasksForAgent,
   getTasksByDependency,
   areAllDependenciesMet,

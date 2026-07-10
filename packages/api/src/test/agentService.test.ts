@@ -13,6 +13,7 @@ vi.mock("../repositories/agent.js", () => ({
 }));
 vi.mock("../repositories/task.js", () => ({
   getTaskById: vi.fn(),
+  getTasksByIds: vi.fn(),
   releaseTask: vi.fn(),
   getHabitatIdForTask: vi.fn(),
 }));
@@ -83,7 +84,7 @@ describe("agentService", () => {
     vi.mocked(agentRepo.listAgents).mockReturnValue([
       { id: "a1", status: "online", domain: "be", currentTaskId: "t1" } as any,
     ]);
-    vi.mocked(taskRepo.getTaskById).mockReturnValue({ title: "Build API" } as any);
+    vi.mocked(taskRepo.getTasksByIds).mockReturnValue([{ id: "t1", title: "Build API" }] as any);
     const r = listAgentsWithTasks();
     expect(r[0].currentTaskTitle).toBe("Build API");
   });
@@ -92,7 +93,7 @@ describe("agentService", () => {
     vi.mocked(agentRepo.listAgents).mockReturnValue([
       { id: "a1", status: "online", domain: "be", currentTaskId: "t1" } as any,
     ]);
-    vi.mocked(taskRepo.getTaskById).mockReturnValue(null);
+    vi.mocked(taskRepo.getTasksByIds).mockReturnValue([]);
     expect(listAgentsWithTasks()[0].currentTaskTitle).toBeNull();
   });
 

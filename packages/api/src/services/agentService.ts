@@ -51,9 +51,8 @@ export function listAgentsWithTasks(
   const agents = listAgents(status, domain);
   const taskIds = [...new Set(agents.filter((a) => a.currentTaskId).map((a) => a.currentTaskId!))];
   const taskMap = new Map<string, string>();
-  for (const taskId of taskIds) {
-    const task = taskRepo.getTaskById(taskId);
-    if (task) taskMap.set(taskId, task.title);
+  for (const task of taskRepo.getTasksByIds(taskIds)) {
+    taskMap.set(task.id, task.title);
   }
   return agents.map((agent) => ({
     agent,
