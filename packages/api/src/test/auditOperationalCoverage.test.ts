@@ -341,6 +341,53 @@ describe("audit operational coverage", () => {
     expect(result.warnings.map((w) => w.code)).not.toContain("source_unavailable");
   });
 
+  it("emits inferred_presence_source_unavailable when time_record events survive filtering", () => {
+    const { habitat, task } = setupHabitat();
+    const { agent } = agentRepo.createAgent({
+      name: "Presence Agent",
+      type: "claude-code",
+      domain: "ops",
+    });
+    timeRepo.createTimeRecord({
+      taskId: task.id,
+      agentId: agent.id,
+      minutesSpent: 15,
+      statusDuringWork: "in_progress",
+    });
+
+    const result = queryAuditEvents({
+      habitatId: habitat.id,
+      entityType: "time_record",
+      order: "asc",
+    });
+
+    expect(result.warnings.map((w) => w.code)).toContain("inferred_presence_source_unavailable");
+  });
+
+  it("does NOT emit inferred_presence_source_unavailable when time_record events are filtered out", () => {
+    const { habitat, task } = setupHabitat();
+    const { agent } = agentRepo.createAgent({
+      name: "Presence Agent",
+      type: "claude-code",
+      domain: "ops",
+    });
+    timeRepo.createTimeRecord({
+      taskId: task.id,
+      agentId: agent.id,
+      minutesSpent: 15,
+      statusDuringWork: "in_progress",
+    });
+
+    const result = queryAuditEvents({
+      habitatId: habitat.id,
+      entityType: "effort_entry",
+      order: "asc",
+    });
+
+    expect(result.events.some((e) => e.entity.type === "time_record")).toBe(false);
+    expect(result.warnings.map((w) => w.code)).not.toContain("inferred_presence_source_unavailable");
+  });
+
   it("default query does NOT include time_record events", () => {
     const { habitat, task } = setupHabitat();
     timeRepo.createTimeRecord({

@@ -1,7 +1,4 @@
-import type {
-  AuditEvent,
-  AuditWarning,
-} from "@orcy/shared/types";
+import type { AuditEvent } from "@orcy/shared/types";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../db/index.js";
 import { agents, effortEntries, missions, tasks } from "../../db/schema/index.js";
@@ -158,16 +155,8 @@ export const effortCollector: AuditProjectionCollector = {
       };
     });
 
-    const warnings: AuditWarning[] = [];
-    if (timeRecordEvents.length > 0) {
-      warnings.push({
-        code: "inferred_presence_source_unavailable",
-        message: "Time record events have no heartbeat session provenance.",
-      });
-    }
-
     const events: AuditEvent[] = [...effortRows.map(projectEffortRow), ...timeRecordEvents];
 
-    return { events, warnings, caveats: [] };
+    return { events, warnings: [], caveats: [] };
   },
 };

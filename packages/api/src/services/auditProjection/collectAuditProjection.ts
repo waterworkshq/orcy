@@ -187,6 +187,13 @@ export function collectAuditProjection(input: AuditQueryInput): AuditProjectionS
     });
   }
 
+  if (filteredEvents.some((event) => event.entity.type === "time_record")) {
+    allWarnings.push({
+      code: "inferred_presence_source_unavailable",
+      message: "Time record events have no heartbeat session provenance.",
+    });
+  }
+
   const sortedEvents = sortEvents(filteredEvents, query.order ?? "desc");
 
   return {
