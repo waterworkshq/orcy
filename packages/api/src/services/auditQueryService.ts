@@ -6,15 +6,10 @@ import type {
   AuditWarning,
 } from "@orcy/shared/types";
 import { collectAuditProjection } from "./auditProjection/collectAuditProjection.js";
-import { normalizeFilters } from "./auditProjection/helpers.js";
 import type { AuditEntityReferenceFilter } from "./auditProjection/types.js";
 
 export { collectAuditProjection } from "./auditProjection/collectAuditProjection.js";
-export {
-  matchesFilters,
-  normalizeFilters,
-  sortEvents,
-} from "./auditProjection/helpers.js";
+export { matchesFilters, normalizeFilters, sortEvents } from "./auditProjection/helpers.js";
 
 export interface AuditQueryInput {
   habitatId: string;
@@ -72,12 +67,14 @@ const MAX_AUDIT_LIMIT = 10000;
 
 /** Projects source tables (task events, mission events, effort entries, code evidence, integrations, webhooks, health snapshots) into a unified, filtered, and paginated {@link AuditEvent} stream for a habitat. Emits data-quality warnings when rows lack provenance or cannot be tied to a habitat. */
 export function queryAuditEvents(input: AuditQueryInput): AuditQueryResult {
-  const query = normalizeFilters(input);
-  const projection = collectAuditProjection(query);
-  const effectiveLimit = Math.min(query.limit ?? DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT);
-  const effectiveOffset = query.offset ?? 0;
+  const projection = collectAuditProjection(input);
+  const effectiveLimit = Math.min(input.limit ?? DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT);
+  const effectiveOffset = input.offset ?? 0;
 
-  const paginatedEvents = projection.events.slice(effectiveOffset, effectiveOffset + effectiveLimit);
+  const paginatedEvents = projection.events.slice(
+    effectiveOffset,
+    effectiveOffset + effectiveLimit,
+  );
   const warnings: AuditWarning[] = [...projection.warnings];
 
   if (projection.events.length > effectiveLimit) {
