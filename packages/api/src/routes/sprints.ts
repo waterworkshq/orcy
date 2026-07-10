@@ -100,18 +100,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const userId = request.user?.id ?? "unknown";
-      try {
-        const sprint = sprintService.createSprint(request.params.habitatId, parsed.data, userId);
-        reply.code(201).send({ sprint });
-      } catch (err: any) {
-        if (err.message === "HABITAT_ALREADY_HAS_ACTIVE_SPRINT") {
-          throw badRequest("Habitat already has an active sprint");
-        }
-        if (err.message === "END_DATE_MUST_BE_AFTER_START_DATE") {
-          throw badRequest("End date must be after start date");
-        }
-        throw err;
-      }
+      const sprint = sprintService.createSprint(request.params.habitatId, parsed.data, userId);
+      reply.code(201).send({ sprint });
     },
   );
 
@@ -169,16 +159,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      try {
-        const sprint = sprintService.updateSprint(request.params.id, parsed.data);
-        return { sprint };
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "CANNOT_MODIFY_ACTIVE_OR_COMPLETED_SPRINT") {
-          throw badRequest("Cannot modify name or dates of an active or completed sprint");
-        }
-        throw err;
-      }
+      const sprint = sprintService.updateSprint(request.params.id, parsed.data);
+      return { sprint };
     },
   );
 
@@ -187,16 +169,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: [humanAuth] },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       requireSprintAccess(request);
-      try {
-        sprintService.deleteSprint(request.params.id);
-        reply.code(204).send();
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "CANNOT_DELETE_ACTIVE_SPRINT") {
-          throw badRequest("Cannot delete an active sprint");
-        }
-        throw err;
-      }
+      sprintService.deleteSprint(request.params.id);
+      reply.code(204).send();
     },
   );
 
@@ -205,16 +179,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: [humanAuth] },
     async (request) => {
       requireSprintAccess(request);
-      try {
-        const sprint = sprintService.startSprint(request.params.id);
-        return { sprint };
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "SPRINT_NOT_IN_PLANNING") {
-          throw badRequest("Sprint is not in planning status");
-        }
-        throw err;
-      }
+      const sprint = sprintService.startSprint(request.params.id);
+      return { sprint };
     },
   );
 
@@ -223,16 +189,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: [humanAuth] },
     async (request) => {
       requireSprintAccess(request);
-      try {
-        const sprint = sprintService.completeSprint(request.params.id);
-        return { sprint };
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "SPRINT_NOT_ACTIVE") {
-          throw badRequest("Sprint is not active");
-        }
-        throw err;
-      }
+      const sprint = sprintService.completeSprint(request.params.id);
+      return { sprint };
     },
   );
 
@@ -241,16 +199,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: [humanAuth] },
     async (request) => {
       requireSprintAccess(request);
-      try {
-        const sprint = sprintService.cancelSprint(request.params.id);
-        return { sprint };
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "SPRINT_CANNOT_BE_CANCELLED") {
-          throw badRequest("Sprint cannot be cancelled");
-        }
-        throw err;
-      }
+      const sprint = sprintService.cancelSprint(request.params.id);
+      return { sprint };
     },
   );
 
@@ -264,20 +214,8 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
 
-      try {
-        const sprint = sprintService.addMissionToSprint(request.params.id, parsed.data.missionId);
-        return { sprint };
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "MISSION_NOT_FOUND") throw notFound("Mission not found");
-        if (err.message === "MISSION_NOT_IN_SAME_HABITAT") {
-          throw badRequest("Mission does not belong to the same habitat as the sprint");
-        }
-        if (err.message === "CAN_ONLY_ADD_TO_PLANNING_SPRINT") {
-          throw badRequest("Can only add missions to a planning sprint");
-        }
-        throw err;
-      }
+      const sprint = sprintService.addMissionToSprint(request.params.id, parsed.data.missionId);
+      return { sprint };
     },
   );
 
@@ -286,19 +224,11 @@ export async function sprintRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: [humanAuth] },
     async (request) => {
       requireSprintAccess(request);
-      try {
-        const sprint = sprintService.removeMissionFromSprint(
-          request.params.id,
-          request.params.missionId,
-        );
-        return { sprint };
-      } catch (err: any) {
-        if (err.message === "SPRINT_NOT_FOUND") throw notFound("Sprint not found");
-        if (err.message === "CAN_ONLY_REMOVE_FROM_PLANNING_SPRINT") {
-          throw badRequest("Can only remove missions from a planning sprint");
-        }
-        throw err;
-      }
+      const sprint = sprintService.removeMissionFromSprint(
+        request.params.id,
+        request.params.missionId,
+      );
+      return { sprint };
     },
   );
 }

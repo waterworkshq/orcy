@@ -3,6 +3,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as habitatRepo from "../repositories/board.js";
+import { badRequest, notFound, conflict, internalError } from "../errors.js";
 import type { Sprint, SprintCreateInput, SprintUpdateInput, CarryOverPolicy } from "@orcy/shared";
 
 /**
@@ -37,11 +38,11 @@ export function createSprint(
 ): Sprint {
   const existing = sprintRepo.getActiveForHabitat(habitatId);
   if (existing) {
-    throw new Error("HABITAT_ALREADY_HAS_ACTIVE_SPRINT");
+    throw conflict("Habitat already has an active sprint");
   }
 
   if (new Date(input.endDate) <= new Date(input.startDate)) {
-    throw new Error("END_DATE_MUST_BE_AFTER_START_DATE");
+    throw badRequest("End date must be after start date");
   }
 
   const overlapping = sprintRepo.getOverlappingForHabitat(
@@ -50,7 +51,7 @@ export function createSprint(
     input.endDate,
   );
   if (overlapping) {
-    throw new Error("SPRINT_DATES_OVERLAP");
+    throw conflict("Sprint dates overlap an existing sprint");
   }
 
   const sprint = sprintRepo.create(habitatId, {
@@ -77,14 +78,14 @@ export function createSprint(
  */
 export function updateSprint(sprintId: string, input: SprintUpdateInput): Sprint {
   const existing = sprintRepo.getById(sprintId);
-  if (!existing) throw new Error("SPRINT_NOT_FOUND");
+  if (!existing) throw notFound("Sprint not found");
 
   if (existing.status !== "planning" && (input.startDate || input.endDate || input.name)) {
-    throw new Error("CANNOT_MODIFY_ACTIVE_OR_COMPLETED_SPRINT");
+    throw badRequest("Cannot modify name or dates of an active or completed sprint");
   }
 
   const updated = sprintRepo.update(sprintId, input);
-  if (!updated) throw new Error("SPRINT_UPDATE_FAILED");
+  if (!updated) throw internalError("Failed to update sprint");
   return updated;
 }
 
@@ -93,10 +94,10 @@ export function updateSprint(sprintId: string, input: SprintUpdateInput): Sprint
  */
 export function deleteSprint(sprintId: string): void {
   const existing = sprintRepo.getById(sprintId);
-  if (!existing) throw new Error("SPRINT_NOT_FOUND");
+  if (!existing) throw notFound("Sprint not found");
 
   if (existing.status === "active") {
-    throw new Error("CANNOT_DELETE_ACTIVE_SPRINT");
+    throw badRequest("Cannot delete an active sprint");
   }
 
   sprintRepo.deleteSprintAndDetachMissions(sprintId, existing.committedMissionIds);
@@ -109,11 +110,11 @@ export function deleteSprint(sprintId: string): void {
  */
 export function startSprint(sprintId: string): Sprint {
   const existing = sprintRepo.getById(sprintId);
-  if (!existing) throw new Error("SPRINT_NOT_FOUND");
-  if (existing.status !== "planning") throw new Error("SPRINT_NOT_IN_PLANNING");
+  if (!existing) throw notFound("Sprint not found");
+  if (existing.status !== "planning") throw badRequest("Sprint is not in planning status");
 
   const updated = sprintRepo.update(sprintId, { status: "active" });
-  if (!updated) throw new Error("SPRINT_START_FAILED");
+  if (!updated) throw internalError("Failed to start sprint");
 
   sseBroadcaster.publish(updated.habitatId, {
     type: "sprint.started",
@@ -129,8 +130,8 @@ export function startSprint(sprintId: string): Sprint {
  */
 export function completeSprint(sprintId: string): Sprint {
   const existing = sprintRepo.getById(sprintId);
-  if (!existing) throw new Error("SPRINT_NOT_FOUND");
-  if (existing.status !== "active") throw new Error("SPRINT_NOT_ACTIVE");
+  if (!existing) throw notFound("Sprint not found");
+  if (existing.status !== "active") throw badRequest("Sprint is not active");
 
   const completedMissionIds: string[] = [];
   const carriedOverMissionIds: string[] = [];
@@ -169,7 +170,7 @@ export function completeSprint(sprintId: string): Sprint {
   });
 
   const updated = sprintRepo.getById(sprintId);
-  if (!updated) throw new Error("SPRINT_COMPLETE_FAILED");
+  if (!updated) throw internalError("Failed to complete sprint");
 
   sseBroadcaster.publish(updated.habitatId, {
     type: "sprint.completed",
@@ -207,15 +208,15 @@ function findNextPlanningSprint(habitatId: string, excludeSprintId: string): Spr
  */
 export function cancelSprint(sprintId: string): Sprint {
   const existing = sprintRepo.getById(sprintId);
-  if (!existing) throw new Error("SPRINT_NOT_FOUND");
+  if (!existing) throw notFound("Sprint not found");
   if (existing.status !== "planning" && existing.status !== "active") {
-    throw new Error("SPRINT_CANNOT_BE_CANCELLED");
+    throw badRequest("Sprint cannot be cancelled");
   }
 
   sprintRepo.cancelSprintAndDetachMissions(sprintId, existing.committedMissionIds);
 
   const updated = sprintRepo.getById(sprintId);
-  if (!updated) throw new Error("SPRINT_CANCEL_FAILED");
+  if (!updated) throw internalError("Failed to cancel sprint");
 
   logger.info({ sprintId, habitatId: updated.habitatId }, "Sprint cancelled");
   return updated;
@@ -226,15 +227,17 @@ export function cancelSprint(sprintId: string): Sprint {
  */
 export function addMissionToSprint(sprintId: string, missionId: string): Sprint {
   const sprint = sprintRepo.getById(sprintId);
-  if (!sprint) throw new Error("SPRINT_NOT_FOUND");
-  if (sprint.status !== "planning") throw new Error("CAN_ONLY_ADD_TO_PLANNING_SPRINT");
+  if (!sprint) throw notFound("Sprint not found");
+  if (sprint.status !== "planning") throw badRequest("Can only add missions to a planning sprint");
 
   const mission = missionRepo.getMissionById(missionId);
-  if (!mission) throw new Error("MISSION_NOT_FOUND");
-  if (mission.habitatId !== sprint.habitatId) throw new Error("MISSION_NOT_IN_SAME_HABITAT");
+  if (!mission) throw notFound("Mission not found");
+  if (mission.habitatId !== sprint.habitatId) {
+    throw badRequest("Mission does not belong to the same habitat as the sprint");
+  }
 
   const updated = sprintRepo.addMission(sprintId, missionId);
-  if (!updated) throw new Error("ADD_MISSION_FAILED");
+  if (!updated) throw internalError("Failed to add mission to sprint");
   return updated;
 }
 
@@ -243,11 +246,11 @@ export function addMissionToSprint(sprintId: string, missionId: string): Sprint 
  */
 export function removeMissionFromSprint(sprintId: string, missionId: string): Sprint {
   const sprint = sprintRepo.getById(sprintId);
-  if (!sprint) throw new Error("SPRINT_NOT_FOUND");
-  if (sprint.status !== "planning") throw new Error("CAN_ONLY_REMOVE_FROM_PLANNING_SPRINT");
+  if (!sprint) throw notFound("Sprint not found");
+  if (sprint.status !== "planning") throw badRequest("Can only remove missions from a planning sprint");
 
   const updated = sprintRepo.removeMission(sprintId, missionId);
-  if (!updated) throw new Error("REMOVE_MISSION_FAILED");
+  if (!updated) throw internalError("Failed to remove mission from sprint");
   return updated;
 }
 

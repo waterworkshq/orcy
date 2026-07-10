@@ -8,9 +8,7 @@ import { tasks, columns as columnsTable, habitats, missions } from '../db/schema
 import { eq } from 'drizzle-orm';
 import {
   createSprint,
-  getSprint,
   getSprintsForHabitat,
-  getActiveSprint,
   updateSprint,
   deleteSprint,
   startSprint,
@@ -69,7 +67,7 @@ describe('createSprint', () => {
     startSprint(getSprintsForHabitat(habitatId)[0].id);
 
     expect(() => createSprint(habitatId, { name: 'Sprint 2', startDate: '2026-06-15', endDate: '2026-06-28' }, 'user-1'))
-      .toThrow('HABITAT_ALREADY_HAS_ACTIVE_SPRINT');
+      .toThrow('Habitat already has an active sprint');
   });
 });
 
@@ -85,7 +83,7 @@ describe('startSprint', () => {
     const sprint = createSprint(habitatId, { name: 'Sprint 1', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
     startSprint(sprint.id);
 
-    expect(() => startSprint(sprint.id)).toThrow('SPRINT_NOT_IN_PLANNING');
+    expect(() => startSprint(sprint.id)).toThrow('Sprint is not in planning status');
   });
 });
 
@@ -189,7 +187,7 @@ describe('addMission / removeMission', () => {
     startSprint(sprint.id);
     const m1 = createTestMission('Mission');
 
-    expect(() => addMissionToSprint(sprint.id, m1.id)).toThrow('CAN_ONLY_ADD_TO_PLANNING_SPRINT');
+    expect(() => addMissionToSprint(sprint.id, m1.id)).toThrow('Can only add missions to a planning sprint');
   });
 
   it('removes mission from planning sprint and clears sprintId', () => {
@@ -210,7 +208,7 @@ describe('addMission / removeMission', () => {
 
     const sprint = createSprint(habitatId, { name: 'Sprint 1', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
 
-    expect(() => addMissionToSprint(sprint.id, otherMission.id)).toThrow('MISSION_NOT_IN_SAME_HABITAT');
+    expect(() => addMissionToSprint(sprint.id, otherMission.id)).toThrow('Mission does not belong to the same habitat as the sprint');
   });
 });
 
@@ -227,7 +225,7 @@ describe('updateSprint', () => {
     const sprint = createSprint(habitatId, { name: 'Sprint 1', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
     startSprint(sprint.id);
 
-    expect(() => updateSprint(sprint.id, { name: 'Renamed' })).toThrow('CANNOT_MODIFY_ACTIVE_OR_COMPLETED_SPRINT');
+    expect(() => updateSprint(sprint.id, { name: 'Renamed' })).toThrow('Cannot modify name or dates of an active or completed sprint');
   });
 
   it('allows notes update on active sprint', () => {
@@ -255,6 +253,6 @@ describe('deleteSprint', () => {
     const sprint = createSprint(habitatId, { name: 'Sprint 1', startDate: '2026-06-01', endDate: '2026-06-14' }, 'user-1');
     startSprint(sprint.id);
 
-    expect(() => deleteSprint(sprint.id)).toThrow('CANNOT_DELETE_ACTIVE_SPRINT');
+    expect(() => deleteSprint(sprint.id)).toThrow('Cannot delete an active sprint');
   });
 });
