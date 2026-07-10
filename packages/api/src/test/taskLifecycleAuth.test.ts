@@ -278,19 +278,19 @@ describe('Task Lifecycle Authorization', () => {
     });
 
     it('getPrincipalFromRequest extracts agent principal', () => {
-      const req = { agent: { id: agent1Id }, user: undefined };
+      const req = mockReqRes({ agent: { id: agent1Id } }).request;
       const p = getPrincipalFromRequest(req);
       expect(p).toEqual({ type: 'agent', id: agent1Id });
     });
 
     it('getPrincipalFromRequest extracts human principal', () => {
-      const req = { agent: undefined, user: { id: 'h1', role: 'admin' as const } };
+      const req = mockReqRes({ user: { id: 'h1', role: 'admin' as const } }).request;
       const p = getPrincipalFromRequest(req);
       expect(p).toEqual({ type: 'human', id: 'h1', role: 'admin' });
     });
 
     it('getPrincipalFromRequest returns undefined for unauthenticated', () => {
-      expect(getPrincipalFromRequest({})).toBeUndefined();
+      expect(getPrincipalFromRequest(mockReqRes().request)).toBeUndefined();
     });
   });
 

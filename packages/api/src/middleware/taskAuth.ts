@@ -1,3 +1,4 @@
+import type { FastifyRequest } from 'fastify';
 import type { Task } from '../models/index.js';
 import type { HumanRole } from './auth.js';
 
@@ -84,7 +85,7 @@ export function authorizeTaskAction(
   return { allowed: false, reason: 'Unknown action' };
 }
 
-export function getPrincipalFromRequest(request: any): Principal | undefined {
+export function getPrincipalFromRequest(request: FastifyRequest): Principal | undefined {
   if (request.agent) {
     return { type: 'agent', id: request.agent.id };
   }
