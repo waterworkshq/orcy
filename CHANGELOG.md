@@ -2,6 +2,39 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.29.3 — 2026-07-10
+
+### Tests
+
+#### add secretCrypto AES-256-GCM round-trip and tamper detection tests ([`8895b37`](https://github.com/waterworkshq/orcy/commit/8895b3799fad0fe1e092298cdb0897c1926f7cc1))
+
+
+#### add mission dependency DAG negative case and completion validation tests ([`19fc3f3`](https://github.com/waterworkshq/orcy/commit/19fc3f3bb3b352a6c3b660edff53267433ba0e4e))
+
+1. Adds coverage for the previously untested mission branch of dependencyService:
+2. Mission self-dependency rejection
+3. Mission circular dependency across a 3-node chain (A->B->C, C->A rejected)
+4. validateMissionCompletion INCOMPLETE_TASKS branch
+5. validateMissionCompletion BLOCKED_BY_FEATURE_DEPENDENCIES branch
+6. removeMissionDependency idempotency on non-existent edges
+
+
+#### add workflowGateStore manual-gate eligibility and satisfaction idempotency tests ([`bc9e1d0`](https://github.com/waterworkshq/orcy/commit/bc9e1d0093be600690bda099df35f3f7d6ae174c))
+
+
+#### add releaseSettingsService kill-switch env-flag variant matrix and partial-JSON merge tests ([`8006a73`](https://github.com/waterworkshq/orcy/commit/8006a7308013cea2b5dac6375765edae9226004f))
+
+
+#### add JsonImportExport import validation guard tests ([`415583b`](https://github.com/waterworkshq/orcy/commit/415583b0ae727728f9d5323b52c13b3b8e53c3ff))
+
+
+#### add useTaskActions delete and clone toast feedback tests ([`a3684c3`](https://github.com/waterworkshq/orcy/commit/a3684c3810d8249c3e08e54321b383043e361ac7))
+
+
+#### add ConfirmDialog variant mapping and wiring tests ([`489d387`](https://github.com/waterworkshq/orcy/commit/489d387d59cf8f15208f78c1138843b48027a981))
+
+
+
 ## 0.29.2 — 2026-07-10
 
 ### Bug Fixes
@@ -144,212 +177,3 @@
 
 
 #### verify operational events contribute to summary count aggregations ([`c41b6c2`](https://github.com/waterworkshq/orcy/commit/c41b6c2c3355788e55231f755b61773a6687d9e3))
-
-
-
-## 0.29.0 — 2026-07-10
-
-### Bug Fixes
-
-#### exclude time_record from generic source_unavailable warning ([`8cc8555`](https://github.com/waterworkshq/orcy/commit/8cc85552743e88397c1ca5756c90d657450e6495))
-
-1. Time record events use source_unavailable completeness by design (no
-2. heartbeat session provenance), but the generic warning text says
-3. 'provider-derived code evidence records lack delivery provenance' —
-4. misleading when the only source-unavailable events are time records.
-
-6. Exclude time_record entities from triggering the generic warning per
-7. DESIGN: 'do not emit that provider wording for Time Records.' The
-8. effort collector's inferred_presence_source_unavailable warning still
-9. fires correctly.
-
-
-#### preserve remote recipient types and exclude deliveries from bundles ([`1ffb302`](https://github.com/waterworkshq/orcy/commit/1ffb302d28f8b12a244bb09234ee8b7c24e20675))
-
-1. Two fixes from Phase 8 code review:
-
-3. 1. Notification delivery actor now passes recipientType through directly
-4. instead of collapsing remote_human/remote_orcy to 'human'. This
-5. preserves remote provenance and allows enrichAuditActorNames to
-6. resolve names from the remoteParticipants table.
-
-8. 2. Notification delivery events no longer inherit parent event's
-9. linkedEntities. Deliveries are excluded from task/mission Evidence
-10. Bundles — their linkedEntities is always []. This preserves the
-11. agreed boundary: bundle routes use agentOrHumanAuth (weaker than
-12. human-only audit routes), so recipient-level delivery data
-13. (recipientId, channels, delivery timestamps) must not appear in
-14. agent-accessible bundles. Added test proving deliveries are excluded
-15. from referencedEntities scope while parent notification events still
-16. appear.
-
-
-
-### Documentation
-
-#### Add operational audit provenance, projections, and failure policies ([`43746dc`](https://github.com/waterworkshq/orcy/commit/43746dc080c459fd8f663d64406da0e26e11e6ed))
-
-1. Add three ADRs covering operational audit projections as current-state
-2. events,
-3. typed namespaced audit provenance, and projection family failure
-4. policies.
-5. Update CONTEXT.md with an Audit Provenance glossary entry.
-
-
-#### Phase 9 doc audit — update all docs for v0.29 release ([`657cb40`](https://github.com/waterworkshq/orcy/commit/657cb4030520ce6a7113d9ff41742593bf7ad316))
-
-
-
-### Features
-
-#### widen audit types for operational projection coverage ([`8614fe4`](https://github.com/waterworkshq/orcy/commit/8614fe43007ed360d78ae1e7b914368030472b68))
-
-1. Convert AuditEntityType and AuditSource to runtime const arrays with
-2. derived types. Add AUDIT_QUERY_ENTITY_TYPES (excludes reference-only
-3. 'branch') and DEFAULT_AUDIT_QUERY_ENTITY_TYPES (excludes explicit-only
-4. 'time_record' and opt-in 'health_snapshot') as shared constants so
-5. catalog completeness, query selection, and export validation consume
-6. one vocabulary instead of three duplicated literal lists.
-
-8. Add four operational entity types: automation_run, notification_event,
-9. notification_delivery, plugin_run. Add typed optional provenance
-10. namespaces (AutomationAuditProvenance, NotificationAuditProvenance,
-11. PluginAuditProvenance) to AuditProvenance per ADR-0036.
-
-13. Add auditQueryCharacterization.test.ts — 18 tests capturing the full
-14. current queryAuditEvents output as golden snapshots with UUID
-15. normalization for deterministic byte-equality verification. This is
-16. the regression gate for Phase 3 collector extraction.
-
-
-#### add audit projection collector foundation ([`8a6c7ce`](https://github.com/waterworkshq/orcy/commit/8a6c7ce3c09db6b85f7155f8cc6d6916232b9eda))
-
-1. Introduce the internal collector catalog infrastructure for Audit Trail
-2. V2. This is the skeleton that Phase 3 populates with existing projection
-3. families and Phase 4 extends with operational source coverage.
-
-5. New modules:
-6. auditProjection/types.ts — collector interfaces (AuditProjectionCollector,
-7. AuditCollectorRequest/Result, AuditProjectionSet, AuditEntityReferenceFilter)
-8. auditProjection/catalog.ts — static AUDIT_CATALOG array, selectCollectors()
-9. for entity-type-based dispatch, assertCatalogCoverage() for completeness
-10. auditProjection/collectAuditProjection.ts — pipeline: normalize → select →
-11. dispatch (fatal rethrows, warning catches + collector_unavailable) → filter
-12. → enrich → sort. Re-exported from auditQueryService as the public seam.
-
-14. New uncapped habitat-scoped repository functions (no 50-row defaults):
-15. automationRuns (LEFT JOIN rules for names)
-16. notificationEvents
-17. notificationDeliveries (LEFT JOIN events for parent context)
-18. pluginRuns
-19. timeRecords (JOIN tasks/missions/agents for context)
-
-21. Extracted enrichAuditActorNames from queryAuditEvents inline block into
-22. a callable exported function with empty-array short-circuit. Temporary
-23. exports of normalizeFilters/matchesFilters/sortEvents for the skeleton
-24. until Phase 3 moves them behind the catalog.
-
-
-#### wire operational audit sources into canonical projection ([`db0a311`](https://github.com/waterworkshq/orcy/commit/db0a3119ec2e07ec166b8512b6a1c43c618d1868))
-
-1. Rewrite the four operational projectors without casts, wire them into
-2. three new collectors, and implement the time-record projector. Audit
-3. Trail V2 now includes Automation Runs, Notification Events, Notification
-4. Deliveries, and Plugin Runs as default-on canonical events.
-
-6. Projector rewrites (automationAuditProjection.ts):
-7. All 'as unknown as' casts removed; typed provenance namespaces used
-8. (AutomationAuditProvenance, NotificationAuditProvenance, PluginAuditProvenance)
-9. Automation metadata allowlisted: excludes action error/result, recursive
-10. condition children, raw run metadata
-11. Notification payload removed from event metadata
-12. Notification Delivery occurredAt is status-specific (pending->createdAt,
-13. delivered->deliveredAt, acknowledged->acknowledgedAt, etc.)
-14. Plugin error text replaced with hasError boolean; fingerprint removed;
-15. contributionKind normalized via CONTRIBUTION_KIND_KEYS with 'unknown' fallback
-16. Plugin completeness always 'complete' (removed invalid 'partial' branch)
-
-18. New collectors (warning policy per ADR-0037):
-19. automationRunCollector: automation_rule_runs + rules join
-20. notificationCollector: notification_events + deliveries (inner-joined,
-21. orphan deliveries skipped with warning)
-22. pluginRunCollector: plugin_runs
-
-24. Time-record projector implemented in effortCollector (Phase 3 placeholder
-25. replaced): gated behind selectedEntityTypes, source_unavailable completeness,
-26. inferred_presence_source_unavailable warning when present.
-
-28. Catalog now has 9 collectors covering all 18 AUDIT_QUERY_ENTITY_TYPES.
-29. assertCatalogCoverage() passes. Operational events visible in default
-30. canonical queries and exports; linkedEntities currently empty (Phase 5
-31. adds explicit Task/Mission link resolution for bundles).
-
-
-#### harden audit consumers and complete projection catalog ([`1ce9055`](https://github.com/waterworkshq/orcy/commit/1ce9055fa4f49e18f6f2958b1f9a20747411c311))
-
-1. Wire the expanded collector catalog into existing consumer surfaces and
-2. resolve Phase 3-4 carry-over items.
-
-4. Carry-over cleanup:
-5. Consolidate matchesEvent/matchesFilters duplication into helpers.ts
-6. (single source, re-exported from auditQueryService for test compat)
-7. Delete CollectAuditProjectionInput; collectAuditProjection accepts
-8. AuditQueryInput directly with no cast
-9. Move normalizeFilters/sortEvents to helpers.ts; auditQueryService.ts
-10. reduced to 95 lines (interfaces + delegation + re-exports only)
-
-12. Operational linkedEntities resolution:
-13. automationRunCollector resolves targetType task/mission via batch lookup
-14. with resolveEntityReferences helper
-15. notificationCollector resolves targetType + sourceType task/mission refs;
-16. deliveries inherit parent event's resolved links
-17. Plugin runs keep linkedEntities [] (trigger IDs opaque)
-18. Notification delivery counting uses Map<eventId, delivery[]> (O(N+M))
-
-20. Consumer hardening:
-21. Bundle queries pass referencedEntities before pagination (fixes latent
-22. 1000-event truncation; automation/notification events with explicit
-23. target refs now appear in task/mission bundles)
-24. getAuditSummary migrates from lifecycle-only getAuditSummaryRows to
-25. canonical collectAuditProjection; response gains additive warnings +
-26. completenessSummary fields
-27. getAuditSummaryRows deleted from repositories/auditExport.ts
-28. Export validators isAuditEntityType/isAuditSource consume shared
-29. AUDIT_QUERY_ENTITY_TYPES/AUDIT_SOURCES constants
-
-
-
-### Refactors
-
-#### extract audit projection behind collector catalog ([`44522be`](https://github.com/waterworkshq/orcy/commit/44522be2e2d85adc1b12b0c627f0d93a95a8f939))
-
-1. Decompose the 1404-line queryAuditEvents monolith into 6 cohesive
-2. projection-family collector modules behind the Phase 2 catalog skeleton.
-3. queryAuditEvents now delegates to collectAuditProjection + pagination
-4. (146 lines, 90% reduction).
-
-6. Collector modules (each owns habitat-scoped collection + projection):
-7. lifecycleCollector: task + mission events (fatal)
-8. effortCollector: effort entries + time_record slot reserved (fatal)
-9. codeEvidenceCollector: 7 code-evidence projectors + context maps (fatal)
-10. integrationSyncCollector: integration sync runs (warning)
-11. webhookDeliveryCollector: webhook deliveries (warning)
-12. healthSnapshotCollector: health snapshots, opt-in gated (warning)
-
-14. Shared helpers extracted to auditProjection/helpers.ts (sanitizeMetadata,
-15. sourceFromAuditMetadata, codeEvidenceCompleteness, providerCompleteness,
-16. buildCompleteness, evidenceLinkSourceToAuditSource, targetEntityRef, etc).
-
-18. collectAuditProjection now implements full selection logic (entityType,
-19. entityTypes, includeHealthSnapshots, referencedEntities) and the ADR-0037
-20. fatal/warning dispatch policy with collector_unavailable warnings.
-
-22. AuditQueryInput widened with entityTypes and referencedEntities.
-23. normalizeFilters handles entityTypes validation. matchesFilters checks
-24. entityTypes membership and referencedEntities scope. summarizeAuditCompleteness
-25. accepts additionalCaveats for collector-level degradation evidence.
-
-27. Normalizer local AUDIT_SOURCES Set replaced with shared const import.
-
-29. Byte-equality gate passed: 18 characterization tests match golden fixtures
-30. byte-for-byte. All 72 existing audit tests green.
