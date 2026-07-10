@@ -406,6 +406,28 @@ describe("board_claim_task", () => {
       message: "Task already claimed",
     });
   });
+
+  it.each([
+    ["workflow_gates_unmet", "Workflow gates not satisfied"],
+    ["mission_dependencies_unmet", "A depended-on mission is not done"],
+    ["release_gate_unmet", "No matching release for the task's gate"],
+  ] as const)(
+    "passes derived-gate reason '%s' through the MCP layer unmangled",
+    async (reason, message) => {
+      const client = createMockClient();
+      client.claimTask.mockResolvedValue({
+        success: false,
+        reason,
+        message,
+      });
+
+      const raw = await TASK_DISPATCH_HANDLER(client, { action: "claim", taskId: "task-1" });
+      const result = JSON.parse(raw.content[0].text);
+
+      expect(result).toEqual({ success: false, reason, message });
+      expect(client.claimTask).toHaveBeenCalledWith("task-1");
+    },
+  );
 });
 
 describe("board_submit_task", () => {

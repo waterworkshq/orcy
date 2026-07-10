@@ -95,7 +95,10 @@ export interface ClaimTaskFailureResponse {
     | "not_found"
     | "domain_mismatch"
     | "dependencies_unmet"
-    | "capability_mismatch";
+    | "capability_mismatch"
+    | "workflow_gates_unmet"
+    | "mission_dependencies_unmet"
+    | "release_gate_unmet";
   message: string;
   missingCapabilities?: string[];
 }
