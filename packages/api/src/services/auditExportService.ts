@@ -170,7 +170,7 @@ export function getCanonicalAuditEvents(
   return {
     events,
     warnings: result.warnings,
-    completenessSummary: summarizeAuditCompleteness(events),
+    completenessSummary: result.completenessSummary,
   };
 }
 
