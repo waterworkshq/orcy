@@ -12,6 +12,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { OrcyMark } from "../ui/icons/OrcyMark.js";
+import { APP_VERSION } from "../../version.js";
 
 interface NavItem {
   label: string;
@@ -86,7 +87,7 @@ export const SideNavBar = React.memo(function SideNavBar({
             POD BASE
           </h3>
           <p className="mt-1 text-[10px] font-medium leading-none text-on-surface-variant">
-            v2.4.0-Alpha
+            v{APP_VERSION}
           </p>
         </div>
       </div>

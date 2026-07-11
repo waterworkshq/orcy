@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { SideNavBar } from './SideNavBar.js';
+import { APP_VERSION } from '../../version.js';
 
 function renderWithRouter(ui: React.ReactElement, initialEntries = ['/']) {
   return render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>);
@@ -105,7 +106,7 @@ describe('SideNavBar', () => {
   it('renders POD BASE branding with version', () => {
     renderWithRouter(<SideNavBar />);
     expect(screen.getByText('POD BASE')).toBeTruthy();
-    expect(screen.getByText('v2.4.0-Alpha')).toBeTruthy();
+    expect(screen.getByText(`v${APP_VERSION}`)).toBeTruthy();
   });
 
   it('renders VIEWS and TOOLS section labels', () => {
