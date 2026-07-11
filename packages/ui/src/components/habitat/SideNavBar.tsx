@@ -77,6 +77,7 @@ export const SideNavBar = React.memo(function SideNavBar({
     <nav
       className="glass-panel ghost-border-r hidden md:flex flex-col w-64 shrink-0 h-full"
       data-testid="side-nav-bar"
+      aria-label="Main navigation"
     >
       <div className="flex items-center gap-2 px-4 py-5">
         <div className="flex h-8 w-8 items-center justify-center rounded bg-primary text-on-primary shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
@@ -107,6 +108,7 @@ export const SideNavBar = React.memo(function SideNavBar({
                 key={item.label}
                 to={item.href}
                 data-testid={`nav-item-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                aria-current={isActive ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                   isActive
                     ? "bg-primary-container text-on-surface font-medium"
