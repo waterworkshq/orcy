@@ -685,6 +685,18 @@ export async function dispatchToChannelPlugin(
   const entry = channelRegistry.get(channel);
   if (!entry) return null;
 
+  // Look up the contribution's `requires` from the loaded plugin manifest.
+  // Channel registry entries only carry `pluginId` + `handler` + `timeoutMs`
+  // — sibling dispatchers (`dispatchInterceptorRun`, `runDetector`) carry the
+  // contribution object directly in their entries, so they can read
+  // `entry.contribution.requires`. We mirror the manifest-lookup pattern used
+  // by `dispatchActionHandler` (which has the same registry shape).
+  const manifest = loadedPlugins.get(entry.pluginId)?.manifest;
+  const contribution = manifest?.contributions.find(
+    (c) => c.kind === "notificationChannel" && c.channelId === channel,
+  );
+  const requires = contribution && "requires" in contribution ? contribution.requires : [];
+
   const { runId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: channel,
@@ -692,7 +704,7 @@ export async function dispatchToChannelPlugin(
     habitatId: delivery.habitatId,
     triggerEventId: delivery.eventId,
     triggerType: `channel:${channel}`,
-    requires: [],
+    requires,
   });
   ctx.notificationPayload = { delivery, event };
 

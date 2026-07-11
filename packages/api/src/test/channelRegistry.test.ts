@@ -242,4 +242,58 @@ describe("channelRegistry: registry hit short-circuits the switch", () => {
     expect(result!.success).toBe(false);
     expect(result!.error).toBe("boom");
   });
+
+  it("dispatchToChannelPlugin forwards the manifest's declared `requires` into PluginContext", async () => {
+    // Regression: previously `requires: []` was hardcoded in the dispatcher,
+    // so a channel plugin declaring `requires: ['chatIntegrationReader']`
+    // received a PluginContext without `chatIntegrationReader` even though
+    // the manifest declared it (and contributionAdapters.ts:165-167 lists
+    // it as the only allowed capability for notificationChannel).
+    tmpDir = await writePlugin(
+      "chan-requires",
+      `{
+        manifest: {
+          id: 'chan-requires',
+          version: '1.0.0',
+          description: 'channel that requires chatIntegrationReader',
+          contributions: [{
+            kind: 'notificationChannel',
+            scope: 'system',
+            channelId: 'requires-ch',
+            label: 'Requires Chat',
+            requires: ['chatIntegrationReader'],
+          }],
+        },
+        channels: {
+          'requires-ch': async (ctx) => { (globalThis.__capCtx = ctx); return { success: true }; },
+        },
+      }`,
+    );
+
+    const habitat = setupHabitat();
+    const event = createTestEvent(habitat.id);
+    const delivery = deliveryRepo.createNotificationDelivery({
+      eventId: event.id,
+      habitatId: habitat.id,
+      recipientType: "human",
+      recipientId: "user-1",
+      channels: ["in_app" as never],
+    });
+
+    const result = await pluginManager.dispatchToChannelPlugin(
+      "requires-ch",
+      delivery as NotificationDelivery,
+      event,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.success).toBe(true);
+    const capturedCtx = (globalThis as { __capCtx?: { chatIntegrationReader?: unknown } })
+      .__capCtx ?? null;
+    expect(capturedCtx).not.toBeNull();
+    // `chatIntegrationReader` is the only allowed capability for
+    // notificationChannel; if the dispatcher dropped `requires`, this would
+    // be undefined.
+    expect(capturedCtx!.chatIntegrationReader).toBeDefined();
+    delete (globalThis as { __capCtx?: unknown }).__capCtx;
+  });
 });
