@@ -389,6 +389,14 @@ _Avoid_: Plan, backlog, roadmap entity, roadmap table (when describing the missi
 A hard blocking condition on a mission that resolves when a matching release ships. A release-gated mission is visible in the roadmap but unclaimable until its target release is detected; resolution makes the mission's tasks available to claim. Release-gates layer alongside mission dependencies as parallel blocking conditions evaluated by the same work-surfacing path. The singular form ("after a release") ships in v0.25.0; the reverse form ("before a release") and the compound window ("after X, before Y") are deferred.
 _Avoid_: Release target (when describing the blocking condition on a mission, not a version pin), milestone (when describing Orcy's gate mechanism, not an external tracker's label)
 
+**Claimable**:
+The authoritative property — resolved at the **claim mutation**, not at read time — of whether a Task may be claimed by an Orcy. Determined by the task's intrinsic blocking constraints (Task dependencies, Workflow Gates, Release Gate, Mission dependencies). Read paths and suggestions surface tasks that *look* claimable, but they are an advisory projection; the mutation is the single authority. Two surfaces agreeing on claimable is a goal, not a guarantee the read path enforces.
+_Avoid_: available (as an authoritative term — "available" is informal, read-path-only shorthand for "surfaces as claimable-looking"; do not treat it as co-equal with claimable)
+
+**Eligible**:
+The agent-relative property of whether a *specific* agent may claim a Task — **Claimable** plus that agent's domain and capabilities satisfy the task's requirements. Resolved at the transport seam (route or service), not by the claimability authority, because the local-agent model (`domain` + `capabilities`) and the remote-participant model (grant scopes + Host-Approved Capability) differ. A task may be Claimable but not Eligible for a given agent; it is never Eligible without being Claimable.
+_Avoid_: qualified, permitted (when describing agent-relative claim fitness), claimable (when the distinction from the task-intrinsic property matters)
+
 ## Example Dialogue
 
 Dev: "This mission shipped through three tasks. Where is the code evidence?"
