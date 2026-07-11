@@ -1,5 +1,7 @@
 import * as taskRepo from "../../repositories/task.js";
 import * as agentRepo from "../../repositories/agent.js";
+import { checkClaimability } from "../../repositories/taskQueries.js";
+import { claimTask } from "../../repositories/taskStateMachine.js";
 import type { Task, TaskStatus, TaskPriority } from "../../models/index.js";
 import { updateTask, deleteTask } from "./task-crud.js";
 
@@ -96,16 +98,19 @@ export function batchOperateTasks(
         continue;
       }
 
-      const updated = updateTask(
-        task.id,
-        { assignedAgentId: assignPayload.assignedAgentId, delegatedToAgentId: null },
-        actorId,
-      );
-      if (!updated.success) {
-        results.push({ taskId: task.id, success: false, error: "Assignment failed" });
+      const claimability = checkClaimability(task.id);
+      if (!claimability.claimable) {
+        results.push({ taskId: task.id, success: false, error: claimability.reason! });
+        failureCount++;
+        continue;
+      }
+
+      const claimed = claimTask(task.id, assignPayload.assignedAgentId);
+      if (!claimed.success) {
+        results.push({ taskId: task.id, success: false, error: claimed.reason });
         failureCount++;
       } else {
-        results.push({ taskId: task.id, success: true, task: updated.task });
+        results.push({ taskId: task.id, success: true, task: claimed.task });
         successCount++;
       }
       continue;

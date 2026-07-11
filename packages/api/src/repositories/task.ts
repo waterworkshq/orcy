@@ -19,6 +19,7 @@ export {
   getAvailableTasksForAgent,
   getTasksByDependency,
   areAllDependenciesMet,
+  checkClaimability,
   getTasksPendingRetry,
   getTasksByHabitatId,
 } from "./taskQueries.js";

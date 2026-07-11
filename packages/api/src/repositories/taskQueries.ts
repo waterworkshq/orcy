@@ -27,6 +27,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { Task, TaskStatus, TaskPriority } from "../models/index.js";
 import { isReleaseGateSatisfied, normalizeTaskId, type ReleaseType } from "@orcy/shared";
+import { areAllWorkflowGatesSatisfied } from "./workflow.js";
 
 export type TaskSortField =
   | "priority"
@@ -279,6 +280,24 @@ export function isReleaseGateSatisfiedForTask(taskId: string): boolean {
     .all()
     .map((r) => r.version);
   return isReleaseGateSatisfied(mission, habitatReleaseTypes, habitatReleaseVersions);
+}
+
+/**
+ * Thin shared predicate that aggregates all four claimability guards
+ * (dependencies, mission dependencies, release gate, workflow gates) into a
+ * single result. The seed of a future deep claimability module (Architecture
+ * Review Candidate 1). Intentionally minimal — does NOT replace the direct
+ * predicate calls inside {@link claimTask}'s transaction.
+ */
+export function checkClaimability(taskId: string): { claimable: boolean; reason?: string } {
+  if (!areAllDependenciesMet(taskId)) return { claimable: false, reason: "dependencies_unmet" };
+  if (!areAllMissionDependenciesMet(taskId))
+    return { claimable: false, reason: "mission_dependencies_unmet" };
+  if (!isReleaseGateSatisfiedForTask(taskId))
+    return { claimable: false, reason: "release_gate_unmet" };
+  if (!areAllWorkflowGatesSatisfied(taskId))
+    return { claimable: false, reason: "workflow_gates_unmet" };
+  return { claimable: true };
 }
 
 export function getTasksPendingRetry(): Task[] {
