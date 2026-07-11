@@ -214,6 +214,18 @@ export function DataTable<TData>({
                         canSort && 'cursor-pointer select-none hover:text-[var(--on-surface)]'
                       )}
                       onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      {...(canSort
+                        ? {
+                            role: 'button',
+                            tabIndex: 0,
+                            onKeyDown: (e: React.KeyboardEvent<HTMLTableCellElement>) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                header.column.getToggleSortingHandler()?.(e);
+                              }
+                            },
+                          }
+                        : {})}
                     >
                       <div className="flex items-center">
                         {header.isPlaceholder
