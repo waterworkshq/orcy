@@ -3,10 +3,12 @@ import type { KanbanApiClient } from "../api.js";
 import { createDispatchTool, createDispatchHandler, type Handler } from "./dispatch-utils.js";
 import {
   habitatClaimTask,
+  habitatStartTask,
   habitatSubmitTask,
   habitatCompleteTask,
   habitatReleaseTask,
   habitatRetryTask,
+  habitatFailTask,
 } from "./task-lifecycle.js";
 import { habitatUpdateTask, habitatDeleteTask } from "./task-crud.js";
 import {
@@ -56,13 +58,14 @@ import { PRIORITY_LEVELS, ARTIFACT_TYPES } from "./constants.js";
 export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
   name: "orcy_habitat_task",
   description:
-    "Task operations: lifecycle (claim, submit, complete, release, retry), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
+    "Task operations: lifecycle (claim, start, submit, complete, release, retry, fail), CRUD (list-in-mission, create-in-mission, update, delete), detail (get-context, get-events, get-comments, add-comment, query (get-time-report, get-blocked-status, get-approval-status)), effort (log-effort, list-effort, get-effort-report, correct-effort-entry), code evidence (link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap), audit evidence bundle (get-audit-bundle), batch (batch-assign, batch-set-priority, batch-delete)",
   actions: [
     "list-in-mission",
     "create-in-mission",
     "update",
     "delete",
     "claim",
+    "start",
     "submit",
     "complete",
     "release",
@@ -97,6 +100,7 @@ export const TASK_DISPATCH_TOOL: Tool = createDispatchTool({
     "batch-assign",
     "batch-set-priority",
     "batch-delete",
+    "fail",
   ],
   sharedParams: {
     taskId: { type: "string", description: "Task UUID (used with most task actions)" },
@@ -324,10 +328,12 @@ export const TASK_ACTIONS: Record<string, Handler> = {
   update: habitatUpdateTask,
   delete: habitatDeleteTask,
   claim: habitatClaimTask,
+  start: habitatStartTask,
   submit: habitatSubmitTask,
   complete: habitatCompleteTask,
   release: habitatReleaseTask,
   retry: habitatRetryTask,
+  fail: habitatFailTask,
   "get-context": habitatGetTaskContext,
   "get-events": habitatGetTaskEvents,
   "get-comments": habitatGetTaskComments,

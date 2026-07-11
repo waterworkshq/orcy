@@ -430,6 +430,54 @@ describe("board_claim_task", () => {
   );
 });
 
+describe("board_start_task", () => {
+  it("calls client.startTask and returns the enriched task", async () => {
+    const client = createMockClient();
+    const mockTask = {
+      id: "task-1",
+      title: "Test",
+      status: "in_progress" as const,
+      assignedAgentId: "agent-1",
+      featureId: "feat-1",
+    };
+    client.startTask.mockResolvedValue({ task: mockTask });
+    client.getAgentById.mockResolvedValue({
+      agent: { id: "agent-1", name: "Test Agent" },
+    });
+
+    const raw = await TASK_DISPATCH_HANDLER(client, { action: "start", taskId: "task-1" });
+    const result = JSON.parse(raw.content[0].text);
+
+    expect(client.startTask).toHaveBeenCalledWith("task-1");
+    expect(result).toEqual({
+      success: true,
+      task: { ...mockTask, assignedAgentName: "Test Agent" },
+    });
+  });
+
+  it("returns the task with assignedAgentName=null when no agent is assigned", async () => {
+    const client = createMockClient();
+    const mockTask = {
+      id: "task-1",
+      title: "Test",
+      status: "in_progress" as const,
+      assignedAgentId: null,
+      featureId: "feat-1",
+    };
+    client.startTask.mockResolvedValue({ task: mockTask });
+    client.getAgentById.mockResolvedValue(null);
+
+    const raw = await TASK_DISPATCH_HANDLER(client, { action: "start", taskId: "task-1" });
+    const result = JSON.parse(raw.content[0].text);
+
+    expect(client.startTask).toHaveBeenCalledWith("task-1");
+    expect(result).toEqual({
+      success: true,
+      task: { ...mockTask, assignedAgentName: null },
+    });
+  });
+});
+
 describe("board_submit_task", () => {
   it("submits task with result and artifacts", async () => {
     const client = createMockClient();

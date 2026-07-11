@@ -13,7 +13,7 @@ describe("TASK_DISPATCH_TOOL", () => {
     expect(TASK_DISPATCH_TOOL.name).toBe("orcy_habitat_task");
   });
 
-  it("includes all 39 actions in the enum", () => {
+  it("includes all 41 actions in the enum", () => {
     const actionProp = TASK_DISPATCH_TOOL.inputSchema.properties.action as {
       enum?: string[];
     };
@@ -23,6 +23,7 @@ describe("TASK_DISPATCH_TOOL", () => {
       "update",
       "delete",
       "claim",
+      "start",
       "submit",
       "complete",
       "release",
@@ -57,6 +58,7 @@ describe("TASK_DISPATCH_TOOL", () => {
       "batch-assign",
       "batch-set-priority",
       "batch-delete",
+      "fail",
     ]);
   });
 
@@ -69,6 +71,10 @@ describe("TASK_ACTIONS", () => {
   describe("lifecycle actions", () => {
     it("routes claim to habitatClaimTask", () => {
       expect(TASK_ACTIONS["claim"]).toBe(taskLifecycle.habitatClaimTask);
+    });
+
+    it("routes start to habitatStartTask", () => {
+      expect(TASK_ACTIONS["start"]).toBe(taskLifecycle.habitatStartTask);
     });
 
     it("routes submit to habitatSubmitTask", () => {
@@ -85,6 +91,10 @@ describe("TASK_ACTIONS", () => {
 
     it("routes retry to habitatRetryTask", () => {
       expect(TASK_ACTIONS["retry"]).toBe(taskLifecycle.habitatRetryTask);
+    });
+
+    it("routes fail to habitatFailTask", () => {
+      expect(TASK_ACTIONS["fail"]).toBe(taskLifecycle.habitatFailTask);
     });
   });
 
@@ -188,8 +198,8 @@ describe("TASK_ACTIONS", () => {
     });
   });
 
-  it("has exactly 39 actions", () => {
-    expect(Object.keys(TASK_ACTIONS)).toHaveLength(39);
+  it("has exactly 41 actions", () => {
+    expect(Object.keys(TASK_ACTIONS)).toHaveLength(41);
   });
 
   it("every action maps to a function", () => {
@@ -204,6 +214,6 @@ describe("TASK_ACTIONS", () => {
       "new-action": () => {},
     };
     expect(extendedActions["new-action"]).toBeDefined();
-    expect(Object.keys(extendedActions)).toHaveLength(40);
+    expect(Object.keys(extendedActions)).toHaveLength(42);
   });
 });
