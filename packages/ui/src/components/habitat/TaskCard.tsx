@@ -74,7 +74,7 @@ export const TaskCard = memo(function TaskCard({
   const qualityStatus = qualityStatusProp ?? qualityReport?.overallStatus ?? null;
   const blockedByDeps = blockedByDepsProp ?? blockedStatus?.isBlocked ?? false;
 
-  function handleCardClick(_e: React.MouseEvent) {
+  function handleCardClick() {
     if (!isDragOverlay) {
       openModal(task.id);
     }
@@ -83,6 +83,14 @@ export const TaskCard = memo(function TaskCard({
   return (
     <div
       onClick={handleCardClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
       className={`group glass-card ${borderClass} p-3 hover:-translate-y-0.5 transition-colors transition-shadow duration-200 ease-out ${
         isDragOverlay ? "shadow-lg ring-2 ring-primary" : "animate-card-hover"
       } cursor-pointer`}
