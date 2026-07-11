@@ -18,17 +18,25 @@ const positionClasses: Record<string, string> = {
 export const Tooltip = React.forwardRef<HTMLDivElement, TooltipProps>(
   ({ children, content, position = 'top', className }, ref) => {
     const [visible, setVisible] = React.useState(false);
+    const tooltipId = React.useId();
+    const show = React.useCallback(() => setVisible(true), []);
+    const hide = React.useCallback(() => setVisible(false), []);
 
     return (
       <div
         ref={ref}
         className="relative inline-block"
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        aria-describedby={visible ? tooltipId : undefined}
       >
         {children}
         {visible && (
           <div
+            id={tooltipId}
+            role="tooltip"
             className={clsx(
               'absolute z-50 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white shadow-lg',
               positionClasses[position],
