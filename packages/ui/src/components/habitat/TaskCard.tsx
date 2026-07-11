@@ -1,4 +1,4 @@
-import React, { useState, memo } from "react";
+import React, { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useQuery } from "@tanstack/react-query";
@@ -56,7 +56,6 @@ export const TaskCard = memo(function TaskCard({
     (s) => s.presence.filter((p) => p.viewingTaskId === task.id),
     shallow,
   );
-  const [animKey] = useState(0);
   const borderClass = PRIORITY_BORDER_CLASS[task.priority] ?? PRIORITY_BORDER_CLASS.medium;
 
   const { data: qualityReport } = useQuery({
@@ -83,11 +82,10 @@ export const TaskCard = memo(function TaskCard({
 
   return (
     <div
-      key={animKey}
       onClick={handleCardClick}
       className={`group glass-card ${borderClass} p-3 hover:-translate-y-0.5 transition-colors transition-shadow duration-200 ease-out ${
         isDragOverlay ? "shadow-lg ring-2 ring-primary" : "animate-card-hover"
-      } ${!isDragOverlay && animKey > 0 ? "animate-task-move" : ""} cursor-pointer`}
+      } cursor-pointer`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
