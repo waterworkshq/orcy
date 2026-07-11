@@ -343,6 +343,79 @@ function registerContributions(mod: PluginModule): void {
   }
 }
 
+/**
+ * Reverses `registerContributions` for a single plugin. Walks the manifest's
+ * contributions and drops each from its kind's registry. Used to roll back a
+ * plugin whose `fastify.register` failed mid-`initializePlugins` — without
+ * this, admin surfaces (`getLoadedPlugins`) report the plugin as not-loaded
+ * while its contributions remain callable.
+ *
+ * Tier-C kinds (`customMcpTool`, `customHttpRoute`) have no per-plugin
+ * registry; removing the plugin from `loadedPlugins` is sufficient
+ * (`getCustomMcpTools` iterates `loadedPlugins`, and the failing
+ * `fastify.register` call is what this rollback is responding to).
+ */
+function unregisterContributions(mod: PluginModule): void {
+  const pluginId = mod.manifest.id;
+  for (const c of mod.manifest.contributions) {
+    switch (c.kind) {
+      case "notificationChannel":
+        if (channelRegistry.get(c.channelId)?.pluginId === pluginId) {
+          channelRegistry.delete(c.channelId);
+        }
+        break;
+      case "signalDetector":
+        // Detector keys are namespaced by `${pluginId}:${detectorId}`, so
+        // the plugin ownership is inherent to the key — no owner check.
+        detectorRegistry.delete(`${pluginId}:${c.detectorId}`);
+        break;
+      case "lifecycleInterceptor": {
+        const bucket = interceptorRegistry[c.phase];
+        const list = bucket.get(c.event);
+        if (!list) break;
+        const remaining = list.filter(
+          (entry) =>
+            !(
+              entry.pluginId === pluginId &&
+              entry.contribution.interceptorId === c.interceptorId &&
+              entry.contribution.phase === c.phase &&
+              entry.contribution.event === c.event
+            ),
+        );
+        if (remaining.length === 0) {
+          bucket.delete(c.event);
+        } else {
+          bucket.set(c.event, remaining);
+        }
+        break;
+      }
+      case "webhookFormatter":
+        if (formatterRegistry.get(c.formatId)?.pluginId === pluginId) {
+          formatterRegistry.delete(c.formatId);
+        }
+        break;
+      case "automationCondition":
+        if (conditionRegistry.get(c.conditionId)?.pluginId === pluginId) {
+          conditionRegistry.delete(c.conditionId);
+        }
+        break;
+      case "automationAction":
+        if (actionRegistry.get(c.actionId)?.pluginId === pluginId) {
+          actionRegistry.delete(c.actionId);
+        }
+        break;
+      case "integrationProvider":
+        if (providerRegistry.get(c.provider)?.pluginId === pluginId) {
+          providerRegistry.delete(c.provider);
+        }
+        break;
+      // Tier-C kinds fall through — see function header.
+      default:
+        break;
+    }
+  }
+}
+
 export async function loadPlugins(enabledList?: string[]): Promise<void> {
   const dir = resolve(getPluginDirectory());
   let entries: string[];
@@ -445,6 +518,10 @@ export async function initializePlugins(fastify: FastifyInstance): Promise<void>
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         pluginErrors.set(id, `Failed to register custom routes: ${message}`);
+        // Roll back every contribution this plugin published during
+        // `loadPlugins()` so admin surfaces and the dispatch path agree
+        // on which plugins are active.
+        unregisterContributions(mod);
         loadedPlugins.delete(id);
       }
     }
