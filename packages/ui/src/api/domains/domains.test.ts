@@ -57,7 +57,7 @@ describe("UI per-domain API organization", () => {
     (ns, exportName) => {
       const domainObj = (domains as Record<string, unknown>)[exportName] as object;
       const apiNs = (api as Record<string, unknown>)[ns] as object;
-      expect(Object.keys(domainObj).sort()).toEqual(Object.keys(apiNs).sort());
+      expect(Object.keys(domainObj).toSorted()).toEqual(Object.keys(apiNs).toSorted());
     },
   );
 
@@ -76,6 +76,6 @@ describe("UI per-domain API organization", () => {
     ],
   ] as const)("%s has exactly the expected method names", (exportName, expected) => {
     const obj = (domains as Record<string, unknown>)[exportName] as object;
-    expect(Object.keys(obj).sort()).toEqual([...expected].sort());
+    expect(Object.keys(obj).toSorted()).toEqual([...expected].toSorted());
   });
 });
