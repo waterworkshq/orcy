@@ -10,6 +10,9 @@ const priorityColor: Record<string, string> = {
   low: 'bg-[var(--badge-low)]',
 };
 
+const NODE_WIDTH = 220;
+const NODE_MIN_HEIGHT = 60;
+
 export type FeatureNodeData = {
   feature: MissionWithProgress;
   isHighlighted: boolean;
@@ -25,8 +28,8 @@ function FeatureGraphNodeComponent({ data }: NodeProps<FeatureNode>) {
   const borderColor = isHighlighted
     ? 'ring-2 ring-primary/60 border-primary/40'
     : !isDependencyMet
-    ? 'border-amber-400 border-dashed'
-    : 'border-[rgba(68,72,77,0.15)]';
+    ? 'border-outline-variant border-dashed'
+    : 'border-outline-variant/15';
 
   const progress = feature.progress;
   const donePercent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
@@ -36,7 +39,7 @@ function FeatureGraphNodeComponent({ data }: NodeProps<FeatureNode>) {
       <Handle type="target" position={Position.Top} className="!w-2 !h-2 !bg-on-surface-variant" />
       <div
         className={`glass-card p-2.5 transition-all duration-200 ${borderColor} ${isDimmed ? 'opacity-30' : 'opacity-100'}`}
-        style={{ width: 220, minHeight: 60 }}
+        style={{ width: NODE_WIDTH, minHeight: NODE_MIN_HEIGHT }}
       >
         <div className="flex items-center gap-2 mb-1.5">
           <div className={`h-2 w-2 rounded-full flex-shrink-0 ${priorityColor[feature.priority] ?? 'bg-[var(--badge-low)]'}`} />
