@@ -53,6 +53,14 @@ function TaskListItem({ task }: { task: Task }) {
   return (
     <div
       onClick={() => openModal(task.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openModal(task.id);
+        }
+      }}
       className="p-2.5 bg-[var(--surface-container)] border border-[var(--outline-variant)] rounded hover:border-[var(--outline)] transition-all cursor-pointer"
     >
       <div className="flex justify-between items-start mb-1.5">
@@ -125,8 +133,16 @@ export function PipelineContextSidebar({ feature: _feature, tasks }: PipelineCon
             {tasks.slice(0, 6).map((task) => (
               <div
                 key={task.id}
-                className="flex items-center space-x-2 group cursor-pointer"
+                role="button"
+                tabIndex={0}
                 onClick={() => openModal(task.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openModal(task.id);
+                  }
+                }}
+                className="flex items-center space-x-2 group cursor-pointer"
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${statusDotColor(task.status)}`} />
                 <div className="bg-[var(--surface-container)] border border-[var(--outline-variant)] p-1.5 rounded text-[10px] flex-1">

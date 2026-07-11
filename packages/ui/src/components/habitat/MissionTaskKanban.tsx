@@ -39,6 +39,14 @@ function KanbanTaskCard({ task }: { task: Task }) {
   return (
     <div
       onClick={() => openModal(task.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openModal(task.id);
+        }
+      }}
       className="p-2.5 bg-[var(--surface-container)] border border-[var(--outline-variant)] rounded hover:border-[var(--outline)] transition-all cursor-pointer"
     >
       <div className="flex justify-between items-start mb-1.5">
