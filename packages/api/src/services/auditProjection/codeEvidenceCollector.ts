@@ -1,18 +1,15 @@
-import type { AuditEvent, AuditQueryEntityType, AuditWarning } from "@orcy/shared/types";
-import { and, eq, sql } from "drizzle-orm";
-import { getDb } from "../../db/index.js";
+import type { AuditEvent, AuditWarning } from "@orcy/shared/types";
 import {
-  codeChangedFiles,
-  codeCommits,
-  codeEvidenceGaps,
-  codeEvidenceLinks,
-  codeReviews,
-  habitatCodeRepositories,
-  missions,
-  pipelineEvents,
-  pullRequests,
-  tasks,
-} from "../../db/schema/index.js";
+  loadCodeEvidenceAuditContext,
+  type CodeChangedFileRow,
+  type CodeCommitRow,
+  type CodeEvidenceLinkRow,
+  type CodeEvidenceGapRow,
+  type CodeRepositoryRow,
+  type CodeReviewRow,
+  type PipelineEventRow,
+  type PullRequestRow,
+} from "../../repositories/auditProjection/codeEvidence.js";
 import type { AuditProjectionCollector } from "./types.js";
 import {
   auditMetadata,
@@ -30,15 +27,6 @@ import {
   type MissionInfo,
   type TaskInfo,
 } from "./helpers.js";
-
-type CodeEvidenceLinkRow = typeof codeEvidenceLinks.$inferSelect;
-type CodeEvidenceGapRow = typeof codeEvidenceGaps.$inferSelect;
-type CodeCommitRow = typeof codeCommits.$inferSelect;
-type CodeChangedFileRow = typeof codeChangedFiles.$inferSelect;
-type PullRequestRow = typeof pullRequests.$inferSelect;
-type CodeReviewRow = typeof codeReviews.$inferSelect;
-type CodeRepositoryRow = typeof habitatCodeRepositories.$inferSelect;
-type PipelineEventRow = typeof pipelineEvents.$inferSelect;
 
 interface CodeProjectionContext {
   taskById: Map<string, TaskInfo>;
@@ -388,200 +376,77 @@ export const codeEvidenceCollector: AuditProjectionCollector = {
   ],
   failurePolicy: "fatal",
   collect(request) {
-    const db = getDb();
     const habitatId = request.habitatId;
-    const sel = request.selectedEntityTypes;
-    const has = (t: AuditQueryEntityType) => sel.size === 0 || sel.has(t);
+    const loaded = loadCodeEvidenceAuditContext(habitatId, request.selectedEntityTypes);
 
-    const taskInfoRows = db
-      .select({
-        taskId: tasks.id,
-        taskTitle: tasks.title,
-        missionId: tasks.missionId,
-        missionTitle: missions.title,
-        habitatId: missions.habitatId,
-      })
-      .from(tasks)
-      .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(eq(missions.habitatId, habitatId))
-      .all();
-    const missionInfoRows = db
-      .select({
-        missionId: missions.id,
-        missionTitle: missions.title,
-        habitatId: missions.habitatId,
-      })
-      .from(missions)
-      .where(eq(missions.habitatId, habitatId))
-      .all();
-
-    const taskIds = new Set(taskInfoRows.map((r) => r.taskId));
-    const missionIds = new Set(missionInfoRows.map((r) => r.missionId));
-    const repoRows = db
-      .select()
-      .from(habitatCodeRepositories)
-      .where(eq(habitatCodeRepositories.habitatId, habitatId))
-      .all() as CodeRepositoryRow[];
-    const repoIds = new Set(repoRows.map((r) => r.id));
-
-    const codeEvidenceLinkRows = has("code_evidence_link")
-      ? (db
-          .select()
-          .from(codeEvidenceLinks)
-          .where(
-            and(
-              sql`(${codeEvidenceLinks.targetType} = 'task' AND ${codeEvidenceLinks.targetId} IN (${sql.join([...taskIds], sql`, `)})) OR (${codeEvidenceLinks.targetType} = 'mission' AND ${codeEvidenceLinks.targetId} IN (${sql.join([...missionIds], sql`, `)}))`,
-            ),
-          )
-          .all() as CodeEvidenceLinkRow[])
-      : [];
-    const codeEvidenceGapRows = has("code_evidence_gap")
-      ? (db
-          .select()
-          .from(codeEvidenceGaps)
-          .where(
-            and(
-              sql`(${codeEvidenceGaps.targetType} = 'task' AND ${codeEvidenceGaps.targetId} IN (${sql.join([...taskIds], sql`, `)})) OR (${codeEvidenceGaps.targetType} = 'mission' AND ${codeEvidenceGaps.targetId} IN (${sql.join([...missionIds], sql`, `)}))`,
-            ),
-          )
-          .all() as CodeEvidenceGapRow[])
-      : [];
-    const codeCommitRows = has("commit")
-      ? (db
-          .select()
-          .from(codeCommits)
-          .where(
-            repoIds.size > 0
-              ? sql`${codeCommits.repositoryId} IN (${sql.join([...repoIds], sql`, `)})`
-              : sql`1 = 0`,
-          )
-          .all() as CodeCommitRow[])
-      : [];
-    const codeChangedFileRows = has("changed_file")
-      ? (db
-          .select()
-          .from(codeChangedFiles)
-          .where(
-            repoIds.size > 0
-              ? sql`${codeChangedFiles.repositoryId} IN (${sql.join([...repoIds], sql`, `)})`
-              : sql`1 = 0`,
-          )
-          .all() as CodeChangedFileRow[])
-      : [];
-    const pullRequestRows = has("pull_request")
-      ? (db
-          .select()
-          .from(pullRequests)
-          .where(
-            taskIds.size > 0
-              ? sql`${pullRequests.taskId} IN (${sql.join([...taskIds], sql`, `)})`
-              : sql`1 = 0`,
-          )
-          .all() as PullRequestRow[])
-      : [];
-    const codeReviewRows = has("code_review")
-      ? (db
-          .select()
-          .from(codeReviews)
-          .where(
-            repoIds.size > 0
-              ? sql`${codeReviews.repositoryId} IN (${sql.join([...repoIds], sql`, `)})`
-              : sql`1 = 0`,
-          )
-          .all() as CodeReviewRow[])
-      : [];
-    const pipelineEventRows = has("pipeline_event")
-      ? (db
-          .select()
-          .from(pipelineEvents)
-          .where(
-            taskIds.size > 0
-              ? sql`${pipelineEvents.taskId} IN (${sql.join([...taskIds], sql`, `)})`
-              : sql`1 = 0`,
-          )
-          .all() as PipelineEventRow[])
-      : [];
-
-    const taskById = new Map<string, TaskInfo>();
-    for (const row of taskInfoRows) {
-      taskById.set(row.taskId, {
-        taskId: row.taskId,
-        taskTitle: row.taskTitle,
-        missionId: row.missionId,
-        missionTitle: row.missionTitle,
-        habitatId: row.habitatId,
-      });
-    }
-    const missionById = new Map<string, MissionInfo>();
-    for (const row of missionInfoRows) {
-      missionById.set(row.missionId, {
-        missionId: row.missionId,
-        missionTitle: row.missionTitle,
-        habitatId: row.habitatId,
-      });
-    }
-
-    const context: CodeProjectionContext = {
-      taskById,
-      missionById,
-      repositoryById: new Map(repoRows.map((row) => [row.id, row])),
-      pullRequestById: new Map(pullRequestRows.map((row) => [row.id, row])),
-      commitById: new Map(codeCommitRows.map((row) => [row.id, row])),
-      evidenceTargetsByEvidence: new Map(),
-    };
-
-    for (const row of codeEvidenceLinkRows) {
+    const evidenceTargetsByEvidence = new Map<string, Array<TaskInfo | MissionInfo>>();
+    for (const row of loaded.codeEvidenceLinkRows) {
       const target =
-        row.targetType === "task" ? taskById.get(row.targetId) : missionById.get(row.targetId);
+        row.targetType === "task"
+          ? loaded.taskById.get(row.targetId)
+          : loaded.missionById.get(row.targetId);
       pushEvidenceTarget(
-        context.evidenceTargetsByEvidence,
+        evidenceTargetsByEvidence,
         row.evidenceType,
         row.evidenceId,
         target ?? null,
       );
     }
 
+    const context: CodeProjectionContext = {
+      taskById: loaded.taskById,
+      missionById: loaded.missionById,
+      repositoryById: loaded.repositoryById,
+      pullRequestById: loaded.pullRequestById,
+      commitById: loaded.commitById,
+      evidenceTargetsByEvidence,
+    };
+
     const events: AuditEvent[] = [];
     let skippedRows = 0;
-    for (const row of codeEvidenceLinkRows) {
+    for (const row of loaded.codeEvidenceLinkRows) {
       const target =
-        row.targetType === "task" ? taskById.get(row.targetId) : missionById.get(row.targetId);
+        row.targetType === "task"
+          ? context.taskById.get(row.targetId)
+          : context.missionById.get(row.targetId);
       if (!target) {
         skippedRows++;
         continue;
       }
       events.push(projectCodeEvidenceLinkRow(row, target));
     }
-    for (const row of codeEvidenceGapRows) {
+    for (const row of loaded.codeEvidenceGapRows) {
       const target =
-        row.targetType === "task" ? taskById.get(row.targetId) : missionById.get(row.targetId);
+        row.targetType === "task"
+          ? context.taskById.get(row.targetId)
+          : context.missionById.get(row.targetId);
       if (!target) {
         skippedRows++;
         continue;
       }
       events.push(projectCodeEvidenceGapRow(row, target));
     }
-    for (const row of codeCommitRows) {
+    for (const row of loaded.codeCommitRows) {
       const event = projectCommitRow(row, context);
       if (event) events.push(event);
       else skippedRows++;
     }
-    for (const row of codeChangedFileRows) {
+    for (const row of loaded.codeChangedFileRows) {
       const event = projectChangedFileRow(row, context);
       if (event) events.push(event);
       else skippedRows++;
     }
-    for (const row of pullRequestRows) {
+    for (const row of loaded.pullRequestRows) {
       const event = projectPullRequestRow(row, context);
       if (event) events.push(event);
       else skippedRows++;
     }
-    for (const row of codeReviewRows) {
+    for (const row of loaded.codeReviewRows) {
       const event = projectCodeReviewRow(row, context);
       if (event) events.push(event);
       else skippedRows++;
     }
-    for (const row of pipelineEventRows) {
+    for (const row of loaded.pipelineEventRows) {
       const event = projectPipelineEventRow(row, context);
       if (event) events.push(event);
       else skippedRows++;
