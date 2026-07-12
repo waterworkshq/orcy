@@ -1,14 +1,10 @@
 import type { AuditEvent, AuditQueryEntityType, AuditWarning } from "@orcy/shared/types";
-import { eq, sql } from "drizzle-orm";
-import { getDb } from "../../db/index.js";
 import {
-  webhookDeliveries,
-  webhookSubscriptions,
-} from "../../db/schema/index.js";
+  listForAudit,
+  type WebhookDeliveryRow,
+  type WebhookSubscriptionRow,
+} from "../../repositories/auditProjection/webhookDeliveries.js";
 import type { AuditProjectionCollector } from "./types.js";
-
-type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
-type WebhookSubscriptionRow = typeof webhookSubscriptions.$inferSelect;
 
 function projectWebhookDeliveryRow(
   row: WebhookDeliveryRow,
@@ -51,28 +47,11 @@ export const webhookDeliveryCollector: AuditProjectionCollector = {
   failurePolicy: "warning",
   warningSource: "webhook",
   collect(request) {
-    const db = getDb();
-    const habitatId = request.habitatId;
     const sel: ReadonlySet<AuditQueryEntityType> = request.selectedEntityTypes;
     if (sel.size > 0 && !sel.has("webhook_delivery")) {
       return { events: [], warnings: [], caveats: [] };
     }
-    const subscriptionRows = db
-      .select()
-      .from(webhookSubscriptions)
-      .where(eq(webhookSubscriptions.habitatId, habitatId))
-      .all() as WebhookSubscriptionRow[];
-    const subscriptionIds = new Set(subscriptionRows.map((r) => r.id));
-    const deliveryRows =
-      subscriptionIds.size > 0
-        ? (db
-            .select()
-            .from(webhookDeliveries)
-            .where(
-              sql`${webhookDeliveries.subscriptionId} IN (${sql.join([...subscriptionIds], sql`, `)})`,
-            )
-            .all() as WebhookDeliveryRow[])
-        : [];
+    const { subscriptionRows, deliveryRows } = listForAudit(request.habitatId);
     const subscriptionById = new Map(subscriptionRows.map((row) => [row.id, row]));
 
     const events: AuditEvent[] = [];

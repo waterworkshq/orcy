@@ -22,12 +22,16 @@ import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as pluginRunRepo from "../repositories/pluginRun.js";
 import * as timeRepo from "../repositories/timeTracking.js";
 import * as healthRepo from "../repositories/habitatHealth.js";
+import * as webhookSubRepo from "../repositories/webhookSubscription.js";
+import * as webhookDeliveryRepo from "../repositories/webhookDelivery.js";
 import {
   automationRuleRuns,
   notificationDeliveries,
   notificationEvents,
   pluginRuns,
   habitatHealthSnapshots,
+  webhookDeliveries,
+  webhookSubscriptions,
 } from "../db/schema/index.js";
 import { v4 as uuid } from "uuid";
 import { listForAudit as listAutomationRunsForAudit } from "../repositories/auditProjection/automationRuns.js";
@@ -36,6 +40,7 @@ import { listDeliveriesForAudit } from "../repositories/auditProjection/notifica
 import { listForAudit as listPluginRunsForAudit } from "../repositories/auditProjection/pluginRuns.js";
 import { listForAudit as listTimeRecordsForAudit } from "../repositories/auditProjection/timeRecords.js";
 import { listForAudit as listHealthSnapshotsForAudit } from "../repositories/auditProjection/healthSnapshots.js";
+import { listForAudit as listWebhookDeliveriesForAudit } from "../repositories/auditProjection/webhookDeliveries.js";
 
 const SEED_ROWS = 60;
 
@@ -47,6 +52,8 @@ beforeEach(async () => {
   db.delete(notificationEvents).run();
   db.delete(pluginRuns).run();
   db.delete(habitatHealthSnapshots).run();
+  db.delete(webhookDeliveries).run();
+  db.delete(webhookSubscriptions).run();
 });
 
 afterEach(() => {
@@ -227,5 +234,35 @@ describe("auditProjection/healthSnapshots.listForAudit", () => {
     const rows = listHealthSnapshotsForAudit(habitat.id);
     expect(rows).toHaveLength(SEED_ROWS);
     expect(rows.every((r) => r.habitatId === habitat.id)).toBe(true);
+  });
+});
+
+describe("auditProjection/webhookDeliveries.listForAudit", () => {
+  it("returns every webhook subscription + delivery pair in the habitat uncapped (>50 rows)", () => {
+    const { habitat } = setupHabitat();
+    const subscription = webhookSubRepo.createWebhookSubscriptionRecord({
+      id: uuid(),
+      habitatId: habitat.id,
+      name: "Audit sub",
+      url: "https://example.com/hook",
+      secret: "shh",
+      events: ["task.created"],
+      headers: {},
+      format: "standard",
+    });
+
+    for (let i = 0; i < SEED_ROWS; i++) {
+      webhookDeliveryRepo.createWebhookDeliveryRecord(
+        subscription.id,
+        "task.created",
+        "{}",
+        uuid(),
+      );
+    }
+
+    const data = listWebhookDeliveriesForAudit(habitat.id);
+    expect(data.subscriptionRows).toHaveLength(1);
+    expect(data.deliveryRows).toHaveLength(SEED_ROWS);
+    expect(data.deliveryRows.every((r) => r.subscriptionId === subscription.id)).toBe(true);
   });
 });
