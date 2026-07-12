@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "../ui/Badge.js";
 import { AgentAvatar } from "./AgentAvatar.js";
 import { useModalStore } from "../../store/modalStore.js";
@@ -11,10 +12,20 @@ import {
 import type { Task } from "../../types/index.js";
 import { User } from "lucide-react";
 
+const VIRTUALIZE_THRESHOLD = 100;
+const ESTIMATED_CARD_HEIGHT = 88;
+
 interface TaskCardListProps {
   tasks: Task[];
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
+  /**
+   * Optional external scroll container ref. When provided, the virtualizer
+   * measures scroll against this element and the component renders only the
+   * items (no own scroll container). Falls back to an internal scroll
+   * container — used in isolation (e.g. tests).
+   */
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 const TaskCardItem = React.memo(function TaskCardItem({
@@ -93,8 +104,23 @@ const TaskCardItem = React.memo(function TaskCardItem({
   );
 });
 
-export function TaskCardList({ tasks, selectedIds, onSelectionChange }: TaskCardListProps) {
+export function TaskCardList({
+  tasks,
+  selectedIds,
+  onSelectionChange,
+  scrollRef: externalScrollRef,
+}: TaskCardListProps) {
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const internalScrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = externalScrollRef ?? internalScrollRef;
+  const shouldVirtualize = tasks.length > VIRTUALIZE_THRESHOLD;
+
+  const virtualizer = useVirtualizer({
+    count: tasks.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_CARD_HEIGHT,
+    enabled: shouldVirtualize,
+  });
 
   function handleToggle(taskId: string) {
     const next = selectedSet.has(taskId)
@@ -111,8 +137,31 @@ export function TaskCardList({ tasks, selectedIds, onSelectionChange }: TaskCard
     );
   }
 
-  return (
-    <div className="flex flex-col gap-2" role="list">
+  const virtualItems = shouldVirtualize ? virtualizer.getVirtualItems() : [];
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const lastVirtualItem = virtualItems[virtualItems.length - 1];
+  const paddingBottom = lastVirtualItem
+    ? virtualizer.getTotalSize() - lastVirtualItem.end
+    : 0;
+
+  const list = shouldVirtualize ? (
+    <>
+      <div style={{ height: paddingTop }} aria-hidden="true" />
+      {virtualItems.map((virtualItem) => {
+        const task = tasks[virtualItem.index];
+        return (
+          <TaskCardItem
+            key={task.id}
+            task={task}
+            isSelected={selectedSet.has(task.id)}
+            onToggle={() => handleToggle(task.id)}
+          />
+        );
+      })}
+      <div style={{ height: paddingBottom }} aria-hidden="true" />
+    </>
+  ) : (
+    <div className="flex flex-col gap-2">
       {tasks.map((task) => (
         <TaskCardItem
           key={task.id}
@@ -121,6 +170,24 @@ export function TaskCardList({ tasks, selectedIds, onSelectionChange }: TaskCard
           onToggle={() => handleToggle(task.id)}
         />
       ))}
+    </div>
+  );
+
+  // When the parent supplies a scroll container, render items directly into it
+  // (no nested scroll container). Otherwise, render our own bounded-height
+  // scroll container — used in isolation (e.g. unit tests).
+  if (externalScrollRef) {
+    return <div role="list">{list}</div>;
+  }
+
+  return (
+    <div
+      ref={internalScrollRef}
+      className="overflow-auto"
+      style={{ maxHeight: "600px", overflowY: "auto" }}
+      role="list"
+    >
+      {list}
     </div>
   );
 }

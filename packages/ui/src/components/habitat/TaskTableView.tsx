@@ -40,6 +40,7 @@ interface TaskTableViewProps {
 export function TaskTableView({ habitatId }: TaskTableViewProps) {
   const isMobile = useIsMobile();
   const columns = React.useMemo(() => getTaskTableColumns(), []);
+  const mobileScrollRef = React.useRef<HTMLDivElement>(null);
 
   const [statusFilter, setStatusFilter] = React.useState<string>("all");
   const [priorityFilter, setPriorityFilter] = React.useState<string>("all");
@@ -198,17 +199,24 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
               </span>
             </div>
           )}
-          <TaskCardList
-            tasks={tasks}
-            selectedIds={selectedTaskIds}
-            onSelectionChange={(ids) => {
-              const mapping: RowSelectionState = {};
-              ids.forEach((id) => {
-                mapping[id] = true;
-              });
-              setRowSelection(mapping);
-            }}
-          />
+          <div
+            ref={mobileScrollRef}
+            className="overflow-y-auto"
+            style={{ maxHeight: "600px" }}
+          >
+            <TaskCardList
+              tasks={tasks}
+              selectedIds={selectedTaskIds}
+              onSelectionChange={(ids) => {
+                const mapping: RowSelectionState = {};
+                ids.forEach((id) => {
+                  mapping[id] = true;
+                });
+                setRowSelection(mapping);
+              }}
+              scrollRef={mobileScrollRef}
+            />
+          </div>
         </div>
       ) : (
         <DataTable
