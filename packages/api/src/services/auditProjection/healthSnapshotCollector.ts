@@ -1,10 +1,9 @@
 import type { AuditEvent } from "@orcy/shared/types";
-import { eq } from "drizzle-orm";
-import { getDb } from "../../db/index.js";
-import { habitatHealthSnapshots } from "../../db/schema/index.js";
+import {
+  listForAudit,
+  type HabitatHealthSnapshotRow,
+} from "../../repositories/auditProjection/healthSnapshots.js";
 import type { AuditProjectionCollector } from "./types.js";
-
-type HabitatHealthSnapshotRow = typeof habitatHealthSnapshots.$inferSelect;
 
 function projectHealthSnapshotRow(row: HabitatHealthSnapshotRow): AuditEvent {
   return {
@@ -40,12 +39,7 @@ export const healthSnapshotCollector: AuditProjectionCollector = {
     if (!sel.has("health_snapshot")) {
       return { events: [], warnings: [], caveats: [] };
     }
-    const db = getDb();
-    const rows = db
-      .select()
-      .from(habitatHealthSnapshots)
-      .where(eq(habitatHealthSnapshots.habitatId, request.habitatId))
-      .all() as HabitatHealthSnapshotRow[];
+    const rows = listForAudit(request.habitatId);
     const events: AuditEvent[] = rows.map(projectHealthSnapshotRow);
     return { events, warnings: [], caveats: [] };
   },

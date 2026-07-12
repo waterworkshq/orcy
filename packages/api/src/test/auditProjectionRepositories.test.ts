@@ -21,11 +21,13 @@ import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as pluginRunRepo from "../repositories/pluginRun.js";
 import * as timeRepo from "../repositories/timeTracking.js";
+import * as healthRepo from "../repositories/habitatHealth.js";
 import {
   automationRuleRuns,
   notificationDeliveries,
   notificationEvents,
   pluginRuns,
+  habitatHealthSnapshots,
 } from "../db/schema/index.js";
 import { v4 as uuid } from "uuid";
 import { listForAudit as listAutomationRunsForAudit } from "../repositories/auditProjection/automationRuns.js";
@@ -33,6 +35,7 @@ import { listEventsForAudit } from "../repositories/auditProjection/notification
 import { listDeliveriesForAudit } from "../repositories/auditProjection/notificationDeliveries.js";
 import { listForAudit as listPluginRunsForAudit } from "../repositories/auditProjection/pluginRuns.js";
 import { listForAudit as listTimeRecordsForAudit } from "../repositories/auditProjection/timeRecords.js";
+import { listForAudit as listHealthSnapshotsForAudit } from "../repositories/auditProjection/healthSnapshots.js";
 
 const SEED_ROWS = 60;
 
@@ -43,6 +46,7 @@ beforeEach(async () => {
   db.delete(notificationDeliveries).run();
   db.delete(notificationEvents).run();
   db.delete(pluginRuns).run();
+  db.delete(habitatHealthSnapshots).run();
 });
 
 afterEach(() => {
@@ -200,5 +204,28 @@ describe("auditProjection/timeRecords.listForAudit", () => {
     }
     const rows = listTimeRecordsForAudit(uuid());
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("auditProjection/healthSnapshots.listForAudit", () => {
+  it("returns every health snapshot in the habitat uncapped (>50 rows)", () => {
+    const { habitat } = setupHabitat();
+
+    for (let i = 0; i < SEED_ROWS; i++) {
+      healthRepo.createHealthSnapshot({
+        id: uuid(),
+        habitatId: habitat.id,
+        score: 50 + (i % 50),
+        grade: ["A", "B", "C", "D", "F"][i % 5] as "A" | "B" | "C" | "D" | "F",
+        dimensions: "{}",
+        metrics: "{}",
+        recommendations: "[]",
+        snapshotAt: new Date(2026, 0, 1, 0, i).toISOString(),
+      });
+    }
+
+    const rows = listHealthSnapshotsForAudit(habitat.id);
+    expect(rows).toHaveLength(SEED_ROWS);
+    expect(rows.every((r) => r.habitatId === habitat.id)).toBe(true);
   });
 });
