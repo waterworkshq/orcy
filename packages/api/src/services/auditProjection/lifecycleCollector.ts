@@ -1,13 +1,10 @@
 import type { AuditEvent } from "@orcy/shared/types";
-import { eq, sql } from "drizzle-orm";
-import { getDb } from "../../db/index.js";
 import {
-  agents,
-  missionEvents,
-  missions,
-  taskEvents,
-  tasks,
-} from "../../db/schema/index.js";
+  listMissionEventsForAudit,
+  listTaskEventsForAudit,
+  type MissionAuditRow,
+  type TaskAuditRow,
+} from "../../repositories/auditProjection/lifecycleEvents.js";
 import type { AuditProjectionCollector } from "./types.js";
 import {
   buildCompleteness,
@@ -16,42 +13,6 @@ import {
   readString,
   taskSummary,
 } from "./helpers.js";
-
-interface TaskAuditRow {
-  id: string;
-  taskId: string;
-  taskTitle: string;
-  missionId: string;
-  missionTitle: string;
-  missionHabitatId: string;
-  actorType: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
-  actorId: string;
-  actorName: string | null;
-  action: string;
-  fromStatus: string | null;
-  toStatus: string | null;
-  fromColumnId: string | null;
-  toColumnId: string | null;
-  metadata: Record<string, unknown>;
-  timestamp: string;
-}
-
-interface MissionAuditRow {
-  id: string;
-  missionId: string;
-  missionTitle: string | null;
-  missionHabitatId: string | null;
-  actorType: "human" | "agent" | "system" | "remote_human" | "remote_orcy" | "remote_pod";
-  actorId: string;
-  actorName: string | null;
-  action: string;
-  fromStatus: string | null;
-  toStatus: string | null;
-  fromColumnId: string | null;
-  toColumnId: string | null;
-  metadata: Record<string, unknown>;
-  timestamp: string;
-}
 
 function projectTaskRow(row: TaskAuditRow): AuditEvent {
   const normalized = normalizeAuditActorAndSource({
@@ -108,65 +69,14 @@ export const lifecycleCollector: AuditProjectionCollector = {
   entityTypes: ["task", "mission"],
   failurePolicy: "fatal",
   collect(request) {
-    const db = getDb();
     const habitatId = request.habitatId;
-    const shouldQueryTasks = !request.selectedEntityTypes.size
-      || request.selectedEntityTypes.has("task");
-    const shouldQueryMissions = !request.selectedEntityTypes.size
-      || request.selectedEntityTypes.has("mission");
+    const shouldQueryTasks =
+      !request.selectedEntityTypes.size || request.selectedEntityTypes.has("task");
+    const shouldQueryMissions =
+      !request.selectedEntityTypes.size || request.selectedEntityTypes.has("mission");
 
-    const taskRows = shouldQueryTasks
-      ? (db
-          .select({
-            id: taskEvents.id,
-            taskId: taskEvents.taskId,
-            taskTitle: tasks.title,
-            missionId: tasks.missionId,
-            missionTitle: missions.title,
-            missionHabitatId: missions.habitatId,
-            actorType: taskEvents.actorType,
-            actorId: taskEvents.actorId,
-            actorName: agents.name,
-            action: taskEvents.action,
-            fromStatus: taskEvents.fromStatus,
-            toStatus: taskEvents.toStatus,
-            fromColumnId: taskEvents.fromColumnId,
-            toColumnId: taskEvents.toColumnId,
-            metadata: taskEvents.metadata,
-            timestamp: taskEvents.timestamp,
-          })
-          .from(taskEvents)
-          .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-          .innerJoin(missions, eq(tasks.missionId, missions.id))
-          .leftJoin(agents, eq(taskEvents.actorId, agents.id))
-          .where(eq(missions.habitatId, habitatId))
-          .all() as TaskAuditRow[])
-      : [];
-
-    const missionRows = shouldQueryMissions
-      ? (db
-          .select({
-            id: missionEvents.id,
-            missionId: missionEvents.missionId,
-            missionTitle: missions.title,
-            missionHabitatId: missions.habitatId,
-            actorType: missionEvents.actorType,
-            actorId: missionEvents.actorId,
-            actorName: agents.name,
-            action: missionEvents.action,
-            fromStatus: missionEvents.fromStatus,
-            toStatus: missionEvents.toStatus,
-            fromColumnId: missionEvents.fromColumnId,
-            toColumnId: missionEvents.toColumnId,
-            metadata: missionEvents.metadata,
-            timestamp: missionEvents.timestamp,
-          })
-          .from(missionEvents)
-          .leftJoin(missions, eq(missionEvents.missionId, missions.id))
-          .leftJoin(agents, eq(missionEvents.actorId, agents.id))
-          .where(sql`(${missions.habitatId} = ${habitatId} OR ${missions.id} IS NULL)`)
-          .all() as MissionAuditRow[])
-      : [];
+    const taskRows = shouldQueryTasks ? listTaskEventsForAudit(habitatId) : [];
+    const missionRows = shouldQueryMissions ? listMissionEventsForAudit(habitatId) : [];
 
     const projectedTaskEvents = taskRows
       .filter((row) => row.action !== "effort_logged" && row.action !== "effort_corrected")
