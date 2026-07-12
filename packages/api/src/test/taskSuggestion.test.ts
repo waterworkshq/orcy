@@ -14,10 +14,6 @@ vi.mock("../repositories/agent.js", () => ({
   listAgents: vi.fn(),
 }));
 
-vi.mock("../repositories/workflow.js", () => ({
-  areAllWorkflowGatesSatisfied: vi.fn().mockReturnValue(true),
-}));
-
 const taskScoringMocks = vi.hoisted(() => ({
   scoreTask: vi.fn(() => 50),
   computeSlaUrgencyWeight: vi.fn(() => 0),
@@ -68,7 +64,6 @@ import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as agentRepo from "../repositories/agent.js";
-import { areAllWorkflowGatesSatisfied } from "../repositories/workflow.js";
 
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -166,35 +161,17 @@ describe("taskSuggestion", () => {
       expect(result.suggestions).toHaveLength(2);
     });
 
-    it("excludes tasks with unsatisfied workflow gates (W5)", () => {
+    it("scores the workflow-eligible candidates returned by the repository", () => {
       vi.mocked(agentRepo.getAgentById).mockReturnValue(makeAgent() as any);
       vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([
-        makeTask({ id: "t1" }) as any,
-        makeTask({ id: "t2" }) as any,
+        makeTask({ id: "workflow-eligible" }) as any,
       ]);
       vi.mocked(missionRepo.getMissionById).mockReturnValue({ title: "M" } as any);
-      vi.mocked(areAllWorkflowGatesSatisfied).mockImplementation(
-        (taskId: string) => taskId !== "t1",
-      );
 
       const result = getSuggestionsForAgent("h1", "agent-1");
 
       expect(result.suggestions).toHaveLength(1);
-      expect(result.suggestions[0].taskId).toBe("t2");
-    });
-
-    it("includes all tasks when all workflow gates are satisfied (W5)", () => {
-      vi.mocked(agentRepo.getAgentById).mockReturnValue(makeAgent() as any);
-      vi.mocked(taskRepo.getAvailableTasksForAgent).mockReturnValue([
-        makeTask({ id: "t1" }) as any,
-        makeTask({ id: "t2" }) as any,
-      ]);
-      vi.mocked(missionRepo.getMissionById).mockReturnValue({ title: "M" } as any);
-      vi.mocked(areAllWorkflowGatesSatisfied).mockReturnValue(true);
-
-      const result = getSuggestionsForAgent("h1", "agent-1");
-
-      expect(result.suggestions).toHaveLength(2);
+      expect(result.suggestions[0].taskId).toBe("workflow-eligible");
     });
   });
 });

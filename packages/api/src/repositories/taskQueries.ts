@@ -187,7 +187,7 @@ export function getAvailableTasksForAgent(
 
   const priorityOrder = priorityOrderExpr(outerTasks.priority);
 
-  return filters?.limit
+  const candidates = filters?.limit
     ? db
         .select()
         .from(outerTasks)
@@ -201,6 +201,8 @@ export function getAvailableTasksForAgent(
         .where(and(...conditions))
         .orderBy(priorityOrder, asc(outerTasks.createdAt))
         .all();
+
+  return candidates.filter((task) => areAllWorkflowGatesSatisfied(task.id));
 }
 
 export function getTasksByDependency(dependsOnId: string): Task[] {
