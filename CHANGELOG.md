@@ -2,6 +2,17 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.29.9 — 2026-07-12
+
+### Refactors
+
+#### consolidate claimTask guards onto checkClaimability as single mutation authority ([`7182b3a`](https://github.com/waterworkshq/orcy/commit/7182b3a8c1ef66cee57df47702e8e3ec73aacf99))
+
+
+#### project workflow-gate constraint inside getAvailableTasksForAgent closing read-path gap ([`b54216b`](https://github.com/waterworkshq/orcy/commit/b54216b8faaa8908c0c22252a8151d97c9a75b3e))
+
+
+
 ## 0.29.8 — 2026-07-11
 
 ### Bug Fixes
@@ -166,31 +177,3 @@
 4. (no amber token exists in the design system; outline-variant + dashed style
 5. preserves the 'dependency not met' visual signal while staying theme-aware)
 6. Extract inline node width/minHeight to NODE_WIDTH / NODE_MIN_HEIGHT constants
-
-
-
-## 0.29.6 — 2026-07-11
-
-### Bug Fixes
-
-#### make batch assign admin-only and claimability-respecting with coherent claimed state ([`2513a22`](https://github.com/waterworkshq/orcy/commit/2513a22beb26bb7152358d3439719b068cf2d50d))
-
-1. Batch assign (POST /habitats/:id/tasks/batch operation=assign) was the
-2. second pre-existing claimability bypass: agent-accessible via
-3. agentOrHumanAuth, with no claimability checks, producing stranded
-4. pending+assignedAgentId state.
-
-6. Three changes close the bypass:
-
-8. 1. checkClaimability helper (taskQueries.ts) — thin shared predicate
-9. aggregating deps/mission-deps/release-gate/workflow-gates. Seed of
-10. future deep claimability module (Arch Review Candidate 1).
-
-12. 2. Route handler (batch.ts) — assign operation gated to admin-only;
-13. agents get 403 pointing to POST /tasks/:id/claim. Priority and
-14. delete retain agent access.
-
-16. 3. batchOperateTasks assign branch (task-batch.ts) — replaced
-17. updateTask({ assignedAgentId }) with checkClaimability pre-check +
-18. claimTask from taskStateMachine. Produces coherent claimed state
-19. atomically. Per-task isolation preserved.
