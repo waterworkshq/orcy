@@ -26,6 +26,7 @@ import * as webhookSubRepo from "../repositories/webhookSubscription.js";
 import * as webhookDeliveryRepo from "../repositories/webhookDelivery.js";
 import * as integrationConnRepo from "../repositories/integrationConnection.js";
 import * as integrationSyncRunRepo from "../repositories/integrationSyncRun.js";
+import * as effortRepo from "../repositories/effortEntry.js";
 import {
   automationRuleRuns,
   notificationDeliveries,
@@ -36,6 +37,7 @@ import {
   webhookSubscriptions,
   integrationSyncRuns,
   integrationConnections,
+  effortEntries,
 } from "../db/schema/index.js";
 import { v4 as uuid } from "uuid";
 import { listForAudit as listAutomationRunsForAudit } from "../repositories/auditProjection/automationRuns.js";
@@ -46,6 +48,7 @@ import { listForAudit as listTimeRecordsForAudit } from "../repositories/auditPr
 import { listForAudit as listHealthSnapshotsForAudit } from "../repositories/auditProjection/healthSnapshots.js";
 import { listForAudit as listWebhookDeliveriesForAudit } from "../repositories/auditProjection/webhookDeliveries.js";
 import { listForAudit as listIntegrationSyncRunsForAudit } from "../repositories/auditProjection/integrationSyncRuns.js";
+import { listForAudit as listEffortEntriesForAudit } from "../repositories/auditProjection/effortEntries.js";
 
 const SEED_ROWS = 60;
 
@@ -61,6 +64,7 @@ beforeEach(async () => {
   db.delete(webhookSubscriptions).run();
   db.delete(integrationSyncRuns).run();
   db.delete(integrationConnections).run();
+  db.delete(effortEntries).run();
 });
 
 afterEach(() => {
@@ -298,5 +302,26 @@ describe("auditProjection/integrationSyncRuns.listForAudit", () => {
     expect(data.runRows.every((r) => r.habitatId === habitat.id)).toBe(true);
     expect(data.connectionRows).toHaveLength(1);
     expect(data.connectionRows.every((c) => c.id === connection.id)).toBe(true);
+  });
+});
+
+describe("auditProjection/effortEntries.listForAudit", () => {
+  it("returns every effort entry in the habitat uncapped (>50 rows) with task/mission context resolved", () => {
+    const { habitat, task } = setupHabitat();
+
+    for (let i = 0; i < SEED_ROWS; i++) {
+      effortRepo.createEffortEntry({
+        taskId: task.id,
+        actorType: "human",
+        minutes: 5 + (i % 10),
+        source: "human_manual",
+      });
+    }
+
+    const rows = listEffortEntriesForAudit(habitat.id);
+    expect(rows).toHaveLength(SEED_ROWS);
+    expect(rows.every((r) => r.taskTitle === "Audit Task")).toBe(true);
+    expect(rows.every((r) => r.missionTitle === "Audit Mission")).toBe(true);
+    expect(rows.every((r) => r.missionHabitatId === habitat.id)).toBe(true);
   });
 });
