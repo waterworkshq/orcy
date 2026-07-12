@@ -24,6 +24,8 @@ import * as timeRepo from "../repositories/timeTracking.js";
 import * as healthRepo from "../repositories/habitatHealth.js";
 import * as webhookSubRepo from "../repositories/webhookSubscription.js";
 import * as webhookDeliveryRepo from "../repositories/webhookDelivery.js";
+import * as integrationConnRepo from "../repositories/integrationConnection.js";
+import * as integrationSyncRunRepo from "../repositories/integrationSyncRun.js";
 import {
   automationRuleRuns,
   notificationDeliveries,
@@ -32,6 +34,8 @@ import {
   habitatHealthSnapshots,
   webhookDeliveries,
   webhookSubscriptions,
+  integrationSyncRuns,
+  integrationConnections,
 } from "../db/schema/index.js";
 import { v4 as uuid } from "uuid";
 import { listForAudit as listAutomationRunsForAudit } from "../repositories/auditProjection/automationRuns.js";
@@ -41,6 +45,7 @@ import { listForAudit as listPluginRunsForAudit } from "../repositories/auditPro
 import { listForAudit as listTimeRecordsForAudit } from "../repositories/auditProjection/timeRecords.js";
 import { listForAudit as listHealthSnapshotsForAudit } from "../repositories/auditProjection/healthSnapshots.js";
 import { listForAudit as listWebhookDeliveriesForAudit } from "../repositories/auditProjection/webhookDeliveries.js";
+import { listForAudit as listIntegrationSyncRunsForAudit } from "../repositories/auditProjection/integrationSyncRuns.js";
 
 const SEED_ROWS = 60;
 
@@ -54,6 +59,8 @@ beforeEach(async () => {
   db.delete(habitatHealthSnapshots).run();
   db.delete(webhookDeliveries).run();
   db.delete(webhookSubscriptions).run();
+  db.delete(integrationSyncRuns).run();
+  db.delete(integrationConnections).run();
 });
 
 afterEach(() => {
@@ -264,5 +271,32 @@ describe("auditProjection/webhookDeliveries.listForAudit", () => {
     expect(data.subscriptionRows).toHaveLength(1);
     expect(data.deliveryRows).toHaveLength(SEED_ROWS);
     expect(data.deliveryRows.every((r) => r.subscriptionId === subscription.id)).toBe(true);
+  });
+});
+
+describe("auditProjection/integrationSyncRuns.listForAudit", () => {
+  it("returns every integration sync run in the habitat uncapped (>50 rows)", () => {
+    const { habitat } = setupHabitat();
+    const connection = integrationConnRepo.create({
+      habitatId: habitat.id,
+      provider: "github",
+      name: "Audit conn",
+      authMethod: "pat",
+      createdBy: "user-1",
+    });
+
+    for (let i = 0; i < SEED_ROWS; i++) {
+      integrationSyncRunRepo.create({
+        connectionId: connection.id,
+        habitatId: habitat.id,
+        trigger: "manual",
+      });
+    }
+
+    const data = listIntegrationSyncRunsForAudit(habitat.id);
+    expect(data.runRows).toHaveLength(SEED_ROWS);
+    expect(data.runRows.every((r) => r.habitatId === habitat.id)).toBe(true);
+    expect(data.connectionRows).toHaveLength(1);
+    expect(data.connectionRows.every((c) => c.id === connection.id)).toBe(true);
   });
 });

@@ -1,14 +1,10 @@
 import type { AuditEvent, AuditQueryEntityType } from "@orcy/shared/types";
-import { eq, sql } from "drizzle-orm";
-import { getDb } from "../../db/index.js";
 import {
-  integrationConnections,
-  integrationSyncRuns,
-} from "../../db/schema/index.js";
+  listForAudit,
+  type IntegrationConnectionRow,
+  type IntegrationSyncRunRow,
+} from "../../repositories/auditProjection/integrationSyncRuns.js";
 import type { AuditProjectionCollector } from "./types.js";
-
-type IntegrationSyncRunRow = typeof integrationSyncRuns.$inferSelect;
-type IntegrationConnectionRow = typeof integrationConnections.$inferSelect;
 
 function projectIntegrationSyncRunRow(
   row: IntegrationSyncRunRow,
@@ -57,28 +53,13 @@ export const integrationSyncCollector: AuditProjectionCollector = {
   failurePolicy: "warning",
   warningSource: "integration_sync",
   collect(request) {
-    const db = getDb();
-    const habitatId = request.habitatId;
     const sel: ReadonlySet<AuditQueryEntityType> = request.selectedEntityTypes;
     if (sel.size > 0 && !sel.has("integration_sync_run")) {
       return { events: [], warnings: [], caveats: [] };
     }
-    const rows = db
-      .select()
-      .from(integrationSyncRuns)
-      .where(eq(integrationSyncRuns.habitatId, habitatId))
-      .all() as IntegrationSyncRunRow[];
-    const connectionIds = new Set(rows.map((r) => r.connectionId));
-    const connectionRows =
-      connectionIds.size > 0
-        ? (db
-            .select()
-            .from(integrationConnections)
-            .where(sql`${integrationConnections.id} IN (${sql.join([...connectionIds], sql`, `)})`)
-            .all() as IntegrationConnectionRow[])
-        : [];
+    const { runRows, connectionRows } = listForAudit(request.habitatId);
     const connectionById = new Map(connectionRows.map((row) => [row.id, row]));
-    const events: AuditEvent[] = rows.map((row) =>
+    const events: AuditEvent[] = runRows.map((row) =>
       projectIntegrationSyncRunRow(row, connectionById.get(row.connectionId)),
     );
     return { events, warnings: [], caveats: [] };
