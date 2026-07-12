@@ -7,7 +7,8 @@ export const agentsApi = {
     request<{ agents: { agent: Agent; currentTaskTitle: string | null }[] }>(
       "/agents?include=currentTask",
     ).then((r) => r.agents),
-  get: (id: string) => request<{ agent: Agent }>(`/agents/${id}`),
+  get: (id: string) =>
+    request<{ agent: Agent }>(`/agents/${id}`).then((r) => r.agent),
   create: (data: {
     name: string;
     type: "claude-code" | "codex" | "opencode" | "cursor" | "gemini";
