@@ -1,6 +1,13 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { missions, releases as releasesTable, pulses } from "../db/schema/index.js";
+import {
+  missions,
+  releases as releasesTable,
+  pulses,
+  taskDependencies,
+  taskWorkflowGates,
+  workflows,
+} from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
@@ -143,6 +150,76 @@ describe("claimTask guard ordering", () => {
     const result = claimTask(task.id, agentId);
     expect(result.success).toBe(false);
     expect(result).toEqual({ success: false, reason: "mission_dependencies_unmet" });
+  });
+});
+
+describe("claimTask canonical claimability reasons", () => {
+  const cases = [
+    {
+      reason: "dependencies_unmet",
+      seed: () => {
+        const { mission, task } = seedMission({ title: "task-dependency-blocked" });
+        const blocker = taskRepo.createTask({
+          missionId: mission.id,
+          title: "task-dependency-blocker",
+          createdBy: "user-1",
+        });
+        getDb().insert(taskDependencies).values({ taskId: task.id, dependsOnId: blocker.id }).run();
+        return task;
+      },
+    },
+    {
+      reason: "mission_dependencies_unmet",
+      seed: () => {
+        const { mission: blocker } = seedMission({ title: "mission-dependency-blocker" });
+        return seedMission({ title: "mission-dependency-blocked", dependsOn: [blocker.id] }).task;
+      },
+    },
+    {
+      reason: "release_gate_unmet",
+      seed: () => seedMission({ title: "release-gate-blocked", releaseGateType: "minor" }).task,
+    },
+    {
+      reason: "workflow_gates_unmet",
+      seed: () => {
+        const { mission, task } = seedMission({ title: "workflow-gate-blocked" });
+        const upstream = taskRepo.createTask({
+          missionId: mission.id,
+          title: "workflow-upstream",
+          createdBy: "user-1",
+        });
+        getDb()
+          .insert(workflows)
+          .values({
+            id: "wf-claimability-order",
+            missionId: mission.id,
+            habitatId,
+            resolvedVariables: {},
+            createdBy: "user-1",
+          })
+          .run();
+        getDb()
+          .insert(taskWorkflowGates)
+          .values({
+            id: "gate-claimability-order",
+            workflowId: "wf-claimability-order",
+            missionId: mission.id,
+            habitatId,
+            upstreamTaskId: upstream.id,
+            downstreamTaskId: task.id,
+            gateType: "on_complete",
+            satisfied: false,
+          })
+          .run();
+        return task;
+      },
+    },
+  ] as const;
+
+  it.each(cases)("returns $reason in canonical guard order", ({ reason, seed }) => {
+    const task = seed();
+
+    expect(claimTask(task.id, agentId)).toEqual({ success: false, reason });
   });
 });
 

@@ -285,9 +285,8 @@ export function isReleaseGateSatisfiedForTask(taskId: string): boolean {
 /**
  * Thin shared predicate that aggregates all four claimability guards
  * (dependencies, mission dependencies, release gate, workflow gates) into a
- * single result. The seed of a future deep claimability module (Architecture
- * Review Candidate 1). Intentionally minimal — does NOT replace the direct
- * predicate calls inside {@link claimTask}'s transaction.
+ * single result. This is the mutation authority used inside claim transactions
+ * and by batch assignment so guard ordering and failure reasons cannot drift.
  */
 export function checkClaimability(taskId: string): { claimable: boolean; reason?: string } {
   if (!areAllDependenciesMet(taskId)) return { claimable: false, reason: "dependencies_unmet" };

@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const claimabilityMocks = vi.hoisted(() => ({
+  dependencies: vi.fn().mockReturnValue(true),
+  missionDependencies: vi.fn().mockReturnValue(true),
+  releaseGate: vi.fn().mockReturnValue(true),
+  workflowGates: vi.fn().mockReturnValue(true),
+}));
+
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     transaction: (fn: (tx: any) => any) =>
@@ -63,13 +70,28 @@ vi.mock("../repositories/taskCrud.js", () => ({
 }));
 
 vi.mock("../repositories/taskQueries.js", () => ({
-  areAllDependenciesMet: vi.fn().mockReturnValue(true),
-  areAllMissionDependenciesMet: vi.fn().mockReturnValue(true),
-  isReleaseGateSatisfiedForTask: vi.fn().mockReturnValue(true),
+  areAllDependenciesMet: claimabilityMocks.dependencies,
+  areAllMissionDependenciesMet: claimabilityMocks.missionDependencies,
+  isReleaseGateSatisfiedForTask: claimabilityMocks.releaseGate,
+  checkClaimability: vi.fn((taskId: string) => {
+    if (!claimabilityMocks.dependencies(taskId)) {
+      return { claimable: false, reason: "dependencies_unmet" };
+    }
+    if (!claimabilityMocks.missionDependencies(taskId)) {
+      return { claimable: false, reason: "mission_dependencies_unmet" };
+    }
+    if (!claimabilityMocks.releaseGate(taskId)) {
+      return { claimable: false, reason: "release_gate_unmet" };
+    }
+    if (!claimabilityMocks.workflowGates(taskId)) {
+      return { claimable: false, reason: "workflow_gates_unmet" };
+    }
+    return { claimable: true };
+  }),
 }));
 
 vi.mock("../repositories/workflow.js", () => ({
-  areAllWorkflowGatesSatisfied: vi.fn().mockReturnValue(true),
+  areAllWorkflowGatesSatisfied: claimabilityMocks.workflowGates,
 }));
 
 import { claimTask, claimTaskByRemoteParticipant } from "../repositories/taskStateMachine.js";
