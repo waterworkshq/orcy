@@ -170,6 +170,23 @@ import type {
   // Roadmap scoring types (v0.25)
   RoadmapSettings,
   RoadmapScoringAlgorithm,
+  // Notification types (v2)
+  NotificationEventType,
+  NotificationSourceType,
+  NotificationTargetType,
+  NotificationRecipientType,
+  NotificationSeverity,
+  NotificationChannel,
+  NotificationDeliveryStatus,
+  NotificationAttemptStatus,
+  NotificationSubscriptionScope,
+  NotificationCadence,
+  NotificationActorType,
+  NotificationEvent,
+  NotificationDelivery,
+  NotificationDeliveryAttempt,
+  NotificationSubscription,
+  NotificationRetentionPolicy,
 } from "@orcy/shared";
 
 export type {
@@ -341,6 +358,23 @@ export type {
   // Roadmap scoring types (v0.25)
   RoadmapSettings,
   RoadmapScoringAlgorithm,
+  // Notification types (v2)
+  NotificationEventType,
+  NotificationSourceType,
+  NotificationTargetType,
+  NotificationRecipientType,
+  NotificationSeverity,
+  NotificationChannel,
+  NotificationDeliveryStatus,
+  NotificationAttemptStatus,
+  NotificationSubscriptionScope,
+  NotificationCadence,
+  NotificationActorType,
+  NotificationEvent,
+  NotificationDelivery,
+  NotificationDeliveryAttempt,
+  NotificationSubscription,
+  NotificationRetentionPolicy,
 };
 
 // ---------------------------------------------------------------------------
