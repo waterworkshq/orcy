@@ -320,7 +320,7 @@ describe("v0.28-T2a: dispatchActionHandler fail-safe", () => {
 });
 
 // ---------------------------------------------------------------------------
-// dispatchInterceptorRun post signal-emission + run-tracking (post:900)
+// runPostInterceptors post signal-emission + run-tracking (post:900)
 // Reuses T1's proven pattern: drive runPostInterceptors + wait for fire-and-forget.
 //
 // ADR-0039 REVERSAL (T6): The post-interceptor signal persistence in these
@@ -439,6 +439,351 @@ describe("v0.28-T2a: runPostInterceptors dispatch chain", () => {
     // Use a fresh setup with threshold=1 to make this assertion tight.
     const quarantines = quarantineRepo.listByPluginId("post-throw");
     expect(quarantines).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 T6 — Atomic post-Interceptor signal batch (Q11)
+//
+// The previous sequential `for (signal) { await createDetectedSignal(signal) }`
+// loop allowed a mid-batch failure to leave a partial write — violating
+// ADR-0014's "atomic from the perspective of the loader" promise. T6 replaces
+// it with a validated transactional batch:
+//
+//   1. validate the full returned array (runtime validator);
+//   2. write every signal in ONE DB transaction (no SSE inside the tx);
+//   3. roll back on any failure (zero committed signals);
+//   4. commit;
+//   5. publish SSE/hooks only after commit;
+//   6. finish the Plugin Run succeeded with the committed count.
+//
+// These tests pin the new contract: invalid-signal rollback, mid-batch
+// write-failure rollback, post-commit event ordering, and Plugin Run count
+// integrity.
+// ---------------------------------------------------------------------------
+describe("ADR-0039 T6: atomic post-Interceptor signal batch (Q11)", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = "";
+  });
+
+  afterEach(async () => {
+    if (tmpDir) await cleanup(tmpDir);
+  });
+
+  it("validation failure of any signal commits zero signals and marks the run failed", async () => {
+    // The runtime validator (validatePostResult) runs BEFORE onResult. A
+    // malformed signal in the returned array rejects the whole batch — no
+    // transaction is opened, no SSE fires, and the run finishes `failed`.
+    tmpDir = await writePlugin(
+      "post-bad-signal",
+      `{
+        manifest: {
+          id: 'post-bad-signal',
+          version: '1.0.0',
+          description: 'post returning one valid + one invalid signal',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'post',
+            event: 'taskClaimed',
+            interceptorId: 'bad',
+            priority: 0,
+            requires: ['pulseWriter'],
+          }],
+        },
+        interceptors: {
+          bad: async () => ({
+            signals: [
+              { signalType: 'detected', subject: 'valid' },
+              { signalType: 'detected' },  // missing subject — validator rejects
+            ],
+          }),
+        },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "post-bad-signal", "bad", "lifecycleInterceptor");
+
+    publishMock.mockClear();
+    pluginManager.runPostInterceptors("task-bad", "taskClaimed", habitatId, {
+      actor: "test",
+    } as never);
+
+    const failedRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "post-bad-signal" })
+          .find((r) => r.status === "failed"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(failedRun).toBeDefined();
+    expect(failedRun!.error).toContain("signal[1]");
+
+    // ZERO committed signals — no partial write.
+    const pulses = pulseRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z");
+    const detected = pulses.filter(
+      (p) => p.signalType === "detected" && p.fromId === "post-bad-signal",
+    );
+    expect(detected).toEqual([]);
+
+    // ZERO SSE events — no externally visible side effect before commit (which
+    // never happened). The only SSE events observed are non-detected ones, if any.
+    const detectedSSE = publishMock.mock.calls.filter((call) => {
+      const evt = call[1] as {
+        type: string;
+        data?: { signalType?: string };
+      };
+      return evt.type === "pulse.signal_posted" && evt.data?.signalType === "detected";
+    });
+    expect(detectedSSE).toEqual([]);
+
+    // Post faults do not quarantine.
+    expect(quarantineRepo.listByPluginId("post-bad-signal")).toEqual([]);
+  });
+
+  it("mid-batch write failure rolls back all signals (zero committed)", async () => {
+    // Inject a failure on the SECOND signal's INSERT only, while letting the
+    // FIRST signal's INSERT run for real. This proves the actual transactional
+    // contract: signal 1 is inserted inside the tx, then signal 2 fails, the
+    // tx rolls back signal 1, and zero signals are committed. A full-batch
+    // mock replacement could not prove this — it would only prove the
+    // runtime's catch path.
+    //
+    // Approach (b) from the review: spy on `pulseRepo.createPulseWithClient`
+    // (called by the real `createPulseBatchAtomic` inside its `db.transaction`)
+    // and throw on the second invocation. The real transaction machinery runs;
+    // the real first insert runs; the real rollback happens.
+    const pulseRepoModule = await import("../repositories/pulse.js");
+    const realCreateWithClient = pulseRepoModule.createPulseWithClient;
+    let insertCallCount = 0;
+    const insertSpy = vi
+      .spyOn(pulseRepoModule, "createPulseWithClient")
+      .mockImplementation((db, input) => {
+        insertCallCount++;
+        if (insertCallCount === 2) {
+          // Simulate a tx-level write failure on signal 2 (e.g. constraint
+          // violation). The error propagates out of `createPulseBatchAtomic`,
+          // the drizzle `db.transaction` rolls back signal 1's insert, and
+          // the runtime's onResult catch finishes the run `failed`.
+          throw new Error("simulated mid-batch write failure on signal 2");
+        }
+        return realCreateWithClient.call(pulseRepoModule, db, input);
+      });
+
+    tmpDir = await writePlugin(
+      "post-tx-fail",
+      `{
+        manifest: {
+          id: 'post-tx-fail',
+          version: '1.0.0',
+          description: 'post whose second signal fails inside the transaction',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'post',
+            event: 'taskClaimed',
+            interceptorId: 'fail',
+            priority: 0,
+            requires: ['pulseWriter'],
+          }],
+        },
+        interceptors: {
+          fail: async () => ({
+            signals: [
+              { signalType: 'detected', subject: 's1-will-insert-then-rollback' },
+              { signalType: 'detected', subject: 's2-will-fail' },
+              { signalType: 'detected', subject: 's3-never-reached' },
+            ],
+          }),
+        },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "post-tx-fail", "fail", "lifecycleInterceptor");
+
+    publishMock.mockClear();
+    pluginManager.runPostInterceptors("task-tx-fail", "taskClaimed", habitatId, {
+      actor: "test",
+    } as never);
+
+    const failedRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "post-tx-fail" })
+          .find((r) => r.status === "failed"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(failedRun).toBeDefined();
+    expect(failedRun!.error).toContain("simulated mid-batch write failure on signal 2");
+    expect(failedRun!.signalsEmitted).toBeNull();
+
+    // The first signal's INSERT was issued (call count reached 2 — the spy
+    // threw on the second call). This proves a real write happened inside
+    // the tx before the failure.
+    expect(insertCallCount).toBe(2);
+
+    // ZERO committed signals — signal 1's insert was rolled back with
+    // signal 2's failure. Without atomicity, signal 1 would survive.
+    const pulses = pulseRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z");
+    const detected = pulses.filter(
+      (p) => p.signalType === "detected" && p.fromId === "post-tx-fail",
+    );
+    expect(detected).toEqual([]);
+
+    // ZERO SSE events — no signal was committed, so no post-commit publish fired.
+    const detectedSSE = publishMock.mock.calls.filter((call) => {
+      const evt = call[1] as {
+        type: string;
+        data?: { signalType?: string; fromId?: string };
+      };
+      return (
+        evt.type === "pulse.signal_posted" &&
+        evt.data?.signalType === "detected" &&
+        evt.data?.fromId === "post-tx-fail"
+      );
+    });
+    expect(detectedSSE).toEqual([]);
+
+    // Post faults do not quarantine.
+    expect(quarantineRepo.listByPluginId("post-tx-fail")).toEqual([]);
+
+    insertSpy.mockRestore();
+  });
+
+  it("successful batch commits all signals, publishes SSE only after commit, and counts match", async () => {
+    tmpDir = await writePlugin(
+      "post-batch-ok",
+      `{
+        manifest: {
+          id: 'post-batch-ok',
+          version: '1.0.0',
+          description: 'post emitting three signals in one batch',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'post',
+            event: 'taskClaimed',
+            interceptorId: 'batch',
+            priority: 0,
+            requires: ['pulseWriter'],
+          }],
+        },
+        interceptors: {
+          batch: async () => ({
+            signals: [
+              { signalType: 'detected', subject: 'b1' },
+              { signalType: 'detected', subject: 'b2' },
+              { signalType: 'detected', subject: 'b3' },
+            ],
+          }),
+        },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "post-batch-ok", "batch", "lifecycleInterceptor");
+
+    publishMock.mockClear();
+
+    // Capture DB state at the moment each SSE event fires. If SSE is published
+    // AFTER commit (the contract), then by the time the FIRST event fires, ALL
+    // three signals must already be visible in the DB. If SSE were published
+    // INSIDE the transaction (the broken behavior T6 fixes), the first event
+    // would see fewer than three — or zero, depending on isolation.
+    let committedCountAtFirstSSE: number | null = null;
+    publishMock.mockImplementationOnce(() => {
+      committedCountAtFirstSSE = pulseRepo
+        .listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z")
+        .filter((p) => p.signalType === "detected" && p.fromId === "post-batch-ok").length;
+    });
+
+    pluginManager.runPostInterceptors("task-batch-ok", "taskClaimed", habitatId, {
+      actor: "test",
+    } as never);
+
+    const succeededRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "post-batch-ok" })
+          .find((r) => r.status === "succeeded"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(succeededRun).toBeDefined();
+    // signalsEmitted equals the committed count (Q11 acceptance criterion).
+    expect(succeededRun!.signalsEmitted).toBe(3);
+
+    // All three signals committed atomically.
+    const pulses = pulseRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z");
+    const detected = pulses.filter(
+      (p) => p.signalType === "detected" && p.fromId === "post-batch-ok",
+    );
+    expect(detected.length).toBe(3);
+    expect(detected.map((p) => p.subject).sort()).toEqual(["b1", "b2", "b3"]);
+
+    // PROOF of post-commit ordering: when the first SSE event was published,
+    // ALL three signals were already visible in the DB. If SSE fired inside
+    // the tx, this would be < 3 (or the mock wouldn't have been called yet).
+    expect(committedCountAtFirstSSE).toBe(3);
+
+    // SSE published for every committed signal (3 events total).
+    const detectedSSE = publishMock.mock.calls.filter((call) => {
+      const evt = call[1] as {
+        type: string;
+        data?: { signalType?: string; fromId?: string };
+      };
+      return (
+        evt.type === "pulse.signal_posted" &&
+        evt.data?.signalType === "detected" &&
+        evt.data?.fromId === "post-batch-ok"
+      );
+    });
+    expect(detectedSSE.length).toBe(3);
+  });
+
+  it("empty signal array is a no-op: succeeds with zero emitted, no tx opened", async () => {
+    tmpDir = await writePlugin(
+      "post-empty",
+      `{
+        manifest: {
+          id: 'post-empty',
+          version: '1.0.0',
+          description: 'post returning no signals',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'post',
+            event: 'taskClaimed',
+            interceptorId: 'empty',
+            priority: 0,
+            requires: [],
+          }],
+        },
+        interceptors: {
+          empty: async () => ({ signals: [] }),
+        },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "post-empty", "empty", "lifecycleInterceptor");
+
+    pluginManager.runPostInterceptors("task-empty", "taskClaimed", habitatId, {
+      actor: "test",
+    } as never);
+
+    const succeededRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "post-empty" })
+          .find((r) => r.status === "succeeded"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(succeededRun).toBeDefined();
+    expect(succeededRun!.signalsEmitted).toBe(0);
   });
 });
 

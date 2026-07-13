@@ -155,7 +155,28 @@ function stuckExperienceCondition() {
   );
 }
 
+/**
+ * Drizzle client accepted by {@link createPulseWithClient}. The default
+ * `getDb()` client and a transactional `tx` from `db.transaction(cb)` both
+ * satisfy this shape — the transactional batch writer
+ * ({@link createPulseBatchAtomic} in `pulseService.ts`) passes a `tx` so all
+ * inserts share one atomic unit (ADR-0039 § Atomic Post-Interceptor Signal
+ * Batch / Q11).
+ */
+export type PulseDbClient = ReturnType<typeof getDb>;
+
 export function createPulse(input: CreatePulseInput): Pulse {
+  return createPulseWithClient(getDb(), input);
+}
+
+/**
+ * Tx-aware variant of {@link createPulse}. The caller owns the transaction:
+ * inside `db.transaction((tx) => createPulseWithClient(tx, input))` the insert
+ * is atomic with the surrounding writes; an exception rolls back the whole
+ * batch. Hooks and SSE are the caller's responsibility — this function only
+ * validates and inserts the row.
+ */
+export function createPulseWithClient(db: PulseDbClient, input: CreatePulseInput): Pulse {
   const scope = input.scope ?? "mission";
 
   if (scope === "mission" && !input.missionId) {
@@ -168,7 +189,6 @@ export function createPulse(input: CreatePulseInput): Pulse {
     throw new Error("habitatId is required for habitat-scoped signals");
   }
 
-  const db = getDb();
   const id = uuid();
   const now = new Date().toISOString();
 
@@ -203,9 +223,16 @@ export function createPulse(input: CreatePulseInput): Pulse {
   }
 
   if (rows.length > 0) return rowToPulse(rows[0]);
-  const pulse = getPulseById(id);
-  if (!pulse) throw repositoryNotFoundError("pulse", id);
-  return pulse;
+  // Preserve the original `createPulse` contract: if `.returning()` is empty
+  // (an unreachable-in-production SQLite case), retry via a SELECT on the
+  // SAME client. Using the passed client (not `getDb()`) keeps the SELECT
+  // inside the caller's transaction when one is open — a SELECT via the
+  // global `getDb()` would query outside the tx and miss the just-inserted
+  // row. The original implementation used `getPulseById(id)` which always
+  // hits the global client; this tx-aware variant is strictly safer.
+  const fallbackRows = db.select().from(pulses).where(eq(pulses.id, id)).all();
+  if (fallbackRows.length > 0) return rowToPulse(fallbackRows[0]);
+  throw repositoryNotFoundError("pulse", id);
 }
 
 export function getPulseById(id: string): Pulse | null {

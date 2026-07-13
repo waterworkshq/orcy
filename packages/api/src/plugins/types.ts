@@ -54,8 +54,8 @@ export type DetectorHandler = (
  * Pre-phase handlers MUST be synchronous (return `InterceptorResult` directly, not a Promise) —
  * pre-hooks are gate functions and must complete fast so the transition DB transaction is not
  * delayed. The runner detects thenable returns and fails open (treats them as `{ allow: true }`
- * with an error log) per ADR-0014. Post-phase handlers SHOULD be async (the runner awaits them
- * via `dispatchInterceptorRun`).
+ * with an error log) per ADR-0014. Post-phase handlers SHOULD be async (the runtime
+ * `invokePostInterceptorThroughRuntime` awaits them via `invokeManaged`).
  */
 export type InterceptorHandler = (
   ctx: PluginContext,

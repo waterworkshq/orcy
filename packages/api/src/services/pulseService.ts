@@ -8,6 +8,7 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { logger } from "../lib/logger.js";
 import { badRequest, notFound, forbidden } from "../errors.js";
 import { findingMetadataSchema, SIGNAL_TYPES, type SignalType } from "@orcy/shared";
+import { getDb } from "../db/index.js";
 
 export { type SignalType };
 /** Alias of {@link SIGNAL_TYPES} from @orcy/shared, retained for backward compatibility with existing importers. */
@@ -59,6 +60,53 @@ export function createPulseAndNotify(input: pulseRepo.CreatePulseInput): pulseRe
     }
   }
   return pulse;
+}
+
+/**
+ * Atomic batch insert for pulses (ADR-0039 § Atomic Post-Interceptor Signal
+ * Batch / Q11).
+ *
+ * Opens ONE database transaction and inserts every input via the tx-aware
+ * {@link pulseRepo.createPulseWithClient}. If any single insert throws, the
+ * transaction rolls back and zero pulses are committed — restoring
+ * ADR-0014's all-or-nothing returned-signal promise that the previous
+ * sequential `for (signal) { await createDetectedSignal(signal) }` loop could
+ * not guarantee (a mid-batch failure left a partial write).
+ *
+ * Hooks (`onPulseCreated`) and SSE (`broadcastPulse`) are published ONLY after
+ * the transaction commits — no externally visible signal side effect may occur
+ * before commit. A post-commit hook or SSE failure is logged and swallowed so
+ * one bad subscriber cannot poison the batch; the committed pulses are still
+ * returned.
+ *
+ * Returns the committed pulses in input order. An empty input array is a
+ * no-op and returns `[]` without opening a transaction.
+ */
+export function createPulseBatchAtomic(inputs: pulseRepo.CreatePulseInput[]): pulseRepo.Pulse[] {
+  if (inputs.length === 0) return [];
+
+  const db = getDb();
+  const committed: pulseRepo.Pulse[] = [];
+  db.transaction((tx) => {
+    for (const input of inputs) {
+      committed.push(pulseRepo.createPulseWithClient(tx, input));
+    }
+  });
+
+  // Post-commit side effects ONLY. The transaction has already committed, so
+  // partial-failure here cannot un-commit a pulse. Each subscriber/SSE call is
+  // isolated so one failure does not skip subsequent pulses.
+  for (const pulse of committed) {
+    for (const hook of pulseCreatedHooks) {
+      try {
+        hook(pulse);
+      } catch (err) {
+        logger.error({ err, pulseId: pulse.id }, "Pulse created hook failed (batch)");
+      }
+    }
+    broadcastPulse(pulse);
+  }
+  return committed;
 }
 
 /**

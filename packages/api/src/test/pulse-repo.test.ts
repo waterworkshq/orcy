@@ -254,7 +254,12 @@ describe("pulse repository", () => {
       ).toThrow("habitatId is required");
     });
 
-    it("falls back to getPulseById when returning() is empty", () => {
+    it("falls back to SELECT on the same client when returning() is empty", () => {
+      // SQLite's RETURNING clause is reliable — this branch is unreachable in
+      // production. The `createPulseWithClient` fallback uses the SAME client
+      // (not `getDb()`) so the SELECT runs inside the caller's transaction
+      // when one is open. This preserves the original `createPulse` contract
+      // while remaining correct under `db.transaction((tx) => …)`.
       _insertReturnAll = [];
       _selectAllResult = [makeRow({ id: "pulse-uuid" })];
       const r = createPulse(validMissionInput);
