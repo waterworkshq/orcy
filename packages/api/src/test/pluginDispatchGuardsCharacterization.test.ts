@@ -128,11 +128,14 @@ afterEach(async () => {
 
 // ---------------------------------------------------------------------------
 // isRateLimited — threshold block (pluginManager.ts:1054)
-// Approach: drive a detector's error counter across `ORCY_PLUGIN_QUARANTINE_THRESHOLD`,
-// assert that dispatch is skipped (no new `plugin_runs` row). The 60s window rollover
-// is private-mechanism precision; we deliberately do not wait 60s (no fake clock).
-// What we DO assert: below threshold, dispatch proceeds; at/above threshold, dispatch
-// is blocked — pinning the threshold shape of the rate-limit guard.
+// ADR-0039 RETAIN + REPLACE (T3): The observable skip behavior (errors cross
+// threshold → dispatch skip) is RETAINED — it survives the migration via the
+// quarantine gate. What changes is the MECHANISM: the error-based isRateLimited
+// function is removed (Q14), and rate_limited status becomes capacity-only.
+// These tests pin the CURRENT shared-counter mechanism (rate-limit = quarantine
+// threshold). T3 updates the mechanism while preserving the threshold-skip
+// observable. See ADR-0039 § Rate-Limited Semantics (Q14) and
+// § Intentional Behavior Reversals and Additions.
 // ---------------------------------------------------------------------------
 describe("v0.28-T2b: isRateLimited threshold block (errors in 60s window)", () => {
   let tmpDir: string;
@@ -640,10 +643,7 @@ describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-hab
 
     // H2's dispatch must proceed (not blocked by H1's saturation).
     const h2Run = await pollUntil(
-      () =>
-        runRepo
-          .listByHabitat(h2, { pluginId: "iso-b" })
-          .find((r) => r.status === "succeeded"),
+      () => runRepo.listByHabitat(h2, { pluginId: "iso-b" }).find((r) => r.status === "succeeded"),
       (r) => r !== undefined,
       1500,
     );

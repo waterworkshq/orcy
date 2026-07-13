@@ -184,7 +184,14 @@ describe("v0.28-T2a: dispatchActionHandler fail-safe", () => {
       entry!,
       "boom",
       habitatId,
-      { habitat: null, task: null, mission: null, agent: null, sprint: null, raw: {} } as PluginEvaluationContext,
+      {
+        habitat: null,
+        task: null,
+        mission: null,
+        agent: null,
+        sprint: null,
+        raw: {},
+      } as PluginEvaluationContext,
       {},
     );
 
@@ -232,7 +239,14 @@ describe("v0.28-T2a: dispatchActionHandler fail-safe", () => {
       entry!,
       "slow",
       habitatId,
-      { habitat: null, task: null, mission: null, agent: null, sprint: null, raw: {} } as PluginEvaluationContext,
+      {
+        habitat: null,
+        task: null,
+        mission: null,
+        agent: null,
+        sprint: null,
+        raw: {},
+      } as PluginEvaluationContext,
       {},
     );
 
@@ -279,7 +293,14 @@ describe("v0.28-T2a: dispatchActionHandler fail-safe", () => {
       entry!,
       "ok",
       habitatId,
-      { habitat: null, task: null, mission: null, agent: null, sprint: null, raw: {} } as PluginEvaluationContext,
+      {
+        habitat: null,
+        task: null,
+        mission: null,
+        agent: null,
+        sprint: null,
+        raw: {},
+      } as PluginEvaluationContext,
       {},
     );
     expect(result.status).toBe("succeeded");
@@ -298,6 +319,13 @@ describe("v0.28-T2a: dispatchActionHandler fail-safe", () => {
 // ---------------------------------------------------------------------------
 // dispatchInterceptorRun post signal-emission + run-tracking (post:900)
 // Reuses T1's proven pattern: drive runPostInterceptors + wait for fire-and-forget.
+//
+// ADR-0039 REVERSAL (T6): The post-interceptor signal persistence in these
+// tests is sequential (for-loop await per signal), not atomic. T6 migrates to
+// a validated transactional batch with post-commit SSE publication. The
+// signalsEmitted count assertion below will survive; an atomicity assertion
+// (partial-write rollback on mid-batch failure) must be ADDED in T6.
+// See ADR-0039 § Atomic Post-Interceptor Signal Batch (Q11).
 // ---------------------------------------------------------------------------
 describe("v0.28-T2a: runPostInterceptors dispatch chain", () => {
   let tmpDir: string;
@@ -469,6 +497,12 @@ describe("v0.28-T2a: per-kind fail-open/fail-safe asymmetry", () => {
     expect(failed!.error).toContain("det-boom");
   });
 
+  // ADR-0039 REVERSAL (T7): This test pins CURRENT fail-open behavior for pre-
+  // interceptor throws. The managed-runtime migration (T7) changes this to
+  // bounded fail-closed: a throw becomes a failure veto that counts toward
+  // quarantine. Replace this test's assertion of fail-open + no-run-record
+  // with fail-closed + Plugin Run telemetry. See ADR-0039 § Bounded Fail-Closed
+  // Pre Policy (Q1) and § Intentional Behavior Reversals.
   it("pre-interceptor on throw: fail-OPEN (no run record, no veto)", async () => {
     tmpDir = await writePlugin(
       "pre-throw",
@@ -507,6 +541,10 @@ describe("v0.28-T2a: per-kind fail-open/fail-safe asymmetry", () => {
     expect(runs).toEqual([]);
   });
 
+  // ADR-0039 REVERSAL (T7): This test pins CURRENT fail-open behavior for async
+  // (Promise) returns from synchronous pre-interceptors. The managed-runtime
+  // migration (T7) changes this to bounded fail-closed: a Promise return is a
+  // runtime fault that vetoes and counts toward quarantine. See ADR-0039 § Q1.
   it("pre-interceptor async-returning: treated as allow (fail-open on contract violation)", async () => {
     tmpDir = await writePlugin(
       "pre-async",
@@ -817,7 +855,12 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
   });
 
   it("an action hitting ORCY_PLUGIN_QUARANTINE_THRESHOLD: counter+DB+SSE quarantine, BUT dispatchActionHandler does NOT skip (unlike detectors) — known asymmetry", async () => {
-    // KNOWN ASYMMETRY (v0.28 documents, does NOT change dispatch):
+    // ADR-0039 REVERSAL (T5): This test pins the CURRENT "quarantined Action
+    // still runs" asymmetry that ADR-0039 Q3 intentionally reverses. T5 replaces
+    // this test with one asserting: quarantined Action → skipped Plugin Run +
+    // explicit {status:"failed"} to caller. The "known asymmetry" is being
+    // eliminated, not preserved. See ADR-0039 § Quarantine Semantics (Q3-Q4)
+    // and § Old-to-Target Behavior Map (Automation Action).
     //   - signalDetector path has a quarantine skip gate at dispatchDetectionEvent:953
     //     (`if (quarantineSet.has(key)) continue`), so a quarantined detector is skipped entirely
     //     and produces NO new plugin_runs.
@@ -855,7 +898,14 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
 
     publishMock.mockClear();
 
-    const evalCtx = { habitat: null, task: null, mission: null, agent: null, sprint: null, raw: {} } as PluginEvaluationContext;
+    const evalCtx = {
+      habitat: null,
+      task: null,
+      mission: null,
+      agent: null,
+      sprint: null,
+      raw: {},
+    } as PluginEvaluationContext;
     const entry = pluginManager.getActionEntry("q");
     expect(entry).not.toBeNull();
 
@@ -885,7 +935,13 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
 
     // The 3rd dispatch uses the same throwing handler; the test asserts that despite the
     // pluginKey being in quarantineSet, the run is still STARTED and FINISHED (failed).
-    const thirdResult = await pluginManager.dispatchActionHandler(entry!, "q", habitatId, evalCtx, {});
+    const thirdResult = await pluginManager.dispatchActionHandler(
+      entry!,
+      "q",
+      habitatId,
+      evalCtx,
+      {},
+    );
     expect(thirdResult.status).toBe("failed");
 
     const runsAfter = runRepo.listByHabitat(habitatId, { pluginId: "quar-act" });
