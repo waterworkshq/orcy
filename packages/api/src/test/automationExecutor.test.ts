@@ -25,6 +25,10 @@ import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as pulseRepo from "../repositories/pulse.js";
+import * as pluginManager from "../plugins/pluginManager.js";
+import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
+import * as pluginRunRepo from "../repositories/pluginRun.js";
+import * as quarantineRepo from "../repositories/pluginQuarantine.js";
 
 function setupHabitat() {
   const h = boardRepo.createHabitat({ name: "Test Habitat" });
@@ -857,5 +861,290 @@ describe("executeAndRecordRuleRun", () => {
     expect(outcome).toBe("succeeded");
     const pulses = pulseRepo.getPulsesByHabitat(h.id, { limit: 100, offset: 0 });
     expect(pulses.total).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 R5 — Plugin Action consumer-path integration coverage.
+//
+// The action consumer seam is `automationExecutor.executePluginAction`, which
+// resolves `getActionEntry` + `dispatchActionHandler` via a DYNAMIC import:
+//
+//   await import("../plugins/pluginManager.js")
+//
+// These tests drive the real seam end-to-end (no spies on pluginManager) by
+// loading a real plugin file under /tmp, enrolling it, and calling
+// `executeActions` with an automation rule whose action is `{type:"plugin"}`.
+// This crosses the rule-run seam AND the consumer seam; direct pluginManager
+// unit tests do not satisfy this coverage.
+// ---------------------------------------------------------------------------
+describe("ADR-0039 R5: plugin action consumer path (executePluginAction → pluginManager)", () => {
+  let tmpDir = "";
+
+  beforeEach(async () => {
+    await initTestDb();
+    pluginManager.resetPlugins();
+    tmpDir = "";
+  });
+
+  afterEach(async () => {
+    pluginManager.resetPlugins();
+    closeDb();
+    delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
+    if (tmpDir) {
+      const { rm } = await import("node:fs/promises");
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  async function writeActionPlugin(name: string, handlerBody: string): Promise<void> {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    tmpDir = `/tmp/test-r5-act-${name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await mkdir(tmpDir, { recursive: true });
+    await writeFile(
+      `${tmpDir}/${name}.mjs`,
+      `export default {
+        manifest: {
+          id: '${name}',
+          version: '1.0.0',
+          description: 'r5 action consumer test',
+          contributions: [{
+            kind: 'automationAction',
+            scope: 'habitat',
+            actionId: 'run',
+            label: 'Run',
+            requires: [],
+          }],
+        },
+        actions: { run: ${handlerBody} },
+      };`,
+    );
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+  }
+
+  function buildRuleWithPlugin(habitatId: string, actionId: string, params?: Record<string, unknown>): AutomationRule {
+    return buildRule(habitatId, {
+      actions: [{ type: "plugin", actionId, params }],
+    });
+  }
+
+  it("success path: plugin handler returns succeeded and run row is marked succeeded", async () => {
+    const habitat = setupHabitat();
+    await writeActionPlugin(
+      "act-ok",
+      `async (ctx) => {
+         // Sanity check: capability surface arrives through the consumer seam.
+         return { status: 'succeeded', result: { pluginId: ctx.pluginId, contributionId: ctx.contributionId, hasTaskWriter: typeof ctx.taskWriter === 'object' } };
+       }`,
+    );
+    enrollmentRepo.create({
+      habitatId: habitat.id,
+      pluginId: "act-ok",
+      contributionId: "run",
+      contributionKind: "automationAction",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitat.id);
+
+    const rule = buildRuleWithPlugin(habitat.id, "run");
+    const run = buildRun(habitat.id, rule.id);
+    const ctx = emptyContext();
+
+    const { status, actionResults } = await executeActions(rule, run, ctx);
+
+    expect(status).toBe("succeeded");
+    expect(actionResults).toHaveLength(1);
+    expect(actionResults[0].actionType).toBe("plugin");
+    expect(actionResults[0].status).toBe("succeeded");
+    const resultPayload = actionResults[0].result as {
+      pluginId: string;
+      contributionId: string;
+      hasTaskWriter: boolean;
+    };
+    expect(resultPayload.pluginId).toBe("act-ok");
+    expect(resultPayload.contributionId).toBe("run");
+
+    // Plugin Run row recorded (succeeded).
+    const runs = pluginRunRepo.listByHabitat(habitat.id, { pluginId: "act-ok" });
+    const succeededRun = runs.find((r) => r.status === "succeeded");
+    expect(succeededRun).toBeDefined();
+  });
+
+  it("returned domain failure: plugin returns {status:failed,error} and executor surfaces it", async () => {
+    const habitat = setupHabitat();
+    await writeActionPlugin(
+      "act-fail",
+      `async () => ({ status: 'failed', error: 'domain error: invalid state' })`,
+    );
+    enrollmentRepo.create({
+      habitatId: habitat.id,
+      pluginId: "act-fail",
+      contributionId: "run",
+      contributionKind: "automationAction",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitat.id);
+
+    const rule = buildRuleWithPlugin(habitat.id, "run");
+    const run = buildRun(habitat.id, rule.id);
+    const { status, actionResults } = await executeActions(rule, run, emptyContext());
+
+    expect(actionResults[0].status).toBe("failed");
+    expect(actionResults[0].error).toContain("domain error: invalid state");
+    expect(status).toBe("failed");
+
+    const runs = pluginRunRepo.listByHabitat(habitat.id, { pluginId: "act-fail" });
+    const failedRun = runs.find((r) => r.status === "failed");
+    expect(failedRun).toBeDefined();
+  });
+
+  it("runtime fault (throw): plugin handler throws and executor catches the fault", async () => {
+    const habitat = setupHabitat();
+    await writeActionPlugin("act-throw", `async () => { throw new Error('plugin exploded'); }`);
+    enrollmentRepo.create({
+      habitatId: habitat.id,
+      pluginId: "act-throw",
+      contributionId: "run",
+      contributionKind: "automationAction",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitat.id);
+
+    const rule = buildRuleWithPlugin(habitat.id, "run");
+    const run = buildRun(habitat.id, rule.id);
+    const { actionResults } = await executeActions(rule, run, emptyContext());
+
+    // Executor-level try/catch wraps the runtime fault.
+    expect(actionResults[0].status).toBe("failed");
+    expect(actionResults[0].error).toMatch(/threw|exploded/);
+    const runs = pluginRunRepo.listByHabitat(habitat.id, { pluginId: "act-throw" });
+    const failedRun = runs.find((r) => r.status === "failed");
+    expect(failedRun).toBeDefined();
+  });
+
+  it("quarantine skip: threshold reached → quarantined action is skipped (failed returned, no handler run)", async () => {
+    process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "2";
+    const habitat = setupHabitat();
+    await writeActionPlugin("act-quar", `async () => { throw new Error('always-boom'); }`);
+    enrollmentRepo.create({
+      habitatId: habitat.id,
+      pluginId: "act-quar",
+      contributionId: "run",
+      contributionKind: "automationAction",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitat.id);
+
+    const rule = buildRuleWithPlugin(habitat.id, "run");
+    const run = buildRun(habitat.id, rule.id);
+
+    // Drive to threshold: two failing dispatches.
+    await executeActions(rule, run, emptyContext());
+    await executeActions(rule, run, emptyContext());
+
+    const quarantineRow = quarantineRepo.listByPluginId("act-quar").find(
+      (q) => q.pluginKey === '["automationAction","act-quar","run"]',
+    );
+    expect(quarantineRow).toBeDefined();
+
+    // Third call — quarantined. ADR-0039 Q3: action returns failed, no handler runs.
+    const failedBefore = pluginRunRepo
+      .listByHabitat(habitat.id, { pluginId: "act-quar" })
+      .filter((r) => r.status === "failed").length;
+    const { actionResults } = await executeActions(rule, run, emptyContext());
+
+    expect(actionResults[0].status).toBe("failed");
+    expect(actionResults[0].error).toMatch(/quarantined/);
+
+    const skippedRun = pluginRunRepo
+      .listByHabitat(habitat.id, { pluginId: "act-quar" })
+      .find((r) => r.status === "skipped");
+    expect(skippedRun).toBeDefined();
+
+    const failedAfter = pluginRunRepo
+      .listByHabitat(habitat.id, { pluginId: "act-quar" })
+      .filter((r) => r.status === "failed").length;
+    // Handler did NOT run — no new failed rows beyond the two threshold faults.
+    expect(failedAfter).toBe(failedBefore);
+  });
+
+  it("capability delivery: declared capability arrives on PluginContext (taskWriter)", async () => {
+    // Capability delivery flows through the runtime's buildPluginContext. The
+    // consumer seam must not strip the declared capability from the handler
+    // context. We declare `taskWriter` (the strongest allowed capability for
+    // `automationAction` per CAPABILITY_MATRIX) and assert the handler observes
+    // it as an object on `ctx`.
+    const habitat = setupHabitat();
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    tmpDir = `/tmp/test-r5-act-capability-${Date.now()}`;
+    await mkdir(tmpDir, { recursive: true });
+    await writeFile(
+      `${tmpDir}/cap-plugin.mjs`,
+      `export default {
+        manifest: {
+          id: 'cap-plugin',
+          version: '1.0.0',
+          description: 'capability delivery',
+          contributions: [{
+            kind: 'automationAction',
+            scope: 'habitat',
+            actionId: 'run',
+            label: 'Cap',
+            requires: ['taskWriter'],
+          }],
+        },
+        actions: {
+          run: async (ctx) => ({
+            status: 'succeeded',
+            result: {
+              hasTaskWriter: typeof ctx.taskWriter === 'object',
+              keys: Object.keys(ctx).sort(),
+            },
+          }),
+        },
+      };`,
+    );
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+    enrollmentRepo.create({
+      habitatId: habitat.id,
+      pluginId: "cap-plugin",
+      contributionId: "run",
+      contributionKind: "automationAction",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitat.id);
+
+    const rule = buildRuleWithPlugin(habitat.id, "run");
+    const run = buildRun(habitat.id, rule.id);
+    const entry = pluginManager.getActionEntry("run");
+    expect(entry).not.toBeNull();
+    const { actionResults } = await executeActions(rule, run, emptyContext());
+
+    expect(actionResults[0].status).toBe("succeeded");
+    const resultPayload = actionResults[0].result as {
+      hasTaskWriter: boolean;
+      keys: string[];
+    };
+    // taskWriter must be on the context (capability delivered through consumer seam).
+    expect(resultPayload.hasTaskWriter).toBe(true);
+    expect(resultPayload.keys).toContain("taskWriter");
+  });
+
+  it("missing actionId: executor fails with explicit no-handler error", async () => {
+    const habitat = setupHabitat();
+    const rule = buildRuleWithPlugin(habitat.id, "no-such-action");
+    const run = buildRun(habitat.id, rule.id);
+    const { actionResults } = await executeActions(rule, run, emptyContext());
+
+    expect(actionResults[0].status).toBe("failed");
+    expect(actionResults[0].error).toMatch(/no plugin handler registered/i);
+    expect(actionResults[0].actionType).toBe("plugin");
   });
 });

@@ -776,6 +776,189 @@ describe("ADR-0039 T7: pre-veto runtime migration (real end-to-end)", () => {
     });
   });
 
+  // ── Failure-veto matrix (ADR-0039 R5) ───────────────────────────────────
+  //
+  // The "explicit veto" matrix above proves the seven Task-lifecycle callers
+  // each short-circuit before their first Task mutation when an explicit
+  // {allow:false} is returned. ADR-0039 R5 strengthens the matrix to also
+  // assert the *bounded fail-closed* contract (Q1): a handler throw /
+  // Promise return / invalid result is a *failure veto* — the same Task-mutation
+  // gates apply (DB untouched, no Task SSE, no post hook fired).
+  //
+  // We re-use the seven Task-lifecycle callers and verify on each:
+  //   1. Throwing handler → InterceptorVetoError is raised.
+  //   2. Task status is unchanged.
+  //   3. No Task SSE event was published (sseBroadcaster spy stays quiet).
+  //   4. runPostInterceptors is NOT called (post hook stays detached).
+  //
+  // The post-hook assertion uses a spy on the real pluginManager.runPostInterceptors.
+  // The SSE assertion uses a vi.mock scoped to this describe block.
+
+  describe("seven-caller failure-veto matrix (ADR-0039 R5 strengthening)", () => {
+    let ssePublishSpy: ReturnType<typeof vi.fn>;
+    let postHookSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      // Wire a per-describe SSE publisher spy. The broadcaster is consumed at
+      // module-import time, so we replace `sseBroadcaster.publish` on the
+      // shared module instance for the duration of this describe block.
+      const broadcaster = (await import("../sse/broadcaster.js")).sseBroadcaster;
+      ssePublishSpy = vi.fn();
+      (broadcaster as unknown as { publish: typeof broadcaster.publish }).publish =
+        ssePublishSpy as unknown as typeof broadcaster.publish;
+      postHookSpy = vi.spyOn(pluginManager, "runPostInterceptors").mockReturnValue(undefined);
+    });
+
+    afterEach(() => {
+      ssePublishSpy.mockRestore();
+      postHookSpy.mockRestore();
+    });
+
+    async function writeThrowingPlugin(
+      name: string,
+      event: string,
+      interceptorId: string,
+    ): Promise<void> {
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      tmpDir = `/tmp/test-r5-fveto-${name}-${Date.now()}`;
+      await mkdir(tmpDir, { recursive: true });
+      await writeFile(
+        `${tmpDir}/${name}.mjs`,
+        `export default {
+          manifest: {
+            id: '${name}',
+            version: '1.0.0',
+            description: 'throwing pre-interceptor',
+            contributions: [{
+              kind: 'lifecycleInterceptor',
+              scope: 'habitat',
+              phase: 'pre',
+              event: '${event}',
+              interceptorId: '${interceptorId}',
+              priority: 0,
+              requires: [],
+            }],
+          },
+          interceptors: { '${interceptorId}': () => { throw new Error('failure-veto-throw'); } },
+        };`,
+      );
+      pluginManager.setPluginDirectory(tmpDir);
+      await pluginManager.loadPlugins();
+    }
+
+    function expectNoTaskSseFor(sseEvents: unknown[]): void {
+      const taskEvents = sseEvents.filter((e) => {
+        const evt = e as { type?: string };
+        return typeof evt?.type === "string" && evt.type.startsWith("task.");
+      });
+      expect(taskEvents).toEqual([]);
+    }
+
+    it("createTask: throwing pre-interceptor → failure veto (no Task SSE, no post hook, DB untouched)", async () => {
+      const habitat = habitatRepo.createHabitat({ name: "fv-create" });
+      const column = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo" });
+      const mission = missionRepo.createMission({
+        habitatId: habitat.id,
+        columnId: column.id,
+        title: "M",
+        createdBy: "test",
+      });
+      await writeThrowingPlugin("fv-create", "taskCreated", "veto-create");
+      enrollPlugin(habitat.id, "fv-create", "veto-create");
+
+      expect(() =>
+        taskService.createTask({ missionId: mission.id, title: "x", createdBy: "u" }),
+      ).toThrow(InterceptorVetoError);
+
+      // DB untouched.
+      expect(taskRepo.getTasksByMissionId(mission.id)).toHaveLength(0);
+      // No task.* SSE event published.
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      // Post hook never fired.
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+
+    it("claimTask: throwing pre-interceptor → failure veto (no Task SSE, no post hook, status unchanged)", async () => {
+      await writeThrowingPlugin("fv-claim", "taskClaimed", "veto-claim");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+      enrollPlugin(habitatId, "fv-claim", "veto-claim");
+
+      expect(() => taskService.claimTask(taskId, agentId)).toThrow(InterceptorVetoError);
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("pending");
+
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+
+    it("claimDelegatedTask: throwing pre-interceptor → failure veto (no Task SSE, no post hook)", async () => {
+      await writeThrowingPlugin("fv-delclaim", "taskClaimed", "veto-delclaim");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+      enrollPlugin(habitatId, "fv-delclaim", "veto-delclaim");
+
+      expect(() => taskService.claimDelegatedTask(taskId, agentId)).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("pending");
+
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+
+    it("submitTask: throwing pre-interceptor → failure veto (no Task SSE, no post hook)", async () => {
+      await writeThrowingPlugin("fv-submit", "taskSubmitted", "veto-submit");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("in_progress");
+      enrollPlugin(habitatId, "fv-submit", "veto-submit");
+
+      expect(() => taskService.submitTask(taskId, agentId, "done", [])).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("in_progress");
+
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+
+    it("completeTask: throwing pre-interceptor → failure veto (no Task SSE, no post hook)", async () => {
+      await writeThrowingPlugin("fv-complete", "taskApproved", "veto-complete");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "fv-complete", "veto-complete");
+
+      expect(() => taskService.completeTask(taskId, agentId)).toThrow(InterceptorVetoError);
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+
+    it("approveTask (no reviewers): throwing pre-interceptor → failure veto (no Task SSE, no post hook)", async () => {
+      await writeThrowingPlugin("fv-approve", "taskApproved", "veto-approve");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "fv-approve", "veto-approve");
+
+      expect(() => taskService.approveTask(taskId, "reviewer-x", "human")).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejectTask: throwing pre-interceptor → failure veto (no Task SSE, no post hook)", async () => {
+      await writeThrowingPlugin("fv-reject", "taskRejected", "veto-reject");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "fv-reject", "veto-reject");
+
+      expect(() => taskService.rejectTask(taskId, "reviewer-x", "bad", "human")).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+
+      expectNoTaskSseFor(ssePublishSpy.mock.calls.map((c) => c[1]));
+      expect(postHookSpy).not.toHaveBeenCalled();
+    });
+  });
+
   // ── Final-approval pre-veto ordering (Q10) ────────────────────────────────
 
   describe("final-approval pre-veto ordering (Q10)", () => {
