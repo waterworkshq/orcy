@@ -465,7 +465,7 @@ To enable a detector:
 3. Navigate to Habitat Settings → Plugins → enroll the contribution
 4. Toggle enabled
 
-Plugin run history (status, signals emitted, errors) is visible in the same tab. A plugin that exceeds `ORCY_PLUGIN_QUARANTINE_THRESHOLD` errors is auto-quarantined and skipped on dispatch until a habitat admin re-enables it.
+Plugin run history (status, signals emitted, errors) is visible in the same tab. A contribution (detector, action, or pre-interceptor) that exceeds `ORCY_PLUGIN_QUARANTINE_THRESHOLD` runtime faults within a 60-second window is auto-quarantined and skipped on dispatch until a habitat admin re-enables it (ADR-0039).
 
 ## Triage (v0.23)
 

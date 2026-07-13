@@ -97,9 +97,8 @@ For Jira API tokens, users can create a token at <https://id.atlassian.com/manag
 | `PLUGINS_DIR` | `plugins/` | Directory for plugin files |
 | `PLUGINS_ENABLED` | — | Comma-separated plugin names to load. When unset, all discovered plugins load. When set, only listed plugins load. |
 | `ORCY_DETECTOR_ALLOWLIST` | — | Comma-separated plugin IDs allowed for detector enrollment. Unset = fail-closed (all detector enrollments return 403). `*` = open. |
-| `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Error count threshold for auto-quarantine. A plugin reaching this many errors is flagged `quarantined` and skipped on dispatch until re-enabled. |
-| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Max concurrent detector invocations per habitat. Excess triggers queue. |
-| `ORCY_DETECTOR_QUEUE_MAX` | `256` | Max queued detector triggers per habitat before overflow drop. Oldest trigger is dropped + `detector.queue_overflow` audit event emitted. |
+| `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Per-contribution runtime-fault count (within a fixed 60-second window) that triggers auto-quarantine. Counts toward the canonical contribution key, not the whole plugin. Only Signal Detectors, Automation Actions, and pre Lifecycle Interceptors increment this counter (ADR-0039 Q2). A quarantined contribution is skipped on dispatch with a `skipped` Plugin Run row; the counter is in-memory and resets on restart, but the persisted `plugin_quarantines` row survives restart. |
+| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector handler invocations. A Detector that cannot acquire capacity writes a `rate_limited` Plugin Run row (ADR-0039 Q14) and remains catch-up-eligible. The slot is released when the underlying handler Promise settles, not when the watchdog fires — a never-settling handler holds its slot until process restart. |
 
 ### Release Activation
 

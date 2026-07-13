@@ -1334,15 +1334,15 @@ The 11th member of `SIGNAL_TYPES` (`@orcy/shared/types/signal.ts`). Detector out
 `lifecycleInterceptor` contributions declare `phase: "pre" | "post"`:
 
 - **pre** — runs before the transition DB transaction opens. Returns `{ allow: true } | { allow: false, reason }`. First `allow:false` short-circuits remaining pre-hooks; transition service returns `403 { error: "Transition blocked by lifecycle interceptor", blockedBy: [...] }`. Pre-phase contributions cannot require `pulseWriter` — gates decide, they don't emit.
-- **post** — runs after commit via `Promise.allSettled`. Returns `{ signals?: DetectedSignalInput[] }`; the loader materializes signals atomically via `PulseWriter.createDetectedSignal`. Post-hooks can require `pulseWriter`.
+- **post** — runs after commit fire-and-forget (caller detaches). Returns `{ signals?: DetectedSignalInput[] }`; the runtime materializes the full signal array as ONE atomic database batch — validation or mid-batch write failure rolls back the entire batch (zero committed signals) and finishes the run `failed`; SSE and hooks publish only after commit (ADR-0039 Q11). Post-hooks can require `pulseWriter`. Post-interceptors are not quarantine-accounted (defensive gate only).
 
-Priority is ascending; lower-priority pre-hooks veto short-circuit. A pre-hook throw is treated as `{ allow:false }` and increments the plugin's error counter toward auto-quarantine.
+Priority is ascending; lower-priority pre-hooks veto short-circuit. Per ADR-0039 (Q1), the pre path is **bounded fail-closed**: an explicit `{ allow: false, reason }` is an ordinary veto that short-circuits remaining pre-hooks and returns 403; a handler throw, invalid return, or synchronous Promise return is a **failure veto** that writes a Plugin Run row, increments the contribution's quarantine counter, and returns 403. Once a pre-interceptor contribution reaches its quarantine threshold via accumulated faults, it is skipped (not failure-vetoed) so Task work can continue. Hard authorization and permission enforcement stays in Orcy core because quarantine bypasses the interceptor policy.
 
 ### Detector Execution (ADR-0015)
 
 Trigger-based fire-and-forget-after-commit — same execution seam as post-interceptors. When a source event (`pulseCreated`, `taskEvent`, `commentCreated`, `taskSubmitted`) commits, the loader dispatches to enrolled detector handlers in a background `Promise`. Source event commits independently of detector outcome — detected signals are hints, not ground truth. Per-run atomic batching: signals from one detector invocation are written all-or-nothing in one `db.transaction`.
 
-**Rate limiting & concurrency:** per-detector rate limit (declared on manifest `rateLimitDefaults`); per-habitat concurrency cap (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8); overflow queue (`ORCY_DETECTOR_QUEUE_MAX`, default 256) drops oldest on overflow. Catch-up scan for missed-during-outage events is deferred to v0.22.1.
+**Rate limiting & concurrency (ADR-0039 Q12, Q14):** the error-rate `isRateLimited` gate is removed; runtime faults feed the per-contribution quarantine counter and threshold only. `rate_limited` Plugin Run status is written solely when a Detector cannot acquire habitat concurrency capacity (`ORCY_DETECTOR_MAX_CONCURRENT`, default 8) — that outcome is temporary and recovery-eligible. The concurrency slot is released when the **underlying handler Promise settles**, not when the watchdog fires; a never-settling handler intentionally holds its slot until process restart. The watchdog (`withTimeout`) is a deadline race, not cancellation — no claim is made that the handler or late side effects were cancelled. Detector manifest `rateLimitDefaults` are not activated in this release. Catch-up scan recovers events missed during outage with status-aware dedup (only `running`/`succeeded`/`failed` count as durably accounted) and per-target dispatch with durable-start watermark acknowledgement.
 
 ### Plugin Storage (ADR-0016)
 
@@ -1351,10 +1351,10 @@ Three tables:
 | Table | Purpose |
 |-------|---------|
 | `plugin_enrollments` | Per-contribution habitat enrollment. `UNIQUE (habitat_id, plugin_id, contribution_id)` — Mixed Plugin contributions enroll independently. |
-| `plugin_runs` | Per-invocation telemetry: `pluginId`, `contributionId`, `triggerType`, `status` (`running`/`succeeded`/`failed`/`rate_limited`/`skipped`), `signals_emitted`, `error`, `started_at`, `finished_at`. |
-| `plugin_quarantines` | Persistent quarantine state (added v0.22.3); re-populated into memory at boot by `loadQuarantinesFromDb()`. Admin-clearable via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. |
+| `plugin_runs` | Per-invocation telemetry: `pluginId`, `contributionId`, `triggerType`, `status` (`running`/`succeeded`/`failed`/`rate_limited`/`skipped`), `signals_emitted`, `error`, `started_at`, `finished_at`. `rate_limited` = Detector concurrency capacity denied (recovery-eligible); `skipped` = quarantine blocked this attempt (recovery-eligible). Only `running`/`succeeded`/`failed` satisfy catch-up dedup (ADR-0039). |
+| `plugin_quarantines` | Persistent per-contribution quarantine state (added v0.22.3); keyed by the canonical kind-safe contribution key (ADR-0039 Q9). Re-populated into memory at boot by `loadQuarantinesFromDb()`. Admin-clearable via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. A one-time prerelease quarantine reset deletes legacy `pluginId:contributionId` rows whose format cannot map to the canonical key. |
 
-Quarantine state persists across API restart via the `plugin_quarantines` table (added v0.22.3), re-populated into memory at boot by `loadQuarantinesFromDb()`; the per-plugin error *counter* is in-memory and resets on restart. Admin can clear a quarantine via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. `ORCY_DETECTOR_ALLOWLIST` (comma-separated plugin ids, unset = fail-closed, `*` = open) gates which detectors can be habitat-enrolled.
+Quarantine state persists across API restart via the `plugin_quarantines` table (added v0.22.3), re-populated into memory at boot by `loadQuarantinesFromDb()`; the per-contribution error *counter* is in-memory and resets on restart (the persisted quarantine row survives). Quarantine applies to one contribution via its canonical kind-safe key (ADR-0039 Q9) — `(pluginId, kind, contributionId[, phase, event])` — not the whole plugin. The counter accrues runtime faults (throw, watchdog timeout, invalid return, validator rejection) over a fixed 60-second window; threshold breach auto-quarantines. Only Signal Detectors, Automation Actions, and pre Lifecycle Interceptors increment the counter; Notification Channels and post Lifecycle Interceptors carry a defensive quarantine gate only and cannot reach the auto-threshold (ADR-0039 Q2). Admin can clear a quarantine via `DELETE /habitats/:id/plugins/:pluginKey/quarantine`. `ORCY_DETECTOR_ALLOWLIST` (comma-separated plugin ids, unset = fail-closed, `*` = open) gates which detectors can be habitat-enrolled.
 
 ### Notification Channel Registry (ADR-0017)
 
@@ -1375,9 +1375,8 @@ Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` cap
 | `PLUGINS_DIR` | `plugins/` | Plugin files directory |
 | `PLUGINS_ENABLED` | — | Comma-separated plugin names to load (unset = all discovered) |
 | `ORCY_DETECTOR_ALLOWLIST` | — | Detector enrollment gate (unset = fail-closed, `*` = open) |
-| `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Error count for auto-quarantine |
-| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector invocations |
-| `ORCY_DETECTOR_QUEUE_MAX` | `256` | Per-habitat queue cap before overflow drop |
+| `ORCY_PLUGIN_QUARANTINE_THRESHOLD` | `10` | Per-contribution runtime-fault count (60s window) for auto-quarantine |
+| `ORCY_DETECTOR_MAX_CONCURRENT` | `8` | Per-habitat concurrent detector handler invocations (capacity denial writes `rate_limited`) |
 
 ### Reference Plugins (15 shipped)
 
@@ -1407,7 +1406,8 @@ Every plugin invocation emits an `AuditEvent` via the write-only `ctx.audit` cap
 | `shared/src/types/signal.ts` | `SIGNAL_TYPES` (11 values including `"detected"`) |
 | `api/src/plugins/types.ts` | `PluginModule`, `ChannelHandler`, `DetectorHandler`, `InterceptorHandler`, `TransitionRef` |
 | `api/src/plugins/context.ts` | `PluginContext` construction with capability whitelist |
-| `api/src/plugins/pluginManager.ts` | Loader, channel registry, detector dispatcher, quarantine (DB-persisted state + in-memory cache) |
+| `api/src/plugins/pluginManager.ts` | Loader, channel registry, detector dispatcher, quarantine (DB-persisted state + in-memory cache). Owns composition/registry responsibilities; delegates invocation policy to the runtime. |
+| `api/src/plugins/invocationRuntime.ts` | Plugin Invocation Runtime (ADR-0039) — `checkPreVeto` + `invokeManaged` entry points; owns startRun, quarantine gate, watchdog, validation, fault classification, finishRun. |
 | `api/src/plugins/contributionAdapters.ts` | Contribution adapter catalog — per-kind label/orphan/collision/register behavior (v0.28 locality extraction) |
 | `api/src/services/pluginEnrollmentService.ts` | REST-layer enrollment CRUD + allowlist gate |
 | `api/src/repositories/pluginEnrollment.ts` | Enrollment CRUD + loader cache |

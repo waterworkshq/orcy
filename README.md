@@ -196,7 +196,7 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| No scheduled next release | v0.29 shipped the last architecture-deepening candidate from the 2026-06-04 review. Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) are unscheduled pending prerequisite foundations. |
+| No scheduled next release | v0.30 shipped the Plugin Invocation Policy architecture-deepening (ADR-0039). Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) are unscheduled pending prerequisite foundations. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 
