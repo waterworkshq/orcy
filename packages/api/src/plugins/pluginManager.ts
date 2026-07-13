@@ -42,9 +42,15 @@ import {
 import {
   createInvocationRuntime,
   type DetectorTarget,
+  type ActionTarget,
+  type ChannelTarget,
   type RuntimeDeps,
   type InvocationRuntime,
   type DetectorInvocationRequest,
+  type ActionInvocationRequest,
+  type ChannelInvocationRequest,
+  type ActionOutcome,
+  type ChannelOutcome,
   type ManagedInvocationOutcome,
 } from "./invocationRuntime.js";
 import { readdir, stat, realpath } from "node:fs/promises";
@@ -597,8 +603,19 @@ export function getActionEntry(actionId: string): ActionRegistryEntry | null {
 }
 
 /**
- * Dispatches a plugin action handler with full run tracking, context building,
- * and timeout (ADR-0023). Called by the automation executor for `type: "plugin"` actions.
+ * Dispatches a plugin action handler through the Plugin Invocation Runtime
+ * (ADR-0023, ADR-0039 T5). Called by the automation executor for
+ * `type: "plugin"` actions.
+ *
+ * T5 (ADR-0039 Q3): migrated to `invokeManaged`. The runtime owns startRun,
+ * quarantine gate, context construction, timeout watchdog, result validation,
+ * fault classification, and finishRun. The dispatcher is now a thin adapter
+ * that maps the runtime outcome to the existing Action result shape.
+ *
+ * Q3 REVERSAL: a quarantined Action no longer executes — the runtime writes a
+ * `skipped` Plugin Run and returns an explicit `{ status: "failed" }` to the
+ * caller. This eliminates the v0.28 "known asymmetry" where quarantined
+ * Actions still ran.
  *
  * T2: `requires` and the canonical contribution key are read from the enriched
  * registry entry — the dispatcher no longer rescans `loadedPlugins` manifests.
@@ -610,36 +627,9 @@ export async function dispatchActionHandler(
   evaluationCtx: import("@orcy/shared").PluginEvaluationContext,
   params: Record<string, unknown>,
 ): Promise<{ status: "succeeded" | "failed"; result?: Record<string, unknown>; error?: string }> {
-  const { runId, ctx } = startPluginRun({
-    pluginId: entry.pluginId,
-    contributionId: actionId,
-    contributionKind: "automationAction",
-    habitatId,
-    triggerEventId: null,
-    triggerType: "automation:plugin-action",
-    requires: entry.requires,
-  });
-
-  try {
-    const effectiveTimeout = entry.timeoutMs ?? 0;
-    const result = await withTimeout(
-      entry.handler(ctx, evaluationCtx, params),
-      effectiveTimeout,
-      entry.canonicalKey,
-    );
-    runRepo.finishRun(
-      runId,
-      result.status === "succeeded" ? "succeeded" : "failed",
-      undefined,
-      result.error,
-    );
-    return result;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    incrementError(entry.canonicalKey, entry.pluginId);
-    runRepo.finishRun(runId, "failed", undefined, message);
-    return { status: "failed", error: message };
-  }
+  const target = makeActionTarget(entry);
+  const outcome = await invokeActionThroughRuntime(target, habitatId, evaluationCtx, params);
+  return outcome.result;
 }
 
 /**
@@ -652,12 +642,24 @@ export function getDetectorEntry(key: string): DetectorRegistryEntry | null {
 }
 
 /**
- * Dispatches a notification delivery to a registered channel plugin handler.
+ * Dispatches a notification delivery to a registered channel plugin handler
+ * through the Plugin Invocation Runtime (ADR-0039 T5).
+ *
  * Returns `null` when no plugin has registered a handler for `channel`
- * (caller must fall through to the in-tree switch). On a registry hit, the
- * plugin handler is invoked with a per-run `PluginContext` carrying
- * `notificationPayload`; handler exceptions are caught and surfaced as a
- * failed `ChannelHandlerResult` rather than propagating to the dispatcher.
+ * (caller — `notificationDeliveryService.dispatchChannel` — must fall through
+ * to the in-tree switch). On a registry hit, the runtime owns startRun,
+ * quarantine gate (defensive only — Channel faults never increment the
+ * counter), context construction, timeout watchdog, result validation, fault
+ * classification, and finishRun. The dispatcher is a thin adapter that maps
+ * the runtime outcome to `ChannelHandlerResult`.
+ *
+ * T5: migrated to `invokeManaged`. Channel faults remain non-quarantine-
+ * accounted (Q2); the common quarantine check is defensive only — it fires
+ * for restored or future manual-quarantine state but Channels cannot reach
+ * the auto-threshold in this release.
+ *
+ * T2: `requires` and the canonical contribution key are read from the enriched
+ * registry entry — the dispatcher no longer rescans `loadedPlugins` manifests.
  */
 export async function dispatchToChannelPlugin(
   channel: string,
@@ -667,33 +669,9 @@ export async function dispatchToChannelPlugin(
   const entry = channelRegistry.get(channel);
   if (!entry) return null;
 
-  // T2: `requires` and the canonical contribution key are read from the enriched
-  // registry entry — the dispatcher no longer rescans `loadedPlugins` manifests.
-  const { runId, ctx } = startPluginRun({
-    pluginId: entry.pluginId,
-    contributionId: channel,
-    contributionKind: "notificationChannel",
-    habitatId: delivery.habitatId,
-    triggerEventId: delivery.eventId,
-    triggerType: `channel:${channel}`,
-    requires: entry.requires,
-  });
-  ctx.notificationPayload = { delivery, event };
-
-  try {
-    const effectiveTimeout = entry.timeoutMs ?? DEFAULT_TIMEOUT_MS.notificationChannel ?? 0;
-    const result = await withTimeout(
-      entry.handler(ctx, ctx.notificationPayload),
-      effectiveTimeout,
-      entry.canonicalKey,
-    );
-    runRepo.finishRun(runId, result.success ? "succeeded" : "failed", undefined, result.error);
-    return result;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    runRepo.finishRun(runId, "failed", undefined, message);
-    return { success: false, error: message };
-  }
+  const target = makeChannelTarget(entry);
+  const outcome = await invokeChannelThroughRuntime(target, delivery, event);
+  return outcome.result;
 }
 
 /**
@@ -964,6 +942,108 @@ export async function dispatchDetectorTarget(
   }
   // running / succeeded / failed = handler was durably launched.
   return { state: "durably_started", runId: outcome.runId ?? "" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T5 — Action + Channel runtime migration (ADR-0039)
+//
+// `dispatchActionHandler` and `dispatchToChannelPlugin` both route through
+// the Plugin Invocation Runtime (`invokeManaged`). The runtime owns:
+// startRun, quarantine gate, context construction, handler invocation,
+// validation, fault classification, and finishRun.
+//
+// Q3 REVERSAL: a quarantined Action no longer executes. The runtime writes
+// a `skipped` Plugin Run and returns an explicit `{ status: "failed" }` to
+// the caller, eliminating the v0.28 "known asymmetry".
+//
+// Channel faults remain non-quarantine-accounted (Q2): the common quarantine
+// gate is defensive only — Channels never call `incrementError` and cannot
+// reach the auto-threshold in this release.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Builds a normalized {@link ActionTarget} from a registry entry. */
+function makeActionTarget(entry: ActionRegistryEntry): ActionTarget {
+  return {
+    kind: "automationAction",
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.actionId,
+    handler: entry.handler,
+    contribution: entry.contribution,
+    requires: entry.requires,
+    timeoutMs: entry.timeoutMs,
+    canonicalKey: entry.canonicalKey,
+  };
+}
+
+/** Builds a normalized {@link ChannelTarget} from a registry entry. */
+function makeChannelTarget(entry: ChannelRegistryEntry): ChannelTarget {
+  return {
+    kind: "notificationChannel",
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.channelId,
+    handler: entry.handler,
+    contribution: entry.contribution,
+    requires: entry.requires,
+    timeoutMs: entry.timeoutMs,
+    canonicalKey: entry.canonicalKey,
+  };
+}
+
+/**
+ * Invokes one Action target through the Plugin Invocation Runtime. Returns the
+ * full outcome so `dispatchActionHandler` can map `outcome.result` to the
+ * existing Action result shape.
+ *
+ * Actions are awaited (caller waits for result), unlike Detectors which are
+ * fire-and-forget. The runtime outcome's `result` field directly matches the
+ * Action result shape `{ status, result?, error? }`.
+ */
+function invokeActionThroughRuntime(
+  target: ActionTarget,
+  habitatId: string,
+  evalCtx: import("@orcy/shared").PluginEvaluationContext,
+  params: Record<string, unknown>,
+): Promise<ActionOutcome> {
+  const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
+  const runtime: InvocationRuntime = createInvocationRuntime(buildRuntimeDeps(ctxRef));
+  const request: ActionInvocationRequest = {
+    target,
+    habitatId,
+    triggerType: "automation:plugin-action",
+    evalCtx,
+    params,
+  };
+  // The runtime guarantees kind-correspondence: an ActionInvocationRequest
+  // always produces an ActionOutcome. The cast encodes that structural invariant.
+  return runtime.invokeManaged(request) as Promise<ActionOutcome>;
+}
+
+/**
+ * Invokes one Channel target through the Plugin Invocation Runtime. Returns
+ * the full outcome so `dispatchToChannelPlugin` can map `outcome.result` to
+ * `ChannelHandlerResult`.
+ *
+ * The runtime's `populateKindPayload` sets `ctx.notificationPayload` from the
+ * request's `delivery` and `event` fields before invoking the handler.
+ */
+function invokeChannelThroughRuntime(
+  target: ChannelTarget,
+  delivery: NotificationDelivery,
+  event: NotificationEvent,
+): Promise<ChannelOutcome> {
+  const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
+  const runtime: InvocationRuntime = createInvocationRuntime(buildRuntimeDeps(ctxRef));
+  const request: ChannelInvocationRequest = {
+    target,
+    habitatId: delivery.habitatId,
+    triggerEventId: delivery.eventId,
+    triggerType: `channel:${target.contributionId}`,
+    delivery,
+    event,
+  };
+  // The runtime guarantees kind-correspondence: a ChannelInvocationRequest
+  // always produces a ChannelOutcome. The cast encodes that structural invariant.
+  return runtime.invokeManaged(request) as Promise<ChannelOutcome>;
 }
 
 function registerDetectorHooks(): void {

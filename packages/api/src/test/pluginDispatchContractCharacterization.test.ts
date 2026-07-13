@@ -882,24 +882,15 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     expect(failedAfterSkip).toBe(failedBeforeSkip);
   });
 
-  it("an action hitting ORCY_PLUGIN_QUARANTINE_THRESHOLD: counter+DB+SSE quarantine, BUT dispatchActionHandler does NOT skip (unlike detectors) — known asymmetry", async () => {
-    // ADR-0039 REVERSAL (T5): This test pins the CURRENT "quarantined Action
-    // still runs" asymmetry that ADR-0039 Q3 intentionally reverses. T5 replaces
-    // this test with one asserting: quarantined Action → skipped Plugin Run +
-    // explicit {status:"failed"} to caller. The "known asymmetry" is being
-    // eliminated, not preserved. See ADR-0039 § Quarantine Semantics (Q3-Q4)
-    // and § Old-to-Target Behavior Map (Automation Action).
-    //   - signalDetector path has a quarantine skip gate at dispatchDetectionEvent:953
-    //     (`if (quarantineSet.has(key)) continue`), so a quarantined detector is skipped entirely
-    //     and produces NO new plugin_runs.
-    //   - automationAction path (`dispatchActionHandler`, pluginManager.ts:730-773) has NO such
-    //     gate — it unconditionally calls startPluginRun and runs the handler, only invoking
-    //     incrementError on catch. A quarantined action STILL RUNS the handler; only the
-    //     in-memory + DB quarantine state + SSE event are produced.
-    //   - Same pattern: post-interceptor (no gate), channel (no gate — but channel doesn't
-    //     increment at all, so it never quarantines).
-    // This test pins the asymmetry: actions quarantine, but the next dispatch IS NOT skipped —
-    // a new plugin_runs row is still produced.
+  it("an action hitting ORCY_PLUGIN_QUARANTINE_THRESHOLD: counter+DB+SSE quarantine, and subsequent dispatch SKIPS with explicit {status:'failed'} (ADR-0039 Q3 reversal of the known asymmetry)", async () => {
+    // ADR-0039 Q3 (T5): This test REPLACES the old "known asymmetry" test
+    // that pinned the v0.28 behavior where a quarantined Action STILL RAN.
+    // The target contract (ADR-0039 § Quarantine Semantics Q3-Q4, § Old-to-
+    // Target Behavior Map for Automation Action) is:
+    //   - A quarantined Action does NOT execute its handler.
+    //   - A `skipped` Plugin Run row is written (visible telemetry).
+    //   - The caller receives an explicit `{ status: "failed" }` result.
+    // This eliminates the asymmetry with Detectors (which already skipped).
     tmpDir = await writePlugin(
       "quar-act",
       `{
@@ -957,13 +948,13 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     );
     expect(publishCalls.length).toBeGreaterThanOrEqual(1);
 
-    // --- Pin the no-skip behavior: a 3rd dispatch of the registered handler STILL creates
-    // a new plugin_runs row, even though the pluginKey is in quarantineSet. (Contrast the
-    // detector path where dispatchDetectionEvent:953 short-circuits before startPluginRun.)
-    const runsBefore = runRepo.listByHabitat(habitatId, { pluginId: "quar-act" }).length;
+    // --- T5 (ADR-0039 Q3): quarantined Action now SKIPS execution. The handler
+    // does NOT run — the caller receives an explicit {status:"failed"} and a
+    // `skipped` Plugin Run row is written. (Previously the handler still ran.) ---
+    const failedBeforeSkip = runRepo
+      .listByHabitat(habitatId, { pluginId: "quar-act" })
+      .filter((r) => r.status === "failed").length;
 
-    // The 3rd dispatch uses the same throwing handler; the test asserts that despite the
-    // pluginKey being in quarantineSet, the run is still STARTED and FINISHED (failed).
     const thirdResult = await pluginManager.dispatchActionHandler(
       entry!,
       "q",
@@ -971,13 +962,27 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
       evalCtx,
       {},
     );
-    expect(thirdResult.status).toBe("failed");
 
-    const runsAfter = runRepo.listByHabitat(habitatId, { pluginId: "quar-act" });
-    expect(runsAfter.length).toBe(runsBefore + 1);
-    // The new run (most recent due to desc ordering) is "failed" — same handler, same outcome.
-    expect(runsAfter[0].status).toBe("failed");
-    expect(runsAfter[0].error).toContain("act-boom");
+    // Q3: explicit failure returned to the caller (not a silent drop).
+    expect(thirdResult.status).toBe("failed");
+    expect(thirdResult.error).toContain("quarantined");
+
+    // Q3: a `skipped` Plugin Run row is produced (visible telemetry).
+    const skipRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "quar-act" })
+          .find((r) => r.status === "skipped"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(skipRun).toBeDefined();
+
+    // Q3: no new failed run (handler did not run — contrast the old behavior).
+    const failedAfterSkip = runRepo
+      .listByHabitat(habitatId, { pluginId: "quar-act" })
+      .filter((r) => r.status === "failed").length;
+    expect(failedAfterSkip).toBe(failedBeforeSkip);
   });
 
   it("notificationChannel hits do NOT quarantine (channel returns {success:false} and stays live)", async () => {
