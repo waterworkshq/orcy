@@ -248,6 +248,14 @@ export interface RunOutcomeBase {
   startFailed: boolean;
   /** `finishRun` failed after the handler returned — handler outcome preserved (Q13). */
   finishFailed: boolean;
+  /**
+   * True only when the handler was durably invoked — a handler Promise existed
+   * (ADR-0039 R2 BLOCKER 2). Pre-launch failures (start, quarantine, capacity,
+   * context construction) set this `false` so `dispatchDetectorTarget` can
+   * distinguish recovery-eligible outcomes from genuinely durably-launched ones
+   * without inferring from a DB status that pre-launch failures can write or strand.
+   */
+  handlerLaunched: boolean;
 }
 
 export interface DetectorOutcome extends RunOutcomeBase {
@@ -604,6 +612,13 @@ export interface RuntimeDeps {
     signalsEmitted?: number,
     error?: string,
   ) => PluginRunRow | null;
+  /**
+   * Hard-deletes a Plugin Run row. Used as a fallback when `finishRun` fails
+   * for a pre-launch outcome (R2 BLOCKER 2): a stranded `running` row whose
+   * handler was never launched would falsely satisfy `existsForTriggerEvent`
+   * dedup on the next catch-up scan.
+   */
+  deleteRun: (id: string) => boolean;
   /** Builds a per-invocation `PluginContext` with capability surfaces. */
   buildContext: (opts: BuildContextDepsOpts) => PluginContext;
   /** Returns `true` if the contribution is currently quarantined. */
@@ -670,7 +685,29 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
   }
 
   /**
-   * Increments the quarantine counter if the kind's policy enables fault
+   * Fallback for pre-launch finish failures (R2 BLOCKER 2): if `finishRun`
+   * cannot transition the row away from `running`, delete it so the stranded
+   * row does not falsely satisfy `existsForTriggerEvent` dedup on the next
+   * catch-up scan. Returns `true` on success, `false` if deletion also failed.
+   */
+  function safeDeleteRun(runId: string): boolean {
+    try {
+      const deleted = deps.deleteRun(runId);
+      if (!deleted) {
+        deps.logger.error("Plugin Run deleteRun returned false — run not found", { runId });
+      }
+      return deleted;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.logger.error("Plugin Run deleteRun failed — stranded row may block next scan", {
+        runId,
+        errMessage: message,
+      });
+      return false;
+    }
+  }
+
+  /**
    * accounting (ADR-0039 Q2). Channel and post-Interceptor faults never
    * increment.
    */
@@ -836,12 +873,13 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
         contributionId: target.contributionId,
         errMessage: message,
       });
-      return buildFaultOutcome(kind, null, message, true, false, target);
+      return buildFaultOutcome(kind, null, message, true, false, target, false);
     }
 
     // 2. Quarantine check.
     if (deps.isQuarantined(target.canonicalKey)) {
       const ff = safeFinishRun(runId, "skipped");
+      if (!ff) safeDeleteRun(runId);
       return buildSkippedOutcome(kind, runId, !ff);
     }
 
@@ -851,6 +889,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
       slotAcquired = deps.acquireDetectorSlot(habitatId);
       if (!slotAcquired) {
         const ff = safeFinishRun(runId, "rate_limited");
+        if (!ff) safeDeleteRun(runId);
         return buildRateLimitedOutcome(kind, runId, !ff);
       }
     }
@@ -875,8 +914,19 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
         contributionId: target.contributionId,
         errMessage: message,
       });
-      const ff = safeFinishRun(runId, "failed", undefined, message);
-      return buildFaultOutcome(kind, runId, message, false, !ff, target);
+      // HIGH 3: release the slot acquired in step 3 — no handler Promise
+      // will ever exist to attach cleanup to.
+      if (kind === "signalDetector" && slotAcquired) {
+        deps.releaseDetectorSlot(habitatId);
+      }
+      // BLOCKER 2: finish as "skipped" (NOT "failed") — the handler was
+      // never launched, so the row must be recovery-eligible for the next
+      // catch-up scan (existsForTriggerEvent excludes "skipped"). The
+      // handlerLaunched: false flag in the outcome ensures
+      // dispatchDetectorTarget returns recovery_deferred for this scan.
+      const ff = safeFinishRun(runId, "skipped", undefined, message);
+      if (!ff) safeDeleteRun(runId);
+      return buildFaultOutcome(kind, runId, message, false, !ff, target, false);
     }
 
     const effectiveTimeout = target.timeoutMs ?? policy.defaultTimeoutMs;
@@ -884,8 +934,14 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
     // 4b. Invoke handler + validate + onResult + finish — ALL inside try
     //     (BLOCKER 2: synchronous handler throw must not escape as unhandled
     //     rejection or leave the run "running").
+    //
+    //     handlerPromiseExists tracks whether invokeHandler returned a Promise.
+    //     A synchronous throw leaves it false — the slot was acquired but no
+    //     Promise exists to attach settlement-based cleanup to (HIGH 3).
+    let handlerPromiseExists = false;
     try {
       const handlerPromise = invokeHandler(kind, target, ctx, request);
+      handlerPromiseExists = true;
 
       // BLOCKER 3: attach slot release to the UNDERLYING handler Promise
       // settlement via .then(release, release) — both branches call release,
@@ -905,7 +961,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
       if (!validation.ok) {
         maybeIncrementError(kind, target);
         const ff = safeFinishRun(runId, "failed", undefined, validation.error);
-        return buildFaultOutcome(kind, runId, validation.error, false, !ff, target);
+        return buildFaultOutcome(kind, runId, validation.error, false, !ff, target, true);
       }
 
       // 6. onResult side-effect hook (BLOCKER 1): for Detector/post kinds,
@@ -927,7 +983,7 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
             errMessage: message,
           });
           const ff = safeFinishRun(runId, "failed", undefined, message);
-          return buildFaultOutcome(kind, runId, message, false, !ff, target);
+          return buildFaultOutcome(kind, runId, message, false, !ff, target, true);
         }
       } else {
         signalsEmitted = meta.signalsEmitted;
@@ -939,10 +995,19 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
       return buildSuccessOutcome(kind, runId, status, validation.value, !ff);
     } catch (err) {
       // Handler synchronous throw, async rejection, or watchdog timeout.
+      // HIGH 3: if invokeHandler threw synchronously (handlerPromiseExists
+      // is false), the slot was acquired but no Promise was returned to
+      // attach settlement-based cleanup to. Release it now.
+      if (kind === "signalDetector" && slotAcquired && !handlerPromiseExists) {
+        deps.releaseDetectorSlot(habitatId);
+      }
       const message = err instanceof Error ? err.message : String(err);
       maybeIncrementError(kind, target);
       const ff = safeFinishRun(runId, "failed", undefined, message);
-      return buildFaultOutcome(kind, runId, message, false, !ff, target);
+      // handlerLaunched: true — the handler was invoked (at-most-once).
+      // A synchronous throw still counts as a durable invocation; the row
+      // finishes "failed" and existsForTriggerEvent treats it as accounted.
+      return buildFaultOutcome(kind, runId, message, false, !ff, target, true);
     }
   }
 
@@ -1051,8 +1116,16 @@ function buildFaultOutcome(
   startFailed: boolean,
   finishFailed: boolean,
   _target: ManagedTargetBase,
+  handlerLaunched: boolean,
 ): ManagedInvocationOutcome {
-  const base = { runId, status: "failed" as PluginRunStatus, error, startFailed, finishFailed };
+  const base = {
+    runId,
+    status: "failed" as PluginRunStatus,
+    error,
+    startFailed,
+    finishFailed,
+    handlerLaunched,
+  };
   switch (kind) {
     case "signalDetector":
       return { kind: "signalDetector", ...base, signals: [], signalsEmitted: 0 };
@@ -1071,7 +1144,13 @@ function buildSkippedOutcome(
   runId: string,
   finishFailed: boolean,
 ): ManagedInvocationOutcome {
-  const base = { runId, status: "skipped" as PluginRunStatus, startFailed: false, finishFailed };
+  const base = {
+    runId,
+    status: "skipped" as PluginRunStatus,
+    startFailed: false,
+    finishFailed,
+    handlerLaunched: false,
+  };
   switch (kind) {
     case "signalDetector":
       return { kind: "signalDetector", ...base, signals: [], signalsEmitted: 0 };
@@ -1105,6 +1184,7 @@ function buildRateLimitedOutcome(
     status: "rate_limited" as PluginRunStatus,
     startFailed: false,
     finishFailed,
+    handlerLaunched: false,
     signals: [],
     signalsEmitted: 0,
   };
@@ -1118,7 +1198,7 @@ function buildSuccessOutcome(
   value: unknown,
   finishFailed: boolean,
 ): ManagedInvocationOutcome {
-  const base = { runId, status, startFailed: false, finishFailed };
+  const base = { runId, status, startFailed: false, finishFailed, handlerLaunched: true };
   switch (kind) {
     case "signalDetector":
       return {

@@ -270,6 +270,45 @@ describe("pluginRun repo", () => {
     void _compileTimeNarrowingCheck;
   });
 
+  describe("deleteRun (R2 BLOCKER 2 — pre-launch finish failure fallback)", () => {
+    it("deletes an existing run and returns true", () => {
+      const { id } = setupHabitat();
+      const run = runRepo.startRun(makeRunInput(id, { contributionId: "del-me" }));
+      expect(runRepo.deleteRun(run.id)).toBe(true);
+      expect(runRepo.getById(run.id)).toBeNull();
+    });
+
+    it("returns false for unknown id", () => {
+      expect(runRepo.deleteRun("missing")).toBe(false);
+    });
+
+    it("deleted running row no longer satisfies existsForTriggerEvent dedup", () => {
+      const { id } = setupHabitat();
+      const run = runRepo.startRun(
+        makeRunInput(id, { contributionId: "det-del", triggerEventId: "evt-del" }),
+      );
+      // Row starts as "running" — would satisfy dedup.
+      expect(
+        runRepo.existsForTriggerEvent(
+          "detector-regex-frustration",
+          "signalDetector",
+          "det-del",
+          "evt-del",
+        ),
+      ).toBe(true);
+      // After delete, dedup no longer matches — event is recovery-eligible.
+      runRepo.deleteRun(run.id);
+      expect(
+        runRepo.existsForTriggerEvent(
+          "detector-regex-frustration",
+          "signalDetector",
+          "det-del",
+          "evt-del",
+        ),
+      ).toBe(false);
+    });
+  });
+
   describe("existsForTriggerEvent (T4 status-aware + Q9 kind-safe dedup)", () => {
     it("returns true for running, succeeded, and failed (durably accounted)", () => {
       const { id } = setupHabitat();

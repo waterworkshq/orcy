@@ -332,6 +332,134 @@ describe("detector catch-up scan (v0.22.3)", () => {
     expect(successRun!.triggerEventId).toBe(pulseId);
   });
 
+  it("R2: context-failure skipped row is retried on next scan (BLOCKER 2)", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    await writeDetectorPlugin(
+      "scan-ctx-recover",
+      `async (ctx, ref) => {
+        return [{ signalType: 'detected', subject: 'recovered after ctx failure: ' + ref.sourceId }];
+      }`,
+    );
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-ctx-recover",
+      contributionId: "scan-ctx-recover-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    const staleWatermark = new Date(Date.now() - 60000).toISOString();
+    enrollmentRepo.updateLastScannedAt(enrollment.id, staleWatermark);
+
+    const pulseId = insertPulse(habitatId, missionId, taskId, "pre-context-failure pulse");
+
+    // Simulate a context-construction failure: the runtime now finishes
+    // these as "skipped" (not "failed") so the row is recovery-eligible.
+    const run = runRepo.startRun({
+      habitatId,
+      pluginId: "scan-ctx-recover",
+      contributionId: "scan-ctx-recover-detector",
+      contributionKind: "signalDetector",
+      triggerEventId: pulseId,
+      triggerType: "pulseCreated",
+    });
+    runRepo.finishRun(run.id, "skipped", undefined, "buildContext failed: ctx fail");
+
+    // The skipped row must NOT satisfy dedup (BLOCKER 2 — context failure
+    // does not advance the scan watermark and retries on a later pass).
+    expect(
+      runRepo.existsForTriggerEvent(
+        "scan-ctx-recover",
+        "signalDetector",
+        "scan-ctx-recover-detector",
+        pulseId,
+      ),
+    ).toBe(false);
+
+    await runScan();
+    await new Promise((r) => setTimeout(r, 300));
+
+    // The scanner retried the event and produced a succeeded run.
+    const successRun = runRepo
+      .listByHabitat(habitatId)
+      .find((r) => r.pluginId === "scan-ctx-recover" && r.status === "succeeded");
+    expect(successRun).toBeDefined();
+    expect(successRun!.triggerEventId).toBe(pulseId);
+  });
+
+  it("R2: stranded running row deleted by finish-failure fallback is retried (BLOCKER 2)", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    await writeDetectorPlugin(
+      "scan-del-recover",
+      `async (ctx, ref) => {
+        return [{ signalType: 'detected', subject: 'recovered after delete: ' + ref.sourceId }];
+      }`,
+    );
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-del-recover",
+      contributionId: "scan-del-recover-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    const staleWatermark = new Date(Date.now() - 60000).toISOString();
+    enrollmentRepo.updateLastScannedAt(enrollment.id, staleWatermark);
+
+    const pulseId = insertPulse(habitatId, missionId, taskId, "pre-delete pulse");
+
+    // Simulate a pre-launch finish failure: the row was supposed to be
+    // "skipped" but finishRun failed, leaving it stranded as "running".
+    // The runtime's safeDeleteRun fallback deletes it.
+    const run = runRepo.startRun({
+      habitatId,
+      pluginId: "scan-del-recover",
+      contributionId: "scan-del-recover-detector",
+      contributionKind: "signalDetector",
+      triggerEventId: pulseId,
+      triggerType: "pulseCreated",
+    });
+    // Row is "running" — would falsely satisfy dedup.
+    expect(
+      runRepo.existsForTriggerEvent(
+        "scan-del-recover",
+        "signalDetector",
+        "scan-del-recover-detector",
+        pulseId,
+      ),
+    ).toBe(true);
+
+    // safeDeleteRun fallback removes the stranded row.
+    runRepo.deleteRun(run.id);
+
+    // After deletion, dedup no longer matches — event is recovery-eligible.
+    expect(
+      runRepo.existsForTriggerEvent(
+        "scan-del-recover",
+        "signalDetector",
+        "scan-del-recover-detector",
+        pulseId,
+      ),
+    ).toBe(false);
+
+    await runScan();
+    await new Promise((r) => setTimeout(r, 300));
+
+    const successRun = runRepo
+      .listByHabitat(habitatId)
+      .find((r) => r.pluginId === "scan-del-recover" && r.status === "succeeded");
+    expect(successRun).toBeDefined();
+    expect(successRun!.triggerEventId).toBe(pulseId);
+  });
+
   it("T4: running/succeeded/failed rows DO satisfy dedup — scanner skips them", async () => {
     const { habitatId, missionId, taskId } = setupFixtures();
 

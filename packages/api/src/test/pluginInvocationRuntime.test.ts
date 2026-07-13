@@ -93,6 +93,7 @@ function makeDeps(overrides: Partial<RuntimeDeps> = {}): RuntimeDeps {
             status,
           }) as PluginRunRow,
       ),
+    deleteRun: overrides.deleteRun ?? vi.fn((): boolean => true),
     buildContext:
       overrides.buildContext ??
       ((opts: {
@@ -978,12 +979,20 @@ describe("start/finish failure contract", () => {
     const o = await runtime.invokeManaged(detectorReq());
     expect(o.status).toBe("failed");
     expect(o.startFailed).toBe(false);
+    expect(o.handlerLaunched).toBe(false);
     expect(inc).not.toHaveBeenCalled();
     expect(detectorTarget.handler).not.toHaveBeenCalled();
-    expect(deps.finishRun).toHaveBeenCalled();
+    // BLOCKER 2: DB status is "skipped" (NOT "failed") so the row is
+    // recovery-eligible for existsForTriggerEvent on the next catch-up scan.
+    expect(deps.finishRun).toHaveBeenCalledWith(
+      expect.any(String),
+      "skipped",
+      undefined,
+      expect.any(String),
+    );
   });
 
-  it("buildContext failure does not leak detector slot (BLOCKER 2)", async () => {
+  it("buildContext failure releases detector slot (HIGH 3)", async () => {
     const release = vi.fn();
     detectorTarget.handler = vi.fn(() =>
       Promise.resolve([validSignal]),
@@ -995,11 +1004,10 @@ describe("start/finish failure contract", () => {
       releaseDetectorSlot: release,
     });
     await runtime.invokeManaged(detectorReq());
-    // Slot was acquired but never attached to a handler promise — should not be released by handler chain.
-    // (The runtime acquires the slot in step 3, then buildContext fails in step 4a.)
-    // The release will not fire because no handlerPromise was created.
-    // This test documents that the slot is NOT released in this path.
-    expect(release).not.toHaveBeenCalled();
+    // HIGH 3: slot was acquired in step 3, then buildContext failed in step 4a.
+    // The slot MUST be released because no handler Promise will ever exist
+    // to attach settlement-based cleanup to.
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it("pre-veto start failure: failure veto, startFailed=true, no handler, no increment", () => {
@@ -1025,6 +1033,188 @@ describe("start/finish failure contract", () => {
     const d = runtime.checkPreVeto(preReq(() => ({ allow: true })));
     expect(d.decision).toBe("allow");
     expect(d.finishFailed).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// R2 — Detector recovery and capacity cleanup (BLOCKER 2 + HIGH 3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("R2: handlerLaunched classification (BLOCKER 2)", () => {
+  beforeEach(() => {
+    detectorTarget.handler = vi.fn(() =>
+      Promise.resolve([validSignal]),
+    ) as DetectorTarget["handler"];
+  });
+
+  it("startRun failure: handlerLaunched=false", async () => {
+    const { runtime } = makeRuntime({
+      startRun: () => {
+        throw new Error("DB down");
+      },
+    });
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(false);
+  });
+
+  it("quarantine: handlerLaunched=false", async () => {
+    const { runtime } = makeRuntime({ isQuarantined: () => true });
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(false);
+  });
+
+  it("rate_limited: handlerLaunched=false", async () => {
+    const { runtime } = makeRuntime({ acquireDetectorSlot: () => false });
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(false);
+  });
+
+  it("context failure: handlerLaunched=false", async () => {
+    const { runtime } = makeRuntime({
+      buildContext: () => {
+        throw new Error("ctx fail");
+      },
+    });
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(false);
+  });
+
+  it("validation failure: handlerLaunched=true", async () => {
+    detectorTarget.handler = vi.fn(() =>
+      Promise.resolve("not-an-array" as unknown),
+    ) as DetectorTarget["handler"];
+    const { runtime } = makeRuntime();
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(true);
+  });
+
+  it("async rejection: handlerLaunched=true", async () => {
+    detectorTarget.handler = vi.fn(() =>
+      Promise.reject(new Error("async boom")),
+    ) as DetectorTarget["handler"];
+    const { runtime } = makeRuntime();
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(true);
+  });
+
+  it("success: handlerLaunched=true", async () => {
+    const { runtime } = makeRuntime();
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(true);
+  });
+});
+
+describe("R2: pre-launch finish failure → deleteRun fallback (BLOCKER 2)", () => {
+  beforeEach(() => {
+    detectorTarget.handler = vi.fn(() =>
+      Promise.resolve([validSignal]),
+    ) as DetectorTarget["handler"];
+  });
+
+  it("quarantine finish failure → deleteRun called (stranded running row)", async () => {
+    const del = vi.fn((): boolean => true);
+    const { runtime, deps } = makeRuntime({
+      isQuarantined: () => true,
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+      deleteRun: del,
+    });
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.finishFailed).toBe(true);
+    expect(del).toHaveBeenCalledWith(expect.any(String));
+    expect(deps.deleteRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("capacity finish failure → deleteRun called", async () => {
+    const del = vi.fn((): boolean => true);
+    const { runtime } = makeRuntime({
+      acquireDetectorSlot: () => false,
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+      deleteRun: del,
+    });
+    await runtime.invokeManaged(detectorReq());
+    expect(del).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("context failure finish failure → deleteRun called", async () => {
+    const del = vi.fn((): boolean => true);
+    const { runtime } = makeRuntime({
+      buildContext: () => {
+        throw new Error("ctx fail");
+      },
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+      deleteRun: del,
+    });
+    await runtime.invokeManaged(detectorReq());
+    expect(del).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it("post-launch finish failure does NOT call deleteRun (Q13 — handler outcome preserved)", async () => {
+    const del = vi.fn((): boolean => true);
+    detectorTarget.handler = vi.fn(() =>
+      Promise.reject(new Error("handler boom")),
+    ) as DetectorTarget["handler"];
+    const { runtime } = makeRuntime({
+      finishRun: () => {
+        throw new Error("finishRun DB down");
+      },
+      deleteRun: del,
+    });
+    const o = await runtime.invokeManaged(detectorReq());
+    expect(o.handlerLaunched).toBe(true);
+    expect(o.finishFailed).toBe(true);
+    expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe("R2: slot cleanup on every pre-launch path (HIGH 3)", () => {
+  beforeEach(() => {
+    detectorTarget.handler = vi.fn(() =>
+      Promise.resolve([validSignal]),
+    ) as DetectorTarget["handler"];
+  });
+
+  it("synchronous handler throw releases slot (HIGH 3)", async () => {
+    const release = vi.fn();
+    detectorTarget.handler = vi.fn(() => {
+      throw new Error("sync boom");
+    }) as DetectorTarget["handler"];
+    const { runtime } = makeRuntime({
+      releaseDetectorSlot: release,
+    });
+    const o = await runtime.invokeManaged(detectorReq());
+    // Sync throw: handler was invoked (handlerLaunched=true) but no Promise
+    // was returned, so settlement-based cleanup was never attached.
+    expect(o.handlerLaunched).toBe(true);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("quarantine does NOT acquire or release slot (before step 3)", async () => {
+    const release = vi.fn();
+    const acquire = vi.fn(() => true);
+    const { runtime } = makeRuntime({
+      isQuarantined: () => true,
+      acquireDetectorSlot: acquire,
+      releaseDetectorSlot: release,
+    });
+    await runtime.invokeManaged(detectorReq());
+    expect(acquire).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it("rate_limited (capacity denied) does NOT release slot (never acquired)", async () => {
+    const release = vi.fn();
+    const { runtime } = makeRuntime({
+      acquireDetectorSlot: () => false,
+      releaseDetectorSlot: release,
+    });
+    await runtime.invokeManaged(detectorReq());
+    expect(release).not.toHaveBeenCalled();
   });
 });
 

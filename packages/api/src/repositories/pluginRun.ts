@@ -103,6 +103,27 @@ export function finishRun(
   return updated;
 }
 
+/**
+ * Hard-deletes a Plugin Run row. Used as a fallback when `finishRun` fails
+ * for a pre-launch outcome (ADR-0039 R2 BLOCKER 2): a stranded `running` row
+ * whose handler was never launched would falsely satisfy `existsForTriggerEvent`
+ * dedup on the next catch-up scan. Deleting the row keeps the event
+ * recovery-eligible. Returns `true` on success, `false` if the row was not found.
+ */
+export function deleteRun(id: string): boolean {
+  const db = getDb();
+  const existing = getById(id);
+  if (!existing) return false;
+
+  try {
+    db.delete(pluginRuns).where(eq(pluginRuns.id, id)).run();
+  } catch (err) {
+    throw repositoryUpdateError("pluginRun", err as Error, id);
+  }
+
+  return true;
+}
+
 export interface ListRunsFilter {
   pluginId?: string;
   status?: string;

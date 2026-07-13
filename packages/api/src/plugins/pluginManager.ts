@@ -801,7 +801,10 @@ export function runPostInterceptors(
 export type DetectorDispatchAcknowledgement =
   | { state: "already_accounted" }
   | { state: "durably_started"; runId: string }
-  | { state: "recovery_deferred"; reason: "quarantined" | "capacity" | "start_failed" };
+  | {
+      state: "recovery_deferred";
+      reason: "quarantined" | "capacity" | "start_failed" | "context_failed";
+    };
 
 /** Builds a normalized {@link DetectorTarget} from a registry entry. */
 function makeDetectorTarget(entry: DetectorRegistryEntry): DetectorTarget {
@@ -831,6 +834,7 @@ function buildRuntimeDeps(ctxRef: {
     startRun: (input) => runRepo.startRun(input),
     finishRun: (id, status, signalsEmitted, error) =>
       runRepo.finishRun(id, status, signalsEmitted, error),
+    deleteRun: (id) => runRepo.deleteRun(id),
     buildContext: (opts) => {
       ctxRef.ctx = buildPluginContext(opts);
       return ctxRef.ctx;
@@ -931,17 +935,26 @@ export async function dispatchDetectorTarget(
   // 2. Invoke through the runtime (awaits handler completion).
   const outcome = await invokeDetectorThroughRuntime(target, ref);
 
-  // 3. Map outcome to acknowledgement.
-  if (outcome.startFailed) {
-    return { state: "recovery_deferred", reason: "start_failed" };
+  // 3. Map outcome to acknowledgement using handlerLaunched (R2 BLOCKER 2).
+  //    handlerLaunched represents ACTUAL durable handler launch — not inferred
+  //    from a status that pre-launch failures can write or strand. Every
+  //    pre-launch exit (start failure, quarantine, capacity, context failure)
+  //    sets handlerLaunched: false and is recovery_deferred regardless of
+  //    the outcome's status field.
+  if (!outcome.handlerLaunched) {
+    if (outcome.startFailed) {
+      return { state: "recovery_deferred", reason: "start_failed" };
+    }
+    if (outcome.status === "rate_limited") {
+      return { state: "recovery_deferred", reason: "capacity" };
+    }
+    if (outcome.status === "skipped") {
+      return { state: "recovery_deferred", reason: "quarantined" };
+    }
+    // Context construction failure — infrastructure error before launch.
+    return { state: "recovery_deferred", reason: "context_failed" };
   }
-  if (outcome.status === "skipped") {
-    return { state: "recovery_deferred", reason: "quarantined" };
-  }
-  if (outcome.status === "rate_limited") {
-    return { state: "recovery_deferred", reason: "capacity" };
-  }
-  // running / succeeded / failed = handler was durably launched.
+  // Handler was durably launched (succeeded, failed, or still running).
   return { state: "durably_started", runId: outcome.runId ?? "" };
 }
 
