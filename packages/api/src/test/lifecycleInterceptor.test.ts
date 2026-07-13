@@ -124,7 +124,7 @@ describe("Lifecycle interceptor runner — real end-to-end (Phase 5 fix)", () =>
     }
   });
 
-  it("an async pre-interceptor (Promise return) fails open — logged but not blocking", async () => {
+  it("an async pre-interceptor (Promise return) fails closed — blocks claimTask (ADR-0039 T7)", async () => {
     await writePlugin(
       "async-pre",
       `{
@@ -161,13 +161,14 @@ describe("Lifecycle interceptor runner — real end-to-end (Phase 5 fix)", () =>
 
     vi.restoreAllMocks();
 
-    // The async handler returns a Promise — the sync runner detects thenable, logs, and treats
-    // as allow. The claim succeeds (fail-open) per ADR-0014.
-    const result = taskService.claimTask(taskId, agentId);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.task.status).toBe("claimed");
-    }
+    // The async handler returns a Promise — the runtime detects the thenable,
+    // consumes the rejection, and returns a failure veto (ADR-0039 Q1). The
+    // claim is blocked and the DB row stays untouched.
+    expect(() => taskService.claimTask(taskId, agentId)).toThrow(InterceptorVetoError);
+
+    const after = taskRepo.getTaskById(taskId);
+    expect(after?.status).toBe("pending");
+    expect(after?.assignedAgentId).toBeNull();
   });
 });
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -183,6 +184,8 @@ import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import { InterceptorVetoError, isAppError } from "../errors.js";
 import { taskLifecycleRoutes } from "../routes/tasks/lifecycle.js";
 import type { FastifyInstance } from "fastify";
+import * as taskReviewerRepo from "../repositories/taskReviewer.js";
+import * as runRepo from "../repositories/pluginRun.js";
 
 type RouteHandler = (req: any, reply: any) => Promise<void>;
 interface CapturedRoute {
@@ -611,6 +614,281 @@ describe("Lifecycle interceptor seams (Phase 4)", () => {
       expect(isAppError(captured)).toBe(true);
       expect((captured as any).statusCode).toBe(403);
       void agentId;
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 T7: pre-veto runtime migration — bounded fail-closed (Q1),
+// final-approval pre-veto ordering (Q10), quarantine accounting, and the
+// seven-caller veto matrix. These tests use REAL plugin files (no spies) to
+// exercise the Plugin Invocation Runtime end-to-end.
+// ---------------------------------------------------------------------------
+describe("ADR-0039 T7: pre-veto runtime migration (real end-to-end)", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    await initTestDb();
+    pluginManager.resetPlugins();
+  });
+
+  afterEach(async () => {
+    pluginManager.resetPlugins();
+    closeDb();
+    delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
+    if (tmpDir) {
+      const { rm } = await import("node:fs/promises");
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  async function writeVetoPlugin(
+    name: string,
+    event: string,
+    interceptorId: string,
+    handlerBody = "() => ({ allow: false, reason: 'matrix-veto' })",
+  ): Promise<void> {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    tmpDir = `/tmp/test-t7-${name}-${Date.now()}`;
+    await mkdir(tmpDir, { recursive: true });
+    await writeFile(
+      `${tmpDir}/${name}.mjs`,
+      `export default {
+        manifest: {
+          id: '${name}',
+          version: '1.0.0',
+          description: 'veto ${event}',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'pre',
+            event: '${event}',
+            interceptorId: '${interceptorId}',
+            priority: 0,
+            requires: [],
+          }],
+        },
+        interceptors: { '${interceptorId}': ${handlerBody} },
+      };`,
+    );
+    pluginManager.setPluginDirectory(tmpDir);
+    await pluginManager.loadPlugins();
+  }
+
+  function enrollPlugin(habitatId: string, pluginId: string, interceptorId: string): void {
+    enrollmentRepo.create({
+      habitatId,
+      pluginId,
+      contributionId: interceptorId,
+      contributionKind: "lifecycleInterceptor",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+  }
+
+  // ── Seven-caller veto matrix ──────────────────────────────────────────────
+
+  describe("seven-caller veto matrix (real runtime, no mocks)", () => {
+    it("createTask: veto prevents task creation", async () => {
+      vi.restoreAllMocks();
+      const habitat = habitatRepo.createHabitat({ name: "matrix-create" });
+      const column = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo" });
+      const mission = missionRepo.createMission({
+        habitatId: habitat.id,
+        columnId: column.id,
+        title: "M",
+        createdBy: "test",
+      });
+      await writeVetoPlugin("mtx-create", "taskCreated", "veto-create");
+      enrollPlugin(habitat.id, "mtx-create", "veto-create");
+
+      expect(() =>
+        taskService.createTask({ missionId: mission.id, title: "x", createdBy: "u" }),
+      ).toThrow(InterceptorVetoError);
+      expect(taskRepo.getTasksByMissionId(mission.id)).toHaveLength(0);
+    });
+
+    it("claimTask: veto prevents claim (task stays pending)", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("mtx-claim", "taskClaimed", "veto-claim");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+      enrollPlugin(habitatId, "mtx-claim", "veto-claim");
+
+      expect(() => taskService.claimTask(taskId, agentId)).toThrow(InterceptorVetoError);
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("pending");
+    });
+
+    it("claimDelegatedTask: veto prevents delegated claim", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("mtx-delclaim", "taskClaimed", "veto-delclaim");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("pending");
+      enrollPlugin(habitatId, "mtx-delclaim", "veto-delclaim");
+
+      expect(() => taskService.claimDelegatedTask(taskId, agentId)).toThrow(InterceptorVetoError);
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("pending");
+    });
+
+    it("submitTask: veto prevents submission (task stays in_progress)", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("mtx-submit", "taskSubmitted", "veto-submit");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("in_progress");
+      enrollPlugin(habitatId, "mtx-submit", "veto-submit");
+
+      expect(() => taskService.submitTask(taskId, agentId, "done", [])).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("in_progress");
+    });
+
+    it("completeTask: veto prevents completion (task stays submitted)", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("mtx-complete", "taskApproved", "veto-complete");
+      const { habitatId, taskId, agentId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "mtx-complete", "veto-complete");
+
+      expect(() => taskService.completeTask(taskId, agentId)).toThrow(InterceptorVetoError);
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+    });
+
+    it("approveTask (no reviewers): veto prevents approval", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("mtx-approve", "taskApproved", "veto-approve");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "mtx-approve", "veto-approve");
+
+      expect(() => taskService.approveTask(taskId, "reviewer-x", "human")).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+    });
+
+    it("rejectTask: veto prevents rejection", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("mtx-reject", "taskRejected", "veto-reject");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "mtx-reject", "veto-reject");
+
+      expect(() => taskService.rejectTask(taskId, "reviewer-x", "bad", "human")).toThrow(
+        InterceptorVetoError,
+      );
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+    });
+  });
+
+  // ── Final-approval pre-veto ordering (Q10) ────────────────────────────────
+
+  describe("final-approval pre-veto ordering (Q10)", () => {
+    function setupTwoReviewers(habitatId: string, taskId: string): void {
+      taskReviewerRepo.create(taskId, "human", "rev-1");
+      taskReviewerRepo.create(taskId, "human", "rev-2");
+    }
+
+    it("non-final approval: pre-veto NOT run, approval recorded, task stays submitted", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("q10-veto", "taskApproved", "veto-final");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "q10-veto", "veto-final");
+      setupTwoReviewers(habitatId, taskId);
+
+      // First reviewer approves — NON-FINAL (1 of 2). Pre-veto must NOT run.
+      const result = taskService.approveTask(taskId, "rev-1", "human");
+      expect(result?.status).toBe("submitted");
+
+      // Approval recorded.
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
+      // Second reviewer still pending.
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("pending");
+
+      // No Plugin Run rows from the pre-interceptor (pre-veto was skipped).
+      const runs = runRepo.listByHabitat(habitatId, { pluginId: "q10-veto" });
+      expect(runs).toEqual([]);
+    });
+
+    it("final approval vetoed: approval NOT recorded, task stays submitted", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("q10-veto2", "taskApproved", "veto-final2");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "q10-veto2", "veto-final2");
+      setupTwoReviewers(habitatId, taskId);
+
+      // First reviewer approves (non-final — no pre-veto).
+      taskService.approveTask(taskId, "rev-1", "human");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
+
+      // Second reviewer's approval would be FINAL — pre-veto blocks it.
+      expect(() => taskService.approveTask(taskId, "rev-2", "human")).toThrow(InterceptorVetoError);
+
+      // Final reviewer approval NOT recorded (still pending — can retry).
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("pending");
+      // Task did NOT transition.
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+
+      // Pre-veto DID run (Plugin Run row exists from the blocked final attempt).
+      const runs = runRepo.listByHabitat(habitatId, { pluginId: "q10-veto2" });
+      expect(runs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("final approval allowed: approval recorded, task transitions to approved", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("q10-allow", "taskApproved", "allow-final", "() => ({ allow: true })");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "q10-allow", "allow-final");
+      setupTwoReviewers(habitatId, taskId);
+
+      // First reviewer (non-final).
+      taskService.approveTask(taskId, "rev-1", "human");
+
+      // Second reviewer — FINAL, pre-veto ALLOWS.
+      const result = taskService.approveTask(taskId, "rev-2", "human");
+      expect(result?.status).toBe("approved");
+
+      // Both approvals recorded.
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("approved");
+    });
+  });
+
+  // ── Quarantine counter (Q1) ────────────────────────────────────────────────
+
+  describe("pre-interceptor quarantine (Q1 bounded fail-closed)", () => {
+    it("threshold faults → quarantined → subsequent call skipped (allow, no handler)", async () => {
+      vi.restoreAllMocks();
+      process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "2";
+      await writeVetoPlugin(
+        "quar-test",
+        "taskClaimed",
+        "crash-quar",
+        "() => { throw new Error('quar-boom'); }",
+      );
+      const { habitatId } = setupHabitatAndTask("pending");
+      enrollPlugin(habitatId, "quar-test", "crash-quar");
+
+      // Fault 1: throw → failure veto.
+      let veto = pluginManager.runPreInterceptors("q1", "taskClaimed", habitatId, {} as never);
+      expect(veto).not.toBeNull();
+      expect(veto!.allow).toBe(false);
+
+      // Fault 2: throw → failure veto → threshold reached → quarantined.
+      veto = pluginManager.runPreInterceptors("q2", "taskClaimed", habitatId, {} as never);
+      expect(veto).not.toBeNull();
+      expect(veto!.allow).toBe(false);
+
+      // Fault 3: quarantined → SKIPPED (allow, handler NOT called, skipped Plugin Run).
+      const callTracker: string[] = [];
+      (globalThis as { __quarCalls?: string[] }).__quarCalls = callTracker;
+
+      veto = pluginManager.runPreInterceptors("q3", "taskClaimed", habitatId, {} as never);
+      expect(veto).toBeNull(); // allow — Task work continues.
+
+      // Verify a skipped Plugin Run was written for the quarantined attempt.
+      const runs = runRepo.listByHabitat(habitatId, { pluginId: "quar-test" });
+      const skippedRun = runs.find((r) => r.status === "skipped");
+      expect(skippedRun).toBeDefined();
+
+      // Verify failed runs were written for the two faults.
+      const failedRuns = runs.filter((r) => r.status === "failed");
+      expect(failedRuns.length).toBe(2);
     });
   });
 });

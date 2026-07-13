@@ -247,3 +247,27 @@ export function hasAllRequiredApprovals(taskId: string, requiredCount?: number):
   const threshold = requiredCount ?? reviewers.length;
   return approvedCount >= threshold;
 }
+
+/**
+ * Prospective finality check (ADR-0039 Q10): returns whether recording the given
+ * reviewer's approval would complete the required approval count. Does NOT
+ * mutate state. Used by `approveTask` to decide whether to run the pre-veto
+ * before the final `recordApproval` and `task.review_completed` SSE.
+ *
+ * Returns `true` when the reviewer is the last non-approved reviewer (every
+ * other reviewer is already approved). Returns the current `hasAllRequiredApprovals`
+ * result when the reviewer is already approved (idempotent case) or not found.
+ */
+export function wouldCompleteReview(taskId: string, reviewerId: string): boolean {
+  const reviewers = taskReviewerRepo.getByTaskId(taskId);
+  if (reviewers.length === 0) return true;
+
+  const reviewer = taskReviewerRepo.findByTaskAndReviewer(taskId, reviewerId);
+  if (!reviewer || reviewer.status === "approved") {
+    return hasAllRequiredApprovals(taskId);
+  }
+
+  // Prospective: recording this pending reviewer completes review iff every
+  // other reviewer is already approved (no other pending/rejected remain).
+  return reviewers.every((r) => r.id === reviewer.id || r.status === "approved");
+}

@@ -23,7 +23,6 @@ import type {
   ProviderHandler,
   PluginManifestView,
   EventSourceRef,
-  InterceptorPreResult,
 } from "./types.js";
 import type { NotificationDelivery, NotificationEvent } from "@orcy/shared";
 import { buildPluginContext } from "./context.js";
@@ -46,6 +45,9 @@ import {
   type ActionTarget,
   type ChannelTarget,
   type PostInterceptorTarget,
+  type PreInterceptorTarget,
+  type PreVetoRequest,
+  type PreVetoDecision,
   type RuntimeDeps,
   type InvocationRuntime,
   type DetectorInvocationRequest,
@@ -679,10 +681,84 @@ export async function dispatchToChannelPlugin(
   return outcome.result;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// T7 — pre Lifecycle Interceptor runtime migration (ADR-0039 Q1, Q10, Q13)
+//
+// `runPreInterceptors` dispatches each enrolled pre target through the Plugin
+// Invocation Runtime's synchronous `checkPreVeto` entry point. The runtime
+// owns: startRun (the invocation gate), bounded fail-closed fault handling,
+// result validation, quarantine accounting + enforcement, and finishRun.
+//
+// BOUNDED FAIL-CLOSED (Q1): a handler throw, invalid result, or Promise return
+// is a failure veto — it produces Plugin Run telemetry, increments the
+// contribution's quarantine counter, and returns 403 to the caller. An explicit
+// `{ allow: false }` is an ordinary domain veto that does NOT count. Once a
+// pre-interceptor contribution reaches its quarantine threshold via accumulated
+// faults, the runtime skips it (returns allow) so Task work continues.
+//
+// SYNCHRONOUS PLUGIN RUN (Q13): each pre-interceptor invocation gets a
+// synchronous Plugin Run row. startRun failure = infrastructure veto (no
+// handler, no counter increment). finishRun failure preserves the handler's
+// decision (allow/explicit-veto/failure-veto) and reports infrastructure
+// trouble. This adds one synchronous INSERT to the Task transition hot path —
+// accepted per ADR-0039 Consequences.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Builds a normalized {@link PreInterceptorTarget} from a registry entry. */
+function makePreInterceptorTarget(entry: InterceptorRegistryEntry): PreInterceptorTarget {
+  return {
+    kind: "preInterceptor",
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.interceptorId,
+    handler: entry.handler,
+    contribution: entry.contribution,
+    requires: entry.requires,
+    timeoutMs: entry.timeoutMs,
+    canonicalKey: entry.canonicalKey,
+  };
+}
+
+/**
+ * Invokes one pre Lifecycle Interceptor target through the Plugin Invocation
+ * Runtime's synchronous `checkPreVeto`. Returns the full {@link PreVetoDecision}
+ * so the caller (`runPreInterceptors`) can map it to the legacy veto shape and
+ * short-circuit on the first veto.
+ *
+ * The runtime handles: startRun, quarantine gate (skipped → allow), context
+ * construction, synchronous handler invocation, result validation, fault
+ * classification, counter increment, and finishRun — all synchronously.
+ */
+function invokePreInterceptorThroughRuntime(
+  target: PreInterceptorTarget,
+  taskId: string,
+  event: InterceptorEvent,
+  habitatId: string,
+  context: import("../services/tasks/transition-emitter.js").TransitionContext,
+): PreVetoDecision {
+  const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
+  const runtime: InvocationRuntime = createInvocationRuntime(buildRuntimeDeps(ctxRef));
+  const request: PreVetoRequest = {
+    target,
+    taskId,
+    event,
+    habitatId,
+    context,
+  };
+  return runtime.checkPreVeto(request);
+}
+
 /**
  * Runs pre-phase interceptors for an event synchronously. Returns the first veto
  * (caller must throw/abort the DB write) or `null` if all allow. Pre-interceptors
  * are the only ones that can block a transition.
+ *
+ * T7 (ADR-0039 Q1): migrated to the Plugin Invocation Runtime's `checkPreVeto`.
+ * Each enrolled pre target is individually admitted and invoked through the
+ * runtime. The runtime owns bounded fail-closed semantics: throw, invalid
+ * result, or Promise return vetoes and counts toward quarantine; explicit
+ * `{ allow: false }` is an ordinary veto; a quarantined target is skipped so
+ * Task work continues. Pre priority ordering and first-veto short-circuit are
+ * preserved (the registry list is priority-sorted at registration time).
  */
 export function runPreInterceptors(
   taskId: string,
@@ -693,39 +769,18 @@ export function runPreInterceptors(
   const list = interceptorRegistry.pre.get(event) ?? [];
   for (const entry of list) {
     if (!isEnrolled(habitatId, `${entry.pluginId}:${entry.contribution.interceptorId}`)) continue;
-    // Pre-interceptors are synchronous validation gates (ADR-0014). They don't get run
-    // tracking (no startRun/finishRun) because they're sub-millisecond synchronous checks
-    // that never need audit telemetry — the post-interceptor path handles that. A
-    // deterministic log correlation ID is used instead of a DB runId.
-    const ctx = buildPluginContext({
-      pluginId: entry.pluginId,
-      contributionId: entry.contribution.interceptorId,
-      habitatId,
-      runId: `pre:${entry.pluginId}:${entry.contribution.interceptorId}:${taskId}:${event}`,
-      requires: entry.contribution.requires,
-    });
-    ctx.transition = { taskId, action: event, habitatId, context };
-    try {
-      const raw = entry.handler(ctx, ctx.transition);
-      // Pre-phase handlers are contractually synchronous (ADR-0014). A thenable return is a
-      // contract violation — fail open (treat as allow) and log, so one misbehaving plugin
-      // cannot block transitions by returning a Promise that the synchronous runner would never
-      // await. The post-phase path (`invokePostInterceptorThroughRuntime`) correctly awaits
-      // async handlers via the Plugin Invocation Runtime.
-      if (raw && typeof (raw as Promise<unknown>).then === "function") {
-        logger.error(
-          { pluginId: entry.pluginId, contributionId: entry.contribution.interceptorId },
-          "Pre-phase interceptor returned a Promise — pre-phase handlers must be synchronous. Treating as allow.",
-        );
-      } else {
-        const settled = raw as InterceptorPreResult;
-        if (settled && settled.allow === false) {
-          return { allow: false, reason: settled.reason, details: settled.details };
-        }
-      }
-    } catch (err) {
-      logger.error({ err, pluginId: entry.pluginId }, "Pre-interceptor threw");
+    const target = makePreInterceptorTarget(entry);
+    const decision = invokePreInterceptorThroughRuntime(target, taskId, event, habitatId, context);
+    if (decision.decision === "allow") continue;
+    // First veto short-circuits (pre priority preserved by registry ordering).
+    const veto: { allow: false; reason: string; details?: string } = {
+      allow: false,
+      reason: decision.message,
+    };
+    if (decision.vetoReason === "explicit" && decision.details !== undefined) {
+      veto.details = decision.details;
     }
+    return veto;
   }
   return null;
 }
@@ -1221,14 +1276,17 @@ export function invalidateEnrollmentCache(habitatId: string): void {
  */
 function incrementError(pluginKey: string, pluginId: string): void {
   const now = Date.now();
-  const entry = errorCounters.get(pluginKey);
-  if (!entry || now - entry.windowStart > 60_000) {
-    errorCounters.set(pluginKey, { count: 1, windowStart: now });
-    return;
-  }
-  entry.count += 1;
   const threshold = Number(process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD ?? "10");
-  if (entry.count >= threshold) {
+  const entry = errorCounters.get(pluginKey);
+  let count: number;
+  if (!entry || now - entry.windowStart > 60_000) {
+    count = 1;
+    errorCounters.set(pluginKey, { count, windowStart: now });
+  } else {
+    entry.count += 1;
+    count = entry.count;
+  }
+  if (count >= threshold) {
     quarantineSet.add(pluginKey);
     logger.warn({ pluginKey }, "Plugin quarantined after error threshold");
     // Persist to DB so quarantine survives API restart (ADR-0016, v0.22.3).
@@ -1236,7 +1294,7 @@ function incrementError(pluginKey: string, pluginId: string): void {
       quarantineRepo.upsert(
         pluginKey,
         pluginId,
-        `Error threshold reached (${entry.count} errors in 60s)`,
+        `Error threshold reached (${count} errors in 60s)`,
       );
     } catch (err) {
       logger.warn({ err, pluginKey }, "Failed to persist plugin quarantine");

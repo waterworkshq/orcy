@@ -18,7 +18,7 @@
  *   | signalDetector     | fail-safe (q)      | fail-safe (q)      | yes          | yes      |
  *   | automationAction   | fail-safe (q)      | fail-safe (q)      | yes          | yes      |
  *   | notificationChannel| fail-safe (no q)   | fail-safe (no q)   | NO           | yes      |
- *   | pre-interceptor    | fail-OPEN (sync)   | n/a (no timeout)   | NO           | NO       |
+ *   | pre-interceptor    | fail-CLOSED (q)    | n/a (no timeout)   | yes          | yes      |
  *   | post-interceptor   | fail-safe (no q)   | fail-safe (no q)   | NO           | yes      |
  *                                            q = calls incrementError
  *
@@ -845,13 +845,12 @@ describe("v0.28-T2a: per-kind fail-open/fail-safe asymmetry", () => {
     expect(failed!.error).toContain("det-boom");
   });
 
-  // ADR-0039 REVERSAL (T7): This test pins CURRENT fail-open behavior for pre-
-  // interceptor throws. The managed-runtime migration (T7) changes this to
-  // bounded fail-closed: a throw becomes a failure veto that counts toward
-  // quarantine. Replace this test's assertion of fail-open + no-run-record
-  // with fail-closed + Plugin Run telemetry. See ADR-0039 § Bounded Fail-Closed
-  // Pre Policy (Q1) and § Intentional Behavior Reversals.
-  it("pre-interceptor on throw: fail-OPEN (no run record, no veto)", async () => {
+  // ADR-0039 T7 REVERSAL: pre-interceptor throws are now bounded fail-closed
+  // (Q1). A throw produces a failure veto with Plugin Run telemetry and counts
+  // toward quarantine. Previously this was fail-open (logged + continues, no
+  // run record). See ADR-0039 § Bounded Fail-Closed Pre Policy (Q1) and
+  // § Intentional Behavior Reversals.
+  it("pre-interceptor on throw: fail-CLOSED (failure veto, run record, quarantine counter)", async () => {
     tmpDir = await writePlugin(
       "pre-throw",
       `{
@@ -877,23 +876,27 @@ describe("v0.28-T2a: per-kind fail-open/fail-safe asymmetry", () => {
     const habitatId = setupHabitat();
     enroll(habitatId, "pre-throw", "crash-pre", "lifecycleInterceptor");
 
-    // Drive the pre-interceptor directly. It must NOT throw (fail-open) and
-    // must NOT create a run record (per ADR-0014, pre-phase has no run tracking).
+    // Drive the pre-interceptor directly. A throw is now a failure veto (Q1).
     const result = pluginManager.runPreInterceptors("task-p", "taskClaimed", habitatId, {
       actor: "test",
     } as never);
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.allow).toBe(false);
+    expect(result!.reason).toContain("pre-boom");
 
-    // No plugin_runs row should have been written by the pre-interceptor.
+    // A failed Plugin Run row must have been written by the runtime.
     const runs = runRepo.listByHabitat(habitatId, { pluginId: "pre-throw" });
-    expect(runs).toEqual([]);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    const failedRun = runs.find((r) => r.status === "failed");
+    expect(failedRun).toBeDefined();
+    expect(failedRun!.error).toContain("pre-boom");
   });
 
-  // ADR-0039 REVERSAL (T7): This test pins CURRENT fail-open behavior for async
-  // (Promise) returns from synchronous pre-interceptors. The managed-runtime
-  // migration (T7) changes this to bounded fail-closed: a Promise return is a
-  // runtime fault that vetoes and counts toward quarantine. See ADR-0039 § Q1.
-  it("pre-interceptor async-returning: treated as allow (fail-open on contract violation)", async () => {
+  // ADR-0039 T7 REVERSAL: pre-interceptor async (Promise) returns are now a
+  // bounded fail-closed runtime fault (Q1). A Promise return from the synchro-
+  // nous pre path is a contract violation that vetoes and counts toward
+  // quarantine. Previously this was fail-open (treated as allow). See ADR-0039 § Q1.
+  it("pre-interceptor async-returning: failure veto (fail-closed on contract violation)", async () => {
     tmpDir = await writePlugin(
       "pre-async",
       `{
@@ -919,11 +922,20 @@ describe("v0.28-T2a: per-kind fail-open/fail-safe asymmetry", () => {
     const habitatId = setupHabitat();
     enroll(habitatId, "pre-async", "async-pre", "lifecycleInterceptor");
 
-    // Async handler returning a Promise: sync runner detects thenable and fails open.
+    // Async handler returning a Promise: the runtime detects the thenable,
+    // consumes the rejection, and returns a failure veto (Q1).
     const result = pluginManager.runPreInterceptors("task-q", "taskClaimed", habitatId, {
       actor: "test",
     } as never);
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.allow).toBe(false);
+    expect(result!.reason).toContain("synchronous");
+
+    // A failed Plugin Run row must have been written.
+    const runs = runRepo.listByHabitat(habitatId, { pluginId: "pre-async" });
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    const failedRun = runs.find((r) => r.status === "failed");
+    expect(failedRun).toBeDefined();
   });
 
   it("pre-interceptor sync veto: returns the veto (caller throws)", async () => {
