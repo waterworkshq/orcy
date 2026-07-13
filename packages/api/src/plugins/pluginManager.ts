@@ -39,6 +39,14 @@ import {
   type InterceptorRegistryEntry,
   type PluginRegistries,
 } from "./contributionAdapters.js";
+import {
+  createInvocationRuntime,
+  type DetectorTarget,
+  type RuntimeDeps,
+  type InvocationRuntime,
+  type DetectorInvocationRequest,
+  type ManagedInvocationOutcome,
+} from "./invocationRuntime.js";
 import { readdir, stat, realpath } from "node:fs/promises";
 import { join, resolve, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -802,59 +810,160 @@ async function dispatchInterceptorRun(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// T4 — Detector runtime migration (ADR-0039)
+//
+// Live detector dispatch (`dispatchDetectionEvent`) and scanner dispatch
+// (`dispatchDetectorTarget`) both route through the Plugin Invocation Runtime
+// (`invokeManaged`). The runtime owns: startRun, quarantine gate, concurrency
+// capacity, context construction, handler invocation, validation, onResult
+// signal persistence, and finishRun.
+//
+// Concurrency slots are held until the UNDERLYING handler Promise settles — not
+// the watchdog timeout (Q12). The runtime attaches `handlerPromise.then(release,
+// release)` so a never-settling handler holds capacity until process restart.
+//
+// `isRateLimited` is removed (Q14): `rate_limited` status is written solely
+// when a Detector cannot acquire habitat concurrency capacity.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Scanner-facing acknowledgement for one concrete Detector target dispatch. */
+export type DetectorDispatchAcknowledgement =
+  | { state: "already_accounted" }
+  | { state: "durably_started"; runId: string }
+  | { state: "recovery_deferred"; reason: "quarantined" | "capacity" | "start_failed" };
+
+/** Builds a normalized {@link DetectorTarget} from a registry entry. */
+function makeDetectorTarget(entry: DetectorRegistryEntry): DetectorTarget {
+  return {
+    kind: "signalDetector",
+    pluginId: entry.pluginId,
+    contributionId: entry.contribution.detectorId,
+    handler: entry.handler,
+    contribution: entry.contribution,
+    requires: entry.requires,
+    timeoutMs: entry.timeoutMs,
+    canonicalKey: entry.canonicalKey,
+  };
+}
+
 /**
- * Fire-and-forget detector dispatch. Checks enrollment, quarantine, rate limit,
- * and per-habitat concurrency before invoking each eligible detector handler.
+ * Builds per-invocation runtime deps. The `buildContext` dep captures a mutable
+ * `ctxRef` so the `onResult` closure can persist signals through the context's
+ * `pulseWriter` (which has `pluginId`/`runId`/`habitatId` baked in). This is
+ * safe because JavaScript is single-threaded and each invocation creates its
+ * own `ctxRef` in its own closure scope.
+ */
+function buildRuntimeDeps(ctxRef: {
+  ctx: ReturnType<typeof buildPluginContext> | null;
+}): RuntimeDeps {
+  return {
+    startRun: (input) => runRepo.startRun(input),
+    finishRun: (id, status, signalsEmitted, error) =>
+      runRepo.finishRun(id, status, signalsEmitted, error),
+    buildContext: (opts) => {
+      ctxRef.ctx = buildPluginContext(opts);
+      return ctxRef.ctx;
+    },
+    isQuarantined: (key) => quarantineSet.has(key),
+    incrementError,
+    withTimeout,
+    acquireDetectorSlot: acquireConcurrencySlot,
+    releaseDetectorSlot: releaseConcurrencySlot,
+    logger: {
+      error: (msg, meta) => logger.error(meta ?? {}, msg),
+      warn: (msg, meta) => logger.warn(meta ?? {}, msg),
+      info: (msg, meta) => logger.info(meta ?? {}, msg),
+    },
+  };
+}
+
+/**
+ * Invokes one Detector target through the Plugin Invocation Runtime. Returns
+ * the full outcome so the caller can map it to its own result shape.
  *
- * T2: the quarantine/rate-limit check now uses the kind-safe canonical key
- * (carried by the enriched registry entry) instead of the registry Map key.
- * Enrollment continues to use the registry key — the enrollment cache stores
- * `pluginId:contributionId` strings and is a separate dimension from quarantine.
+ * Signal persistence runs via the `onResult` hook BEFORE `finishRun` — this
+ * preserves the BLOCKER 1 ordering invariant (signals committed before the run
+ * is marked succeeded).
+ */
+function invokeDetectorThroughRuntime(
+  target: DetectorTarget,
+  ref: EventSourceRef,
+): Promise<ManagedInvocationOutcome> {
+  const ctxRef: { ctx: ReturnType<typeof buildPluginContext> | null } = { ctx: null };
+  const runtime: InvocationRuntime = createInvocationRuntime(buildRuntimeDeps(ctxRef));
+  const request: DetectorInvocationRequest = {
+    target,
+    habitatId: ref.habitatId,
+    triggerEventId: ref.sourceId,
+    triggerType: ref.kind,
+    source: ref,
+    onResult: async (signals) => {
+      for (const signal of signals) {
+        await ctxRef.ctx?.pulseWriter?.createDetectedSignal(signal);
+      }
+      return signals.length;
+    },
+  };
+  return runtime.invokeManaged(request);
+}
+
+/**
+ * Fire-and-forget live detector dispatch (ADR-0039 T4). Fans out across all
+ * matching, enrolled detectors. Each target is individually admitted and
+ * invoked through the runtime. The live caller does NOT await handler
+ * completion — the invocation is detached.
+ *
+ * Returns `true` if at least one target was admitted for invocation.
+ * Recursion guards (detected-signal exclusion in `registerDetectorHooks`)
+ * remain intact.
  */
 export function dispatchDetectionEvent(kind: EventSourceRef["kind"], ref: EventSourceRef): boolean {
   let dispatched = false;
   for (const [registryKey, entry] of detectorRegistry) {
     if (entry.contribution.detects !== kind) continue;
     if (!isEnrolled(ref.habitatId, registryKey)) continue;
-    if (quarantineSet.has(entry.canonicalKey)) continue;
-    if (isRateLimited(entry.canonicalKey)) continue;
-    if (!acquireConcurrencySlot(ref.habitatId)) continue;
+    const target = makeDetectorTarget(entry);
     dispatched = true;
-    void runDetector(entry, ref).catch((err) => {
-      logger.error({ err, pluginId: entry.pluginId }, "Detector run failed");
+    void invokeDetectorThroughRuntime(target, ref).catch((err) => {
+      logger.error({ err, pluginId: entry.pluginId }, "Detector runtime invocation failed");
     });
   }
   return dispatched;
 }
 
-async function runDetector(entry: DetectorRegistryEntry, ref: EventSourceRef): Promise<void> {
-  const { runId, ctx } = startPluginRun({
-    pluginId: entry.pluginId,
-    contributionId: entry.contribution.detectorId,
-    contributionKind: "signalDetector",
-    habitatId: ref.habitatId,
-    triggerEventId: ref.sourceId,
-    triggerType: ref.kind,
-    requires: entry.contribution.requires,
-  });
-  try {
-    const effectiveTimeout = entry.contribution.timeoutMs ?? DEFAULT_TIMEOUT_MS.signalDetector ?? 0;
-    const signals = await withTimeout(
-      entry.handler(ctx, ref),
-      effectiveTimeout,
-      entry.canonicalKey,
-    );
-    for (const signal of signals) {
-      await ctx.pulseWriter?.createDetectedSignal(signal);
-    }
-    runRepo.finishRun(runId, "succeeded", signals.length);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    incrementError(entry.canonicalKey, entry.pluginId);
-    runRepo.finishRun(runId, "failed", undefined, message);
-  } finally {
-    releaseConcurrencySlot(ref.habitatId);
+/**
+ * Scanner-facing per-target Detector dispatch (ADR-0039 T4). Dispatches to ONE
+ * concrete normalized Detector target and returns a durable acknowledgement.
+ *
+ * The scanner awaits this and advances its watermark only when the result is
+ * `already_accounted` or `durably_started`. `recovery_deferred` keeps the
+ * watermark behind so the target can retry on the next scan pass.
+ */
+export async function dispatchDetectorTarget(
+  target: DetectorTarget,
+  ref: EventSourceRef,
+): Promise<DetectorDispatchAcknowledgement> {
+  // 1. Dedup — already durably accounted?
+  if (runRepo.existsForTriggerEvent(target.pluginId, target.contributionId, ref.sourceId)) {
+    return { state: "already_accounted" };
   }
+
+  // 2. Invoke through the runtime (awaits handler completion).
+  const outcome = await invokeDetectorThroughRuntime(target, ref);
+
+  // 3. Map outcome to acknowledgement.
+  if (outcome.startFailed) {
+    return { state: "recovery_deferred", reason: "start_failed" };
+  }
+  if (outcome.status === "skipped") {
+    return { state: "recovery_deferred", reason: "quarantined" };
+  }
+  if (outcome.status === "rate_limited") {
+    return { state: "recovery_deferred", reason: "capacity" };
+  }
+  // running / succeeded / failed = handler was durably launched.
+  return { state: "durably_started", runId: outcome.runId ?? "" };
 }
 
 function registerDetectorHooks(): void {
@@ -916,18 +1025,6 @@ function reloadEnrollmentCache(habitatId: string): Set<string> {
 export function invalidateEnrollmentCache(habitatId: string): void {
   enrollmentCache.delete(habitatId);
   reloadEnrollmentCache(habitatId);
-}
-
-function isRateLimited(pluginKey: string): boolean {
-  const threshold = Number(process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD ?? "10");
-  const entry = errorCounters.get(pluginKey);
-  if (!entry) return false;
-  const now = Date.now();
-  if (now - entry.windowStart > 60_000) {
-    errorCounters.delete(pluginKey);
-    return false;
-  }
-  return entry.count >= threshold;
 }
 
 /**

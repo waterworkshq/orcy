@@ -331,7 +331,7 @@ describe("ADR-0039 T1: Detector live-entry recursion guard + fire-and-forget", (
     const callback = mockFn.mock.calls[mockFn.mock.calls.length - 1][0];
 
     // Invoke with a normal (non-detected) pulse. The callback should return
-    // synchronously — the handler is fire-and-forget via void runDetector(...).
+    // synchronously — the handler is fire-and-forget via the runtime (T4).
     const runCountBefore = runRepo.listByHabitat(habitatId, { pluginId: "live-ff-det" }).length;
     callback({
       id: "normal-live-1",

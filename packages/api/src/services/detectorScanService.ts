@@ -1,21 +1,23 @@
 /**
- * Detector catch-up scan service (ADR-0015, v0.22.3).
+ * Detector catch-up scan service (ADR-0015, v0.22.3; ADR-0039 T4 recovery).
  *
  * Periodically re-scans events that may have been missed by the live detector hooks
  * (`onPulseCreated` / `onTaskEvent` / `onCommentCreated`) during server downtime or
  * detector enrollment latency. For each enrolled detector with a stale `lastScannedAt`
  * watermark, the scan queries source events since the watermark, dedup-checks against
- * `plugin_runs` (events already processed by the live hook are skipped), and dispatches
- * the detector on the missed events.
+ * `plugin_runs` (events already durably-accounted are skipped), and dispatches the
+ * detector on the missed events via per-target `dispatchDetectorTarget`.
  *
- * The scan is idempotent: re-running it on the same event set produces no duplicate
- * signals because the `plugin_runs` dedup check prevents re-dispatch.
+ * T4 (ADR-0039): the scanner now dispatches ONE concrete Detector target per event
+ * (not a kind-kind broadcast) and advances the watermark only when every event-target
+ * pair returns `already_accounted` or `durably_started`. `recovery_deferred`
+ * (quarantine, capacity, start failure) keeps the watermark behind so the target
+ * retries on the next pass.
  */
 import { getDb } from "../db/index.js";
 import { pulses, taskEvents, tasks, missions } from "../db/schema/index.js";
-import { eq, and, gte, lt } from "drizzle-orm";
+import { eq, and, gte } from "drizzle-orm";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
-import * as runRepo from "../repositories/pluginRun.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import { logger } from "../lib/logger.js";
 import type { EventSourceRef } from "../plugins/types.js";
@@ -102,9 +104,16 @@ function queryMissedEvents(
 
 /**
  * Runs a single catch-up scan pass. For each enrolled detector with a stale watermark,
- * queries missed events, dedup-checks against plugin_runs, and dispatches unprocessed events.
+ * queries missed events, dedup-checks against plugin_runs (status-aware: only
+ * running/succeeded/failed count as durably-accounted), and dispatches unprocessed
+ * events via per-target `dispatchDetectorTarget`.
+ *
+ * T4 (ADR-0039): the scanner dispatches ONE concrete target per event and advances
+ * the watermark only when every event-target pair is `already_accounted` or
+ * `durably_started`. `recovery_deferred` (quarantine/capacity/start failure) keeps
+ * the watermark behind so the target retries on the next pass.
  */
-export function runScan(): void {
+export async function runScan(): Promise<void> {
   try {
     const detectors = enrollmentRepo.listEnabledDetectors();
     if (detectors.length === 0) return;
@@ -127,30 +136,36 @@ export function runScan(): void {
           continue;
         }
 
+        // Build the concrete DetectorTarget once for this enrollment (ADR-0039 T4).
+        const target: import("../plugins/invocationRuntime.js").DetectorTarget = {
+          kind: "signalDetector",
+          pluginId: enrollment.pluginId,
+          contributionId: enrollment.contributionId,
+          handler: detectorEntry.handler,
+          contribution: detectorEntry.contribution,
+          requires: detectorEntry.requires,
+          timeoutMs: detectorEntry.timeoutMs,
+          canonicalKey: detectorEntry.canonicalKey,
+        };
+
         let dispatched = 0;
         let allProcessed = true;
         for (const ref of missedEvents) {
-          if (
-            runRepo.existsForTriggerEvent(
-              enrollment.pluginId,
-              enrollment.contributionId,
-              ref.sourceId,
-            )
-          ) {
+          const ack = await pluginManager.dispatchDetectorTarget(target, ref);
+          if (ack.state === "already_accounted") {
             continue;
           }
-          const ok = pluginManager.dispatchDetectionEvent(detects, ref);
-          if (ok) {
+          if (ack.state === "durably_started") {
             dispatched++;
           } else {
-            // Event was dropped (quarantine/rate-limit/concurrency cap). Don't advance
-            // the watermark past it — the next scan will retry.
+            // recovery_deferred — quarantine, capacity, or start failure.
+            // Don't advance the watermark past this event; the next scan retries.
             allProcessed = false;
           }
         }
 
-        // Only advance the watermark if every eligible event was either already-processed
-        // (dedup) or successfully dispatched. Dropped events stay behind the watermark.
+        // Only advance the watermark if every eligible event was either
+        // already-accounted (dedup) or durably-started (handler launched).
         if (allProcessed) {
           enrollmentRepo.updateLastScannedAt(enrollment.id, now);
         }
@@ -158,7 +173,11 @@ export function runScan(): void {
 
         if (dispatched > 0) {
           logger.info(
-            { pluginId: enrollment.pluginId, contributionId: enrollment.contributionId, dispatched },
+            {
+              pluginId: enrollment.pluginId,
+              contributionId: enrollment.contributionId,
+              dispatched,
+            },
             "Detector catch-up scan dispatched missed events",
           );
         }

@@ -850,8 +850,12 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     expect(sseData.pluginId).toBe("quar-det");
     expect(sseData.contributionKey).toBe('["signalDetector","quar-det","q"]');
 
-    // --- Prove the SKIP: subsequent dispatch produces NO new plugin_runs ---
-    const runsBeforeSkip = runRepo.listByHabitat(habitatId, { pluginId: "quar-det" }).length;
+    // --- T4 (ADR-0039 Q3-Q4): quarantined detector now writes a `skipped` Plugin
+    // Run row (was silent continue). The handler does NOT run — no new failed
+    // or succeeded row. But a `skipped` telemetry row IS produced. ---
+    const failedBeforeSkip = runRepo
+      .listByHabitat(habitatId, { pluginId: "quar-det" })
+      .filter((r) => r.status === "failed").length;
 
     pluginManager.dispatchDetectionEvent("pulseCreated", {
       kind: "pulseCreated",
@@ -859,11 +863,23 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
       habitatId,
       occurredAt: new Date().toISOString(),
     });
-    // Give plenty of time for any (non-)work to complete.
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for the skipped row to settle (runtime runs async).
+    const skipRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "quar-det" })
+          .find((r) => r.status === "skipped"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(skipRun).toBeDefined();
+    expect(skipRun!.triggerEventId).toBe("p-3");
 
-    const runsAfterSkip = runRepo.listByHabitat(habitatId, { pluginId: "quar-det" }).length;
-    expect(runsAfterSkip).toBe(runsBeforeSkip);
+    // No new failed run (handler did not run).
+    const failedAfterSkip = runRepo
+      .listByHabitat(habitatId, { pluginId: "quar-det" })
+      .filter((r) => r.status === "failed").length;
+    expect(failedAfterSkip).toBe(failedBeforeSkip);
   });
 
   it("an action hitting ORCY_PLUGIN_QUARANTINE_THRESHOLD: counter+DB+SSE quarantine, BUT dispatchActionHandler does NOT skip (unlike detectors) — known asymmetry", async () => {

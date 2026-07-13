@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { pluginRuns } from "../db/schema/index.js";
 import type { PluginRunInsert, PluginRunRow } from "../db/schema/index.js";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -128,8 +128,15 @@ export function listByHabitat(habitatId: string, filter?: ListRunsFilter): Plugi
 }
 
 /**
- * Checks whether a run already exists for the given (pluginId, contributionId, triggerEventId)
- * triple. Used by the catch-up scan to skip events already processed by the live hook
+ * Checks whether a **durably-accounted** run already exists for the given
+ * (pluginId, contributionId, triggerEventId) triple (ADR-0039 Detector Recovery).
+ *
+ * Only `running`, `succeeded`, and `failed` satisfy the query — these mean a
+ * handler was durably launched. `skipped` (quarantine) and `rate_limited`
+ * (capacity denial) remain visible telemetry but are **recovery-eligible**: the
+ * handler was never launched, so catch-up must retry them.
+ *
+ * Used by the catch-up scan to skip events already processed by the live hook
  * (dedup — prevents duplicate detected signals on re-scan).
  */
 export function existsForTriggerEvent(
@@ -146,6 +153,7 @@ export function existsForTriggerEvent(
         eq(pluginRuns.pluginId, pluginId),
         eq(pluginRuns.contributionId, contributionId),
         eq(pluginRuns.triggerEventId, triggerEventId),
+        inArray(pluginRuns.status, ["running", "succeeded", "failed"]),
       ),
     )
     .get();

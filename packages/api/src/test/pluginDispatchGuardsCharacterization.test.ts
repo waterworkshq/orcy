@@ -127,15 +127,14 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// isRateLimited — threshold block (pluginManager.ts:1054)
-// ADR-0039 RETAIN + REPLACE (T3): The observable skip behavior (errors cross
+// isRateLimited — threshold block (pluginManager.ts)
+// ADR-0039 RETAIN + REPLACE (T4): The observable skip behavior (errors cross
 // threshold → dispatch skip) is RETAINED — it survives the migration via the
-// quarantine gate. What changes is the MECHANISM: the error-based isRateLimited
-// function is removed (Q14), and rate_limited status becomes capacity-only.
-// These tests pin the CURRENT shared-counter mechanism (rate-limit = quarantine
-// threshold). T3 updates the mechanism while preserving the threshold-skip
-// observable. See ADR-0039 § Rate-Limited Semantics (Q14) and
-// § Intentional Behavior Reversals and Additions.
+// quarantine gate. What changed is the MECHANISM (T4 production migration):
+// the error-based isRateLimited function is removed (Q14), and rate_limited
+// status becomes capacity-only. A quarantined detector now writes a `skipped`
+// Plugin Run row (was silent continue). See ADR-0039 § Rate-Limited Semantics
+// (Q14) and § Intentional Behavior Reversals and Additions.
 // ---------------------------------------------------------------------------
 describe("v0.28-T2b: isRateLimited threshold block (errors in 60s window)", () => {
   let tmpDir: string;
@@ -274,8 +273,13 @@ describe("v0.28-T2b: isRateLimited threshold block (errors in 60s window)", () =
     expect(quar).toBeDefined();
     expect(quar!.length).toBeGreaterThanOrEqual(1);
 
-    // Now prove the OBSERVABLE SKIP: a fourth dispatch produces no new run.
-    const runsBeforeSkip = runRepo.listByHabitat(habitatId, { pluginId: "rate-over" }).length;
+    // T4 (ADR-0039 Q3-Q4): the threshold-skip OBSERVABLE is retained — a
+    // quarantined detector's handler does NOT run (no new failed run). But the
+    // mechanism changed: the runtime writes a `skipped` Plugin Run row instead
+    // of silently continuing. The handler is never invoked.
+    const failedBeforeSkip = runRepo
+      .listByHabitat(habitatId, { pluginId: "rate-over" })
+      .filter((r) => r.status === "failed").length;
 
     pluginManager.dispatchDetectionEvent("pulseCreated", {
       kind: "pulseCreated",
@@ -283,30 +287,47 @@ describe("v0.28-T2b: isRateLimited threshold block (errors in 60s window)", () =
       habitatId,
       occurredAt: new Date().toISOString(),
     });
-    await new Promise((r) => setTimeout(r, 250));
 
-    const runsAfterSkip = runRepo.listByHabitat(habitatId, { pluginId: "rate-over" }).length;
-    expect(runsAfterSkip).toBe(runsBeforeSkip);
+    // Wait for the skipped row to be written (runtime runs async).
+    const skipRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "rate-over" })
+          .find((r) => r.status === "skipped"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(skipRun).toBeDefined();
 
-    // The skip is dispatched=false on the post-quarantine call (no eligible
-    // detector passed the guards). The boolean return value is the closest
-    // external proxy for "guarded by rate-limit/quarantine".
+    // No new failed run — the handler did not execute.
+    const failedAfterSkip = runRepo
+      .listByHabitat(habitatId, { pluginId: "rate-over" })
+      .filter((r) => r.status === "failed").length;
+    expect(failedAfterSkip).toBe(failedBeforeSkip);
+
+    // T4: dispatchDetectionEvent returns true because the target was admitted
+    // to the runtime (which internally quarantines and writes skipped). The
+    // boolean no longer reflects the quarantine gate — the runtime owns it.
     const stillDispatched = pluginManager.dispatchDetectionEvent("pulseCreated", {
       kind: "pulseCreated",
       sourceId: "o-probe",
       habitatId,
       occurredAt: new Date().toISOString(),
     });
-    expect(stillDispatched).toBe(false);
+    expect(stillDispatched).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
 // acquireConcurrencySlot / releaseConcurrencySlot — per-habitat cap
-// pluginManager.ts:1106 / :1114. Cap is per-habitat Map<habitatId, number>.
-// Approach: write 3 slow detectors in the same habitat, cap=2. On each call,
-// exactly 2 acquire slots and dispatch; the 3rd is skipped (no slot).
-// After slots release (runDetector's finally), the next call can dispatch again.
+// Cap is per-habitat Map<habitatId, number>. Approach: write 3 slow detectors
+// in the same habitat, cap=2. On each call, exactly 2 acquire slots and
+// dispatch; the 3rd is denied capacity.
+//
+// T4 (ADR-0039 Q12/Q14): slot release now attaches to the UNDERLYING handler
+// Promise settlement (not watchdog `finally`). A capacity-denied detector writes
+// a `rate_limited` Plugin Run row (was silent skip). The saturation effect is
+// observable through `rate_limited` status, not missing runs.
 // ---------------------------------------------------------------------------
 describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-habitat cap", () => {
   let tmpDirs: string[];
@@ -323,7 +344,7 @@ describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-hab
     for (const dir of tmpDirs) await cleanup(dir);
   });
 
-  it("saturating concurrent dispatch with cap=2 and 3 detectors: exactly 2 dispatch, 1 skip (observable via no new plugin_runs for the loser)", async () => {
+  it("saturating concurrent dispatch with cap=2 and 3 detectors: exactly 2 acquire slots, 1 gets rate_limited (T4: capacity denial writes rate_limited row)", async () => {
     // Three detectors, each in its own plugin module so the registry iteration is
     // unambiguous. All sleep ~250ms so slots stay held while we observe.
     const detectors: Array<{ pluginId: string; detectorId: string }> = [
@@ -368,7 +389,7 @@ describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-hab
 
     publishMock.mockClear();
 
-    // --- First call: 2 acquire slots, 1 is skipped ---
+    // --- First call: 2 acquire slots, 1 is capacity-denied ---
     pluginManager.dispatchDetectionEvent("pulseCreated", {
       kind: "pulseCreated",
       sourceId: "conc-1",
@@ -376,9 +397,10 @@ describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-hab
       occurredAt: new Date().toISOString(),
     });
 
-    // Wait until 2 runs are recorded (the 2 slot-acquiring detectors have started).
-    // The losing detector should NOT have a run row yet because the slot was denied.
-    const twoRuns = await pollUntil(
+    // Wait until all 3 detectors have a run row (T4: the capacity-denied
+    // detector gets a `rate_limited` row immediately — the runtime starts the
+    // run, checks quarantine, then checks capacity and finishes rate_limited).
+    const threeRuns = await pollUntil(
       () => {
         const runsByPlugin = detectors.map(({ pluginId }) => ({
           pluginId,
@@ -386,25 +408,30 @@ describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-hab
         }));
         return runsByPlugin.filter((x) => x.count > 0).length;
       },
-      (n) => n === 2,
+      (n) => n === 3,
       1500,
     );
-    expect(twoRuns).toBeDefined();
+    expect(threeRuns).toBeDefined();
 
-    // Snapshot: exactly 2 detectors have a run row, 1 (the loser) has none yet.
-    const countsAfterFirst = detectors.map(({ pluginId }) => ({
+    // T4: all 3 detectors have run rows. Exactly 2 have non-rate-limited runs
+    // (slots acquired), 1 has a rate_limited run (capacity denied).
+    const runsAfterFirst = detectors.map(({ pluginId }) => ({
       pluginId,
-      count: runRepo.listByHabitat(habitatId, { pluginId }).length,
+      runs: runRepo.listByHabitat(habitatId, { pluginId }),
     }));
-    const dispatchingCount = countsAfterFirst.filter((x) => x.count > 0).length;
-    const skippedCount = countsAfterFirst.filter((x) => x.count === 0).length;
-    expect(dispatchingCount).toBe(2);
-    expect(skippedCount).toBe(1);
+    const slotAcquired = runsAfterFirst.filter((x) =>
+      x.runs.some((r) => r.status !== "rate_limited"),
+    );
+    const capacityDenied = runsAfterFirst.filter((x) =>
+      x.runs.some((r) => r.status === "rate_limited"),
+    );
+    expect(slotAcquired.length).toBe(2);
+    expect(capacityDenied.length).toBe(1);
 
-    // Wait long enough for the slots to release (runDetector finally{}).
+    // Wait long enough for the slots to release (underlying handler settles).
     await new Promise((r) => setTimeout(r, 400));
 
-    // --- Second call: slots are free, 2 acquire again, same loser is skipped ---
+    // --- Second call: slots are free, same pattern repeats ---
     pluginManager.dispatchDetectionEvent("pulseCreated", {
       kind: "pulseCreated",
       sourceId: "conc-2",
@@ -420,26 +447,24 @@ describe("v0.28-T2b: acquireConcurrencySlot / releaseConcurrencySlot — per-hab
         );
         return totalRuns;
       },
-      (n) => n >= 4,
+      (n) => n >= 6,
       1500,
     );
 
+    // T4: total runs == 6 (3 per call: 2 slot-acquired + 1 rate_limited).
+    // This proves saturation held across both calls and the release freed the
+    // slot between them (the 2 slot-acquiring detectors ran twice).
     const countsAfterSecond = detectors.map(({ pluginId }) => ({
       pluginId,
       count: runRepo.listByHabitat(habitatId, { pluginId }).length,
     }));
-
-    // The same plugin consistently loses (still has 0 runs after two calls
-    // if its slot was denied both times — its detectors run only when slots
-    // free up between calls, but since we drive back-to-back, it stays behind).
-    // More importantly: total runs == 4 (2 per call), proving saturation held
-    // across both calls and release freed the slot between them.
     const totalRunsAfterSecond = countsAfterSecond.reduce((acc, x) => acc + x.count, 0);
-    expect(totalRunsAfterSecond).toBe(4);
+    expect(totalRunsAfterSecond).toBe(6);
 
-    // At least one detector has ≤1 run while others have 2 — the saturation effect.
-    const loserCounts = countsAfterSecond.filter((x) => x.count <= 1).length;
-    expect(loserCounts).toBeGreaterThanOrEqual(1);
+    // The capacity-denied detector has 2 rate_limited runs (one per call).
+    // The other 2 detectors each have 2 runs (succeeded).
+    const deniedCounts = countsAfterSecond.filter((x) => x.count === 2);
+    expect(deniedCounts.length).toBe(3);
   });
 
   it("releaseConcurrencySlot frees the slot: after the in-flight runs finish, subsequent dispatch is not blocked", async () => {

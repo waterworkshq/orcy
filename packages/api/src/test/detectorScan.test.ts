@@ -141,7 +141,7 @@ describe("detector catch-up scan (v0.22.3)", () => {
     // Pulse arrives AFTER the stale watermark but BEFORE the scan runs.
     const pulseId = insertPulse(habitatId, missionId, taskId, "missed pulse");
 
-    runScan();
+    await runScan();
     await new Promise((r) => setTimeout(r, 300));
 
     expect(runRepo.existsForTriggerEvent("scan-recover", "scan-recover-detector", pulseId)).toBe(
@@ -149,9 +149,7 @@ describe("detector catch-up scan (v0.22.3)", () => {
     );
 
     const runs = runRepo.listByHabitat(habitatId);
-    const successRun = runs.find(
-      (r) => r.pluginId === "scan-recover" && r.status === "succeeded",
-    );
+    const successRun = runs.find((r) => r.pluginId === "scan-recover" && r.status === "succeeded");
     expect(successRun).toBeDefined();
     expect(successRun!.signalsEmitted).toBe(1);
   });
@@ -183,7 +181,7 @@ describe("detector catch-up scan (v0.22.3)", () => {
 
     const runsBefore = runRepo.listByHabitat(habitatId).length;
 
-    runScan();
+    await runScan();
     await new Promise((r) => setTimeout(r, 200));
 
     const runsAfter = runRepo.listByHabitat(habitatId).length;
@@ -207,10 +205,209 @@ describe("detector catch-up scan (v0.22.3)", () => {
 
     expect(enrollment.lastScannedAt).toBeNull();
 
-    runScan();
+    await runScan();
 
     const updated = enrollmentRepo.getById(enrollment.id);
     expect(updated!.lastScannedAt).not.toBeNull();
     expect(new Date(updated!.lastScannedAt!).getTime()).toBeGreaterThan(Date.now() - 5000);
+  });
+
+  // ─── T4 (ADR-0039) — status-aware dedup + recovery ───────────────────
+
+  it("T4: skipped rows do NOT satisfy dedup — scanner retries the event", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    await writeDetectorPlugin(
+      "scan-skip-recover",
+      `async (ctx, ref) => {
+        return [{ signalType: 'detected', subject: 'recovered after skip: ' + ref.sourceId }];
+      }`,
+    );
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-skip-recover",
+      contributionId: "scan-skip-recover-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    const staleWatermark = new Date(Date.now() - 60000).toISOString();
+    enrollmentRepo.updateLastScannedAt(enrollment.id, staleWatermark);
+
+    const pulseId = insertPulse(habitatId, missionId, taskId, "pre-skipped pulse");
+
+    // Insert a `skipped` run for this pulse — simulates a prior quarantine block.
+    const run = runRepo.startRun({
+      habitatId,
+      pluginId: "scan-skip-recover",
+      contributionId: "scan-skip-recover-detector",
+      contributionKind: "signalDetector",
+      triggerEventId: pulseId,
+      triggerType: "pulseCreated",
+    });
+    runRepo.finishRun(run.id, "skipped");
+
+    // The skipped row must NOT satisfy dedup — the event is recovery-eligible.
+    expect(
+      runRepo.existsForTriggerEvent("scan-skip-recover", "scan-skip-recover-detector", pulseId),
+    ).toBe(false);
+
+    await runScan();
+    await new Promise((r) => setTimeout(r, 300));
+
+    // The scanner retried the event and produced a succeeded run.
+    const successRun = runRepo
+      .listByHabitat(habitatId)
+      .find((r) => r.pluginId === "scan-skip-recover" && r.status === "succeeded");
+    expect(successRun).toBeDefined();
+    expect(successRun!.triggerEventId).toBe(pulseId);
+  });
+
+  it("T4: rate_limited rows do NOT satisfy dedup — scanner retries the event", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    await writeDetectorPlugin(
+      "scan-rl-recover",
+      `async (ctx, ref) => {
+        return [{ signalType: 'detected', subject: 'recovered after rate_limit: ' + ref.sourceId }];
+      }`,
+    );
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-rl-recover",
+      contributionId: "scan-rl-recover-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    const staleWatermark = new Date(Date.now() - 60000).toISOString();
+    enrollmentRepo.updateLastScannedAt(enrollment.id, staleWatermark);
+
+    const pulseId = insertPulse(habitatId, missionId, taskId, "pre-rate-limited pulse");
+
+    // Insert a `rate_limited` run — simulates a prior capacity denial.
+    const run = runRepo.startRun({
+      habitatId,
+      pluginId: "scan-rl-recover",
+      contributionId: "scan-rl-recover-detector",
+      contributionKind: "signalDetector",
+      triggerEventId: pulseId,
+      triggerType: "pulseCreated",
+    });
+    runRepo.finishRun(run.id, "rate_limited");
+
+    // The rate_limited row must NOT satisfy dedup.
+    expect(
+      runRepo.existsForTriggerEvent("scan-rl-recover", "scan-rl-recover-detector", pulseId),
+    ).toBe(false);
+
+    await runScan();
+    await new Promise((r) => setTimeout(r, 300));
+
+    const successRun = runRepo
+      .listByHabitat(habitatId)
+      .find((r) => r.pluginId === "scan-rl-recover" && r.status === "succeeded");
+    expect(successRun).toBeDefined();
+    expect(successRun!.triggerEventId).toBe(pulseId);
+  });
+
+  it("T4: running/succeeded/failed rows DO satisfy dedup — scanner skips them", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    await writeDetectorPlugin("scan-durable", `async () => []`);
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-durable",
+      contributionId: "scan-durable-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    const staleWatermark = new Date(Date.now() - 60000).toISOString();
+    enrollmentRepo.updateLastScannedAt(enrollment.id, staleWatermark);
+
+    const pulseId = insertPulse(habitatId, missionId, taskId, "durable pulse");
+
+    // Insert a `running` run — handler was durably launched.
+    runRepo.startRun({
+      habitatId,
+      pluginId: "scan-durable",
+      contributionId: "scan-durable-detector",
+      contributionKind: "signalDetector",
+      triggerEventId: pulseId,
+      triggerType: "pulseCreated",
+    });
+
+    // running satisfies dedup — at-most-once after durable launch.
+    expect(runRepo.existsForTriggerEvent("scan-durable", "scan-durable-detector", pulseId)).toBe(
+      true,
+    );
+
+    const runsBefore = runRepo.listByHabitat(habitatId).length;
+
+    await runScan();
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Scanner skipped this event — no new run.
+    const runsAfter = runRepo.listByHabitat(habitatId).length;
+    expect(runsAfter).toBe(runsBefore);
+  });
+
+  it("T4: recovery_deferred (quarantine) prevents watermark advance", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "2";
+
+    await writeDetectorPlugin("scan-quar", `async () => { throw new Error('quarantine-boom'); }`);
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-quar",
+      contributionId: "scan-quar-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+
+    // Drive 2 errors to quarantine the detector.
+    pluginManager.dispatchDetectionEvent("pulseCreated", {
+      kind: "pulseCreated",
+      sourceId: "quar-pre-1",
+      habitatId,
+      occurredAt: new Date().toISOString(),
+    });
+    pluginManager.dispatchDetectionEvent("pulseCreated", {
+      kind: "pulseCreated",
+      sourceId: "quar-pre-2",
+      habitatId,
+      occurredAt: new Date().toISOString(),
+    });
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Backdate watermark.
+    const staleWatermark = new Date(Date.now() - 60000).toISOString();
+    enrollmentRepo.updateLastScannedAt(enrollment.id, staleWatermark);
+
+    // Insert a pulse AFTER the stale watermark.
+    insertPulse(habitatId, missionId, taskId, "post-quarantine pulse");
+
+    await runScan();
+    await new Promise((r) => setTimeout(r, 300));
+
+    // The watermark must NOT advance — the detector is quarantined (recovery_deferred).
+    const updated = enrollmentRepo.getById(enrollment.id);
+    expect(updated!.lastScannedAt).toBe(staleWatermark);
+
+    delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
   });
 });

@@ -270,6 +270,49 @@ describe("pluginRun repo", () => {
     void _compileTimeNarrowingCheck;
   });
 
+  describe("existsForTriggerEvent (T4 status-aware dedup)", () => {
+    it("returns true for running, succeeded, and failed (durably accounted)", () => {
+      const { id } = setupHabitat();
+      const durablyAccounted: PluginRunStatus[] = ["running", "succeeded", "failed"];
+      for (const status of durablyAccounted) {
+        const run = runRepo.startRun(
+          makeRunInput(id, { contributionId: `det-${status}`, triggerEventId: `evt-${status}` }),
+        );
+        if (status !== "running") runRepo.finishRun(run.id, status);
+        expect(
+          runRepo.existsForTriggerEvent(
+            "detector-regex-frustration",
+            `det-${status}`,
+            `evt-${status}`,
+          ),
+        ).toBe(true);
+      }
+    });
+
+    it("returns false for skipped and rate_limited (recovery eligible)", () => {
+      const { id } = setupHabitat();
+      const recoveryEligible: PluginRunStatus[] = ["skipped", "rate_limited"];
+      for (const status of recoveryEligible) {
+        const run = runRepo.startRun(
+          makeRunInput(id, { contributionId: `det-${status}`, triggerEventId: `evt-${status}` }),
+        );
+        runRepo.finishRun(run.id, status);
+        expect(
+          runRepo.existsForTriggerEvent(
+            "detector-regex-frustration",
+            `det-${status}`,
+            `evt-${status}`,
+          ),
+        ).toBe(false);
+      }
+    });
+
+    it("returns false when no row exists", () => {
+      setupHabitat();
+      expect(runRepo.existsForTriggerEvent("no-plugin", "no-detector", "no-event")).toBe(false);
+    });
+  });
+
   describe("listByHabitat", () => {
     it("returns runs newest-first", () => {
       const { id } = setupHabitat();
