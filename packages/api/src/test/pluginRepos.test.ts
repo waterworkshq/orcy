@@ -270,7 +270,7 @@ describe("pluginRun repo", () => {
     void _compileTimeNarrowingCheck;
   });
 
-  describe("existsForTriggerEvent (T4 status-aware dedup)", () => {
+  describe("existsForTriggerEvent (T4 status-aware + Q9 kind-safe dedup)", () => {
     it("returns true for running, succeeded, and failed (durably accounted)", () => {
       const { id } = setupHabitat();
       const durablyAccounted: PluginRunStatus[] = ["running", "succeeded", "failed"];
@@ -282,6 +282,7 @@ describe("pluginRun repo", () => {
         expect(
           runRepo.existsForTriggerEvent(
             "detector-regex-frustration",
+            "signalDetector",
             `det-${status}`,
             `evt-${status}`,
           ),
@@ -300,6 +301,7 @@ describe("pluginRun repo", () => {
         expect(
           runRepo.existsForTriggerEvent(
             "detector-regex-frustration",
+            "signalDetector",
             `det-${status}`,
             `evt-${status}`,
           ),
@@ -309,7 +311,44 @@ describe("pluginRun repo", () => {
 
     it("returns false when no row exists", () => {
       setupHabitat();
-      expect(runRepo.existsForTriggerEvent("no-plugin", "no-detector", "no-event")).toBe(false);
+      expect(
+        runRepo.existsForTriggerEvent("no-plugin", "signalDetector", "no-detector", "no-event"),
+      ).toBe(false);
+    });
+
+    it("returns false when a different contributionKind shares the same local ID (Q9 kind-safe)", () => {
+      const { id } = setupHabitat();
+      // A terminal Action run with the same pluginId/contributionId/triggerEventId
+      // as a Detector target. Before the Q9 fix, this would falsely satisfy
+      // Detector dedup because the query ignored contributionKind.
+      const run = runRepo.startRun(
+        makeRunInput(id, {
+          contributionKind: "automationAction",
+          contributionId: "shared-local-id",
+          triggerEventId: "evt-collision",
+        }),
+      );
+      runRepo.finishRun(run.id, "succeeded");
+
+      // The Action run must NOT satisfy Detector dedup.
+      expect(
+        runRepo.existsForTriggerEvent(
+          "detector-regex-frustration",
+          "signalDetector",
+          "shared-local-id",
+          "evt-collision",
+        ),
+      ).toBe(false);
+
+      // But it DOES satisfy Action dedup.
+      expect(
+        runRepo.existsForTriggerEvent(
+          "detector-regex-frustration",
+          "automationAction",
+          "shared-local-id",
+          "evt-collision",
+        ),
+      ).toBe(true);
     });
   });
 

@@ -42,6 +42,60 @@ export function getDb(): DrizzleDb {
   throw new Error("Database not initialized. Call initDb() first.");
 }
 
+/**
+ * ADR-0039 Q9 — Apply the plugin quarantine kind-safe reset (migration 0053).
+ *
+ * The Drizzle journal-based `migrate()` only tracks a subset of historical
+ * migrations (0000–0002 after the schema consolidation at commit 09d24f4).
+ * The quarantine reset lives in migration 0053 and must be applied
+ * independently so legacy `pluginId:contributionId` rows are cleared on
+ * upgrade. This runs inside `initDb()` — the actual production migration
+ * path — not the test-only file scanner.
+ *
+ * Idempotency: the migration hash is recorded in `__drizzle_migrations`
+ * (the same table Drizzle's `migrate()` uses), so this executes exactly
+ * once per database. On databases where `plugin_quarantines` does not exist
+ * (fresh install via the journal path, which only applies 0000–0002), the
+ * reset is silently skipped — there is nothing to clear.
+ */
+export function applyQuarantineReset(migrationFolder: string): void {
+  if (!_sqlite) return;
+
+  const tableExists = _sqlite
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_quarantines'")
+    .get();
+  if (!tableExists) return;
+
+  const migrationPath = join(migrationFolder, "0053_plugin_quarantine_kind_safe_reset.sql");
+  if (!existsSync(migrationPath)) return;
+
+  const migrationContent = readFileSync(migrationPath, "utf-8");
+  const hash = createHash("sha256").update(migrationContent).digest("hex");
+
+  _sqlite
+    .prepare(
+      "CREATE TABLE IF NOT EXISTS __drizzle_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, created_at NUMERIC)",
+    )
+    .run();
+
+  const alreadyApplied = _sqlite
+    .prepare("SELECT id FROM __drizzle_migrations WHERE hash = ?")
+    .get(hash);
+  if (alreadyApplied) return;
+
+  const statements = migrationContent
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  for (const stmt of statements) {
+    _sqlite.exec(stmt);
+  }
+
+  _sqlite
+    .prepare("INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)")
+    .run(hash, Date.now());
+}
+
 export async function initDb(dbPath?: string) {
   const Database = (await import("better-sqlite3")).default;
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
@@ -81,8 +135,10 @@ export async function initDb(dbPath?: string) {
       }
     }
     migrate(_drizzleDb, { migrationsFolder: migrationFolder });
+    applyQuarantineReset(migrationFolder);
   } else if (existsSync(productionMigrationFolder)) {
     migrate(_drizzleDb, { migrationsFolder: productionMigrationFolder });
+    applyQuarantineReset(productionMigrationFolder);
   }
 
   if (process.env.NODE_ENV !== "production") {

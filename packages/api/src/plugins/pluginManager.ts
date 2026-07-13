@@ -914,8 +914,17 @@ export async function dispatchDetectorTarget(
   target: DetectorTarget,
   ref: EventSourceRef,
 ): Promise<DetectorDispatchAcknowledgement> {
-  // 1. Dedup — already durably accounted?
-  if (runRepo.existsForTriggerEvent(target.pluginId, target.contributionId, ref.sourceId)) {
+  // 1. Dedup — already durably accounted? (Q9: kind-safe — only a terminal
+  //    signalDetector run satisfies Detector dedup, not an Action/Channel run
+  //    that happens to share the same local contributionId.)
+  if (
+    runRepo.existsForTriggerEvent(
+      target.pluginId,
+      "signalDetector",
+      target.contributionId,
+      ref.sourceId,
+    )
+  ) {
     return { state: "already_accounted" };
   }
 

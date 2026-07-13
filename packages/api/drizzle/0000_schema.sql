@@ -1373,4 +1373,3 @@ CREATE INDEX `idx_webhook_deliveries_retry` ON `webhook_deliveries` (`next_retry
 CREATE INDEX `idx_webhook_subscriptions_habitat` ON `webhook_subscriptions` (`habitat_id`);
 --> statement-breakpoint
 CREATE INDEX `idx_webhook_subscriptions_enabled` ON `webhook_subscriptions` (`enabled`);
---> statement-breakpoint

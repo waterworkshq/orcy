@@ -129,18 +129,24 @@ export function listByHabitat(habitatId: string, filter?: ListRunsFilter): Plugi
 
 /**
  * Checks whether a **durably-accounted** run already exists for the given
- * (pluginId, contributionId, triggerEventId) triple (ADR-0039 Detector Recovery).
+ * (pluginId, contributionKind, contributionId, triggerEventId) tuple
+ * (ADR-0039 Detector Recovery + Q9 Canonical Contribution Identity).
  *
  * Only `running`, `succeeded`, and `failed` satisfy the query — these mean a
  * handler was durably launched. `skipped` (quarantine) and `rate_limited`
  * (capacity denial) remain visible telemetry but are **recovery-eligible**: the
  * handler was never launched, so catch-up must retry them.
  *
+ * The `contributionKind` filter is kind-safe (Q9): contribution IDs are only
+ * unique within their kind's registry, so a terminal Action or Channel run with
+ * the same local ID must not falsely satisfy Detector dedup.
+ *
  * Used by the catch-up scan to skip events already processed by the live hook
  * (dedup — prevents duplicate detected signals on re-scan).
  */
 export function existsForTriggerEvent(
   pluginId: string,
+  contributionKind: string,
   contributionId: string,
   triggerEventId: string,
 ): boolean {
@@ -151,6 +157,7 @@ export function existsForTriggerEvent(
     .where(
       and(
         eq(pluginRuns.pluginId, pluginId),
+        eq(pluginRuns.contributionKind, contributionKind),
         eq(pluginRuns.contributionId, contributionId),
         eq(pluginRuns.triggerEventId, triggerEventId),
         inArray(pluginRuns.status, ["running", "succeeded", "failed"]),

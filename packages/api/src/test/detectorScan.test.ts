@@ -144,9 +144,14 @@ describe("detector catch-up scan (v0.22.3)", () => {
     await runScan();
     await new Promise((r) => setTimeout(r, 300));
 
-    expect(runRepo.existsForTriggerEvent("scan-recover", "scan-recover-detector", pulseId)).toBe(
-      true,
-    );
+    expect(
+      runRepo.existsForTriggerEvent(
+        "scan-recover",
+        "signalDetector",
+        "scan-recover-detector",
+        pulseId,
+      ),
+    ).toBe(true);
 
     const runs = runRepo.listByHabitat(habitatId);
     const successRun = runs.find((r) => r.pluginId === "scan-recover" && r.status === "succeeded");
@@ -252,7 +257,12 @@ describe("detector catch-up scan (v0.22.3)", () => {
 
     // The skipped row must NOT satisfy dedup — the event is recovery-eligible.
     expect(
-      runRepo.existsForTriggerEvent("scan-skip-recover", "scan-skip-recover-detector", pulseId),
+      runRepo.existsForTriggerEvent(
+        "scan-skip-recover",
+        "signalDetector",
+        "scan-skip-recover-detector",
+        pulseId,
+      ),
     ).toBe(false);
 
     await runScan();
@@ -304,7 +314,12 @@ describe("detector catch-up scan (v0.22.3)", () => {
 
     // The rate_limited row must NOT satisfy dedup.
     expect(
-      runRepo.existsForTriggerEvent("scan-rl-recover", "scan-rl-recover-detector", pulseId),
+      runRepo.existsForTriggerEvent(
+        "scan-rl-recover",
+        "signalDetector",
+        "scan-rl-recover-detector",
+        pulseId,
+      ),
     ).toBe(false);
 
     await runScan();
@@ -348,9 +363,14 @@ describe("detector catch-up scan (v0.22.3)", () => {
     });
 
     // running satisfies dedup — at-most-once after durable launch.
-    expect(runRepo.existsForTriggerEvent("scan-durable", "scan-durable-detector", pulseId)).toBe(
-      true,
-    );
+    expect(
+      runRepo.existsForTriggerEvent(
+        "scan-durable",
+        "signalDetector",
+        "scan-durable-detector",
+        pulseId,
+      ),
+    ).toBe(true);
 
     const runsBefore = runRepo.listByHabitat(habitatId).length;
 
