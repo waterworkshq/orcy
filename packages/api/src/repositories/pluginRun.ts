@@ -13,6 +13,22 @@ export type StartRunInput = Omit<PluginRunInsert, "id" | "status" | "fingerprint
   startedAt?: string;
 };
 
+/**
+ * Terminal/active status values a Plugin Run may carry (ADR-0039).
+ *
+ *   - `running`      — handler launched; active or completion unknown
+ *   - `succeeded`    — completed successfully
+ *   - `failed`       — handler attempted and failed (runtime fault or domain failure)
+ *   - `rate_limited` — Detector could not acquire habitat concurrency capacity
+ *   - `skipped`      — quarantine blocked this attempt
+ *
+ * Source of truth for {@link finishRun}'s `status` parameter narrowing
+ * (ADR-0039 — finishRun type tightening: non-breaking compile-time improvement).
+ * Also consumed by the Plugin Invocation Runtime
+ * (see `invocationRuntime.ts`).
+ */
+export type PluginRunStatus = "running" | "succeeded" | "failed" | "rate_limited" | "skipped";
+
 /** Inserts a plugin run row in `status: "running"` and returns the created record. */
 export function startRun(input: StartRunInput): PluginRunRow {
   const db = getDb();
@@ -61,7 +77,7 @@ export function getById(id: string): PluginRunRow | null {
  */
 export function finishRun(
   id: string,
-  status: string,
+  status: PluginRunStatus,
   signalsEmitted?: number,
   error?: string,
 ): PluginRunRow | null {

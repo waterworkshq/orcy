@@ -3,6 +3,7 @@ import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
+import type { PluginRunStatus } from "../repositories/pluginRun.js";
 import { pluginEnrollments, pluginRuns } from "../db/schema/index.js";
 
 function setupHabitat() {
@@ -242,6 +243,31 @@ describe("pluginRun repo", () => {
     it("returns null for unknown id", () => {
       expect(runRepo.finishRun("missing", "succeeded", 0)).toBeNull();
     });
+
+    it("accepts every PluginRunStatus value (ADR-0039 finishRun narrowing)", () => {
+      const validStatuses: PluginRunStatus[] = [
+        "running",
+        "succeeded",
+        "failed",
+        "rate_limited",
+        "skipped",
+      ];
+      const { id } = setupHabitat();
+      for (const status of validStatuses) {
+        const run = runRepo.startRun(makeRunInput(id, { contributionId: `c-${status}` }));
+        const finished = runRepo.finishRun(run.id, status);
+        expect(finished!.status).toBe(status);
+      }
+    });
+
+    // MAJOR 5: active compile-time narrowing assertion — invalid status rejected
+    // by TypeScript. This function is never called at runtime; it exists solely
+    // for the @ts-expect-error directive, verified by `tsc --noEmit`.
+    function _compileTimeNarrowingCheck(): void {
+      // @ts-expect-error — "pending" is not a valid PluginRunStatus
+      runRepo.finishRun("x", "pending");
+    }
+    void _compileTimeNarrowingCheck;
   });
 
   describe("listByHabitat", () => {
