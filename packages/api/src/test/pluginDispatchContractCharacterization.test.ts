@@ -39,6 +39,7 @@ import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
 import * as pulseRepo from "../repositories/pulse.js";
+import * as featureRepo from "../repositories/feature.js";
 import type { PluginEvaluationContext } from "@orcy/shared";
 
 // --- Mocks ---
@@ -784,6 +785,83 @@ describe("ADR-0039 T6: atomic post-Interceptor signal batch (Q11)", () => {
     );
     expect(succeededRun).toBeDefined();
     expect(succeededRun!.signalsEmitted).toBe(0);
+  });
+
+  it("mission-attributed post signal persists with mission scope (HIGH 4)", async () => {
+    // A post-interceptor signal with missionId must persist with scope:"mission"
+    // — NOT fail with an impossible habitat-scope + missionId combination that
+    // createPulseWithClient rejects. Before the fix, a valid mission-attributed
+    // signal validated at runtime level, then failed during persistence, rolling
+    // back the entire batch.
+    const habitatId = setupHabitat();
+    const mission = featureRepo.createMission({
+      habitatId,
+      title: "HIGH 4 test mission",
+      createdBy: "test",
+    });
+
+    tmpDir = await writePlugin(
+      "post-mission-sig",
+      `{
+        manifest: {
+          id: 'post-mission-sig',
+          version: '1.0.0',
+          description: 'post returning a mission-attributed signal',
+          contributions: [{
+            kind: 'lifecycleInterceptor',
+            scope: 'habitat',
+            phase: 'post',
+            event: 'taskClaimed',
+            interceptorId: 'missionSig',
+            priority: 0,
+            requires: [],
+          }],
+        },
+        interceptors: {
+          missionSig: async () => ({
+            signals: [
+              { signalType: 'detected', subject: 'mission-scoped signal', missionId: '${mission.id}' },
+              { signalType: 'detected', subject: 'habitat-scoped signal' },
+            ],
+          }),
+        },
+      }`,
+    );
+    enroll(habitatId, "post-mission-sig", "missionSig", "lifecycleInterceptor");
+
+    publishMock.mockClear();
+    pluginManager.runPostInterceptors("task-mission", "taskClaimed", habitatId, {
+      actor: "test",
+    } as never);
+
+    const okRun = await pollUntil(
+      () =>
+        runRepo
+          .listByHabitat(habitatId, { pluginId: "post-mission-sig" })
+          .find((r) => r.status === "succeeded"),
+      (r) => r !== undefined,
+      2000,
+    );
+    expect(okRun).toBeDefined();
+    expect(okRun!.signalsEmitted).toBe(2);
+
+    // Both signals committed — the mission-attributed one with scope:"mission",
+    // the plain one with scope:"habitat".
+    const pulses = pulseRepo.listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z");
+    const detected = pulses.filter(
+      (p) => p.signalType === "detected" && p.fromId === "post-mission-sig",
+    );
+    expect(detected).toHaveLength(2);
+
+    const missionPulse = detected.find((p) => p.subject === "mission-scoped signal");
+    expect(missionPulse).toBeDefined();
+    expect(missionPulse!.scope).toBe("mission");
+    expect(missionPulse!.missionId).toBe(mission.id);
+
+    const habitatPulse = detected.find((p) => p.subject === "habitat-scoped signal");
+    expect(habitatPulse).toBeDefined();
+    expect(habitatPulse!.scope).toBe("habitat");
+    expect(habitatPulse!.missionId).toBeNull();
   });
 });
 

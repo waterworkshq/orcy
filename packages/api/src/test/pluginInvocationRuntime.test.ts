@@ -363,6 +363,11 @@ describe("validateDetectorResult", () => {
       validateDetectorResult([{ signalType: "detected", subject: "x", metadata: "nope" }]).ok,
     ).toBe(false);
   });
+  it("rejects signal with array metadata (LOW 9)", () => {
+    expect(
+      validateDetectorResult([{ signalType: "detected", subject: "x", metadata: [] }]).ok,
+    ).toBe(false);
+  });
   it("strips unknown fields from validated signals", () => {
     const r = validateDetectorResult([{ signalType: "detected", subject: "x", evil: "stripped" }]);
     expect(r.ok).toBe(true);
@@ -483,6 +488,13 @@ describe("validatePostResult", () => {
   it("rejects array with invalid signal", () => {
     expect(validatePostResult({ signals: [{ signalType: "user" }] }).ok).toBe(false);
   });
+  it("rejects signal with array metadata (LOW 9)", () => {
+    expect(
+      validatePostResult({
+        signals: [{ signalType: "detected", subject: "x", metadata: [] }],
+      }).ok,
+    ).toBe(false);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -584,6 +596,32 @@ describe("checkPreVeto", () => {
     expect(d.startFailed).toBe(true);
     expect(d.runId).toBeNull();
     expect(deps.incrementError).not.toHaveBeenCalled();
+  });
+
+  it("buildContext failure = infrastructure failure, no handler, no counter (MEDIUM 6)", () => {
+    const inc = vi.fn();
+    const handler = vi.fn(() => ({ allow: true }));
+    const { runtime, deps } = makeRuntime({
+      buildContext: () => {
+        throw new Error("context build failed");
+      },
+      incrementError: inc,
+    });
+    const d = runtime.checkPreVeto(preReq(handler));
+    expect(d.decision).toBe("veto");
+    if (d.decision === "veto") expect(d.vetoReason).toBe("failure");
+    expect(d.startFailed).toBe(false);
+    expect(d.runId).not.toBeNull();
+    expect(inc).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+    // Pre-interceptors have no catch-up recovery; finish "failed" (not "skipped"
+    // like the async Detector path).
+    expect(deps.finishRun).toHaveBeenCalledWith(
+      expect.any(String),
+      "failed",
+      undefined,
+      expect.any(String),
+    );
   });
 
   it("preserves decision with finishFailed when finishRun throws", () => {

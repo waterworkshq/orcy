@@ -1157,7 +1157,7 @@ function invokePostInterceptorThroughRuntime(
         }
         const input: pulseRepo.CreatePulseInput = {
           habitatId,
-          scope: "habitat",
+          scope: s.missionId !== undefined ? "mission" : "habitat",
           fromType: "system",
           fromId: target.pluginId,
           signalType: "detected",

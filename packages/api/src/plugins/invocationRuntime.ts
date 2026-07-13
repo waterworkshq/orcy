@@ -374,10 +374,10 @@ function checkDetectedSignal(raw: unknown, index: number): ValidationResult<Dete
     value.body = s.body;
   }
   if (s.metadata !== undefined) {
-    if (typeof s.metadata !== "object" || s.metadata === null) {
+    if (!isPlainObject(s.metadata)) {
       return { ok: false, error: `signal[${index}]: metadata must be an object` };
     }
-    value.metadata = s.metadata as Record<string, unknown>;
+    value.metadata = s.metadata;
   }
   if (s.taskId !== undefined) {
     if (typeof s.taskId !== "string")
@@ -760,15 +760,37 @@ export function createInvocationRuntime(deps: RuntimeDeps): InvocationRuntime {
       return { decision: "allow", runId, startFailed: false, finishFailed: !ff };
     }
 
-    // 3. Build read-only context.
-    const ctx = deps.buildContext({
-      pluginId: target.pluginId,
-      contributionId: target.contributionId,
-      habitatId,
-      runId,
-      requires: target.requires,
-    });
-    ctx.transition = { taskId, action: event, habitatId, context };
+    // 3. Build read-only context — guarded (MEDIUM 6): infrastructure failure
+    //    if this throws. No handler invocation, no counter increment — mirror
+    //    the async path (invokeManaged buildContext catch). The run finishes
+    //    `failed`; the caller receives a structured failure veto.
+    let ctx: PluginContext;
+    try {
+      ctx = deps.buildContext({
+        pluginId: target.pluginId,
+        contributionId: target.contributionId,
+        habitatId,
+        runId,
+        requires: target.requires,
+      });
+      ctx.transition = { taskId, action: event, habitatId, context };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.logger.error("Pre-veto buildContext failed — infrastructure failure", {
+        pluginId: target.pluginId,
+        contributionId: target.contributionId,
+        errMessage: message,
+      });
+      const ff = safeFinishRun(runId, "failed", undefined, message);
+      return {
+        decision: "veto",
+        vetoReason: "failure",
+        message,
+        runId,
+        startFailed: false,
+        finishFailed: !ff,
+      };
+    }
 
     // 4. Invoke synchronously.
     let raw: unknown;
