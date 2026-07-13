@@ -847,6 +847,89 @@ describe("ADR-0039 T7: pre-veto runtime migration (real end-to-end)", () => {
       expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
       expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("approved");
     });
+
+    it("final approval vetoed then retried: reviewer remains pending and can retry after policy clears", async () => {
+      vi.restoreAllMocks();
+      // First: write a vetoing plugin
+      await writeVetoPlugin("q10-retry", "taskApproved", "veto-retry");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "q10-retry", "veto-retry");
+      setupTwoReviewers(habitatId, taskId);
+
+      // First reviewer (non-final).
+      taskService.approveTask(taskId, "rev-1", "human");
+
+      // Final reviewer vetoed.
+      expect(() => taskService.approveTask(taskId, "rev-2", "human")).toThrow(InterceptorVetoError);
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("pending");
+      expect(taskRepo.getTaskById(taskId)?.status).toBe("submitted");
+
+      // Now clear the veto: unload the veto plugin and load an allow plugin.
+      pluginManager.resetPlugins();
+      await writeVetoPlugin(
+        "q10-retry-allow",
+        "taskApproved",
+        "veto-retry",
+        "() => ({ allow: true })",
+      );
+      enrollPlugin(habitatId, "q10-retry-allow", "veto-retry");
+
+      // Retry the final approval — should now succeed.
+      const result = taskService.approveTask(taskId, "rev-2", "human");
+      expect(result?.status).toBe("approved");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("approved");
+    });
+
+    it("idempotent repeat approval: same reviewer approving twice does not throw or double-veto", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin("q10-idem", "taskApproved", "allow-idem", "() => ({ allow: true })");
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "q10-idem", "allow-idem");
+      setupTwoReviewers(habitatId, taskId);
+
+      // First reviewer approves (non-final).
+      const first = taskService.approveTask(taskId, "rev-1", "human");
+      expect(first?.status).toBe("submitted");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
+
+      // Repeat the same reviewer's approval — idempotent (no throw, stays approved).
+      const repeat = taskService.approveTask(taskId, "rev-1", "human");
+      expect(repeat?.status).toBe("submitted");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
+      // Second reviewer still pending.
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("pending");
+    });
+
+    it("serial non-final then final: both approvals recorded in order, pre-veto runs exactly once", async () => {
+      vi.restoreAllMocks();
+      await writeVetoPlugin(
+        "q10-serial",
+        "taskApproved",
+        "allow-serial",
+        "() => ({ allow: true })",
+      );
+      const { habitatId, taskId } = setupHabitatAndTask("submitted");
+      enrollPlugin(habitatId, "q10-serial", "allow-serial");
+      setupTwoReviewers(habitatId, taskId);
+
+      // Non-final first.
+      taskService.approveTask(taskId, "rev-1", "human");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-1")?.status).toBe("approved");
+      expect(taskReviewerRepo.findByTaskAndReviewer(taskId, "rev-2")?.status).toBe("pending");
+
+      // No pre-veto rows yet (non-final skipped pre-veto).
+      let runs = runRepo.listByHabitat(habitatId, { pluginId: "q10-serial" });
+      expect(runs).toEqual([]);
+
+      // Final second.
+      const result = taskService.approveTask(taskId, "rev-2", "human");
+      expect(result?.status).toBe("approved");
+
+      // Pre-veto ran exactly once (for the final approval only).
+      runs = runRepo.listByHabitat(habitatId, { pluginId: "q10-serial" });
+      expect(runs.length).toBe(1);
+      expect(runs[0].status).toBe("succeeded");
+    });
   });
 
   // ── Quarantine counter (Q1) ────────────────────────────────────────────────

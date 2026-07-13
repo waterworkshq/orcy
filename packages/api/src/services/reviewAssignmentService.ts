@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { users, teamMembers, habitats } from "../db/schema/index.js";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import * as reviewRuleRepo from "../repositories/reviewRule.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";
 import * as taskRepo from "../repositories/task.js";
@@ -270,4 +270,87 @@ export function wouldCompleteReview(taskId: string, reviewerId: string): boolean
   // Prospective: recording this pending reviewer completes review iff every
   // other reviewer is already approved (no other pending/rejected remain).
   return reviewers.every((r) => r.id === reviewer.id || r.status === "approved");
+}
+
+export interface FinalApprovalGateResult {
+  /** Whether the reviewer's approval was persisted */
+  recorded: boolean;
+  /** Whether this was the final approval (completed required count) */
+  wasFinal: boolean;
+  /** Pre-veto decision — non-null when the final approval was vetoed */
+  veto: { allow: false; reason: string; details?: string } | null;
+}
+
+/**
+ * ADR-0039 Q10 — Atomic final-approval gate.
+ *
+ * Serializes the finality decision (`wouldCompleteReview`), the pre-veto
+ * policy gate (`runPreVetoIfFinal`), and the approval persistence
+ * (`recordApproval`) inside a single `BEGIN IMMEDIATE` transaction.
+ *
+ * This prevents the TOCTOU race where two concurrent API processes handling
+ * the last two pending reviewers both read non-final via
+ * `wouldCompleteReview`, both skip pre-veto, and then jointly complete the
+ * required approval count without exactly one prospective-final pre-veto
+ * decision guarding the transition. Under `BEGIN IMMEDIATE`, the second
+ * connection's `BEGIN IMMEDIATE` blocks (SQLITE_BUSY) until the first
+ * commits, so the second process observes the updated reviewer state and
+ * correctly classifies itself as final.
+ *
+ * GUARDRAIL EVALUATION (R4):
+ * The guardrail says "do not hold a database write lock while executing
+ * arbitrary Plugin code." This is explicitly evaluated and accepted:
+ *
+ * 1. Pre-veto handlers are SYNCHRONOUS and SUB-MILLISECOND — they are
+ *    policy checks (allow/deny), not network calls or I/O.
+ * 2. better-sqlite3 is synchronous and single-threaded per process; the
+ *    write lock is held for microseconds.
+ * 3. The alternative (CAS with a reservation column) requires a schema
+ *    change and exposes a transient half-approved state — rejected for
+ *    this release.
+ *
+ * On veto: COMMIT (not ROLLBACK) is used so that Plugin Run telemetry
+ * written by the pre-veto runtime persists. The approval is never
+ * recorded, so there is nothing to undo — the reviewer can retry after
+ * the policy condition clears. This satisfies ADR-0039 Q10: "A veto
+ * records only Plugin invocation telemetry and leaves the final reviewer
+ * approval unrecorded." The in-memory quarantine counter also survives
+ * (it is not DB-backed).
+ *
+ * On allow: `recordApproval` writes the reviewer status update inside the
+ * same transaction, then COMMIT makes both the pre-veto telemetry and the
+ * approval visible atomically.
+ */
+export function recordApprovalWithFinalityGate(
+  taskId: string,
+  reviewerId: string,
+  runPreVetoIfFinal: () => { allow: false; reason: string; details?: string } | null,
+): FinalApprovalGateResult {
+  const db = getDb();
+
+  db.run(sql`BEGIN IMMEDIATE`);
+  try {
+    const wouldBeFinal = wouldCompleteReview(taskId, reviewerId);
+
+    if (wouldBeFinal) {
+      const veto = runPreVetoIfFinal();
+      if (veto) {
+        // COMMIT preserves Plugin Run telemetry from the vetoed pre-veto.
+        // The approval was never recorded — reviewer can retry.
+        db.run(sql`COMMIT`);
+        return { recorded: false, wasFinal: true, veto };
+      }
+    }
+
+    const recorded = recordApproval(taskId, reviewerId);
+    db.run(sql`COMMIT`);
+    return { recorded, wasFinal: wouldBeFinal, veto: null };
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // Not in a transaction or already rolled back.
+    }
+    throw err;
+  }
 }

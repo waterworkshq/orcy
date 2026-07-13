@@ -405,33 +405,23 @@ export function approveTask(
       return null;
     }
 
-    // Q10 (ADR-0039): when the next approval would be FINAL, run the pre-veto
-    // BEFORE recordApproval and task.review_completed SSE. A veto leaves the
-    // final reviewer approval unrecorded so the reviewer can retry after the
-    // policy condition clears. Non-final approvals remain independently
-    // recordable — their pre-veto was never reached even before T7.
-    //
-    // NOTE: In the current single-threaded Node.js + synchronous better-sqlite3
-    // architecture, concurrent assigned-reviewer approvals cannot interleave
-    // within this function. If horizontal scaling or async DB is introduced,
-    // the finality decision must be serialized (CAS or transaction-level lock)
-    // to prevent two non-final approvals from combining into an unguarded
-    // final transition.
-    const wouldBeFinal = reviewAssignment.wouldCompleteReview(taskId, reviewerId);
-
-    if (wouldBeFinal) {
-      const veto = pluginManager.runPreInterceptors(taskId, "taskApproved", currentHabitatId, {
+    // Q10 (ADR-0039): Atomic final-approval gate — serialize the finality
+    // decision, pre-veto, and approval recording under BEGIN IMMEDIATE to
+    // prevent the TOCTOU race where two concurrent last-reviewer approvals
+    // both classify themselves non-final and skip pre-veto. See
+    // recordApprovalWithFinalityGate for the guardrail evaluation.
+    const gateResult = reviewAssignment.recordApprovalWithFinalityGate(taskId, reviewerId, () =>
+      pluginManager.runPreInterceptors(taskId, "taskApproved", currentHabitatId, {
         actorType: reviewerType,
         actorId: reviewerId,
         reviewerId,
         oldStatus: current.status,
         newStatus: "approved",
         task: current,
-      });
-      if (veto) throw new InterceptorVetoError(veto);
-    }
+      }),
+    );
 
-    reviewAssignment.recordApproval(taskId, reviewerId);
+    if (gateResult.veto) throw new InterceptorVetoError(gateResult.veto);
 
     sseBroadcaster.publish(currentHabitatId, {
       type: "task.review_completed",
