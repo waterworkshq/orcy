@@ -1,0 +1,23 @@
+-- v0.28-T2 (ADR-0039 Q9): One-time prerelease plugin quarantine reset.
+--
+-- Existing plugin_quarantines rows use the ambiguous `${pluginId}:${contributionId}`
+-- composite key, which is NOT kind-safe: the same `pluginId:contributionId`
+-- string can refer to a signalDetector, automationAction, or notificationChannel
+-- contribution, and Lifecycle Interceptor keys additionally need phase+event to
+-- disambiguate a single interceptorId that legitimately appears in multiple
+-- lifecycle positions.
+--
+-- The new canonical key format is a JSON-encoded tuple:
+--   `["signalDetector",pluginId,contributionId]`
+--   `["lifecycleInterceptor",pluginId,interceptorId,phase,event]`
+-- produced by the single `canonicalContributionKey` encoder in
+-- `packages/api/src/plugins/contributionAdapters.ts`. Legacy rows cannot be
+-- mapped deterministically to the new format because the legacy key does not
+-- encode kind/phase/event — guessing would silently re-quarantine the wrong
+-- contribution. Delete them instead.
+--
+-- Quarantine is ephemeral fault-state: if a fault persists, the contribution
+-- is re-quarantined naturally on the next error threshold crossing. This is a
+-- prerelease reset and must be documented in the release notes for the release
+-- that ships ADR-0039 T2.
+DELETE FROM plugin_quarantines;

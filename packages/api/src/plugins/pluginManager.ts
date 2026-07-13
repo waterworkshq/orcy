@@ -30,8 +30,13 @@ import {
   CAPABILITY_MATRIX,
   CONTRIBUTION_KIND_KEYS,
   buildContributionCatalog,
+  canonicalContributionKey,
   type CapabilityPolicy,
+  type ActionRegistryEntry,
+  type ChannelRegistryEntry,
   type ContributionKind,
+  type DetectorRegistryEntry,
+  type InterceptorRegistryEntry,
   type PluginRegistries,
 } from "./contributionAdapters.js";
 import { readdir, stat, realpath } from "node:fs/promises";
@@ -69,38 +74,15 @@ const loadedPlugins: Map<string, PluginModule> = new Map();
 const pluginErrors: Map<string, string> = new Map();
 let pluginDirectory: string | null = null;
 
-const channelRegistry: Map<
-  string,
-  { pluginId: string; handler: ChannelHandler; timeoutMs?: number }
-> = new Map();
+const channelRegistry: Map<string, ChannelRegistryEntry> = new Map();
 const formatterRegistry: Map<string, { pluginId: string; handler: FormatterHandler }> = new Map();
 const conditionRegistry: Map<string, { pluginId: string; handler: ConditionHandler }> = new Map();
-const actionRegistry: Map<
-  string,
-  { pluginId: string; handler: ActionListener; timeoutMs?: number }
-> = new Map();
+const actionRegistry: Map<string, ActionRegistryEntry> = new Map();
 const providerRegistry: Map<string, { pluginId: string; handler: ProviderHandler }> = new Map();
-const detectorRegistry: Map<
-  string,
-  { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
-> = new Map();
+const detectorRegistry: Map<string, DetectorRegistryEntry> = new Map();
 const interceptorRegistry: {
-  pre: Map<
-    InterceptorEvent,
-    Array<{
-      pluginId: string;
-      contribution: LifecycleInterceptorContribution;
-      handler: InterceptorHandler;
-    }>
-  >;
-  post: Map<
-    InterceptorEvent,
-    Array<{
-      pluginId: string;
-      contribution: LifecycleInterceptorContribution;
-      handler: InterceptorHandler;
-    }>
-  >;
+  pre: Map<InterceptorEvent, InterceptorRegistryEntry[]>;
+  post: Map<InterceptorEvent, InterceptorRegistryEntry[]>;
 } = { pre: new Map(), post: new Map() };
 
 /** Bag of the 7 module-level registries passed to the catalog factory. Also passed (by
@@ -602,30 +584,24 @@ export function getConditionHandler(conditionId: string): ConditionHandler | und
  * Returns the action handler entry for an action ID from the plugin registry, or `null`.
  * The automation executor calls this when encountering a `{ type: "plugin" }` action.
  */
-export function getActionEntry(
-  actionId: string,
-): { pluginId: string; handler: ActionListener; timeoutMs?: number } | null {
+export function getActionEntry(actionId: string): ActionRegistryEntry | null {
   return actionRegistry.get(actionId) ?? null;
 }
 
 /**
  * Dispatches a plugin action handler with full run tracking, context building,
  * and timeout (ADR-0023). Called by the automation executor for `type: "plugin"` actions.
+ *
+ * T2: `requires` and the canonical contribution key are read from the enriched
+ * registry entry — the dispatcher no longer rescans `loadedPlugins` manifests.
  */
 export async function dispatchActionHandler(
-  entry: { pluginId: string; handler: ActionListener; timeoutMs?: number },
+  entry: ActionRegistryEntry,
   actionId: string,
   habitatId: string,
   evaluationCtx: import("@orcy/shared").PluginEvaluationContext,
   params: Record<string, unknown>,
 ): Promise<{ status: "succeeded" | "failed"; result?: Record<string, unknown>; error?: string }> {
-  // Look up the contribution's requires from the loaded plugin manifest
-  const manifest = loadedPlugins.get(entry.pluginId)?.manifest;
-  const contribution = manifest?.contributions.find(
-    (c) => c.kind === "automationAction" && c.actionId === actionId,
-  );
-  const requires = contribution && "requires" in contribution ? contribution.requires : [];
-
   const { runId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: actionId,
@@ -633,7 +609,7 @@ export async function dispatchActionHandler(
     habitatId,
     triggerEventId: null,
     triggerType: "automation:plugin-action",
-    requires,
+    requires: entry.requires,
   });
 
   try {
@@ -641,7 +617,7 @@ export async function dispatchActionHandler(
     const result = await withTimeout(
       entry.handler(ctx, evaluationCtx, params),
       effectiveTimeout,
-      entry.pluginId,
+      entry.canonicalKey,
     );
     runRepo.finishRun(
       runId,
@@ -652,7 +628,7 @@ export async function dispatchActionHandler(
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    incrementError(`${entry.pluginId}:${actionId}`);
+    incrementError(entry.canonicalKey, entry.pluginId);
     runRepo.finishRun(runId, "failed", undefined, message);
     return { status: "failed", error: message };
   }
@@ -663,9 +639,7 @@ export async function dispatchActionHandler(
  * Used by the catch-up scan service to look up a detector's `detects` kind without
  * holding a reference to the private registry.
  */
-export function getDetectorEntry(
-  key: string,
-): { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler } | null {
+export function getDetectorEntry(key: string): DetectorRegistryEntry | null {
   return detectorRegistry.get(key) ?? null;
 }
 
@@ -685,18 +659,8 @@ export async function dispatchToChannelPlugin(
   const entry = channelRegistry.get(channel);
   if (!entry) return null;
 
-  // Look up the contribution's `requires` from the loaded plugin manifest.
-  // Channel registry entries only carry `pluginId` + `handler` + `timeoutMs`
-  // — sibling dispatchers (`dispatchInterceptorRun`, `runDetector`) carry the
-  // contribution object directly in their entries, so they can read
-  // `entry.contribution.requires`. We mirror the manifest-lookup pattern used
-  // by `dispatchActionHandler` (which has the same registry shape).
-  const manifest = loadedPlugins.get(entry.pluginId)?.manifest;
-  const contribution = manifest?.contributions.find(
-    (c) => c.kind === "notificationChannel" && c.channelId === channel,
-  );
-  const requires = contribution && "requires" in contribution ? contribution.requires : [];
-
+  // T2: `requires` and the canonical contribution key are read from the enriched
+  // registry entry — the dispatcher no longer rescans `loadedPlugins` manifests.
   const { runId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: channel,
@@ -704,7 +668,7 @@ export async function dispatchToChannelPlugin(
     habitatId: delivery.habitatId,
     triggerEventId: delivery.eventId,
     triggerType: `channel:${channel}`,
-    requires,
+    requires: entry.requires,
   });
   ctx.notificationPayload = { delivery, event };
 
@@ -713,7 +677,7 @@ export async function dispatchToChannelPlugin(
     const result = await withTimeout(
       entry.handler(ctx, ctx.notificationPayload),
       effectiveTimeout,
-      entry.pluginId,
+      entry.canonicalKey,
     );
     runRepo.finishRun(runId, result.success ? "succeeded" : "failed", undefined, result.error);
     return result;
@@ -841,14 +805,19 @@ async function dispatchInterceptorRun(
 /**
  * Fire-and-forget detector dispatch. Checks enrollment, quarantine, rate limit,
  * and per-habitat concurrency before invoking each eligible detector handler.
+ *
+ * T2: the quarantine/rate-limit check now uses the kind-safe canonical key
+ * (carried by the enriched registry entry) instead of the registry Map key.
+ * Enrollment continues to use the registry key — the enrollment cache stores
+ * `pluginId:contributionId` strings and is a separate dimension from quarantine.
  */
 export function dispatchDetectionEvent(kind: EventSourceRef["kind"], ref: EventSourceRef): boolean {
   let dispatched = false;
-  for (const [key, entry] of detectorRegistry) {
+  for (const [registryKey, entry] of detectorRegistry) {
     if (entry.contribution.detects !== kind) continue;
-    if (!isEnrolled(ref.habitatId, key)) continue;
-    if (quarantineSet.has(key)) continue;
-    if (isRateLimited(key)) continue;
+    if (!isEnrolled(ref.habitatId, registryKey)) continue;
+    if (quarantineSet.has(entry.canonicalKey)) continue;
+    if (isRateLimited(entry.canonicalKey)) continue;
     if (!acquireConcurrencySlot(ref.habitatId)) continue;
     dispatched = true;
     void runDetector(entry, ref).catch((err) => {
@@ -858,10 +827,7 @@ export function dispatchDetectionEvent(kind: EventSourceRef["kind"], ref: EventS
   return dispatched;
 }
 
-async function runDetector(
-  entry: { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler },
-  ref: EventSourceRef,
-): Promise<void> {
+async function runDetector(entry: DetectorRegistryEntry, ref: EventSourceRef): Promise<void> {
   const { runId, ctx } = startPluginRun({
     pluginId: entry.pluginId,
     contributionId: entry.contribution.detectorId,
@@ -873,14 +839,18 @@ async function runDetector(
   });
   try {
     const effectiveTimeout = entry.contribution.timeoutMs ?? DEFAULT_TIMEOUT_MS.signalDetector ?? 0;
-    const signals = await withTimeout(entry.handler(ctx, ref), effectiveTimeout, entry.pluginId);
+    const signals = await withTimeout(
+      entry.handler(ctx, ref),
+      effectiveTimeout,
+      entry.canonicalKey,
+    );
     for (const signal of signals) {
       await ctx.pulseWriter?.createDetectedSignal(signal);
     }
     runRepo.finishRun(runId, "succeeded", signals.length);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    incrementError(`${entry.pluginId}:${entry.contribution.detectorId}`);
+    incrementError(entry.canonicalKey, entry.pluginId);
     runRepo.finishRun(runId, "failed", undefined, message);
   } finally {
     releaseConcurrencySlot(ref.habitatId);
@@ -960,9 +930,21 @@ function isRateLimited(pluginKey: string): boolean {
   return entry.count >= threshold;
 }
 
-function incrementError(pluginKey: string): void {
+/**
+ * Increments the per-contribution error counter; on threshold crossing, adds
+ * the canonical contribution key to `quarantineSet`, persists it, and emits
+ * `plugin.quarantined` SSE.
+ *
+ * T2: `pluginKey` is the JSON-encoded canonical contribution key produced by
+ * `canonicalContributionKey`. The `pluginId` is passed separately (rather than
+ * parsed out of the key) because the JSON format makes positional extraction
+ * brittle and the caller already has the entry with `pluginId` on it. The
+ * SSE payload carries both `pluginId` (real plugin id, for the UI's existing
+ * enrollment/runs cache invalidation) and `contributionKey` (canonical
+ * contribution key, for admin clear-quarantine calls).
+ */
+function incrementError(pluginKey: string, pluginId: string): void {
   const now = Date.now();
-  const pluginId = pluginKey.split(":")[0];
   const entry = errorCounters.get(pluginKey);
   if (!entry || now - entry.windowStart > 60_000) {
     errorCounters.set(pluginKey, { count: 1, windowStart: now });
@@ -985,13 +967,17 @@ function incrementError(pluginKey: string): void {
     }
     // Emit plugin.quarantined SSE to every habitat with this plugin enrolled so
     // the loader cache invalidates and the UI can surface quarantine state.
+    // T2: the SSE payload now carries the real plugin id (for UI cache
+    // invalidation by plugin) AND the canonical contribution key (for admin
+    // clear-quarantine calls — the key the user/admin passes back through the
+    // DELETE /habitats/:id/plugins/:pluginKey/quarantine route).
     try {
       const enrollments = enrollmentRepo.listByPlugin(pluginId);
       const habitats = new Set(enrollments.map((e) => e.habitatId));
       for (const habitatId of habitats) {
         sseBroadcaster.publish(habitatId, {
           type: "plugin.quarantined",
-          data: { habitatId, pluginId: pluginKey },
+          data: { habitatId, pluginId, contributionKey: pluginKey },
         });
       }
     } catch (err) {

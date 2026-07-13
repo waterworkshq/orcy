@@ -268,7 +268,7 @@ export type SSEEvent =
     }
   | {
       type: "plugin.quarantined";
-      data: { habitatId: string; pluginId: string };
+      data: { habitatId: string; pluginId: string; contributionKey: string };
     }
   | {
       type: "triage.finding_created";

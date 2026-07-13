@@ -26,6 +26,7 @@ import { closeDb, initTestDb, getDb } from "../db/index.js";
 import { pulses } from "../db/schema/index.js";
 import * as pluginManager from "../plugins/pluginManager.js";
 import * as runRepo from "../repositories/pluginRun.js";
+import * as quarantineRepo from "../repositories/pluginQuarantine.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as habitatRepo from "../repositories/board.js";
 import * as columnRepo from "../repositories/column.js";
@@ -755,5 +756,115 @@ describe("ADR-0039 T1: post fire-and-forget timing (caller detaches before handl
 
     delete (globalThis as { __postResolve?: () => void }).__postResolve;
     delete (globalThis as { __postSideEffect?: boolean }).__postSideEffect;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0039 T2 — Cross-kind contribution identity (the headline T2 contract)
+// ---------------------------------------------------------------------------
+
+describe("ADR-0039 T2: kind-safe canonical contribution identity", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD = "2";
+    tmpDir = "";
+  });
+
+  afterEach(async () => {
+    delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
+    if (tmpDir) await cleanup(tmpDir);
+  });
+
+  /**
+   * Same plugin + same kind-local ID `x` declared as BOTH a signalDetector AND
+   * an automationAction. Under the legacy `pluginId:contributionId` key both
+   * would share `cross-kind:x` and a single quarantine row would block both
+   * contributions. The kind-safe canonical key keeps them distinct.
+   *
+   * This is the end-to-end version of the unit matrix in
+   * `pluginIdentityCharacterization.test.ts`. It pins the contract via real
+   * plugin load + dispatch + DB observation (approach b — no test seam).
+   */
+  it("cross-kind contributions with the same kind-local ID get distinct quarantine rows", async () => {
+    tmpDir = await writePlugin(
+      "cross-kind",
+      `{
+        manifest: {
+          id: 'cross-kind',
+          version: '1.0.0',
+          description: 'detector + action sharing id "x"',
+          contributions: [
+            {
+              kind: 'signalDetector',
+              scope: 'habitat',
+              detectorId: 'x',
+              label: 'X',
+              detects: 'pulseCreated',
+              rateLimitDefaults: { maxDetectionsPerMinute: 100, maxSignalsPerHour: 100 },
+              requires: [],
+            },
+            {
+              kind: 'automationAction',
+              scope: 'system',
+              actionId: 'x',
+              label: 'X',
+              requires: [],
+              timeoutMs: 1000,
+            },
+          ],
+        },
+        detectors: { x: async () => { throw new Error('det-boom'); } },
+        actions:   { x: async () => { throw new Error('act-boom'); } },
+      }`,
+    );
+    const habitatId = setupHabitat();
+    enroll(habitatId, "cross-kind", "x", "signalDetector");
+
+    publishMock.mockClear();
+
+    // Drive the DETECTOR past threshold (2 errors under the test env var).
+    pluginManager.dispatchDetectionEvent("pulseCreated", {
+      kind: "pulseCreated",
+      sourceId: "ck-1",
+      habitatId,
+      occurredAt: new Date().toISOString(),
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    pluginManager.dispatchDetectionEvent("pulseCreated", {
+      kind: "pulseCreated",
+      sourceId: "ck-2",
+      habitatId,
+      occurredAt: new Date().toISOString(),
+    });
+
+    const detRows = await pollUntil(
+      () => quarantineRepo.listByPluginId("cross-kind"),
+      (r) => r.some((row) => row.pluginKey.startsWith('["signalDetector",')),
+      2000,
+    );
+    expect(detRows).toBeDefined();
+    const detKey = detRows!.find((r) => r.pluginKey.startsWith('["signalDetector",'))!.pluginKey;
+    expect(detKey).toBe('["signalDetector","cross-kind","x"]');
+
+    // Now drive the ACTION past threshold with two failing dispatches.
+    const entry = pluginManager.getActionEntry("x");
+    expect(entry).not.toBeNull();
+    await pluginManager.dispatchActionHandler(entry!, "x", habitatId, evalCtx, {});
+    await pluginManager.dispatchActionHandler(entry!, "x", habitatId, evalCtx, {});
+
+    const actRows = await pollUntil(
+      () => quarantineRepo.listByPluginId("cross-kind"),
+      (r) => r.some((row) => row.pluginKey.startsWith('["automationAction",')),
+      2000,
+    );
+    expect(actRows).toBeDefined();
+    const actKey = actRows!.find((r) => r.pluginKey.startsWith('["automationAction",'))!.pluginKey;
+    expect(actKey).toBe('["automationAction","cross-kind","x"]');
+
+    // Headline assertion: detector and action keys for the SAME kind-local ID
+    // are distinct (the legacy format would have collided on "cross-kind:x").
+    expect(detKey).not.toBe(actKey);
+    expect(new Set([detKey, actKey]).size).toBe(2);
   });
 });

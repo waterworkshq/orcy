@@ -22,9 +22,12 @@
  *   | post-interceptor   | fail-safe (no q)   | fail-safe (no q)   | NO           | yes      |
  *                                            q = calls incrementError
  *
- * Composite key: `"pluginId:detectorId"` (and `"pluginId:actionId"` for actions).
+ * Composite key: `["signalDetector",pluginId,detectorId]` (and
+ * `["automationAction",pluginId,actionId]` for actions) — the kind-safe
+ * canonical key format (JSON-encoded tuple) owned by
+ * `canonicalContributionKey` in `contributionAdapters.ts` (ADR-0039 Q9 / T2).
  * Must match between `incrementError`'s key and the dispatcher guard check
- * (`dispatchDetectionEvent` line 953).
+ * (`dispatchDetectionEvent`).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
@@ -826,7 +829,10 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     );
     expect(rows).toBeDefined();
     expect(rows!.length).toBeGreaterThanOrEqual(1);
-    expect(rows![0].pluginKey).toBe("quar-det:q");
+    // T2 (ADR-0039 Q9): the canonical kind-safe key is a JSON-encoded tuple
+    // `[kind, pluginId, contributionId]` so cross-kind same-ID contributions
+    // get distinct quarantine rows.
+    expect(rows![0].pluginKey).toBe('["signalDetector","quar-det","q"]');
     expect(rows![0].reason).toContain("threshold reached");
 
     // SSE event emitted to the enrolled habitat
@@ -836,7 +842,13 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     expect(publishCalls.length).toBeGreaterThanOrEqual(1);
     const [publishedHabitat, publishedEvent] = publishCalls[0];
     expect(publishedHabitat).toBe(habitatId);
-    expect((publishedEvent as { data: { pluginId: string } }).data.pluginId).toBe("quar-det:q");
+    // T2 (ADR-0039 Q9): the SSE payload carries BOTH the real plugin id
+    // (for UI cache invalidation) AND the canonical contribution key (for
+    // admin clear-quarantine).
+    const sseData = (publishedEvent as { data: { pluginId: string; contributionKey: string } })
+      .data;
+    expect(sseData.pluginId).toBe("quar-det");
+    expect(sseData.contributionKey).toBe('["signalDetector","quar-det","q"]');
 
     // --- Prove the SKIP: subsequent dispatch produces NO new plugin_runs ---
     const runsBeforeSkip = runRepo.listByHabitat(habitatId, { pluginId: "quar-det" }).length;
@@ -920,7 +932,8 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     );
     expect(rows).toBeDefined();
     expect(rows!.length).toBeGreaterThanOrEqual(1);
-    expect(rows![0].pluginKey).toBe("quar-act:q");
+    // T2 (ADR-0039 Q9): kind-safe canonical key.
+    expect(rows![0].pluginKey).toBe('["automationAction","quar-act","q"]');
 
     // SSE event published
     const publishCalls = publishMock.mock.calls.filter(
@@ -1064,10 +1077,16 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
     expect(publishCalls).toEqual([]);
   });
 
-  it("quarantine composite key matches: incrementError('pluginId:detectorId') === dispatchDetectionEvent skip key", async () => {
+  it("quarantine canonical key matches: incrementError(canonicalKey) === dispatchDetectionEvent skip key", async () => {
     // MEMORY: a composite-key mismatch shipped in v0.22.0 and survived 4 patches because
     // tests verified plugins loaded but never that quarantine actually blocked.
     // This test pins the contract by reading the persisted DB row and asserting the format.
+    //
+    // T2 (ADR-0039 Q9): the canonical key is now kind-safe, produced by the
+    // single `canonicalContributionKey` encoder in `contributionAdapters.ts`.
+    // The previous "pluginId:contributionId" composite was ambiguous across
+    // contribution kinds; the new format prefixes the kind to prevent
+    // cross-kind collisions.
     tmpDir = await writePlugin(
       "key-check",
       `{
@@ -1113,9 +1132,10 @@ describe("v0.28-T2a: quarantine chain (incrementError → threshold → SSE → 
       2000,
     );
     expect(rows).toBeDefined();
-    // The key MUST be exactly "pluginId:contributionId" — the same composite format used by
-    // dispatchDetectionEvent's quarantine check (line 953). If this format ever drifts,
+    // The key MUST be the kind-safe canonical key — the same format produced by
+    // `canonicalContributionKey({ contributionKind: "signalDetector", pluginId: "key-check",
+    // contributionId: "k" })`. If this format ever drifts from the encoder output,
     // quarantine will be written to one key but checked against another.
-    expect(rows![0].pluginKey).toBe("key-check:k");
+    expect(rows![0].pluginKey).toBe('["signalDetector","key-check","k"]');
   });
 });

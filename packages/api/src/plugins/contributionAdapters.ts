@@ -19,9 +19,11 @@
  * to keep the policy data co-located with the catalog it gates.
  */
 import type {
+  AutomationActionContribution,
   Contribution,
   InterceptorEvent,
   LifecycleInterceptorContribution,
+  NotificationChannelContribution,
   PluginCapabilityName,
   SignalDetectorContribution,
 } from "@orcy/shared";
@@ -56,6 +58,78 @@ export const CONTRIBUTION_KIND_KEYS = [
 
 /** Discriminator string for {@link Contribution}. */
 export type ContributionKind = (typeof CONTRIBUTION_KIND_KEYS)[number];
+
+/**
+ * Canonical kind-safe contribution identity (ADR-0039 Q9, T2).
+ *
+ * The 5 managed kinds (signalDetector, automationAction, notificationChannel,
+ * pre/post lifecycleInterceptor) share this identity tuple for quarantine
+ * counters, persisted `plugin_quarantines.plugin_key`, Plugin Run targeting,
+ * SSE/admin payloads, and clear-quarantine lookup. The 4 adapter-only kinds
+ * (customMcpTool, customHttpRoute, webhookFormatter, automationCondition,
+ * integrationProvider) do not auto-quarantine and have no need for the key.
+ *
+ * Components:
+ *   - Detector / Action / Channel: `(pluginId, contributionKind, contributionId)`.
+ *   - Lifecycle Interceptor: `(pluginId, contributionKind, interceptorId, phase, event)`
+ *     — the same `interceptorId` may legitimately appear in multiple lifecycle
+ *     positions, so `phase` and `event` are part of the identity.
+ *
+ * The serialized format is a JSON array of the tuple, e.g.
+ *   `["signalDetector","plugin-a","det-1"]`
+ *   `["lifecycleInterceptor","lc","policy","pre","taskApproved"]`
+ *
+ * JSON array encoding is delimiter-safe: any character (including `:`, `"`,
+ * newlines, etc.) is unambiguously escaped by `JSON.stringify`, so two tuples
+ * with component strings that would collide under any delimiter-based scheme
+ * (e.g. `("a:b","c")` vs `("a","b:c")`) produce distinct serialized keys.
+ * Kind-first ordering means cross-kind collisions are structurally impossible
+ * regardless of component values.
+ */
+export interface CanonicalContributionIdentity {
+  contributionKind: ContributionKind;
+  pluginId: string;
+  /** Detector/Action/Channel: the kind-local id. Interceptor: `interceptorId`. */
+  contributionId: string;
+  /** Required for lifecycleInterceptor; ignored (and forbidden) for other kinds. */
+  phase?: "pre" | "post";
+  /** Required for lifecycleInterceptor; ignored (and forbidden) for other kinds. */
+  event?: InterceptorEvent;
+}
+
+/**
+ * The single owner of the serialized canonical contribution key. No caller may
+ * construct the key by concatenation. See {@link CanonicalContributionIdentity}
+ * for the format and rationale.
+ *
+ * @throws if lifecycleInterceptor omits `phase`/`event` or a non-interceptor
+ *   kind supplies them.
+ */
+export function canonicalContributionKey(identity: CanonicalContributionIdentity): string {
+  const { contributionKind, pluginId, contributionId } = identity;
+  if (contributionKind === "lifecycleInterceptor") {
+    if (identity.phase === undefined || identity.event === undefined) {
+      throw new Error(
+        `canonicalContributionKey: lifecycleInterceptor requires phase and event ` +
+          `(got pluginId="${pluginId}", contributionId="${contributionId}")`,
+      );
+    }
+    return JSON.stringify([
+      contributionKind,
+      pluginId,
+      contributionId,
+      identity.phase,
+      identity.event,
+    ]);
+  }
+  if (identity.phase !== undefined || identity.event !== undefined) {
+    throw new Error(
+      `canonicalContributionKey: phase/event are only valid for lifecycleInterceptor ` +
+        `(got kind="${contributionKind}")`,
+    );
+  }
+  return JSON.stringify([contributionKind, pluginId, contributionId]);
+}
 
 /**
  * Per-kind registration-time behavior. Dispatch is NOT part of the adapter
@@ -190,39 +264,81 @@ export const CAPABILITY_MATRIX: Readonly<Record<ContributionKind, CapabilityPoli
  * mirror the Maps declared in `pluginManager.ts` (channel / detector /
  * interceptor{pre,post} / formatter / condition / action / provider).
  * Mutable by reference; the catalog does not own lifetime.
+ *
+ * T2 enrichment: managed-kind registries (channel/detector/interceptor/action)
+ * carry their full {@link ManagedRegistryEntry} payload (contribution metadata,
+ * requires, timeoutMs, handler, and the canonical kind-safe key) so dispatcher
+ * code no longer rescans `loadedPlugins` manifests to recover `requires`.
  */
 export interface PluginRegistries {
-  channelRegistry: Map<string, { pluginId: string; handler: ChannelHandler; timeoutMs?: number }>;
-  detectorRegistry: Map<
-    string,
-    { pluginId: string; contribution: SignalDetectorContribution; handler: DetectorHandler }
-  >;
+  channelRegistry: Map<string, ChannelRegistryEntry>;
+  detectorRegistry: Map<string, DetectorRegistryEntry>;
   interceptorRegistry: {
-    pre: Map<
-      InterceptorEvent,
-      Array<{
-        pluginId: string;
-        contribution: LifecycleInterceptorContribution;
-        handler: InterceptorHandler;
-      }>
-    >;
-    post: Map<
-      InterceptorEvent,
-      Array<{
-        pluginId: string;
-        contribution: LifecycleInterceptorContribution;
-        handler: InterceptorHandler;
-      }>
-    >;
+    pre: Map<InterceptorEvent, InterceptorRegistryEntry[]>;
+    post: Map<InterceptorEvent, InterceptorRegistryEntry[]>;
   };
   formatterRegistry: Map<string, { pluginId: string; handler: FormatterHandler }>;
   conditionRegistry: Map<string, { pluginId: string; handler: ConditionHandler }>;
-  actionRegistry: Map<
-    string,
-    { pluginId: string; handler: ActionListener; timeoutMs?: number }
-  >;
+  actionRegistry: Map<string, ActionRegistryEntry>;
   providerRegistry: Map<string, { pluginId: string; handler: ProviderHandler }>;
 }
+
+/** Enriched detector registry entry. Uniform managed-kind shape (T2). */
+export interface DetectorRegistryEntry {
+  pluginId: string;
+  contribution: SignalDetectorContribution;
+  handler: DetectorHandler;
+  requires: PluginCapabilityName[];
+  timeoutMs?: number;
+  /** Kind-safe serialized identity (ADR-0039 Q9). */
+  canonicalKey: string;
+}
+
+/** Enriched action registry entry. Carries `requires` so `dispatchActionHandler` skips the manifest rescan. */
+export interface ActionRegistryEntry {
+  pluginId: string;
+  contribution: AutomationActionContribution;
+  handler: ActionListener;
+  requires: PluginCapabilityName[];
+  timeoutMs?: number;
+  /** Kind-safe serialized identity (ADR-0039 Q9). */
+  canonicalKey: string;
+}
+
+/** Enriched lifecycle interceptor registry entry. Uniform managed-kind shape (T2). */
+export interface InterceptorRegistryEntry {
+  pluginId: string;
+  contribution: LifecycleInterceptorContribution;
+  handler: InterceptorHandler;
+  requires: PluginCapabilityName[];
+  timeoutMs?: number;
+  /** Kind-safe serialized identity, includes phase/event (ADR-0039 Q9). */
+  canonicalKey: string;
+}
+
+/** Enriched channel registry entry. Uniform managed-kind shape (T2). */
+export interface ChannelRegistryEntry {
+  pluginId: string;
+  contribution: NotificationChannelContribution;
+  handler: ChannelHandler;
+  requires: PluginCapabilityName[];
+  timeoutMs?: number;
+  /** Kind-safe serialized identity (ADR-0039 Q9). */
+  canonicalKey: string;
+}
+
+/**
+ * Union of all enriched registry entry shapes. Used by code that walks the
+ * registries generically (e.g. audit projection, future runtime validators).
+ * The 4 adapter-only kinds (`webhookFormatter`, `automationCondition`,
+ * `integrationProvider`, plus Tier-C `customMcpTool`/`customHttpRoute`) are
+ * intentionally absent — they do not participate in managed invocation.
+ */
+export type ManagedRegistryEntry =
+  | ChannelRegistryEntry
+  | DetectorRegistryEntry
+  | ActionRegistryEntry
+  | InterceptorRegistryEntry;
 
 /**
  * Build the per-kind adapter catalog. Each adapter's `register` closes over
@@ -252,7 +368,11 @@ export function buildContributionCatalog(
   // Default crossSuffix is " by another plugin"; signalDetector uses "".
   // lifecycleInterceptor's withinSuffix is ` (${phase}/${event})`; others use "".
   const makeWithinError =
-    (idFieldName: string, label: (c: Contribution) => string, withinSuffix?: (c: Contribution) => string) =>
+    (
+      idFieldName: string,
+      label: (c: Contribution) => string,
+      withinSuffix?: (c: Contribution) => string,
+    ) =>
     (c: Contribution): string =>
       `duplicate ${idFieldName} "${label(c)}"${withinSuffix ? withinSuffix(c) : ""} within manifest`;
 
@@ -277,8 +397,14 @@ export function buildContributionCatalog(
       collisions: {
         idFieldName: "channelId",
         crossRegistry: channelRegistry,
-        withinError: makeWithinError("channelId", (c) => (c.kind === "notificationChannel" ? c.channelId : "")),
-        crossError: makeCrossError("channelId", (c) => (c.kind === "notificationChannel" ? c.channelId : ""), " by another plugin"),
+        withinError: makeWithinError("channelId", (c) =>
+          c.kind === "notificationChannel" ? c.channelId : "",
+        ),
+        crossError: makeCrossError(
+          "channelId",
+          (c) => (c.kind === "notificationChannel" ? c.channelId : ""),
+          " by another plugin",
+        ),
       },
       register: (c, mod) => {
         if (c.kind !== "notificationChannel") return;
@@ -286,8 +412,15 @@ export function buildContributionCatalog(
         if (!handler) return;
         channelRegistry.set(c.channelId, {
           pluginId: mod.manifest.id,
+          contribution: c,
           handler,
+          requires: c.requires,
           timeoutMs: c.timeoutMs,
+          canonicalKey: canonicalContributionKey({
+            contributionKind: "notificationChannel",
+            pluginId: mod.manifest.id,
+            contributionId: c.channelId,
+          }),
         });
       },
     },
@@ -318,8 +451,14 @@ export function buildContributionCatalog(
         // Documented asymmetry: signalDetector's cross-error omits the
         // "by another plugin" suffix (byte-for-byte fidelity with the
         // pre-catalog switch).
-        withinError: makeWithinError("detectorId", (c) => (c.kind === "signalDetector" ? c.detectorId : "")),
-        crossError: makeCrossError("detectorId", (c) => (c.kind === "signalDetector" ? c.detectorId : ""), ""),
+        withinError: makeWithinError("detectorId", (c) =>
+          c.kind === "signalDetector" ? c.detectorId : "",
+        ),
+        crossError: makeCrossError(
+          "detectorId",
+          (c) => (c.kind === "signalDetector" ? c.detectorId : ""),
+          "",
+        ),
       },
       register: (c, mod) => {
         if (c.kind !== "signalDetector") return;
@@ -329,6 +468,13 @@ export function buildContributionCatalog(
           pluginId: mod.manifest.id,
           contribution: c,
           handler,
+          requires: c.requires,
+          timeoutMs: c.timeoutMs,
+          canonicalKey: canonicalContributionKey({
+            contributionKind: "signalDetector",
+            pluginId: mod.manifest.id,
+            contributionId: c.detectorId,
+          }),
         });
       },
     },
@@ -375,6 +521,15 @@ export function buildContributionCatalog(
           pluginId: mod.manifest.id,
           contribution: c,
           handler,
+          requires: c.requires,
+          timeoutMs: c.timeoutMs,
+          canonicalKey: canonicalContributionKey({
+            contributionKind: "lifecycleInterceptor",
+            pluginId: mod.manifest.id,
+            contributionId: c.interceptorId,
+            phase: c.phase,
+            event: c.event,
+          }),
         });
         list.sort((a, b) => a.contribution.priority - b.contribution.priority);
         bucket.set(c.event, list);
@@ -422,8 +577,14 @@ export function buildContributionCatalog(
       collisions: {
         idFieldName: "formatId",
         crossRegistry: formatterRegistry,
-        withinError: makeWithinError("formatId", (c) => (c.kind === "webhookFormatter" ? c.formatId : "")),
-        crossError: makeCrossError("formatId", (c) => (c.kind === "webhookFormatter" ? c.formatId : ""), " by another plugin"),
+        withinError: makeWithinError("formatId", (c) =>
+          c.kind === "webhookFormatter" ? c.formatId : "",
+        ),
+        crossError: makeCrossError(
+          "formatId",
+          (c) => (c.kind === "webhookFormatter" ? c.formatId : ""),
+          " by another plugin",
+        ),
       },
       register: (c, mod) => {
         if (c.kind !== "webhookFormatter") return;
@@ -451,8 +612,14 @@ export function buildContributionCatalog(
       collisions: {
         idFieldName: "conditionId",
         crossRegistry: conditionRegistry,
-        withinError: makeWithinError("conditionId", (c) => (c.kind === "automationCondition" ? c.conditionId : "")),
-        crossError: makeCrossError("conditionId", (c) => (c.kind === "automationCondition" ? c.conditionId : ""), " by another plugin"),
+        withinError: makeWithinError("conditionId", (c) =>
+          c.kind === "automationCondition" ? c.conditionId : "",
+        ),
+        crossError: makeCrossError(
+          "conditionId",
+          (c) => (c.kind === "automationCondition" ? c.conditionId : ""),
+          " by another plugin",
+        ),
       },
       register: (c, mod) => {
         if (c.kind !== "automationCondition") return;
@@ -480,8 +647,14 @@ export function buildContributionCatalog(
       collisions: {
         idFieldName: "actionId",
         crossRegistry: actionRegistry,
-        withinError: makeWithinError("actionId", (c) => (c.kind === "automationAction" ? c.actionId : "")),
-        crossError: makeCrossError("actionId", (c) => (c.kind === "automationAction" ? c.actionId : ""), " by another plugin"),
+        withinError: makeWithinError("actionId", (c) =>
+          c.kind === "automationAction" ? c.actionId : "",
+        ),
+        crossError: makeCrossError(
+          "actionId",
+          (c) => (c.kind === "automationAction" ? c.actionId : ""),
+          " by another plugin",
+        ),
       },
       register: (c, mod) => {
         if (c.kind !== "automationAction") return;
@@ -489,8 +662,15 @@ export function buildContributionCatalog(
         if (!handler) return;
         actionRegistry.set(c.actionId, {
           pluginId: mod.manifest.id,
+          contribution: c,
           handler,
+          requires: c.requires,
           timeoutMs: c.timeoutMs,
+          canonicalKey: canonicalContributionKey({
+            contributionKind: "automationAction",
+            pluginId: mod.manifest.id,
+            contributionId: c.actionId,
+          }),
         });
       },
     },
@@ -517,8 +697,14 @@ export function buildContributionCatalog(
       collisions: {
         idFieldName: "provider",
         crossRegistry: providerRegistry,
-        withinError: makeWithinError("provider", (c) => (c.kind === "integrationProvider" ? c.provider : "")),
-        crossError: makeCrossError("provider", (c) => (c.kind === "integrationProvider" ? c.provider : ""), " by another plugin"),
+        withinError: makeWithinError("provider", (c) =>
+          c.kind === "integrationProvider" ? c.provider : "",
+        ),
+        crossError: makeCrossError(
+          "provider",
+          (c) => (c.kind === "integrationProvider" ? c.provider : ""),
+          " by another plugin",
+        ),
       },
       register: (c, mod) => {
         if (c.kind !== "integrationProvider") return;
