@@ -51,6 +51,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared (type dependency)
+        # @orcy/api resolves @orcy/shared via pnpm workspace symlink to the
+        # built dist/ directory. Without this build step, tsc cannot find
+        # @orcy/shared module declarations on a fresh CI checkout.
+        run: pnpm --filter @orcy/shared build
+
       - name: Typecheck API
         run: pnpm --filter @orcy/api typecheck
 
