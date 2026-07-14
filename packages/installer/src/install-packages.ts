@@ -13,12 +13,7 @@ export interface InstallOptions {
 }
 
 function rmRf(p: string): void {
-	if (!fs.existsSync(p)) return;
-	if (process.platform === "win32") {
-		execSync(`rmdir /s /q "${p}"`, { stdio: "ignore" });
-	} else {
-		execSync(`rm -rf "${p}"`, { stdio: "ignore" });
-	}
+	fs.rmSync(p, { recursive: true, force: true });
 }
 
 function getInstallerDir(): string {

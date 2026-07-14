@@ -1,5 +1,5 @@
 import { createServer } from "http";
-import { execSync } from "child_process";
+import { spawn } from "child_process";
 import { api } from "../client.js";
 import { withErrorHandling } from "../error-handler.js";
 
@@ -84,7 +84,7 @@ function startCallbackServer(): Promise<{
 function openBrowser(url: string): void {
   try {
     const cmd = process.platform === "darwin" ? "open" : "xdg-open";
-    execSync(`${cmd} "${url}"`, { stdio: "ignore" });
+    spawn(cmd, [url], { stdio: "ignore", shell: false });
   } catch {
     console.log(`Could not open browser. Open this URL manually:\n${url}`);
   }
