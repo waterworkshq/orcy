@@ -60,9 +60,12 @@ jobs:
       - name: Typecheck API
         run: pnpm --filter @orcy/api typecheck
 
-      - name: Build API
+      - name: Build API (with workspace dependencies)
         # Emits dist/ consumed by the compiled installed-package smoke.
-        run: pnpm --filter @orcy/api build
+        # The "..." suffix builds @orcy/shared, @orcy/daemon, then @orcy/api
+        # in topological order — the compiled startup test imports from
+        # @orcy/daemon/dist/index.js via daemon-wiring.js.
+        run: pnpm --filter "@orcy/api..." build
 
       - name: Production migration gate
         # Runs emitted JS through `node` (compiledStartup) and the real
