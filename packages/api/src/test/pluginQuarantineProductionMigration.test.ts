@@ -1,32 +1,33 @@
 /**
- * ADR-0039 R1 — Production quarantine reset migration test.
+ * ADR-0039 R1 / F2/F2a — Production quarantine reset via the Drizzle journal.
  *
- * Tests the production migration path (`initDb()` → `applyQuarantineReset()`)
- * using the production better-sqlite3 driver — NOT the test-only
- * `applyMigrations` file scanner used by `initTestDb()`. Proves that an
- * upgraded database with legacy `pluginId:contributionId` quarantine rows
- * has them cleared on the next boot, that the reset is idempotent, and that
- * new canonical rows survive.
+ * Tests the production migration path (`initDb()` → `migrate()`) using the
+ * production better-sqlite3 driver — NOT the test-only `applyMigrations` file
+ * scanner used by `initTestDb()`. After F2, migration 0053 is part of the
+ * ordered Drizzle journal and is applied by `migrate()` itself — the
+ * out-of-band `applyQuarantineReset()` runner has been retired.
  *
- * This test file is intentionally separate from `pluginQuarantineMigration.test.ts`
- * because it uses `initDb()` (better-sqlite3) rather than `initTestDb()` (sql.js).
+ * Proves that an upgraded database with legacy `pluginId:contributionId`
+ * quarantine rows has them cleared when 0053 runs for the first time, that
+ * 0053 does not re-run on subsequent boots (the journal hash prevents it),
+ * and that canonical rows added after the first reset survive via the F2a
+ * durable preservation mechanism.
  *
- * `seedGlobalTemplates` is mocked because the journal-tracked schema (0000–0002)
- * predates the `workflow_template` column on `mission_templates` (migration 0033).
- * Testing template seeding is out of scope — we are testing the quarantine reset.
+ * `seedGlobalTemplates` is NOT mocked: the repaired journal includes
+ * migration 0033 (which adds `workflow_template`), so template seeding
+ * succeeds on both fresh and upgraded databases.
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { closeDb, initDb, getDb } from "../db/index.js";
 import { pluginQuarantines } from "../db/schema/index.js";
 import { join } from "node:path";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 
-vi.mock("../repositories/template.js", () => ({
-  seedGlobalTemplates: vi.fn(),
-}));
-
-const TEMP_DB = join(import.meta.dirname, "..", "..", ".test-prod-quarantine-reset.db");
+const PACKAGE_ROOT = join(import.meta.dirname, "..", "..");
+const DRIZZLE_DIR = join(PACKAGE_ROOT, "drizzle");
+const TEMP_DB = join(PACKAGE_ROOT, ".test-prod-quarantine-reset.db");
 
 function cleanupTempDb(): void {
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -34,27 +35,98 @@ function cleanupTempDb(): void {
   }
 }
 
-describe("ADR-0039 R1: Production quarantine reset via initDb()", () => {
+function hashMigration(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+/**
+ * Apply migration SQL on a better-sqlite3 connection, suppressing the benign
+ * "already exists" errors that arise when a later migration touches the same
+ * object as the consolidated baseline.
+ */
+function applyMigrationSql(db: Database.Database, sqlText: string): void {
+  const statements = sqlText
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  for (const stmt of statements) {
+    try {
+      db.exec(stmt);
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? err ?? "");
+      if (
+        !msg.includes("already exists") &&
+        !msg.includes("no such table") &&
+        !msg.includes("no such column") &&
+        !msg.includes("no such index") &&
+        !msg.includes("duplicate column name")
+      ) {
+        throw err;
+      }
+    }
+  }
+}
+
+/**
+ * Build a v0.29-era database: only 0000_schema + 0001 + 0002 applied, with
+ * their hashes seeded into `__drizzle_migrations` at the journal `when`
+ * timestamps. This simulates a database that booted under the pre-F2 journal
+ * (which listed only three entries). When `initDb()` boots this database, it
+ * will run every post-consolidation migration 0027–0053 for the first time.
+ */
+function prepareV029Database(dbPath: string): void {
+  const db = new Database(dbPath);
+  db.pragma("foreign_keys = ON");
+
+  for (const tag of ["0000_schema", "0001_green_shadowcat", "0002_purple_fallen_one"]) {
+    const sqlPath = join(DRIZZLE_DIR, `${tag}.sql`);
+    if (existsSync(sqlPath)) {
+      applyMigrationSql(db, readFileSync(sqlPath, "utf-8"));
+    }
+  }
+
+  const journal = JSON.parse(readFileSync(join(DRIZZLE_DIR, "meta", "_journal.json"), "utf-8"));
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      hash TEXT NOT NULL,
+      created_at NUMERIC
+    )
+  `);
+  const insertHash = db.prepare(
+    "INSERT OR IGNORE INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+  );
+  for (const entry of journal.entries.slice(0, 3)) {
+    const sqlPath = join(DRIZZLE_DIR, `${entry.tag}.sql`);
+    if (existsSync(sqlPath)) {
+      insertHash.run(hashMigration(readFileSync(sqlPath, "utf-8")), entry.when);
+    }
+  }
+
+  db.close();
+}
+
+describe("ADR-0039 R1 / F2: Production quarantine reset via Drizzle migrate()", () => {
   afterEach(() => {
     closeDb();
     cleanupTempDb();
   });
 
   /**
-   * The core upgrade scenario: a database that already has `plugin_quarantines`
-   * (from migration 0041 applied by a previous version) with legacy
-   * `pluginId:contributionId` rows. On the next `initDb()` boot, the
-   * `applyQuarantineReset()` production code path detects the table, sees the
-   * 0053 hash is untracked, executes the DELETE, and records the hash.
+   * The core upgrade scenario: a v0.29-era database that already has
+   * `plugin_quarantines` with legacy `pluginId:contributionId` rows from a
+   * pre-v0.30 version. On the first boot with the repaired journal,
+   * `migrate()` runs 0041 (table already exists, IF NOT EXISTS) and then
+   * 0053, which executes `DELETE FROM plugin_quarantines` and records the
+   * hash. Legacy rows are cleared; the hash prevents re-execution on
+   * subsequent boots.
    */
   it("clears legacy quarantine rows on upgrade via the production migration path", async () => {
-    // --- Phase 1: Fresh install ---
+    // --- Phase 1: Prepare a v0.29-era database ---
     cleanupTempDb();
-    await initDb(TEMP_DB);
-    closeDb();
+    prepareV029Database(TEMP_DB);
 
-    // --- Phase 2: Simulate a pre-v0.30 database ---
-    // Open the DB directly and seed legacy rows that a previous version left.
+    // --- Phase 2: Simulate legacy quarantine rows ---
     const raw = new Database(TEMP_DB);
     raw.exec(`
       CREATE TABLE IF NOT EXISTS plugin_quarantines (
@@ -75,12 +147,12 @@ describe("ADR-0039 R1: Production quarantine reset via initDb()", () => {
     ).toBe(2);
     raw.close();
 
-    // --- Phase 3: Upgrade boot ---
+    // --- Phase 3: First boot with repaired journal — 0053 runs and clears ---
     await initDb(TEMP_DB);
     expect(getDb().select().from(pluginQuarantines).all()).toEqual([]);
     closeDb();
 
-    // --- Phase 4: New canonical row survives subsequent boots ---
+    // --- Phase 4: New canonical row added after the reset ---
     const raw2 = new Database(TEMP_DB);
     raw2
       .prepare(
@@ -97,7 +169,7 @@ describe("ADR-0039 R1: Production quarantine reset via initDb()", () => {
     ).toBe(1);
     raw2.close();
 
-    // --- Phase 5: Idempotent next boot ---
+    // --- Phase 5: Idempotent next boot — 0053 does NOT re-run ---
     await initDb(TEMP_DB);
     const surviving = getDb().select().from(pluginQuarantines).all();
     expect(surviving).toHaveLength(1);
@@ -105,12 +177,12 @@ describe("ADR-0039 R1: Production quarantine reset via initDb()", () => {
   });
 
   /**
-   * On a fresh install where the journal-based `migrate()` has not created
-   * `plugin_quarantines` (it lives in migration 0041, outside the journal's
-   * 0000–0002 range), `applyQuarantineReset()` must skip silently rather than
-   * throw "no such table".
+   * F2 — On a fresh install, the repaired journal creates `plugin_quarantines`
+   * via migration 0041 and immediately runs 0053 (a no-op on an empty table).
+   * The table exists and is empty — the old expectation that it would be
+   * absent is no longer valid.
    */
-  it("is a no-op on a fresh install where plugin_quarantines does not exist", async () => {
+  it("creates plugin_quarantines on fresh install and seeds templates without mocking", async () => {
     cleanupTempDb();
     await initDb(TEMP_DB);
 
@@ -118,7 +190,16 @@ describe("ADR-0039 R1: Production quarantine reset via initDb()", () => {
     const tableExists = raw
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_quarantines'")
       .get();
+    const templateCount = (
+      raw.prepare("SELECT COUNT(*) as n FROM mission_templates").get() as { n: number }
+    ).n;
+    const hasWorkflowTemplate = (
+      raw.prepare("PRAGMA table_info(mission_templates)").all() as { name: string }[]
+    ).some((c) => c.name === "workflow_template");
     raw.close();
-    expect(tableExists).toBeUndefined();
+
+    expect(tableExists).toBeDefined();
+    expect(hasWorkflowTemplate).toBe(true);
+    expect(templateCount).toBeGreaterThan(0);
   });
 });

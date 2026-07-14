@@ -1,3 +1,30 @@
+-- ============================================================================
+-- IMMUTABLE MIGRATION - DO NOT EDIT (F3 freeze, ADR-0039 Q9)
+-- ----------------------------------------------------------------------------
+-- This file is FROZEN. Its shipped content must never be edited, renamed, or
+-- deleted after release. It is owned SOLELY by the Drizzle migration journal
+-- restored in F2; there is no out-of-band runner and no second ledger writer.
+--
+-- WHY FROZEN: the sole statement below is a blanket
+--   DELETE FROM plugin_quarantines
+-- that cannot distinguish legacy rows from canonical kind-aware rows. Re-running
+-- it would wipe live fault-state quarantines added after the one-time reset.
+--
+-- ONE-SHOT GUARANTEE: Drizzle's migrator selects migrations by journal `when`
+-- (folderMillis) timestamp, NOT by file hash. Once `migrate()` records this
+-- file's SHA-256 at `created_at = journal.when`, it never re-runs on later
+-- boots. A comment-only edit to these bytes changes the hash but cannot change
+-- `when`, so it cannot retrigger the destructive statement - proven by the F3
+-- `comment-only mutation cannot retrigger` test.
+--
+-- HASH BRIDGE: a prerelease build recorded this file's hash out-of-band with
+-- `created_at = Date.now()`, which suppressed the whole 0027-0053 chain.
+-- `reconcilePrereleaseMigrationMarker()` in `src/db/index.ts` recognizes BOTH
+-- the current file hash AND the legacy pre-F3 hash
+-- (`PRERELEASE_0053_MARKER_HASH`) so that prepending this banner did not strand
+-- the old high-timestamp marker. Any future change requires a NEW migration
+-- with a new ordered identity, never an edit to this file.
+-- ============================================================================
 -- v0.28-T2 (ADR-0039 Q9): One-time prerelease plugin quarantine reset.
 --
 -- Existing plugin_quarantines rows use the ambiguous `${pluginId}:${contributionId}`

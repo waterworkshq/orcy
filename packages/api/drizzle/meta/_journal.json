@@ -22,6 +22,195 @@
       "when": 1781093203518,
       "tag": "0002_purple_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1781364258000,
+      "tag": "0027_pod_bridge",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1781412302000,
+      "tag": "0028_remote_assigned_participant",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1781430533000,
+      "tag": "0029_remote_webhook_deliveries",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1781450889000,
+      "tag": "0030_webhook_encrypted_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1781983562000,
+      "tag": "0031_add_workflows",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781985094000,
+      "tag": "0032_add_workflow_join_specs",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1782054598000,
+      "tag": "0033_add_workflow_template_column",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1782258484000,
+      "tag": "0034_automation_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1782423029000,
+      "tag": "0035_wiki",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1782430283000,
+      "tag": "0036_wiki_cadence_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1782653335000,
+      "tag": "0037_scheduled_task_handler_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1782679405000,
+      "tag": "0038_plugin_enrollments",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1782679405001,
+      "tag": "0039_plugin_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1782750268000,
+      "tag": "0040_plugin_enrollment_scan_watermark",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1782750268001,
+      "tag": "0041_plugin_quarantines",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1782849259000,
+      "tag": "0042_finding_triage",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1782849259001,
+      "tag": "0043_triage_resolutions",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1782849259002,
+      "tag": "0044_triage_cluster_missions",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1782968824000,
+      "tag": "0045_triage_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1783007974000,
+      "tag": "0046_triage_cluster_missions_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1783019295000,
+      "tag": "0047_finding_triage_target_release_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1783020108000,
+      "tag": "0048_releases",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1783021213000,
+      "tag": "0049_release_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1783108203000,
+      "tag": "0050_mission_release_gate",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1783120885000,
+      "tag": "0051_mission_release_deadline",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1783128416000,
+      "tag": "0052_habitat_roadmap_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1783919602000,
+      "tag": "0053_plugin_quarantine_kind_safe_reset",
+      "breakpoints": true
     }
   ]
 }

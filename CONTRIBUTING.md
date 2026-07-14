@@ -185,26 +185,27 @@ The MCP server uses a **consolidated dispatch pattern**. New actions are added t
 
 ## Adding a Database Migration
 
-> **Important:** The Drizzle TypeScript schema files are the **single source of truth**. Never edit SQL files directly. For the complete workflow, see [`docs/DATABASE.md` — Schema Workflow](./docs/DATABASE.md#schema-workflow).
+> **Important:** The Drizzle TypeScript schema files are the **single source of truth** for table/column/index declarations. Migration SQL files are authored artifacts — never edit a released migration. For the complete workflow, see [`docs/DATABASE.md` — Schema Workflow](./docs/DATABASE.md#schema-workflow).
 
 **Quick summary:**
 
 1. Edit the Drizzle schema in `packages/api/src/db/schema/` (e.g., `board.ts`, `cicd.ts`)
 2. Generate the migration: `cd packages/api && pnpm drizzle-kit generate --name <descriptive_name>`
-3. Regenerate `0000_schema.sql` (see DATABASE.md for the exact commands)
+3. Review the emitted SQL, journal entry, and snapshot
 4. Update `packages/api/src/test/schemaValidation.test.ts` if table/index counts changed
-5. Run tests: `pnpm --filter @orcy/api test && pnpm -r typecheck && pnpm lint`
+5. Run tests and the production-migration gate: `pnpm --filter @orcy/api test && pnpm -r typecheck && pnpm lint && pnpm --filter @orcy/api test:production-migration`
 
-**Two deployment paths:**
+**Two initialization paths:**
 
-- **Test DBs** use only `0000_schema.sql` (fast, no data preservation needed)
-- **Production DBs** apply migrations 0000-0026 incrementally (preserves data)
+- **Test DBs** (`initTestDb()`) apply `0000_schema.sql` (frozen consolidated baseline) then all other `NNNN_*.sql` files sorted, tolerantly swallowing "already exists" errors
+- **Production DBs** (`initDb()`) apply the journal chain (`0000`, `0001`, `0002`, `0027`–`0053`) in order via Drizzle `migrate()`, preserving data
 
 **Common mistakes to avoid:**
 
-- Don't edit `0000_schema.sql` by hand — it gets regenerated
+- Don't regenerate or replace `0000_schema.sql` — it is a frozen consolidated baseline; generate a new migration instead
+- Don't overwrite `_journal.json` with a fresh single-entry journal — it would recreate the production journal gap
 - Don't add indexes only in migration SQL — they must be in the Drizzle schema too
-- Don't delete `drizzle/meta/` — Drizzle needs the snapshot to diff for future migrations
+- Don't delete `drizzle/meta/` — Drizzle needs the snapshots and journal for future diffs
 
 ---
 
@@ -223,6 +224,45 @@ The MCP server uses a **consolidated dispatch pattern**. New actions are added t
 4. **Push and open a PR** with a clear description of what changed and why
 5. **Ensure CI passes** — all tests, type checks, and lint must be green
 6. **Request review** from a maintainer
+
+### Production-migration safety
+
+Database changes carry a mandatory safety check that is enforced **locally
+before a `main` push** and **verified independently in GitHub Actions after
+the push**.
+
+**Local prevention (pre-push hook).** A checkout-local `.git/hooks/pre-push`
+hook runs the focused migration suites before any push to `refs/heads/main`
+and blocks the push on failure. The hook is intentionally untracked
+(`.git/hooks/` is never committed); it must be present in your checkout.
+Other branch pushes are not gated.
+
+Run the same suites on demand:
+
+```bash
+pnpm --filter @orcy/api test:production-migration
+```
+
+**Remote post-push verification (GitHub Actions).** The
+`production-migration` workflow (`.github/workflows/production-migration.yml`)
+re-runs the same suites from a clean checkout on every `main` push (and pull
+request). It is independent clean-environment verification — the solo
+direct-to-`main` workflow does not gate merges on a required status check.
+
+**Branch protection.** A lightweight active ruleset on `main` blocks branch
+deletion and non-fast-forward (`--force`) pushes. It does not require pull
+requests or reviews.
+
+The focused suites cover:
+
+- journal/disk migration completeness and timestamp ordering
+- production-driver fresh-database initialization and seed completion
+- v0.29 and legacy-ledger data-preserving upgrades
+- prerelease 0053 marker reconciliation and one-shot reset behavior
+- compiled installed-package startup from an empty database
+
+This gate is stronger than `drizzle-kit check`, which missed the journal gap
+that blocked the original release.
 
 ### PR Title Format
 

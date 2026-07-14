@@ -74,7 +74,7 @@ Current quarantine identity `pluginId:contributionId` is not kind-safe because c
 
 One encoder owns the serialized key. No caller constructs it by concatenation. This key is used consistently for: registries, error counters, `quarantineSet`, `plugin_quarantines.plugin_key`, Plugin Run targeting, SSE/admin payloads, and clear-quarantine input.
 
-Existing `plugin_quarantines` rows use the ambiguous `pluginId:contributionId` format and cannot be mapped safely to the new key. A one-time prerelease data migration deletes legacy rows. This is documented as a quarantine reset. The table shape need not change; the data migration is required.
+Existing `plugin_quarantines` rows use the ambiguous `pluginId:contributionId` format and cannot be mapped safely to the new key. A one-time prerelease data migration deletes legacy rows. This is documented as a quarantine reset. The table shape need not change; the data migration is required. The reset is encoded as migration `0053_plugin_quarantine_kind_safe_reset.sql`, which is **frozen** (immutable after release): its shipped bytes must never be edited. An edit does not by itself retrigger the reset — Drizzle selects an already-recorded migration by journal `when`, not by file hash — so the one-shot destructive semantics are not defeated by a byte change alone. The freeze exists for the real reasons: released migration history must remain consistent; a changed SHA-256 can strand an older out-of-band prerelease marker unless its prior hash remains explicitly bridged; and any future behavior change must ship as a new migration with a new ordered identity. It is owned solely by the standard Drizzle migration journal restored in F2 — there is no out-of-band runner and no second ledger writer.
 
 ### Detector Recovery (Q8, Q15)
 
@@ -250,7 +250,7 @@ These are deliberate Q1/Q3/Q4/Q8/Q11/Q14-driven changes, not regressions. Each i
 
 ## Consequences
 
-- **Quarantine reset**: A one-time prerelease data migration deletes all legacy `plugin_quarantines` rows. This must be documented in release notes.
+- **Quarantine reset**: A one-time prerelease data migration deletes all legacy `plugin_quarantines` rows, intentionally clearing prerelease quarantine fault-state. This must be documented in release notes. The migration (`0053`) is immutable after release. Because a prerelease build recorded `0053`'s pre-F3 SHA-256 out-of-band with `created_at = Date.now()` (suppressing the structural chain), `reconcilePrereleaseMigrationMarker()` recognizes both the current `0053` file hash and the legacy pre-F3 hash so that adding the immutability banner did not strand the old marker.
 - **Synchronous pre-path INSERT**: Pre-veto Plugin Run creation adds one synchronous DB INSERT to the seven-path Task transition hot path. This is accepted as the cost of fail-closed tracked invocation.
 - **`finishRun` type tightening**: The repository `finishRun(id, status: string, ...)` parameter is narrowed to `PluginRunStatus`. This is a non-breaking compile-time improvement.
 - **Error-based `isRateLimited` removal**: The `isRateLimited` function is removed; `rate_limited` status is written only for Detector concurrency denial.

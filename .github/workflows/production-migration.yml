@@ -1,0 +1,64 @@
+name: production-migration
+
+# F5 — Independent clean-environment production-migration verification.
+# Runs the focused migration-production suites (journal/disk completeness,
+# production-driver fresh/upgrade/legacy/prerelease chains, the 0053 one-shot
+# freeze, and the compiled installed-package empty-DB smoke) on every pull
+# request and main-branch push. `drizzle-kit check` alone missed the original
+# journal gap, so this job drives the real production better-sqlite3 driver.
+#
+# This is post-push verification for the solo direct-to-main workflow, not a
+# required status check. Local prevention lives in the untracked
+# .git/hooks/pre-push hook (see CONTRIBUTING.md); the active main ruleset
+# blocks deletion and non-fast-forward without requiring pull requests.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Production migration gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          # No built-in `cache: pnpm`: setup-node's pnpm cache resolves the
+          # store path by invoking pnpm, which would run a runner-global pnpm
+          # before the Corepack step activates the pinned pnpm@9.0.0 below.
+          # Determinism of the pinned-pnpm contract outranks caching for this
+          # focused correctness gate.
+
+      - name: Enable Corepack (pinned pnpm@9.0.0)
+        # Corepack resolves pnpm from the root `packageManager` field
+        # (pnpm@9.0.0). Preparing explicitly avoids relying on whatever
+        # pnpm the runner ships globally, which can make the compiled
+        # installed-package smoke fail for environmental reasons.
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.0.0 --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck API
+        run: pnpm --filter @orcy/api typecheck
+
+      - name: Build API
+        # Emits dist/ consumed by the compiled installed-package smoke.
+        run: pnpm --filter @orcy/api build
+
+      - name: Production migration gate
+        # Runs emitted JS through `node` (compiledStartup) and the real
+        # production better-sqlite3 driver (initDb) — not only tsx.
+        run: pnpm --filter @orcy/api test:production-migration
