@@ -9,7 +9,6 @@ import {
 } from "../ui/Dialog.js";
 import { Button } from "../ui/Button.js";
 import { RichTextEditor } from "../ui/RichTextEditor.js";
-import { useHabitatStore } from "../../store/habitatStore.js";
 import { notify } from "../../lib/toast.js";
 import { useTemplates, useCreateMission, useHabitat } from "../../lib/useHabitatData.js";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,8 +22,9 @@ interface CreateMissionFormProps {
 }
 
 export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFormProps) {
-  const { columns } = useHabitatStore();
   useTemplates(habitatId);
+  const { data: boardData } = useHabitat(habitatId);
+  const columns = boardData?.columns ?? [];
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
@@ -41,7 +41,6 @@ export function CreateMissionForm({ open, onClose, habitatId }: CreateMissionFor
   const [releaseDeadlineVersion, setReleaseDeadlineVersion] = useState("");
   const createMission = useCreateMission(habitatId);
   const qc = useQueryClient();
-  const { data: boardData } = useHabitat(habitatId);
   // Feature-based habitats hide release-gate/deadline authoring (RM-6). Existing gates still display.
   const releaseMode = boardData?.habitat?.roadmapSettings?.mode !== "feature";
 

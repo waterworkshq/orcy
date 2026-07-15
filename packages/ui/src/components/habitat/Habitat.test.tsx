@@ -34,8 +34,8 @@ const mockFeatures: MissionWithProgress[] = [
     sprintId: null,
     releaseGateType: null,
     releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
+    releaseDeadlineType: null,
+    releaseDeadlineVersion: null,
     progress: {
       total: 3,
       pending: 0,
@@ -80,8 +80,8 @@ const mockArchivedFeatures: MissionWithProgress[] = [
     sprintId: null,
     releaseGateType: null,
     releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
+    releaseDeadlineType: null,
+    releaseDeadlineVersion: null,
     progress: {
       total: 2,
       pending: 0,
@@ -123,8 +123,8 @@ const mockArchivedFeatures: MissionWithProgress[] = [
     sprintId: null,
     releaseGateType: null,
     releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
+    releaseDeadlineType: null,
+    releaseDeadlineVersion: null,
     progress: {
       total: 1,
       pending: 0,
@@ -184,10 +184,10 @@ vi.mock("../../lib/useHabitatData.js", () => ({
 
 vi.mock("../../api/index.js", () => ({
   api: {
-    features: {
+    missions: {
       move: vi.fn(),
     },
-    boards: {
+    habitats: {
       get: vi.fn(),
     },
   },
@@ -234,16 +234,7 @@ vi.mock("../../hooks/useMediaQuery.js", () => ({
 }));
 
 const storeState: Record<string, any> = {
-  board: mockHabitat,
-  columns: mockColumns,
-  features: mockFeatures,
-  columnPagination: {},
-  collapsedColumns: {},
   isBulkSelectMode: false,
-  setHabitat: vi.fn(),
-  setError: vi.fn(),
-  moveFeatureToColumn: vi.fn(),
-  toggleColumnCollapsed: vi.fn(),
 };
 
 const useHabitatStoreMock = vi.fn((selector?: any) => {
@@ -264,11 +255,6 @@ describe("Habitat - Archived Column", () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
-    storeState.board = mockHabitat;
-    storeState.columns = mockColumns;
-    storeState.features = mockFeatures;
-    storeState.columnPagination = {};
-    storeState.collapsedColumns = {};
     storeState.isBulkSelectMode = false;
     mockArchivedFeaturesHook.mockReturnValue({
       data: { missions: [], total: 0 },
@@ -282,7 +268,14 @@ describe("Habitat - Archived Column", () => {
 
   it("renders archived column after regular columns", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -295,7 +288,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -309,7 +309,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -326,7 +333,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -342,7 +356,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -360,7 +381,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -372,7 +400,14 @@ describe("Habitat - Archived Column", () => {
 
   it("applies muted styling to column when collapsed", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -387,7 +422,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -402,7 +444,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: true,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -413,7 +462,14 @@ describe("Habitat - Archived Column", () => {
 
   it("shows empty state when no archived features", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -425,7 +481,14 @@ describe("Habitat - Archived Column", () => {
 
   it("calls useArchivedMissions with board id", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(mockArchivedFeaturesHook).toHaveBeenCalledWith("board-1");
@@ -433,13 +496,19 @@ describe("Habitat - Archived Column", () => {
   });
 
   it("does not render archived column when no board", () => {
-    storeState.board = null;
     mockArchivedFeaturesHook.mockReturnValue({
       data: undefined,
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={null}
+        columns={[]}
+        missions={[]}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     expect(screen.queryByTestId("archived-toggle")).toBeNull();
     expect(screen.getByText("Select or create a board to get started.")).toBeTruthy();
@@ -451,7 +520,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -470,7 +546,14 @@ describe("Habitat - Archived Column", () => {
     }));
     const { Habitat: HabitatMobile } = await import("./Habitat.js");
     renderWithQC(
-      <HabitatMobile onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <HabitatMobile
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.queryByTestId("archived-toggle")).toBeNull();
@@ -484,7 +567,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -495,7 +585,14 @@ describe("Habitat - Archived Column", () => {
 
   it("uses narrow width when collapsed", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -507,7 +604,14 @@ describe("Habitat - Archived Column", () => {
 
   it("has glass-card class when expanded", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -519,7 +623,14 @@ describe("Habitat - Archived Column", () => {
 
   it("has transition class for expand/collapse animation", async () => {
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();
@@ -534,7 +645,14 @@ describe("Habitat - Archived Column", () => {
       isLoading: false,
     });
     renderWithQC(
-      <Habitat onColumnSettingsClick={vi.fn()} onAddColumnClick={vi.fn()} presence={[]} />,
+      <Habitat
+        habitat={mockHabitat as any}
+        columns={mockColumns}
+        missions={mockFeatures}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />,
     );
     await waitFor(() => {
       expect(screen.getByTestId("archived-toggle")).toBeTruthy();

@@ -70,14 +70,7 @@ export function HabitatPage() {
   const columns = boardData?.columns ?? [];
   const qc = useQueryClient();
 
-  const {
-    setColumnPagination,
-    clearColumnPagination,
-    presence,
-    isBulkSelectMode,
-    setBulkSelectMode,
-    clearTaskSelection,
-  } = useHabitatStore();
+  const { presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } = useHabitatStore();
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateFeature, setShowCreateFeature] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
@@ -205,20 +198,6 @@ export function HabitatPage() {
     }
     prevViewRef.current = view;
   }, [view, clearTaskSelection]);
-
-  useEffect(() => {
-    if (boardData?.columns) {
-      clearColumnPagination();
-      for (const col of boardData.columns) {
-        const colFeatures = (boardData.missions ?? []).filter((f: any) => f.columnId === col.id);
-        setColumnPagination(col.id, {
-          features: colFeatures,
-          total: undefined,
-          offset: 0,
-        });
-      }
-    }
-  }, [boardData, clearColumnPagination, setColumnPagination]);
 
   if (isLoading) {
     return (
@@ -451,6 +430,9 @@ export function HabitatPage() {
             <TaskTableView habitatId={habitatId} />
           ) : (
             <Habitat
+              habitat={board}
+              columns={columns}
+              missions={boardData?.missions ?? []}
               onColumnSettingsClick={(col) => setSettingsColumn(col)}
               onAddColumnClick={() => setShowCreateColumn(true)}
               presence={presence}

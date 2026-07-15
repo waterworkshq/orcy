@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, act } from "@testing-library/react";
+import { render, cleanup, act, waitFor } from "@testing-library/react";
 import React from "react";
 import { HabitatPage } from "./HabitatPage.js";
 
 const mocks = {
-  missionsList: vi.fn(),
   habitatsGet: vi.fn(),
   agentsList: vi.fn(),
 };
@@ -44,7 +43,7 @@ vi.mock("../../api/index.js", () => ({
   api: {
     habitats: { get: (...args: any[]) => mocks.habitatsGet(...args) },
     agents: { list: (...args: any[]) => mocks.agentsList(...args) },
-    missions: { list: (...args: any[]) => mocks.missionsList(...args) },
+    missions: { list: vi.fn() },
   },
 }));
 
@@ -71,13 +70,6 @@ vi.mock("react-router-dom", () => ({
   useLocation: vi.fn(() => ({ pathname: "/board/board-1", search: "", hash: "", state: null })),
 }));
 
-const storeActions = {
-  setColumnPagination: vi.fn(),
-  clearColumnPagination: vi.fn(),
-  setBulkSelectMode: vi.fn(),
-  clearTaskSelection: vi.fn(),
-};
-
 let mockStoreState: Record<string, any>;
 
 const useHabitatStoreMock = vi.fn((selector?: any) => {
@@ -102,8 +94,13 @@ vi.mock("../../store/modalStore.js", () => ({
   })),
 }));
 
+let capturedHabitatProps: any = null;
+
 vi.mock("./Habitat.js", () => ({
-  Habitat: () => <div data-testid="habitat" />,
+  Habitat: (props: any) => {
+    capturedHabitatProps = props;
+    return <div data-testid="habitat" />;
+  },
 }));
 vi.mock("./FilterBar.js", () => ({
   FilterBar: () => <div data-testid="filter-bar" />,
@@ -136,10 +133,9 @@ function makeFeatures(count: number, columnId: string, startId: number = 0) {
   }));
 }
 
-describe("HabitatPage parallel feature loading", () => {
+describe("HabitatPage Query ownership", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.missionsList.mockReset();
     mocks.habitatsGet.mockReset();
     mocks.agentsList.mockReset();
     mockBoardData = {
@@ -150,23 +146,12 @@ describe("HabitatPage parallel feature loading", () => {
     mockUseBoardLoading = false;
     mockUseBoardError = false;
     mockUseBoardErrorMsg = null;
+    capturedHabitatProps = null;
     mockStoreState = {
-      board: null,
-      columns: [],
-      agents: [],
-      features: [],
-      tasks: [],
-      isLoading: false,
-      error: null,
-      wipAlerts: {},
-      comments: {},
-      habitatEvents: [],
-      columnPagination: {},
-      allFeaturesLoaded: false,
       presence: [],
       isBulkSelectMode: false,
-      selectedMissionIds: [],
-      ...storeActions,
+      clearTaskSelection: vi.fn(),
+      setBulkSelectMode: vi.fn(),
     };
     mocks.agentsList.mockResolvedValue([]);
   });
@@ -175,7 +160,7 @@ describe("HabitatPage parallel feature loading", () => {
     cleanup();
   });
 
-  it("loads first page and renders immediately", async () => {
+  it("passes canonical habitat, columns, and missions to Habitat", async () => {
     const features = makeFeatures(10, "col-1");
     mockBoardData.missions = features;
 
@@ -183,157 +168,63 @@ describe("HabitatPage parallel feature loading", () => {
       render(<HabitatPage />);
     });
 
-    expect(storeActions.clearColumnPagination).toHaveBeenCalled();
-    expect(storeActions.setColumnPagination).toHaveBeenCalledWith("col-1", {
-      features,
-      total: undefined,
-      offset: 0,
-    });
+    expect(capturedHabitatProps).not.toBeNull();
+    expect(capturedHabitatProps.habitat).toEqual(mockBoardData.habitat);
+    expect(capturedHabitatProps.columns).toEqual(mockBoardData.columns);
+    expect(capturedHabitatProps.missions).toEqual(features);
   });
 
-  it("distributes features from board data to a single column", async () => {
-    const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.missions = page1;
-
-    const { unmount } = await act(async () => {
-      return render(<HabitatPage />);
-    });
-
-    expect(storeActions.clearColumnPagination).toHaveBeenCalled();
-    expect(storeActions.setColumnPagination).toHaveBeenCalledWith("col-1", {
-      features: page1,
-      total: undefined,
-      offset: 0,
-    });
-
-    unmount();
-  });
-
-  it("does not call setColumnPagination when column has no features", async () => {
+  it("passes empty missions array when no missions exist", async () => {
     mockBoardData.missions = [];
 
     await act(async () => {
       render(<HabitatPage />);
     });
 
-    expect(storeActions.clearColumnPagination).toHaveBeenCalled();
-    expect(storeActions.setColumnPagination).toHaveBeenCalledWith("col-1", {
-      features: [],
-      total: undefined,
-      offset: 0,
+    expect(capturedHabitatProps.missions).toEqual([]);
+  });
+
+  it("renders loading state while Query is loading", async () => {
+    mockUseBoardLoading = true;
+
+    const { container } = await act(async () => {
+      return render(<HabitatPage />);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".animate-spin")).toBeTruthy();
     });
   });
 
-  it("sets loading false after first page to allow board render", async () => {
-    mockBoardData.missions = makeFeatures(10, "col-1");
+  it("does not partition missions into columnPagination store entries", async () => {
+    mockBoardData.missions = makeFeatures(50, "col-1");
 
     await act(async () => {
       render(<HabitatPage />);
     });
 
-    expect(storeActions.setColumnPagination).toHaveBeenCalledWith(
-      "col-1",
-      expect.objectContaining({
-        features: expect.arrayContaining([expect.objectContaining({ columnId: "col-1" })]),
-      }),
-    );
+    expect(mockStoreState.setColumnPagination).toBeUndefined();
   });
 
-  it("does not fetch remaining pages when total exceeds page size", async () => {
-    const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.missions = page1;
-
-    const { unmount } = await act(async () => {
-      return render(<HabitatPage />);
-    });
-
-    expect(storeActions.setColumnPagination).toHaveBeenCalledWith("col-1", {
-      features: page1,
-      total: undefined,
-      offset: 0,
-    });
-
-    unmount();
-  });
-
-  it("loads only first page features for large datasets", async () => {
-    const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.missions = page1;
-
-    const { unmount } = await act(async () => {
-      return render(<HabitatPage />);
-    });
-
-    const col1Call = storeActions.setColumnPagination.mock.calls.find(
-      (c: any[]) => c[0] === "col-1",
-    );
-    expect(col1Call).toBeDefined();
-    expect(col1Call![1].features).toHaveLength(50);
-
-    unmount();
-  });
-
-  it("handles error from initial board/agents fetch", async () => {
-    mockUseBoardError = true;
-    mockUseBoardErrorMsg = "Habitat not found";
-    mockBoardData = null;
-
-    await act(async () => {
-      render(<HabitatPage />);
-    });
-
-    expect(storeActions.clearColumnPagination).not.toHaveBeenCalled();
-  });
-
-  it("distributes features to correct columns", async () => {
+  it("distributes features correctly across columns via props", async () => {
+    const col1Features = makeFeatures(3, "col-1", 0);
+    const col2Features = makeFeatures(2, "col-2", 3);
     mockBoardData = {
       habitat: { id: "board-1", name: "Test Board" },
       columns: [
         { id: "col-1", name: "Todo", habitatId: "board-1" },
         { id: "col-2", name: "Done", habitatId: "board-1" },
       ],
-      missions: [...makeFeatures(3, "col-1", 0), ...makeFeatures(2, "col-2", 3)],
+      missions: [...col1Features, ...col2Features],
     };
 
     await act(async () => {
       render(<HabitatPage />);
     });
 
-    const col1Calls = storeActions.setColumnPagination.mock.calls.filter(
-      (c: any[]) => c[0] === "col-1",
-    );
-    const col2Calls = storeActions.setColumnPagination.mock.calls.filter(
-      (c: any[]) => c[0] === "col-2",
-    );
-
-    expect(col1Calls[0][1].features).toHaveLength(3);
-    expect(col2Calls[0][1].features).toHaveLength(2);
-  });
-
-  it("calls clearColumnPagination before distributing features", async () => {
-    mockBoardData.missions = makeFeatures(10, "col-1");
-
-    await act(async () => {
-      render(<HabitatPage />);
-    });
-
-    const clearCallOrder = storeActions.clearColumnPagination.mock.invocationCallOrder[0];
-    const setCallOrder = storeActions.setColumnPagination.mock.invocationCallOrder[0];
-    expect(clearCallOrder).toBeLessThan(setCallOrder);
-  });
-
-  it("renders columns with first page features immediately", async () => {
-    const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.missions = page1;
-
-    await act(async () => {
-      render(<HabitatPage />);
-    });
-
-    expect(storeActions.setColumnPagination).toHaveBeenCalledWith("col-1", {
-      features: page1,
-      total: undefined,
-      offset: 0,
-    });
+    const passedMissions = capturedHabitatProps.missions;
+    expect(passedMissions).toHaveLength(5);
+    expect(passedMissions.filter((m: any) => m.columnId === "col-1")).toHaveLength(3);
+    expect(passedMissions.filter((m: any) => m.columnId === "col-2")).toHaveLength(2);
   });
 });

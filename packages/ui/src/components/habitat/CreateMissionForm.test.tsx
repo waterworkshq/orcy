@@ -20,10 +20,35 @@ vi.mock("../../api/index.js", () => ({
   },
 }));
 
+vi.mock("../../lib/useHabitatData.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/useHabitatData.js")>();
+  return {
+    ...actual,
+    useHabitat: () => ({
+      data: {
+        habitat: { id: "habitat-1", name: "Test", roadmapSettings: { mode: "release" } },
+        columns: [
+          {
+            id: "col-1",
+            name: "Backlog",
+            isTerminal: false,
+            habitatId: "habitat-1",
+            order: 0,
+            wipLimit: null,
+            autoAdvance: false,
+            requiresClaim: false,
+            nextColumnId: null,
+          },
+        ],
+        missions: [],
+      },
+      isLoading: false,
+    }),
+  };
+});
+
 vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: vi.fn(() => ({
-    columns: [{ id: "col-1", name: "Backlog", isTerminal: false }],
-  })),
+  useHabitatStore: vi.fn(() => ({})),
 }));
 
 vi.mock("../../lib/toast.js", () => ({

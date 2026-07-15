@@ -19,40 +19,40 @@ import { FeatureCard } from "./MissionCard.js";
 import { ColumnSwiper } from "./ColumnSwiper.js";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
 import { useArchivedMissions } from "../../lib/useHabitatData.js";
+import { useMissionDragMove } from "../../hooks/useMissionDragMove.js";
 import type {
   MissionWithProgress,
   Column as ColumnType,
+  PublicHabitat,
   PresenceEntry,
 } from "../../types/index.js";
-import { api } from "../../api/index.js";
 import { Plus, Archive, ChevronDown } from "lucide-react";
 
 interface HabitatProps {
+  habitat: PublicHabitat | null;
+  columns: ColumnType[];
+  missions: MissionWithProgress[];
   onColumnSettingsClick: (column: ColumnType) => void;
   onAddColumnClick: () => void;
   presence: PresenceEntry[];
 }
 
 export function Habitat({
+  habitat,
+  columns,
+  missions,
   onColumnSettingsClick,
   onAddColumnClick,
   presence: _presence,
 }: HabitatProps) {
-  const {
-    board,
-    columns,
-    features,
-    columnPagination,
-    setBoard: _setBoard,
-    setError,
-    isBulkSelectMode,
-  } = useHabitatStore();
+  const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const [activeFeature, setActiveFeature] = useState<MissionWithProgress | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
-  const { data: archivedData, isLoading: archivedLoading } = useArchivedMissions(board?.id);
+  const { previewByMission, isMoving, drop, setPreview } = useMissionDragMove(habitat?.id);
+
+  const { data: archivedData, isLoading: archivedLoading } = useArchivedMissions(habitat?.id);
   const archivedFeatures = archivedData?.missions ?? [];
   const archivedTotal = archivedData?.total ?? 0;
 
@@ -69,12 +69,12 @@ export function Habitat({
     }),
   );
 
-  const filteredFeatures = useMemo(() => {
+  const filteredMissions = useMemo(() => {
     const search = searchParams.get("search")?.toLowerCase() ?? "";
     const priority = searchParams.get("priority");
     const status = searchParams.get("status");
 
-    return features.filter((f) => {
+    return missions.filter((f) => {
       if (
         search &&
         !f.title.toLowerCase().includes(search) &&
@@ -85,22 +85,28 @@ export function Habitat({
       if (status && f.status !== status) return false;
       return true;
     });
-  }, [features, searchParams]);
+  }, [missions, searchParams]);
 
-  const featuresByColumn = useMemo(() => {
+  const missionsByColumn = useMemo(() => {
     const map: Record<string, MissionWithProgress[]> = {};
     for (const col of columns) {
-      map[col.id] = filteredFeatures
-        .filter((f) => f.columnId === col.id)
-        .toSorted((a, b) => a.displayOrder - b.displayOrder);
+      map[col.id] = [];
+    }
+    for (const f of filteredMissions) {
+      const colId = previewByMission[f.id] ?? f.columnId;
+      const target = map[colId] ?? map[f.columnId];
+      if (target) target.push(f);
+    }
+    for (const col of columns) {
+      map[col.id]?.sort((a, b) => a.displayOrder - b.displayOrder);
     }
     return map;
-  }, [columns, filteredFeatures]);
+  }, [columns, filteredMissions, previewByMission]);
 
   function handleDragStart(event: DragStartEvent) {
     if (isBulkSelectMode) return;
-    const feature = features.find((f) => f.id === event.active.id);
-    setActiveFeature(feature ?? null);
+    const mission = missions.find((f) => f.id === event.active.id);
+    setActiveFeature(mission ?? null);
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -108,61 +114,48 @@ export function Habitat({
     const { active, over } = event;
     if (!over) return;
 
-    const draggedFeature = features.find((f) => f.id === active.id);
-    if (!draggedFeature) return;
+    const dragged = missions.find((f) => f.id === active.id);
+    if (!dragged) return;
 
     const overId = over.id as string;
-    const overFeature = features.find((f) => f.id === overId);
+    const overFeature = missions.find((f) => f.id === overId);
     const overColumn = columns.find((c) => c.id === overId);
 
     const targetColumnId = overColumn?.id ?? overFeature?.columnId;
-    if (!targetColumnId || targetColumnId === draggedFeature.columnId) return;
+    if (!targetColumnId) return;
 
-    useHabitatStore.getState().moveFeatureToColumn(draggedFeature.id, targetColumnId);
+    const currentPreview = previewByMission[dragged.id] ?? dragged.columnId;
+    if (targetColumnId === currentPreview) return;
+
+    setPreview(dragged.id, targetColumnId);
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
+  function handleDragEnd(event: DragEndEvent) {
     if (isBulkSelectMode) return;
     const { active, over } = event;
     setActiveFeature(null);
 
     if (!over) return;
 
-    const draggedFeature = features.find((f) => f.id === active.id);
-    if (!draggedFeature) return;
+    const dragged = missions.find((f) => f.id === active.id);
+    if (!dragged) return;
 
     const overId = over.id as string;
     const overColumn = columns.find((c) => c.id === overId);
-    const overFeature = features.find((f) => f.id === overId);
+    const overFeature = missions.find((f) => f.id === overId);
     const targetColumnId = overColumn?.id ?? overFeature?.columnId;
 
     if (!targetColumnId) return;
 
-    if (targetColumnId !== draggedFeature.columnId) {
-      setIsLoading(true);
-      try {
-        await api.missions.move(draggedFeature.id, {
-          columnId: targetColumnId,
-          expectedVersion: draggedFeature.version,
-        });
-      } catch (err) {
-        setError((err as Error).message);
-        if (board) {
-          const res = await api.habitats.get(board.id);
-          // Legacy Zustand slice still types `board` as the secret-bearing Habitat;
-          // the API actually returns the masked PublicHabitat. Cast at this seam
-          // until T7 narrows the store. The runtime value is always masked.
-          useHabitatStore
-            .getState()
-            .setBoard(res.habitat as never, res.columns ?? [], res.missions);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    }
+    drop({
+      missionId: dragged.id,
+      canonicalColumnId: dragged.columnId,
+      targetColumnId,
+      expectedVersion: dragged.version,
+    });
   }
 
-  if (!board) {
+  if (!habitat) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         Select or create a board to get started.
@@ -170,7 +163,7 @@ export function Habitat({
     );
   }
 
-  const sortedColumns = columns.slice().toSorted((a, b) => a.order - b.order);
+  const sortedColumns = columns.slice().sort((a, b) => a.order - b.order);
   const activeMobileColumn = sortedColumns[mobileColumnIndex];
 
   return (
@@ -193,11 +186,7 @@ export function Habitat({
                 <Column
                   key={activeMobileColumn.id}
                   column={activeMobileColumn}
-                  features={
-                    columnPagination[activeMobileColumn.id]?.features ??
-                    featuresByColumn[activeMobileColumn.id] ??
-                    []
-                  }
+                  features={missionsByColumn[activeMobileColumn.id] ?? []}
                   onSettingsClick={onColumnSettingsClick}
                   isMobile
                 />
@@ -210,17 +199,14 @@ export function Habitat({
               items={sortedColumns.map((c) => c.id)}
               strategy={horizontalListSortingStrategy}
             >
-              {sortedColumns.map((column) => {
-                const pagination = columnPagination[column.id];
-                return (
-                  <Column
-                    key={column.id}
-                    column={column}
-                    features={pagination?.features ?? featuresByColumn[column.id] ?? []}
-                    onSettingsClick={onColumnSettingsClick}
-                  />
-                );
-              })}
+              {sortedColumns.map((column) => (
+                <Column
+                  key={column.id}
+                  column={column}
+                  features={missionsByColumn[column.id] ?? []}
+                  onSettingsClick={onColumnSettingsClick}
+                />
+              ))}
               <button
                 type="button"
                 onClick={onAddColumnClick}
@@ -231,10 +217,8 @@ export function Habitat({
               </button>
             </SortableContext>
 
-            {/* Archived column - fixed width toggleable column */}
-            {!isMobile && board && (
+            {!isMobile && habitat && (
               <div className="flex-shrink-0 h-full min-h-0 w-72 flex flex-col">
-                {/* Toggle header */}
                 <button
                   type="button"
                   data-testid="archived-toggle"
@@ -253,7 +237,6 @@ export function Habitat({
                   />
                 </button>
 
-                {/* Content area */}
                 <div
                   className={`flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-in-out ${
                     archivedExpanded ? "opacity-100 mt-1" : "opacity-0 max-h-0"
@@ -315,7 +298,7 @@ export function Habitat({
         </DragOverlay>
       </DndContext>
 
-      {isLoading && (
+      {isMoving && (
         <div className="absolute right-4 top-4 rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground">
           Saving...
         </div>
