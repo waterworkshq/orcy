@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { ToggleSwitch } from "../../ui/ToggleSwitch.js";
 import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
-import type { Habitat, GitWorktreeSettings } from "../../../types/index.js";
+import type { PublicHabitat, GitWorktreeSettings } from "../../../types/index.js";
 
 interface WorktreeTabProps {
   habitatId: string;
   boardGitWorktreeSettings: GitWorktreeSettings | null;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 

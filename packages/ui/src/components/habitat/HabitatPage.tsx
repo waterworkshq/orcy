@@ -299,7 +299,11 @@ export function HabitatPage() {
                   <Users className="h-4 w-4" />
                   Agents
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => navigate("/activity")}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate(`/habitats/${habitatId}/activity`)}
+                >
                   <Activity className="h-4 w-4" />
                   Activity
                 </Button>
@@ -454,6 +458,7 @@ export function HabitatPage() {
           onAgents={() => setShowAgentPanel(true)}
           onBoardSettings={() => setShowBoardSettings(true)}
           boardName={board?.name}
+          habitatId={habitatId}
         />
       )}
 
@@ -514,7 +519,7 @@ export function HabitatPage() {
       )}
       {board && showBoardSettings && (
         <HabitatSettingsDialog
-          board={board as never}
+          habitat={board}
           open={showBoardSettings}
           onClose={() => setShowBoardSettings(false)}
           onUpdate={(b) => {

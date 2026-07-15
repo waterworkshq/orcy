@@ -4,12 +4,12 @@ import { api } from "../../../api/index.js";
 import { queryKeys } from "../../../lib/queryKeys.js";
 import { notify } from "../../../lib/toast.js";
 import { ToggleSwitch } from "../../ui/ToggleSwitch.js";
-import type { Habitat, AutomationSettings } from "../../../types/index.js";
+import type { PublicHabitat, AutomationSettings } from "../../../types/index.js";
 
 interface AutomationTabProps {
   habitatId: string;
   boardAutomationSettings?: AutomationSettings | null;
-  onUpdate?: (board: Habitat) => void;
+  onUpdate?: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 
@@ -47,7 +47,7 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
         return result;
       },
       onSuccess: (result) => {
-        onUpdate?.(result.habitat as never);
+        onUpdate?.(result.habitat);
         notify.success(
           executeActions ? "Automation execution disabled" : "Automation execution enabled",
         );

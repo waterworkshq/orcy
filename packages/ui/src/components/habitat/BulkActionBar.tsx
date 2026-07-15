@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHabitatStore } from "../../store/habitatStore.js";
+import { useHabitat } from "../../lib/useHabitatData.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
 import { queryKeys } from "../../lib/queryKeys.js";
@@ -14,8 +15,12 @@ interface BulkActionBarProps {
 type BulkOperation = "priority" | "move" | "delete";
 
 export function BulkActionBar({ habitatId }: BulkActionBarProps) {
-  const { selectedMissionIds, setBulkSelectMode, clearMissionSelection, columns, features } =
-    useHabitatStore();
+  const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
+  const setBulkSelectMode = useHabitatStore((s) => s.setBulkSelectMode);
+  const clearMissionSelection = useHabitatStore((s) => s.clearMissionSelection);
+  const { data: habitatData } = useHabitat(habitatId);
+  const columns = habitatData?.columns ?? [];
+  const missions = habitatData?.missions ?? [];
   const qc = useQueryClient();
   const [operation, setOperation] = useState<BulkOperation>("priority");
   const [targetColumnId, setTargetColumnId] = useState("");
@@ -56,7 +61,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
             const { mission } = await api.missions.update(id, { priority });
             return mission;
           } else {
-            const currentVersion = features.find((f) => f.id === id)?.version;
+            const currentVersion = missions.find((m) => m.id === id)?.version;
             if (currentVersion === undefined) {
               throw new Error(`Mission ${id} not found in current habitat state`);
             }

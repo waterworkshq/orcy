@@ -18,7 +18,15 @@ function getUsername(): string {
   }
 }
 
-const navTabs = [
+interface NavTab {
+  label: string;
+  description: string;
+  match: (path: string) => boolean;
+  href?: string;
+  habitatScoped?: string;
+}
+
+const navTabs: NavTab[] = [
   {
     label: "Echo Base",
     href: "/",
@@ -34,8 +42,8 @@ const navTabs = [
   },
   {
     label: "Wake",
-    href: "/activity",
-    match: (path: string) => path.startsWith("/activity"),
+    habitatScoped: "activity",
+    match: (path: string) => /\/habitats\/[^/]+\/activity/.test(path),
     description: "Activity log",
   },
   {
@@ -45,6 +53,14 @@ const navTabs = [
     description: "Analytics dashboard",
   },
 ];
+
+function resolveNavHref(tab: NavTab, currentHabitatId: string | undefined): string | null {
+  if (tab.href !== undefined) return tab.href;
+  if (tab.habitatScoped) {
+    return currentHabitatId ? `/habitats/${currentHabitatId}/${tab.habitatScoped}` : null;
+  }
+  return null;
+}
 
 const agentStatusConfig: Record<string, { color: string; label: string; pulse: boolean }> = {
   working: { color: "bg-[var(--badge-active)]", label: "Processing", pulse: false },
@@ -57,6 +73,8 @@ export const TopAppBar = React.memo(function TopAppBar() {
   const notifications = useHabitatStore((s) => s.notifications);
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const location = useLocation();
+  const habitatMatch = location.pathname.match(/\/habitats\/([^/]+)/);
+  const currentHabitatId = habitatMatch?.[1];
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -79,17 +97,32 @@ export const TopAppBar = React.memo(function TopAppBar() {
         >
           {navTabs.map((tab) => {
             const active = tab.match(location.pathname);
+            const href = resolveNavHref(tab, currentHabitatId);
+            const testId = `top-nav-${tab.label.toLowerCase().replace(/\s+/g, "-")}`;
+            if (href === null) {
+              return (
+                <span
+                  key={tab.label}
+                  title="Open a habitat to view its activity"
+                  data-testid={testId}
+                  aria-disabled="true"
+                  className="cursor-not-allowed rounded-full px-3 py-1.5 text-on-surface-variant/40"
+                >
+                  {tab.label}
+                </span>
+              );
+            }
             return (
               <NavLink
                 key={tab.label}
-                to={tab.href}
+                to={href}
                 title={tab.description}
                 className={
                   active
                     ? "rounded-full bg-slate-700/50 px-3 py-1.5 text-on-surface shadow-[0_4px_20px_rgba(0,0,0,0.2)]"
                     : "rounded-full px-3 py-1.5 text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface"
                 }
-                data-testid={`top-nav-${tab.label.toLowerCase().replace(/\s+/g, "-")}`}
+                data-testid={testId}
               >
                 {tab.label}
               </NavLink>

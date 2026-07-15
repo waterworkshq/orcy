@@ -17,8 +17,9 @@ import { APP_VERSION } from "../../version.js";
 interface NavItem {
   label: string;
   icon: React.ReactNode;
-  href: string;
-  activePattern: string;
+  href?: string;
+  activePattern?: string;
+  habitatScoped?: string;
 }
 
 const navItems: NavItem[] = [
@@ -43,8 +44,7 @@ const navItems: NavItem[] = [
   {
     label: "Wake",
     icon: <Activity className="h-4 w-4" />,
-    href: "/activity",
-    activePattern: "/activity",
+    habitatScoped: "activity",
   },
   {
     label: "Remote Pods",
@@ -99,15 +99,37 @@ export const SideNavBar = React.memo(function SideNavBar({
             VIEWS
           </p>
           {navItems.map((item) => {
-            const isActive =
-              location.pathname === item.activePattern ||
-              (item.activePattern === "/" && location.pathname.startsWith("/boards"));
+            const testId = `nav-item-${item.label.toLowerCase().replace(/\s+/g, "-")}`;
+            const resolvedHref = item.habitatScoped
+              ? currentHabitatId
+                ? `/habitats/${currentHabitatId}/${item.habitatScoped}`
+                : null
+              : item.href;
+            const isActive = item.habitatScoped
+              ? new RegExp(`/habitats/[^/]+/${item.habitatScoped}`).test(location.pathname)
+              : location.pathname === item.activePattern ||
+                (item.activePattern === "/" && location.pathname.startsWith("/boards"));
+
+            if (!resolvedHref) {
+              return (
+                <span
+                  key={item.label}
+                  data-testid={testId}
+                  title="Open a habitat to view its activity"
+                  aria-disabled="true"
+                  className="flex cursor-not-allowed items-center gap-3 rounded-md px-3 py-2 text-sm text-on-surface-variant/40"
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </span>
+              );
+            }
 
             return (
               <Link
                 key={item.label}
-                to={item.href}
-                data-testid={`nav-item-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                to={resolvedHref}
+                data-testid={testId}
                 aria-current={isActive ? "page" : undefined}
                 className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                   isActive

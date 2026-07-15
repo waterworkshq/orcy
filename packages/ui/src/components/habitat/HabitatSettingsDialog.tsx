@@ -28,7 +28,7 @@ import { ExportHabitatDialog } from "./ExportHabitatDialog.js";
 import { ImportHabitatDialog } from "./ImportHabitatDialog.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
-import type { Habitat } from "../../types/index.js";
+import type { PublicHabitat } from "../../types/index.js";
 
 type SettingsTab =
   | "general"
@@ -81,15 +81,15 @@ const SAVE_LABELS: Partial<Record<SettingsTab, string>> = {
 };
 
 interface HabitatSettingsDialogProps {
-  board: Habitat;
+  habitat: PublicHabitat;
   open: boolean;
   onClose: () => void;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onDelete: () => void;
 }
 
 export function HabitatSettingsDialog({
-  board,
+  habitat,
   open,
   onClose,
   onUpdate,
@@ -186,9 +186,9 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "general" ? "hidden" : ""}>
             <GeneralTab
               ref={generalRef}
-              habitatId={board.id}
-              boardName={board.name}
-              boardDescription={board.description}
+              habitatId={habitat.id}
+              boardName={habitat.name}
+              boardDescription={habitat.description}
               onUpdate={onUpdate}
               onClose={onClose}
               onSavingChange={handleTabSavingChange}
@@ -200,18 +200,18 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "notifications" ? "hidden" : ""}>
             <NotificationsTab
               ref={notificationsRef}
-              habitatId={board.id}
+              habitatId={habitat.id}
               onSavingChange={handleTabSavingChange}
             />
           </div>
           <div className={activeTab !== "chat" ? "hidden" : ""}>
-            <ChatIntegrationsTab habitatId={board.id} />
+            <ChatIntegrationsTab habitatId={habitat.id} />
           </div>
           <div className={activeTab !== "retry" ? "hidden" : ""}>
             <RetryPolicyTab
               ref={retryRef}
-              habitatId={board.id}
-              boardRetrySettings={board.retrySettings}
+              habitatId={habitat.id}
+              boardRetrySettings={habitat.retrySettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
@@ -219,8 +219,8 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "anomaly" ? "hidden" : ""}>
             <AnomalyDetectionTab
               ref={anomalyRef}
-              habitatId={board.id}
-              boardAnomalySettings={board.anomalySettings}
+              habitatId={habitat.id}
+              boardAnomalySettings={habitat.anomalySettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
@@ -228,8 +228,8 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "auto_assign" ? "hidden" : ""}>
             <AutoAssignTab
               ref={autoAssignRef}
-              habitatId={board.id}
-              boardAutoAssignSettings={board.autoAssignSettings}
+              habitatId={habitat.id}
+              boardAutoAssignSettings={habitat.autoAssignSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
@@ -237,35 +237,35 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "prioritization" ? "hidden" : ""}>
             <PrioritizationTab
               ref={prioritizationRef}
-              habitatId={board.id}
-              boardPrioritizationSettings={board.prioritizationSettings}
+              habitatId={habitat.id}
+              boardPrioritizationSettings={habitat.prioritizationSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
           </div>
           <div className={activeTab !== "scheduled_tasks" ? "hidden" : ""}>
-            <ScheduledTasksTab habitatId={board.id} />
+            <ScheduledTasksTab habitatId={habitat.id} />
           </div>
           <div className={activeTab !== "automation" ? "hidden" : ""}>
             <AutomationTab
               ref={automationRef}
-              habitatId={board.id}
-              boardAutomationSettings={board.automationSettings}
+              habitatId={habitat.id}
+              boardAutomationSettings={habitat.automationSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
           </div>
           <div className={activeTab !== "review_rules" ? "hidden" : ""}>
-            <ReviewRulesTab habitatId={board.id} />
+            <ReviewRulesTab habitatId={habitat.id} />
           </div>
           <div className={activeTab !== "integrations" ? "hidden" : ""}>
-            <IntegrationsTab habitatId={board.id} />
+            <IntegrationsTab habitatId={habitat.id} />
           </div>
           <div className={activeTab !== "worktree" ? "hidden" : ""}>
             <WorktreeTab
               ref={worktreeRef}
-              habitatId={board.id}
-              boardGitWorktreeSettings={board.gitWorktreeSettings}
+              habitatId={habitat.id}
+              boardGitWorktreeSettings={habitat.gitWorktreeSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
@@ -273,18 +273,18 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "repository" ? "hidden" : ""}>
             <RepositoryTab
               ref={repositoryRef}
-              habitatId={board.id}
+              habitatId={habitat.id}
               onSavingChange={handleTabSavingChange}
             />
           </div>
           <div className={activeTab !== "plugins" ? "hidden" : ""}>
-            <PluginsTab habitatId={board.id} />
+            <PluginsTab habitatId={habitat.id} />
           </div>
           <div className={activeTab !== "triage" ? "hidden" : ""}>
             <TriageSettingsTab
               ref={triageRef}
-              habitatId={board.id}
-              boardTriageSettings={board.triageSettings}
+              habitatId={habitat.id}
+              boardTriageSettings={habitat.triageSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
@@ -292,8 +292,8 @@ export function HabitatSettingsDialog({
           <div className={activeTab !== "roadmap" ? "hidden" : ""}>
             <RoadmapSettingsTab
               ref={roadmapRef}
-              habitatId={board.id}
-              boardRoadmapSettings={board.roadmapSettings}
+              habitatId={habitat.id}
+              boardRoadmapSettings={habitat.roadmapSettings}
               onUpdate={onUpdate}
               onSavingChange={handleTabSavingChange}
             />
@@ -315,7 +315,7 @@ export function HabitatSettingsDialog({
         onConfirm={async () => {
           setDeleteOpen(false);
           try {
-            await api.habitats.delete(board.id);
+            await api.habitats.delete(habitat.id);
             notify.success("Habitat deleted");
             onDelete();
             onClose();
@@ -325,23 +325,23 @@ export function HabitatSettingsDialog({
         }}
         onCancel={() => setDeleteOpen(false)}
         title="Delete Habitat"
-        description={`Are you sure you want to delete "${board.name}"? This will permanently remove all columns, tasks, and activity history. This cannot be undone.`}
+        description={`Are you sure you want to delete "${habitat.name}"? This will permanently remove all columns, tasks, and activity history. This cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"
       />
       <ExportHabitatDialog
-        habitatId={board.id}
-        boardName={board.name}
+        habitatId={habitat.id}
+        boardName={habitat.name}
         open={exportOpen}
         onClose={() => setExportOpen(false)}
       />
       <ImportHabitatDialog
-        habitatId={board.id}
-        boardName={board.name}
+        habitatId={habitat.id}
+        boardName={habitat.name}
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImport={(importedHabitatId) => {
-          if (importedHabitatId !== board.id) {
+          if (importedHabitatId !== habitat.id) {
             notify.success("Habitat imported as new habitat");
           }
         }}

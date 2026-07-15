@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRe
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { NumberField } from '../../ui/NumberField.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
-import type { Habitat, AutoAssignSettings } from '../../../types/index.js';
+import type { PublicHabitat, AutoAssignSettings } from '../../../types/index.js';
 
 interface AutoAssignTabProps {
   habitatId: string;
   boardAutoAssignSettings: AutoAssignSettings | null;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 

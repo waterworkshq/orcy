@@ -1,7 +1,11 @@
 import React, { useState } from "react";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useModalStore } from "../../store/modalStore.js";
-import { useMissionDetails, useMissionExternalLinks } from "../../lib/useHabitatData.js";
+import {
+  useMission,
+  useMissionDetails,
+  useMissionExternalLinks,
+} from "../../lib/useHabitatData.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/index.js";
 import { queryKeys } from "../../lib/queryKeys.js";
@@ -30,11 +34,13 @@ const taskStatusVariant: Record<TaskStatus | MissionStatus, BadgeVariant> = {
 };
 
 export function FeatureDetailPanel() {
-  const { selectedMissionId, setSelectedMission, features } = useHabitatStore();
+  const selectedMissionId = useHabitatStore((s) => s.selectedMissionId);
+  const setSelectedMission = useHabitatStore((s) => s.setSelectedMission);
+  const { data: missionData } = useMission(selectedMissionId ?? undefined);
   const { data: detailsData, isLoading } = useMissionDetails(selectedMissionId ?? undefined);
   const { data: externalLinksData } = useMissionExternalLinks(selectedMissionId ?? undefined);
   const queryClient = useQueryClient();
-  const feature = features.find((f) => f.id === selectedMissionId);
+  const feature = missionData?.mission;
 
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [decomposing, setDecomposing] = useState(false);

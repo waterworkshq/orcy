@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback, useImperativeHandle, forwardRe
 import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
 import { NumberField } from '../../ui/NumberField.js';
 import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
-import type { Habitat, AnomalySettings } from '../../../types/index.js';
+import type { PublicHabitat, AnomalySettings } from '../../../types/index.js';
 
 interface AnomalyDetectionTabProps {
   habitatId: string;
   boardAnomalySettings: AnomalySettings | null;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 

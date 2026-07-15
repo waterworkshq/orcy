@@ -89,7 +89,7 @@ export default function App() {
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/habitats/:habitatId/remote-pods" element={<RemotePodsPage />} />
               <Route path="/habitats/:habitatId/admin/workflows" element={<AdminWorkflowsPage />} />
-              <Route path="/activity" element={<ActivityPage />} />
+              <Route path="/habitats/:habitatId/activity" element={<ActivityPage />} />
               <Route path="/missions/:id" element={<MissionDetailPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>

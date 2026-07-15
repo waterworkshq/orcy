@@ -44,22 +44,33 @@ const mockClearFeatureSelection = vi.fn();
 const mockSetBulkSelectMode = vi.fn();
 
 vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: vi.fn(() => ({
-    selectedMissionIds: ["feat-1", "feat-2", "feat-3"],
-    clearMissionSelection: mockClearFeatureSelection,
-    setBulkSelectMode: mockSetBulkSelectMode,
-    features: [
-      { id: "feat-1", version: 1 },
-      { id: "feat-2", version: 1 },
-      { id: "feat-3", version: 1 },
-    ],
-    columns: [
-      { id: "col-1", habitatId: "board-1", name: "Backlog", order: 0, isTerminal: false },
-      { id: "col-2", habitatId: "board-1", name: "In Progress", order: 1, isTerminal: false },
-      { id: "col-3", habitatId: "board-1", name: "Review", order: 2, isTerminal: false },
-      { id: "col-4", habitatId: "board-1", name: "Done", order: 3, isTerminal: true },
-    ],
-  })),
+  useHabitatStore: vi.fn((selector?: any) => {
+    const state = {
+      selectedMissionIds: ["feat-1", "feat-2", "feat-3"],
+      clearMissionSelection: mockClearFeatureSelection,
+      setBulkSelectMode: mockSetBulkSelectMode,
+    };
+    return selector ? selector(state) : state;
+  }),
+}));
+
+vi.mock("../../lib/useHabitatData.js", () => ({
+  useHabitat: () => ({
+    data: {
+      columns: [
+        { id: "col-1", habitatId: "board-1", name: "Backlog", order: 0, isTerminal: false },
+        { id: "col-2", habitatId: "board-1", name: "In Progress", order: 1, isTerminal: false },
+        { id: "col-3", habitatId: "board-1", name: "Review", order: 2, isTerminal: false },
+        { id: "col-4", habitatId: "board-1", name: "Done", order: 3, isTerminal: true },
+      ],
+      missions: [
+        { id: "feat-1", version: 1 },
+        { id: "feat-2", version: 1 },
+        { id: "feat-3", version: 1 },
+      ],
+    },
+    isLoading: false,
+  }),
 }));
 
 describe("BulkActionBar", () => {

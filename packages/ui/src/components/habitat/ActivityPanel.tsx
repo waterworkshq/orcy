@@ -2,7 +2,6 @@ import React, { useState, useCallback } from "react";
 import { Drawer } from "../ui/Drawer.js";
 import { Button } from "../ui/Button.js";
 import { api } from "../../api/index.js";
-import { useHabitatStore } from "../../store/habitatStore.js";
 import { useModalStore } from "../../store/modalStore.js";
 import { useHabitatEvents, useHabitatAnomalies } from "../../lib/useHabitatData.js";
 import { SEVERITY_BADGE } from "../../lib/status-maps.js";
@@ -11,6 +10,7 @@ import type { EnrichedHabitatEvent, EventAction } from "../../types/index.js";
 import { AuditExportModal } from "./AuditExportModal.js";
 
 interface ActivityPanelProps {
+  habitatId: string | undefined;
   onClose: () => void;
 }
 
@@ -158,15 +158,13 @@ function EventRow({
   );
 }
 
-export function ActivityPanel({ onClose }: ActivityPanelProps) {
-  const { board } = useHabitatStore();
+export function ActivityPanel({ habitatId, onClose }: ActivityPanelProps) {
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>("all");
   const [extraEvents, setExtraEvents] = useState<EnrichedHabitatEvent[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [auditExportOpen, setAuditExportOpen] = useState(false);
 
-  const habitatId = board?.id;
   const limit = 50;
 
   const actions = actionFilters[filter];

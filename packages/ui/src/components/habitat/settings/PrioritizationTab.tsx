@@ -15,7 +15,7 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch.js";
 import { Button } from "../../ui/Button.js";
 import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
 import type {
-  Habitat,
+  PublicHabitat,
   PrioritizationSettings,
   PrioritizationRule,
   PrioritizationRuleCondition,
@@ -25,7 +25,7 @@ import type {
 interface PrioritizationTabProps {
   habitatId: string;
   boardPrioritizationSettings: PrioritizationSettings | null;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 

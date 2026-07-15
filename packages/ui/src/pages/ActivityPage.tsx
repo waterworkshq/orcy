@@ -1,45 +1,52 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useHabitatStore } from '../store/habitatStore.js';
-import { useModalStore } from '../store/modalStore.js';
-import { useHabitatAnomalies, useHabitatEvents } from '../lib/useHabitatData.js';
-import { Button } from '../components/ui/Button.js';
-import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, ArrowLeft, Activity, Loader2 } from 'lucide-react';
-import { formatRelativeTime } from '../lib/formatting.js';
-import type { EnrichedHabitatEvent, EventAction } from '../types/index.js';
+import React, { useState, useMemo, useEffect } from "react";
+import { Link, useParams } from "react-router-dom";
+import { useModalStore } from "../store/modalStore.js";
+import { useHabitatAnomalies, useHabitatEvents } from "../lib/useHabitatData.js";
+import { Button } from "../components/ui/Button.js";
+import {
+  CheckCircle,
+  XCircle,
+  User,
+  Circle,
+  Clock,
+  AlertTriangle,
+  ArrowLeft,
+  Activity,
+  Loader2,
+} from "lucide-react";
+import { formatRelativeTime } from "../lib/formatting.js";
+import type { EnrichedHabitatEvent, EventAction } from "../types/index.js";
 
-type FilterType = 'all' | 'claims' | 'submissions' | 'approvals' | 'rejections';
+type FilterType = "all" | "claims" | "submissions" | "approvals" | "rejections";
 
 const actionFilters: Record<FilterType, EventAction[]> = {
   all: [],
-  claims: ['claimed'],
-  submissions: ['submitted'],
-  approvals: ['approved'],
-  rejections: ['rejected'],
+  claims: ["claimed"],
+  submissions: ["submitted"],
+  approvals: ["approved"],
+  rejections: ["rejected"],
 };
 
 const filterLabels: Record<FilterType, string> = {
-  all: 'All',
-  claims: 'Claims',
-  submissions: 'Submissions',
-  approvals: 'Approvals',
-  rejections: 'Rejections',
+  all: "All",
+  claims: "Claims",
+  submissions: "Submissions",
+  approvals: "Approvals",
+  rejections: "Rejections",
 };
-
-
 
 function getActionIcon(action: EventAction) {
   switch (action) {
-    case 'approved':
-    case 'completed':
+    case "approved":
+    case "completed":
       return <CheckCircle className="h-4 w-4 text-green-500" />;
-    case 'rejected':
-    case 'failed':
+    case "rejected":
+    case "failed":
       return <XCircle className="h-4 w-4 text-red-500" />;
-    case 'claimed':
-    case 'started':
+    case "claimed":
+    case "started":
       return <User className="h-4 w-4 text-blue-500" />;
-    case 'created':
+    case "created":
       return <Circle className="h-4 w-4 text-primary" />;
     default:
       return <Circle className="h-4 w-4 text-muted-foreground" />;
@@ -48,34 +55,59 @@ function getActionIcon(action: EventAction) {
 
 function getActionVerb(action: EventAction): string {
   switch (action) {
-    case 'created': return 'created';
-    case 'claimed': return 'claimed';
-    case 'started': return 'started';
-    case 'submitted': return 'submitted';
-    case 'approved': return 'approved';
-    case 'rejected': return 'rejected';
-    case 'completed': return 'completed';
-    case 'failed': return 'failed';
-    case 'moved': return 'moved';
-    case 'released': return 'released';
-    case 'dependency_resolved': return 'resolved dependency for';
-    case 'updated': return 'updated';
-    default: return action;
+    case "created":
+      return "created";
+    case "claimed":
+      return "claimed";
+    case "started":
+      return "started";
+    case "submitted":
+      return "submitted";
+    case "approved":
+      return "approved";
+    case "rejected":
+      return "rejected";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "moved":
+      return "moved";
+    case "released":
+      return "released";
+    case "dependency_resolved":
+      return "resolved dependency for";
+    case "updated":
+      return "updated";
+    default:
+      return action;
   }
 }
 
-function EventRow({ event, onTaskClick }: { event: EnrichedHabitatEvent; onTaskClick: (taskId: string) => void }) {
-  const actorName = event.actorName ?? (event.actorType === 'human' ? 'Human' : event.actorType === 'system' ? 'System' : event.actorId.substring(0, 8));
+function EventRow({
+  event,
+  onTaskClick,
+}: {
+  event: EnrichedHabitatEvent;
+  onTaskClick: (taskId: string) => void;
+}) {
+  const actorName =
+    event.actorName ??
+    (event.actorType === "human"
+      ? "Human"
+      : event.actorType === "system"
+        ? "System"
+        : event.actorId.substring(0, 8));
   const verb = getActionVerb(event.action);
 
-  let detail = '';
+  let detail = "";
   if (event.fromColumnName && event.toColumnName) {
     detail = `${event.fromColumnName} → ${event.toColumnName}`;
   } else if (event.fromColumnName) {
     detail = `from ${event.fromColumnName}`;
   } else if (event.toColumnName) {
     detail = `to ${event.toColumnName}`;
-  } else if (event.metadata && typeof event.metadata === 'object' && 'reason' in event.metadata) {
+  } else if (event.metadata && typeof event.metadata === "object" && "reason" in event.metadata) {
     detail = String((event.metadata as { reason: string }).reason);
   }
 
@@ -88,13 +120,14 @@ function EventRow({ event, onTaskClick }: { event: EnrichedHabitatEvent; onTaskC
       <div className="mt-0.5">{getActionIcon(event.action)}</div>
       <div className="flex-1 min-w-0">
         <div className="text-sm">
-          <span className="font-medium">{actorName}</span>
-          {' '}
-          <span className="text-muted-foreground">{verb}</span>
-          {' '}
+          <span className="font-medium">{actorName}</span>{" "}
+          <span className="text-muted-foreground">{verb}</span>{" "}
           <span
             className="font-medium text-primary hover:underline"
-            onClick={(e) => { e.stopPropagation(); onTaskClick(event.taskId); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTaskClick(event.taskId);
+            }}
           >
             &quot;{event.taskTitle}&quot;
           </span>
@@ -117,15 +150,14 @@ function EventRow({ event, onTaskClick }: { event: EnrichedHabitatEvent; onTaskC
 }
 
 export function ActivityPage() {
-  const board = useHabitatStore((s) => s.board);
+  const { habitatId } = useParams<{ habitatId: string }>();
   const openModal = useModalStore((s) => s.openModal);
-  const [filter, setFilter] = useState<FilterType>('all');
+  const [filter, setFilter] = useState<FilterType>("all");
   const [pageOffset, setPageOffset] = useState(0);
   const [accumulatedEvents, setAccumulatedEvents] = useState<EnrichedHabitatEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  const habitatId = board?.id;
   const limit = 50;
 
   const anomaliesQuery = useHabitatAnomalies(habitatId);
@@ -133,7 +165,10 @@ export function ActivityPage() {
 
   const actions = actionFilters[filter];
   const eventsParams = useMemo(() => {
-    const params: { limit: number; offset: number; action?: string } = { limit, offset: pageOffset };
+    const params: { limit: number; offset: number; action?: string } = {
+      limit,
+      offset: pageOffset,
+    };
     if (actions.length === 1) {
       params.action = actions[0];
     }
@@ -145,7 +180,8 @@ export function ActivityPage() {
   useEffect(() => {
     if (!eventsQuery.data) return;
     const fetched = eventsQuery.data.events ?? [];
-    const filtered = actions.length > 1 ? fetched.filter((e) => actions.includes(e.action)) : fetched;
+    const filtered =
+      actions.length > 1 ? fetched.filter((e) => actions.includes(e.action)) : fetched;
     setTotal(eventsQuery.data.total);
     setHasMore(pageOffset + fetched.length < eventsQuery.data.total);
 
@@ -176,10 +212,10 @@ export function ActivityPage() {
   };
 
   const severityColors: Record<string, string> = {
-    low: 'glass-badge',
-    medium: 'glass-badge glass-badge-medium',
-    high: 'glass-badge glass-badge-high',
-    critical: 'glass-badge glass-badge-critical',
+    low: "glass-badge",
+    medium: "glass-badge glass-badge-medium",
+    high: "glass-badge glass-badge-high",
+    critical: "glass-badge glass-badge-critical",
   };
 
   if (!habitatId) {
@@ -204,11 +240,9 @@ export function ActivityPage() {
         <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Activity className="h-16 w-16 text-on-surface-variant/30 mb-4" />
-            <h2 className="text-lg font-semibold text-on-surface mb-2">
-              No board selected
-            </h2>
+            <h2 className="text-lg font-semibold text-on-surface mb-2">Habitat not found</h2>
             <p className="text-sm text-on-surface-variant">
-              Select a board from the workspace to view its activity.
+              Select a habitat from the workspace to view its activity.
             </p>
           </div>
         </main>
@@ -233,26 +267,26 @@ export function ActivityPage() {
                 <h1 className="text-xl font-bold text-on-surface">Activity</h1>
               </div>
             </div>
-            {total > 0 && (
-              <span className="text-sm text-muted-foreground">{total} events</span>
-            )}
+            {total > 0 && <span className="text-sm text-muted-foreground">{total} events</span>}
           </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex items-center gap-2 mb-4 overflow-x-auto">
-          {(['all', 'claims', 'submissions', 'approvals', 'rejections'] as FilterType[]).map((f) => (
-            <Button
-              key={f}
-              variant={filter === f ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => handleFilterChange(f)}
-              data-testid={`filter-${f}`}
-            >
-              {filterLabels[f]}
-            </Button>
-          ))}
+          {(["all", "claims", "submissions", "approvals", "rejections"] as FilterType[]).map(
+            (f) => (
+              <Button
+                key={f}
+                variant={filter === f ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => handleFilterChange(f)}
+                data-testid={`filter-${f}`}
+              >
+                {filterLabels[f]}
+              </Button>
+            ),
+          )}
         </div>
 
         {anomalies.length > 0 && (
@@ -265,13 +299,19 @@ export function ActivityPage() {
             </div>
             {anomalies.map((anomaly, i) => (
               <div key={i} className="flex items-start gap-3 px-4 py-3 border-t bg-destructive/5">
-                <AlertTriangle className={`h-4 w-4 mt-0.5 ${anomaly.severity === 'critical' ? 'text-destructive' : anomaly.severity === 'high' ? 'text-orange-500' : anomaly.severity === 'medium' ? 'text-amber-500' : 'text-primary'}`} />
+                <AlertTriangle
+                  className={`h-4 w-4 mt-0.5 ${anomaly.severity === "critical" ? "text-destructive" : anomaly.severity === "high" ? "text-orange-500" : anomaly.severity === "medium" ? "text-amber-500" : "text-primary"}`}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${severityColors[anomaly.severity] ?? ''}`}>
+                    <span
+                      className={`text-xs font-medium px-1.5 py-0.5 rounded ${severityColors[anomaly.severity] ?? ""}`}
+                    >
                       {anomaly.severity}
                     </span>
-                    <span className="text-xs text-muted-foreground">{anomaly.type.replace(/_/g, ' ')}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {anomaly.type.replace(/_/g, " ")}
+                    </span>
                   </div>
                   <p className="text-sm mt-1">{anomaly.message}</p>
                 </div>
@@ -292,9 +332,7 @@ export function ActivityPage() {
         ) : events.length === 0 && anomalies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Activity className="h-16 w-16 text-on-surface-variant/30 mb-4" />
-            <h2 className="text-lg font-semibold text-on-surface mb-2">
-              No activity yet
-            </h2>
+            <h2 className="text-lg font-semibold text-on-surface mb-2">No activity yet</h2>
             <p className="text-sm text-on-surface-variant">
               Events will appear here as work happens on the board.
             </p>
@@ -313,7 +351,7 @@ export function ActivityPage() {
                   disabled={isLoading}
                   data-testid="load-more"
                 >
-                  {isLoading ? 'Loading...' : 'Load more'}
+                  {isLoading ? "Loading..." : "Load more"}
                 </Button>
               </div>
             )}

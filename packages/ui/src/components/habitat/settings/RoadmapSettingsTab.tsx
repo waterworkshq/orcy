@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } fro
 import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
 import { useHabitat } from "../../../lib/useHabitatData.js";
 import { DEFAULT_ROADMAP_SETTINGS } from "@orcy/shared";
-import type { Habitat, RoadmapSettings, RoadmapScoringAlgorithm } from "../../../types/index.js";
+import type { PublicHabitat, RoadmapSettings, RoadmapScoringAlgorithm } from "../../../types/index.js";
 
 interface RoadmapSettingsTabProps {
   habitatId: string;
   boardRoadmapSettings: RoadmapSettings | null;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 

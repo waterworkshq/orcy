@@ -1,6 +1,6 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, BarChart3, Users, Activity, Home } from 'lucide-react';
+import React from "react";
+import { Link } from "react-router-dom";
+import { Plus, BarChart3, Users, Activity, Home } from "lucide-react";
 
 interface MobileNavProps {
   onAddTask: () => void;
@@ -8,9 +8,17 @@ interface MobileNavProps {
   onAgents: () => void;
   onBoardSettings: () => void;
   boardName?: string;
+  habitatId?: string;
 }
 
-export function MobileNav({ onAddTask, onStats, onAgents: _onAgents, onBoardSettings: _onBoardSettings, boardName: _boardName }: MobileNavProps) {
+export function MobileNav({
+  onAddTask,
+  onStats,
+  onAgents: _onAgents,
+  onBoardSettings: _onBoardSettings,
+  boardName: _boardName,
+  habitatId,
+}: MobileNavProps) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background safe-area-bottom md:hidden">
       <div className="flex items-center justify-around px-2 py-2">
@@ -44,7 +52,7 @@ export function MobileNav({ onAddTask, onStats, onAgents: _onAgents, onBoardSett
           <span className="text-[10px]">Agents</span>
         </Link>
         <Link
-          to="/activity"
+          to={habitatId ? `/habitats/${habitatId}/activity` : "/"}
           className="flex flex-col items-center gap-0.5 rounded-md px-3 py-1.5 text-muted-foreground active:bg-accent transition-colors"
         >
           <Activity className="h-5 w-5" />

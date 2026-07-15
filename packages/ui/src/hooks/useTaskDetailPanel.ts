@@ -1,7 +1,6 @@
 import { useModalStore } from "../store/modalStore.js";
-import { useHabitatStore } from "../store/habitatStore.js";
 import { useTaskDetails } from "../lib/useTaskData.js";
-import { useMission, useHabitat } from "../lib/useHabitatData.js";
+import { useMission, useHabitat, useAgents } from "../lib/useHabitatData.js";
 import { useTaskEdit, type UseTaskEditResult } from "./useTaskEdit.js";
 import { useTaskSubtasks } from "./useTaskSubtasks.js";
 import { useTaskDelegate } from "./useTaskDelegate.js";
@@ -120,7 +119,8 @@ export interface UseTaskDetailPanelResult {
 export function useTaskDetailPanel({
   editTaskId,
 }: UseTaskDetailPanelOptions = {}): UseTaskDetailPanelResult {
-  const { agents } = useHabitatStore();
+  const { data: agentsData } = useAgents();
+  const agents = agentsData ?? [];
   const selectedTaskId = useModalStore((s) => s.selectedTaskId);
   const { data: detailsData, isLoading: contextLoading } = useTaskDetails(
     selectedTaskId ?? undefined,

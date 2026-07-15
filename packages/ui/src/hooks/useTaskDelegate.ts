@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryKeys.js";
 import { api } from "../api/index.js";
-import { useHabitatStore } from "../store/habitatStore.js";
+import { useAgents } from "../lib/useHabitatData.js";
 import { notify } from "../lib/toast.js";
 import type { Task } from "../types/index.js";
 
@@ -16,7 +16,8 @@ export interface UseTaskDelegateResult {
 }
 
 export function useTaskDelegate(task: Task | undefined): UseTaskDelegateResult {
-  const { agents } = useHabitatStore();
+  const { data: agentsData } = useAgents();
+  const agents = agentsData ?? [];
   const queryClient = useQueryClient();
   const [delegateAgentId, setDelegateAgentId] = useState("");
   const [delegating, setDelegating] = useState(false);

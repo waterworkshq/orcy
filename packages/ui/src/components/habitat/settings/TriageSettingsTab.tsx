@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } fro
 import { NumberField } from "../../ui/NumberField.js";
 import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
 import { DEFAULT_TRIAGE_SETTINGS } from "@orcy/shared";
-import type { Habitat, TriageSettings } from "../../../types/index.js";
+import type { PublicHabitat, TriageSettings } from "../../../types/index.js";
 
 interface TriageSettingsTabProps {
   habitatId: string;
   boardTriageSettings: TriageSettings | null;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
   onSavingChange?: (saving: boolean) => void;
 }
 

@@ -53,6 +53,7 @@ vi.mock("../../lib/useTaskData.js", () => ({
 }));
 
 vi.mock("../../lib/useHabitatData.js", () => ({
+  useAgents: () => ({ data: boardStoreState.agents }),
   useMissionTasks: () => ({ data: { tasks: [], total: 0 }, isLoading: false }),
 }));
 

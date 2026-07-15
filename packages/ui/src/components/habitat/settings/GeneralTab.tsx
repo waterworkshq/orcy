@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { Button } from '../../ui/Button.js';
-import { useHabitatSettingsSaver } from '../../../hooks/useHabitatSettingsSaver.js';
+import React, { useState, useEffect, useImperativeHandle, forwardRef, useCallback } from "react";
+import { Button } from "../../ui/Button.js";
+import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
 
 interface GeneralTabProps {
   habitatId: string;
   boardName: string;
   boardDescription: string;
-  onUpdate: (board: import('../../../types/index.js').Habitat) => void;
+  onUpdate: (habitat: import("../../../types/index.js").PublicHabitat) => void;
   onClose: () => void;
   onSavingChange?: (saving: boolean) => void;
   onExportOpen: () => void;
@@ -18,17 +18,20 @@ export interface GeneralTabHandle {
   save: () => Promise<void>;
 }
 
-export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function GeneralTab({
-  habitatId,
-  boardName,
-  boardDescription,
-  onUpdate,
-  onClose,
-  onSavingChange,
-  onExportOpen,
-  onImportOpen,
-  onDeleteOpen,
-}, ref) {
+export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function GeneralTab(
+  {
+    habitatId,
+    boardName,
+    boardDescription,
+    onUpdate,
+    onClose,
+    onSavingChange,
+    onExportOpen,
+    onImportOpen,
+    onDeleteOpen,
+  },
+  ref,
+) {
   const [name, setName] = useState(boardName);
   const [description, setDescription] = useState(boardDescription);
   const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId: habitatId, onUpdate });
@@ -38,10 +41,13 @@ export const GeneralTab = forwardRef<GeneralTabHandle, GeneralTabProps>(function
   }, [saving, onSavingChange]);
 
   const handleSave = useCallback(async () => {
-    await saveSettings({
-      name: name.trim() || boardName,
-      description: description.trim(),
-    }, 'Habitat settings saved');
+    await saveSettings(
+      {
+        name: name.trim() || boardName,
+        description: description.trim(),
+      },
+      "Habitat settings saved",
+    );
     onClose();
   }, [saveSettings, name, boardName, description, onClose]);
 

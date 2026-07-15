@@ -16,6 +16,15 @@ function createWrapper() {
   );
 }
 
+function createWrapperWithPath(path: string) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[path]}>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<any>("react-router-dom");
@@ -103,6 +112,22 @@ describe("TopAppBar", () => {
     expect(screen.getByTestId("top-nav-orcy-pod")).toHaveTextContent("Orcy Pod");
     expect(screen.getByTestId("top-nav-wake")).toHaveTextContent("Wake");
     expect(screen.getByTestId("top-nav-pod-base")).toHaveTextContent("Pod Base");
+  });
+
+  describe("Wake (Activity) nav habitat-scoping", () => {
+    it("links to the current habitat activity route when a habitat is in context", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/habitats/hab-1") });
+      const wakeLink = screen.getByTestId("top-nav-wake");
+      expect(wakeLink.tagName).toBe("A");
+      expect(wakeLink.getAttribute("href")).toBe("/habitats/hab-1/activity");
+    });
+
+    it("is disabled when no current habitat is in context", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/dashboard") });
+      const wakeItem = screen.getByTestId("top-nav-wake");
+      expect(wakeItem.tagName).not.toBe("A");
+      expect(wakeItem.getAttribute("aria-disabled")).toBe("true");
+    });
   });
 
   it("does not render Logs tab", () => {

@@ -1,11 +1,11 @@
 import { useState, useCallback } from "react";
 import { api } from "../api/index.js";
 import { notify } from "../lib/toast.js";
-import type { Habitat } from "../types/index.js";
+import type { PublicHabitat } from "../types/index.js";
 
 interface UseHabitatSettingsSaverOptions {
   habitatId: string;
-  onUpdate: (board: Habitat) => void;
+  onUpdate: (habitat: PublicHabitat) => void;
 }
 
 export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSettingsSaverOptions) {
@@ -30,7 +30,7 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
       setSaving(true);
       try {
         const result = await api.habitats.update(habitatId, data);
-        onUpdate(result.habitat as never);
+        onUpdate(result.habitat);
         notify.success(successMessage);
       } catch (err) {
         notify.error((err as Error).message);

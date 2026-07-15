@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HabitatSettingsDialog } from "./HabitatSettingsDialog.js";
-import type { Habitat } from "../../types/index.js";
+import type { PublicHabitat } from "../../types/index.js";
 
 const mockUpdate = vi.fn();
 const mockDelete = vi.fn();
@@ -146,7 +146,7 @@ vi.mock("./settings/IntegrationsTab.js", () => ({
   IntegrationsTab: () => <div data-testid="integrations-tab">IntegrationsTab</div>,
 }));
 
-const mockHabitat: Habitat = {
+const mockHabitat: PublicHabitat = {
   id: "b1",
   name: "Test Habitat",
   description: "A test board",
@@ -178,7 +178,7 @@ function renderDialog(props: { open?: boolean } = {}) {
   return render(
     <QueryClientProvider client={qc}>
       <HabitatSettingsDialog
-        board={mockHabitat}
+        habitat={mockHabitat}
         open={props.open ?? true}
         onClose={mockOnClose}
         onUpdate={mockOnUpdate}
