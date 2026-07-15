@@ -445,7 +445,26 @@ export function importHabitat(
     throw badRequest(`Unsupported export version: ${data.version}`);
   }
 
+  const habitatRaw = data.habitat as Record<string, unknown>;
+  if (!habitatRaw.missions && habitatRaw.features) {
+    habitatRaw.missions = habitatRaw.features;
+  }
+
   const { habitat: habitatData } = data;
+
+  if (existingHabitatId) {
+    const existing = habitatRepo.getHabitatById(existingHabitatId);
+    if (!existing) {
+      throw badRequest(`Habitat ${existingHabitatId} not found`);
+    }
+    const missionsData = data.habitat.missions ?? [];
+    const tasksData = data.habitat.tasks ?? [];
+    if (missionsData.length === 0 && tasksData.length === 0) {
+      throw badRequest(
+        "Import payload contains no missions or tasks; refusing to replace existing habitat with empty data",
+      );
+    }
+  }
 
   if (existingHabitatId) {
     habitatRepo.deleteHabitat(existingHabitatId);

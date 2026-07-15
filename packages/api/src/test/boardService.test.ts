@@ -17,14 +17,23 @@ const columnRepoMocks = vi.hoisted(() => ({
 const taskRepoMocks = vi.hoisted(() => ({
   getTasksByHabitatId: vi.fn(),
   getTasksByMissionId: vi.fn(),
+  createTask: vi.fn(),
 }));
 const missionRepoMocks = vi.hoisted(() => ({
   getMissionById: vi.fn(),
   getMissionsByHabitatId: vi.fn(),
+  createMission: vi.fn(),
+  updateMission: vi.fn(),
 }));
 const eventRepoMocks = vi.hoisted(() => ({ getHabitatStats: vi.fn() }));
-const commentRepoMocks = vi.hoisted(() => ({ getCommentsByTaskId: vi.fn() }));
-const templateRepoMocks = vi.hoisted(() => ({ getTemplatesByHabitatId: vi.fn() }));
+const commentRepoMocks = vi.hoisted(() => ({
+  getCommentsByTaskId: vi.fn(),
+  createComment: vi.fn(),
+}));
+const templateRepoMocks = vi.hoisted(() => ({
+  getTemplatesByHabitatId: vi.fn(),
+  createTemplate: vi.fn(),
+}));
 const filterRepoMocks = vi.hoisted(() => ({ seedBuiltinFilters: vi.fn() }));
 const skillRepoMocks = vi.hoisted(() => ({ getOrCreateSkill: vi.fn() }));
 const webhookMocks = vi.hoisted(() => ({
@@ -68,6 +77,7 @@ import {
   setWebhookSecrets,
   createHabitat,
   listHabitats,
+  importHabitat,
 } from "../services/boardService.js";
 
 describe("boardService", () => {
@@ -501,6 +511,199 @@ describe("boardService", () => {
         expect.objectContaining({
           ciCdSettings: expect.objectContaining({ githubSecret: "ci-secret" }),
         }),
+      );
+    });
+  });
+
+  describe("importHabitat", () => {
+    const validV2Data = {
+      version: 2,
+      exportedAt: "2025-01-01T00:00:00Z",
+      habitat: {
+        name: "Test Habitat",
+        description: "A test habitat",
+        columns: [
+          {
+            name: "Todo",
+            order: 0,
+            wipLimit: null,
+            autoAdvance: false,
+            requiresClaim: false,
+            nextColumnName: null,
+            isTerminal: false,
+          },
+        ],
+        missions: [
+          {
+            title: "Mission 1",
+            description: "Desc",
+            acceptanceCriteria: "AC",
+            priority: "medium",
+            labels: [],
+            columnName: "Todo",
+            status: "backlog",
+            dependsOn: [],
+            blocks: [],
+            dueAt: null,
+            tasks: [],
+          },
+        ],
+        comments: [],
+        templates: [],
+        webhooks: [],
+      },
+    };
+
+    beforeEach(() => {
+      habitatRepoMocks.createHabitat.mockReturnValue({
+        id: "new-h1",
+        name: "Test Habitat",
+        codeReviewSettings: null,
+        ciCdSettings: null,
+      });
+      columnRepoMocks.createColumn.mockReturnValue({ id: "col-1", name: "Todo", order: 0 });
+      missionRepoMocks.createMission.mockReturnValue({ id: "m1", title: "Mission 1" });
+      taskRepoMocks.getTasksByHabitatId.mockReturnValue({ tasks: [], total: 0 });
+    });
+
+    it("imports a valid v2 payload into a new habitat", () => {
+      const result = importHabitat(validV2Data as any);
+      expect(result).not.toBeNull();
+      expect(result!.habitat.id).toBe("new-h1");
+      expect(result!.imported.missions).toBe(1);
+      expect(habitatRepoMocks.deleteHabitat).not.toHaveBeenCalled();
+    });
+
+    it("deletes existing habitat before rebuilding for valid merge", () => {
+      habitatRepoMocks.getHabitatById.mockReturnValue({ id: "existing-h1", name: "Old" });
+      const result = importHabitat(validV2Data as any, "existing-h1");
+      expect(result).not.toBeNull();
+      expect(habitatRepoMocks.deleteHabitat).toHaveBeenCalledWith("existing-h1");
+    });
+
+    it("throws when existing habitat not found", () => {
+      habitatRepoMocks.getHabitatById.mockReturnValue(null);
+      expect(() => importHabitat(validV2Data as any, "missing-h1")).toThrow(/not found/);
+      expect(habitatRepoMocks.deleteHabitat).not.toHaveBeenCalled();
+    });
+
+    it("does NOT delete existing habitat when import payload has no missions or tasks", () => {
+      habitatRepoMocks.getHabitatById.mockReturnValue({ id: "existing-h1", name: "Old" });
+      const emptyData = {
+        ...validV2Data,
+        habitat: { ...validV2Data.habitat, missions: [], tasks: [] },
+      };
+      expect(() => importHabitat(emptyData as any, "existing-h1")).toThrow(
+        /no missions or tasks.*refusing/,
+      );
+      expect(habitatRepoMocks.deleteHabitat).not.toHaveBeenCalled();
+      expect(habitatRepoMocks.createHabitat).not.toHaveBeenCalled();
+    });
+
+    it("imports a v1 payload with features array (normalized to missions)", () => {
+      const v1Data = {
+        version: 1,
+        exportedAt: "2024-01-01T00:00:00Z",
+        habitat: {
+          name: "V1 Habitat",
+          description: "Legacy export",
+          columns: [
+            {
+              name: "Todo",
+              order: 0,
+              wipLimit: null,
+              autoAdvance: false,
+              requiresClaim: false,
+              nextColumnName: null,
+              isTerminal: false,
+            },
+          ],
+          features: [
+            {
+              title: "Feature 1",
+              description: "Legacy feature",
+              acceptanceCriteria: "",
+              priority: "high",
+              labels: ["legacy"],
+              columnName: "Todo",
+              status: "backlog",
+              dependsOn: [],
+              blocks: [],
+              dueAt: null,
+              tasks: [],
+            },
+          ],
+          comments: [],
+          templates: [],
+          webhooks: [],
+        },
+      };
+      const result = importHabitat(v1Data as any);
+      expect(result).not.toBeNull();
+      expect(result!.imported.missions).toBe(1);
+      expect(missionRepoMocks.createMission).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Feature 1", priority: "high", labels: ["legacy"] }),
+      );
+    });
+
+    it("imports v2 payload with missions taking precedence over features", () => {
+      const mixedData = {
+        version: 2,
+        exportedAt: "2025-01-01T00:00:00Z",
+        habitat: {
+          name: "Mixed Habitat",
+          description: "",
+          columns: [
+            {
+              name: "Todo",
+              order: 0,
+              wipLimit: null,
+              autoAdvance: false,
+              requiresClaim: false,
+              nextColumnName: null,
+              isTerminal: false,
+            },
+          ],
+          missions: [
+            {
+              title: "Mission A",
+              description: "",
+              acceptanceCriteria: "",
+              priority: "medium",
+              labels: [],
+              columnName: "Todo",
+              status: "backlog",
+              dependsOn: [],
+              blocks: [],
+              dueAt: null,
+              tasks: [],
+            },
+          ],
+          features: [
+            {
+              title: "Feature B",
+              description: "",
+              acceptanceCriteria: "",
+              priority: "low",
+              labels: [],
+              columnName: "Todo",
+              status: "backlog",
+              dependsOn: [],
+              blocks: [],
+              dueAt: null,
+              tasks: [],
+            },
+          ],
+          comments: [],
+          templates: [],
+          webhooks: [],
+        },
+      };
+      const result = importHabitat(mixedData as any);
+      expect(result).not.toBeNull();
+      expect(result!.imported.missions).toBe(1);
+      expect(missionRepoMocks.createMission).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Mission A" }),
       );
     });
   });

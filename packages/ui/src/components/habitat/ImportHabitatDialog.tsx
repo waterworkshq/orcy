@@ -48,6 +48,23 @@ export function ImportHabitatDialog({
     reader.readAsText(selectedFile);
   };
 
+  const normalizeLegacyMission = (
+    raw: Record<string, unknown>,
+  ): HabitatExport["habitat"]["missions"][number] => ({
+    title: (raw.title as string) ?? "",
+    description: (raw.description as string) ?? "",
+    acceptanceCriteria: (raw.acceptanceCriteria as string) ?? "",
+    priority:
+      (raw.priority as HabitatExport["habitat"]["missions"][number]["priority"]) ?? "medium",
+    labels: (raw.labels as string[]) ?? [],
+    columnName: (raw.columnName as string) ?? "",
+    status: (raw.status as HabitatExport["habitat"]["missions"][number]["status"]) ?? "backlog",
+    dependsOn: (raw.dependsOn as string[]) ?? [],
+    blocks: (raw.blocks as string[]) ?? [],
+    dueAt: (raw.dueAt as string | null) ?? null,
+    tasks: (raw.tasks as HabitatExport["habitat"]["missions"][number]["tasks"]) ?? [],
+  });
+
   const validateImportData = (data: unknown): HabitatExport => {
     if (!data || typeof data !== "object") throw new Error("Invalid JSON: expected an object");
     const d = data as Record<string, unknown>;
@@ -62,6 +79,17 @@ export function ImportHabitatDialog({
     if (typeof habitatRaw.name !== "string")
       throw new Error("Invalid export: habitat.name must be a string");
 
+    const rawMissions = (habitatRaw.missions ?? habitatRaw.features) as
+      | Record<string, unknown>[]
+      | undefined;
+
+    const missions = (rawMissions ?? []).map(normalizeLegacyMission);
+
+    const declaredMissions = rawMissions !== undefined;
+    if (declaredMissions && missions.length === 0) {
+      throw new Error("Invalid export: file declares missions but none could be parsed");
+    }
+
     const result: HabitatExport = {
       version: d.version as number,
       exportedAt: (d.exportedAt as string) || new Date().toISOString(),
@@ -69,7 +97,7 @@ export function ImportHabitatDialog({
         name: habitatRaw.name as string,
         description: (habitatRaw.description as string) || "",
         columns: (habitatRaw.columns as HabitatExport["habitat"]["columns"]) || [],
-        missions: (habitatRaw.missions as HabitatExport["habitat"]["missions"]) || [],
+        missions,
         comments: (habitatRaw.comments as HabitatExport["habitat"]["comments"]) || [],
         templates: (habitatRaw.templates as HabitatExport["habitat"]["templates"]) || [],
         webhooks: (habitatRaw.webhooks as HabitatExport["habitat"]["webhooks"]) || [],
