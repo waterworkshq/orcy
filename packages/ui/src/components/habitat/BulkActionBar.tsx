@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useHabitat } from "../../lib/useHabitatData.js";
@@ -21,11 +21,21 @@ type BulkOperation = "priority" | "move" | "delete";
 
 export function BulkActionBar({ habitatId }: BulkActionBarProps) {
   const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
+  const selectionHabitatId = useHabitatStore((s) => s.selectionHabitatId);
   const setBulkSelectMode = useHabitatStore((s) => s.setBulkSelectMode);
   const clearMissionSelection = useHabitatStore((s) => s.clearMissionSelection);
   const { data: habitatData } = useHabitat(habitatId);
   const columns = habitatData?.columns ?? [];
   const missions = habitatData?.missions ?? [];
+
+  const scopedMissionIds = useMemo(() => {
+    if (!habitatData) return [];
+    const missionIdSet = new Set(missions.map((m) => m.id));
+    return selectedMissionIds.filter((id) => missionIdSet.has(id));
+  }, [selectedMissionIds, missions, habitatData]);
+
+  const isHabitatMismatch = selectionHabitatId != null && selectionHabitatId !== habitatId;
+  const isDisabled = !habitatData || isHabitatMismatch || scopedMissionIds.length === 0;
   const qc = useQueryClient();
   const [operation, setOperation] = useState<BulkOperation>("priority");
   const [targetColumnId, setTargetColumnId] = useState("");
@@ -33,7 +43,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
   const [isApplying, setIsApplying] = useState(false);
 
   async function handleApply() {
-    if (selectedMissionIds.length === 0) return;
+    if (scopedMissionIds.length === 0) return;
     if (operation === "move" && !targetColumnId) {
       notify.warning("Please select a target column");
       return;
@@ -54,7 +64,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
     try {
       if (operation === "delete") {
         const results = await Promise.allSettled(
-          selectedMissionIds.map((id) => api.missions.delete(id)),
+          scopedMissionIds.map((id) => api.missions.delete(id)),
         );
         results.forEach((result) => {
           if (result.status === "fulfilled") {
@@ -66,7 +76,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
           }
         });
       } else {
-        const updatePromises = selectedMissionIds.map(async (id): Promise<Mission> => {
+        const updatePromises = scopedMissionIds.map(async (id): Promise<Mission> => {
           if (operation === "priority") {
             const { mission } = await api.missions.update(id, { priority });
             return mission;
@@ -126,7 +136,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
   return (
     <div className="flex items-center gap-3 rounded-lg border bg-card p-3 shadow-sm">
       <span className="text-sm font-medium">
-        {selectedMissionIds.length} feature{selectedMissionIds.length !== 1 ? "s" : ""} selected
+        {scopedMissionIds.length} feature{scopedMissionIds.length !== 1 ? "s" : ""} selected
       </span>
 
       <div className="h-4 w-px bg-border" />
@@ -181,11 +191,7 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
         <button
           type="button"
           onClick={handleApply}
-          disabled={
-            isApplying ||
-            selectedMissionIds.length === 0 ||
-            (operation === "move" && !targetColumnId)
-          }
+          disabled={isApplying || isDisabled || (operation === "move" && !targetColumnId)}
           className="flex items-center gap-1 rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {operation === "delete" ? (

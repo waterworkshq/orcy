@@ -70,7 +70,14 @@ export function HabitatPage() {
   const columns = boardData?.columns ?? [];
   const qc = useQueryClient();
 
-  const { presence, isBulkSelectMode, setBulkSelectMode, clearTaskSelection } = useHabitatStore();
+  const {
+    presence,
+    isBulkSelectMode,
+    setBulkSelectMode,
+    clearTaskSelection,
+    clearMissionSelection,
+    clearSelectionOnHabitatChange,
+  } = useHabitatStore();
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showCreateFeature, setShowCreateFeature] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
@@ -198,6 +205,26 @@ export function HabitatPage() {
     }
     prevViewRef.current = view;
   }, [view, clearTaskSelection]);
+
+  const prevHabitatIdRef = useRef(habitatId);
+  useEffect(() => {
+    if (prevHabitatIdRef.current !== habitatId) {
+      clearMissionSelection?.();
+      clearSelectionOnHabitatChange?.(habitatId ?? "");
+    }
+    prevHabitatIdRef.current = habitatId;
+  }, [habitatId, clearMissionSelection, clearSelectionOnHabitatChange]);
+
+  useEffect(() => {
+    clearSelectionOnHabitatChange?.(habitatId ?? "");
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearMissionSelection?.();
+      setBulkSelectMode?.(false);
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -337,7 +364,7 @@ export function HabitatPage() {
                     size="sm"
                     onClick={() => {
                       useModalStore.getState().closeModal();
-                      setBulkSelectMode(true);
+                      setBulkSelectMode(true, habitatId);
                     }}
                   >
                     <Square className="h-4 w-4" />
@@ -398,7 +425,7 @@ export function HabitatPage() {
                 type="button"
                 onClick={() => {
                   useModalStore.getState().closeModal();
-                  setBulkSelectMode(true);
+                  setBulkSelectMode(true, habitatId);
                   setMobileMenuOpen(false);
                 }}
                 className="flex items-center gap-2 rounded border border-outline-variant px-3 py-1.5 text-sm text-on-surface"
