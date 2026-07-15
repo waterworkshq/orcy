@@ -159,6 +159,63 @@ describe("detector catch-up scan (v0.22.3)", () => {
     expect(successRun!.signalsEmitted).toBe(1);
   });
 
+  it("rolls back every detector signal when a mid-batch write fails", async () => {
+    const { habitatId, missionId, taskId } = setupFixtures();
+
+    await writeDetectorPlugin(
+      "scan-tx-fail",
+      `async () => [
+        { signalType: 'detected', subject: 's1-will-insert-then-rollback' },
+        { signalType: 'detected', subject: 's2-will-fail' },
+        { signalType: 'detected', subject: 's3-never-reached' },
+      ]`,
+    );
+
+    const enrollment = enrollmentRepo.create({
+      habitatId,
+      pluginId: "scan-tx-fail",
+      contributionId: "scan-tx-fail-detector",
+      contributionKind: "signalDetector",
+      enrolledBy: "test",
+      enabled: 1,
+    });
+    pluginManager.invalidateEnrollmentCache(habitatId);
+    enrollmentRepo.updateLastScannedAt(
+      enrollment.id,
+      new Date(Date.now() - 60_000).toISOString(),
+    );
+    insertPulse(habitatId, missionId, taskId, "detector transaction failure source");
+
+    const realCreateWithClient = pulseRepo.createPulseWithClient;
+    let insertCallCount = 0;
+    const insertSpy = vi
+      .spyOn(pulseRepo, "createPulseWithClient")
+      .mockImplementation((db, input) => {
+        insertCallCount++;
+        if (insertCallCount === 2) {
+          throw new Error("simulated detector mid-batch write failure on signal 2");
+        }
+        return realCreateWithClient.call(pulseRepo, db, input);
+      });
+
+    await runScan();
+
+    const failedRun = runRepo
+      .listByHabitat(habitatId, { pluginId: "scan-tx-fail" })
+      .find((run) => run.status === "failed");
+    expect(failedRun).toBeDefined();
+    expect(failedRun!.error).toContain("simulated detector mid-batch write failure on signal 2");
+    expect(failedRun!.signalsEmitted).toBeNull();
+    expect(insertCallCount).toBe(2);
+
+    const detected = pulseRepo
+      .listByHabitatSince(habitatId, "1970-01-01T00:00:00.000Z")
+      .filter((pulse) => pulse.signalType === "detected" && pulse.fromId === "scan-tx-fail");
+    expect(detected).toEqual([]);
+
+    insertSpy.mockRestore();
+  });
+
   it("skips events already processed by the live hook (dedup)", async () => {
     const { habitatId, missionId, taskId } = setupFixtures();
     const pulseId = insertPulse(habitatId, missionId, taskId, "already processed");

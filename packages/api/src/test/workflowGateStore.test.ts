@@ -180,6 +180,28 @@ describe("satisfyManualGateIfEligible", () => {
       expect(result.satisfiedAt).toBeTruthy();
     }
   });
+
+  it("returns already_satisfied on the second call without mutating the row", () => {
+    // Idempotency contract: a second call for an already-satisfied
+    // on_manual gate must return "already_satisfied", not "satisfied".
+    // Discrimination must work under both better-sqlite3 and the sql.js
+    // test driver (read-before-write, not `runResult.changes`).
+    const { gateId } = seedGate({ gateType: "on_manual", satisfied: false });
+
+    const first = workflowGateStore.satisfyManualGateIfEligible(gateId);
+    expect(first.status).toBe("satisfied");
+    const firstSatisfiedAt = (first as { satisfiedAt: string }).satisfiedAt;
+
+    const second = workflowGateStore.satisfyManualGateIfEligible(gateId);
+    expect(second.status).toBe("already_satisfied");
+    if (second.status === "already_satisfied") {
+      expect(second.gate.id).toBe(gateId);
+    }
+
+    // DB row's satisfiedAt must not be overwritten on the second call.
+    const after = findGateById(gateId);
+    expect(after.satisfiedAt).toBe(firstSatisfiedAt);
+  });
 });
 
 describe("satisfyGateIfUnsatisfied", () => {
@@ -198,18 +220,14 @@ describe("satisfyGateIfUnsatisfied", () => {
     expect(refreshed.satisfied).toBe(true);
   });
 
-  it("a second call after the gate is satisfied is idempotent (no DB mutation)", () => {
+  it("a second call after the gate is satisfied returns already_satisfied", () => {
     // Idempotency contract: calling satisfyGateIfUnsatisfied twice must
-    // produce the same DB state as calling it once. The production function
-    // detects this by reading `runResult.changes` (better-sqlite3 reports 0
-    // when the WHERE clause matches no rows). Under sql.js — the test
-    // driver — `runResult` is a bare `true` with no `.changes` field, so the
-    // function's `changes === undefined || changes > 0` fallback always
-    // returns "satisfied" even on the second call. We verify the
-    // user-visible invariant (DB row stays consistent, satisfiedAt unchanged)
-    // rather than the return value, mirroring the pattern in
-    // automationRepositories.test.ts. In better-sqlite3 (production) the
-    // second call returns { status: "already_satisfied" }.
+    // return distinct statuses — "satisfied" on the call that flipped the
+    // row, and "already_satisfied" on subsequent calls. This works under
+    // both the better-sqlite3 production driver and the sql.js test driver
+    // because the discrimination is read-before-write (SELECT current
+    // satisfied state from the DB), not a dependency on
+    // `runResult.changes`.
     const { gateId } = seedGate({ gateType: "on_complete", satisfied: false });
     const gate = findGateById(gateId);
 
@@ -223,20 +241,24 @@ describe("satisfyGateIfUnsatisfied", () => {
     const refreshed = findGateById(gateId);
     const second = workflowGateStore.satisfyGateIfUnsatisfied(refreshed);
 
+    // Status discrimination must work under any driver.
+    expect(second.status).toBe("already_satisfied");
+
     // DB state must be stable: satisfied stays true and satisfiedAt is not
     // overwritten on the second call. (Direct consequence of the WHERE
     // clause filtering by `satisfied = false`.)
     const after = findGateById(gateId);
     expect(after.satisfied).toBe(true);
     expect(after.satisfiedAt).toBe(firstSatisfiedAt);
+  });
 
-    // The status discrimination between "satisfied" and "already_satisfied"
-    // only works under better-sqlite3 because that driver reports changes.
-    // Under sql.js both calls return "satisfied"; under production both
-    // calls report distinct statuses (first= "satisfied", second =
-    // "already_satisfied"). The runtime check below asserts whichever
-    // discrimination the current driver provides without breaking the
-    // sql.js test run.
-    expect(["satisfied", "already_satisfied"]).toContain(second.status);
+  it("returns already_satisfied when the gate is already satisfied on first call", () => {
+    // A caller may hold a stale gate record. The method must do a fresh
+    // read and not trust the caller's snapshot.
+    const { gateId } = seedGate({ gateType: "on_complete", satisfied: true });
+    const gate = findGateById(gateId);
+
+    const result = workflowGateStore.satisfyGateIfUnsatisfied(gate);
+    expect(result.status).toBe("already_satisfied");
   });
 });

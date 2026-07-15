@@ -95,6 +95,27 @@ function resetMockDb() {
   });
 }
 
+/** Mocks the `mockDb.select` chain for a gate-evaluation test: the gate-list
+ *  query (`.from().innerJoin().where().all()`) returns `gates`, and the
+ *  gate-satisfaction read (`.from().where().get()`) returns a not-yet-satisfied
+ *  gate so `satisfyGateIfUnsatisfied` proceeds to the UPDATE. The `get` path is
+ *  unused when `gates` is empty (early-filter tests never reach a satisfaction
+ *  write). */
+function mockGateQuery(gates: unknown[]) {
+  mockDb.select.mockReturnValue({
+    from: vi.fn().mockReturnValue({
+      innerJoin: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          all: vi.fn().mockReturnValue(gates),
+        }),
+      }),
+      where: vi.fn().mockReturnValue({
+        get: vi.fn().mockReturnValue({ satisfied: false }),
+      }),
+    }),
+  });
+}
+
 describe("workflowService gate evaluation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -123,15 +144,7 @@ describe("workflowService gate evaluation", () => {
       { id: "gate-1", satisfied: false },
       { id: "gate-2", satisfied: false },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -148,15 +161,7 @@ describe("workflowService gate evaluation", () => {
 
   it("fires on_approve gates when approved action received", async () => {
     const gates = [{ id: "gate-3", satisfied: false }];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -189,15 +194,7 @@ describe("workflowService gate evaluation", () => {
       { id: "gate-1", satisfied: true },
       { id: "gate-2", satisfied: false },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -217,15 +214,7 @@ describe("workflowService gate evaluation", () => {
       { id: "gate-1", satisfied: false },
       { id: "gate-2", satisfied: false },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     let callCount = 0;
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -251,15 +240,7 @@ describe("workflowService gate evaluation", () => {
   });
 
   it("does nothing when no gates exist for the task (early filter)", async () => {
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue([]),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery([]);
 
     const { initWorkflowService } = await import("../services/workflowService.js");
     initWorkflowService();
@@ -311,15 +292,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "task" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -352,15 +325,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "task" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -393,15 +358,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "experience", experience: "stuck", matchScope: "task" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -451,15 +408,7 @@ describe("workflowService on_signal gate evaluation", () => {
         },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -505,15 +454,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "task" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -559,15 +500,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "mission" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -601,15 +534,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "either" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -667,15 +592,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -709,15 +626,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "task" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -750,15 +659,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -782,15 +683,7 @@ describe("workflowService on_signal gate evaluation", () => {
   });
 
   it("does nothing when no on_signal gates exist (early filter)", async () => {
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue([]),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery([]);
 
     const { initWorkflowService } = await import("../services/workflowService.js");
     initWorkflowService();
@@ -824,15 +717,7 @@ describe("workflowService on_signal gate evaluation", () => {
         matchConfig: { signalType: "blocker", matchScope: "task" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     let callCount = 0;
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -913,15 +798,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: { type: "always" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -950,15 +827,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: { type: "status_in", statuses: ["blocked"] },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -982,15 +851,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1022,15 +883,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: { type: "field", field: "task.priority", operator: "equals", value: "critical" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1070,15 +923,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: { type: "status_in", statuses: ["in_progress"] },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1136,15 +981,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: deepCondition,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1176,15 +1013,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: { type: "always" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1217,15 +1046,7 @@ describe("workflowService conditional predicate evaluation", () => {
         condition: { type: "always" },
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({ run: vi.fn() }),
@@ -1284,15 +1105,7 @@ describe("workflowService on_automation gate evaluation", () => {
         condition: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1325,15 +1138,7 @@ describe("workflowService on_automation gate evaluation", () => {
         condition: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1366,15 +1171,7 @@ describe("workflowService on_automation gate evaluation", () => {
         condition: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1396,15 +1193,7 @@ describe("workflowService on_automation gate evaluation", () => {
   });
 
   it("does nothing when no on_automation gates exist", async () => {
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue([]),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery([]);
 
     const { initWorkflowService } = await import("../services/workflowService.js");
     initWorkflowService();
@@ -1431,15 +1220,7 @@ describe("workflowService on_automation gate evaluation", () => {
         condition: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -1482,15 +1263,7 @@ describe("workflowService on_automation gate evaluation", () => {
         condition: null,
       },
     ];
-    mockDb.select.mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            all: vi.fn().mockReturnValue(gates),
-          }),
-        }),
-      }),
-    });
+    mockGateQuery(gates);
     const updateRun = vi.fn();
     mockDb.update.mockReturnValue({
       set: vi.fn().mockReturnValue({

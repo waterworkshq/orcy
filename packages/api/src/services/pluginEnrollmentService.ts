@@ -8,6 +8,34 @@ import { sseBroadcaster } from "../sse/broadcaster.js";
 import { badRequest, forbidden, notFound } from "../errors.js";
 import type { PluginEnrollmentRow, PluginRunRow } from "../db/schema/index.js";
 
+const DEFAULT_STALE_PLUGIN_RUN_MINUTES = 30;
+
+export type StalePluginRun = PluginRunRow & { elapsedMinutes: number };
+export interface StalePluginRunLogger {
+  warn(data: Record<string, unknown>, message: string): void;
+}
+
+/** Reads the stale-run observability threshold from the environment, falling back to 30 minutes. */
+export function getStalePluginRunThresholdMinutes(): number {
+  const configured = process.env.ORCY_PLUGIN_STALE_RUN_MINUTES
+    ? parseInt(process.env.ORCY_PLUGIN_STALE_RUN_MINUTES, 10)
+    : DEFAULT_STALE_PLUGIN_RUN_MINUTES;
+  return Number.isInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_STALE_PLUGIN_RUN_MINUTES;
+}
+
+function staleThresholdIso(thresholdMinutes: number): string {
+  return new Date(Date.now() - thresholdMinutes * 60_000).toISOString();
+}
+
+function withElapsedMinutes(row: PluginRunRow): StalePluginRun {
+  return {
+    ...row,
+    elapsedMinutes: Math.floor((Date.now() - new Date(row.startedAt).getTime()) / 60_000),
+  };
+}
+
 const createEnrollmentSchema = z.object({
   pluginId: z.string().min(1),
   contributionId: z.string().min(1),
@@ -173,6 +201,45 @@ export function listEnrollments(habitatId: string): PluginEnrollmentRow[] {
 /** Lists plugin run telemetry rows for a habitat with optional filters. */
 export function listPluginRuns(habitatId: string, filter?: ListRunsFilter): PluginRunRow[] {
   return runRepo.listByHabitat(habitatId, filter);
+}
+
+/** Lists stale active runs for a habitat without changing their durable run status. */
+export function listStalePluginRuns(habitatId: string, thresholdMinutes: number): StalePluginRun[] {
+  return runRepo.findStaleRunning(staleThresholdIso(thresholdMinutes), habitatId).map(withElapsedMinutes);
+}
+
+/**
+ * Emits an operator warning for every stale active run across habitats. This is
+ * deliberately read-only: a durably launched run remains dedup-accounted for.
+ */
+export function scanStalePluginRuns(
+  thresholdMinutes: number,
+  log: StalePluginRunLogger,
+): number {
+  const staleRuns = runRepo.findStaleRunning(staleThresholdIso(thresholdMinutes));
+
+  for (const row of staleRuns) {
+    try {
+      const staleRun = withElapsedMinutes(row);
+      log.warn(
+        {
+          pluginId: staleRun.pluginId,
+          contributionKind: staleRun.contributionKind,
+          contributionId: staleRun.contributionId,
+          triggerType: staleRun.triggerType,
+          triggerEventId: staleRun.triggerEventId,
+          runId: staleRun.id,
+          startedAt: staleRun.startedAt,
+          elapsedMinutes: staleRun.elapsedMinutes,
+        },
+        "Stale plugin run detected",
+      );
+    } catch {
+      // A logger failure for one row must not prevent observability for the rest.
+    }
+  }
+
+  return staleRuns.length;
 }
 
 /**

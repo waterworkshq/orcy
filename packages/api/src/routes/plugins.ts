@@ -24,6 +24,10 @@ const listRunsQuery = z.object({
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 
+const staleRunsQuery = z.object({
+  thresholdMinutes: z.coerce.number().int().min(1).optional(),
+});
+
 /**
  * Plugin enrollment + run REST surface (ADR-0016). Habitat-scoped routes for
  * enrolling habitat-scoped contributions (signalDetector, lifecycleInterceptor),
@@ -82,6 +86,22 @@ export async function pluginRoutes(fastify: FastifyInstance): Promise<void> {
         throw badRequest("Validation failed", parsed.error.flatten());
       }
       return service.listPluginRuns(request.params.habitatId, parsed.data);
+    },
+  );
+
+  fastify.get<{ Params: { habitatId: string }; Querystring: Record<string, string | undefined> }>(
+    "/habitats/:habitatId/plugins/stale-runs",
+    { preHandler: [agentOrHumanAuth, requireHabitatAccess] },
+    async (request, _reply) => {
+      const parsed = staleRunsQuery.safeParse(request.query);
+      if (!parsed.success) {
+        throw badRequest("Validation failed", parsed.error.flatten());
+      }
+      const thresholdMinutes =
+        parsed.data.thresholdMinutes ?? service.getStalePluginRunThresholdMinutes();
+      return {
+        staleRuns: service.listStalePluginRuns(request.params.habitatId, thresholdMinutes),
+      };
     },
   );
 

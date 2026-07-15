@@ -455,4 +455,49 @@ describe("pluginRun repo", () => {
       expect(runRepo.listByHabitat(a.id)).toHaveLength(1);
     });
   });
+
+  describe("findStaleRunning", () => {
+    it("returns only old running rows and respects habitat scope", () => {
+      const a = setupHabitat();
+      const b = setupHabitat();
+      const threshold = "2026-07-15T11:30:00.000Z";
+      const oldRunning = runRepo.startRun({
+        ...makeRunInput(a.id, {
+          contributionId: "old-running",
+          triggerEventId: "old-running-event",
+        }),
+        startedAt: "2026-07-15T11:00:00.000Z",
+      });
+      runRepo.startRun({
+        ...makeRunInput(a.id, {
+          contributionId: "fresh-running",
+          triggerEventId: "fresh-running-event",
+        }),
+        startedAt: "2026-07-15T11:45:00.000Z",
+      });
+      const terminal = runRepo.startRun({
+        ...makeRunInput(a.id, {
+          contributionId: "old-succeeded",
+          triggerEventId: "old-succeeded-event",
+        }),
+        startedAt: "2026-07-15T10:00:00.000Z",
+      });
+      runRepo.finishRun(terminal.id, "succeeded");
+      const otherHabitatOld = runRepo.startRun({
+        ...makeRunInput(b.id, {
+          contributionId: "other-old-running",
+          triggerEventId: "other-old-running-event",
+        }),
+        startedAt: "2026-07-15T10:30:00.000Z",
+      });
+
+      expect(runRepo.findStaleRunning(threshold, a.id).map((row) => row.id)).toEqual([
+        oldRunning.id,
+      ]);
+      expect(runRepo.findStaleRunning(threshold).map((row) => row.id)).toEqual([
+        oldRunning.id,
+        otherHabitatOld.id,
+      ]);
+    });
+  });
 });

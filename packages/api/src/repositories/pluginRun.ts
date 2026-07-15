@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { pluginRuns } from "../db/schema/index.js";
 import type { PluginRunInsert, PluginRunRow } from "../db/schema/index.js";
-import { eq, and, desc, gte, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -145,6 +145,23 @@ export function listByHabitat(habitatId: string, filter?: ListRunsFilter): Plugi
     .where(and(...conditions))
     .orderBy(desc(pluginRuns.startedAt))
     .limit(filter?.limit ?? 50)
+    .all();
+}
+
+/**
+ * Lists active runs that have exceeded the supplied start-time threshold, newest first.
+ * This is observability-only: callers must not treat stale runs as recovery-eligible.
+ */
+export function findStaleRunning(thresholdIso: string, habitatId?: string): PluginRunRow[] {
+  const db = getDb();
+  const conditions = [eq(pluginRuns.status, "running"), lt(pluginRuns.startedAt, thresholdIso)];
+  if (habitatId) conditions.push(eq(pluginRuns.habitatId, habitatId));
+
+  return db
+    .select()
+    .from(pluginRuns)
+    .where(and(...conditions))
+    .orderBy(desc(pluginRuns.startedAt))
     .all();
 }
 

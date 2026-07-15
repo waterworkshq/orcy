@@ -102,9 +102,24 @@ export const workflowGateStore = {
     eventId?: string | null,
   ): GateSatisfactionResult {
     const db = getDb();
+    // Read-before-write: discriminate "already satisfied" via a fresh SELECT
+    // rather than `runResult.changes`, which is undefined under the sql.js
+    // test driver. Trust the caller's snapshot only for `id`; the read here
+    // reflects current DB state.
+    const current = db
+      .select({ satisfied: taskWorkflowGates.satisfied })
+      .from(taskWorkflowGates)
+      .where(eq(taskWorkflowGates.id, gate.id))
+      .get();
+    if (current?.satisfied === true) {
+      return { status: "already_satisfied" };
+    }
+
     const now = new Date().toISOString();
-    const runResult = db
-      .update(taskWorkflowGates)
+    // The `eq(taskWorkflowGates.satisfied, false)` guard is preserved for
+    // write correctness / concurrency safety — a concurrent writer could
+    // flip the row between our SELECT and UPDATE.
+    db.update(taskWorkflowGates)
       .set({
         satisfied: true,
         satisfiedAt: now,
@@ -112,11 +127,7 @@ export const workflowGateStore = {
       })
       .where(and(eq(taskWorkflowGates.id, gate.id), eq(taskWorkflowGates.satisfied, false)))
       .run();
-    const changes = (runResult as { changes?: number } | undefined)?.changes;
-    if (changes === undefined || changes > 0) {
-      return { status: "satisfied", satisfiedAt: now };
-    }
-    return { status: "already_satisfied" };
+    return { status: "satisfied", satisfiedAt: now };
   },
 
   satisfyManualGateIfEligible(gateId: string): ManualGateSatisfactionResult {
@@ -129,16 +140,20 @@ export const workflowGateStore = {
     if (!gate) return { status: "not_found", gateId };
     if (gate.gateType !== "on_manual") return { status: "wrong_gate_type", gate };
 
+    // Reuse the SELECT above to discriminate "already_satisfied". This works
+    // under both better-sqlite3 (production) and sql.js (test) because it
+    // does not rely on `runResult.changes`.
+    if (gate.satisfied) {
+      return { status: "already_satisfied", gate };
+    }
+
     const now = new Date().toISOString();
-    const runResult = db
-      .update(taskWorkflowGates)
+    // The `eq(taskWorkflowGates.satisfied, false)` guard is preserved for
+    // write correctness / concurrency safety.
+    db.update(taskWorkflowGates)
       .set({ satisfied: true, satisfiedAt: now })
       .where(and(eq(taskWorkflowGates.id, gateId), eq(taskWorkflowGates.satisfied, false)))
       .run();
-    const changes = (runResult as { changes?: number } | undefined)?.changes;
-    if (changes === undefined || changes > 0) {
-      return { status: "satisfied", gate, satisfiedAt: now };
-    }
-    return { status: "already_satisfied", gate };
+    return { status: "satisfied", gate, satisfiedAt: now };
   },
 };

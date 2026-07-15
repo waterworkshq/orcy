@@ -873,10 +873,37 @@ function invokeDetectorThroughRuntime(
     triggerType: ref.kind,
     source: ref,
     onResult: async (signals) => {
-      for (const signal of signals) {
-        await ctxRef.ctx?.pulseWriter?.createDetectedSignal(signal);
-      }
-      return signals.length;
+      if (signals.length === 0) return 0;
+      const runId = ctxRef.ctx?.runId;
+      const inputs: pulseRepo.CreatePulseInput[] = signals.map((s) => {
+        const merged: Record<string, unknown> = {
+          ...s.metadata,
+          detected: true,
+          detector: target.pluginId,
+          detectorRunId: runId,
+        };
+        const metaParse = detectedMetadataSchema.safeParse(merged);
+        if (!metaParse.success) {
+          throw new Error(`Detected signal metadata failed validation: ${metaParse.error.message}`);
+        }
+        const input: pulseRepo.CreatePulseInput = {
+          habitatId: ref.habitatId,
+          scope: s.missionId !== undefined ? "mission" : "habitat",
+          fromType: "system",
+          fromId: target.pluginId,
+          signalType: "detected",
+          subject: s.subject,
+          ...(s.body !== undefined ? { body: s.body } : {}),
+          ...(s.taskId !== undefined ? { taskId: s.taskId } : {}),
+          ...(s.missionId !== undefined ? { missionId: s.missionId } : {}),
+          ...(s.replyToId !== undefined ? { replyToId: s.replyToId } : {}),
+          metadata: merged,
+          isAuto: true,
+        };
+        return input;
+      });
+      const pulses = pulseService.createPulseBatchAtomic(inputs);
+      return pulses.length;
     },
   };
   return runtime.invokeManaged(request);

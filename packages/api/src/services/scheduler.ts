@@ -13,6 +13,10 @@ import { generateAllDigests as generateAllNotificationDigests } from "./notifica
 import { regenerateAllSkills } from "./habitatSkillService.js";
 import { runAllScans } from "./automationScanService.js";
 import { runScheduledClearance } from "./notificationClearanceService.js";
+import {
+  getStalePluginRunThresholdMinutes,
+  scanStalePluginRuns,
+} from "./pluginEnrollmentService.js";
 import { getDb } from "../db/index.js";
 import { tasks, missions } from "../db/schema/index.js";
 import { and, or, sql, notInArray, eq } from "drizzle-orm";
@@ -103,6 +107,17 @@ export function startAllSchedulers(fastify: FastifyInstance): { stop: () => void
         scanAllHabitats();
       } catch (err) {
         fastify.log.error({ err }, "Error scanning for anomalies");
+      }
+    }, 5 * 60_000),
+  );
+
+  const stalePluginRunThresholdMinutes = getStalePluginRunThresholdMinutes();
+  intervals.push(
+    setInterval(() => {
+      try {
+        scanStalePluginRuns(stalePluginRunThresholdMinutes, fastify.log);
+      } catch (err) {
+        fastify.log.error({ err }, "Error scanning for stale plugin runs");
       }
     }, 5 * 60_000),
   );

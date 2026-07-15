@@ -463,7 +463,7 @@ describe("pluginEnrollmentService", () => {
 });
 
 describe("pluginRoutes", () => {
-  it("registers 7 routes with agentOrHumanAuth + requireHabitatAccess prehandlers", async () => {
+  it("registers 8 routes with agentOrHumanAuth + requireHabitatAccess prehandlers", async () => {
     const { pluginRoutes } = await import("../routes/plugins.js");
     const { agentOrHumanAuth } = await import("../middleware/auth.js");
 
@@ -485,7 +485,7 @@ describe("pluginRoutes", () => {
 
     await pluginRoutes(fakeFastify);
 
-    expect(routes).toHaveLength(7);
+    expect(routes).toHaveLength(8);
     for (const r of routes) {
       expect(r.preHandler[0]).toBe(agentOrHumanAuth);
       if (r.path === "/plugins") {
@@ -504,6 +504,7 @@ describe("pluginRoutes", () => {
     expect(paths).toContain("GET /habitats/:habitatId/plugins/enrollments");
     expect(paths).toContain("DELETE /habitats/:habitatId/plugins/enrollments/:id");
     expect(paths).toContain("GET /habitats/:habitatId/plugins/runs");
+    expect(paths).toContain("GET /habitats/:habitatId/plugins/stale-runs");
   });
 });
 
