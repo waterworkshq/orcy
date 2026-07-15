@@ -130,6 +130,26 @@ describe("TopAppBar", () => {
     });
   });
 
+  describe("Echo Base active-matching on canonical routes", () => {
+    it("highlights Echo Base on /habitats/:id route", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/habitats/hab-1") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      expect(echoBase.className).toContain("bg-slate-700/50");
+    });
+
+    it("highlights Echo Base on /missions/:id route", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/missions/mission-1") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      expect(echoBase.className).toContain("bg-slate-700/50");
+    });
+
+    it("does not highlight Echo Base on /agents route", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/agents") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      expect(echoBase.className).not.toContain("bg-slate-700/50");
+    });
+  });
+
   it("does not render Logs tab", () => {
     render(<TopAppBar />, { wrapper: createWrapper() });
     expect(screen.queryByTestId("top-nav-logs")).toBeNull();

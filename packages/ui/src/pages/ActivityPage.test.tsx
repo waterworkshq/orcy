@@ -350,7 +350,7 @@ describe("ActivityPage", () => {
     renderPage();
 
     const backLink = screen.getByText("Back").closest("a");
-    expect(backLink?.getAttribute("href")).toBe("/");
+    expect(backLink?.getAttribute("href")).toBe("/habitats/board-1");
   });
 
   it("shows total event count in header", () => {

@@ -31,7 +31,7 @@ const navTabs: NavTab[] = [
     label: "Echo Base",
     href: "/",
     match: (path: string) =>
-      path === "/" || path.startsWith("/boards") || path.startsWith("/features"),
+      path === "/" || path.startsWith("/habitats") || path.startsWith("/missions"),
     description: "Workspace board",
   },
   {

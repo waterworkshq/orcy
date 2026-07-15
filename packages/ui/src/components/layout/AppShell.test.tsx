@@ -63,11 +63,11 @@ describe("AppShell", () => {
 
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/boards/board-1"]}>
+        <MemoryRouter initialEntries={["/habitats/board-1"]}>
           <Routes>
             <Route element={<AppShell />}>
               <Route
-                path="/boards/:habitatId"
+                path="/habitats/:habitatId"
                 element={<BoardRouteHarness onOpenStats={onOpenStats} />}
               />
             </Route>

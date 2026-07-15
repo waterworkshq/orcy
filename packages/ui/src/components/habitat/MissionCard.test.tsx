@@ -235,7 +235,7 @@ describe("FeatureCard", () => {
     const { container } = render(<FeatureCard feature={baseFeature} />);
     const card = container.querySelector('[data-testid="feature-card-f1"]')!;
     fireEvent.click(card);
-    expect(mockNavigate).toHaveBeenCalledWith("/features/f1");
+    expect(mockNavigate).toHaveBeenCalledWith("/missions/f1");
   });
 
   it("does not navigate on click when isDragOverlay", () => {

@@ -49,8 +49,7 @@ const navItems: NavItem[] = [
   {
     label: "Remote Pods",
     icon: <Globe className="h-4 w-4" />,
-    href: "/remote-pods",
-    activePattern: "/remote-pods",
+    habitatScoped: "remote-pods",
   },
 ];
 
@@ -108,7 +107,9 @@ export const SideNavBar = React.memo(function SideNavBar({
             const isActive = item.habitatScoped
               ? new RegExp(`/habitats/[^/]+/${item.habitatScoped}`).test(location.pathname)
               : location.pathname === item.activePattern ||
-                (item.activePattern === "/" && location.pathname.startsWith("/boards"));
+                (item.activePattern === "/" &&
+                  (location.pathname.startsWith("/habitats") ||
+                    location.pathname.startsWith("/missions")));
 
             if (!resolvedHref) {
               return (

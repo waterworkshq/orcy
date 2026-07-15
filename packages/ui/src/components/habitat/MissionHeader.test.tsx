@@ -78,10 +78,10 @@ function makeFeature(
 
 function renderWithRouter(ui: React.ReactElement) {
   return render(
-    <MemoryRouter initialEntries={["/features/feat-123"]}>
+    <MemoryRouter initialEntries={["/missions/feat-123"]}>
       <Routes>
-        <Route path="/features/:id" element={ui} />
-        <Route path="/boards/:habitatId" element={<div>Board Page</div>} />
+        <Route path="/missions/:id" element={ui} />
+        <Route path="/habitats/:habitatId" element={<div>Board Page</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -214,7 +214,7 @@ describe("FeatureHeader", () => {
     renderWithRouter(<FeatureHeader feature={feature} />);
 
     const backLink = screen.getByText("Back to Habitat").closest("a");
-    expect(backLink?.getAttribute("href")).toBe("/boards/board-42");
+    expect(backLink?.getAttribute("href")).toBe("/habitats/board-42");
   });
 
   it("applies cool-glow class", () => {

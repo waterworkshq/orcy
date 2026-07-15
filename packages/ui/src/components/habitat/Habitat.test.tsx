@@ -671,6 +671,6 @@ describe("Habitat - Archived Column", () => {
     await fireEvent.click(screen.getByTestId("archived-toggle"));
     const featureEl = screen.getByTestId("archived-feature-af1");
     await fireEvent.click(featureEl);
-    expect(mockNavigate).toHaveBeenCalledWith("/features/af1");
+    expect(mockNavigate).toHaveBeenCalledWith("/missions/af1");
   });
 });

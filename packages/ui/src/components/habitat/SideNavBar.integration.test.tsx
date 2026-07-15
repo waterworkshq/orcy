@@ -115,10 +115,10 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false 
 function renderBoardInShell() {
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/boards/board-1"]}>
+      <MemoryRouter initialEntries={["/habitats/board-1"]}>
         <Routes>
           <Route element={<AppShell />}>
-            <Route path="/boards/:habitatId" element={<HabitatPage />} />
+            <Route path="/habitats/:habitatId" element={<HabitatPage />} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -129,9 +129,9 @@ function renderBoardInShell() {
 function renderBoardOnly() {
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/boards/board-1"]}>
+      <MemoryRouter initialEntries={["/habitats/board-1"]}>
         <Routes>
-          <Route path="/boards/:habitatId" element={<HabitatPage />} />
+          <Route path="/habitats/:habitatId" element={<HabitatPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

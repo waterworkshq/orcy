@@ -58,7 +58,7 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
 
   const handleFeatureClick = (missionId: string) => {
     onClose();
-    navigate(`/features/${missionId}`);
+    navigate(`/missions/${missionId}`);
   };
 
   async function handleUnarchive(missionId: string) {

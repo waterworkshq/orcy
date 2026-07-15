@@ -63,7 +63,7 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
       e.stopPropagation();
       toggleMissionSelection(feature.id);
     } else if (!isDragOverlay) {
-      navigate(`/features/${feature.id}`);
+      navigate(`/missions/${feature.id}`);
     }
   }
 

@@ -286,7 +286,7 @@ export function Habitat({
                           data-testid={`archived-feature-${feature.id}`}
                           className="rounded-lg border border-outline-variant/15 bg-surface-container/40 p-2.5 cursor-pointer hover:bg-surface-container-high transition-colors"
                           onClick={() => {
-                            navigate(`/features/${feature.id}`);
+                            navigate(`/missions/${feature.id}`);
                           }}
                         >
                           <div className="text-xs font-medium text-on-surface-variant truncate">

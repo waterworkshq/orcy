@@ -523,7 +523,7 @@ export function HabitatPage() {
             onClose={() => setShowDepGraph(false)}
             onSelectFeature={(missionId) => {
               setShowDepGraph(false);
-              navigate(`/features/${missionId}`);
+              navigate(`/missions/${missionId}`);
             }}
           />
         </Suspense>

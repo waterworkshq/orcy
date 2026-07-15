@@ -1,8 +1,8 @@
-import React from 'react';
-import { Button } from '../../ui/Button.js';
-import { Badge } from '../../ui/Badge.js';
-import { ToggleSwitch } from '../../ui/ToggleSwitch.js';
-import type { ScheduledTask } from '../../../types/index.js';
+import React from "react";
+import { Button } from "../../ui/Button.js";
+import { Badge } from "../../ui/Badge.js";
+import { ToggleSwitch } from "../../ui/ToggleSwitch.js";
+import type { ScheduledTask } from "../../../types/index.js";
 
 interface ScheduledTasksListProps {
   scheduledTasks: ScheduledTask[];
@@ -16,7 +16,7 @@ interface ScheduledTasksListProps {
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return "—";
   try {
     return new Date(iso).toLocaleString();
   } catch {
@@ -26,14 +26,14 @@ function formatDate(iso: string | null): string {
 
 function formatSchedule(task: ScheduledTask): string {
   switch (task.scheduleType) {
-    case 'cron':
-      return task.cronExpression ?? '—';
-    case 'interval':
+    case "cron":
+      return task.cronExpression ?? "—";
+    case "interval":
       return `Every ${task.intervalMinutes}m`;
-    case 'once':
+    case "once":
       return `Once at ${formatDate(task.scheduledAt)}`;
     default:
-      return '—';
+      return "—";
   }
 }
 
@@ -72,7 +72,7 @@ export function ScheduledTasksList({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {scheduledTasks.length} scheduled task{scheduledTasks.length !== 1 ? 's' : ''}
+          {scheduledTasks.length} scheduled task{scheduledTasks.length !== 1 ? "s" : ""}
         </p>
         <Button size="sm" onClick={onAdd} data-testid="add-scheduled-task-btn">
           Add Scheduled Task
@@ -86,18 +86,15 @@ export function ScheduledTasksList({
             data-testid={`scheduled-task-${task.id}`}
             className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
           >
-            <ToggleSwitch
-              checked={task.enabled}
-              onChange={() => onToggle(task)}
-            />
+            <ToggleSwitch checked={task.enabled} onChange={() => onToggle(task)} />
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium truncate" data-testid={`task-name-${task.id}`}>
                   {task.name}
                 </span>
-                <Badge variant={task.enabled ? 'done' : 'default'}>
-                  {task.enabled ? 'Active' : 'Paused'}
+                <Badge variant={task.enabled ? "done" : "default"}>
+                  {task.enabled ? "Active" : "Paused"}
                 </Badge>
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
@@ -109,7 +106,9 @@ export function ScheduledTasksList({
                 {task.runCount > 0 && (
                   <>
                     <span className="mx-1">·</span>
-                    <span>{task.runCount} run{task.runCount !== 1 ? 's' : ''}</span>
+                    <span>
+                      {task.runCount} run{task.runCount !== 1 ? "s" : ""}
+                    </span>
                   </>
                 )}
               </div>
@@ -117,7 +116,7 @@ export function ScheduledTasksList({
 
             {task.lastCreatedMissionId && (
               <a
-                href={`/features/${task.lastCreatedMissionId}`}
+                href={`/missions/${task.lastCreatedMissionId}`}
                 className="text-xs text-primary hover:underline"
                 data-testid={`feature-link-${task.id}`}
               >

@@ -1,10 +1,10 @@
-import * as React from 'react';
-import { clsx } from 'clsx';
-import { useNavigate } from 'react-router-dom';
-import { Bell, Trash2, X } from 'lucide-react';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { formatRelativeTime } from '../../lib/formatting.js';
-import type { Notification } from '../../types/index.js';
+import * as React from "react";
+import { clsx } from "clsx";
+import { useNavigate } from "react-router-dom";
+import { Bell, Trash2, X } from "lucide-react";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { formatRelativeTime } from "../../lib/formatting.js";
+import type { Notification } from "../../types/index.js";
 
 interface NotificationDropdownProps {
   isOpen: boolean;
@@ -12,7 +12,7 @@ interface NotificationDropdownProps {
 }
 
 function formatTimestamp(ts: string): string {
-  return formatRelativeTime(ts, { maxGranularity: 'hours', fallbackToDate: true });
+  return formatRelativeTime(ts, { maxGranularity: "hours", fallbackToDate: true });
 }
 
 function NotificationItem({
@@ -33,25 +33,26 @@ function NotificationItem({
     <button
       type="button"
       className={clsx(
-        'w-full text-left px-3 py-2.5 rounded-lg transition-colors hover:bg-surface-container-high',
-        !notification.read && 'bg-primary-container/20',
+        "w-full text-left px-3 py-2.5 rounded-lg transition-colors hover:bg-surface-container-high",
+        !notification.read && "bg-primary-container/20",
       )}
       onClick={handleClick}
       data-testid={`notification-item-${notification.id}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-on-surface truncate">
-            {notification.taskTitle}
-          </p>
+          <p className="text-xs font-medium text-on-surface truncate">{notification.taskTitle}</p>
           <p className="text-xs text-on-surface-variant mt-0.5 truncate">
-            {notification.agentName ? `${notification.agentName} — ` : ''}
+            {notification.agentName ? `${notification.agentName} — ` : ""}
             {notification.message}
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {!notification.read && (
-            <span className="h-2 w-2 rounded-full bg-primary" data-testid={`unread-dot-${notification.id}`} />
+            <span
+              className="h-2 w-2 rounded-full bg-primary"
+              data-testid={`unread-dot-${notification.id}`}
+            />
           )}
           <span className="text-[10px] text-on-surface-variant">
             {formatTimestamp(notification.timestamp)}
@@ -72,10 +73,10 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
   React.useEffect(() => {
     if (!isOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === "Escape") onClose();
     };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
   }, [isOpen, onClose]);
 
   React.useEffect(() => {
@@ -85,8 +86,8 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
         onClose();
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
@@ -95,11 +96,15 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
 
   const handleNavigate = (taskId: string) => {
     onClose();
-    navigate(`/features/${taskId}`);
+    navigate(`/missions/${taskId}`);
   };
 
   return (
-    <div ref={containerRef} className="absolute right-0 top-full mt-2 z-50" data-testid="notification-dropdown">
+    <div
+      ref={containerRef}
+      className="absolute right-0 top-full mt-2 z-50"
+      data-testid="notification-dropdown"
+    >
       <div className="glass-card w-80 sm:w-96 rounded-xl shadow-xl border border-outline-variant/15 overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2 border-b border-outline-variant/15">
           <div className="flex items-center gap-2">
@@ -108,7 +113,10 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
               Notifications
             </span>
             {unreadCount > 0 && (
-              <span className="glass-badge glass-badge-active rounded-full px-1.5 py-0.5 text-[10px] font-bold" data-testid="unread-count">
+              <span
+                className="glass-badge glass-badge-active rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                data-testid="unread-count"
+              >
                 {unreadCount}
               </span>
             )}
@@ -138,7 +146,10 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
 
         <div className="max-h-80 overflow-y-auto">
           {notifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 px-4" data-testid="empty-state">
+            <div
+              className="flex flex-col items-center justify-center py-8 px-4"
+              data-testid="empty-state"
+            >
               <Bell className="h-8 w-8 text-on-surface-variant/40 mb-2" />
               <p className="text-xs text-on-surface-variant">No notifications yet</p>
             </div>

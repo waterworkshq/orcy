@@ -97,7 +97,7 @@ export function FeatureHeader({ feature, onEdit }: FeatureHeaderProps) {
                 Edit
               </Button>
             )}
-            <Link to={`/boards/${feature.habitatId}`}>
+            <Link to={`/habitats/${feature.habitatId}`}>
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Habitat

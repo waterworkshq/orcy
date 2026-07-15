@@ -51,13 +51,24 @@ export function MobileNav({
           <Users className="h-5 w-5" />
           <span className="text-[10px]">Agents</span>
         </Link>
-        <Link
-          to={habitatId ? `/habitats/${habitatId}/activity` : "/"}
-          className="flex flex-col items-center gap-0.5 rounded-md px-3 py-1.5 text-muted-foreground active:bg-accent transition-colors"
-        >
-          <Activity className="h-5 w-5" />
-          <span className="text-[10px]">Activity</span>
-        </Link>
+        {habitatId ? (
+          <Link
+            to={`/habitats/${habitatId}/activity`}
+            className="flex flex-col items-center gap-0.5 rounded-md px-3 py-1.5 text-muted-foreground active:bg-accent transition-colors"
+          >
+            <Activity className="h-5 w-5" />
+            <span className="text-[10px]">Activity</span>
+          </Link>
+        ) : (
+          <span
+            aria-disabled="true"
+            title="Open a habitat to view its activity"
+            className="flex flex-col items-center gap-0.5 rounded-md px-3 py-1.5 text-muted-foreground/40 cursor-not-allowed"
+          >
+            <Activity className="h-5 w-5" />
+            <span className="text-[10px]">Activity</span>
+          </span>
+        )}
       </div>
     </div>
   );

@@ -1,23 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api } from '../../api/index.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
-import { Button } from '../ui/Button.js';
-import { OnboardingModal } from '../ui/OnboardingModal.js';
-import { notify } from '../../lib/toast.js';
-import { Plus, LayoutGrid, Users } from 'lucide-react';
-import { useHabitats, useMyTeams } from '../../lib/useHabitatData.js';
-import { useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '../../lib/queryKeys.js';
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../../api/index.js";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
+import { Button } from "../ui/Button.js";
+import { OnboardingModal } from "../ui/OnboardingModal.js";
+import { notify } from "../../lib/toast.js";
+import { Plus, LayoutGrid, Users } from "lucide-react";
+import { useHabitats, useMyTeams } from "../../lib/useHabitatData.js";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys.js";
 
 export function HabitatListPage() {
   const { data: boardsData, isLoading: loading } = useHabitats();
   const { data: teamsData } = useMyTeams();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newTeamId, setNewTeamId] = useState<string>('');
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newTeamId, setNewTeamId] = useState<string>("");
   const [creating, setCreating] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -25,13 +25,13 @@ export function HabitatListPage() {
   const teams = teamsData ?? [];
 
   useEffect(() => {
-    if (boards.length === 0 && localStorage.getItem('orcy_onboarding_completed') !== 'true') {
+    if (boards.length === 0 && localStorage.getItem("orcy_onboarding_completed") !== "true") {
       setShowOnboarding(true);
     }
   }, [boards.length]);
 
   function handleOnboardingComplete() {
-    localStorage.setItem('orcy_onboarding_completed', 'true');
+    localStorage.setItem("orcy_onboarding_completed", "true");
     setShowOnboarding(false);
   }
 
@@ -47,9 +47,9 @@ export function HabitatListPage() {
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.habitats.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.teams.myTeams() });
-      setNewName('');
-      setNewDesc('');
-      setNewTeamId('');
+      setNewName("");
+      setNewDesc("");
+      setNewTeamId("");
       setShowCreate(false);
       notify.success(`Habitat "${newName.trim()}" created`);
     } catch (err) {
@@ -91,7 +91,9 @@ export function HabitatListPage() {
           <Card className="py-12 text-center">
             <CardContent>
               <LayoutGrid className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="mb-4 text-muted-foreground">No habitats yet. Create your first habitat.</p>
+              <p className="mb-4 text-muted-foreground">
+                No habitats yet. Create your first habitat.
+              </p>
               <Button onClick={() => setShowCreate(true)}>
                 <Plus className="h-4 w-4" />
                 Create Habitat
@@ -101,7 +103,7 @@ export function HabitatListPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {boards.map((board) => (
-              <Link key={board.id} to={`/boards/${board.id}`}>
+              <Link key={board.id} to={`/habitats/${board.id}`}>
                 <Card className="cursor-pointer transition-shadow hover:shadow-lg">
                   <CardHeader className="p-4">
                     <CardTitle className="text-base">{board.name}</CardTitle>
@@ -154,23 +156,21 @@ export function HabitatListPage() {
                       <label className="mb-1 block text-sm font-medium">Team</label>
                       <select
                         value={newTeamId}
-                        onChange={e => setNewTeamId(e.target.value)}
+                        onChange={(e) => setNewTeamId(e.target.value)}
                         className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                       >
                         <option value="">No team</option>
-                        {teams.map(t => (
-                          <option key={t.id} value={t.id}>{t.name}</option>
+                        {teams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
                         ))}
                       </select>
                     </div>
                   )}
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setShowCreate(false)}
-                  >
+                  <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>
                     Cancel
                   </Button>
                   <Button type="submit" loading={creating}>

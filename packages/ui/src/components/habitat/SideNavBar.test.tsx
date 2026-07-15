@@ -138,11 +138,24 @@ describe("SideNavBar", () => {
     expect(workspaceLink.getAttribute("href")).toBe("/");
   });
 
-  it("highlights active Echo Base nav item on board routes", () => {
-    renderWithRouter(<SideNavBar />, ["/boards/board-1"]);
+  it("highlights active Echo Base nav item on habitat routes", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/board-1"]);
     const activeItem = screen.getByTestId("nav-item-echo-base");
     expect(activeItem.className).toContain("bg-primary-container");
     expect(activeItem.className).toContain("font-medium");
+  });
+
+  it("highlights active Echo Base nav item on /missions/:id route", () => {
+    renderWithRouter(<SideNavBar />, ["/missions/mission-1"]);
+    const activeItem = screen.getByTestId("nav-item-echo-base");
+    expect(activeItem.className).toContain("bg-primary-container");
+    expect(activeItem.className).toContain("font-medium");
+  });
+
+  it("does not highlight Echo Base on /dashboard route", () => {
+    renderWithRouter(<SideNavBar />, ["/dashboard"]);
+    const activeItem = screen.getByTestId("nav-item-echo-base");
+    expect(activeItem.className).not.toContain("bg-primary-container");
   });
 
   it("highlights active Orcy Pod nav item on /agents route", () => {
@@ -157,6 +170,20 @@ describe("SideNavBar", () => {
     const activeItem = screen.getByTestId("nav-item-wake");
     expect(activeItem.className).toContain("bg-primary-container");
     expect(activeItem.className).toContain("font-medium");
+  });
+
+  it("Remote Pods links to habitat-scoped route when habitat is in context", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1"]);
+    const remotePodsLink = screen.getByTestId("nav-item-remote-pods");
+    expect(remotePodsLink.tagName).toBe("A");
+    expect(remotePodsLink.getAttribute("href")).toBe("/habitats/hab-1/remote-pods");
+  });
+
+  it("Remote Pods is disabled when no current habitat", () => {
+    renderWithRouter(<SideNavBar />);
+    const remotePodsItem = screen.getByTestId("nav-item-remote-pods");
+    expect(remotePodsItem.tagName).not.toBe("A");
+    expect(remotePodsItem.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("inactive items do not have active styling", () => {

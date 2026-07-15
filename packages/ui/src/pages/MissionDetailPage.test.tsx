@@ -225,7 +225,7 @@ function renderWithProviders(
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/missions/:id" element={<MissionDetailPage />} />
-          <Route path="/boards/:habitatId" element={<div>Board Page</div>} />
+          <Route path="/habitats/:habitatId" element={<div>Board Page</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -820,7 +820,7 @@ describe("MissionDetailPage integration", () => {
 
     await waitFor(() => {
       const backLink = screen.getByText("Back to Habitat").closest("a");
-      expect(backLink?.getAttribute("href")).toBe("/boards/habitat-1");
+      expect(backLink?.getAttribute("href")).toBe("/habitats/habitat-1");
     });
   });
 });
