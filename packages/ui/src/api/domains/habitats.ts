@@ -68,6 +68,7 @@ export const habitatsApi = {
       actorId?: string;
       since?: string;
     },
+    signal?: AbortSignal,
   ) => {
     const params = new URLSearchParams();
     if (filters?.limit) params.set("limit", String(filters.limit));
@@ -79,6 +80,7 @@ export const habitatsApi = {
     const qs = params.toString();
     return request<{ events: EnrichedHabitatEvent[]; total: number }>(
       `/habitats/${habitatId}/events${qs ? `?${qs}` : ""}`,
+      { signal },
     );
   },
   export: (habitatId: string, params?: { include?: string; format?: string }) => {

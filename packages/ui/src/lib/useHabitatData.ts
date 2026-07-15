@@ -69,7 +69,8 @@ export function useHabitatEvents(
 ) {
   return useQuery({
     queryKey: [...queryKeys.habitats.events(habitatId ?? ""), params] as const,
-    queryFn: () => api.habitats.events(habitatId!, params),
+    queryFn: ({ signal }: { signal?: AbortSignal }) =>
+      api.habitats.events(habitatId!, params, signal),
     enabled: !!habitatId,
     staleTime: 30 * 1000,
   });
@@ -83,15 +84,20 @@ export function useHabitatEventsInfinite(
   return useInfiniteQuery({
     queryKey: queryKeys.habitats.eventsInfinite(habitatId ?? "", action, EVENTS_PAGE_SIZE),
     queryFn: ({ pageParam, signal }) =>
-      api.habitats.events(habitatId!, {
-        limit: EVENTS_PAGE_SIZE,
-        offset: pageParam,
-        ...(action ? { action } : {}),
-      }),
+      api.habitats.events(
+        habitatId!,
+        {
+          limit: EVENTS_PAGE_SIZE,
+          offset: pageParam,
+          ...(action ? { action } : {}),
+        },
+        signal,
+      ),
     initialPageParam: 0,
     enabled: !!habitatId,
     staleTime: 30 * 1000,
     getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.events.length === 0) return undefined;
       const rawAccumulated = allPages.reduce((sum, page) => sum + page.events.length, 0);
       return rawAccumulated < lastPage.total ? rawAccumulated : undefined;
     },
@@ -522,6 +528,7 @@ export function useArchivedMissionsInfinite(habitatId: string | undefined) {
     enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
     getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.missions.length === 0) return undefined;
       const rawAccumulated = allPages.reduce((sum, page) => sum + page.missions.length, 0);
       return rawAccumulated < lastPage.total ? rawAccumulated : undefined;
     },

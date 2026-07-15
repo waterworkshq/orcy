@@ -9,6 +9,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/index.js";
 import {
+  archiveMissionFromHabitatDetail,
   invalidateHabitatRepresentations,
   invalidateMissionRepresentations,
   removeMissionFromHabitatDetail,
@@ -95,7 +96,7 @@ export function FeatureDetailPanel() {
   async function handleArchive() {
     try {
       const { mission } = await api.missions.archive(feature!.id);
-      removeMissionFromHabitatDetail(queryClient, mission.habitatId, mission.id);
+      archiveMissionFromHabitatDetail(queryClient, mission.habitatId, mission);
       invalidateMissionRepresentations(queryClient, mission.id);
       resetArchivedForHabitat(queryClient, mission.habitatId);
       invalidateHabitatRepresentations(queryClient, mission.habitatId);

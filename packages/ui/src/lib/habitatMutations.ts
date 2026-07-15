@@ -46,9 +46,10 @@ export function patchMissionInHabitatDetail(
 }
 
 /**
- * Remove a Mission from the Habitat-detail active collection (archive/delete).
- * This is a guarded removal, not a snapshot rollback: background invalidation
- * remains the reconciliation authority.
+ * Hard-delete a Mission from the Habitat-detail active collection. Unconditional
+ * removal by id — used for a confirmed delete where the canonical event
+ * authoritatively removes the entry regardless of cached version. Background
+ * invalidation remains the reconciliation authority.
  */
 export function removeMissionFromHabitatDetail(
   qc: QueryClient,
@@ -62,6 +63,31 @@ export function removeMissionFromHabitatDetail(
     return {
       ...old,
       missions: old.missions.filter((m) => m.id !== missionId),
+    };
+  });
+}
+
+/**
+ * Archive-remove a canonical Mission from the Habitat-detail active collection.
+ * Version-guarded: removes only when `cached.version <= archived.version`, so a
+ * delayed archive event (older version) cannot evict a newer active entry — e.g.
+ * one reinstalled by an unarchive refetch after this archive was generated.
+ * Distinct from hard-delete, which is unconditional.
+ */
+export function archiveMissionFromHabitatDetail(
+  qc: QueryClient,
+  habitatId: string,
+  mission: Mission,
+): void {
+  const detailKey = queryKeys.habitats.detail(habitatId);
+  qc.setQueryData<HabitatDetailData>(detailKey, (old) => {
+    if (!old) return old;
+    const cached = old.missions.find((m) => m.id === mission.id);
+    if (!cached) return old;
+    if (cached.version > mission.version) return old;
+    return {
+      ...old,
+      missions: old.missions.filter((m) => m.id !== mission.id),
     };
   });
 }
@@ -90,13 +116,28 @@ export function patchColumnsInHabitatDetail(
 
 /**
  * Invalidate every Habitat-scoped representation a mutation can affect:
- * Habitat detail, stats, events, and the mission-list filters.
+ * Habitat detail, stats, the finite events key, the mission-list filters, and
+ * the offset-based events-infinite family (reset, not invalidated, so the
+ * accumulated offset pages are discarded rather than left stale).
  */
 export function invalidateHabitatRepresentations(qc: QueryClient, habitatId: string): void {
   qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
   qc.invalidateQueries({ queryKey: queryKeys.habitats.stats(habitatId) });
   qc.invalidateQueries({ queryKey: queryKeys.habitats.events(habitatId) });
   qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
+  resetEventsInfiniteForHabitat(qc, habitatId);
+}
+
+/**
+ * Reset the events-infinite offset family from offset zero. Used on membership
+ * or lifecycle changes that can shift the activity feed (task events, mission
+ * mutations). Reset (not invalidate) because offset-based accumulated pages
+ * cannot be reconciled by a background refetch — they must be discarded.
+ */
+export function resetEventsInfiniteForHabitat(qc: QueryClient, habitatId: string): void {
+  qc.resetQueries({
+    queryKey: [...queryKeys.habitats.all, "eventsInfinite", habitatId],
+  });
 }
 
 /**

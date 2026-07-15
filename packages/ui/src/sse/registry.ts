@@ -1,11 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryKeys.js";
 import {
+  archiveMissionFromHabitatDetail,
   invalidateHabitatRepresentations,
   invalidateMissionRepresentations,
   patchMissionInHabitatDetail,
   removeMissionFromHabitatDetail,
   resetArchivedForHabitat,
+  resetEventsInfiniteForHabitat,
   type HabitatDetailData,
 } from "../lib/habitatMutations.js";
 import type { SSEEvent } from "../types/index.js";
@@ -175,6 +177,7 @@ function projectTaskServer<T extends SSEEventType>(context: ServerProjectionCont
   context.queryClient.invalidateQueries({
     queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
   });
+  resetEventsInfiniteForHabitat(context.queryClient, context.subscriptionHabitatId);
 }
 
 const taskServerHandler = defineSSEHandler<SSEEventType>({ server: projectTaskServer });
@@ -453,7 +456,7 @@ export const SSE_EVENT_REGISTRY = {
       if (mission.isArchived) {
         await cancelAffectedQueries(ctx.queryClient, habitatId, mission.id);
         if (!ctx.isActive()) return;
-        removeMissionFromHabitatDetail(ctx.queryClient, habitatId, mission.id);
+        archiveMissionFromHabitatDetail(ctx.queryClient, habitatId, mission);
         ctx.queryClient.removeQueries({ queryKey: queryKeys.missions.detail(mission.id) });
         invalidateHabitatRepresentations(ctx.queryClient, habitatId);
         resetArchivedForHabitat(ctx.queryClient, habitatId);
@@ -528,6 +531,9 @@ export const SSE_EVENT_REGISTRY = {
   "task.review_completed": defineSSEHandler<"task.review_completed">({
     server: (context) => {
       invalidateTaskDetail(context);
+      const taskId = getTaskId(context.event);
+      if (taskId)
+        context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(taskId) });
       context.queryClient.invalidateQueries({
         queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
       });

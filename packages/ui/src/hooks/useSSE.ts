@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useHabitatStore } from "../store/habitatStore.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { projectSSEServerEvent } from "../sse/registry.js";
@@ -17,9 +17,16 @@ import type { SSEEvent } from "../types/index.js";
  *    `EventSource`; an `EventSource` created by a stale generation is closed
  *    immediately and a stale generation performs no projection effect.
  *
- * Only fresh-generation events reach the ephemeral store update, the server
- * projector, and the recorded `recentSSEEvents` (which drives notifications), so
- * a stale subscription can never patch, invalidate, notify, or navigate.
+ * Commit/cleanup window hardening: the committed Habitat is recorded in a
+ * ref updated by a *layout* effect (before paint), never during render, and the
+ * shared `isActive()` predicate requires BOTH generation equality AND that the
+ * subscription's Habitat still matches the committed Habitat. Passive-effect
+ * cleanup (which bumps the generation) runs after paint, so without the
+ * committed-Habitat leg a stale subscription A could still read as "active"
+ * in the window between B committing and A's cleanup running. `isActive()` is
+ * rechecked after every await, before `EventSource` construction, and in every
+ * callback, so a stale generation can never patch, invalidate, notify, or
+ * navigate.
  */
 export function useSSE(boardId: string) {
   const queryClient = useQueryClient();
@@ -28,12 +35,25 @@ export function useSSE(boardId: string) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelayRef = useRef(1000);
   const tokenAbortRef = useRef<AbortController | null>(null);
-  const boardIdRef = useRef(boardId);
-  boardIdRef.current = boardId;
+  const committedHabitatRef = useRef(boardId);
+
+  const abortGeneration = useCallback(() => {
+    generationRef.current++;
+    tokenAbortRef.current?.abort();
+    tokenAbortRef.current = null;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    esRef.current?.close();
+    esRef.current = null;
+  }, []);
 
   const connect = useCallback(async () => {
     const generation = ++generationRef.current;
     const subscriptionHabitatId = boardId;
+    const isActive = () =>
+      generation === generationRef.current && subscriptionHabitatId === committedHabitatRef.current;
 
     tokenAbortRef.current?.abort();
     if (reconnectTimeoutRef.current) {
@@ -54,28 +74,28 @@ export function useSSE(boardId: string) {
           headers: { Authorization: `Bearer ${token}` },
           signal: tokenAbort.signal,
         });
-        if (generation !== generationRef.current) return;
+        if (!isActive()) return;
         if (res.ok) {
           const data = await res.json();
-          if (generation !== generationRef.current) return;
+          if (!isActive()) return;
           streamUrl = `/sse/habitats/${boardId}/stream?token=${encodeURIComponent(data.token)}`;
         }
       } catch {
-        if (tokenAbort.signal.aborted || generation !== generationRef.current) return;
+        if (tokenAbort.signal.aborted || !isActive()) return;
       }
     }
 
-    if (generation !== generationRef.current) return;
+    if (!isActive()) return;
 
     const es = new EventSource(streamUrl);
-    if (generation !== generationRef.current) {
+    if (!isActive()) {
       es.close();
       return;
     }
     esRef.current = es;
 
     es.addEventListener("message", (e) => {
-      if (generation !== generationRef.current) return;
+      if (!isActive()) return;
       let event: SSEEvent;
       try {
         event = JSON.parse(e.data) as SSEEvent;
@@ -83,16 +103,16 @@ export function useSSE(boardId: string) {
         return;
       }
       retryDelayRef.current = 1000;
-      const isActive = () => generation === generationRef.current;
       const handleSSEEvent = useHabitatStore.getState().handleSSEEvent;
       handleSSEEvent(event);
       projectSSEServerEvent(event, {
         event,
         queryClient,
         subscriptionHabitatId,
-        routeHabitatId: boardIdRef.current,
+        routeHabitatId: committedHabitatRef.current,
         isActive,
         navigateHome: () => {
+          if (!isActive()) return;
           if (typeof window !== "undefined") window.location.hash = "#/";
         },
       });
@@ -101,26 +121,23 @@ export function useSSE(boardId: string) {
     es.addEventListener("error", () => {
       es.close();
       if (esRef.current === es) esRef.current = null;
-      if (generation !== generationRef.current) return;
+      if (!isActive()) return;
       reconnectTimeoutRef.current = setTimeout(() => {
-        if (generation !== generationRef.current) return;
+        if (!isActive()) return;
         retryDelayRef.current = Math.min(retryDelayRef.current * 2, 30000);
         void connect();
       }, retryDelayRef.current);
     });
   }, [boardId, queryClient]);
 
+  useLayoutEffect(() => {
+    committedHabitatRef.current = boardId;
+  }, [boardId]);
+
   useEffect(() => {
     void connect();
     return () => {
-      generationRef.current++;
-      tokenAbortRef.current?.abort();
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      esRef.current?.close();
-      esRef.current = null;
+      abortGeneration();
     };
-  }, [connect]);
+  }, [connect, abortGeneration]);
 }

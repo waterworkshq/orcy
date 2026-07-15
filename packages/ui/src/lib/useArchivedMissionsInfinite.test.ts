@@ -196,4 +196,29 @@ describe("useArchivedMissionsInfinite (3-page fixture)", () => {
     );
     expect(result.current.data?.pages).toHaveLength(1);
   });
+
+  it("M11: terminates when a page returns empty while total > rawAccumulated", async () => {
+    const TOTAL = 100;
+    const mockList = api.missions.list as ReturnType<typeof vi.fn>;
+    mockList.mockImplementation((_habitat: string, filters: { offset?: number }) => {
+      const offset = filters.offset ?? 0;
+      if (offset === 0) return Promise.resolve(page(0, PAGE_SIZE));
+      return Promise.resolve({ missions: [], total: TOTAL });
+    });
+
+    const { result } = renderHook(() => useArchivedMissionsInfinite("h1"), {
+      wrapper: createWrapper().wrapper,
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+
+    expect(result.current.hasNextPage).toBe(false);
+    expect(api.missions.list).toHaveBeenCalledTimes(2);
+  });
 });

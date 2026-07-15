@@ -392,3 +392,97 @@ describe("realtime projector — presence and WIP stay ephemeral", () => {
     expect(set).not.toHaveBeenCalled();
   });
 });
+
+describe("M5 — version-guarded archive removal (real QueryClient)", () => {
+  it("a delayed archive (older version) does NOT remove a newer active entry reinstalled by unarchive", async () => {
+    // Unarchive refetch reinstalled v5 into the active collection. A delayed
+    // archive event carrying v4 must not evict the newer active entry.
+    const qc = qcWithDetail([withProgress(baseMission({ id: "m1", version: 5 }))]);
+    const event: SSEEvent = {
+      type: "mission.updated",
+      data: baseMission({ id: "m1", version: 4, isArchived: true }),
+    };
+
+    await projectSSEServerEvent(event, ctx(event, qc));
+
+    const missions = detailData(qc)!.missions;
+    expect(missions.some((m) => m.id === "m1")).toBe(true);
+    expect(missions.find((m) => m.id === "m1")!.version).toBe(5);
+  });
+
+  it("a current archive (newer-or-equal version) DOES remove the active entry", async () => {
+    const qc = qcWithDetail([withProgress(baseMission({ id: "m1", version: 4 }))]);
+    const event: SSEEvent = {
+      type: "mission.updated",
+      data: baseMission({ id: "m1", version: 6, isArchived: true }),
+    };
+
+    await projectSSEServerEvent(event, ctx(event, qc));
+
+    expect(detailData(qc)!.missions.some((m) => m.id === "m1")).toBe(false);
+  });
+
+  it("equal version archive removes (cached.version <= archived.version)", async () => {
+    const qc = qcWithDetail([withProgress(baseMission({ id: "m1", version: 4 }))]);
+    const event: SSEEvent = {
+      type: "mission.updated",
+      data: baseMission({ id: "m1", version: 4, isArchived: true }),
+    };
+
+    await projectSSEServerEvent(event, ctx(event, qc));
+
+    expect(detailData(qc)!.missions.some((m) => m.id === "m1")).toBe(false);
+  });
+});
+
+describe("M6 — task lifecycle resets the events-infinite family (real QueryClient)", () => {
+  it("a task.completed event resets (not invalidates) the eventsInfinite key", async () => {
+    const qc = qcWithDetail();
+    const infiniteKey = queryKeys.habitats.eventsInfinite("h1", undefined, 50);
+    // Seed cached activity data so we can observe a reset clearing it. An
+    // invalidate would leave the stale data in place (refetch in background);
+    // only a reset clears it synchronously.
+    qc.setQueryData(infiniteKey, {
+      pages: [{ events: [{ id: "e1" } as never], total: 1 }],
+      pageParams: [0],
+    });
+    expect(qc.getQueryData(infiniteKey)).toBeDefined();
+
+    const event: SSEEvent = { type: "task.completed", data: { taskId: "t1" } };
+    await projectSSEServerEvent(event, ctx(event, qc));
+
+    // Reset clears the cached data — proving reset, not invalidate.
+    expect(qc.getQueryData(infiniteKey)).toBeUndefined();
+  });
+
+  it("invalidateHabitatRepresentations resets the eventsInfinite family", async () => {
+    const { invalidateHabitatRepresentations } = await import("../lib/habitatMutations.js");
+    const qc = qcWithDetail();
+    const infiniteKey = queryKeys.habitats.eventsInfinite("h1", undefined, 50);
+    qc.setQueryData(infiniteKey, {
+      pages: [{ events: [{ id: "e1" } as never], total: 1 }],
+      pageParams: [0],
+    });
+
+    invalidateHabitatRepresentations(qc, "h1");
+
+    expect(qc.getQueryData(infiniteKey)).toBeUndefined();
+  });
+});
+
+describe("M7 — review_completed refreshes reviewers (real QueryClient)", () => {
+  it("task.review_completed invalidates tasks.reviewers, matching review_assigned", async () => {
+    const qc = qcWithDetail();
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+    const event: SSEEvent = {
+      type: "task.review_completed",
+      data: { taskId: "t1", reviewerId: "u1", status: "approved" },
+    };
+
+    await projectSSEServerEvent(event, ctx(event, qc));
+
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: queryKeys.tasks.reviewers("t1") }),
+    );
+  });
+});
