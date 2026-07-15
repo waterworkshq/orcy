@@ -245,6 +245,12 @@ describe("event-board repository", () => {
         cycleTime: { averageMinutes: 0, medianMinutes: 0, count: 0 },
         throughput: { today: 0, thisWeek: 0, thisMonth: 0 },
         wipHealth: [],
+        missionSummary: {
+          total: 0,
+          completed: 0,
+          blocked: 0,
+          byStatus: { not_started: 0, in_progress: 0, review: 0, done: 0, failed: 0 },
+        },
       });
     });
 
@@ -269,6 +275,12 @@ describe("event-board repository", () => {
         cycleTime: { averageMinutes: 60, medianMinutes: 60, count: 1 },
         throughput: { today: 1, thisWeek: 1, thisMonth: 1 },
         wipHealth: [],
+        missionSummary: {
+          total: 0,
+          completed: 0,
+          blocked: 0,
+          byStatus: { not_started: 0, in_progress: 0, review: 0, done: 0, failed: 0 },
+        },
       });
     });
   });

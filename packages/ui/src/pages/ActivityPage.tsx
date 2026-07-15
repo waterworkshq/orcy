@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useModalStore } from "../store/modalStore.js";
-import { useHabitatAnomalies, useHabitatEvents } from "../lib/useHabitatData.js";
+import { useHabitatAnomalies, useHabitatEventsInfinite } from "../lib/useHabitatData.js";
 import { Button } from "../components/ui/Button.js";
 import {
   CheckCircle,
@@ -153,47 +153,34 @@ export function ActivityPage() {
   const { habitatId } = useParams<{ habitatId: string }>();
   const openModal = useModalStore((s) => s.openModal);
   const [filter, setFilter] = useState<FilterType>("all");
-  const [pageOffset, setPageOffset] = useState(0);
-  const [accumulatedEvents, setAccumulatedEvents] = useState<EnrichedHabitatEvent[]>([]);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-
-  const limit = 50;
 
   const anomaliesQuery = useHabitatAnomalies(habitatId);
   const anomalies = anomaliesQuery.data?.anomalies ?? [];
 
   const actions = actionFilters[filter];
-  const eventsParams = useMemo(() => {
-    const params: { limit: number; offset: number; action?: string } = {
-      limit,
-      offset: pageOffset,
-    };
-    if (actions.length === 1) {
-      params.action = actions[0];
+  const actionFilter = actions.length === 1 ? actions[0] : undefined;
+
+  const eventsQuery = useHabitatEventsInfinite(
+    habitatId,
+    actionFilter ? { action: actionFilter } : undefined,
+  );
+
+  const pages = eventsQuery.data?.pages ?? [];
+  const events = useMemo(() => {
+    const seen = new Set<string>();
+    const flattened: EnrichedHabitatEvent[] = [];
+    for (const page of pages) {
+      for (const event of page.events) {
+        if (seen.has(event.id)) continue;
+        seen.add(event.id);
+        flattened.push(event);
+      }
     }
-    return params;
-  }, [limit, pageOffset, actions]);
-
-  const eventsQuery = useHabitatEvents(habitatId, eventsParams);
-
-  useEffect(() => {
-    if (!eventsQuery.data) return;
-    const fetched = eventsQuery.data.events ?? [];
-    const filtered =
-      actions.length > 1 ? fetched.filter((e) => actions.includes(e.action)) : fetched;
-    setTotal(eventsQuery.data.total);
-    setHasMore(pageOffset + fetched.length < eventsQuery.data.total);
-
-    if (pageOffset === 0) {
-      setAccumulatedEvents(filtered);
-    } else {
-      setAccumulatedEvents((prev) => [...prev, ...filtered]);
-    }
-  }, [eventsQuery.data, pageOffset, actions]);
-
-  const events = accumulatedEvents;
-  const isLoading = eventsQuery.isLoading || eventsQuery.isFetching;
+    return flattened;
+  }, [pages]);
+  const total = pages.length > 0 ? pages[pages.length - 1].total : 0;
+  const hasMore = eventsQuery.hasNextPage;
+  const isLoading = eventsQuery.isLoading || eventsQuery.isFetchingNextPage;
   const error = eventsQuery.error?.message ?? null;
 
   const handleTaskClick = (taskId: string) => {
@@ -202,13 +189,11 @@ export function ActivityPage() {
 
   const handleFilterChange = (newFilter: FilterType) => {
     setFilter(newFilter);
-    setPageOffset(0);
-    setAccumulatedEvents([]);
-    setHasMore(true);
   };
 
   const handleLoadMore = () => {
-    setPageOffset((prev) => prev + limit);
+    if (eventsQuery.isFetchingNextPage) return;
+    void eventsQuery.fetchNextPage();
   };
 
   const severityColors: Record<string, string> = {

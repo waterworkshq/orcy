@@ -55,7 +55,19 @@ let mockEventsResult: UseQueryResult<{ events: EnrichedHabitatEvent[]; total: nu
 vi.mock("../lib/useHabitatData.js", () => ({
   useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useHabitatAnomalies: () => mockAnomaliesResult,
-  useHabitatEvents: () => mockEventsResult,
+  useHabitatEventsInfinite: () => {
+    const data = mockEventsResult.data as any;
+    const events = data?.events ?? [];
+    const total = data?.total ?? 0;
+    return {
+      data: data ? { pages: [{ events, total }] } : undefined,
+      isLoading: mockEventsResult.isLoading,
+      isFetchingNextPage: (mockEventsResult as any).isFetching ?? false,
+      hasNextPage: events.length < total,
+      fetchNextPage: vi.fn(),
+      error: mockEventsResult.error,
+    };
+  },
 }));
 
 const mockOpenModal = vi.fn();

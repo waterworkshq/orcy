@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 import type { MissionWithProgress } from "../types/index.js";
 
 vi.mock("../api/index.js", () => ({
@@ -9,7 +10,13 @@ vi.mock("../api/index.js", () => ({
   },
 }));
 
-import { computeLayout, computeChain } from "./useDependencyGraph.js";
+const mockHabitatData = vi.fn();
+
+vi.mock("../lib/useHabitatData.js", () => ({
+  useHabitat: (...args: unknown[]) => mockHabitatData(...args),
+}));
+
+import { computeLayout, computeChain, useDependencyGraph } from "./useDependencyGraph.js";
 
 function makeFeatureWithProgress(overrides: {
   id: string;
@@ -40,8 +47,8 @@ function makeFeatureWithProgress(overrides: {
     sprintId: null,
     releaseGateType: null,
     releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
+    releaseDeadlineType: null,
+    releaseDeadlineVersion: null,
     actualMinutes: null,
     plannedMinutes: null,
     planningAccuracy: null,
@@ -194,5 +201,31 @@ describe("computeChain", () => {
     const { nodes, edges } = computeLayout(features);
     const chain = computeChain("feat-1", nodes, edges);
     expect(chain).toEqual(new Set(["feat-1", "feat-2"]));
+  });
+});
+
+describe("useDependencyGraph (Habitat-detail selector)", () => {
+  it("includes every active Mission beyond the mission-list first 20", () => {
+    const many: MissionWithProgress[] = Array.from({ length: 25 }, (_, i) =>
+      makeFeatureWithProgress({ id: `feat-${i}` }),
+    );
+    mockHabitatData.mockReturnValue({
+      data: { habitat: { id: "board-1" }, columns: [], missions: many },
+      isLoading: false,
+      error: null,
+    });
+
+    const { result } = renderHook(() => useDependencyGraph("board-1"));
+
+    expect(result.current.featureCount).toBe(25);
+    expect(result.current.nodes).toHaveLength(25);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it("reports a loading state while Habitat detail is loading", () => {
+    mockHabitatData.mockReturnValue({ data: undefined, isLoading: true, error: null });
+    const { result } = renderHook(() => useDependencyGraph("board-1"));
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.featureCount).toBe(0);
   });
 });

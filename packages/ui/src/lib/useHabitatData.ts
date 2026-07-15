@@ -1,7 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "../api/index.js";
 import { queryKeys } from "./queryKeys.js";
-import type { CreateMissionInput, CreateTaskInMissionInput, Mission } from "../types/index.js";
+import type {
+  CreateMissionInput,
+  CreateTaskInMissionInput,
+  EnrichedHabitatEvent,
+  Mission,
+  MissionWithProgress,
+} from "../types/index.js";
+
+export const ARCHIVED_PAGE_SIZE = 50;
+export const EVENTS_PAGE_SIZE = 50;
 
 export function useHabitats() {
   return useQuery({
@@ -55,6 +65,29 @@ export function useHabitatEvents(
     queryFn: () => api.habitats.events(habitatId!, params),
     enabled: !!habitatId,
     staleTime: 30 * 1000,
+  });
+}
+
+export function useHabitatEventsInfinite(
+  habitatId: string | undefined,
+  filters?: { action?: string },
+) {
+  const action = filters?.action;
+  return useInfiniteQuery({
+    queryKey: queryKeys.habitats.eventsInfinite(habitatId ?? "", action, EVENTS_PAGE_SIZE),
+    queryFn: ({ pageParam, signal }) =>
+      api.habitats.events(habitatId!, {
+        limit: EVENTS_PAGE_SIZE,
+        offset: pageParam,
+        ...(action ? { action } : {}),
+      }),
+    initialPageParam: 0,
+    enabled: !!habitatId,
+    staleTime: 30 * 1000,
+    getNextPageParam: (lastPage, allPages) => {
+      const rawAccumulated = allPages.reduce((sum, page) => sum + page.events.length, 0);
+      return rawAccumulated < lastPage.total ? rawAccumulated : undefined;
+    },
   });
 }
 
@@ -391,6 +424,7 @@ export function useInvalidateHabitat(habitatId: string) {
     qc.invalidateQueries({ queryKey: queryKeys.habitats.stats(habitatId) });
     qc.invalidateQueries({ queryKey: queryKeys.habitats.events(habitatId) });
     qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
+    qc.resetQueries({ queryKey: queryKeys.missions.archived(habitatId, ARCHIVED_PAGE_SIZE) });
   };
 }
 
@@ -460,13 +494,32 @@ export function useScheduledTasks(boardId: string | undefined) {
   });
 }
 
-export function useArchivedMissions(habitatId: string | undefined) {
-  return useQuery({
-    queryKey: [...queryKeys.missions.all, "archived", habitatId ?? ""] as const,
-    queryFn: () => api.missions.list(habitatId!, { isArchived: true }),
+export function useArchivedMissionsInfinite(habitatId: string | undefined) {
+  const query = useInfiniteQuery({
+    queryKey: queryKeys.missions.archived(habitatId ?? "", ARCHIVED_PAGE_SIZE),
+    queryFn: ({ pageParam, signal }) =>
+      api.missions.list(
+        habitatId!,
+        { isArchived: true, limit: ARCHIVED_PAGE_SIZE, offset: pageParam },
+        signal,
+      ),
+    initialPageParam: 0,
     enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
+    getNextPageParam: (lastPage, allPages) => {
+      const rawAccumulated = allPages.reduce((sum, page) => sum + page.missions.length, 0);
+      return rawAccumulated < lastPage.total ? rawAccumulated : undefined;
+    },
   });
+
+  return query;
+}
+
+export function useResetArchivedMissions(habitatId: string) {
+  const qc = useQueryClient();
+  return () => {
+    qc.resetQueries({ queryKey: queryKeys.missions.archived(habitatId, ARCHIVED_PAGE_SIZE) });
+  };
 }
 
 export function useIntegrations(habitatId: string | undefined) {

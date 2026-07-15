@@ -59,6 +59,14 @@ export type PublicHabitat = Omit<Habitat, "codeReviewSettings" | "ciCdSettings">
   ciCdSettings: import("./settings.js").PublicCiCdSettings | null;
 };
 
+/** Authoritative active-Mission summary computed server-side. `total`/`completed`/`byStatus` cover active Missions only; a Mission is `blocked` when at least one of its dependency Missions has a status other than `done` (archived dependencies participate, deleted dependency targets do not synthesize a block, and Task completeness is irrelevant). Every `MissionStatus` key is zero-filled. */
+export interface MissionSummary {
+  total: number;
+  completed: number;
+  blocked: number;
+  byStatus: Record<MissionStatus, number>;
+}
+
 /** Rollup of cycle time, throughput, and per-column WIP health derived from activity across a {@link Habitat}. */
 export interface HabitatStats {
   cycleTime: {
@@ -78,6 +86,7 @@ export interface HabitatStats {
     limit: number | null;
     health: "ok" | "warning" | "exceeded";
   }[];
+  missionSummary: MissionSummary;
 }
 
 /** Versioned, name-anchored snapshot of a {@link Habitat} (columns, missions, comments, templates, webhooks) used for portable import/export. The portable document uses canonical Habitat/Mission vocabulary — no `board`/`feature` aliases survive at this boundary. */

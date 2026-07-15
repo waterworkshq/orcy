@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Drawer } from "../ui/Drawer.js";
 import { Button } from "../ui/Button.js";
+import { useArchivedMissionsInfinite, useResetArchivedMissions } from "../../lib/useHabitatData.js";
 import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
 import { Archive, ChevronRight } from "lucide-react";
 import { Badge } from "../ui/Badge.js";
 import type { MissionWithProgress } from "../../types/index.js";
@@ -25,50 +27,47 @@ const taskStatusVariant: Record<string, string> = {
 
 export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPanelProps) {
   const navigate = useNavigate();
-  const [features, setFeatures] = useState<MissionWithProgress[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [_total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const resetArchived = useResetArchivedMissions(habitatId);
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, refetch } =
+    useArchivedMissionsInfinite(habitatId);
 
-  const limit = 50;
+  const pages = data?.pages ?? [];
 
-  const loadFeatures = useCallback(
-    async (reset = false) => {
-      setIsLoading(true);
-      try {
-        const newOffset = reset ? 0 : offset;
-        const { missions: loadedFeatures, total: totalCount } = await api.missions.list(habitatId, {
-          limit,
-          offset: newOffset,
-          isArchived: true,
-        });
-        if (reset) {
-          setFeatures(loadedFeatures);
-          setOffset(limit);
-        } else {
-          setFeatures([...features, ...loadedFeatures]);
-          setOffset(newOffset + limit);
-        }
-        setTotal(totalCount);
-        setHasMore(newOffset + loadedFeatures.length < totalCount);
-      } catch (err) {
-        console.warn("Failed to load archived features:", err);
-      } finally {
-        setIsLoading(false);
+  const features = useMemo(() => {
+    const seen = new Set<string>();
+    const flattened: MissionWithProgress[] = [];
+    for (const page of pages) {
+      for (const mission of page.missions) {
+        if (seen.has(mission.id)) continue;
+        seen.add(mission.id);
+        flattened.push(mission);
       }
-    },
-    [habitatId, offset, features],
-  );
+    }
+    return flattened;
+  }, [pages]);
 
-  useEffect(() => {
-    loadFeatures(true);
-  }, [habitatId]);
+  const total = pages.length > 0 ? pages[pages.length - 1].total : 0;
+
+  const handleLoadMore = () => {
+    if (isFetchingNextPage) return;
+    void fetchNextPage();
+  };
 
   const handleFeatureClick = (missionId: string) => {
     onClose();
     navigate(`/features/${missionId}`);
   };
+
+  async function handleUnarchive(missionId: string) {
+    try {
+      await api.missions.unarchive(missionId);
+      notify.success("Mission unarchived");
+      resetArchived();
+      void refetch();
+    } catch (err) {
+      notify.error((err as Error).message);
+    }
+  }
 
   return (
     <Drawer open={true} onClose={onClose} className="w-full max-w-md flex flex-col">
@@ -83,7 +82,7 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {features.length === 0 && !isLoading ? (
+        {features.length === 0 && !isLoading && !isFetchingNextPage ? (
           <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-sm gap-2">
             <Archive className="h-8 w-8 opacity-20" />
             <p>No archived features</p>
@@ -91,16 +90,18 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
         ) : (
           <div className="space-y-2">
             {features.map((feature) => (
-              <button
+              <div
                 key={feature.id}
-                type="button"
-                onClick={() => handleFeatureClick(feature.id)}
-                className="w-full flex flex-col gap-1 rounded-md border p-3 text-left hover:bg-accent transition-colors"
+                className="w-full flex flex-col gap-1 rounded-md border p-3 text-left"
               >
-                <div className="flex items-center justify-between min-w-0 w-full gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleFeatureClick(feature.id)}
+                  className="w-full flex items-center justify-between min-w-0 w-full gap-2"
+                >
                   <span className="font-medium truncate">{feature.title}</span>
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </div>
+                </button>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                   <Badge
                     variant={taskStatusVariant[feature.status] as any}
@@ -120,20 +121,33 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
                       {Math.round((feature.progress.done / feature.progress.total) * 100)}%)
                     </span>
                   ) : null}
+                  <button
+                    type="button"
+                    className="text-[10px] text-primary hover:underline ml-auto"
+                    onClick={() => handleUnarchive(feature.id)}
+                  >
+                    Unarchive
+                  </button>
                 </div>
-              </button>
+              </div>
             ))}
-            {hasMore && (
+            {hasNextPage && (
               <div className="flex justify-center py-3">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => loadFeatures(false)}
-                  disabled={isLoading}
+                  onClick={handleLoadMore}
+                  disabled={isFetchingNextPage}
+                  data-testid="archived-load-more"
                 >
-                  {isLoading ? "Loading..." : "Load more"}
+                  {isFetchingNextPage ? "Loading..." : "Load more"}
                 </Button>
               </div>
+            )}
+            {!hasNextPage && features.length > 0 && total > 0 && (
+              <p className="text-center text-xs text-muted-foreground py-2">
+                {features.length} of {total} archived
+              </p>
             )}
           </div>
         )}

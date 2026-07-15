@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import dagre from "dagre";
-import { api } from "../api/index.js";
+import { useHabitat } from "../lib/useHabitatData.js";
 import type { MissionWithProgress } from "../types/index.js";
 
 const DAGRE_CONFIG = {
@@ -132,32 +132,9 @@ export function computeLayout(features: MissionWithProgress[]): {
 }
 
 export function useDependencyGraph(boardId: string) {
-  const [features, setFeatures] = useState<MissionWithProgress[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: habitatData, isLoading, error } = useHabitat(boardId);
+  const features = useMemo(() => habitatData?.missions ?? [], [habitatData?.missions]);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-
-    async function fetchFeatures() {
-      try {
-        const result = await api.missions.list(boardId);
-        if (!cancelled) setFeatures(result.missions);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load features");
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    fetchFeatures();
-    return () => {
-      cancelled = true;
-    };
-  }, [boardId]);
 
   const layoutResult = useMemo(() => computeLayout(features), [features]);
 
@@ -201,7 +178,7 @@ export function useDependencyGraph(boardId: string) {
     nodes: finalNodes,
     edges: finalEdges,
     isLoading,
-    error,
+    error: error ? (error instanceof Error ? error.message : "Failed to load features") : null,
     highlightedNodeId,
     setHighlightedNode: setHighlightedNodeId,
     clearHighlight,

@@ -133,12 +133,21 @@ describe("boardService", () => {
         { id: "c2", name: "In Progress", wipLimit: 5, order: 1 },
       ]);
       missionRepoMocks.getMissionsByHabitatId.mockReturnValue({
-        missions: [{ id: "m1" }],
+        missions: [
+          {
+            id: "m1",
+            status: "in_progress",
+            isArchived: false,
+            dependsOn: [],
+          },
+        ],
         total: 1,
       });
       const r = getHabitatStats("h1");
       expect(r.throughput.today).toBe(3);
       expect(r.wipHealth).toBeDefined();
+      expect(r.missionSummary.total).toBe(1);
+      expect(r.missionSummary.byStatus.in_progress).toBe(1);
     });
   });
 
@@ -315,9 +324,7 @@ describe("boardService", () => {
       expect((r.habitat.codeReviewSettings as any).githubSecret).toBeUndefined();
       expect(r.habitat.codeReviewSettings!.hasGithubSecret).toBe(true);
 
-      const ssePayload = sseMock.mock.calls.find(
-        (c: any[]) => c[1]?.type === "habitat.created",
-      );
+      const ssePayload = sseMock.mock.calls.find((c: any[]) => c[1]?.type === "habitat.created");
       expect(ssePayload).toBeDefined();
       expect(ssePayload![1].data.codeReviewSettings.githubSecret).toBeUndefined();
       expect(cacheMock.rebuildCache).toHaveBeenCalled();
@@ -342,9 +349,7 @@ describe("boardService", () => {
       expect((r.codeReviewSettings as any).githubSecret).toBeUndefined();
       expect(r.codeReviewSettings!.hasGithubSecret).toBe(true);
 
-      const ssePayload = sseMock.mock.calls.find(
-        (c: any[]) => c[1]?.type === "habitat.updated",
-      );
+      const ssePayload = sseMock.mock.calls.find((c: any[]) => c[1]?.type === "habitat.updated");
       expect(ssePayload).toBeDefined();
       expect(ssePayload![1].data.codeReviewSettings.githubSecret).toBeUndefined();
       expect(cacheMock.rebuildCache).toHaveBeenCalled();

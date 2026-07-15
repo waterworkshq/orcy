@@ -1,7 +1,14 @@
 export type { AgentType, AgentDomain, AgentStatus } from "./agent.js";
 export type { Agent, AgentStats, AllAgentStats } from "./agent.js";
 
-export type { Habitat, PublicHabitat, Column, HabitatStats, HabitatExport } from "./board.js";
+export type {
+  Habitat,
+  PublicHabitat,
+  Column,
+  HabitatStats,
+  MissionSummary,
+  HabitatExport,
+} from "./board.js";
 
 export {
   AUDIT_ENTITY_TYPES,

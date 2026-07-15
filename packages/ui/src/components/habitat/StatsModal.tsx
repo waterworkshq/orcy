@@ -1,4 +1,4 @@
-import type { MissionWithProgress } from "../../types/index.js";
+import type { MissionStatus } from "../../types/index.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
 import { Button } from "../ui/Button.js";
 import { StatCard } from "../ui/StatCard.js";
@@ -13,55 +13,53 @@ import {
   Timer,
 } from "lucide-react";
 import { formatMinutes } from "../../lib/formatting.js";
-import { useHabitatStats, useMissions, useHabitatTimeMetrics } from "../../lib/useHabitatData.js";
+import { useHabitatStats, useHabitatTimeMetrics } from "../../lib/useHabitatData.js";
 
 interface StatsModalProps {
   habitatId: string;
   onClose: () => void;
 }
 
-function FeatureStatusBar({ features }: { features: MissionWithProgress[] }) {
-  const total = features.length;
+const STATUS_BAR_COLORS: Record<MissionStatus, string> = {
+  not_started: "bg-[var(--badge-low)]",
+  in_progress: "bg-[var(--badge-active)]",
+  review: "bg-[var(--badge-review)]",
+  done: "bg-[var(--badge-done)]",
+  failed: "bg-[var(--badge-blocked)]",
+};
+
+function MissionStatusBar({
+  byStatus,
+  total,
+}: {
+  byStatus: Record<MissionStatus, number>;
+  total: number;
+}) {
   if (total === 0) return null;
-
-  const counts = {
-    not_started: features.filter((f) => f.status === "not_started").length,
-    in_progress: features.filter((f) => f.status === "in_progress").length,
-    review: features.filter((f) => f.status === "review").length,
-    done: features.filter((f) => f.status === "done").length,
-    failed: features.filter((f) => f.status === "failed").length,
-  };
-
-  const colors: Record<string, string> = {
-    not_started: "bg-[var(--badge-low)]",
-    in_progress: "bg-[var(--badge-active)]",
-    review: "bg-[var(--badge-review)]",
-    done: "bg-[var(--badge-done)]",
-    failed: "bg-[var(--badge-blocked)]",
-  };
+  const statuses = Object.keys(byStatus) as MissionStatus[];
 
   return (
     <div className="space-y-1.5">
       <div className="flex h-2 rounded-full overflow-hidden bg-muted">
-        {Object.entries(counts).map(
-          ([status, count]) =>
-            count > 0 && (
+        {statuses.map(
+          (status) =>
+            byStatus[status] > 0 && (
               <div
                 key={status}
-                className={colors[status]}
-                style={{ width: `${(count / total) * 100}%` }}
-                title={`${status}: ${count}`}
+                className={STATUS_BAR_COLORS[status]}
+                style={{ width: `${(byStatus[status] / total) * 100}%` }}
+                title={`${status}: ${byStatus[status]}`}
               />
             ),
         )}
       </div>
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-        {Object.entries(counts).map(
-          ([status, count]) =>
-            count > 0 && (
+        {statuses.map(
+          (status) =>
+            byStatus[status] > 0 && (
               <span key={status} className="flex items-center gap-1">
-                <span className={`h-2 w-2 rounded-full ${colors[status]}`} />
-                {status.replace("_", " ")}: {count}
+                <span className={`h-2 w-2 rounded-full ${STATUS_BAR_COLORS[status]}`} />
+                {status.replace("_", " ")}: {byStatus[status]}
               </span>
             ),
         )}
@@ -72,23 +70,15 @@ function FeatureStatusBar({ features }: { features: MissionWithProgress[] }) {
 
 export function StatsModal({ habitatId, onClose }: StatsModalProps) {
   const { data: stats, isLoading: statsLoading } = useHabitatStats(habitatId);
-  const { data: featuresData, isLoading: featuresLoading } = useMissions(habitatId);
   const { data: timeMetrics } = useHabitatTimeMetrics(habitatId);
 
-  const loading = statsLoading || featuresLoading;
-  const features = featuresData?.missions ?? [];
+  const loading = statsLoading;
+  const missionSummary = stats?.missionSummary;
 
-  const totalFeatures = features.length;
-  const doneFeatures = features.filter((f) => f.status === "done").length;
-  const inProgressFeatures = features.filter((f) => f.status === "in_progress").length;
-  const blockedFeatures = features.filter(
-    (f) =>
-      f.dependsOn.length > 0 &&
-      f.dependsOn.every((depId: string) => {
-        const dep = features.find((depFeature) => depFeature.id === depId);
-        return !dep || dep.status !== "done";
-      }),
-  ).length;
+  const totalMissions = missionSummary?.total ?? 0;
+  const completedMissions = missionSummary?.completed ?? 0;
+  const blockedMissions = missionSummary?.blocked ?? 0;
+  const inProgressMissions = missionSummary?.byStatus.in_progress ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50">
@@ -106,40 +96,42 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
           </div>
         )}
 
-        {!loading && stats && (
+        {!loading && stats && missionSummary && (
           <div className="space-y-4">
-            {/* Feature-level stats */}
+            {/* Mission-level stats */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <StatCard
                 icon={Layers}
                 label="Missions"
-                value={totalFeatures}
-                subtitle={`${doneFeatures} done · ${inProgressFeatures} in progress`}
+                value={totalMissions}
+                subtitle={`${completedMissions} done · ${inProgressMissions} in progress`}
               />
               <StatCard
                 icon={CheckCircle}
                 label="Completion"
                 value={
-                  totalFeatures > 0 ? `${Math.round((doneFeatures / totalFeatures) * 100)}%` : "0%"
+                  totalMissions > 0
+                    ? `${Math.round((completedMissions / totalMissions) * 100)}%`
+                    : "0%"
                 }
-                subtitle={`${doneFeatures}/${totalFeatures} missions`}
+                subtitle={`${completedMissions}/${totalMissions} missions`}
               />
               <StatCard
                 icon={AlertTriangle}
                 label="Blocked"
-                value={blockedFeatures}
-                subtitle={`${totalFeatures - blockedFeatures} dependencies met`}
+                value={blockedMissions}
+                subtitle={`${totalMissions - blockedMissions} dependencies met`}
               />
             </div>
 
-            {/* Feature status distribution */}
-            {totalFeatures > 0 && (
+            {/* Mission status distribution */}
+            {totalMissions > 0 && (
               <Card>
                 <CardHeader className="p-3">
                   <CardTitle className="text-sm">Mission Status Distribution</CardTitle>
                 </CardHeader>
                 <CardContent className="p-3 pt-0">
-                  <FeatureStatusBar features={features} />
+                  <MissionStatusBar byStatus={missionSummary.byStatus} total={totalMissions} />
                 </CardContent>
               </Card>
             )}

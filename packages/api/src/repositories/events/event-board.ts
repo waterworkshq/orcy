@@ -1,12 +1,16 @@
-import { getDb } from '../../db/index.js';
-import { taskEvents, tasks, missions, agents, columns } from '../../db/schema/index.js';
-import { alias } from 'drizzle-orm/sqlite-core';
-import { eq, and, sql, count, desc, inArray } from 'drizzle-orm';
-import { computeCycleTimeStats, computeHabitatThroughput, getDateThresholds } from './stats-helpers.js';
-import type { ActorType, EventAction, TaskStatus } from '../../models/index.js';
+import { getDb } from "../../db/index.js";
+import { taskEvents, tasks, missions, agents, columns } from "../../db/schema/index.js";
+import { alias } from "drizzle-orm/sqlite-core";
+import { eq, and, sql, count, desc, inArray } from "drizzle-orm";
+import {
+  computeCycleTimeStats,
+  computeHabitatThroughput,
+  getDateThresholds,
+} from "./stats-helpers.js";
+import type { ActorType, EventAction, TaskStatus } from "../../models/index.js";
 
-const fromColumns = alias(columns, 'from_columns');
-const toColumns = alias(columns, 'to_columns');
+const fromColumns = alias(columns, "from_columns");
+const toColumns = alias(columns, "to_columns");
 
 export interface EnrichedHabitatEventRow {
   id: string;
@@ -47,7 +51,7 @@ export function getEventsByHabitatId(
     .from(missions)
     .where(eq(missions.habitatId, habitatId))
     .all()
-    .map(f => f.id);
+    .map((f) => f.id);
 
   if (habitatMissionIds.length === 0) return { events: [], total: 0 };
 
@@ -55,9 +59,7 @@ export function getEventsByHabitatId(
 
   if (filters?.action) {
     const actions = Array.isArray(filters.action) ? filters.action : [filters.action];
-    conditions.push(
-      inArray(taskEvents.action, [...actions] as EventAction[]),
-    );
+    conditions.push(inArray(taskEvents.action, [...actions] as EventAction[]));
   }
   if (filters?.actorType) {
     conditions.push(eq(taskEvents.actorType, filters.actorType));
@@ -148,9 +150,22 @@ export interface HabitatStats {
     columnName: string;
     current: number;
     limit: number | null;
-    health: 'ok' | 'warning' | 'exceeded';
+    health: "ok" | "warning" | "exceeded";
   }[];
+  missionSummary: {
+    total: number;
+    completed: number;
+    blocked: number;
+    byStatus: Record<string, number>;
+  };
 }
+
+const EMPTY_MISSION_SUMMARY = {
+  total: 0,
+  completed: 0,
+  blocked: 0,
+  byStatus: { not_started: 0, in_progress: 0, review: 0, done: 0, failed: 0 },
+} as const;
 
 export function getHabitatStats(habitatId: string): HabitatStats {
   const db = getDb();
@@ -160,27 +175,34 @@ export function getHabitatStats(habitatId: string): HabitatStats {
     .from(missions)
     .where(eq(missions.habitatId, habitatId))
     .all()
-    .map(f => f.id);
+    .map((f) => f.id);
 
   if (habitatMissionIds.length === 0) {
     return {
       cycleTime: { averageMinutes: 0, medianMinutes: 0, count: 0 },
       throughput: { today: 0, thisWeek: 0, thisMonth: 0 },
       wipHealth: [],
+      missionSummary: EMPTY_MISSION_SUMMARY,
     };
   }
 
   const cycleRows = db
     .select({
       taskId: taskEvents.taskId,
-      claimedAt: sql<string | null>`MIN(CASE WHEN ${taskEvents.action} = 'claimed' THEN ${taskEvents.timestamp} END)`,
-      completedAt: sql<string | null>`MIN(CASE WHEN ${taskEvents.action} = 'completed' THEN ${taskEvents.timestamp} END)`,
+      claimedAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${taskEvents.action} = 'claimed' THEN ${taskEvents.timestamp} END)`,
+      completedAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${taskEvents.action} = 'completed' THEN ${taskEvents.timestamp} END)`,
     })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
     .where(inArray(tasks.missionId, habitatMissionIds))
     .groupBy(taskEvents.taskId)
-    .having(sql`MIN(CASE WHEN ${taskEvents.action} = 'claimed' THEN ${taskEvents.timestamp} END) IS NOT NULL AND MIN(CASE WHEN ${taskEvents.action} = 'completed' THEN ${taskEvents.timestamp} END) IS NOT NULL`)
+    .having(
+      sql`MIN(CASE WHEN ${taskEvents.action} = 'claimed' THEN ${taskEvents.timestamp} END) IS NOT NULL AND MIN(CASE WHEN ${taskEvents.action} = 'completed' THEN ${taskEvents.timestamp} END) IS NOT NULL`,
+    )
     .all();
 
   const cycleTimes: number[] = [];
@@ -194,13 +216,13 @@ export function getHabitatStats(habitatId: string): HabitatStats {
     }
   }
 
-  const { todayStart, weekStart, monthStart } = getDateThresholds('calendar');
+  const { todayStart, weekStart, monthStart } = getDateThresholds("calendar");
 
   const throughputRows = db
     .select({ ts: taskEvents.timestamp })
     .from(taskEvents)
     .innerJoin(tasks, eq(taskEvents.taskId, tasks.id))
-    .where(and(inArray(tasks.missionId, habitatMissionIds), eq(taskEvents.action, 'completed')))
+    .where(and(inArray(tasks.missionId, habitatMissionIds), eq(taskEvents.action, "completed")))
     .orderBy(desc(taskEvents.timestamp))
     .all();
 
@@ -208,5 +230,6 @@ export function getHabitatStats(habitatId: string): HabitatStats {
     cycleTime: computeCycleTimeStats(cycleTimes),
     throughput: computeHabitatThroughput(throughputRows, todayStart, weekStart, monthStart),
     wipHealth: [],
+    missionSummary: EMPTY_MISSION_SUMMARY,
   };
 }

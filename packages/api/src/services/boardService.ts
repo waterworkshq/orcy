@@ -21,6 +21,9 @@ import type {
   CodeReviewSettings,
   CiCdSettings,
   TaskPriority,
+  Mission,
+  MissionStatus,
+  MissionSummary,
 } from "../models/index.js";
 
 /**
@@ -145,6 +148,41 @@ export function deleteHabitat(habitatId: string): void {
   sseBroadcaster.publish(habitatId, { type: "habitat.deleted", data: { habitatId } });
 }
 
+/** Computes the authoritative active-Mission summary for a {@link Habitat}. `blocked` counts an active Mission that has at least one dependency Mission (resolved across the active + archived set) whose status is not `done`; deleted dependency targets do not synthesize a block and Task completeness is irrelevant. Every `MissionStatus` key is zero-filled. */
+export function computeMissionSummary(allMissions: Mission[]): MissionSummary {
+  const byId = new Map(allMissions.map((m) => [m.id, m]));
+  const byStatus: Record<MissionStatus, number> = {
+    not_started: 0,
+    in_progress: 0,
+    review: 0,
+    done: 0,
+    failed: 0,
+  };
+  for (const m of allMissions) {
+    if (!m.isArchived) byStatus[m.status] = (byStatus[m.status] ?? 0) + 1;
+  }
+  let blocked = 0;
+  for (const m of allMissions) {
+    if (m.isArchived) continue;
+    const isBlocked = m.dependsOn.some((depId) => {
+      const dep = byId.get(depId);
+      return !!dep && dep.status !== "done";
+    });
+    if (isBlocked) blocked += 1;
+  }
+  return {
+    total:
+      byStatus.not_started +
+      byStatus.in_progress +
+      byStatus.review +
+      byStatus.done +
+      byStatus.failed,
+    completed: byStatus.done,
+    blocked,
+    byStatus,
+  };
+}
+
 /** Returns event-based activity statistics for a {@link Habitat}, augmented with per-column WIP health (`ok` / `warning` / `exceeded`) for every column. */
 export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
   const stats = eventRepo.getHabitatStats(habitatId);
@@ -166,6 +204,9 @@ export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
       health,
     };
   });
+
+  const allMissions = missionRepo.getMissionsByHabitatId(habitatId).missions;
+  stats.missionSummary = computeMissionSummary(allMissions);
 
   return stats;
 }

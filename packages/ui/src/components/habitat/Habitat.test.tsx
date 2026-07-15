@@ -179,7 +179,18 @@ const mockArchivedFeaturesHook = vi.fn();
 
 vi.mock("../../lib/useHabitatData.js", () => ({
   useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
-  useArchivedMissions: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
+  useArchivedMissionsInfinite: (...args: unknown[]) => {
+    const r = mockArchivedFeaturesHook(...args) as any;
+    return {
+      data: r?.data
+        ? { pages: [{ missions: r.data.missions ?? [], total: r.data.total ?? 0 }] }
+        : undefined,
+      isLoading: r?.isLoading ?? false,
+      fetchNextPage: vi.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    };
+  },
 }));
 
 vi.mock("../../api/index.js", () => ({

@@ -16,7 +16,18 @@ vi.mock("../../lib/useHabitatData.js", async (importOriginal) => {
       isLoading: false,
       error: null,
     }),
-    useArchivedMissions: (...args: unknown[]) => mockArchivedFeaturesHook(...args),
+    useArchivedMissionsInfinite: (...args: unknown[]) => {
+      const r = mockArchivedFeaturesHook(...args) as any;
+      return {
+        data: r?.data
+          ? { pages: [{ missions: r.data.missions ?? [], total: r.data.total ?? 0 }] }
+          : undefined,
+        isLoading: r?.isLoading ?? false,
+        fetchNextPage: vi.fn(),
+        hasNextPage: false,
+        isFetchingNextPage: false,
+      };
+    },
   };
 });
 

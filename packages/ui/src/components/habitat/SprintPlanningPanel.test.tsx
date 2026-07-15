@@ -39,7 +39,7 @@ vi.mock("../../api/index.js", () => ({
 }));
 
 vi.mock("../../lib/useHabitatData.js", () => ({
-  useMissions: (...args: unknown[]) => mockMissions(...args),
+  useHabitat: (...args: unknown[]) => mockMissions(...args),
   useHabitatTasks: (...args: unknown[]) => mockUseBoardTasks(...args),
   useHabitatBurndown: (...args: unknown[]) => mockUseBoardBurndown(...args),
   useSprintMetrics: (...args: unknown[]) => mockUseSprintMetrics(...args),
@@ -290,9 +290,7 @@ describe("SprintPlanningPanel", () => {
     it("renders sprint status badges", () => {
       mockSprintsList.mockReturnValue({
         data: {
-          sprints: [
-            makeSprint({ id: "s1", name: "Planning Sprint", status: "planning" }),
-          ],
+          sprints: [makeSprint({ id: "s1", name: "Planning Sprint", status: "planning" })],
         },
         isLoading: false,
       });

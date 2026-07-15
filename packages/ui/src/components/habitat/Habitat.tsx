@@ -18,7 +18,7 @@ import { Column } from "./Column.js";
 import { FeatureCard } from "./MissionCard.js";
 import { ColumnSwiper } from "./ColumnSwiper.js";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
-import { useArchivedMissions } from "../../lib/useHabitatData.js";
+import { useArchivedMissionsInfinite } from "../../lib/useHabitatData.js";
 import { useMissionDragMove } from "../../hooks/useMissionDragMove.js";
 import type {
   MissionWithProgress,
@@ -52,9 +52,28 @@ export function Habitat({
 
   const { previewByMission, isMoving, drop, setPreview } = useMissionDragMove(habitat?.id);
 
-  const { data: archivedData, isLoading: archivedLoading } = useArchivedMissions(habitat?.id);
-  const archivedFeatures = archivedData?.missions ?? [];
-  const archivedTotal = archivedData?.total ?? 0;
+  const {
+    data: archivedData,
+    isLoading: archivedLoading,
+    fetchNextPage: fetchArchivedNextPage,
+    hasNextPage: hasNextArchivedPage,
+    isFetchingNextPage: isFetchingArchivedNextPage,
+  } = useArchivedMissionsInfinite(habitat?.id);
+  const archivedPages = archivedData?.pages ?? [];
+  const archivedTotal =
+    archivedPages.length > 0 ? archivedPages[archivedPages.length - 1].total : 0;
+  const archivedFeatures = useMemo(() => {
+    const seen = new Set<string>();
+    const flattened: (typeof archivedPages)[number]["missions"][number][] = [];
+    for (const page of archivedPages) {
+      for (const mission of page.missions) {
+        if (seen.has(mission.id)) continue;
+        seen.add(mission.id);
+        flattened.push(mission);
+      }
+    }
+    return flattened;
+  }, [archivedPages]);
 
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -284,6 +303,22 @@ export function Habitat({
                         </div>
                       ))}
                     </div>
+                    {hasNextArchivedPage && (
+                      <div className="flex justify-center py-2">
+                        <button
+                          type="button"
+                          data-testid="archived-load-more"
+                          className="text-[10px] font-medium text-primary hover:underline disabled:opacity-50"
+                          onClick={() => {
+                            if (isFetchingArchivedNextPage) return;
+                            void fetchArchivedNextPage();
+                          }}
+                          disabled={isFetchingArchivedNextPage}
+                        >
+                          {isFetchingArchivedNextPage ? "Loading..." : "Load more"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

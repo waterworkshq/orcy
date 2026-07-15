@@ -5,6 +5,8 @@ export const queryKeys = {
     detail: (habitatId: string) => [...queryKeys.habitats.all, "detail", habitatId] as const,
     stats: (habitatId: string) => [...queryKeys.habitats.all, "stats", habitatId] as const,
     events: (habitatId: string) => [...queryKeys.habitats.all, "events", habitatId] as const,
+    eventsInfinite: (habitatId: string, action: string | undefined, pageSize: number) =>
+      [...queryKeys.habitats.all, "eventsInfinite", habitatId, { action }, pageSize] as const,
     predictions: (habitatId: string) =>
       [...queryKeys.habitats.all, "predictions", habitatId] as const,
     burndown: (habitatId: string) => [...queryKeys.habitats.all, "burndown", habitatId] as const,
@@ -39,6 +41,8 @@ export const queryKeys = {
     details: (missionId: string) => [...queryKeys.missions.all, "details", missionId] as const,
     tasks: (missionId: string) => [...queryKeys.missions.all, "tasks", missionId] as const,
     progress: (missionId: string) => [...queryKeys.missions.all, "progress", missionId] as const,
+    archived: (habitatId: string, pageSize: number) =>
+      [...queryKeys.missions.all, "archived", habitatId, pageSize] as const,
   },
   tasks: {
     all: ["tasks"] as const,
