@@ -86,15 +86,74 @@ Each package is self-contained with its own `package.json`, `tsconfig.json`, and
 
 ### UI (`packages/ui`)
 
-- **State management**: Zustand (`src/store/boardStore.ts`)
-- **Data fetching**: React Query (`@tanstack/react-query`)
+- **State management** has a sharp boundary — see "State ownership" below.
+- **Data fetching**: React Query (`@tanstack/react-query`) — the sole authority for durable server data.
 - **Routing**: React Router v6 (`react-router-dom`)
 - **Styling**: TailwindCSS with `class-variance-authority` for component variants
 - **Components**:
   - Primitives go in `src/components/ui/` (Button, Badge, Card, Dialog)
-  - Board-specific go in `src/components/board/` (Board, Column, TaskCard)
-- **API client** is in `src/api/index.ts` — add new endpoints there
+  - Habitat-specific go in `src/components/habitat/` (Habitat, Column, TaskCard, StatsModal)
+- **API client** is in `src/api/index.ts` — per-domain modules; canonical shapes only (`{ habitat, columns, missions }`, `{ missions, total }`, `{ mission }`). No `board`/`feature` aliases.
 - **Types** are in `src/types/index.ts` — keep in sync with API models
+
+#### State ownership
+
+The UI has two stores with non-overlapping responsibilities. The boundary is
+structural: durable server data and ephemeral UI state never share a slice.
+
+| Concern | Owner | Where |
+|---|---|---|
+| Habitat, columns, active missions, mission detail, archived missions, tasks, agents, stats, durable activity | **React Query** | `packages/ui/src/lib/queryKeys.ts`, hooks under `src/hooks/` |
+| Theme, presence, WIP alerts, UI selection (mission/task bulk select, collapsed columns), notifications, drag/reorder preview | **Zustand ephemeral slices** | `packages/ui/src/store/habitatStore.ts` |
+| Recent SSE events (debug buffer) | **Zustand `recentSSEEvents`** | `packages/ui/src/store/slices/sseHandler.ts` |
+
+Rules:
+
+- **Never** put a Habitat/Column/Mission/Task/Agent durable projection in
+  Zustand. If a screen needs server data, it reads it from a React Query
+  hook (`useHabitat`, `useMission`, etc.). The Habitat board renders with
+  an empty Zustand server-entity store — no `board`/`features` mirrors.
+- **Never** write server data from an SSE handler into Zustand. The SSE
+  registry's `server` projector patches or invalidates React Query keys
+  only; the `ephemeral` projector is type-constrained to non-domain state
+  (presence, WIP alerts, the recent-events debug buffer).
+- **Never** dual-write on a mutation. The canonical mutation pattern is
+  one server round-trip → one guarded cache patch via
+  `patchMissionInHabitatDetail` / `patchColumnsInHabitatDetail` →
+  `invalidateHabitatRepresentations` (background invalidation remains
+  the reconciliation authority).
+- **The Mission-list `search` parameter does not exist.** The repository
+  has no defined search semantics and the route discards the parameter.
+  Do not add it back without an end-to-end route + repository +
+  query-key contract.
+- **Drag intent is an overlay, not a cache replacement.** Tentative drag
+  position lives in `useMissionDragMove`'s `previewByMission` until the
+  move resolves; the canonical Query data is never snapshot-rolled back
+  on failure.
+- **Subscription generation is the staleness boundary.** A stale SSE
+  generation performs no patch, invalidate, notification, or navigation
+  effect (see `useSSE` and ADR-0040).
+
+If you find yourself reaching for a Zustand field that doesn't fit the
+table above, the answer is almost always "add a React Query key" or
+"this state belongs on the server." If you genuinely need a new
+ephemeral slice, add it explicitly to `habitatStore.ts`'s composition
+with a narrow responsibility and update ADR-0040.
+
+Stale paths that should not be referenced:
+
+- `src/store/boardStore.ts` — does not exist; the store is
+  `src/store/habitatStore.ts` and holds only ephemeral slices.
+- `src/components/board/` — does not exist; habitat components are
+  under `src/components/habitat/`.
+- `useBoard`, `useFeature`, `BoardTasksFilters`, `boardId`, `features`,
+  `featureCount`, `columnPagination`, `setBoard`, `setColumns`,
+  `appendColumnFeatures`, `setColumnLoadingMore`, `clearColumnPagination`
+  — all removed by the Habitat State Ownership initiative; do not
+  reintroduce them.
+- `POST /boards/:boardId/features` — does not exist; canonical paths are
+  `/habitats/:habitatId/missions` and `/missions/:id/move`
+  (with `expectedVersion`).
 
 ### MCP (`packages/mcp`)
 
@@ -145,15 +204,36 @@ pnpm db:seed          # Seed sample data
 
 ---
 
-## Adding a New Feature
+## Adding a New Feature (Mission)
 
-Features are the board-level kanban cards. Each feature contains tasks that agents work on.
+Missions are the habitat-level cards. Each mission contains tasks that agents work on.
 
-1. **Create a feature** via `POST /boards/:boardId/features` or the UI
-2. **Add tasks** to the feature via `POST /features/:id/tasks`
-3. **Optionally decompose** using AI via `POST /features/:id/decompose`
-4. Feature status is **auto-derived** from child task states
-5. Features automatically move through columns based on derived status
+1. **Create a mission** via `POST /habitats/:habitatId/missions` or the UI
+2. **Add tasks** to the mission via `POST /missions/:id/tasks`
+3. **Optionally decompose** using AI via `POST /missions/:id/decompose`
+4. Mission status is **auto-derived** from child task states
+5. Missions move through columns via `POST /missions/:id/move` (requires
+   `expectedVersion`; returns `409 VERSION_CONFLICT` on mismatch)
+
+## Moving a Mission or Reordering Columns
+
+Mission drag and column reorder both rely on optimistic-concurrency contracts. Do not roll your own.
+
+- **Mission move** — single-flight per mission, latest-target coalescing.
+  Use `useMissionDragMove(habitatId)` from `packages/ui/src/hooks/useMissionDragMove.ts`.
+  The hook owns the per-mission in-flight ref, dispatches the queued
+  latest target with the previous successful response's authoritative
+  version, and surfaces `409 VERSION_CONFLICT` distinctly (never as a
+  generic network failure) via `notifyVersionConflict`.
+- **Column reorder** — one atomic OCC operation. Use
+  `POST /habitats/:habitatId/columns/reorder` with
+  `{ expectedOrder, desiredOrder }`. The server validates both arrays
+  cover the same unique columns, compares `expectedOrder` to the current
+  order inside one transaction, and returns `409 VERSION_CONFLICT`
+  (with the current order) before any writes. Do not loop over columns
+  with sequential PATCH calls — the prior loop and its compensation
+  requests are removed and an interleaved actor can no longer be
+  overwritten by compensation.
 
 ---
 
@@ -283,13 +363,17 @@ that blocked the original release.
 - Set `LOG_LEVEL=debug` for verbose output
 - SQLite database file is `orcy.db` in the working directory — inspect with any SQLite tool
 - Use `GET /health` to verify the API is running
-- Use `GET /api/boards/:id` to inspect full board state
+- Use `GET /api/habitats/:id` to inspect a habitat's complete active
+  mission collection (this is the unpaginated board state).
 
 ### UI debugging
 
 - React DevTools for component state
-- Browser Network tab for SSE events (look at `/sse/boards/:id/stream`)
-- Zustand DevTools integration available via `zustand/middleware`
+- TanStack Query DevTools for the React Query cache (in dev builds)
+- Browser Network tab for SSE events (look at `/sse/habitats/:id/stream`)
+- Zustand DevTools integration available via `zustand/middleware` for the
+  ephemeral slices (presence, wipAlerts, notifications, recentSSEEvents);
+  durable server data does not appear there
 
 ### MCP debugging
 

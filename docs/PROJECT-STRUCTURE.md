@@ -69,7 +69,7 @@ orcy/
 The API server. Fastify + TypeScript. Serves the REST API, the web UI at `/app`, and the SSE event stream. Uses Drizzle ORM with SQLite. Handles authentication (JWT + API keys), plugin loading, and webhook dispatch.
 
 ### `packages/ui`
-The web interface. React 19 with Vite, TailwindCSS, Zustand for state, and React Query for data fetching. The habitat board renders columns with draggable mission cards, task detail panels, orcy status indicators, and real-time SSE updates. Includes a full set of UI primitives (buttons, dialogs, toasts, badges, tooltips) plus board-specific components.
+The web interface. React 19 with Vite, TailwindCSS, Zustand for **ephemeral** UI state (theme, presence, wipAlerts, UI selection, notifications, recent SSE events), and **React Query as the sole authority for durable server data**. The habitat board renders columns with draggable mission cards, task detail panels, orcy status indicators, and real-time SSE updates. Includes a full set of UI primitives (buttons, dialogs, toasts, badges, tooltips) plus habitat-specific components. The state-ownership boundary is documented in `CONTRIBUTING.md` and recorded in `docs/adr/0040-react-query-sole-server-state-authority.md`; no Habitat, Column, Mission, Task, Agent, durable activity, or stats projection lives in Zustand.
 
 ### `packages/cli`
 The command-line interface. Built on Commander.js. Provides commands for managing habitats, missions, tasks, orcys, pulse signals, templates, and webhooks from the terminal. Installed as the `orcy` binary.

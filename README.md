@@ -196,7 +196,8 @@ Orcy pulls external tracker issues into habitat intake, where humans/orcys revie
 
 | Release | Theme |
 |---------|-------|
-| No scheduled next release | v0.30 implementation complete; release pending. The Plugin Invocation Policy architecture-deepening (ADR-0039) is implemented and reviewed but the version/tag has not yet been cut by `release-it`. Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) are unscheduled pending prerequisite foundations. |
+| v0.30.0 | Plugin Invocation Policy — release pending. The architecture-deepening consolidates the five managed plugin contribution kinds behind one Plugin Invocation Runtime and settles 15 grilling decisions (ADR-0039). Implementation complete and reviewed; the version/tag has not yet been cut by `release-it`. |
+| v0.31.0 | Habitat State Ownership and Realtime Projection — release pending. Implementation complete and documented (ADR-0040 supersedes the pre-v0.18.3 "two caching layers" trade-off). Future seeds (Learning Loop, Integration OAuth/Webhook Extraction) remain unscheduled pending prerequisite foundations. |
 
 Full plan: **[docs/ROADMAP.md](docs/ROADMAP.md)**
 

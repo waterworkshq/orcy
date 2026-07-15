@@ -228,15 +228,24 @@ Create a new habitat. Default columns (Todo, In Progress, Review, Done) are crea
 
 ### GET /habitats/:id
 
-Get a habitat with its columns and missions.
+Get a habitat with its columns and its complete active Mission collection.
 
 **Auth:** Agent or Human auth required. Habitat access check enforced (404 if missing, 403 if unauthorized human).
+
+**Completeness:** the returned `missions` array is the complete, unpaginated
+collection of active (non-archived) Missions for the Habitat. The main
+board, sprint planning, and dependency-graph consumers all read from this
+key rather than opening a separate first-page mission-list cache. There
+is no `limit` or `offset` parameter — the collection is intentionally
+unpaginated here.
 
 **Response `200`:**
 
 ```json
 {
-  "habitat": { "id": "...", "name": "Sprint 24", "..." },\n  "columns": [ { "id": "...", "name": "Todo", "..." } ],\n  "missions": [ { "id": "mission-uuid", "title": "Auth System", "status": "in_progress", "progress": { "completed": 2, "total": 5 }, "..." } ]
+  "habitat": { "id": "...", "name": "Sprint 24", "..." },
+  "columns": [ { "id": "...", "name": "Todo", "..." } ],
+  "missions": [ { "id": "mission-uuid", "title": "Auth System", "status": "in_progress", "progress": { "completed": 2, "total": 5 }, "..." } ]
 }
 ```
 
@@ -269,7 +278,9 @@ Delete a habitat and all its tasks.
 
 ### GET /habitats/:id/stats
 
-Get habitat statistics.
+Get habitat statistics. The response is additive; existing fields keep
+their shape and `missionSummary` is the new authoritative server-derived
+Mission breakdown.
 
 **Response `200`:**
 
@@ -288,9 +299,102 @@ Get habitat statistics.
   "wipHealth": [
     { "columnId": "col-2", "columnName": "In Progress", "current": 2, "limit": 3, "health": "ok" },
     { "columnId": "col-3", "columnName": "Review", "current": 5, "limit": 5, "health": "warning" }
-  ]
+  ],
+  "missionSummary": {
+    "total": 8,
+    "completed": 3,
+    "blocked": 1,
+    "byStatus": {
+      "not_started": 2,
+      "in_progress": 3,
+      "review": 0,
+      "done": 3,
+      "failed": 0
+    }
+  }
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `missionSummary.total` | Active Mission count for the Habitat |
+| `missionSummary.completed` | Active Missions whose status is `done` |
+| `missionSummary.blocked` | Active Missions with at least one dependency Mission whose status is not `done`. Incomplete Tasks are not part of this metric. Archived dependency Missions still participate; a missing dependency target is not counted as a synthetic blocker |
+| `missionSummary.byStatus` | Count per `MissionStatus` (`not_started`, `in_progress`, `review`, `done`, `failed`). Every key is present with zero for absent statuses |
+
+### GET /habitats/:id/export
+
+Export a versioned snapshot of a Habitat. The portable document uses the
+canonical Habitat/Mission vocabulary (`habitat.columns`,
+`habitat.missions`, `habitat.comments`, `habitat.templates`,
+`habitat.webhooks`) so the same export shape round-trips through
+import. Secret-bearing webhook fields are redacted (`url`, `headers`)
+before the response leaves the server. The export carries every accepted
+mission's progress at export time — re-import may regenerate progress on
+the next calculate.
+
+**Auth:** Human JWT required.
+
+**Query Parameters:**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `include` | csv | `columns,missions,comments,templates` | Comma-separated list of export sections. Including `webhooks` adds redacted webhook entries |
+
+**Response `200`:**
+
+```json
+{
+  "version": 2,
+  "exportedAt": "2026-07-16T00:00:00.000Z",
+  "habitat": {
+    "name": "Sprint 24",
+    "description": "Q2 sprint planning",
+    "columns": [
+      { "name": "Todo", "order": 0, "wipLimit": null, "autoAdvance": false, "requiresClaim": false, "nextColumnName": "In Progress", "isTerminal": false }
+    ],
+    "missions": [
+      { "title": "Implement User Authentication", "status": "in_progress", "...": "..." }
+    ],
+    "comments": [],
+    "templates": [],
+    "webhooks": []
+  }
+}
+```
+
+### POST /habitats/import
+
+Create a new Habitat from an export document (versions 1 and 2 are
+supported). Returns the canonical `{ habitat, columns, imported,
+warnings }` shape. Import deduplicates existing missions by title and
+emits `habitat.created` after commit.
+
+**Auth:** Human JWT required.
+
+**Request:** `HabitatExportData` payload (see `GET /habitats/:id/export`).
+
+**Response `201`:**
+
+```json
+{
+  "habitat": { "id": "...", "name": "...", "...": "..." },
+  "columns": [ { "id": "...", "name": "...", "...": "..." } ],
+  "imported": {
+    "missions": 12,
+    "tasks": 84,
+    "comments": 0,
+    "templates": 2
+  },
+  "warnings": []
+}
+```
+
+### POST /habitats/:id/import
+
+Import an export document into an existing Habitat. Deletes the existing
+Habitat data first, then reconstructs from the export. Returns the same
+canonical shape as `POST /habitats/import`.
 
 ### GET /habitats/:id/events
 
@@ -534,6 +638,64 @@ Delete a column.
 
 **Response `204`:** No content.
 
+### POST /habitats/:habitatId/columns/reorder
+
+Atomically reorder the columns of a habitat. This is the single canonical
+operation for persisting a reorder — do not loop over columns with
+sequential `PATCH /columns/:id` calls; the prior sequential loop and any
+best-effort compensation requests are removed.
+
+The server validates both arrays cover the same unique Columns and all
+belong to the Habitat, opens one transaction, reads the current ordered
+IDs and compares them to `expectedOrder`. On mismatch it returns
+`409 VERSION_CONFLICT` with the current order and writes nothing. On
+match it updates all order values atomically using a collision-safe
+strategy against the unique `(habitatId, order)` index, commits, then
+emits `column.updated` SSE events for the committed Columns and returns
+`{ columns }` in canonical order.
+
+**Auth:** Human JWT + admin role required.
+
+**Request:**
+
+```json
+{
+  "expectedOrder": ["col-uuid-1", "col-uuid-2", "col-uuid-3"],
+  "desiredOrder": ["col-uuid-2", "col-uuid-1", "col-uuid-3"]
+}
+```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `expectedOrder` | UUID[] | yes | Current order of the Habitat's Columns, top-to-bottom |
+| `desiredOrder` | UUID[] | yes | The same Column IDs reordered top-to-bottom |
+
+**Response `200`:**
+
+```json
+{
+  "columns": [
+    { "id": "col-uuid-2", "order": 0, "..." },
+    { "id": "col-uuid-1", "order": 1, "..." },
+    { "id": "col-uuid-3", "order": 2, "..." }
+  ]
+}
+```
+
+**Response `409 VERSION_CONFLICT`:**
+
+```json
+{
+  "error": "Column order changed",
+  "code": "VERSION_CONFLICT",
+  "currentOrder": ["col-uuid-1", "col-uuid-3", "col-uuid-2"],
+  "yourOrder": ["col-uuid-1", "col-uuid-2", "col-uuid-3"]
+}
+```
+
+A `Retry-After: 5` header is set. No rows are written when this is
+returned.
+
 ---
 
 ## Missions
@@ -612,7 +774,10 @@ Create a new mission on a habitat. The mission is placed in the first column (Ba
 
 ### GET /habitats/:habitatId/missions
 
-List missions on a habitat with progress information.
+List missions on a habitat with progress information. This is a true
+list/browse primitive with documented paging semantics; consumers that
+need the **complete active collection** (the main board, sprint planning,
+dependency graph) must read `GET /habitats/:id` instead.
 
 **Query Parameters:**
 
@@ -623,6 +788,10 @@ List missions on a habitat with progress information.
 | `isArchived` | boolean | false | Filter to return either only active (false) or archived (true) missions. By default this is false on habitat views but can be overridden. |
 | `limit` | integer | 20 | Results per page (1-100) |
 | `offset` | integer | 0 | Skip results |
+
+`search` is intentionally not a parameter — the repository has no defined
+search semantics and the route discards the value. Reintroducing search
+requires an end-to-end route + repository + query-key contract.
 
 **Response `200`:**
 
@@ -750,22 +919,56 @@ Delete a mission and all its tasks (cascading delete). Fails if other missions d
 ### POST /missions/:id/move
 
 Manually move a mission to a different column (overrides auto-advancement).
+The move requires `expectedVersion` (optimistic concurrency). The server
+compares `expectedVersion` to the persisted `version` inside the
+transaction; on mismatch the response is `409 VERSION_CONFLICT` with the
+current version, and no write happens.
+
+The client contract is single-flight per Mission: only one move per
+Mission may be in flight at a time. Subsequent drops while a move is in
+flight coalesce to the latest target column; the queued move dispatches
+with the previous successful response's authoritative `mission.version`,
+discarding intermediate stale-target drops. A `409` clears queued intent,
+removes the ephemeral drag preview overlay, invalidates Habitat and
+Mission representations to reconcile, and surfaces the conflict
+distinctly (never as a generic network failure).
 
 **Request:**
 
 ```json
 {
-  "columnId": "col-uuid"
+  "columnId": "col-uuid",
+  "expectedVersion": 3
 }
 ```
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `columnId` | UUID | yes | Target column ID |
+| `expectedVersion` | integer | yes | The Mission's current persisted `version` (≥ 1) |
 
 **Response `200`:**
 
 ```json
 {
-  "mission": { "id": "mission-uuid", "columnId": "col-uuid", "..." }
+  "mission": { "id": "mission-uuid", "columnId": "col-uuid", "version": 4, "..." }
 }
 ```
+
+**Response `409 VERSION_CONFLICT`:**
+
+```json
+{
+  "error": "Mission version conflict",
+  "code": "VERSION_CONFLICT",
+  "currentVersion": 5,
+  "yourVersion": 3
+}
+```
+
+The response carries the current `version` so the client can decide
+whether to retry. `version` is also returned in the `X-Current-Version`
+header for cache-aware clients. A `Retry-After: 5` header is set.
 
 ### POST /missions/:id/archive
 
@@ -789,6 +992,33 @@ Archived missions are hidden from default habitat queries but are kept for analy
   "error": "Only 'done' missions can be archived"
 }
 ```
+
+#### Archived-mission pagination and offset-reset semantics
+
+The Mission-list primitive supports `isArchived=true` with the documented
+`limit` (1-100, default 20) and `offset` paging. The contract is a
+**mutable offset** API. The UI's archived infinite-Query consumer is bound
+by these rules:
+
+- The Query key includes `habitatId`, `isArchived: true`, and page size.
+  `pageParam` is the server offset.
+- Next offset is derived from raw server page cardinality, not the
+  deduplicated render length; next page exists while the raw accumulated
+  count is less than `total`.
+- Pages are flattened only for rendering, never copied to local
+  accumulator state. Only one `fetchNextPage` may be active for a
+  collection generation; double activation is ignored.
+- Any update that can change archived membership or order starts a new
+  collection generation: cancel in-flight page work, discard all
+  accumulated pages, refetch from offset zero before Load More is
+  re-enabled. This includes `archive`, `unarchive`, `delete`, and
+  Column-reorder events for the owning Habitat.
+- Late results from a superseded generation are ignored and never
+  appended to the new generation.
+
+Stable-snapshot browsing is explicitly **not** promised by this contract.
+A snapshot-stable API would require a separate cursor-based endpoint and
+is out of scope.
 
 ### POST /missions/:id/unarchive
 
@@ -1098,6 +1328,10 @@ Get full task context including parent mission, sibling tasks, and dependencies.
   }
 }
 ```
+
+The Task context is embedded with the canonical Habitat/Mission names.
+Legacy `feature`/`featureCount` aliases are not exported from this
+endpoint; the UI uses `mission`/`missionCount` directly.
 
 ### PATCH /tasks/:id
 

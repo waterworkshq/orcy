@@ -59,10 +59,11 @@ This document covers the system architecture, design decisions, key flows, and i
 | Pages | `src/pages/` | HabitatListPage, HabitatPage, MissionDetailPage |
 | Components | `src/components/ui/` | Button, Badge, Card, Dialog, ErrorBoundary |
 | Habitat | `src/components/habitat/` | Habitat, Column, TaskCard, TaskDetailPanel, DaemonSection, DaemonCard, DaemonSetupDialog, SkillPanel |
-| Store | `src/store/` | Zustand state management + SSE handler |
-| API | `src/api/` | Typed REST client |
-| Lib | `src/lib/` | React Query hooks (`useHabitatData`, `useTaskData`) + cache key factory (`queryKeys`) |
-| Hooks | `src/hooks/` | SSE connection management + React Query cache invalidation |
+| Store | `src/store/` | Zustand state management — ephemeral slices only (theme, presence, wipAlerts, UI selection, recentSSEEvents); server data lives in React Query |
+| API | `src/api/` | Typed REST client (per-domain modules; no server-shape aliasing) |
+| Lib | `src/lib/` | React Query hooks (`useHabitatData`, `useTaskData`) + cache key factory (`queryKeys`) + guarded mutation helpers (`habitatMutations`) |
+| Hooks | `src/hooks/` | `useSSE` (abort/generation-safe subscription lifecycle) + `useMissionDragMove` (single-flight, latest-target coalescing) |
+| SSE | `src/sse/` | Event registry (membership-aware projection matrix) |
 | Types | `src/types/` | TypeScript interfaces |
 
 ### MCP (`packages/mcp`)
@@ -81,6 +82,127 @@ This document covers the system architecture, design decisions, key flows, and i
 | `src/tools/code-evidence.ts` | Code evidence handlers: link-code, list-code-evidence, correct-code-evidence-link, mark-not-applicable, clear-not-applicable, report-gap, resolve-gap, backfill (10 handler functions) |
 | `src/tools/instructions.ts` | Hierarchical agent workflow instructions |
 | `src/api.ts` | REST API client (OrcyApiClient) |
+
+---
+
+## State Ownership
+
+The UI has two state stores with sharply separated responsibilities.
+The boundary is enforced at the type level — there are no overlapping
+slices, no dual-writes, and no SSE lane that writes server data into
+Zustand. The full authority model and the rejected alternatives are
+recorded in [ADR-0040](adr/0040-react-query-sole-server-state-authority.md).
+
+| State | Authority | Notes |
+|---|---|---|
+| Habitat, Columns, active Missions with progress | React Query — `queryKeys.habitats.detail(habitatId)` | Complete main-board representation; the unpaginated active collection |
+| Mission detail, tasks, progress, comments, dependencies | Domain-specific React Query keys | Independently invalidatable detail representations |
+| Archived Missions | React Query infinite — `[...missions.all, "archived", habitatId]` | Mutable offset; reset-on-membership-change semantics |
+| Habitat statistics | React Query — `queryKeys.habitats.stats(habitatId)` | Server-supplied `missionSummary` plus cycle/throughput/WIP |
+| Sprint planning and dependency graph | Habitat detail Query | Reuse the complete active Missions already in detail |
+| Presence, WIP alerts, notifications, theme, UI selection | Zustand ephemeral slices | Session and recipient-attention state only |
+| Drag preview and column reorder | Local interaction overlay | Removed on success, failure, unmount, or Habitat switch |
+| Recent SSE debug buffer | Zustand `recentSSEEvents` (bounded) | Debug surface, never read as domain truth |
+
+```mermaid
+flowchart LR
+  API[Canonical Orcy API] --> RQ[React Query authority]
+  SSE[SSE event] --> RP[Realtime projector]
+  RP -->|guarded patch + invalidate| RQ
+  RP -->|partial payload: invalidate| RQ
+  RP -->|membership/order change: reset| RQ
+  RQ --> PAGE[HabitatPage data boundary]
+  PAGE --> BOARD[Habitat board]
+  PAGE --> SPRINT[Sprint views]
+  PAGE --> GRAPH[Dependency graph]
+
+  SSE --> EP[Ephemeral projector]
+  EP --> Z[Zustand: presence, wipAlerts, notifications, selection]
+
+  INTENT[Drag/reorder intent] --> OVERLAY[Local interaction overlay]
+  OVERLAY --> BOARD
+  INTENT --> MUT[Mutation]
+  MUT --> API
+```
+
+### Zustand slices
+
+The Zustand store (`packages/ui/src/store/habitatStore.ts`) composes
+exactly five slices — none of them hold durable server data:
+
+- **Theme** — `theme: 'light' | 'dark'` + `setTheme`/`toggleTheme`.
+- **Habitat** — `wipAlerts: Record<columnId, { limit, timestamp }>` +
+  `clearWipAlert`. WIP alerts are short-lived UI warnings, not domain state.
+- **Presence** — `presence: PresenceEntry[]` + upsert/remove. Session-scoped.
+- **UI** — `selectedMissionId`, `selectedMissionIds`, `selectedTaskIds`,
+  bulk-select modes, `collapsedColumns`, `notifications`, `isLoading`/`error`.
+- **SSE handler** — `recentSSEEvents: SSEEvent[]` (bounded) +
+  `handleSSEEvent` (dispatches to the ephemeral projector only).
+
+### Realtime projection rules
+
+The SSE event registry (`packages/ui/src/sse/registry.ts`) classifies
+each event by representation and applies a per-representation projection:
+
+- **Guarded merge** for compatibility-shape payloads (e.g. an
+  already-cached Mission with version-ordered return). Never inserts; never
+  overwrites a newer version with an older response.
+- **Invalidate** for partial, filter-sensitive, or version-sensitive
+  payloads (e.g. `task.*` invalidates the owning Mission, Mission progress,
+  and Habitat detail).
+- **Generation-reset** for archived-pagination membership or order changes
+  (archive/unarchive/delete); the archived infinite Query is reset from
+  offset zero.
+- **Ephemeral-only** for presence, WIP, notification, and debug surfaces.
+
+The projector calls `queryClient.cancelQueries` for affected keys before
+guarded patches and rechecks the active subscription generation after
+every await, so an older HTTP response cannot land after the patch.
+
+### Subscription lifecycle
+
+`useSSE` (`packages/ui/src/hooks/useSSE.ts`) owns:
+
+- A monotonically increasing `generation` that identifies the active
+  connection. Habitat change, reconnect replacement, or unmount increments
+  it (invalidating the old generation) and aborts the token request,
+  cancels reconnect timers, closes the current stream.
+- A per-token `AbortController` for the stream-token request.
+- Generation rechecks after every `await`, before installing the
+  `EventSource` (a stale-generation `EventSource` is closed immediately),
+  and inside the message handler (a stale generation performs no
+  projection effect).
+
+`habitat.deleted` removes the deleted Habitat's caches unconditionally
+and navigates home only when the active route still represents the deleted
+subscription.
+
+### Mutation concurrency
+
+- **Mission drag** (`useMissionDragMove`) is single-flight per Mission,
+  coalesces to the latest target column, and dispatches the queued move
+  with the previous successful response's authoritative `mission.version`.
+  The API requires `expectedVersion` and returns `409 VERSION_CONFLICT`
+  on mismatch; the client surfaces the conflict distinctly (never as a
+  generic network failure) and invalidates to reconcile.
+- **Column reorder** (`POST /habitats/:habitatId/columns/reorder`) is
+  one atomic OCC operation. The server compares
+  `expectedOrder: string[]` to the current order inside one transaction
+  and returns `409 VERSION_CONFLICT` (with the current order) on mismatch
+  before any writes. On success the response carries `{ columns }` in
+  canonical order; `column.updated` SSE events fire post-commit. The prior
+  sequential persistence loop and any compensation requests are deleted.
+
+### Archived offset-reset semantics
+
+The archived-Mission infinite Query's `pageParam` is the server offset;
+next page exists while raw accumulated count is less than `total`. Any
+change that can affect archived membership or order starts a new
+collection generation: cancel in-flight page work, discard accumulated
+pages, reset from offset zero before Load More is re-enabled. Late
+results from a superseded generation are ignored. Stable-snapshot
+browsing is explicitly not promised by this contract; it would require a
+separate cursor/snapshot API decision.
 
 ---
 
@@ -403,7 +525,7 @@ packages/mcp/
 
 ### ADR-8: React Query for Server State Caching
 
-**Decision:** Use React Query (`@tanstack/react-query`) for server state caching, layered alongside Zustand for real-time UI state.
+**Decision:** Use React Query (`@tanstack/react-query`) for server state caching. React Query is the sole client authority for durable server data; Zustand retains only ephemeral UI state.
 
 **Rationale:**
 
@@ -411,6 +533,7 @@ packages/mcp/
 - Stale-while-revalidate pattern keeps UI responsive without over-fetching
 - Built-in cache invalidation hooks integrate cleanly with SSE events
 - `retry: false` on 429 errors prevents retry storms that amplify rate limiting
+- A single authority eliminates the dual-write and dual-invalidate defects that historically split the UI across two caches
 
 **Batched Endpoints Pattern:**
 
@@ -427,11 +550,7 @@ To avoid a cascade of parallel requests when opening a task detail panel, endpoi
 
 Similarly, `GET /missions/:id/details` returns mission + tasks + events + progress in one call.
 
-**Trade-offs:**
-
-- Two caching layers (Zustand + React Query) requires keeping both in sync on SSE events
-- Cache invalidation must cover all keys; SSE hook invalidates both `tasks.detail` and `tasks.details`
-- React StrictMode doubles effect execution in dev — batching absorbs this overhead
+**State ownership:** the durable server state authority is React Query; Zustand holds only ephemeral slices (theme, presence, WIP alerts, UI selection, collapsed columns, notifications, the bounded `recentSSEEvents` debug buffer). The full authority boundary, membership-aware realtime projection, abort/generation-safe subscription lifecycle, cancel-before-patch HTTP ordering, versioned Mission moves, atomic OCC Column reorder, and mutable-offset archived resets are recorded in [ADR-0040](adr/0040-react-query-sole-server-state-authority.md), which supersedes the pre-v0.18.3 "two caching layers" trade-off that used to live in this section.
 
 ### ADR-9: Hierarchical Kanban — Missions → Tasks → Subtasks
 
