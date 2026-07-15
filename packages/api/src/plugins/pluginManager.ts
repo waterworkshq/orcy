@@ -853,6 +853,54 @@ function buildRuntimeDeps(ctxRef: {
 }
 
 /**
+ * Persists a batch of detected signals atomically (ADR-0039 T6/Q11). Shared by
+ * the Detector and post-interceptor `onResult` hooks.
+ *
+ * Builds a `CreatePulseInput` per signal stamped with
+ * `{ detected: true, detector: pluginId, detectorRunId }`, then re-validates the
+ * merged metadata against `detectedMetadataSchema` — same belt-and-suspenders
+ * check `buildPulseWriter.createDetectedSignal` performs (catches a future
+ * refactor that lets caller-supplied metadata override the stamped fields BEFORE
+ * the batch transaction opens). Writes the whole validated batch in ONE
+ * transaction via `createPulseBatchAtomic`; a validation or mid-batch failure
+ * throws → the runtime finishes the run `failed` with zero committed signals.
+ */
+function persistDetectedSignalBatch(
+  signals: DetectedSignalInput[],
+  stamp: { habitatId: string; pluginId: string; runId?: string },
+): number {
+  if (signals.length === 0) return 0;
+  const inputs: pulseRepo.CreatePulseInput[] = signals.map((s) => {
+    const merged: Record<string, unknown> = {
+      ...s.metadata,
+      detected: true,
+      detector: stamp.pluginId,
+      detectorRunId: stamp.runId,
+    };
+    const metaParse = detectedMetadataSchema.safeParse(merged);
+    if (!metaParse.success) {
+      throw new Error(`Detected signal metadata failed validation: ${metaParse.error.message}`);
+    }
+    const input: pulseRepo.CreatePulseInput = {
+      habitatId: stamp.habitatId,
+      scope: s.missionId !== undefined ? "mission" : "habitat",
+      fromType: "system",
+      fromId: stamp.pluginId,
+      signalType: "detected",
+      subject: s.subject,
+      ...(s.body !== undefined ? { body: s.body } : {}),
+      ...(s.taskId !== undefined ? { taskId: s.taskId } : {}),
+      ...(s.missionId !== undefined ? { missionId: s.missionId } : {}),
+      ...(s.replyToId !== undefined ? { replyToId: s.replyToId } : {}),
+      metadata: merged,
+      isAuto: true,
+    };
+    return input;
+  });
+  return pulseService.createPulseBatchAtomic(inputs).length;
+}
+
+/**
  * Invokes one Detector target through the Plugin Invocation Runtime. Returns
  * the full outcome so the caller can map it to its own result shape.
  *
@@ -872,39 +920,12 @@ function invokeDetectorThroughRuntime(
     triggerEventId: ref.sourceId,
     triggerType: ref.kind,
     source: ref,
-    onResult: async (signals) => {
-      if (signals.length === 0) return 0;
-      const runId = ctxRef.ctx?.runId;
-      const inputs: pulseRepo.CreatePulseInput[] = signals.map((s) => {
-        const merged: Record<string, unknown> = {
-          ...s.metadata,
-          detected: true,
-          detector: target.pluginId,
-          detectorRunId: runId,
-        };
-        const metaParse = detectedMetadataSchema.safeParse(merged);
-        if (!metaParse.success) {
-          throw new Error(`Detected signal metadata failed validation: ${metaParse.error.message}`);
-        }
-        const input: pulseRepo.CreatePulseInput = {
-          habitatId: ref.habitatId,
-          scope: s.missionId !== undefined ? "mission" : "habitat",
-          fromType: "system",
-          fromId: target.pluginId,
-          signalType: "detected",
-          subject: s.subject,
-          ...(s.body !== undefined ? { body: s.body } : {}),
-          ...(s.taskId !== undefined ? { taskId: s.taskId } : {}),
-          ...(s.missionId !== undefined ? { missionId: s.missionId } : {}),
-          ...(s.replyToId !== undefined ? { replyToId: s.replyToId } : {}),
-          metadata: merged,
-          isAuto: true,
-        };
-        return input;
-      });
-      const pulses = pulseService.createPulseBatchAtomic(inputs);
-      return pulses.length;
-    },
+    onResult: async (signals) =>
+      persistDetectedSignalBatch(signals, {
+        habitatId: ref.habitatId,
+        pluginId: target.pluginId,
+        runId: ctxRef.ctx?.runId,
+      }),
   };
   return runtime.invokeManaged(request);
 }
@@ -1165,42 +1186,12 @@ function invokePostInterceptorThroughRuntime(
     taskId,
     event,
     context,
-    onResult: async (signals) => {
-      if (signals.length === 0) return 0;
-      const runId = ctxRef.ctx?.runId;
-      const inputs: pulseRepo.CreatePulseInput[] = signals.map((s) => {
-        const merged: Record<string, unknown> = {
-          ...s.metadata,
-          detected: true,
-          detector: target.pluginId,
-          detectorRunId: runId,
-        };
-        // Same defense-in-depth check as buildPulseWriter.createDetectedSignal:
-        // if a future refactor lets caller-supplied metadata override the
-        // stamped fields, this catches it BEFORE we open the batch transaction.
-        const metaParse = detectedMetadataSchema.safeParse(merged);
-        if (!metaParse.success) {
-          throw new Error(`Detected signal metadata failed validation: ${metaParse.error.message}`);
-        }
-        const input: pulseRepo.CreatePulseInput = {
-          habitatId,
-          scope: s.missionId !== undefined ? "mission" : "habitat",
-          fromType: "system",
-          fromId: target.pluginId,
-          signalType: "detected",
-          subject: s.subject,
-          ...(s.body !== undefined ? { body: s.body } : {}),
-          ...(s.taskId !== undefined ? { taskId: s.taskId } : {}),
-          ...(s.missionId !== undefined ? { missionId: s.missionId } : {}),
-          ...(s.replyToId !== undefined ? { replyToId: s.replyToId } : {}),
-          metadata: merged,
-          isAuto: true,
-        };
-        return input;
-      });
-      const pulses = pulseService.createPulseBatchAtomic(inputs);
-      return pulses.length;
-    },
+    onResult: async (signals) =>
+      persistDetectedSignalBatch(signals, {
+        habitatId,
+        pluginId: target.pluginId,
+        runId: ctxRef.ctx?.runId,
+      }),
   };
   // The runtime guarantees kind-correspondence: a PostInterceptorInvocationRequest
   // always produces a PostInterceptorOutcome. The cast encodes that structural invariant.
