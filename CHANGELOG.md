@@ -2,6 +2,37 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.30.1 — 2026-07-15
+
+### Bug Fixes
+
+#### build @orcy/shared before API typecheck in production migration gate ([`e7fc748`](https://github.com/waterworkshq/orcy/commit/e7fc748201d57653f41b789df84de5ace452bf35))
+
+1. The production migration CI workflow ran tsc --noEmit on @orcy/api
+2. before building @orcy/shared. Since @orcy/api resolves @orcy/shared
+3. through the pnpm workspace symlink to its built dist/ directory, a
+4. fresh CI checkout has no shared type declarations available. This
+5. caused every @orcy/shared import to fail with TS2307, which cascaded
+6. into downstream models/index.js re-export errors (TS2305) across
+7. dozens of test files.
+
+9. Add a pnpm --filter @orcy/shared build step before the typecheck step.
+
+
+#### build @orcy/daemon alongside API for compiled startup test ([`638357c`](https://github.com/waterworkshq/orcy/commit/638357c3deac4978f9737c287364da4cdc47ecbf))
+
+1. The compiled startup test imports @orcy/daemon/dist/index.js via
+2. daemon-wiring.js, but the build step only compiled @orcy/api. Use
+3. pnpm --filter '@orcy/api...' to build workspace dependencies
+4. (@orcy/shared, @orcy/daemon) in topological order before the API.
+
+
+#### make workflow gate outcomes driver-independent ([`27998d7`](https://github.com/waterworkshq/orcy/commit/27998d72573fa37bdd6c597d378550e1bc1c0ad8))
+
+1. Use read-before-write checks to reliably distinguish newly satisfied gates from repeated satisfaction across database drivers while preserving concurrency guards. Add atomic detector signal batching with rollback on partial failure, expose habitat-scoped stale plugin runs, and schedule read-only stale-run warnings with elapsed-time observability. Expand repository, route, detector, stale-run, and workflow coverage.
+
+
+
 ## 0.30.0 — 2026-07-14
 
 ### Bug Fixes
@@ -431,14 +462,3 @@
 
 
 #### add CommentSection rendering add-comment and empty-state tests ([`e5b528e`](https://github.com/waterworkshq/orcy/commit/e5b528e084257974da36b2b8c421a75159db3a6e))
-
-
-
-## 0.29.11 — 2026-07-12
-
-### Refactors
-
-#### extract lifecycle collector to repository module with fatal policy preserved ([`d2298eb`](https://github.com/waterworkshq/orcy/commit/d2298ebd5b3f8b239d5b6792df3dd784103d6169))
-
-
-#### extract codeEvidence collector to repository module with context loader ([`67c4663`](https://github.com/waterworkshq/orcy/commit/67c46638c1897262c6abae09dfefc59bb29f9344))
