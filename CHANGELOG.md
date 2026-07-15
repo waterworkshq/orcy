@@ -2,6 +2,18 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.30.2 — 2026-07-15
+
+### Refactors
+
+#### centralize atomic detected-signal persistence ([`2d26fce`](https://github.com/waterworkshq/orcy/commit/2d26fce800fea7e291e126ee280fe20c9e3ac9d6))
+
+1. Extract batch construction, metadata validation, stamping, and transactional
+2. pulse creation into a shared helper for detector and post-interceptor result
+3. hooks.
+
+
+
 ## 0.30.1 — 2026-07-15
 
 ### Bug Fixes
@@ -387,78 +399,3 @@
 18. exists. Release will be cut by release-it after explicit approval.
 
 20. 49 new integration and matrix tests across three test files.
-
-
-
-## 0.29.12 — 2026-07-12
-
-### Performance
-
-#### virtualize TaskCardList with tanstack react-virtual threshold-gated ([`d20460f`](https://github.com/waterworkshq/orcy/commit/d20460f8ecb80cb793cc06278d7024aa2ad25c00))
-
-1. Mobile branch in TaskTableView now uses @tanstack/react-virtual via
-2. useVirtualizer in TaskCardList with VIRTUALIZE_THRESHOLD = 100. Items
-3. under the threshold render unchanged so the existing 12 tests still pass
-4. (3 < 100). TaskTableView's mobile branch wraps TaskCardList in a
-5. bounded-height (max-height: 600px) scroll container and passes a ref
-6. down so the virtualizer can measure scroll against the parent.
-
-8. TaskCardItem is already React.memo'd; threshold gate avoids paying
-9. virtualization overhead for small lists.
-
-
-
-### Refactors
-
-#### type 17 unknown return types in notificationsV2 domain module ([`c37512f`](https://github.com/waterworkshq/orcy/commit/c37512f45059b2298a9615c48c8cc6230ced51b0))
-
-1. Replaces 'unknown' / 'unknown[]' return types with concrete types from
-2. @orcy/shared based on the API route shapes in packages/api/src/routes/notifications.ts
-3. and the repository/service return shapes:
-
-5. inbox, history → InboxResponse { deliveries, total } (NotificationDelivery[])
-6. getDelivery → { delivery, event }
-7. ack, snooze, clear → NotificationDelivery
-8. subscriptions → { overrides, defaults } (NotificationSubscription[])
-9. adminSubscriptions → { subscriptions } (NotificationSubscription[])
-10. createSubscription, updateSubscription → NotificationSubscription
-11. retention → NotificationRetentionPolicy | null
-12. updateRetention → NotificationRetentionPolicy
-13. adminClear → ClearanceResult shape
-14. migrateLegacy → MigrationResult shape
-
-16. Notification types re-exported from packages/ui/src/types/index.ts so the
-17. api domain modules can import them through the existing alias. Internal
-18. interfaces (InboxResponse etc.) are exported because the api re-export
-19. requires them to be visible.
-
-
-#### normalize agents.ts return-type unwrapping consistency ([`a4c322c`](https://github.com/waterworkshq/orcy/commit/a4c322c1afd6b66cb9065dba4e876fbc549e7c8b))
-
-1. agentsApi.list and agentsApi.listWithTasks unwrap responses via
-2. .then((r) => r.agents), but agentsApi.get returned the wrapper
-3. { agent: Agent } unchanged. Normalize so all three methods unwrap to
-4. their inner value (matches most other domain modules).
-
-6. Callers checked: the only consumer of agentsApi.get is useAgent() in
-7. useHabitatData.ts, which is exported but currently unreferenced outside
-8. the file. useAgent's useQuery data type now flows as Agent instead of
-9. { agent: Agent }, with no caller-side changes required.
-
-
-
-### Tests
-
-#### add Dialog primitive escape overlay-close and focus-trap tests ([`1336589`](https://github.com/waterworkshq/orcy/commit/1336589e1f4b60a4b987946dede76312d06a79ea))
-
-
-#### add Drawer primitive escape overlay-close and focus tests ([`f83688f`](https://github.com/waterworkshq/orcy/commit/f83688f56d50e612f994451b16a9ad95ad4ca139))
-
-
-#### add SprintPlanningPanel rendering and sprint-creation tests ([`c2ba7dd`](https://github.com/waterworkshq/orcy/commit/c2ba7dd7f069e4c25685d95d96d29ccd4435e1f3))
-
-
-#### add Tooltip primitive mouse focus and role tests ([`9ba13db`](https://github.com/waterworkshq/orcy/commit/9ba13db792a16ff0c4cb6652fe18b161fac338e0))
-
-
-#### add CommentSection rendering add-comment and empty-state tests ([`e5b528e`](https://github.com/waterworkshq/orcy/commit/e5b528e084257974da36b2b8c421a75159db3a6e))
