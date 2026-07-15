@@ -244,6 +244,9 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
       if ("notFound" in result) {
         throw notFound("Mission not found");
       }
+      if ("invalidTarget" in result) {
+        throw notFound("Mission or column not found");
+      }
       if ("staleVersion" in result) {
         reply.header("Retry-After", "5");
         reply.header("X-Current-Version", String(result.currentVersion));

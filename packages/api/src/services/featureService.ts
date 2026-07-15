@@ -292,22 +292,34 @@ export function deleteMission(
   return { success: true };
 }
 
-/** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. The supplied `expectedVersion` is required and passed through to the repository's optimistic-concurrency check; a stale version produces a `{ staleVersion: true }` outcome with no write and no event emission. */
+/** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. The supplied `expectedVersion` is required and passed through to the repository's optimistic-concurrency check; a stale version produces a `{ staleVersion: true }` outcome with no write and no event emission. A target column that does not belong to the mission's habitat is rejected with `{ invalidTarget: true }` before any write — the invariant is also enforced at the repository boundary. */
 export function moveMissionToColumn(
   missionId: string,
   toColumnId: string,
   actorId: string,
   actorType: "human" | "agent" = "human",
   expectedVersion: number,
-): { mission: Mission } | { notFound: true } | { staleVersion: true; currentVersion: number } {
+):
+  | { mission: Mission }
+  | { notFound: true }
+  | { staleVersion: true; currentVersion: number }
+  | { invalidTarget: true } {
   const mission = missionRepo.getMissionById(missionId);
   if (!mission) return { notFound: true };
+
+  const targetColumn = columnRepo.getColumnById(toColumnId);
+  if (!targetColumn || targetColumn.habitatId !== mission.habitatId) {
+    return { invalidTarget: true };
+  }
 
   const fromColumnId = mission.columnId;
   const result = missionRepo.moveMission(missionId, toColumnId, expectedVersion);
   if (!result.success) {
     if ("versionMismatch" in result) {
       return { staleVersion: true, currentVersion: result.currentVersion };
+    }
+    if ("invalidTarget" in result) {
+      return { invalidTarget: true };
     }
     return { notFound: true };
   }

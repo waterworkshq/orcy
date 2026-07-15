@@ -213,10 +213,12 @@ export type ReorderColumnsResult =
  * every ID must belong to the habitat. Inside one transaction, the current
  * ordered ID list is compared to `expectedOrder`; on mismatch the transaction
  * rolls back without writes and returns `versionConflict`. On match, the
- * columns are persisted with a collision-safe two-phase write (first shift all
- * target orders into a negative range so the unique `(habitatId, order)` index
- * is never violated mid-update, then assign the final non-negative orders),
- * and the freshly committed rows are returned in canonical order.
+ * columns are persisted with a collision-safe two-phase write: first shift
+ * every column's order below 0 (by `maxOrder + 1`, so every staged order is
+ * `<= -1`, strictly disjoint from the `0..N-1` final range even when the
+ * current orders are non-contiguous), then assign the final `0..N-1` orders
+ * via individual parameterized updates. The freshly committed rows are
+ * returned in canonical order.
  */
 export function reorderColumns(
   habitatId: string,
@@ -276,7 +278,7 @@ export function reorderColumns(
   try {
     db.transaction((tx) => {
       const currentRows = tx
-        .select({ id: columns.id })
+        .select({ id: columns.id, order: columns.order })
         .from(columns)
         .where(eq(columns.habitatId, habitatId))
         .orderBy(asc(columns.order))
@@ -289,27 +291,20 @@ export function reorderColumns(
         throw new ReorderConflict(currentOrder);
       }
 
-      // Phase 1: shift all target columns into a negative offset range so the
-      // unique (habitatId, order) index never collides mid-update.
-      const offset = desiredOrder.length;
+      const maxOrder = currentRows[currentRows.length - 1]?.order ?? -1;
+      const shift = maxOrder + 1;
+
       tx.update(columns)
-        .set({ order: sql`${columns.order} - ${offset}` })
+        .set({ order: sql`${columns.order} - ${shift}` })
         .where(and(eq(columns.habitatId, habitatId), inArray(columns.id, desiredOrder)))
         .run();
 
-      // Phase 2: assign final non-negative orders using the desired sequence.
-      const cases: string[] = [];
-      const whens: string[] = [];
       desiredOrder.forEach((id, i) => {
-        cases.push(`WHEN '${id.replace(/'/g, "''")}' THEN ${i}`);
-        whens.push(`'${id.replace(/'/g, "''")}'`);
+        tx.update(columns)
+          .set({ order: i })
+          .where(and(eq(columns.id, id), eq(columns.habitatId, habitatId)))
+          .run();
       });
-      const updateSql = sql.raw(
-        `UPDATE columns SET "order" = CASE id ${cases.join(" ")} END ` +
-          `WHERE habitat_id = '${habitatId.replace(/'/g, "''")}' ` +
-          `AND id IN (${whens.join(", ")});`,
-      );
-      tx.run(updateSql);
     });
   } catch (err) {
     if (err instanceof ReorderConflict) {

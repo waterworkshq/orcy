@@ -200,9 +200,10 @@ describe("columnRepo.reorderColumns — atomic OCC contract (mocked drizzle)", (
     expect(result.success).toBe(true);
     expect(txCommits).toBe(1);
     expect(txRollbacks).toBe(0);
-    // Phase 1 (shift via .update().set().where()) + Phase 2 (raw UPDATE) ran.
-    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
-    expect(rawSqlCalls.length).toBeGreaterThanOrEqual(1);
+    // Phase 1 (bulk shift via .update().set().where()) + Phase 2 (one
+    // parameterized .update() per column) — no raw sql.raw composition.
+    expect(updateCalls.length).toBe(1 + 3);
+    expect(rawSqlCalls.length).toBe(0);
     if (!result.success) return;
     // Result columns are returned in the same order as currentRows order-by.
     expect(result.columns.map((c) => c.id)).toEqual(["c1", "c2", "c3"]);

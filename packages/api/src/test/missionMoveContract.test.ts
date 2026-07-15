@@ -21,6 +21,7 @@ vi.mock("../repositories/task.js", () => ({
 
 vi.mock("../repositories/column.js", () => ({
   getColumnsByHabitatId: vi.fn(),
+  getColumnById: vi.fn(() => ({ id: "to-col", habitatId: "h1" })),
 }));
 
 vi.mock("../repositories/event.js", () => ({

@@ -148,8 +148,11 @@ export function deleteHabitat(habitatId: string): void {
   sseBroadcaster.publish(habitatId, { type: "habitat.deleted", data: { habitatId } });
 }
 
-/** Computes the authoritative active-Mission summary for a {@link Habitat}. `blocked` counts an active Mission that has at least one dependency Mission (resolved across the active + archived set) whose status is not `done`; deleted dependency targets do not synthesize a block and Task completeness is irrelevant. Every `MissionStatus` key is zero-filled. */
-export function computeMissionSummary(allMissions: Mission[]): MissionSummary {
+/** Computes the authoritative active-Mission summary for a {@link Habitat}. `blocked` counts an active Mission that has at least one dependency edge (resolved from the `mission_dependencies` join, the authoritative source — not the denormalized `dependsOn` JSON column, which diverges when deps are added/removed via the dependency endpoint) whose target Mission is present and whose status is not `done`; deleted dependency targets do not synthesize a block, archived targets participate, and Task completeness is irrelevant. Every `MissionStatus` key is zero-filled. */
+export function computeMissionSummary(
+  allMissions: Mission[],
+  dependencyEdges: { missionId: string; dependsOnId: string }[] = [],
+): MissionSummary {
   const byId = new Map(allMissions.map((m) => [m.id, m]));
   const byStatus: Record<MissionStatus, number> = {
     not_started: 0,
@@ -161,10 +164,18 @@ export function computeMissionSummary(allMissions: Mission[]): MissionSummary {
   for (const m of allMissions) {
     if (!m.isArchived) byStatus[m.status] = (byStatus[m.status] ?? 0) + 1;
   }
+  const edgesBySource = new Map<string, string[]>();
+  for (const edge of dependencyEdges) {
+    const list = edgesBySource.get(edge.missionId);
+    if (list) list.push(edge.dependsOnId);
+    else edgesBySource.set(edge.missionId, [edge.dependsOnId]);
+  }
   let blocked = 0;
   for (const m of allMissions) {
     if (m.isArchived) continue;
-    const isBlocked = m.dependsOn.some((depId) => {
+    const deps = edgesBySource.get(m.id);
+    if (!deps) continue;
+    const isBlocked = deps.some((depId) => {
       const dep = byId.get(depId);
       return !!dep && dep.status !== "done";
     });
@@ -206,7 +217,8 @@ export function getHabitatStats(habitatId: string): eventRepo.HabitatStats {
   });
 
   const allMissions = missionRepo.getMissionsByHabitatId(habitatId).missions;
-  stats.missionSummary = computeMissionSummary(allMissions);
+  const dependencyEdges = missionRepo.getMissionDependencyEdges(allMissions.map((m) => m.id));
+  stats.missionSummary = computeMissionSummary(allMissions, dependencyEdges);
 
   return stats;
 }

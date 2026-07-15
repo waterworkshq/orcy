@@ -73,7 +73,8 @@ describe("computeMissionSummary", () => {
       mk({ id: "blocked", status: "not_started", dependsOn: ["dep"] }),
       mk({ id: "free", status: "not_started", dependsOn: [] }),
     ];
-    const summary = computeMissionSummary(missions);
+    const edges = [{ missionId: "blocked", dependsOnId: "dep" }];
+    const summary = computeMissionSummary(missions, edges);
     expect(summary.blocked).toBe(1);
   });
 
@@ -82,7 +83,8 @@ describe("computeMissionSummary", () => {
       mk({ id: "dep", status: "done" }),
       mk({ id: "ready", status: "not_started", dependsOn: ["dep"] }),
     ];
-    expect(computeMissionSummary(missions).blocked).toBe(0);
+    const edges = [{ missionId: "ready", dependsOnId: "dep" }];
+    expect(computeMissionSummary(missions, edges).blocked).toBe(0);
   });
 
   it("counts archived dependencies as blockers when they are not done", () => {
@@ -90,14 +92,16 @@ describe("computeMissionSummary", () => {
       mk({ id: "archived-dep", status: "in_progress", isArchived: true }),
       mk({ id: "active", status: "not_started", dependsOn: ["archived-dep"] }),
     ];
-    const summary = computeMissionSummary(missions);
+    const edges = [{ missionId: "active", dependsOnId: "archived-dep" }];
+    const summary = computeMissionSummary(missions, edges);
     expect(summary.total).toBe(1);
     expect(summary.blocked).toBe(1);
   });
 
   it("does not treat a deleted dependency target as a synthetic blocker", () => {
     const missions = [mk({ id: "dangling", status: "not_started", dependsOn: ["deleted-dep"] })];
-    expect(computeMissionSummary(missions).blocked).toBe(0);
+    const edges = [{ missionId: "dangling", dependsOnId: "deleted-dep" }];
+    expect(computeMissionSummary(missions, edges).blocked).toBe(0);
   });
 
   it("is unaffected by task completeness (tasks are not part of the predicate)", () => {
@@ -105,7 +109,8 @@ describe("computeMissionSummary", () => {
       mk({ id: "dep", status: "done" }),
       mk({ id: "consumer", status: "not_started", dependsOn: ["dep"] }),
     ];
-    expect(computeMissionSummary(missions).blocked).toBe(0);
+    const edges = [{ missionId: "consumer", dependsOnId: "dep" }];
+    expect(computeMissionSummary(missions, edges).blocked).toBe(0);
   });
 
   it("returns all-zero summary for an empty habitat", () => {

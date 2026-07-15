@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { missions, missionDependencies, columns } from "../db/schema/index.js";
-import { eq, and, sql, count, max, asc, notInArray } from "drizzle-orm";
+import { eq, and, sql, count, max, asc, notInArray, inArray } from "drizzle-orm";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import type { Mission, MissionStatus, TaskPriority } from "../models/index.js";
 import { v4 as uuid } from "uuid";
@@ -289,25 +289,47 @@ export function moveMission(
 ):
   | { success: true; mission: Mission }
   | { success: false; notFound: true }
-  | { success: false; versionMismatch: true; currentVersion: number } {
+  | { success: false; versionMismatch: true; currentVersion: number }
+  | { success: false; invalidTarget: true } {
   const db = getDb();
   const now = new Date().toISOString();
 
-  const existing = db
-    .select({ id: missions.id, version: missions.version })
+  const missionRow = db
+    .select({ habitatId: missions.habitatId })
     .from(missions)
     .where(eq(missions.id, missionId))
     .get();
-  if (!existing) return { success: false, notFound: true };
-  if (expectedVersion !== undefined && existing.version !== expectedVersion) {
-    return { success: false, versionMismatch: true, currentVersion: existing.version };
+  if (!missionRow) return { success: false, notFound: true };
+
+  const targetColumn = db
+    .select({ habitatId: columns.habitatId })
+    .from(columns)
+    .where(eq(columns.id, toColumnId))
+    .get();
+  if (!targetColumn || targetColumn.habitatId !== missionRow.habitatId) {
+    return { success: false, invalidTarget: true };
   }
+
+  const where =
+    expectedVersion !== undefined
+      ? and(eq(missions.id, missionId), eq(missions.version, expectedVersion))
+      : eq(missions.id, missionId);
 
   try {
     db.update(missions)
       .set({ columnId: toColumnId, updatedAt: now, version: sql`${missions.version} + 1` })
-      .where(eq(missions.id, missionId))
+      .where(where)
       .run();
+    const affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (affected === 0) {
+      const current = db
+        .select({ version: missions.version })
+        .from(missions)
+        .where(eq(missions.id, missionId))
+        .get();
+      if (!current) return { success: false, notFound: true };
+      return { success: false, versionMismatch: true, currentVersion: current.version };
+    }
   } catch (err) {
     throw repositoryUpdateError("mission", err as Error, missionId);
   }
@@ -428,4 +450,19 @@ export function getMissionsByDependency(dependsOnId: string): Mission[] {
     .where(eq(missionDependencies.dependsOnId, dependsOnId))
     .all()
     .map((row: any) => row.missions);
+}
+
+export function getMissionDependencyEdges(
+  missionIds: string[],
+): { missionId: string; dependsOnId: string }[] {
+  if (missionIds.length === 0) return [];
+  const db = getDb();
+  return db
+    .select({
+      missionId: missionDependencies.missionId,
+      dependsOnId: missionDependencies.dependsOnId,
+    })
+    .from(missionDependencies)
+    .where(inArray(missionDependencies.missionId, missionIds))
+    .all();
 }

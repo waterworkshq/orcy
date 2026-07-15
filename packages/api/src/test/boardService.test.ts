@@ -22,6 +22,7 @@ const taskRepoMocks = vi.hoisted(() => ({
 const missionRepoMocks = vi.hoisted(() => ({
   getMissionById: vi.fn(),
   getMissionsByHabitatId: vi.fn(),
+  getMissionDependencyEdges: vi.fn(() => []),
   createMission: vi.fn(),
   updateMission: vi.fn(),
 }));
