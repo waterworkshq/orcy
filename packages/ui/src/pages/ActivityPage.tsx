@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useHabitatStore } from '../store/habitatStore.js';
 import { useModalStore } from '../store/modalStore.js';
-import { useBoardAnomalies, useBoardEvents } from '../lib/useHabitatData.js';
+import { useHabitatAnomalies, useHabitatEvents } from '../lib/useHabitatData.js';
 import { Button } from '../components/ui/Button.js';
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, ArrowLeft, Activity, Loader2 } from 'lucide-react';
 import { formatRelativeTime } from '../lib/formatting.js';
@@ -128,7 +128,7 @@ export function ActivityPage() {
   const habitatId = board?.id;
   const limit = 50;
 
-  const anomaliesQuery = useBoardAnomalies(habitatId);
+  const anomaliesQuery = useHabitatAnomalies(habitatId);
   const anomalies = anomaliesQuery.data?.anomalies ?? [];
 
   const actions = actionFilters[filter];
@@ -140,7 +140,7 @@ export function ActivityPage() {
     return params;
   }, [limit, pageOffset, actions]);
 
-  const eventsQuery = useBoardEvents(habitatId, eventsParams);
+  const eventsQuery = useHabitatEvents(habitatId, eventsParams);
 
   useEffect(() => {
     if (!eventsQuery.data) return;

@@ -1,6 +1,6 @@
 import { getDb } from "../db/index.js";
 import { columns, missions } from "../db/schema/index.js";
-import { eq, and, max, count, asc } from "drizzle-orm";
+import { eq, and, max, count, asc, sql, inArray } from "drizzle-orm";
 import type { Column } from "../models/index.js";
 import { v4 as uuid } from "uuid";
 import {
@@ -8,6 +8,7 @@ import {
   repositoryNotFoundError,
   repositoryUpdateError,
   repositoryDeleteError,
+  repositoryTransactionError,
 } from "../errors/repository.js";
 
 export interface CreateColumnInput {
@@ -192,4 +193,144 @@ export function resolveImportColumn(
   }
 
   return null;
+}
+
+/**
+ * Result of {@link reorderColumns}. On a stale `expectedOrder` (an intervening
+ * actor changed column order), the call returns `{ success: false, versionConflict: true }`
+ * WITHOUT performing any write — the unique `(habitatId, order)` index is never
+ * touched, so no partial state can leak.
+ */
+export type ReorderColumnsResult =
+  | { success: true; columns: Column[] }
+  | { success: false; versionConflict: true; currentOrder: string[] }
+  | { success: false; notFound: true }
+  | { success: false; invalid: true; reason: string };
+
+/**
+ * Atomically reorders all columns in a habitat using an OCC expected/desired
+ * contract. Both arrays must contain exactly the same unique column IDs and
+ * every ID must belong to the habitat. Inside one transaction, the current
+ * ordered ID list is compared to `expectedOrder`; on mismatch the transaction
+ * rolls back without writes and returns `versionConflict`. On match, the
+ * columns are persisted with a collision-safe two-phase write (first shift all
+ * target orders into a negative range so the unique `(habitatId, order)` index
+ * is never violated mid-update, then assign the final non-negative orders),
+ * and the freshly committed rows are returned in canonical order.
+ */
+export function reorderColumns(
+  habitatId: string,
+  expectedOrder: string[],
+  desiredOrder: string[],
+): ReorderColumnsResult {
+  if (expectedOrder.length !== desiredOrder.length) {
+    return {
+      success: false,
+      invalid: true,
+      reason: "expectedOrder and desiredOrder must have the same length",
+    };
+  }
+  const expectedSet = new Set(expectedOrder);
+  const desiredSet = new Set(desiredOrder);
+  if (expectedSet.size !== expectedOrder.length) {
+    return { success: false, invalid: true, reason: "expectedOrder must be unique" };
+  }
+  if (desiredSet.size !== desiredOrder.length) {
+    return { success: false, invalid: true, reason: "desiredOrder must be unique" };
+  }
+  for (const id of expectedSet) {
+    if (!desiredSet.has(id)) {
+      return {
+        success: false,
+        invalid: true,
+        reason: "expectedOrder and desiredOrder must contain the same column IDs",
+      };
+    }
+  }
+
+  const db = getDb();
+  const habitatColumns = db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.habitatId, habitatId))
+    .all();
+  if (habitatColumns.length === 0) return { success: false, notFound: true };
+  const habitatColumnIds = new Set(habitatColumns.map((c) => c.id));
+  for (const id of expectedSet) {
+    if (!habitatColumnIds.has(id)) {
+      return {
+        success: false,
+        invalid: true,
+        reason: `Column ${id} does not belong to habitat ${habitatId}`,
+      };
+    }
+  }
+  if (habitatColumns.length !== expectedOrder.length) {
+    return {
+      success: false,
+      invalid: true,
+      reason: "expectedOrder must list every column in the habitat",
+    };
+  }
+
+  try {
+    db.transaction((tx) => {
+      const currentRows = tx
+        .select({ id: columns.id })
+        .from(columns)
+        .where(eq(columns.habitatId, habitatId))
+        .orderBy(asc(columns.order))
+        .all();
+      const currentOrder = currentRows.map((c) => c.id);
+      const matchesExpected =
+        currentOrder.length === expectedOrder.length &&
+        currentOrder.every((id, i) => id === expectedOrder[i]);
+      if (!matchesExpected) {
+        throw new ReorderConflict(currentOrder);
+      }
+
+      // Phase 1: shift all target columns into a negative offset range so the
+      // unique (habitatId, order) index never collides mid-update.
+      const offset = desiredOrder.length;
+      tx.update(columns)
+        .set({ order: sql`${columns.order} - ${offset}` })
+        .where(and(eq(columns.habitatId, habitatId), inArray(columns.id, desiredOrder)))
+        .run();
+
+      // Phase 2: assign final non-negative orders using the desired sequence.
+      const cases: string[] = [];
+      const whens: string[] = [];
+      desiredOrder.forEach((id, i) => {
+        cases.push(`WHEN '${id.replace(/'/g, "''")}' THEN ${i}`);
+        whens.push(`'${id.replace(/'/g, "''")}'`);
+      });
+      const updateSql = sql.raw(
+        `UPDATE columns SET "order" = CASE id ${cases.join(" ")} END ` +
+          `WHERE habitat_id = '${habitatId.replace(/'/g, "''")}' ` +
+          `AND id IN (${whens.join(", ")});`,
+      );
+      tx.run(updateSql);
+    });
+  } catch (err) {
+    if (err instanceof ReorderConflict) {
+      return { success: false, versionConflict: true, currentOrder: err.currentOrder };
+    }
+    throw repositoryTransactionError("columns", err as Error, habitatId);
+  }
+
+  const refreshed = db
+    .select()
+    .from(columns)
+    .where(eq(columns.habitatId, habitatId))
+    .orderBy(asc(columns.order))
+    .all();
+  return { success: true, columns: refreshed };
+}
+
+/** Internal sentinel thrown inside the reorder transaction to trigger a clean rollback on expected-order mismatch. */
+class ReorderConflict extends Error {
+  constructor(readonly currentOrder: string[]) {
+    super("REORDER_VERSION_CONFLICT");
+    this.name = "ReorderConflict";
+  }
 }

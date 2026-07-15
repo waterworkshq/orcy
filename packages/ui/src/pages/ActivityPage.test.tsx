@@ -52,8 +52,8 @@ let mockEventsResult: UseQueryResult<{ events: EnrichedHabitatEvent[]; total: nu
 
 vi.mock('../lib/useHabitatData.js', () => ({
   useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
-  useBoardAnomalies: () => mockAnomaliesResult,
-  useBoardEvents: () => mockEventsResult,
+  useHabitatAnomalies: () => mockAnomaliesResult,
+  useHabitatEvents: () => mockEventsResult,
 }));
 
 const mockOpenModal = vi.fn();
@@ -476,7 +476,7 @@ describe('ActivityPage', () => {
     expect(screen.getByText('critical')).toBeTruthy();
   });
 
-  it('anomalies render from useBoardAnomalies', () => {
+  it('anomalies render from useHabitatAnomalies', () => {
     const anomalies = [makeAnomaly({ severity: 'high', message: 'Test anomaly' })];
     setAnomaliesResult({ data: { anomalies } });
     setEventsResult({ data: { events: [], total: 0 } });
@@ -486,7 +486,7 @@ describe('ActivityPage', () => {
     expect(screen.getByText('Test anomaly')).toBeTruthy();
   });
 
-  it('events render from useBoardEvents', () => {
+  it('events render from useHabitatEvents', () => {
     const events = [makeEvent({ id: 'e1', taskTitle: 'RQ Event' })];
     setEventsResult({ data: { events, total: 1 } });
 

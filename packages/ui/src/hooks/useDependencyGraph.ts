@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import type { Node, Edge } from '@xyflow/react';
-import dagre from 'dagre';
-import { api } from '../api/index.js';
-import type { MissionWithProgress } from '../types/index.js';
+import { useState, useEffect, useMemo, useCallback } from "react";
+import type { Node, Edge } from "@xyflow/react";
+import dagre from "dagre";
+import { api } from "../api/index.js";
+import type { MissionWithProgress } from "../types/index.js";
 
 const DAGRE_CONFIG = {
-  rankdir: 'TB' as const,
+  rankdir: "TB" as const,
   nodesep: 60,
   ranksep: 80,
   marginx: 30,
@@ -22,7 +22,7 @@ export type FeatureNodeData = {
   isDependencyMet: boolean;
 };
 
-export type FeatureNode = Node<FeatureNodeData, 'feature'>;
+export type FeatureNode = Node<FeatureNodeData, "feature">;
 
 export type DependencyEdge = Edge & {
   data?: { isHighlighted: boolean };
@@ -31,7 +31,7 @@ export type DependencyEdge = Edge & {
 export function computeChain(
   highlightedNodeId: string,
   nodes: FeatureNode[],
-  edges: DependencyEdge[]
+  edges: DependencyEdge[],
 ): Set<string> {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const upstream = new Set<string>();
@@ -65,9 +65,10 @@ export function computeChain(
   return new Set([highlightedNodeId, ...upstream, ...downstream]);
 }
 
-export function computeLayout(
-  features: MissionWithProgress[]
-): { nodes: FeatureNode[]; edges: DependencyEdge[] } {
+export function computeLayout(features: MissionWithProgress[]): {
+  nodes: FeatureNode[];
+  edges: DependencyEdge[];
+} {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph(DAGRE_CONFIG);
@@ -91,16 +92,16 @@ export function computeLayout(
       edgeSet.add(edgeId);
       // Dependency is met when the depended-on feature is done or approved
       const depFeature = features.find((f) => f.id === depId)!;
-      const met = depFeature.status === 'done';
+      const met = depFeature.status === "done";
       edges.push({
         id: edgeId,
         source: depId,
         target: feature.id,
-        type: 'smoothstep',
+        type: "smoothstep",
         animated: !met,
         data: { isHighlighted: false },
         style: {
-          stroke: met ? '#44484d' : '#f59e0b',
+          stroke: met ? "#44484d" : "#f59e0b",
           strokeWidth: 1.5,
         },
       });
@@ -113,7 +114,7 @@ export function computeLayout(
     const nodePos = g.node(feature.id);
     return {
       id: feature.id,
-      type: 'feature',
+      type: "feature",
       position: { x: nodePos.x - NODE_WIDTH / 2, y: nodePos.y - NODE_HEIGHT / 2 },
       data: {
         feature,
@@ -121,7 +122,7 @@ export function computeLayout(
         isDimmed: false,
         isDependencyMet: feature.dependsOn.every((depId) => {
           const dep = features.find((f) => f.id === depId);
-          return !dep || dep.status === 'done';
+          return !dep || dep.status === "done";
         }),
       },
     };
@@ -144,22 +145,21 @@ export function useDependencyGraph(boardId: string) {
     async function fetchFeatures() {
       try {
         const result = await api.missions.list(boardId);
-        if (!cancelled) setFeatures(result.features);
+        if (!cancelled) setFeatures(result.missions);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load features');
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load features");
       } finally {
         if (!cancelled) setIsLoading(false);
       }
     }
 
     fetchFeatures();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [boardId]);
 
-  const layoutResult = useMemo(
-    () => computeLayout(features),
-    [features]
-  );
+  const layoutResult = useMemo(() => computeLayout(features), [features]);
 
   const highlightedChain = useMemo(() => {
     if (!highlightedNodeId) return new Set<string>();
@@ -187,7 +187,7 @@ export function useDependencyGraph(boardId: string) {
         data: { isHighlighted: bothInChain },
         style: {
           ...edge.style,
-          stroke: bothInChain ? '#b1cad7' : '#44484d',
+          stroke: bothInChain ? "#b1cad7" : "#44484d",
           strokeWidth: bothInChain ? 2.5 : 1,
           opacity: bothInChain ? 1 : 0.3,
         },

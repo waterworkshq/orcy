@@ -47,7 +47,7 @@ export const AutomationTab = forwardRef<AutomationTabHandle, AutomationTabProps>
         return result;
       },
       onSuccess: (result) => {
-        onUpdate?.(result.board);
+        onUpdate?.(result.habitat as never);
         notify.success(
           executeActions ? "Automation execution disabled" : "Automation execution enabled",
         );

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -10,18 +10,22 @@ import {
   useSensor,
   useSensors,
   closestCorners,
-} from '@dnd-kit/core';
-import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useHabitatStore } from '../../store/habitatStore.js';
-import { Column } from './Column.js';
-import { FeatureCard } from './MissionCard.js';
-import { ColumnSwiper } from './ColumnSwiper.js';
-import { useIsMobile } from '../../hooks/useMediaQuery.js';
-import { useArchivedMissions } from '../../lib/useHabitatData.js';
-import type { MissionWithProgress, Column as ColumnType, PresenceEntry } from '../../types/index.js';
-import { api } from '../../api/index.js';
-import { Plus, Archive, ChevronDown } from 'lucide-react';
+} from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { useHabitatStore } from "../../store/habitatStore.js";
+import { Column } from "./Column.js";
+import { FeatureCard } from "./MissionCard.js";
+import { ColumnSwiper } from "./ColumnSwiper.js";
+import { useIsMobile } from "../../hooks/useMediaQuery.js";
+import { useArchivedMissions } from "../../lib/useHabitatData.js";
+import type {
+  MissionWithProgress,
+  Column as ColumnType,
+  PresenceEntry,
+} from "../../types/index.js";
+import { api } from "../../api/index.js";
+import { Plus, Archive, ChevronDown } from "lucide-react";
 
 interface HabitatProps {
   onColumnSettingsClick: (column: ColumnType) => void;
@@ -29,15 +33,27 @@ interface HabitatProps {
   presence: PresenceEntry[];
 }
 
-export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _presence }: HabitatProps) {
-  const { board, columns, features, columnPagination, setBoard: _setBoard, setError, isBulkSelectMode } = useHabitatStore();
+export function Habitat({
+  onColumnSettingsClick,
+  onAddColumnClick,
+  presence: _presence,
+}: HabitatProps) {
+  const {
+    board,
+    columns,
+    features,
+    columnPagination,
+    setBoard: _setBoard,
+    setError,
+    isBulkSelectMode,
+  } = useHabitatStore();
   const [activeFeature, setActiveFeature] = useState<MissionWithProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
   const { data: archivedData, isLoading: archivedLoading } = useArchivedMissions(board?.id);
-  const archivedFeatures = archivedData?.features ?? [];
+  const archivedFeatures = archivedData?.missions ?? [];
   const archivedTotal = archivedData?.total ?? 0;
 
   const isMobile = useIsMobile();
@@ -50,16 +66,21 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _pr
     }),
     useSensor(TouchSensor, {
       activationConstraint: { delay: 200, tolerance: 8 },
-    })
+    }),
   );
 
   const filteredFeatures = useMemo(() => {
-    const search = searchParams.get('search')?.toLowerCase() ?? '';
-    const priority = searchParams.get('priority');
-    const status = searchParams.get('status');
+    const search = searchParams.get("search")?.toLowerCase() ?? "";
+    const priority = searchParams.get("priority");
+    const status = searchParams.get("status");
 
     return features.filter((f) => {
-      if (search && !f.title.toLowerCase().includes(search) && !f.description.toLowerCase().includes(search)) return false;
+      if (
+        search &&
+        !f.title.toLowerCase().includes(search) &&
+        !f.description.toLowerCase().includes(search)
+      )
+        return false;
       if (priority && f.priority !== priority) return false;
       if (status && f.status !== status) return false;
       return true;
@@ -120,12 +141,20 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _pr
     if (targetColumnId !== draggedFeature.columnId) {
       setIsLoading(true);
       try {
-        await api.missions.move(draggedFeature.id, { columnId: targetColumnId });
+        await api.missions.move(draggedFeature.id, {
+          columnId: targetColumnId,
+          expectedVersion: draggedFeature.version,
+        });
       } catch (err) {
         setError((err as Error).message);
         if (board) {
           const res = await api.habitats.get(board.id);
-          useHabitatStore.getState().setBoard(res.board, res.columns ?? [], res.features);
+          // Legacy Zustand slice still types `board` as the secret-bearing Habitat;
+          // the API actually returns the masked PublicHabitat. Cast at this seam
+          // until T7 narrows the store. The runtime value is always masked.
+          useHabitatStore
+            .getState()
+            .setBoard(res.habitat as never, res.columns ?? [], res.missions);
         }
       } finally {
         setIsLoading(false);
@@ -165,9 +194,9 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _pr
                   key={activeMobileColumn.id}
                   column={activeMobileColumn}
                   features={
-                    columnPagination[activeMobileColumn.id]?.features
-                      ?? featuresByColumn[activeMobileColumn.id]
-                      ?? []
+                    columnPagination[activeMobileColumn.id]?.features ??
+                    featuresByColumn[activeMobileColumn.id] ??
+                    []
                   }
                   onSettingsClick={onColumnSettingsClick}
                   isMobile
@@ -219,23 +248,31 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _pr
                       {archivedTotal}
                     </span>
                   )}
-                  <ChevronDown className={`h-3.5 w-3.5 text-on-surface-variant/50 transition-transform duration-200 ${archivedExpanded ? 'rotate-180' : ''}`} />
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 text-on-surface-variant/50 transition-transform duration-200 ${archivedExpanded ? "rotate-180" : ""}`}
+                  />
                 </button>
 
                 {/* Content area */}
                 <div
                   className={`flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-in-out ${
-                    archivedExpanded ? 'opacity-100 mt-1' : 'opacity-0 max-h-0'
+                    archivedExpanded ? "opacity-100 mt-1" : "opacity-0 max-h-0"
                   }`}
                 >
                   <div className="h-full overflow-y-auto muted-scrollbar p-2 rounded-lg border border-outline-variant/15 bg-surface-container/20">
                     {archivedLoading && (
-                      <div data-testid="archived-loading" className="flex items-center justify-center py-8 text-xs text-on-surface-variant/70">
+                      <div
+                        data-testid="archived-loading"
+                        className="flex items-center justify-center py-8 text-xs text-on-surface-variant/70"
+                      >
                         Loading...
                       </div>
                     )}
                     {!archivedLoading && archivedFeatures.length === 0 && (
-                      <div data-testid="archived-empty" className="flex flex-col items-center justify-center py-12 text-on-surface-variant/40 gap-2">
+                      <div
+                        data-testid="archived-empty"
+                        className="flex flex-col items-center justify-center py-12 text-on-surface-variant/40 gap-2"
+                      >
                         <Archive className="h-8 w-8" />
                         <span className="text-xs">No archived features</span>
                       </div>
@@ -250,10 +287,12 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _pr
                             navigate(`/features/${feature.id}`);
                           }}
                         >
-                          <div className="text-xs font-medium text-on-surface-variant truncate">{feature.title}</div>
+                          <div className="text-xs font-medium text-on-surface-variant truncate">
+                            {feature.title}
+                          </div>
                           <div className="flex items-center gap-1.5 mt-1.5">
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant/70">
-                              {feature.status.replace('_', ' ')}
+                              {feature.status.replace("_", " ")}
                             </span>
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant/70">
                               {feature.priority}
@@ -270,7 +309,9 @@ export function Habitat({ onColumnSettingsClick, onAddColumnClick, presence: _pr
         )}
 
         <DragOverlay>
-          {activeFeature && !isBulkSelectMode && <FeatureCard feature={activeFeature} isDragOverlay />}
+          {activeFeature && !isBulkSelectMode && (
+            <FeatureCard feature={activeFeature} isDragOverlay />
+          )}
         </DragOverlay>
       </DndContext>
 

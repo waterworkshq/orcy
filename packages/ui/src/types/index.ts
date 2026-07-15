@@ -15,6 +15,7 @@ import type {
   AutoAssignSettings,
   AutomationSettings,
   Habitat,
+  PublicHabitat,
   Column,
   Agent,
   Mission,
@@ -206,6 +207,7 @@ export type {
   AutoAssignSettings,
   AutomationSettings,
   Habitat,
+  PublicHabitat,
   Column,
   Agent,
   Mission,
@@ -549,7 +551,7 @@ export interface TaskContext {
   blocking: Task[];
   habitatContext: {
     name: string;
-    columns: { name: string; taskCount: number }[];
+    columns: { name: string; missionCount: number }[];
   };
 }
 
@@ -581,6 +583,7 @@ export interface CreateTaskInMissionInput {
 
 export interface MoveMissionInput {
   columnId: string;
+  expectedVersion: number;
 }
 
 export interface MoveTaskInput {

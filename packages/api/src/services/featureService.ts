@@ -109,19 +109,30 @@ export function resolveTargetColumn(habitatId: string, status: MissionStatus): s
   }
 }
 
-/** Moves a {@link Mission} to the column matching `newStatus` when it differs, with side effects: persists the column move, emits a `moved` mission event, and broadcasts a `mission.moved` SSE event to the habitat. */
+/** Moves a {@link Mission} to the column matching `newStatus` when it differs, with side effects: persists the column move, emits a `moved` mission event, and broadcasts a `mission.moved` SSE event to the habitat. The auto-advance path participates in the same repository optimistic-concurrency contract as explicit moves: it supplies the mission's currently observed {@link Mission.version} as the expected version, so a concurrent manual move that commits first produces a stale-version failure here (no write, no `mission.moved`/`mission.updated` event) rather than a silent overwrite. */
 export function autoAdvanceMissionColumn(
   mission: Mission,
   newStatus: MissionStatus,
-): Mission | null {
-  if (newStatus === "failed") return mission;
+):
+  | { mission: Mission; columnChanged: boolean }
+  | { staleVersion: true; currentVersion: number }
+  | null {
+  if (newStatus === "failed") return { mission, columnChanged: false };
 
   const targetColumnId = resolveTargetColumn(mission.habitatId, newStatus);
-  if (!targetColumnId || targetColumnId === mission.columnId) return mission;
+  if (!targetColumnId || targetColumnId === mission.columnId) {
+    return { mission, columnChanged: false };
+  }
 
   const fromColumnId = mission.columnId;
-  const updated = missionRepo.moveMission(mission.id, targetColumnId);
-  if (!updated) return mission;
+  const result = missionRepo.moveMission(mission.id, targetColumnId, mission.version);
+  if (!result.success) {
+    if ("versionMismatch" in result) {
+      return { staleVersion: true, currentVersion: result.currentVersion };
+    }
+    return { mission, columnChanged: false };
+  }
+  const updated = result.mission;
 
   eventRepo.createMissionEvent({
     missionId: mission.id,
@@ -138,7 +149,7 @@ export function autoAdvanceMissionColumn(
     data: { missionId: mission.id, fromColumnId, toColumnId: targetColumnId },
   });
 
-  return updated;
+  return { mission: updated, columnChanged: true };
 }
 
 /** Recalculates a mission's {@link MissionStatus} from its tasks and auto-advances its column when the derived status changes; side effects: persists status updates, emits `status_changed` and SSE `mission.status_changed` / `mission.progress` broadcasts, and may move the column via {@link autoAdvanceMissionColumn}. */
@@ -175,8 +186,8 @@ export function recalculateMissionStatus(
 
   const updatedMission = missionRepo.getMissionById(missionId)!;
 
-  const movedMission = autoAdvanceMissionColumn(updatedMission, newStatus);
-  if (movedMission && movedMission.columnId !== mission.columnId) {
+  const advanceResult = autoAdvanceMissionColumn(updatedMission, newStatus);
+  if (advanceResult && "columnChanged" in advanceResult && advanceResult.columnChanged) {
     columnChanged = true;
   }
 
@@ -281,19 +292,26 @@ export function deleteMission(
   return { success: true };
 }
 
-/** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. */
+/** Moves a mission to a specific target column; side effects: persists the move, emits a `moved` mission event, and broadcasts both `mission.moved` and `mission.updated` SSE events to the habitat. The supplied `expectedVersion` is required and passed through to the repository's optimistic-concurrency check; a stale version produces a `{ staleVersion: true }` outcome with no write and no event emission. */
 export function moveMissionToColumn(
   missionId: string,
   toColumnId: string,
   actorId: string,
   actorType: "human" | "agent" = "human",
-): Mission | null {
+  expectedVersion: number,
+): { mission: Mission } | { notFound: true } | { staleVersion: true; currentVersion: number } {
   const mission = missionRepo.getMissionById(missionId);
-  if (!mission) return null;
+  if (!mission) return { notFound: true };
 
   const fromColumnId = mission.columnId;
-  const updated = missionRepo.moveMission(missionId, toColumnId);
-  if (!updated) return null;
+  const result = missionRepo.moveMission(missionId, toColumnId, expectedVersion);
+  if (!result.success) {
+    if ("versionMismatch" in result) {
+      return { staleVersion: true, currentVersion: result.currentVersion };
+    }
+    return { notFound: true };
+  }
+  const updated = result.mission;
 
   eventRepo.createMissionEvent({
     missionId,
@@ -310,7 +328,7 @@ export function moveMissionToColumn(
   });
   sseBroadcaster.publish(mission.habitatId, { type: "mission.updated", data: updated });
 
-  return updated;
+  return { mission: updated };
 }
 
 /** Returns the {@link Mission} with the given id, or null when it does not exist. */

@@ -30,7 +30,7 @@ export function useHabitatSettingsSaver({ habitatId, onUpdate }: UseHabitatSetti
       setSaving(true);
       try {
         const result = await api.habitats.update(habitatId, data);
-        onUpdate(result.board);
+        onUpdate(result.habitat as never);
         notify.success(successMessage);
       } catch (err) {
         notify.error((err as Error).message);

@@ -1,9 +1,9 @@
 import { request } from "../transport.js";
-import type { Task } from "../../types/index.js";
+import type { Task, Column } from "../../types/index.js";
 
 export const columnsApi = {
   create: (
-    boardId: string,
+    habitatId: string,
     data: {
       name: string;
       order?: number;
@@ -14,7 +14,7 @@ export const columnsApi = {
       isTerminal?: boolean;
     },
   ) =>
-    request<{ column: import("../../types/index.js").Column }>(`/habitats/${boardId}/columns`, {
+    request<{ column: Column }>(`/habitats/${habitatId}/columns`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -30,11 +30,16 @@ export const columnsApi = {
       isTerminal?: boolean;
     },
   ) =>
-    request<{ column: import("../../types/index.js").Column }>(`/columns/${id}`, {
+    request<{ column: Column }>(`/columns/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
   delete: (id: string) => request<void>(`/columns/${id}`, { method: "DELETE" }),
+  reorder: (habitatId: string, data: { expectedOrder: string[]; desiredOrder: string[] }) =>
+    request<{ columns: Column[] }>(`/habitats/${habitatId}/columns/reorder`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   reorderTask: (
     columnId: string,
     data: {

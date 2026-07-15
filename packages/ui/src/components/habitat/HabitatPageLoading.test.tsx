@@ -10,13 +10,13 @@ const mocks = {
 };
 
 const mockBoard = { id: "board-1", name: "Test Board" };
-let mockBoardData: any = { board: mockBoard, columns: [], features: [] };
+let mockBoardData: any = { habitat: mockBoard, columns: [], missions: [] };
 let mockUseBoardLoading = false;
 let mockUseBoardError = false;
 let mockUseBoardErrorMsg: string | null = null;
 
 vi.mock("../../lib/useHabitatData.js", () => ({
-  useBoard: () => ({
+  useHabitat: () => ({
     data: mockUseBoardLoading ? undefined : mockBoardData,
     isLoading: mockUseBoardLoading,
     isError: mockUseBoardError,
@@ -143,9 +143,9 @@ describe("HabitatPage parallel feature loading", () => {
     mocks.habitatsGet.mockReset();
     mocks.agentsList.mockReset();
     mockBoardData = {
-      board: { id: "board-1", name: "Test Board" },
+      habitat: { id: "board-1", name: "Test Board" },
       columns: [{ id: "col-1", name: "Todo", habitatId: "board-1" }],
-      features: [],
+      missions: [],
     };
     mockUseBoardLoading = false;
     mockUseBoardError = false;
@@ -177,7 +177,7 @@ describe("HabitatPage parallel feature loading", () => {
 
   it("loads first page and renders immediately", async () => {
     const features = makeFeatures(10, "col-1");
-    mockBoardData.features = features;
+    mockBoardData.missions = features;
 
     await act(async () => {
       render(<HabitatPage />);
@@ -193,7 +193,7 @@ describe("HabitatPage parallel feature loading", () => {
 
   it("distributes features from board data to a single column", async () => {
     const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.features = page1;
+    mockBoardData.missions = page1;
 
     const { unmount } = await act(async () => {
       return render(<HabitatPage />);
@@ -210,7 +210,7 @@ describe("HabitatPage parallel feature loading", () => {
   });
 
   it("does not call setColumnPagination when column has no features", async () => {
-    mockBoardData.features = [];
+    mockBoardData.missions = [];
 
     await act(async () => {
       render(<HabitatPage />);
@@ -225,7 +225,7 @@ describe("HabitatPage parallel feature loading", () => {
   });
 
   it("sets loading false after first page to allow board render", async () => {
-    mockBoardData.features = makeFeatures(10, "col-1");
+    mockBoardData.missions = makeFeatures(10, "col-1");
 
     await act(async () => {
       render(<HabitatPage />);
@@ -241,7 +241,7 @@ describe("HabitatPage parallel feature loading", () => {
 
   it("does not fetch remaining pages when total exceeds page size", async () => {
     const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.features = page1;
+    mockBoardData.missions = page1;
 
     const { unmount } = await act(async () => {
       return render(<HabitatPage />);
@@ -258,7 +258,7 @@ describe("HabitatPage parallel feature loading", () => {
 
   it("loads only first page features for large datasets", async () => {
     const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.features = page1;
+    mockBoardData.missions = page1;
 
     const { unmount } = await act(async () => {
       return render(<HabitatPage />);
@@ -287,12 +287,12 @@ describe("HabitatPage parallel feature loading", () => {
 
   it("distributes features to correct columns", async () => {
     mockBoardData = {
-      board: { id: "board-1", name: "Test Board" },
+      habitat: { id: "board-1", name: "Test Board" },
       columns: [
         { id: "col-1", name: "Todo", habitatId: "board-1" },
         { id: "col-2", name: "Done", habitatId: "board-1" },
       ],
-      features: [...makeFeatures(3, "col-1", 0), ...makeFeatures(2, "col-2", 3)],
+      missions: [...makeFeatures(3, "col-1", 0), ...makeFeatures(2, "col-2", 3)],
     };
 
     await act(async () => {
@@ -311,7 +311,7 @@ describe("HabitatPage parallel feature loading", () => {
   });
 
   it("calls clearColumnPagination before distributing features", async () => {
-    mockBoardData.features = makeFeatures(10, "col-1");
+    mockBoardData.missions = makeFeatures(10, "col-1");
 
     await act(async () => {
       render(<HabitatPage />);
@@ -324,7 +324,7 @@ describe("HabitatPage parallel feature loading", () => {
 
   it("renders columns with first page features immediately", async () => {
     const page1 = makeFeatures(50, "col-1", 0);
-    mockBoardData.features = page1;
+    mockBoardData.missions = page1;
 
     await act(async () => {
       render(<HabitatPage />);

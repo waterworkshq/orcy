@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Drawer } from '../ui/Drawer.js';
-import { Button } from '../ui/Button.js';
-import { api } from '../../api/index.js';
-import { Archive, ChevronRight } from 'lucide-react';
-import { Badge } from '../ui/Badge.js';
-import type { MissionWithProgress } from '../../types/index.js';
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { Drawer } from "../ui/Drawer.js";
+import { Button } from "../ui/Button.js";
+import { api } from "../../api/index.js";
+import { Archive, ChevronRight } from "lucide-react";
+import { Badge } from "../ui/Badge.js";
+import type { MissionWithProgress } from "../../types/index.js";
 
 interface ArchivedFeaturesPanelProps {
   habitatId: string;
@@ -13,14 +13,14 @@ interface ArchivedFeaturesPanelProps {
 }
 
 const taskStatusVariant: Record<string, string> = {
-  pending: 'pending',
-  claimed: 'claimed',
-  in_progress: 'in_progress',
-  submitted: 'submitted',
-  approved: 'approved',
-  rejected: 'rejected',
-  done: 'done',
-  failed: 'failed',
+  pending: "pending",
+  claimed: "claimed",
+  in_progress: "in_progress",
+  submitted: "submitted",
+  approved: "approved",
+  rejected: "rejected",
+  done: "done",
+  failed: "failed",
 };
 
 export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPanelProps) {
@@ -33,30 +33,33 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
 
   const limit = 50;
 
-  const loadFeatures = useCallback(async (reset = false) => {
-    setIsLoading(true);
-    try {
-      const newOffset = reset ? 0 : offset;
-      const { features: loadedFeatures, total: totalCount } = await api.missions.list(habitatId, {
-        limit,
-        offset: newOffset,
-        isArchived: true,
-      });
-      if (reset) {
-        setFeatures(loadedFeatures);
-        setOffset(limit);
-      } else {
-        setFeatures([...features, ...loadedFeatures]);
-        setOffset(newOffset + limit);
+  const loadFeatures = useCallback(
+    async (reset = false) => {
+      setIsLoading(true);
+      try {
+        const newOffset = reset ? 0 : offset;
+        const { missions: loadedFeatures, total: totalCount } = await api.missions.list(habitatId, {
+          limit,
+          offset: newOffset,
+          isArchived: true,
+        });
+        if (reset) {
+          setFeatures(loadedFeatures);
+          setOffset(limit);
+        } else {
+          setFeatures([...features, ...loadedFeatures]);
+          setOffset(newOffset + limit);
+        }
+        setTotal(totalCount);
+        setHasMore(newOffset + loadedFeatures.length < totalCount);
+      } catch (err) {
+        console.warn("Failed to load archived features:", err);
+      } finally {
+        setIsLoading(false);
       }
-      setTotal(totalCount);
-      setHasMore(newOffset + loadedFeatures.length < totalCount);
-    } catch (err) {
-      console.warn('Failed to load archived features:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [habitatId, offset, features]);
+    },
+    [habitatId, offset, features],
+  );
 
   useEffect(() => {
     loadFeatures(true);
@@ -74,7 +77,9 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
           <Archive className="h-5 w-5 text-muted-foreground" />
           <h2 className="font-semibold">Archived Features</h2>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Close
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -97,15 +102,22 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                  <Badge variant={taskStatusVariant[feature.status] as any} className="text-[10px] px-1.5 py-0 shrink-0">
-                    {feature.status.replace('_', ' ')}
+                  <Badge
+                    variant={taskStatusVariant[feature.status] as any}
+                    className="text-[10px] px-1.5 py-0 shrink-0"
+                  >
+                    {feature.status.replace("_", " ")}
                   </Badge>
-                  <Badge variant={feature.priority as any} className="text-[10px] px-1.5 py-0 shrink-0">
+                  <Badge
+                    variant={feature.priority as any}
+                    className="text-[10px] px-1.5 py-0 shrink-0"
+                  >
                     {feature.priority}
                   </Badge>
                   {feature.progress?.total ? (
                     <span>
-                      {feature.progress.done}/{feature.progress.total} ({Math.round((feature.progress.done / feature.progress.total) * 100)}%)
+                      {feature.progress.done}/{feature.progress.total} (
+                      {Math.round((feature.progress.done / feature.progress.total) * 100)}%)
                     </span>
                   ) : null}
                 </div>
@@ -119,7 +131,7 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
                   onClick={() => loadFeatures(false)}
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Loading...' : 'Load more'}
+                  {isLoading ? "Loading..." : "Load more"}
                 </Button>
               </div>
             )}

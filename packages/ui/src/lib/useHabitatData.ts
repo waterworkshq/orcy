@@ -3,10 +3,10 @@ import { api } from "../api/index.js";
 import { queryKeys } from "./queryKeys.js";
 import type { CreateMissionInput, CreateTaskInMissionInput, Mission } from "../types/index.js";
 
-export function useBoards() {
+export function useHabitats() {
   return useQuery({
     queryKey: queryKeys.habitats.list(),
-    queryFn: () => api.habitats.list(),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.habitats.list(signal),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -19,20 +19,20 @@ export function useMyTeams() {
   });
 }
 
-export function useBoard(boardId: string | undefined) {
+export function useHabitat(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.detail(boardId ?? ""),
-    queryFn: () => api.habitats.get(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.detail(habitatId ?? ""),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.habitats.get(habitatId!, signal),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useBoardAgents(boardId: string | undefined) {
+export function useHabitatAgents(habitatId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.agents.list(),
     queryFn: () => api.agents.list(),
-    enabled: !!boardId,
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -46,22 +46,32 @@ export function useHabitatStats(habitatId: string | undefined) {
   });
 }
 
-export function useBoardEvents(
-  boardId: string | undefined,
+export function useHabitatEvents(
+  habitatId: string | undefined,
   params?: { limit?: number; offset?: number; action?: string },
 ) {
   return useQuery({
-    queryKey: [...queryKeys.habitats.events(boardId ?? ""), params] as const,
-    queryFn: () => api.habitats.events(boardId!, params),
-    enabled: !!boardId,
+    queryKey: [...queryKeys.habitats.events(habitatId ?? ""), params] as const,
+    queryFn: () => api.habitats.events(habitatId!, params),
+    enabled: !!habitatId,
     staleTime: 30 * 1000,
   });
 }
 
-export function useMissions(habitatId: string | undefined) {
+export function useMissions(
+  habitatId: string | undefined,
+  filters?: {
+    status?: string;
+    priority?: string;
+    limit?: number;
+    offset?: number;
+    isArchived?: boolean;
+  },
+) {
   return useQuery({
-    queryKey: queryKeys.missions.list(habitatId ?? ""),
-    queryFn: () => api.missions.list(habitatId!),
+    queryKey: [...queryKeys.missions.list(habitatId ?? ""), filters ?? {}] as const,
+    queryFn: ({ signal }: { signal?: AbortSignal }) =>
+      api.missions.list(habitatId!, filters, signal),
     enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
@@ -70,7 +80,7 @@ export function useMissions(habitatId: string | undefined) {
 export function useMission(missionId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.missions.detail(missionId ?? ""),
-    queryFn: () => api.missions.get(missionId!),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.missions.get(missionId!, signal),
     enabled: !!missionId,
     staleTime: 2 * 60 * 1000,
   });
@@ -79,7 +89,7 @@ export function useMission(missionId: string | undefined) {
 export function useMissionDetails(missionId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.missions.details(missionId ?? ""),
-    queryFn: () => api.missions.details(missionId!),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => api.missions.details(missionId!, signal),
     enabled: !!missionId,
     staleTime: 30 * 1000,
   });
@@ -163,47 +173,47 @@ export function useDashboardStats() {
   });
 }
 
-export function useBoardPredictions(boardId: string | undefined) {
+export function useHabitatPredictions(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.predictions(boardId ?? ""),
-    queryFn: () => api.habitats.predictions(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.predictions(habitatId ?? ""),
+    queryFn: () => api.habitats.predictions(habitatId!),
+    enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useBoardBurndown(boardId: string | undefined, days?: number) {
+export function useHabitatBurndown(habitatId: string | undefined, days?: number) {
   return useQuery({
-    queryKey: [...queryKeys.habitats.burndown(boardId ?? ""), days] as const,
-    queryFn: () => api.habitats.burndown(boardId!, days),
-    enabled: !!boardId,
+    queryKey: [...queryKeys.habitats.burndown(habitatId ?? ""), days] as const,
+    queryFn: () => api.habitats.burndown(habitatId!, days),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useCumulativeFlow(boardId: string | undefined, days?: number) {
+export function useCumulativeFlow(habitatId: string | undefined, days?: number) {
   return useQuery({
-    queryKey: [...queryKeys.habitats.cumulativeFlow(boardId ?? ""), days] as const,
-    queryFn: () => api.habitats.cumulativeFlow(boardId!, days),
-    enabled: !!boardId,
+    queryKey: [...queryKeys.habitats.cumulativeFlow(habitatId ?? ""), days] as const,
+    queryFn: () => api.habitats.cumulativeFlow(habitatId!, days),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useBottlenecks(boardId: string | undefined, days?: number) {
+export function useBottlenecks(habitatId: string | undefined, days?: number) {
   return useQuery({
-    queryKey: [...queryKeys.habitats.bottlenecks(boardId ?? ""), days] as const,
-    queryFn: () => api.habitats.bottlenecks(boardId!, days),
-    enabled: !!boardId,
+    queryKey: [...queryKeys.habitats.bottlenecks(habitatId ?? ""), days] as const,
+    queryFn: () => api.habitats.bottlenecks(habitatId!, days),
+    enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useAgentQuality(boardId: string | undefined) {
+export function useAgentQuality(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.agentQuality(boardId ?? ""),
-    queryFn: () => api.habitats.agentQuality(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.agentQuality(habitatId ?? ""),
+    queryFn: () => api.habitats.agentQuality(habitatId!),
+    enabled: !!habitatId,
     staleTime: 2 * 60 * 1000,
   });
 }
@@ -235,25 +245,25 @@ export function useSprintCarryOver(sprintId: string | undefined) {
   });
 }
 
-export function useBoardAnomalies(boardId: string | undefined) {
+export function useHabitatAnomalies(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.anomalies(boardId ?? ""),
-    queryFn: () => api.habitats.anomalies(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.anomalies(habitatId ?? ""),
+    queryFn: () => api.habitats.anomalies(habitatId!),
+    enabled: !!habitatId,
     staleTime: 60 * 1000,
   });
 }
 
-export function useBoardCapacity(boardId: string | undefined) {
+export function useHabitatCapacity(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.habitats.capacity(boardId ?? ""),
-    queryFn: () => api.habitats.capacity(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.capacity(habitatId ?? ""),
+    queryFn: () => api.habitats.capacity(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export interface BoardTasksFilters {
+export interface HabitatTasksFilters {
   status?: string;
   priority?: string;
   search?: string;
@@ -265,11 +275,11 @@ export interface BoardTasksFilters {
   sortDir?: "asc" | "desc";
 }
 
-export function useBoardTasks(boardId: string | undefined, filters?: BoardTasksFilters) {
+export function useHabitatTasks(habitatId: string | undefined, filters?: HabitatTasksFilters) {
   return useQuery({
-    queryKey: queryKeys.habitats.tasks(boardId ?? "", filters),
-    queryFn: () => api.habitats.tasks(boardId!, filters),
-    enabled: !!boardId,
+    queryKey: queryKeys.habitats.tasks(habitatId ?? "", filters),
+    queryFn: () => api.habitats.tasks(habitatId!, filters),
+    enabled: !!habitatId,
     staleTime: 30 * 1000,
   });
 }
@@ -344,7 +354,7 @@ export function useSavedFilters(boardId: string | undefined) {
   });
 }
 
-export function useBoardHealth(boardId: string | undefined) {
+export function useHabitatHealth(boardId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.health.current(boardId ?? ""),
     queryFn: () => api.health.get(boardId!),
@@ -374,17 +384,17 @@ export function useMissionComments(missionId: string | undefined) {
   });
 }
 
-export function useInvalidateBoard(boardId: string) {
+export function useInvalidateHabitat(habitatId: string) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
-    qc.invalidateQueries({ queryKey: queryKeys.habitats.stats(boardId) });
-    qc.invalidateQueries({ queryKey: queryKeys.habitats.events(boardId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.list(boardId) });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.stats(habitatId) });
+    qc.invalidateQueries({ queryKey: queryKeys.habitats.events(habitatId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
   };
 }
 
-export function useInvalidateBoards() {
+export function useInvalidateHabitats() {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: queryKeys.habitats.list() });

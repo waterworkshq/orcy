@@ -29,7 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function SprintPlanningPanel({ habitatId, onClose }: SprintPlanningPanelProps) {
   const queryClient = useQueryClient();
   const { data: missionsData } = useMissions(habitatId);
-  const features = missionsData?.features ?? [];
+  const features = missionsData?.missions ?? [];
   const [showCreate, setShowCreate] = useState(false);
   const [expandedSprintId, setExpandedSprintId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);

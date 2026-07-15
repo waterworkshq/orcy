@@ -1,7 +1,7 @@
 import { useModalStore } from "../store/modalStore.js";
 import { useHabitatStore } from "../store/habitatStore.js";
 import { useTaskDetails } from "../lib/useTaskData.js";
-import { useMission, useBoard } from "../lib/useHabitatData.js";
+import { useMission, useHabitat } from "../lib/useHabitatData.js";
 import { useTaskEdit, type UseTaskEditResult } from "./useTaskEdit.js";
 import { useTaskSubtasks } from "./useTaskSubtasks.js";
 import { useTaskDelegate } from "./useTaskDelegate.js";
@@ -90,7 +90,7 @@ export interface UseTaskDetailPanelResult {
   selectedTaskId: string | null;
   agents: Agent[];
   task: Task | undefined;
-  feature: {
+  mission: {
     id: string;
     title: string;
     description: string;
@@ -128,8 +128,8 @@ export function useTaskDetailPanel({
 
   const task = detailsData?.task;
   const { data: missionData } = useMission(task?.missionId);
-  const mission = missionData?.feature;
-  const { data: boardData } = useBoard(mission?.habitatId);
+  const mission = missionData?.mission;
+  const { data: boardData } = useHabitat(mission?.habitatId);
   const columns = boardData?.columns ?? [];
   const column = mission ? columns.find((c) => c.id === mission.columnId) : undefined;
   const nextColumnName = column?.nextColumnId
@@ -157,7 +157,7 @@ export function useTaskDetailPanel({
     selectedTaskId,
     agents,
     task,
-    feature: detailsData?.feature ?? null,
+    mission: detailsData?.mission ?? null,
     siblingTasks: detailsData?.siblingTasks ?? [],
     column,
     nextColumnName,

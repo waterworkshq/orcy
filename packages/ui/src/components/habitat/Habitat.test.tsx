@@ -271,7 +271,7 @@ describe("Habitat - Archived Column", () => {
     storeState.collapsedColumns = {};
     storeState.isBulkSelectMode = false;
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: [], total: 0 },
+      data: { missions: [], total: 0 },
       isLoading: false,
     });
   });
@@ -291,7 +291,7 @@ describe("Habitat - Archived Column", () => {
 
   it("shows count in header when collapsed", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 3 },
+      data: { missions: mockArchivedFeatures, total: 3 },
       isLoading: false,
     });
     renderWithQC(
@@ -305,7 +305,7 @@ describe("Habitat - Archived Column", () => {
 
   it("shows archived count when expanded", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 3 },
+      data: { missions: mockArchivedFeatures, total: 3 },
       isLoading: false,
     });
     renderWithQC(
@@ -322,7 +322,7 @@ describe("Habitat - Archived Column", () => {
 
   it("expands column when header clicked", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(
@@ -338,7 +338,7 @@ describe("Habitat - Archived Column", () => {
 
   it("collapses column when header clicked again", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(
@@ -356,7 +356,7 @@ describe("Habitat - Archived Column", () => {
 
   it("renders archived features when expanded", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(
@@ -383,7 +383,7 @@ describe("Habitat - Archived Column", () => {
 
   it("applies muted styling when expanded", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(
@@ -447,7 +447,7 @@ describe("Habitat - Archived Column", () => {
 
   it("shows feature status and priority in expanded cards", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(
@@ -480,7 +480,7 @@ describe("Habitat - Archived Column", () => {
 
   it("uses w-80 width when expanded", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(
@@ -530,7 +530,7 @@ describe("Habitat - Archived Column", () => {
 
   it("navigates to feature detail page when archived feature is clicked", async () => {
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: mockArchivedFeatures, total: 2 },
+      data: { missions: mockArchivedFeatures, total: 2 },
       isLoading: false,
     });
     renderWithQC(

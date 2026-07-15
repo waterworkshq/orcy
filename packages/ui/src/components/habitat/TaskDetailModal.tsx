@@ -145,7 +145,7 @@ export function TaskDetailModal() {
     isOpen ? (selectedTaskId ?? undefined) : undefined,
   );
 
-  const { data: missionData } = useMissionTasks(taskDetails?.feature?.id);
+  const { data: missionData } = useMissionTasks(taskDetails?.mission?.id);
   const missionTasks = missionData?.tasks ?? [];
 
   const task = modalTask ?? taskDetails?.task ?? null;
@@ -185,7 +185,7 @@ export function TaskDetailModal() {
 
   const assigneeName = task ? getAgentDisplayName(task.assignedAgentId, agents) : "Unassigned";
 
-  const featureTitle = taskDetails?.feature?.title ?? "";
+  const missionTitle = taskDetails?.mission?.title ?? "";
   const activityEvents = events.map((event) => mapTaskEventToActivityEvent(event, agents));
 
   return createPortal(
@@ -211,9 +211,9 @@ export function TaskDetailModal() {
           <>
             <div className="relative p-10 pb-4 flex justify-between items-start">
               <div className="space-y-2 min-w-0 flex-1">
-                {featureTitle && (
+                {missionTitle && (
                   <div className="flex items-center gap-2 text-primary text-xs font-label uppercase tracking-widest opacity-80">
-                    <span>{featureTitle}</span>
+                    <span>{missionTitle}</span>
                   </div>
                 )}
                 <h1 className="text-3xl font-headline font-bold text-on-surface tracking-tight break-words">

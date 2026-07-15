@@ -3,7 +3,7 @@ import { DetailCard } from '../ui/DetailCard.js';
 import { FileStack } from 'lucide-react';
 import { FEATURE_STATUS_BADGE, getStatusBadge } from '../../lib/status-maps.js';
 
-interface FeatureContextData {
+interface MissionContextData {
   id: string;
   title: string;
   description: string;
@@ -12,36 +12,36 @@ interface FeatureContextData {
   status: string;
 }
 
-interface FeatureContextSectionProps {
-  feature: FeatureContextData | null;
-  onSelectFeature?: (missionId: string) => void;
+interface MissionContextSectionProps {
+  mission: MissionContextData | null;
+  onSelectMission?: (missionId: string) => void;
 }
 
-export function FeatureContextSection({ feature, onSelectFeature }: FeatureContextSectionProps) {
-  if (!feature) return null;
+export function MissionContextSection({ mission, onSelectMission }: MissionContextSectionProps) {
+  if (!mission) return null;
 
   return (
     <DetailCard icon={FileStack} title="Mission Context" className="mb-4">
       <div className="space-y-2">
         <button
           type="button"
-          onClick={() => onSelectFeature?.(feature.id)}
+          onClick={() => onSelectMission?.(mission.id)}
           className="text-left w-full hover:opacity-80"
         >
           <div className="flex items-center justify-between">
-            <span className="font-medium text-sm">{feature.title}</span>
-            <span className={`text-xs px-2 py-0.5 rounded ${getStatusBadge(FEATURE_STATUS_BADGE, feature.status)}`}>
-              {feature.status.replace('_', ' ')}
+            <span className="font-medium text-sm">{mission.title}</span>
+            <span className={`text-xs px-2 py-0.5 rounded ${getStatusBadge(FEATURE_STATUS_BADGE, mission.status)}`}>
+              {mission.status.replace('_', ' ')}
             </span>
           </div>
         </button>
-        {feature.description && (
-          <p className="text-xs text-muted-foreground">{feature.description}</p>
+        {mission.description && (
+          <p className="text-xs text-muted-foreground">{mission.description}</p>
         )}
-        {feature.acceptanceCriteria && (
+        {mission.acceptanceCriteria && (
           <div className="mt-2">
             <span className="text-xs font-medium text-muted-foreground">Acceptance Criteria:</span>
-            <p className="text-xs text-muted-foreground mt-1">{feature.acceptanceCriteria}</p>
+            <p className="text-xs text-muted-foreground mt-1">{mission.acceptanceCriteria}</p>
           </div>
         )}
       </div>

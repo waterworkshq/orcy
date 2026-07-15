@@ -42,8 +42,8 @@ const mockUseSavedFilters = vi.fn();
 vi.mock("../../lib/useHabitatData.js", () => ({
   useSavedFilters: (...args: unknown[]) => mockUseSavedFilters(...args),
   useAgents: () => ({ data: mockStoreState.agents as any[], isLoading: false, isError: false }),
-  useBoard: () => ({
-    data: { board: mockStoreState.board, columns: [] },
+  useHabitat: () => ({
+    data: { habitat: mockStoreState.board, columns: [] },
     isLoading: false,
     isError: false,
   }),

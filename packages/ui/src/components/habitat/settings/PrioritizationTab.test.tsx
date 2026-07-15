@@ -405,8 +405,8 @@ describe('PrioritizationTab', () => {
 
   it('save with advanced open validates JSON first', async () => {
     mockUpdate.mockResolvedValue({
-      board: { id: 'b1', name: 'Test', description: '' },
-    });
+        habitat: { id: 'b1', name: 'Test', description: '' },
+      });
 
     const ref = React.createRef<{ save: () => Promise<void> }>();
     render(
@@ -434,8 +434,8 @@ describe('PrioritizationTab', () => {
 
   it('reorders rules on drag end', async () => {
     mockUpdate.mockResolvedValue({
-      board: { id: 'b1', name: 'Test', description: '' },
-    });
+        habitat: { id: 'b1', name: 'Test', description: '' },
+      });
 
     const ref = React.createRef<{ save: () => Promise<void> }>();
     render(

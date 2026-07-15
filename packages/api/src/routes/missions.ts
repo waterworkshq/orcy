@@ -229,21 +229,30 @@ export async function missionRoutes(fastify: FastifyInstance): Promise<void> {
       schema: { params: missionIdParamsSchema, body: moveMissionSchema },
       preHandler: [agentOrHumanAuth, requireMissionAccess],
     },
-    async (request, _reply) => {
+    async (request, reply) => {
       const parsed = request.body;
       const actorId = request.agent?.id ?? request.user?.id ?? "anonymous";
       const actorType = request.agent ? "agent" : "human";
 
-      const mission = missionService.moveMissionToColumn(
+      const result = missionService.moveMissionToColumn(
         request.params.missionId,
         parsed.columnId,
         actorId,
         actorType,
+        parsed.expectedVersion,
       );
-      if (!mission) {
+      if ("notFound" in result) {
         throw notFound("Mission not found");
       }
-      return { mission };
+      if ("staleVersion" in result) {
+        reply.header("Retry-After", "5");
+        reply.header("X-Current-Version", String(result.currentVersion));
+        throw new AppError(409, "VERSION_CONFLICT", "Mission version conflict", {
+          currentVersion: result.currentVersion,
+          yourVersion: parsed.expectedVersion,
+        });
+      }
+      return { mission: result.mission };
     },
   );
 

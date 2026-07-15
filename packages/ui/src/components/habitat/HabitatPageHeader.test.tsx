@@ -6,21 +6,21 @@ import { HabitatPage } from "./HabitatPage.js";
 
 vi.mock("../../api/index.js", () => ({
   api: {
-    boards: {
+    habitats: {
       get: vi.fn().mockResolvedValue({
-        board: { id: "board-1", name: "Test Board" },
+        habitat: { id: "board-1", name: "Test Board" },
         columns: [],
-        features: [],
+        missions: [],
       }),
     },
     agents: { list: vi.fn().mockResolvedValue([]) },
-    features: { list: vi.fn().mockResolvedValue({ features: [] }) },
+    missions: { list: vi.fn().mockResolvedValue({ missions: [] }) },
   },
 }));
 
 vi.mock("../../lib/useHabitatData.js", () => ({
-  useBoard: () => ({
-    data: { board: { id: "board-1", name: "Test Board" }, columns: [] },
+  useHabitat: () => ({
+    data: { habitat: { id: "board-1", name: "Test Board" }, columns: [] },
     isLoading: false,
     error: null,
   }),

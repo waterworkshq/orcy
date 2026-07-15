@@ -1,6 +1,6 @@
 import { request } from "../transport.js";
 import type {
-  Habitat,
+  PublicHabitat,
   Task,
   MissionWithProgress,
   EnrichedHabitatEvent,
@@ -20,16 +20,22 @@ import type {
 } from "../../types/index.js";
 
 export const habitatsApi = {
-  list: () => request<{ boards: Habitat[] }>("/habitats").then((r) => r.boards),
-  get: (id: string) =>
-    request<{ board: Habitat; columns: Habitat["columns"]; features: MissionWithProgress[] }>(
-      `/habitats/${id}`,
-    ),
+  list: (signal?: AbortSignal) =>
+    request<{ habitats: PublicHabitat[] }>("/habitats", { signal }).then((r) => r.habitats),
+  get: (id: string, signal?: AbortSignal) =>
+    request<{
+      habitat: PublicHabitat;
+      columns: PublicHabitat["columns"];
+      missions: MissionWithProgress[];
+    }>(`/habitats/${id}`, { signal }),
   create: (data: { name: string; description?: string; teamId?: string | null }) =>
-    request<{ board: Habitat; columns: Habitat["columns"] }>("/habitats", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+    request<{ habitat: PublicHabitat; columns: NonNullable<PublicHabitat["columns"]> }>(
+      "/habitats",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    ),
   update: (
     id: string,
     data: {
@@ -45,7 +51,7 @@ export const habitatsApi = {
       roadmapSettings?: RoadmapSettings | null;
     },
   ) =>
-    request<{ board: Habitat }>(`/habitats/${id}`, {
+    request<{ habitat: PublicHabitat }>(`/habitats/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
@@ -53,7 +59,7 @@ export const habitatsApi = {
   stats: (id: string) =>
     request<import("../../types/index.js").HabitatStats>(`/habitats/${id}/stats`),
   events: (
-    boardId: string,
+    habitatId: string,
     filters?: {
       limit?: number;
       offset?: number;
@@ -72,38 +78,50 @@ export const habitatsApi = {
     if (filters?.since) params.set("since", filters.since);
     const qs = params.toString();
     return request<{ events: EnrichedHabitatEvent[]; total: number }>(
-      `/habitats/${boardId}/events${qs ? `?${qs}` : ""}`,
+      `/habitats/${habitatId}/events${qs ? `?${qs}` : ""}`,
     );
   },
-  export: (boardId: string, params?: { include?: string; format?: string }) => {
+  export: (habitatId: string, params?: { include?: string; format?: string }) => {
     const queryParams = new URLSearchParams();
     if (params?.include) queryParams.set("include", params.include);
     if (params?.format) queryParams.set("format", params.format);
     const qs = queryParams.toString();
     return request<import("../../types/index.js").HabitatExport>(
-      `/habitats/${boardId}/export${qs ? `?${qs}` : ""}`,
+      `/habitats/${habitatId}/export${qs ? `?${qs}` : ""}`,
     );
   },
   import: (data: import("../../types/index.js").HabitatExport) =>
     request<{
-      board: Habitat;
-      columns: Habitat["columns"];
-      imported: { tasks: number; comments: number; templates: number; webhooks: number };
+      habitat: PublicHabitat;
+      columns: NonNullable<PublicHabitat["columns"]>;
+      imported: {
+        missions: number;
+        tasks: number;
+        comments: number;
+        templates: number;
+        webhooks: number;
+      };
       warnings: string[];
-    }>("/boards/import", { method: "POST", body: JSON.stringify(data) }),
-  importInto: (boardId: string, data: import("../../types/index.js").HabitatExport) =>
+    }>("/habitats/import", { method: "POST", body: JSON.stringify(data) }),
+  importInto: (habitatId: string, data: import("../../types/index.js").HabitatExport) =>
     request<{
-      board: Habitat;
-      columns: Habitat["columns"];
-      imported: { tasks: number; comments: number; templates: number; webhooks: number };
+      habitat: PublicHabitat;
+      columns: NonNullable<PublicHabitat["columns"]>;
+      imported: {
+        missions: number;
+        tasks: number;
+        comments: number;
+        templates: number;
+        webhooks: number;
+      };
       warnings: string[];
-    }>(`/habitats/${boardId}/import`, { method: "POST", body: JSON.stringify(data) }),
-  anomalies: (boardId: string) =>
-    request<{ anomalies: Anomaly[] }>(`/habitats/${boardId}/anomalies`),
-  getPrioritizationRules: (boardId: string) =>
-    request<{ rules: PrioritizationSettings }>(`/habitats/${boardId}/rules`),
+    }>(`/habitats/${habitatId}/import`, { method: "POST", body: JSON.stringify(data) }),
+  anomalies: (habitatId: string) =>
+    request<{ anomalies: Anomaly[] }>(`/habitats/${habitatId}/anomalies`),
+  getPrioritizationRules: (habitatId: string) =>
+    request<{ rules: PrioritizationSettings }>(`/habitats/${habitatId}/rules`),
   updatePrioritizationRules: (
-    boardId: string,
+    habitatId: string,
     data: {
       enabled?: boolean;
       rules?: PrioritizationSettings["rules"];
@@ -111,24 +129,25 @@ export const habitatsApi = {
       fallbackToManual?: boolean;
     },
   ) =>
-    request<{ rules: PrioritizationSettings }>(`/habitats/${boardId}/rules`, {
+    request<{ rules: PrioritizationSettings }>(`/habitats/${habitatId}/rules`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  evaluatePrioritizationRules: (boardId: string) =>
-    request<{ results: unknown }>(`/habitats/${boardId}/rules/evaluate`, { method: "POST" }),
-  capacity: (boardId: string) => request<CapacityReport>(`/habitats/${boardId}/capacity`),
-  predictions: (boardId: string) => request<PredictionResponse>(`/habitats/${boardId}/predictions`),
-  burndown: (boardId: string, days?: number) =>
-    request<BurndownResponse>(`/habitats/${boardId}/burndown?days=${days ?? 30}`),
-  cumulativeFlow: (boardId: string, days?: number) =>
-    request<CumulativeFlowResponse>(`/habitats/${boardId}/cumulative-flow?days=${days ?? 30}`),
-  bottlenecks: (boardId: string, days?: number) =>
-    request<BottleneckResponse>(`/habitats/${boardId}/bottlenecks?days=${days ?? 30}`),
-  agentQuality: (boardId: string) =>
-    request<AgentQualityResponse>(`/habitats/${boardId}/agent-quality`),
+  evaluatePrioritizationRules: (habitatId: string) =>
+    request<{ results: unknown }>(`/habitats/${habitatId}/rules/evaluate`, { method: "POST" }),
+  capacity: (habitatId: string) => request<CapacityReport>(`/habitats/${habitatId}/capacity`),
+  predictions: (habitatId: string) =>
+    request<PredictionResponse>(`/habitats/${habitatId}/predictions`),
+  burndown: (habitatId: string, days?: number) =>
+    request<BurndownResponse>(`/habitats/${habitatId}/burndown?days=${days ?? 30}`),
+  cumulativeFlow: (habitatId: string, days?: number) =>
+    request<CumulativeFlowResponse>(`/habitats/${habitatId}/cumulative-flow?days=${days ?? 30}`),
+  bottlenecks: (habitatId: string, days?: number) =>
+    request<BottleneckResponse>(`/habitats/${habitatId}/bottlenecks?days=${days ?? 30}`),
+  agentQuality: (habitatId: string) =>
+    request<AgentQualityResponse>(`/habitats/${habitatId}/agent-quality`),
   tasks: (
-    boardId: string,
+    habitatId: string,
     filters?: {
       status?: string;
       priority?: string;
@@ -156,7 +175,7 @@ export const habitatsApi = {
     if (filters?.sortDir) params.set("sortDir", filters.sortDir);
     const qs = params.toString();
     return request<{ tasks: Task[]; total: number }>(
-      `/habitats/${boardId}/tasks${qs ? `?${qs}` : ""}`,
+      `/habitats/${habitatId}/tasks${qs ? `?${qs}` : ""}`,
     );
   },
 };

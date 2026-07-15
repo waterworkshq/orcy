@@ -5,7 +5,7 @@ import { AgentRegistrationDialog } from "../ui/AgentRegistrationDialog.js";
 import { ConfirmDialog } from "../ui/ConfirmDialog.js";
 import { api } from "../../api/index.js";
 import { notify } from "../../lib/toast.js";
-import { useAgentsListWithTasks, useAgentStats, useBoard } from "../../lib/useHabitatData.js";
+import { useAgentsListWithTasks, useAgentStats, useHabitat } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { X, Plus } from "lucide-react";
 import { Drawer } from "../ui/Drawer.js";
@@ -47,8 +47,8 @@ interface AgentPanelProps {
 }
 
 export function AgentPanel({ onClose, habitatId }: AgentPanelProps) {
-  const { data: boardData } = useBoard(habitatId);
-  const board = boardData?.board ?? null;
+  const { data: boardData } = useHabitat(habitatId);
+  const board = boardData?.habitat ?? null;
   const qc = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);

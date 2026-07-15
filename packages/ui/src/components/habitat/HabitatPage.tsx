@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query";
 import { HealthScoreWidget } from "./HealthScoreWidget.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
-import { useBoard } from "../../lib/useHabitatData.js";
+import { useHabitat } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { useModalStore } from "../../store/modalStore.js";
 import { useSSE } from "../../hooks/useSSE.js";
@@ -65,8 +65,8 @@ export function HabitatPage() {
   const [searchParams] = useSearchParams();
   const view = searchParams.get("view") ?? "board";
 
-  const { data: boardData, isLoading, error: boardError } = useBoard(habitatId);
-  const board = boardData?.board ?? null;
+  const { data: boardData, isLoading, error: boardError } = useHabitat(habitatId);
+  const board = boardData?.habitat ?? null;
   const columns = boardData?.columns ?? [];
   const qc = useQueryClient();
 
@@ -210,7 +210,7 @@ export function HabitatPage() {
     if (boardData?.columns) {
       clearColumnPagination();
       for (const col of boardData.columns) {
-        const colFeatures = (boardData.features ?? []).filter((f: any) => f.columnId === col.id);
+        const colFeatures = (boardData.missions ?? []).filter((f: any) => f.columnId === col.id);
         setColumnPagination(col.id, {
           features: colFeatures,
           total: undefined,
@@ -532,7 +532,7 @@ export function HabitatPage() {
       )}
       {board && showBoardSettings && (
         <HabitatSettingsDialog
-          board={board}
+          board={board as never}
           open={showBoardSettings}
           onClose={() => setShowBoardSettings(false)}
           onUpdate={(b) => {

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
-import { useAgents, useSavedFilters, useBoard } from "../../lib/useHabitatData.js";
+import { useAgents, useSavedFilters, useHabitat } from "../../lib/useHabitatData.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { api } from "../../api/index.js";
 
@@ -36,8 +36,8 @@ export const FilterBar = React.memo(function FilterBar({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: agents = [] } = useAgents();
-  const { data: boardData } = useBoard(habitatId);
-  const board = boardData?.board ?? null;
+  const { data: boardData } = useHabitat(habitatId);
+  const board = boardData?.habitat ?? null;
   const internalSearchRef = useRef<HTMLInputElement>(null);
   const searchRef = focusSearchRef ?? internalSearchRef;
   const [viewsOpen, setViewsOpen] = useState(false);

@@ -6,12 +6,12 @@ import { Button } from '../ui/Button.js';
 import { OnboardingModal } from '../ui/OnboardingModal.js';
 import { notify } from '../../lib/toast.js';
 import { Plus, LayoutGrid, Users } from 'lucide-react';
-import { useBoards, useMyTeams } from '../../lib/useHabitatData.js';
+import { useHabitats, useMyTeams } from '../../lib/useHabitatData.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/queryKeys.js';
 
 export function HabitatListPage() {
-  const { data: boardsData, isLoading: loading } = useBoards();
+  const { data: boardsData, isLoading: loading } = useHabitats();
   const { data: teamsData } = useMyTeams();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);

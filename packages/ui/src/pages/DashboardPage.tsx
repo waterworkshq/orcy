@@ -5,7 +5,7 @@ import { PredictionSection } from '../components/dashboard/PredictionSection.js'
 import { Button } from '../components/ui/Button.js';
 import { Card, CardContent } from '../components/ui/Card.js';
 import { LayoutGrid, ArrowLeft, Loader2 } from 'lucide-react';
-import { useDashboardStats, useBoardPredictions, useBoardBurndown } from '../lib/useHabitatData.js';
+import { useDashboardStats, useHabitatPredictions, useHabitatBurndown } from '../lib/useHabitatData.js';
 
 export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -13,8 +13,8 @@ export function DashboardPage() {
   const habitatId = searchParams.get('habitatId') || undefined;
 
   const { data: stats, isLoading: loading, error: statsError } = useDashboardStats();
-  const { data: predictions } = useBoardPredictions(habitatId);
-  const { data: burndown } = useBoardBurndown(habitatId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
+  const { data: predictions } = useHabitatPredictions(habitatId);
+  const { data: burndown } = useHabitatBurndown(habitatId, period === '7d' ? 7 : period === '90d' ? 90 : 30);
 
   const error = statsError ? (statsError as Error).message : null;
 

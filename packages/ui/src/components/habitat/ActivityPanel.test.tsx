@@ -31,8 +31,8 @@ vi.mock('../../store/modalStore.js', () => ({
 
 vi.mock('../../lib/useHabitatData.js', () => ({
   useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
-  useBoardEvents: (...args: unknown[]) => mockBoardEvents(...args),
-  useBoardAnomalies: (...args: unknown[]) => mockBoardAnomalies(...args),
+  useHabitatEvents: (...args: unknown[]) => mockBoardEvents(...args),
+  useHabitatAnomalies: (...args: unknown[]) => mockBoardAnomalies(...args),
 }));
 
 vi.mock('../../api/index.js', () => ({
@@ -115,14 +115,14 @@ describe('ActivityPanel', () => {
     cleanup();
   });
 
-  it('renders events from useBoardEvents', () => {
+  it('renders events from useHabitatEvents', () => {
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);
 
     expect(screen.getByText('"Build feature"')).toBeTruthy();
     expect(screen.getByText('"Fix bug"')).toBeTruthy();
   });
 
-  it('renders anomalies from useBoardAnomalies', () => {
+  it('renders anomalies from useHabitatAnomalies', () => {
     mockBoardAnomalies.mockReturnValue({
       data: { anomalies: sampleAnomalies },
       isLoading: false,
@@ -160,13 +160,13 @@ describe('ActivityPanel', () => {
     expect(screen.queryByText('No activity yet')).toBeNull();
   });
 
-  it('calls useBoardEvents with habitatId', () => {
+  it('calls useHabitatEvents with habitatId', () => {
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);
 
     expect(mockBoardEvents).toHaveBeenCalledWith('board-1', expect.objectContaining({ limit: 50 }));
   });
 
-  it('calls useBoardAnomalies with habitatId', () => {
+  it('calls useHabitatAnomalies with habitatId', () => {
     renderWithQC(<ActivityPanel onClose={vi.fn()} />);
 
     expect(mockBoardAnomalies).toHaveBeenCalledWith('board-1');
@@ -179,7 +179,7 @@ import { Button } from '../ui/Button.js';
 import { api } from '../../api/index.js';
 import { useHabitatStore } from '../../store/habitatStore.js';
 import { useModalStore } from '../../store/modalStore.js';
-import { useBoardEvents, useBoardAnomalies } from '../../lib/useHabitatData.js';`;
+import { useHabitatEvents, useHabitatAnomalies } from '../../lib/useHabitatData.js';`;
 
     expect(source).not.toContain('setTimeout');
     expect(source).not.toContain('setInterval');

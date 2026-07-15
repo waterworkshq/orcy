@@ -10,7 +10,7 @@ import {
 import { Button } from "../ui/Button.js";
 import { RichTextEditor } from "../ui/RichTextEditor.js";
 import { notify } from "../../lib/toast.js";
-import { useUpdateMission, useBoard } from "../../lib/useHabitatData.js";
+import { useUpdateMission, useHabitat } from "../../lib/useHabitatData.js";
 import type { MissionWithProgress, TaskPriority } from "../../types/index.js";
 
 interface EditMissionFormProps {
@@ -46,9 +46,9 @@ export function EditMissionForm({ open, onClose, mission }: EditMissionFormProps
   );
 
   const updateMission = useUpdateMission(mission.id, mission.habitatId);
-  const { data: boardData } = useBoard(mission.habitatId);
+  const { data: boardData } = useHabitat(mission.habitatId);
   // Feature-based habitats hide release-gate/deadline authoring (RM-6).
-  const releaseMode = boardData?.board?.roadmapSettings?.mode !== "feature";
+  const releaseMode = boardData?.habitat?.roadmapSettings?.mode !== "feature";
 
   // Re-sync local state whenever the underlying mission changes (e.g. after a refetch).
   useEffect(() => {

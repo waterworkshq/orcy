@@ -170,7 +170,7 @@ describe("TaskDetailModal", () => {
     mockTaskDetails.mockReturnValue({
       data: {
         task: baseTask,
-        feature: {
+        mission: {
           id: "feat-1",
           title: "Test Feature",
           description: "",
@@ -542,7 +542,7 @@ describe("TaskDetailModal", () => {
     mockTaskDetails.mockReturnValue({
       data: {
         task: baseTask,
-        feature: {
+        mission: {
           id: "feat-1",
           title: "Test Feature",
           description: "",

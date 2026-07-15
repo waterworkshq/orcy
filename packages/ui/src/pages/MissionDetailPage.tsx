@@ -154,7 +154,7 @@ export function MissionDetailPage() {
     );
   }
 
-  const { feature, tasks, events, progress, dependencies } = data;
+  const { mission: feature, tasks, events, progress, dependencies } = data;
 
   const tabs = [
     { key: "tasks" as const, label: "Tasks", icon: ListTodo },

@@ -48,6 +48,11 @@ vi.mock("../../store/habitatStore.js", () => ({
     selectedMissionIds: ["feat-1", "feat-2", "feat-3"],
     clearMissionSelection: mockClearFeatureSelection,
     setBulkSelectMode: mockSetBulkSelectMode,
+    features: [
+      { id: "feat-1", version: 1 },
+      { id: "feat-2", version: 1 },
+      { id: "feat-3", version: 1 },
+    ],
     columns: [
       { id: "col-1", habitatId: "board-1", name: "Backlog", order: 0, isTerminal: false },
       { id: "col-2", habitatId: "board-1", name: "In Progress", order: 1, isTerminal: false },
@@ -61,8 +66,8 @@ describe("BulkActionBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDelete.mockResolvedValue(undefined);
-    mockUpdate.mockResolvedValue({ feature: {} });
-    mockMove.mockResolvedValue({ feature: {} });
+    mockUpdate.mockResolvedValue({ mission: {} });
+    mockMove.mockResolvedValue({ mission: {} });
   });
 
   describe("Rendering", () => {
@@ -246,9 +251,18 @@ describe("BulkActionBar", () => {
 
       await waitFor(() => {
         expect(mockMove).toHaveBeenCalledTimes(3);
-        expect(mockMove).toHaveBeenCalledWith("feat-1", { columnId: "col-2" });
-        expect(mockMove).toHaveBeenCalledWith("feat-2", { columnId: "col-2" });
-        expect(mockMove).toHaveBeenCalledWith("feat-3", { columnId: "col-2" });
+        expect(mockMove).toHaveBeenCalledWith("feat-1", {
+          columnId: "col-2",
+          expectedVersion: 1,
+        });
+        expect(mockMove).toHaveBeenCalledWith("feat-2", {
+          columnId: "col-2",
+          expectedVersion: 1,
+        });
+        expect(mockMove).toHaveBeenCalledWith("feat-3", {
+          columnId: "col-2",
+          expectedVersion: 1,
+        });
       });
     });
 

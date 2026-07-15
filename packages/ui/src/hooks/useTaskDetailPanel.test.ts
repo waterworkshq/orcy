@@ -104,11 +104,11 @@ vi.mock("../lib/queryKeys.js", () => ({
 vi.mock("../lib/useHabitatData.js", () => ({
   useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
   useMission: () => ({
-    data: { feature: { id: "feat-1", columnId: "col-1" } as any },
+    data: { mission: { id: "feat-1", columnId: "col-1" } as any },
     isLoading: false,
     isError: false,
   }),
-  useBoard: () => ({
+  useHabitat: () => ({
     data: {
       columns: [
         { id: "col-1", name: "To Do", nextColumnId: "col-2", autoAdvance: false },

@@ -14,7 +14,7 @@ interface BulkActionBarProps {
 type BulkOperation = "priority" | "move" | "delete";
 
 export function BulkActionBar({ habitatId }: BulkActionBarProps) {
-  const { selectedMissionIds, setBulkSelectMode, clearMissionSelection, columns } =
+  const { selectedMissionIds, setBulkSelectMode, clearMissionSelection, columns, features } =
     useHabitatStore();
   const qc = useQueryClient();
   const [operation, setOperation] = useState<BulkOperation>("priority");
@@ -53,11 +53,18 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
       } else {
         const updatePromises = selectedMissionIds.map(async (id) => {
           if (operation === "priority") {
-            const { feature } = await api.missions.update(id, { priority });
-            return feature;
+            const { mission } = await api.missions.update(id, { priority });
+            return mission;
           } else {
-            const { feature } = await api.missions.move(id, { columnId: targetColumnId });
-            return feature;
+            const currentVersion = features.find((f) => f.id === id)?.version;
+            if (currentVersion === undefined) {
+              throw new Error(`Mission ${id} not found in current habitat state`);
+            }
+            const { mission } = await api.missions.move(id, {
+              columnId: targetColumnId,
+              expectedVersion: currentVersion,
+            });
+            return mission;
           }
         });
 

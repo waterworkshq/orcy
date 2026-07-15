@@ -40,8 +40,8 @@ vi.mock("../../api/index.js", () => ({
 
 vi.mock("../../lib/useHabitatData.js", () => ({
   useMissions: (...args: unknown[]) => mockMissions(...args),
-  useBoardTasks: (...args: unknown[]) => mockUseBoardTasks(...args),
-  useBoardBurndown: (...args: unknown[]) => mockUseBoardBurndown(...args),
+  useHabitatTasks: (...args: unknown[]) => mockUseBoardTasks(...args),
+  useHabitatBurndown: (...args: unknown[]) => mockUseBoardBurndown(...args),
   useSprintMetrics: (...args: unknown[]) => mockUseSprintMetrics(...args),
   useSprintBurndown: (...args: unknown[]) => mockUseSprintBurndown(...args),
   useSprintCarryOver: (...args: unknown[]) => mockUseSprintCarryOver(...args),
@@ -161,7 +161,7 @@ describe("SprintPlanningPanel", () => {
       isLoading: false,
     });
     mockMissions.mockReturnValue({
-      data: { features: [], missions: [] },
+      data: { missions: [] },
       isLoading: false,
     });
     mockUseBoardTasks.mockReturnValue({ data: { tasks: [] }, isLoading: false });
@@ -585,7 +585,7 @@ describe("SprintPlanningPanel", () => {
       });
       mockMissions.mockReturnValue({
         data: {
-          features: [
+          missions: [
             { id: "m-1", title: "Mission One", progress: 0, totalTasks: 0, completedTasks: 0 },
           ],
         },
@@ -624,7 +624,7 @@ describe("SprintPlanningPanel", () => {
       });
       mockMissions.mockReturnValue({
         data: {
-          features: [
+          missions: [
             { id: "m-1", title: "Mission One", progress: 0, totalTasks: 0, completedTasks: 0 },
           ],
         },
@@ -661,7 +661,7 @@ describe("SprintPlanningPanel", () => {
       });
       mockMissions.mockReturnValue({
         data: {
-          features: [
+          missions: [
             { id: "m-1", title: "Mission One", progress: 0, totalTasks: 0, completedTasks: 0 },
           ],
         },

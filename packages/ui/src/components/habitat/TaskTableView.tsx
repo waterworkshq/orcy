@@ -10,7 +10,7 @@ import { DataTable } from "../ui/DataTable.js";
 import { getTaskTableColumns } from "./TaskTableColumns.js";
 import { TaskBulkActionBar } from "./TaskBulkActionBar.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
-import { useBoardTasks, useAgents, type BoardTasksFilters } from "../../lib/useHabitatData.js";
+import { useHabitatTasks, useAgents, type HabitatTasksFilters } from "../../lib/useHabitatData.js";
 import { useDebounce } from "../../hooks/useDebounce.js";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
 import { TaskCardList } from "./TaskCardList.js";
@@ -63,8 +63,8 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
   const selectTaskIds = useHabitatStore((s) => s.selectTaskIds);
   const clearTaskSelection = useHabitatStore((s) => s.clearTaskSelection);
 
-  const filters: BoardTasksFilters = React.useMemo(() => {
-    const f: BoardTasksFilters = {};
+  const filters: HabitatTasksFilters = React.useMemo(() => {
+    const f: HabitatTasksFilters = {};
     if (statusFilter !== "all") f.status = statusFilter;
     if (priorityFilter !== "all") f.priority = priorityFilter;
     if (agentFilter !== "all") f.assignedAgentId = agentFilter;
@@ -76,7 +76,7 @@ export function TaskTableView({ habitatId }: TaskTableViewProps) {
     return f;
   }, [statusFilter, priorityFilter, agentFilter, debouncedSearch, sorting]);
 
-  const { data, isLoading, isError } = useBoardTasks(habitatId, filters);
+  const { data, isLoading, isError } = useHabitatTasks(habitatId, filters);
   const tasks = data?.tasks ?? [];
 
   React.useEffect(() => {

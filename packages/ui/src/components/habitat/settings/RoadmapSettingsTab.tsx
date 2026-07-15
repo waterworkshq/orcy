@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useHabitatSettingsSaver } from "../../../hooks/useHabitatSettingsSaver.js";
-import { useBoard } from "../../../lib/useHabitatData.js";
+import { useHabitat } from "../../../lib/useHabitatData.js";
 import { DEFAULT_ROADMAP_SETTINGS } from "@orcy/shared";
 import type { Habitat, RoadmapSettings, RoadmapScoringAlgorithm } from "../../../types/index.js";
 
@@ -51,8 +51,8 @@ export const RoadmapSettingsTab = forwardRef<RoadmapSettingsTabHandle, RoadmapSe
     const [algorithm, setAlgorithm] = useState<RoadmapScoringAlgorithm>(initial.scoringAlgorithm);
     const [mode, setMode] = useState<"release" | "feature">(initial.mode);
     const [focusMissionId, setFocusMissionId] = useState<string | null>(initial.focusMissionId);
-    const { data: boardData } = useBoard(habitatId);
-    const missions = boardData?.features ?? [];
+    const { data: boardData } = useHabitat(habitatId);
+    const missions = boardData?.missions ?? [];
 
     const { saving, saveSettings } = useHabitatSettingsSaver({ habitatId, onUpdate });
 

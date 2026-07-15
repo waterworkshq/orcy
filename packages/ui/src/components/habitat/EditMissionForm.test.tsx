@@ -6,7 +6,7 @@ import { EditMissionForm } from "./EditMissionForm.js";
 import type { MissionWithProgress } from "../../types/index.js";
 
 vi.mock("../../lib/useHabitatData.js", () => ({
-  useBoard: () => ({
+  useHabitat: () => ({
     data: {
       board: {
         id: "b1",

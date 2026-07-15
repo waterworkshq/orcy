@@ -258,7 +258,7 @@ describe("MissionDetailPage", () => {
   it("fetches feature details on mount with correct id", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -275,7 +275,7 @@ describe("MissionDetailPage", () => {
   it("renders 3-panel grid layout", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -304,7 +304,7 @@ describe("MissionDetailPage", () => {
       makeTask({ id: "task-2", missionId: "feat-123", status: "done", title: "Done Task" }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 1, total: 2, percentage: 50, byStatus: { in_progress: 1, done: 1 } },
@@ -323,7 +323,7 @@ describe("MissionDetailPage", () => {
   it("renders risk analysis sidebar with projected impact", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -341,7 +341,7 @@ describe("MissionDetailPage", () => {
   it("renders code review section", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -358,7 +358,7 @@ describe("MissionDetailPage", () => {
   it("renders agent reasoning trace section", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -375,7 +375,7 @@ describe("MissionDetailPage", () => {
   it("renders comment input bar at bottom", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -397,7 +397,7 @@ describe("MissionDetailPage", () => {
       priority: "high",
     });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -417,7 +417,7 @@ describe("MissionDetailPage", () => {
       description: "Detailed description of the feature",
     });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -437,7 +437,7 @@ describe("MissionDetailPage", () => {
       labels: ["frontend", "bug"],
     });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -455,7 +455,7 @@ describe("MissionDetailPage", () => {
   it("renders metrics with completion percentage", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 3, total: 4, percentage: 75, byStatus: { done: 3, pending: 1 } },
@@ -473,7 +473,7 @@ describe("MissionDetailPage", () => {
   it("renders metrics showing blocked dependencies", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 1, percentage: 0, byStatus: {} },
@@ -501,7 +501,7 @@ describe("MissionDetailPage", () => {
       makeTask({ id: "task-4", missionId: "feat-123", status: "done", title: "Done Task" }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: {
@@ -534,7 +534,7 @@ describe("MissionDetailPage", () => {
       }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 0, total: 1, percentage: 0, byStatus: { pending: 1 } },
@@ -558,7 +558,7 @@ describe("MissionDetailPage", () => {
       makeTask({ id: "task-2", missionId: "feat-123", status: "done" }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 1, total: 2, percentage: 50, byStatus: {} },
@@ -578,7 +578,7 @@ describe("MissionDetailPage", () => {
       makeTask({ id: "task-abcd1234", missionId: "feat-123", status: "pending", title: "A Task" }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 0, total: 1, percentage: 0, byStatus: {} },
@@ -604,7 +604,7 @@ describe("MissionDetailPage", () => {
       }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 0, total: 1, percentage: 0, byStatus: {} },
@@ -621,7 +621,7 @@ describe("MissionDetailPage", () => {
   it("renders configure gates button in risk sidebar", async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -638,7 +638,7 @@ describe("MissionDetailPage", () => {
   it('shows "No review comments yet" when no comments exist', async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -655,7 +655,7 @@ describe("MissionDetailPage", () => {
   it('shows "No agent reasoning yet" when no agent comments exist', async () => {
     const feature = makeFeature({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },
@@ -700,7 +700,7 @@ describe("MissionDetailPage integration", () => {
       }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 0, total: 1, percentage: 0, byStatus: { submitted: 1 } },
@@ -729,7 +729,7 @@ describe("MissionDetailPage integration", () => {
     ];
     const events = [makeEvent({ id: "evt-1", missionId: "feat-789", action: "created" })];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events,
       progress: {
@@ -769,7 +769,7 @@ describe("MissionDetailPage integration", () => {
       }),
     ];
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks,
       events: [],
       progress: { completed: 0, total: 1, percentage: 0, byStatus: { pending: 1 } },
@@ -809,7 +809,7 @@ describe("MissionDetailPage integration", () => {
   it("renders back to habitat link", async () => {
     const feature = makeFeature({ id: "feat-123", habitatId: "habitat-1" });
     mockFeatureDetails.mockResolvedValue({
-      feature,
+      mission: feature,
       tasks: [],
       events: [],
       progress: { completed: 0, total: 0, percentage: 0, byStatus: {} },

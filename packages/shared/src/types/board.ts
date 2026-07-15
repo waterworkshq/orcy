@@ -80,11 +80,11 @@ export interface HabitatStats {
   }[];
 }
 
-/** Versioned, name-anchored snapshot of a {@link Habitat} (columns, features, comments, templates, webhooks) used for portable import/export. */
+/** Versioned, name-anchored snapshot of a {@link Habitat} (columns, missions, comments, templates, webhooks) used for portable import/export. The portable document uses canonical Habitat/Mission vocabulary — no `board`/`feature` aliases survive at this boundary. */
 export interface HabitatExport {
   version: number;
   exportedAt: string;
-  board: {
+  habitat: {
     name: string;
     description: string;
     columns: Array<{
@@ -96,7 +96,7 @@ export interface HabitatExport {
       nextColumnName: string | null;
       isTerminal: boolean;
     }>;
-    features: Array<{
+    missions: Array<{
       title: string;
       description: string;
       acceptanceCriteria: string;

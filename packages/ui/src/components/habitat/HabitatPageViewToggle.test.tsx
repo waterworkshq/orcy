@@ -45,7 +45,7 @@ vi.mock("../../api/index.js", () => ({
 }));
 
 vi.mock("../../lib/useHabitatData.js", () => ({
-  useBoard: () => ({
+  useHabitat: () => ({
     data: {
       board: { id: "board-1", name: "Test Board" },
       columns: [],

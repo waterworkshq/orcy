@@ -282,9 +282,26 @@ export function deleteMission(id: string): void {
   }
 }
 
-export function moveMission(missionId: string, toColumnId: string): Mission | null {
+export function moveMission(
+  missionId: string,
+  toColumnId: string,
+  expectedVersion?: number,
+):
+  | { success: true; mission: Mission }
+  | { success: false; notFound: true }
+  | { success: false; versionMismatch: true; currentVersion: number } {
   const db = getDb();
   const now = new Date().toISOString();
+
+  const existing = db
+    .select({ id: missions.id, version: missions.version })
+    .from(missions)
+    .where(eq(missions.id, missionId))
+    .get();
+  if (!existing) return { success: false, notFound: true };
+  if (expectedVersion !== undefined && existing.version !== expectedVersion) {
+    return { success: false, versionMismatch: true, currentVersion: existing.version };
+  }
 
   try {
     db.update(missions)
@@ -294,7 +311,8 @@ export function moveMission(missionId: string, toColumnId: string): Mission | nu
   } catch (err) {
     throw repositoryUpdateError("mission", err as Error, missionId);
   }
-  return getMissionById(missionId);
+  const updated = getMissionById(missionId);
+  return { success: true, mission: updated! };
 }
 
 export function reorderMission(

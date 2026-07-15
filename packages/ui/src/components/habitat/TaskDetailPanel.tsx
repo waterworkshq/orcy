@@ -24,7 +24,7 @@ import { TaskResultCard } from "./TaskResultCard.js";
 import { TaskArtifacts } from "./TaskArtifacts.js";
 import { TaskTimeConstraints } from "./TaskTimeConstraints.js";
 import { TaskEffortSection } from "./TaskEffortSection.js";
-import { FeatureContextSection } from "./MissionContextSection.js";
+import { MissionContextSection } from "./MissionContextSection.js";
 import { SiblingTasksSection } from "./SiblingTasksSection.js";
 import { ExperienceSummaryCard } from "../task/ExperienceSummaryCard.js";
 import { api } from "../../api/index.js";
@@ -90,10 +90,10 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
 
       {!p.contextLoading && p.task && (
         <div className="flex-1 overflow-y-auto p-4">
-          {p.feature && (
-            <FeatureContextSection
-              feature={p.feature}
-              onSelectFeature={() => {
+          {p.mission && (
+            <MissionContextSection
+              mission={p.mission}
+              onSelectMission={() => {
                 closeModal();
               }}
             />
@@ -251,7 +251,7 @@ export function TaskDetailPanel({ editTaskId }: { editTaskId?: string | null }) 
 
           <ExperienceSummaryCard
             taskId={p.task.id}
-            missionId={p.task.missionId ?? p.feature?.id}
+            missionId={p.task.missionId ?? p.mission?.id}
             agents={p.agents}
           />
           <TaskActivity events={p.events} agents={p.agents} />

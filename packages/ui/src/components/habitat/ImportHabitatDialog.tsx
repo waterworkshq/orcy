@@ -1,9 +1,9 @@
-import React, { useState, useRef } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/Dialog.js';
-import { Button } from '../ui/Button.js';
-import type { HabitatExport } from '../../types/index.js';
-import { api } from '../../api/index.js';
-import { notify } from '../../lib/toast.js';
+import React, { useState, useRef } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/Dialog.js";
+import { Button } from "../ui/Button.js";
+import type { HabitatExport } from "../../types/index.js";
+import { api } from "../../api/index.js";
+import { notify } from "../../lib/toast.js";
 
 interface ImportHabitatDialogProps {
   habitatId?: string;
@@ -13,8 +13,14 @@ interface ImportHabitatDialogProps {
   onImport: (habitatId: string) => void;
 }
 
-export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, onClose, onImport }: ImportHabitatDialogProps) {
-  const [mode, setMode] = useState<'replace' | 'merge'>('replace');
+export function ImportHabitatDialog({
+  habitatId,
+  boardName: _boardName,
+  open,
+  onClose,
+  onImport,
+}: ImportHabitatDialogProps) {
+  const [mode, setMode] = useState<"replace" | "merge">("replace");
   const [_file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<HabitatExport | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -29,7 +35,7 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
     setPreviewError(null);
 
     const reader = new FileReader();
-    reader.addEventListener('load', (event) => {
+    reader.addEventListener("load", (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
         const parsed = validateImportData(json);
@@ -43,25 +49,30 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
   };
 
   const validateImportData = (data: unknown): HabitatExport => {
-    if (!data || typeof data !== 'object') throw new Error('Invalid JSON: expected an object');
+    if (!data || typeof data !== "object") throw new Error("Invalid JSON: expected an object");
     const d = data as Record<string, unknown>;
-    if (typeof d.version !== 'number') throw new Error('Invalid export: missing version field');
-    if (d.version !== 1) throw new Error(`Unsupported export version: ${d.version}. Only version 1 is supported.`);
-    if (!d.board || typeof d.board !== 'object') throw new Error('Invalid export: missing board field');
-    const board = d.board as Record<string, unknown>;
-    if (typeof board.name !== 'string') throw new Error('Invalid export: board.name must be a string');
+    if (typeof d.version !== "number") throw new Error("Invalid export: missing version field");
+    if (d.version !== 1 && d.version !== 2)
+      throw new Error(
+        `Unsupported export version: ${d.version}. Only versions 1 and 2 are supported.`,
+      );
+    const habitatRaw = (d.habitat ?? d.board) as Record<string, unknown> | undefined;
+    if (!habitatRaw || typeof habitatRaw !== "object")
+      throw new Error("Invalid export: missing habitat field");
+    if (typeof habitatRaw.name !== "string")
+      throw new Error("Invalid export: habitat.name must be a string");
 
     const result: HabitatExport = {
       version: d.version as number,
       exportedAt: (d.exportedAt as string) || new Date().toISOString(),
-      board: {
-        name: board.name as string,
-        description: (board.description as string) || '',
-        columns: (board.columns as HabitatExport['board']['columns']) || [],
-        features: (board.features as HabitatExport['board']['features']) || [],
-        comments: (board.comments as HabitatExport['board']['comments']) || [],
-        templates: (board.templates as HabitatExport['board']['templates']) || [],
-        webhooks: (board.webhooks as HabitatExport['board']['webhooks']) || [],
+      habitat: {
+        name: habitatRaw.name as string,
+        description: (habitatRaw.description as string) || "",
+        columns: (habitatRaw.columns as HabitatExport["habitat"]["columns"]) || [],
+        missions: (habitatRaw.missions as HabitatExport["habitat"]["missions"]) || [],
+        comments: (habitatRaw.comments as HabitatExport["habitat"]["comments"]) || [],
+        templates: (habitatRaw.templates as HabitatExport["habitat"]["templates"]) || [],
+        webhooks: (habitatRaw.webhooks as HabitatExport["habitat"]["webhooks"]) || [],
       },
     };
 
@@ -74,7 +85,7 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
     setImporting(true);
     try {
       let result;
-      if (habitatId && mode === 'merge') {
+      if (habitatId && mode === "merge") {
         result = await api.habitats.importInto(habitatId, preview);
       } else {
         result = await api.habitats.import(preview);
@@ -83,14 +94,14 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
       if (result.warnings.length > 0) {
         notify.warning(`Imported with ${result.warnings.length} warning(s)`);
       } else {
-        notify.success('Habitat imported successfully');
+        notify.success("Habitat imported successfully");
       }
 
       if (result.warnings.length > 0) {
-        console.warn('Import warnings:', result.warnings);
+        console.warn("Import warnings:", result.warnings);
       }
 
-      onImport(result.board.id);
+      onImport(result.habitat.id);
       handleClose();
     } catch (err) {
       notify.error((err as Error).message);
@@ -103,19 +114,19 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
     setFile(null);
     setPreview(null);
     setPreviewError(null);
-    setMode('replace');
+    setMode("replace");
     onClose();
   };
 
-  const featureCount = preview?.board.features.length ?? 0;
-  const commentCount = preview?.board.comments.length ?? 0;
-  const templateCount = preview?.board.templates.length ?? 0;
-  const webhookCount = preview?.board.webhooks.length ?? 0;
+  const missionCount = preview?.habitat.missions.length ?? 0;
+  const commentCount = preview?.habitat.comments.length ?? 0;
+  const templateCount = preview?.habitat.templates.length ?? 0;
+  const webhookCount = preview?.habitat.webhooks.length ?? 0;
 
   return (
     <Dialog open={open} onClose={handleClose}>
       <DialogHeader>
-        <DialogTitle>{habitatId ? 'Import Into Habitat' : 'Import Habitat'}</DialogTitle>
+        <DialogTitle>{habitatId ? "Import Into Habitat" : "Import Habitat"}</DialogTitle>
       </DialogHeader>
       <DialogContent>
         {!preview && !previewError && (
@@ -165,16 +176,26 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
         {preview && (
           <div className="space-y-4">
             <div className="p-3 bg-muted rounded">
-              <h4 className="font-medium mb-2">{preview.board.name}</h4>
-              {preview.board.description && (
-                <p className="text-sm text-muted-foreground mb-2">{preview.board.description}</p>
+              <h4 className="font-medium mb-2">{preview.habitat.name}</h4>
+              {preview.habitat.description && (
+                <p className="text-sm text-muted-foreground mb-2">{preview.habitat.description}</p>
               )}
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>Columns: <span className="font-medium">{preview.board.columns.length}</span></div>
-                <div>Missions: <span className="font-medium">{featureCount}</span></div>
-                <div>Comments: <span className="font-medium">{commentCount}</span></div>
-                <div>Templates: <span className="font-medium">{templateCount}</span></div>
-                <div>Webhooks: <span className="font-medium">{webhookCount}</span></div>
+                <div>
+                  Columns: <span className="font-medium">{preview.habitat.columns.length}</span>
+                </div>
+                <div>
+                  Missions: <span className="font-medium">{missionCount}</span>
+                </div>
+                <div>
+                  Comments: <span className="font-medium">{commentCount}</span>
+                </div>
+                <div>
+                  Templates: <span className="font-medium">{templateCount}</span>
+                </div>
+                <div>
+                  Webhooks: <span className="font-medium">{webhookCount}</span>
+                </div>
               </div>
             </div>
 
@@ -186,8 +207,8 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
                     type="radio"
                     name="mode"
                     value="replace"
-                    checked={mode === 'replace'}
-                    onChange={() => setMode('replace')}
+                    checked={mode === "replace"}
+                    onChange={() => setMode("replace")}
                     className="rounded border-input"
                   />
                   <span className="text-sm">
@@ -199,8 +220,8 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
                     type="radio"
                     name="mode"
                     value="merge"
-                    checked={mode === 'merge'}
-                    onChange={() => setMode('merge')}
+                    checked={mode === "merge"}
+                    onChange={() => setMode("merge")}
                     className="rounded border-input"
                   />
                   <span className="text-sm">
@@ -211,7 +232,8 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
             )}
 
             <div className="p-3 bg-muted rounded text-xs text-muted-foreground">
-              <strong>Note:</strong> Webhook secrets will be regenerated. Agent API keys and audit logs cannot be imported.
+              <strong>Note:</strong> Webhook secrets will be regenerated. Agent API keys and audit
+              logs cannot be imported.
             </div>
           </div>
         )}
@@ -220,12 +242,8 @@ export function ImportHabitatDialog({ habitatId, boardName: _boardName, open, on
         <Button variant="ghost" onClick={handleClose} disabled={importing}>
           Cancel
         </Button>
-        <Button
-          onClick={handleImport}
-          loading={importing}
-          disabled={!preview}
-        >
-          {habitatId && mode === 'merge' ? 'Merge Import' : 'Import'}
+        <Button onClick={handleImport} loading={importing} disabled={!preview}>
+          {habitatId && mode === "merge" ? "Merge Import" : "Import"}
         </Button>
       </DialogFooter>
     </Dialog>

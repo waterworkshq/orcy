@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Activity, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Clock, Users, Shield } from 'lucide-react';
-import { useBoardHealth } from '../../lib/useHabitatData.js';
+import { useHabitatHealth } from '../../lib/useHabitatData.js';
 
 interface HealthScoreWidgetProps {
   habitatId: string;
@@ -35,7 +35,7 @@ const dimensionLabels: Record<string, string> = {
 
 export function HealthScoreWidget({ habitatId }: HealthScoreWidgetProps) {
   const [expanded, setExpanded] = useState(false);
-  const { data: health, isLoading: loading } = useBoardHealth(habitatId);
+  const { data: health, isLoading: loading } = useHabitatHealth(habitatId);
 
   if (loading) {
     return (

@@ -63,7 +63,6 @@ export const updateMissionSchema = z.object({
 export const missionQuerySchema = z.object({
   status: z.enum(["not_started", "in_progress", "review", "done", "failed"]).optional(),
   priority: z.enum(["low", "medium", "high", "critical"]).optional(),
-  search: z.string().optional(),
   isArchived: z
     .string()
     .optional()
@@ -75,6 +74,12 @@ export const missionQuerySchema = z.object({
 
 export const moveMissionSchema = z.object({
   columnId: z.string().uuid(),
+  expectedVersion: z.number().int().min(1),
+});
+
+export const reorderColumnsSchema = z.object({
+  expectedOrder: z.array(z.string().uuid()).min(1),
+  desiredOrder: z.array(z.string().uuid()).min(1),
 });
 
 export const createTaskInMissionSchema = z.object({
@@ -530,4 +535,5 @@ export type CreateMissionInput = z.infer<typeof createMissionSchema>;
 export type UpdateMissionInput = z.infer<typeof updateMissionSchema>;
 export type MissionQueryInput = z.infer<typeof missionQuerySchema>;
 export type MoveMissionInput = z.infer<typeof moveMissionSchema>;
+export type ReorderColumnsInput = z.infer<typeof reorderColumnsSchema>;
 export type CreateTaskInMissionInput = z.infer<typeof createTaskInMissionSchema>;

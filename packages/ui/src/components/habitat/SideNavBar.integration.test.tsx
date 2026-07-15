@@ -7,15 +7,15 @@ import { AppShell } from "../layout/AppShell.js";
 
 vi.mock("../../api/index.js", () => ({
   api: {
-    boards: {
+    habitats: {
       get: vi.fn().mockResolvedValue({
-        board: { id: "board-1", name: "Test Board" },
+        habitat: { id: "board-1", name: "Test Board" },
         columns: [],
-        features: [],
+        missions: [],
       }),
     },
     agents: { list: vi.fn().mockResolvedValue([]) },
-    features: { list: vi.fn().mockResolvedValue({ features: [] }) },
+    missions: { list: vi.fn().mockResolvedValue({ missions: [] }) },
   },
 }));
 
@@ -51,8 +51,8 @@ vi.mock("../../lib/useHabitatData.js", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
   return {
     ...actual,
-    useBoard: () => ({
-      data: { board: { id: "board-1", name: "Test Board" }, columns: [], features: [] },
+    useHabitat: () => ({
+      data: { habitat: { id: "board-1", name: "Test Board" }, columns: [], missions: [] },
       isLoading: false,
       error: null,
     }),

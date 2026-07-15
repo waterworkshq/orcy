@@ -14,7 +14,7 @@ import { AlertTriangle, CheckCircle2, Lightbulb, Users, Loader2 } from 'lucide-r
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
 import { Button } from '../ui/Button.js';
 import { formatMinutes } from '../../lib/formatting.js';
-import { useBoardCapacity } from '../../lib/useHabitatData.js';
+import { useHabitatCapacity } from '../../lib/useHabitatData.js';
 import type { AgentCapacity } from '../../types/index.js';
 
 interface CapacityChartProps {
@@ -92,7 +92,7 @@ function UtilizationBar({ data }: { data: AgentCapacity[] }) {
 }
 
 export function CapacityChart({ habitatId }: CapacityChartProps) {
-  const { data: report, isLoading: loading, error: queryError, refetch } = useBoardCapacity(habitatId);
+  const { data: report, isLoading: loading, error: queryError, refetch } = useHabitatCapacity(habitatId);
   const error = queryError ? (queryError as Error).message : null;
 
   if (!habitatId) {

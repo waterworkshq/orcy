@@ -11,8 +11,8 @@ vi.mock("../../lib/useHabitatData.js", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
   return {
     ...actual,
-    useBoard: () => ({
-      data: { board: { id: "board-1", name: "Test Board" }, columns: [], features: [] },
+    useHabitat: () => ({
+      data: { habitat: { id: "board-1", name: "Test Board" }, columns: [], missions: [] },
       isLoading: false,
       error: null,
     }),
@@ -30,7 +30,7 @@ vi.mock("../../api/index.js", () => ({
       }),
     },
     agents: { list: vi.fn().mockResolvedValue([]) },
-    missions: { list: vi.fn().mockResolvedValue({ features: [], total: 0 }) },
+    missions: { list: vi.fn().mockResolvedValue({ missions: [], total: 0 }) },
   },
 }));
 
@@ -116,7 +116,7 @@ describe("HabitatPage Archived Button Removal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockArchivedFeaturesHook.mockReturnValue({
-      data: { features: [], total: 0 },
+      data: { missions: [], total: 0 },
       isLoading: false,
     });
   });

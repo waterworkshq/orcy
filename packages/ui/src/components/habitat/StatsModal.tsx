@@ -1,10 +1,19 @@
-import type { MissionWithProgress } from '../../types/index.js';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card.js';
-import { Button } from '../ui/Button.js';
-import { StatCard } from '../ui/StatCard.js';
-import { X, Clock, TrendingUp, AlertTriangle, CheckCircle, AlertCircle, Layers, Timer } from 'lucide-react';
-import { formatMinutes } from '../../lib/formatting.js';
-import { useHabitatStats, useMissions, useHabitatTimeMetrics } from '../../lib/useHabitatData.js';
+import type { MissionWithProgress } from "../../types/index.js";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/Card.js";
+import { Button } from "../ui/Button.js";
+import { StatCard } from "../ui/StatCard.js";
+import {
+  X,
+  Clock,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle,
+  AlertCircle,
+  Layers,
+  Timer,
+} from "lucide-react";
+import { formatMinutes } from "../../lib/formatting.js";
+import { useHabitatStats, useMissions, useHabitatTimeMetrics } from "../../lib/useHabitatData.js";
 
 interface StatsModalProps {
   habitatId: string;
@@ -16,44 +25,46 @@ function FeatureStatusBar({ features }: { features: MissionWithProgress[] }) {
   if (total === 0) return null;
 
   const counts = {
-    not_started: features.filter((f) => f.status === 'not_started').length,
-    in_progress: features.filter((f) => f.status === 'in_progress').length,
-    review: features.filter((f) => f.status === 'review').length,
-    done: features.filter((f) => f.status === 'done').length,
-    failed: features.filter((f) => f.status === 'failed').length,
+    not_started: features.filter((f) => f.status === "not_started").length,
+    in_progress: features.filter((f) => f.status === "in_progress").length,
+    review: features.filter((f) => f.status === "review").length,
+    done: features.filter((f) => f.status === "done").length,
+    failed: features.filter((f) => f.status === "failed").length,
   };
 
   const colors: Record<string, string> = {
-    not_started: 'bg-[var(--badge-low)]',
-    in_progress: 'bg-[var(--badge-active)]',
-    review: 'bg-[var(--badge-review)]',
-    done: 'bg-[var(--badge-done)]',
-    failed: 'bg-[var(--badge-blocked)]',
+    not_started: "bg-[var(--badge-low)]",
+    in_progress: "bg-[var(--badge-active)]",
+    review: "bg-[var(--badge-review)]",
+    done: "bg-[var(--badge-done)]",
+    failed: "bg-[var(--badge-blocked)]",
   };
 
   return (
     <div className="space-y-1.5">
       <div className="flex h-2 rounded-full overflow-hidden bg-muted">
-        {Object.entries(counts).map(([status, count]) => (
-          count > 0 && (
-            <div
-              key={status}
-              className={colors[status]}
-              style={{ width: `${(count / total) * 100}%` }}
-              title={`${status}: ${count}`}
-            />
-          )
-        ))}
+        {Object.entries(counts).map(
+          ([status, count]) =>
+            count > 0 && (
+              <div
+                key={status}
+                className={colors[status]}
+                style={{ width: `${(count / total) * 100}%` }}
+                title={`${status}: ${count}`}
+              />
+            ),
+        )}
       </div>
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-        {Object.entries(counts).map(([status, count]) => (
-          count > 0 && (
-            <span key={status} className="flex items-center gap-1">
-              <span className={`h-2 w-2 rounded-full ${colors[status]}`} />
-              {status.replace('_', ' ')}: {count}
-            </span>
-          )
-        ))}
+        {Object.entries(counts).map(
+          ([status, count]) =>
+            count > 0 && (
+              <span key={status} className="flex items-center gap-1">
+                <span className={`h-2 w-2 rounded-full ${colors[status]}`} />
+                {status.replace("_", " ")}: {count}
+              </span>
+            ),
+        )}
       </div>
     </div>
   );
@@ -65,16 +76,18 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
   const { data: timeMetrics } = useHabitatTimeMetrics(habitatId);
 
   const loading = statsLoading || featuresLoading;
-  const features = featuresData?.features ?? [];
+  const features = featuresData?.missions ?? [];
 
   const totalFeatures = features.length;
-  const doneFeatures = features.filter((f) => f.status === 'done').length;
-  const inProgressFeatures = features.filter((f) => f.status === 'in_progress').length;
-  const blockedFeatures = features.filter((f) =>
-    f.dependsOn.length > 0 && f.dependsOn.every((depId: string) => {
-      const dep = features.find((depFeature) => depFeature.id === depId);
-      return !dep || dep.status !== 'done';
-    })
+  const doneFeatures = features.filter((f) => f.status === "done").length;
+  const inProgressFeatures = features.filter((f) => f.status === "in_progress").length;
+  const blockedFeatures = features.filter(
+    (f) =>
+      f.dependsOn.length > 0 &&
+      f.dependsOn.every((depId: string) => {
+        const dep = features.find((depFeature) => depFeature.id === depId);
+        return !dep || dep.status !== "done";
+      }),
   ).length;
 
   return (
@@ -106,7 +119,9 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
               <StatCard
                 icon={CheckCircle}
                 label="Completion"
-                value={totalFeatures > 0 ? `${Math.round((doneFeatures / totalFeatures) * 100)}%` : '0%'}
+                value={
+                  totalFeatures > 0 ? `${Math.round((doneFeatures / totalFeatures) * 100)}%` : "0%"
+                }
                 subtitle={`${doneFeatures}/${totalFeatures} missions`}
               />
               <StatCard
@@ -134,7 +149,11 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
               <StatCard
                 icon={Clock}
                 label="Avg Cycle"
-                value={stats.cycleTime.averageMinutes > 0 ? formatMinutes(stats.cycleTime.averageMinutes) : '—'}
+                value={
+                  stats.cycleTime.averageMinutes > 0
+                    ? formatMinutes(stats.cycleTime.averageMinutes)
+                    : "—"
+                }
                 subtitle={`median ${formatMinutes(stats.cycleTime.medianMinutes)} · ${stats.cycleTime.count} tasks`}
               />
               <StatCard
@@ -159,28 +178,37 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
                 {stats.wipHealth.map((col) => (
                   <div key={col.columnId} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      {col.health === 'ok' && <CheckCircle className="h-3.5 w-3.5 text-green-600" />}
-                      {col.health === 'warning' && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
-                      {col.health === 'exceeded' && <AlertCircle className="h-3.5 w-3.5 text-red-500" />}
+                      {col.health === "ok" && (
+                        <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                      )}
+                      {col.health === "warning" && (
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                      )}
+                      {col.health === "exceeded" && (
+                        <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                      )}
                       <span className="text-sm">{col.columnName}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {col.limit !== null ? (
                         <>
-                          <span className={`text-sm font-medium ${
-                            col.health === 'ok' ? 'text-green-600' :
-                            col.health === 'warning' ? 'text-amber-600' : 'text-red-600'
-                          }`}>
+                          <span
+                            className={`text-sm font-medium ${
+                              col.health === "ok"
+                                ? "text-green-600"
+                                : col.health === "warning"
+                                  ? "text-amber-600"
+                                  : "text-red-600"
+                            }`}
+                          >
                             {col.current}/{col.limit}
                           </span>
-                          {col.health === 'exceeded' && (
+                          {col.health === "exceeded" && (
                             <span className="text-xs text-red-600">at limit</span>
                           )}
                         </>
                       ) : (
-                        <span className="text-sm text-muted-foreground">
-                          {col.current} tasks
-                        </span>
+                        <span className="text-sm text-muted-foreground">{col.current} tasks</span>
                       )}
                     </div>
                   </div>
@@ -203,29 +231,40 @@ export function StatsModal({ habitatId, onClose }: StatsModalProps) {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-muted-foreground">Avg Cycle Time</p>
-                      <p className="text-lg font-bold">{formatMinutes(timeMetrics.averageCycleTime)}</p>
+                      <p className="text-lg font-bold">
+                        {formatMinutes(timeMetrics.averageCycleTime)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Avg Lead Time</p>
-                      <p className="text-lg font-bold">{formatMinutes(timeMetrics.averageLeadTime)}</p>
+                      <p className="text-lg font-bold">
+                        {formatMinutes(timeMetrics.averageLeadTime)}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Estimation Accuracy</p>
-                      <p className="text-lg font-bold">{Math.round(timeMetrics.averageEstimationAccuracy * 100)}%</p>
+                      <p className="text-lg font-bold">
+                        {Math.round(timeMetrics.averageEstimationAccuracy * 100)}%
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">On-time Rate</p>
-                      <p className="text-lg font-bold">{Math.round(timeMetrics.onTimeCompletionRate * 100)}%</p>
+                      <p className="text-lg font-bold">
+                        {Math.round(timeMetrics.onTimeCompletionRate * 100)}%
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Planned vs Actual</p>
                       <p className="text-lg font-bold">
-                        {formatMinutes(timeMetrics.totalPlannedMinutes)} / {formatMinutes(timeMetrics.totalActualMinutes)}
+                        {formatMinutes(timeMetrics.totalPlannedMinutes)} /{" "}
+                        {formatMinutes(timeMetrics.totalActualMinutes)}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Overdue Tasks</p>
-                      <p className={`text-lg font-bold ${timeMetrics.overdueTasks > 0 ? 'text-red-600' : ''}`}>
+                      <p
+                        className={`text-lg font-bold ${timeMetrics.overdueTasks > 0 ? "text-red-600" : ""}`}
+                      >
                         {timeMetrics.overdueTasks}
                       </p>
                     </div>

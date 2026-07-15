@@ -124,7 +124,7 @@ describe("TriageSettingsTab", () => {
   });
 
   it("saves settings via imperative handle", async () => {
-    mockUpdate.mockResolvedValue({ board: { id: "hab-1", triageSettings: defaultSettings } });
+    mockUpdate.mockResolvedValue({ habitat: { id: "hab-1", triageSettings: defaultSettings } });
 
     const ref = createRef<TriageSettingsTabHandle>();
     render(

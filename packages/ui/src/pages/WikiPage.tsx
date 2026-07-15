@@ -1,6 +1,6 @@
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { ArrowLeft, BookOpen, Loader2, Signal, FlaskConical, FileText, Radar } from "lucide-react";
-import { useBoard } from "../lib/useHabitatData.js";
+import { useHabitat } from "../lib/useHabitatData.js";
 import { WikiBrowser } from "../components/wiki/WikiBrowser.js";
 import { WikiPageViewer } from "../components/wiki/WikiPageViewer.js";
 import { WikiEditor } from "../components/wiki/WikiEditor.js";
@@ -21,7 +21,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof FileText }> = [
 export function WikiPage() {
   const { habitatId } = useParams<{ habitatId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: boardData } = useBoard(habitatId);
+  const { data: boardData } = useHabitat(habitatId);
 
   const activePageId = searchParams.get("page");
   const isEditing = searchParams.get("edit") === "true";
@@ -77,7 +77,7 @@ export function WikiPage() {
     setSearchParams(params, { replace: false });
   };
 
-  const habitatName = boardData?.board.name ?? "Habitat";
+  const habitatName = boardData?.habitat.name ?? "Habitat";
 
   return (
     <div className="min-h-screen bg-[var(--background)]">

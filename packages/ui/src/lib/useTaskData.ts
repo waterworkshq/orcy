@@ -1,7 +1,18 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/index.js';
-import { queryKeys } from './queryKeys.js';
-import type { Task, Subtask, PullRequest, PipelineEvent, TaskEvent, TaskComment, TaskAttachment, TaskWatcher, CrossHabitatDependency, MissionStatus } from '../types/index.js';
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/index.js";
+import { queryKeys } from "./queryKeys.js";
+import type {
+  Task,
+  Subtask,
+  PullRequest,
+  PipelineEvent,
+  TaskEvent,
+  TaskComment,
+  TaskAttachment,
+  TaskWatcher,
+  CrossHabitatDependency,
+  MissionStatus,
+} from "../types/index.js";
 
 export interface SiblingTaskData {
   id: string;
@@ -10,7 +21,7 @@ export interface SiblingTaskData {
   result: string | null;
 }
 
-export interface FeatureContextData {
+export interface MissionContextData {
   id: string;
   title: string;
   description: string;
@@ -23,7 +34,7 @@ export interface FeatureContextData {
 
 export interface TaskDetailsData {
   task: Task;
-  feature: FeatureContextData | null;
+  mission: MissionContextData | null;
   siblingTasks: SiblingTaskData[];
   subtasks: Subtask[];
   pullRequests: PullRequest[];
@@ -38,12 +49,12 @@ export interface TaskDetailsData {
   crossHabitatDependsOn: CrossHabitatDependency[];
   blockedBy: Task[];
   blocking: Task[];
-  habitatContext: { name: string; columns: { name: string; featureCount: number }[] };
+  habitatContext: { name: string; columns: { name: string; missionCount: number }[] };
 }
 
 export function useTaskDetails(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.tasks.details(taskId ?? ''),
+    queryKey: queryKeys.tasks.details(taskId ?? ""),
     queryFn: () => api.tasks.details(taskId!),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -52,7 +63,7 @@ export function useTaskDetails(taskId: string | undefined) {
 
 export function useTaskContext(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.tasks.detail(taskId ?? ''),
+    queryKey: queryKeys.tasks.detail(taskId ?? ""),
     queryFn: () => api.tasks.get(taskId!),
     enabled: !!taskId,
     staleTime: 2 * 60 * 1000,
@@ -61,7 +72,7 @@ export function useTaskContext(taskId: string | undefined) {
 
 export function useTaskEvents(taskId: string | undefined, limit = 50) {
   return useQuery({
-    queryKey: [...queryKeys.tasks.events(taskId ?? ''), { limit }] as const,
+    queryKey: [...queryKeys.tasks.events(taskId ?? ""), { limit }] as const,
     queryFn: () => api.tasks.events(taskId!, { limit }),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -70,7 +81,7 @@ export function useTaskEvents(taskId: string | undefined, limit = 50) {
 
 export function useTaskWatchers(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.tasks.watchers(taskId ?? ''),
+    queryKey: queryKeys.tasks.watchers(taskId ?? ""),
     queryFn: () => api.tasks.watchers(taskId!),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -79,7 +90,7 @@ export function useTaskWatchers(taskId: string | undefined) {
 
 export function useSubtasks(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.tasks.subtasks(taskId ?? ''),
+    queryKey: queryKeys.tasks.subtasks(taskId ?? ""),
     queryFn: () => api.subtasks.list(taskId!),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -88,7 +99,7 @@ export function useSubtasks(taskId: string | undefined) {
 
 export function useTaskPullRequests(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.tasks.pullRequests(taskId ?? ''),
+    queryKey: queryKeys.tasks.pullRequests(taskId ?? ""),
     queryFn: () => api.tasks.pullRequests(taskId!),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -97,7 +108,7 @@ export function useTaskPullRequests(taskId: string | undefined) {
 
 export function useTaskPipelineEvents(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.tasks.pipelineEvents(taskId ?? ''),
+    queryKey: queryKeys.tasks.pipelineEvents(taskId ?? ""),
     queryFn: () => api.tasks.pipelineEvents(taskId!),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -106,7 +117,7 @@ export function useTaskPipelineEvents(taskId: string | undefined) {
 
 export function useTaskComments(taskId: string | undefined, limit = 100) {
   return useQuery({
-    queryKey: queryKeys.tasks.comments(taskId ?? ''),
+    queryKey: queryKeys.tasks.comments(taskId ?? ""),
     queryFn: () => api.comments.list(taskId!, { limit }),
     enabled: !!taskId,
     staleTime: 30 * 1000,
@@ -115,7 +126,7 @@ export function useTaskComments(taskId: string | undefined, limit = 100) {
 
 export function useAttachments(taskId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.attachments.list(taskId ?? ''),
+    queryKey: queryKeys.attachments.list(taskId ?? ""),
     queryFn: () => api.attachments.list(taskId!),
     enabled: !!taskId,
     staleTime: 30 * 1000,

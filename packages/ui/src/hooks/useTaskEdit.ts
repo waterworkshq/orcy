@@ -78,8 +78,8 @@ export function useTaskEdit(
   function startEditing() {
     if (!task) return;
     setEditForm(initEditForm(task));
-    setEditDueAt(detailsData?.feature?.dueAt ?? "");
-    setEditSlaMinutes(detailsData?.feature?.slaMinutes?.toString() ?? "");
+    setEditDueAt(detailsData?.mission?.dueAt ?? "");
+    setEditSlaMinutes(detailsData?.mission?.slaMinutes?.toString() ?? "");
     setEditEstimatedMinutes(task.estimatedMinutes?.toString() ?? "");
     setRetryForm({
       maxRetries: task.retryPolicy?.maxRetries?.toString() ?? "",

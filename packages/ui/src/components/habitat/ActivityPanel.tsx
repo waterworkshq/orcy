@@ -4,7 +4,7 @@ import { Button } from "../ui/Button.js";
 import { api } from "../../api/index.js";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useModalStore } from "../../store/modalStore.js";
-import { useBoardEvents, useBoardAnomalies } from "../../lib/useHabitatData.js";
+import { useHabitatEvents, useHabitatAnomalies } from "../../lib/useHabitatData.js";
 import { SEVERITY_BADGE } from "../../lib/status-maps.js";
 import { CheckCircle, XCircle, User, Circle, Clock, AlertTriangle, Download } from "lucide-react";
 import type { EnrichedHabitatEvent, EventAction } from "../../types/index.js";
@@ -170,14 +170,14 @@ export function ActivityPanel({ onClose }: ActivityPanelProps) {
   const limit = 50;
 
   const actions = actionFilters[filter];
-  const eventsQuery = useBoardEvents(habitatId, {
+  const eventsQuery = useHabitatEvents(habitatId, {
     limit,
     offset: 0,
     action: actions.length === 1 ? actions[0] : undefined,
     ...(actions.length > 1 ? { actions: actions.join(",") } : {}),
   });
 
-  const anomaliesQuery = useBoardAnomalies(habitatId);
+  const anomaliesQuery = useHabitatAnomalies(habitatId);
 
   const events = eventsQuery.data?.events ?? [];
   const total = eventsQuery.data?.total ?? 0;

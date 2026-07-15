@@ -27,8 +27,8 @@ vi.mock("../../lib/useHabitatData.js", () => ({
   useAgentsListWithTasks: (...args: unknown[]) => mockAgentsListWithTasks(...args),
   useAgentStats: (...args: unknown[]) => mockAgentStats(...args),
   useAgentQuality: (...args: unknown[]) => mockAgentQuality(...args),
-  useBoard: () => ({
-    data: { board: mockStoreState.board, columns: [] },
+  useHabitat: () => ({
+    data: { habitat: mockStoreState.board, columns: [] },
     isLoading: false,
     isError: false,
   }),
