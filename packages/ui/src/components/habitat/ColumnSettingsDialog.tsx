@@ -178,7 +178,7 @@ export function ColumnSettingsDialog({
               <div>
                 <label className="mb-2 block text-sm font-medium">Column Order</label>
                 <DndContext
-                  sensors={sensors}
+                  sensors={reordering ? [] : sensors}
                   collisionDetection={closestCorners}
                   onDragEnd={handleDragEnd}
                 >

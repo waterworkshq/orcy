@@ -64,10 +64,11 @@ export const missionsApi = {
     request<{ mission: Mission }>(`/missions/${id}/archive`, { method: "POST" }),
   unarchive: (id: string) =>
     request<{ mission: Mission }>(`/missions/${id}/unarchive`, { method: "POST" }),
-  move: (id: string, data: MoveMissionInput) =>
+  move: (id: string, data: MoveMissionInput, signal?: AbortSignal) =>
     request<{ mission: Mission }>(`/missions/${id}/move`, {
       method: "POST",
       body: JSON.stringify(data),
+      signal,
     }),
   tasks: (missionId: string) =>
     request<{ tasks: Task[]; total: number }>(`/missions/${missionId}/tasks`),

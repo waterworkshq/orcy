@@ -15,6 +15,7 @@ const mockResetQueries = vi.fn();
 
 let capturedOnDragEnd: ((event: { active: { id: string }; over: { id: string } }) => void) | null =
   null;
+let capturedSensors: unknown[] = [];
 
 vi.mock("../../api/index.js", () => ({
   api: {
@@ -46,8 +47,9 @@ vi.mock("../../lib/toast.js", () => ({
 }));
 
 vi.mock("@dnd-kit/core", () => ({
-  DndContext: ({ children, onDragEnd }: any) => {
+  DndContext: ({ children, onDragEnd, sensors }: any) => {
     capturedOnDragEnd = onDragEnd ?? null;
+    capturedSensors = sensors ?? [];
     return <div data-testid="dnd-context">{children}</div>;
   },
   DragOverlay: ({ children }: any) => <div>{children}</div>,
@@ -55,7 +57,7 @@ vi.mock("@dnd-kit/core", () => ({
   PointerSensor: vi.fn(),
   TouchSensor: vi.fn(),
   useSensor: vi.fn(() => ({})),
-  useSensors: vi.fn(() => []),
+  useSensors: vi.fn(() => ["sensor-active"]),
 }));
 
 vi.mock("@dnd-kit/sortable", () => ({
@@ -169,6 +171,7 @@ describe("ColumnSettingsDialog — column reorder", () => {
 describe("ColumnSettingsDialog — atomic save order", () => {
   beforeEach(() => {
     capturedOnDragEnd = null;
+    capturedSensors = [];
     mockColumnsUpdate.mockReset();
     mockColumnsDelete.mockReset();
     mockColumnsReorder.mockReset();
@@ -323,6 +326,39 @@ describe("ColumnSettingsDialog — atomic save order", () => {
 
     expect(screen.queryByText("Save Order")).toBeNull();
     expect(mockColumnsReorder).not.toHaveBeenCalled();
+  });
+
+  it("m7: disables DnD sensors while a reorder request is in flight, then restores them", async () => {
+    let resolveReorder: (val: any) => void = () => {};
+    mockColumnsReorder.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveReorder = resolve;
+      }),
+    );
+
+    render(<ColumnSettingsDialog {...defaultProps} />);
+
+    expect(capturedSensors).toEqual(["sensor-active"]);
+
+    act(() => {
+      capturedOnDragEnd!({ active: { id: "col-3" }, over: { id: "col-1" } });
+    });
+
+    fireEvent.click(screen.getByText("Save Order"));
+
+    await waitFor(() => {
+      expect(mockColumnsReorder).toHaveBeenCalledTimes(1);
+    });
+
+    expect(capturedSensors).toEqual([]);
+
+    await act(async () => {
+      resolveReorder({ columns: defaultColumns });
+    });
+
+    await waitFor(() => {
+      expect(capturedSensors).toEqual(["sensor-active"]);
+    });
   });
 });
 

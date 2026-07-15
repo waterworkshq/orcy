@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   DndContext,
+  DragCancelEvent,
   DragEndEvent,
   DragOverEvent,
   DragOverlay,
@@ -50,7 +51,9 @@ export function Habitat({
   const [searchParams] = useSearchParams();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
-  const { previewByMission, isMoving, drop, setPreview } = useMissionDragMove(habitat?.id);
+  const { previewByMission, isMoving, drop, setPreview, restorePreview } = useMissionDragMove(
+    habitat?.id,
+  );
 
   const {
     data: archivedData,
@@ -140,7 +143,10 @@ export function Habitat({
     const overFeature = missions.find((f) => f.id === overId);
     const overColumn = columns.find((c) => c.id === overId);
 
-    const targetColumnId = overColumn?.id ?? overFeature?.columnId;
+    const overFeatureColumn = overFeature
+      ? (previewByMission[overFeature.id] ?? overFeature.columnId)
+      : undefined;
+    const targetColumnId = overColumn?.id ?? overFeatureColumn;
     if (!targetColumnId) return;
 
     const currentPreview = previewByMission[dragged.id] ?? dragged.columnId;
@@ -154,17 +160,26 @@ export function Habitat({
     const { active, over } = event;
     setActiveFeature(null);
 
-    if (!over) return;
-
     const dragged = missions.find((f) => f.id === active.id);
     if (!dragged) return;
+
+    if (!over) {
+      restorePreview(dragged.id);
+      return;
+    }
 
     const overId = over.id as string;
     const overColumn = columns.find((c) => c.id === overId);
     const overFeature = missions.find((f) => f.id === overId);
-    const targetColumnId = overColumn?.id ?? overFeature?.columnId;
+    const overFeatureColumn = overFeature
+      ? (previewByMission[overFeature.id] ?? overFeature.columnId)
+      : undefined;
+    const targetColumnId = overColumn?.id ?? overFeatureColumn;
 
-    if (!targetColumnId) return;
+    if (!targetColumnId) {
+      restorePreview(dragged.id);
+      return;
+    }
 
     drop({
       missionId: dragged.id,
@@ -172,6 +187,13 @@ export function Habitat({
       targetColumnId,
       expectedVersion: dragged.version,
     });
+  }
+
+  function handleDragCancel(event: DragCancelEvent) {
+    if (isBulkSelectMode) return;
+    setActiveFeature(null);
+    const dragged = missions.find((f) => f.id === event.active.id);
+    if (dragged) restorePreview(dragged.id);
   }
 
   if (!habitat) {
@@ -193,6 +215,7 @@ export function Habitat({
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
         {isMobile ? (
           <ColumnSwiper

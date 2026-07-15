@@ -132,7 +132,11 @@ describe("useMissionDragMove", () => {
       await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
     });
 
-    expect(moveMock).toHaveBeenCalledWith("m1", { columnId: "col-b", expectedVersion: 1 });
+    expect(moveMock).toHaveBeenCalledWith(
+      "m1",
+      { columnId: "col-b", expectedVersion: 1 },
+      expect.any(AbortSignal),
+    );
   });
 
   it("does not send request C before request B settles; C dispatched with B's returned version", async () => {
@@ -155,7 +159,11 @@ describe("useMissionDragMove", () => {
     });
 
     await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
-    expect(moveMock).toHaveBeenLastCalledWith("m1", { columnId: "col-b", expectedVersion: 1 });
+    expect(moveMock).toHaveBeenLastCalledWith(
+      "m1",
+      { columnId: "col-b", expectedVersion: 1 },
+      expect.any(AbortSignal),
+    );
 
     // Drop C: while B is in-flight, coalesce to col-c
     moveMock.mockResolvedValueOnce({
@@ -181,7 +189,11 @@ describe("useMissionDragMove", () => {
     });
 
     // C was dispatched with B's returned version (2)
-    expect(moveMock).toHaveBeenLastCalledWith("m1", { columnId: "col-c", expectedVersion: 2 });
+    expect(moveMock).toHaveBeenLastCalledWith(
+      "m1",
+      { columnId: "col-c", expectedVersion: 2 },
+      expect.any(AbortSignal),
+    );
   });
 
   it("coalesces intermediate targets; only latest target is dispatched", async () => {
@@ -232,7 +244,11 @@ describe("useMissionDragMove", () => {
     });
 
     // Latest target (col-c) dispatched, intermediate (col-x) discarded
-    expect(moveMock).toHaveBeenLastCalledWith("m1", { columnId: "col-c", expectedVersion: 2 });
+    expect(moveMock).toHaveBeenLastCalledWith(
+      "m1",
+      { columnId: "col-c", expectedVersion: 2 },
+      expect.any(AbortSignal),
+    );
   });
 
   it("does not re-dispatch when queued target equals just-completed target (compare on column)", async () => {
@@ -296,15 +312,25 @@ describe("useMissionDragMove", () => {
     expect(result.current.previewByMission["m1"]).toBeUndefined();
   });
 
-  it("clears overlay and queued intent on habitat switch", async () => {
-    let resolveB: (val: any) => void = () => {};
+  it("aborts the in-flight move on habitat switch; a stale completion cannot patch the cache or clear a newer preview", async () => {
+    let resolveMove: (val: any) => void = () => {};
     moveMock.mockReturnValueOnce(
       new Promise((resolve) => {
-        resolveB = resolve;
+        resolveMove = resolve;
       }),
     );
 
-    const { result, rerender } = renderHookWithQC("h1");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(queryKeys.habitats.detail("h1"), {
+      habitat: { id: "h1" },
+      columns: [],
+      missions: [makeMission({ id: "m1", columnId: "col-a", version: 1 })],
+    });
+
+    const { result, rerender } = renderHook(({ hid }: { hid: string }) => useMissionDragMove(hid), {
+      initialProps: { hid: "h1" },
+      wrapper: makeWrapper(qc),
+    });
 
     act(() => {
       result.current.drop({
@@ -316,16 +342,117 @@ describe("useMissionDragMove", () => {
     });
     await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
 
+    const signal = moveMock.mock.calls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
     expect(result.current.previewByMission["m1"]).toBe("col-b");
 
-    // Switch habitat
-    const qc2 = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    rerender();
-    const { result: result2 } = renderHook(() => useMissionDragMove("h2"), {
-      wrapper: makeWrapper(qc2),
+    rerender({ hid: "h2" });
+
+    expect(signal.aborted).toBe(true);
+    expect(result.current.previewByMission["m1"]).toBeUndefined();
+    expect(result.current.isMoving).toBe(false);
+
+    await act(async () => {
+      resolveMove({ mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }) });
+      await new Promise((r) => setTimeout(r, 50));
     });
 
-    expect(result2.current.previewByMission).toEqual({});
+    const h1Detail = qc.getQueryData<{ missions: MissionWithProgress[] }>(
+      queryKeys.habitats.detail("h1"),
+    );
+    const cached = h1Detail?.missions.find((m) => m.id === "m1");
+    expect(cached?.columnId).toBe("col-a");
+    expect(cached?.version).toBe(1);
+  });
+
+  it("aborts the in-flight move on unmount; a stale completion cannot patch the cache", async () => {
+    let resolveMove: (val: any) => void = () => {};
+    moveMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveMove = resolve;
+      }),
+    );
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(queryKeys.habitats.detail("h1"), {
+      habitat: { id: "h1" },
+      columns: [],
+      missions: [makeMission({ id: "m1", columnId: "col-a", version: 1 })],
+    });
+
+    const { result, unmount } = renderHook(() => useMissionDragMove("h1"), {
+      wrapper: makeWrapper(qc),
+    });
+
+    act(() => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+    });
+    await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+
+    const signal = moveMock.mock.calls[0][2] as AbortSignal;
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
+
+    await act(async () => {
+      resolveMove({ mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }) });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    const h1Detail = qc.getQueryData<{ missions: MissionWithProgress[] }>(
+      queryKeys.habitats.detail("h1"),
+    );
+    const cached = h1Detail?.missions.find((m) => m.id === "m1");
+    expect(cached?.columnId).toBe("col-a");
+    expect(cached?.version).toBe(1);
+  });
+
+  it("restorePreview returns to the in-flight target while a move is running, and clears when idle", async () => {
+    let resolveMove: (val: any) => void = () => {};
+    moveMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveMove = resolve;
+      }),
+    );
+
+    const { result } = renderHookWithQC("h1");
+
+    act(() => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+    });
+    await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      result.current.setPreview("m1", "col-c");
+    });
+    expect(result.current.previewByMission["m1"]).toBe("col-c");
+
+    act(() => {
+      result.current.restorePreview("m1");
+    });
+    expect(result.current.previewByMission["m1"]).toBe("col-b");
+
+    await act(async () => {
+      resolveMove({ mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }) });
+    });
+
+    expect(result.current.isMoving).toBe(false);
+
+    act(() => {
+      result.current.restorePreview("m1");
+    });
+    expect(result.current.previewByMission["m1"]).toBeUndefined();
   });
 
   it("sets preview immediately on dragOver for instant visual feedback", () => {
