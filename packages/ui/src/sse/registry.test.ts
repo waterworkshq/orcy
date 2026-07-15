@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  applySSEStoreUpdate,
+  applySSEEphemeralUpdate,
   getSSENotification,
-  invalidateSSEEventCache,
+  projectSSEServerEvent,
   SSE_EVENT_REGISTRY,
   SSE_EVENT_TYPES,
 } from "./registry.js";
-import type { SSEStoreState } from "./types.js";
+import type { SSEStoreState, ServerProjectionContext } from "./types.js";
 import type { SSEEvent, Task } from "../types/index.js";
 
 function makeState(overrides: Partial<SSEStoreState> = {}): SSEStoreState {
@@ -27,12 +27,27 @@ function makeState(overrides: Partial<SSEStoreState> = {}): SSEStoreState {
   } as SSEStoreState;
 }
 
+function makeServerCtx(
+  event: SSEEvent,
+  overrides: Partial<ServerProjectionContext> = {},
+): ServerProjectionContext {
+  return {
+    event,
+    queryClient: { invalidateQueries: vi.fn(), removeQueries: vi.fn() } as never,
+    subscriptionHabitatId: "h1",
+    routeHabitatId: "h1",
+    isActive: () => true,
+    navigateHome: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe("SSE event registry", () => {
   it("registers every declared SSE event type", () => {
     expect(Object.keys(SSE_EVENT_REGISTRY).toSorted()).toEqual([...SSE_EVENT_TYPES].toSorted());
   });
 
-  it("no longer mutates task store for claimed event (zustand removed)", () => {
+  it("no longer mutates task store for claimed event (server projection only)", () => {
     const task = {
       id: "t1",
       status: "pending",
@@ -41,7 +56,7 @@ describe("SSE event registry", () => {
     const state = makeState({ tasks: [task] });
     const set = vi.fn((partial: Partial<SSEStoreState>) => Object.assign(state, partial));
 
-    applySSEStoreUpdate(
+    applySSEEphemeralUpdate(
       { type: "task.claimed", data: { taskId: "t1", agentId: "a1" } },
       state,
       set,
@@ -57,7 +72,10 @@ describe("SSE event registry", () => {
       data: { taskId: "t1", reviewerId: "u1", reviewerType: "human", actorId: "system" },
     };
 
-    invalidateSSEEventCache(event, { invalidateQueries } as never, "h1", () => makeState());
+    projectSSEServerEvent(
+      event,
+      makeServerCtx(event, { queryClient: { invalidateQueries } as never }),
+    );
 
     expect(invalidateQueries).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: expect.arrayContaining(["reviewers", "t1"]) }),

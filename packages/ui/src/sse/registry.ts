@@ -1,5 +1,14 @@
+import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../lib/queryKeys.js";
-import type { MissionWithProgress, SSEEvent } from "../types/index.js";
+import {
+  invalidateHabitatRepresentations,
+  invalidateMissionRepresentations,
+  patchMissionInHabitatDetail,
+  removeMissionFromHabitatDetail,
+  resetArchivedForHabitat,
+  type HabitatDetailData,
+} from "../lib/habitatMutations.js";
+import type { SSEEvent } from "../types/index.js";
 import {
   defineSSEHandler,
   type SSEEventHandler,
@@ -7,6 +16,7 @@ import {
   type SSEStoreState,
   type SSENotificationResult,
   type SSEToastNotification,
+  type ServerProjectionContext,
 } from "./types.js";
 
 type AssertNever<T extends never> = T;
@@ -131,58 +141,71 @@ function taskNotification(
   };
 }
 
-function invalidateTaskDetail(context: Parameters<NonNullable<SSEEventHandler["cache"]>>[0]): void {
+function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionContext<T>): void {
   const taskId = getTaskId(context.event);
-  if (!taskId) return;
-
-  context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
-  context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
-  context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
+  if (taskId) {
+    context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+    context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
+    context.queryClient.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
+  }
 }
 
-const taskCacheHandler = defineSSEHandler<SSEEventType>({
-  cache: (context) => {
-    const taskId = getTaskId(context.event);
-    if (taskId) {
-      invalidateTaskDetail(context);
-      const missionId =
-        "missionId" in context.event.data
-          ? (context.event.data as { missionId?: string }).missionId
-          : undefined;
-      if (missionId) {
-        context.queryClient.invalidateQueries({
-          queryKey: queryKeys.missions.progress(missionId),
-        });
-        context.queryClient.invalidateQueries({
-          queryKey: queryKeys.missions.detail(missionId),
-        });
-      }
-    }
-    context.queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(context.boardId) });
-  },
-});
-
-const missionListCacheHandler = defineSSEHandler<SSEEventType>({
-  cache: ({ event, queryClient, boardId }) => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(boardId) });
-    if ("id" in event.data && event.data.id) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.detail(event.data.id) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.details(event.data.id) });
-    }
-    if ("missionId" in event.data && typeof event.data.missionId === "string") {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.missions.progress(event.data.missionId),
+/**
+ * Task lifecycle can change Mission progress, so it invalidates the Task
+ * representations, the owning Mission progress/detail, and the Habitat detail
+ * (complete active collection). Invalidate-only — no speculative patch.
+ */
+function projectTaskServer<T extends SSEEventType>(context: ServerProjectionContext<T>): void {
+  invalidateTaskDetail(context);
+  const taskId = getTaskId(context.event);
+  if (taskId) {
+    const missionId =
+      "missionId" in context.event.data
+        ? (context.event.data as { missionId?: string }).missionId
+        : undefined;
+    if (missionId) {
+      context.queryClient.invalidateQueries({
+        queryKey: queryKeys.missions.progress(missionId),
+      });
+      context.queryClient.invalidateQueries({
+        queryKey: queryKeys.missions.detail(missionId),
       });
     }
-  },
-});
+  }
+  context.queryClient.invalidateQueries({
+    queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
+  });
+}
 
-const sprintCacheHandler = defineSSEHandler<SSEEventType>({
-  cache: ({ event, queryClient, boardId }) => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.sprints.list(boardId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.sprints.active(boardId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(boardId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+const taskServerHandler = defineSSEHandler<SSEEventType>({ server: projectTaskServer });
+
+/**
+ * Cancel the in-flight Queries whose queryFns forward the AbortSignal to fetch,
+ * so an older HTTP response cannot replace the event patch applied afterwards.
+ * Cancellation is only real because the domain queryFns are signal-aware.
+ */
+async function cancelAffectedQueries(
+  qc: QueryClient,
+  habitatId: string,
+  missionId?: string,
+): Promise<void> {
+  const keys: readonly (readonly string[])[] = [
+    queryKeys.habitats.detail(habitatId),
+    ...(missionId
+      ? [queryKeys.missions.detail(missionId), queryKeys.missions.details(missionId)]
+      : []),
+  ];
+  await Promise.all(keys.map((k) => qc.cancelQueries({ queryKey: k })));
+}
+
+const sprintServerHandler = defineSSEHandler<SSEEventType>({
+  server: ({ event, queryClient, subscriptionHabitatId }) => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.sprints.list(subscriptionHabitatId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.sprints.active(subscriptionHabitatId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(subscriptionHabitatId) });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.habitats.detail(subscriptionHabitatId),
+    });
     if ("sprintId" in event.data && typeof event.data.sprintId === "string") {
       queryClient.invalidateQueries({ queryKey: queryKeys.sprints.detail(event.data.sprintId) });
     }
@@ -190,11 +213,11 @@ const sprintCacheHandler = defineSSEHandler<SSEEventType>({
 });
 
 export const SSE_EVENT_REGISTRY = {
-  "task.created": taskCacheHandler,
-  "task.updated": taskCacheHandler,
-  "task.moved": taskCacheHandler,
+  "task.created": taskServerHandler,
+  "task.updated": taskServerHandler,
+  "task.moved": taskServerHandler,
   "task.claimed": defineSSEHandler<"task.claimed">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const agentName = getAgentName(event.data.agentId);
       const taskTitle = getTaskTitle(event.data.taskId);
@@ -202,7 +225,7 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.submitted": defineSSEHandler<"task.submitted">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const agentName = getAgentName(event.data.agentId);
       const taskTitle = getTaskTitle(event.data.taskId);
@@ -214,14 +237,14 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.approved": defineSSEHandler<"task.approved">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(event, "success", `Task "${taskTitle}" approved`);
     },
   }),
   "task.rejected": defineSSEHandler<"task.rejected">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       const message = `Task "${taskTitle}" rejected${event.data.reason ? `: ${event.data.reason}` : ""}`;
@@ -229,14 +252,14 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.completed": defineSSEHandler<"task.completed">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(event, "success", `Task "${taskTitle}" completed`);
     },
   }),
   "task.failed": defineSSEHandler<"task.failed">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       const message = `Task "${taskTitle}" failed${event.data.reason ? `: ${event.data.reason}` : ""}`;
@@ -244,20 +267,20 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.released": defineSSEHandler<"task.released">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(event, "info", `Task "${taskTitle}" released`);
     },
   }),
   "task.delegated": defineSSEHandler<"task.delegated">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
   }),
   "task.cloned": noopHandler,
   "task.deleted": defineSSEHandler<"task.deleted">({
-    cache: taskCacheHandler.cache,
+    server: projectTaskServer,
   }),
-  "task.overdue": taskCacheHandler,
+  "task.overdue": taskServerHandler,
   "task.watcher_notify": defineSSEHandler<"task.watcher_notify">({
     notification: ({ event, currentUserId }) => {
       if (!currentUserId || !event.data.watcherUserIds.includes(currentUserId)) return null;
@@ -288,19 +311,19 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.commented": defineSSEHandler<"task.commented">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       const taskId = getTaskId(event);
       if (taskId) queryClient.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
     },
   }),
   "task.comment_deleted": defineSSEHandler<"task.comment_deleted">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       const taskId = getTaskId(event);
       if (taskId) queryClient.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
     },
   }),
   "agent.status_changed": defineSSEHandler<"agent.status_changed">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (!("agentId" in event.data)) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(event.data.agentId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list() });
@@ -314,7 +337,7 @@ export const SSE_EVENT_REGISTRY = {
     }),
   }),
   "agent.heartbeat": defineSSEHandler<"agent.heartbeat">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (!("agentId" in event.data)) return;
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(event.data.agentId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.agents.list() });
@@ -322,38 +345,22 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "column.created": defineSSEHandler<"column.created">({
-    zustand: ({ event, state, set }) => {
-      if (
-        event.data.habitatId === state.board?.id &&
-        !state.columns.some((c) => c.id === event.data.id)
-      ) {
-        set({ columns: [...state.columns, event.data].toSorted((a, b) => a.order - b.order) });
-      }
-    },
-    cache: ({ queryClient, boardId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(subscriptionHabitatId) });
     },
   }),
   "column.updated": defineSSEHandler<"column.updated">({
-    zustand: ({ event, state, set }) => {
-      set({ columns: state.columns.map((c) => (c.id === event.data.id ? event.data : c)) });
-    },
-    cache: ({ queryClient, boardId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(subscriptionHabitatId) });
     },
   }),
   "column.deleted": defineSSEHandler<"column.deleted">({
-    zustand: ({ event, state, set }) => {
-      if (event.data.habitatId === state.board?.id) {
-        set({ columns: state.columns.filter((c) => c.id !== event.data.columnId) });
-      }
-    },
-    cache: ({ queryClient, boardId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(subscriptionHabitatId) });
     },
   }),
   "column.wip_limit_reached": defineSSEHandler<"column.wip_limit_reached">({
-    zustand: ({ event, state, set }) => {
+    ephemeral: ({ event, state, set }) => {
       set({
         wipAlerts: {
           ...state.wipAlerts,
@@ -367,24 +374,26 @@ export const SSE_EVENT_REGISTRY = {
   }),
   "habitat.created": noopHandler,
   "habitat.updated": defineSSEHandler<"habitat.updated">({
-    zustand: ({ event, state, set }) => {
-      if (event.data.id === state.board?.id) set({ board: { ...state.board, ...event.data } });
-    },
-    cache: ({ queryClient, boardId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(subscriptionHabitatId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.habitats.list() });
     },
   }),
   "habitat.deleted": defineSSEHandler<"habitat.deleted">({
-    zustand: ({ event, state }) => {
-      if (event.data.habitatId === state.board?.id) window.location.hash = "#/";
+    server: ({ event, queryClient, routeHabitatId, navigateHome }) => {
+      const deletedId = event.data.habitatId;
+      queryClient.removeQueries({ queryKey: queryKeys.habitats.detail(deletedId) });
+      queryClient.removeQueries({ queryKey: queryKeys.habitats.stats(deletedId) });
+      queryClient.removeQueries({ queryKey: queryKeys.habitats.events(deletedId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.list() });
+      if (routeHabitatId === deletedId) navigateHome();
     },
   }),
   "subtask.created": noopHandler,
   "subtask.updated": noopHandler,
   "subtask.deleted": noopHandler,
   "presence.joined": defineSSEHandler<"presence.joined">({
-    zustand: ({ event, state, set }) => {
+    ephemeral: ({ event, state, set }) => {
       set({
         presence: state.presence.some((p) => p.sessionId === event.data.presence.sessionId)
           ? state.presence
@@ -393,12 +402,12 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "presence.left": defineSSEHandler<"presence.left">({
-    zustand: ({ event, state, set }) => {
+    ephemeral: ({ event, state, set }) => {
       set({ presence: state.presence.filter((p) => p.sessionId !== event.data.sessionId) });
     },
   }),
   "presence.refresh": defineSSEHandler<"presence.refresh">({
-    zustand: ({ event, state, set }) => {
+    ephemeral: ({ event, state, set }) => {
       set({
         presence: state.presence.map((p) =>
           p.sessionId === event.data.presence.sessionId ? event.data.presence : p,
@@ -407,19 +416,18 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "presence.summary": defineSSEHandler<"presence.summary">({
-    zustand: ({ event, set }) => {
+    ephemeral: ({ event, set }) => {
       set({ presence: event.data.viewers });
     },
   }),
   "agent.message_received": noopHandler,
   "pulse.signal_posted": defineSSEHandler<"pulse.signal_posted">({
-    cache: ({ queryClient, boardId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(boardId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.insights.byBoard(boardId) });
-      // New pulses (findings) and the experience signals they feed change the wiki signal-surface
-      // tabs (Experience Signals + Engineering Findings), which are live queries over pulses and
-      // habitat_skill_signals.
-      queryClient.invalidateQueries({ queryKey: ["wiki", "signalSurface", boardId] });
+    server: ({ queryClient, subscriptionHabitatId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(subscriptionHabitatId) });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.insights.byBoard(subscriptionHabitatId),
+      });
+      queryClient.invalidateQueries({ queryKey: ["wiki", "signalSurface", subscriptionHabitatId] });
     },
   }),
   "task.retry_scheduled": noopHandler,
@@ -427,92 +435,118 @@ export const SSE_EVENT_REGISTRY = {
   "task.escalated": noopHandler,
   "anomaly.detected": noopHandler,
   "mission.created": defineSSEHandler<"mission.created">({
-    cache: missionListCacheHandler.cache,
+    server: ({ event, queryClient }) => {
+      const habitatId = event.data.habitatId;
+      invalidateHabitatRepresentations(queryClient, habitatId);
+      invalidateMissionRepresentations(queryClient, event.data.id);
+    },
   }),
   "mission.updated": defineSSEHandler<"mission.updated">({
-    zustand: ({ event, state, set }) => {
-      set({
-        columnPagination: { ...state.columnPagination, [event.data.columnId]: undefined },
-      });
+    server: async (ctx) => {
+      const mission = ctx.event.data;
+      const habitatId = mission.habitatId;
+      const detail = ctx.queryClient.getQueryData<HabitatDetailData>(
+        queryKeys.habitats.detail(habitatId),
+      );
+      const present = !!detail?.missions.some((m) => m.id === mission.id);
+
+      if (mission.isArchived) {
+        await cancelAffectedQueries(ctx.queryClient, habitatId, mission.id);
+        if (!ctx.isActive()) return;
+        removeMissionFromHabitatDetail(ctx.queryClient, habitatId, mission.id);
+        ctx.queryClient.removeQueries({ queryKey: queryKeys.missions.detail(mission.id) });
+        invalidateHabitatRepresentations(ctx.queryClient, habitatId);
+        resetArchivedForHabitat(ctx.queryClient, habitatId);
+        invalidateMissionRepresentations(ctx.queryClient, mission.id);
+        return;
+      }
+
+      if (present) {
+        await cancelAffectedQueries(ctx.queryClient, habitatId, mission.id);
+        if (!ctx.isActive()) return;
+        patchMissionInHabitatDetail(ctx.queryClient, habitatId, mission);
+        invalidateHabitatRepresentations(ctx.queryClient, habitatId);
+        invalidateMissionRepresentations(ctx.queryClient, mission.id);
+        return;
+      }
+
+      invalidateHabitatRepresentations(ctx.queryClient, habitatId);
+      resetArchivedForHabitat(ctx.queryClient, habitatId);
+      invalidateMissionRepresentations(ctx.queryClient, mission.id);
     },
-    cache: missionListCacheHandler.cache,
   }),
   "mission.moved": defineSSEHandler<"mission.moved">({
-    zustand: ({ event, state, set }) => {
-      set({
-        columnPagination: {
-          ...state.columnPagination,
-          [event.data.fromColumnId]: undefined,
-          [event.data.toColumnId]: undefined,
-        },
-      });
+    server: ({ queryClient, subscriptionHabitatId, event }) => {
+      invalidateHabitatRepresentations(queryClient, subscriptionHabitatId);
+      invalidateMissionRepresentations(queryClient, event.data.missionId);
     },
-    cache: missionListCacheHandler.cache,
   }),
   "mission.status_changed": defineSSEHandler<"mission.status_changed">({
-    cache: missionListCacheHandler.cache,
+    server: ({ queryClient, subscriptionHabitatId, event }) => {
+      invalidateHabitatRepresentations(queryClient, subscriptionHabitatId);
+      invalidateMissionRepresentations(queryClient, event.data.missionId);
+    },
   }),
   "mission.deleted": defineSSEHandler<"mission.deleted">({
-    cache: missionListCacheHandler.cache,
+    server: async (ctx) => {
+      const missionId = ctx.event.data.missionId;
+      const habitatId = ctx.subscriptionHabitatId;
+      await cancelAffectedQueries(ctx.queryClient, habitatId, missionId);
+      if (!ctx.isActive()) return;
+      removeMissionFromHabitatDetail(ctx.queryClient, habitatId, missionId);
+      ctx.queryClient.removeQueries({ queryKey: queryKeys.missions.detail(missionId) });
+      invalidateHabitatRepresentations(ctx.queryClient, habitatId);
+      resetArchivedForHabitat(ctx.queryClient, habitatId);
+      invalidateMissionRepresentations(ctx.queryClient, missionId);
+    },
   }),
   "mission.progress": defineSSEHandler<"mission.progress">({
-    cache: ({ event, queryClient }) => {
-      if (!("missionId" in event.data) || typeof event.data.missionId !== "string") return;
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.detail(event.data.missionId) });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.missions.progress(event.data.missionId),
-      });
+    server: ({ event, queryClient }) => {
+      invalidateMissionRepresentations(queryClient, event.data.missionId);
     },
   }),
   "mission.commented": noopHandler,
   "mission.comment_deleted": noopHandler,
   "mission.mentioned": noopHandler,
   "task.priority_changed": defineSSEHandler<"task.priority_changed">({
-    cache: ({ event, queryClient, boardId }) => {
-      const taskId = getTaskId(event);
-      if (taskId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
-      }
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    server: (context) => {
+      invalidateTaskDetail(context);
+      context.queryClient.invalidateQueries({
+        queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
+      });
     },
   }),
   "scheduled_task.executed": noopHandler,
   "scheduled_task.failed": noopHandler,
   "scheduled_task.created": noopHandler,
   "task.review_assigned": defineSSEHandler<"task.review_assigned">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       const taskId = getTaskId(event);
       if (taskId) queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(taskId) });
     },
   }),
   "task.review_completed": defineSSEHandler<"task.review_completed">({
-    cache: ({ event, queryClient, boardId }) => {
-      const taskId = getTaskId(event);
-      if (!taskId) return;
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.reviewers(taskId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.details(taskId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.events(taskId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(boardId) });
+    server: (context) => {
+      invalidateTaskDetail(context);
+      context.queryClient.invalidateQueries({
+        queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
+      });
     },
   }),
-  "sprint.created": sprintCacheHandler,
-  "sprint.started": sprintCacheHandler,
-  "sprint.completed": sprintCacheHandler,
+  "sprint.created": sprintServerHandler,
+  "sprint.started": sprintServerHandler,
+  "sprint.completed": sprintServerHandler,
   "code_evidence.updated": noopHandler,
   "effort.updated": noopHandler,
   wiki_page_created: defineSSEHandler<"wiki_page_created">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "wiki_page_created") return;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.pages(event.data.habitatId) });
-      // New pages change search results and the signal-surface tab counts.
       queryClient.invalidateQueries({ queryKey: ["wiki", "search", event.data.habitatId] });
     },
   }),
   wiki_page_updated: defineSSEHandler<"wiki_page_updated">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "wiki_page_updated") return;
       const { habitatId, pageId } = event.data;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId) });
@@ -522,7 +556,7 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   wiki_page_deleted: defineSSEHandler<"wiki_page_deleted">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "wiki_page_deleted") return;
       const { habitatId, pageId } = event.data;
       queryClient.removeQueries({ queryKey: queryKeys.wiki.page(habitatId, pageId) });
@@ -531,13 +565,13 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   wiki_coverage_changed: defineSSEHandler<"wiki_coverage_changed">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "wiki_coverage_changed") return;
       queryClient.invalidateQueries({ queryKey: queryKeys.wiki.cadence(event.data.habitatId) });
     },
   }),
   "plugin.enrollment_toggled": defineSSEHandler<"plugin.enrollment_toggled">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "plugin.enrollment_toggled") return;
       queryClient.invalidateQueries({
         queryKey: queryKeys.plugins.enrollments(event.data.habitatId),
@@ -545,7 +579,7 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "plugin.enrollment_removed": defineSSEHandler<"plugin.enrollment_removed">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "plugin.enrollment_removed") return;
       queryClient.invalidateQueries({
         queryKey: queryKeys.plugins.enrollments(event.data.habitatId),
@@ -553,7 +587,7 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "plugin.quarantined": defineSSEHandler<"plugin.quarantined">({
-    cache: ({ event, queryClient }) => {
+    server: ({ event, queryClient }) => {
       if (event.type !== "plugin.quarantined") return;
       queryClient.invalidateQueries({
         queryKey: queryKeys.plugins.enrollments(event.data.habitatId),
@@ -564,14 +598,12 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "triage.finding_created": defineSSEHandler<"triage.finding_created">({
-    cache: ({ event, queryClient }) => {
-      if (event.type !== "triage.finding_created") return;
+    server: ({ queryClient }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
     },
   }),
   "triage.finding_updated": defineSSEHandler<"triage.finding_updated">({
-    cache: ({ event, queryClient }) => {
-      if (event.type !== "triage.finding_updated") return;
+    server: ({ queryClient }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.triage.all });
     },
   }),
@@ -581,21 +613,19 @@ export function getSSEEventHandler(type: SSEEventType): SSEEventHandler {
   return SSE_EVENT_REGISTRY[type];
 }
 
-export function applySSEStoreUpdate(
+export function applySSEEphemeralUpdate(
   event: SSEEvent,
   state: SSEStoreState,
   set: (partial: Partial<SSEStoreState>) => void,
 ): void {
-  getSSEEventHandler(event.type).zustand?.({ event, state, set });
+  getSSEEventHandler(event.type).ephemeral?.({ event, state, set });
 }
 
-export function invalidateSSEEventCache(
+export function projectSSEServerEvent(
   event: SSEEvent,
-  queryClient: Parameters<NonNullable<SSEEventHandler["cache"]>>[0]["queryClient"],
-  boardId: string,
-  getState: () => SSEStoreState,
-): void {
-  getSSEEventHandler(event.type).cache?.({ event, queryClient, boardId, getState });
+  context: ServerProjectionContext,
+): void | Promise<void> {
+  return getSSEEventHandler(event.type).server?.(context);
 }
 
 export function getSSEEventDedupeKey(event: SSEEvent): string {

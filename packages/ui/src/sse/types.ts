@@ -23,17 +23,32 @@ export type SSEStoreState = ThemeSlice &
 
 export type SSEStoreSet = (partial: Partial<SSEStoreState>) => void;
 
-export interface SSEStoreContext<T extends SSEEventType = SSEEventType> {
+/**
+ * Ephemeral projection context. Type-constrained to non-domain Zustand state
+ * (presence, WIP alerts, theme, UI selection). Server-domain entities
+ * (Habitat/Column/Mission/Task/Agent) are NEVER written here — the server
+ * projector owns those through React Query.
+ */
+export interface EphemeralProjectionContext<T extends SSEEventType = SSEEventType> {
   event: SSEEventOf<T>;
   state: SSEStoreState;
   set: SSEStoreSet;
 }
 
-export interface SSECacheContext<T extends SSEEventType = SSEEventType> {
+/**
+ * Server projection context. The server projector is the only SSE code allowed
+ * to patch or invalidate durable server data. It carries BOTH the subscription
+ * Habitat (the generation's stream target) and the current route Habitat, plus
+ * `isActive` so an async cancel-before-patch can recheck its generation after
+ * every await, and `navigateHome` for the route-safe `habitat.deleted` effect.
+ */
+export interface ServerProjectionContext<T extends SSEEventType = SSEEventType> {
   event: SSEEventOf<T>;
-  boardId: string;
   queryClient: QueryClient;
-  getState: () => SSEStoreState;
+  subscriptionHabitatId: string;
+  routeHabitatId: string;
+  isActive: () => boolean;
+  navigateHome: () => void;
 }
 
 export interface SSENotificationContext<T extends SSEEventType = SSEEventType> {
@@ -53,14 +68,14 @@ export interface SSENotificationResult {
 }
 
 export interface SSEEventHandler {
-  zustand?: (context: SSEStoreContext) => void;
-  cache?: (context: SSECacheContext) => void;
+  server?: (context: ServerProjectionContext) => void | Promise<void>;
+  ephemeral?: (context: EphemeralProjectionContext) => void;
   notification?: (context: SSENotificationContext) => SSENotificationResult | null;
 }
 
 export interface SSEEventHandlerFor<T extends SSEEventType> {
-  zustand?: (context: SSEStoreContext<T>) => void;
-  cache?: (context: SSECacheContext) => void;
+  server?: (context: ServerProjectionContext<T>) => void | Promise<void>;
+  ephemeral?: (context: EphemeralProjectionContext<T>) => void;
   notification?: (context: SSENotificationContext<T>) => SSENotificationResult | null;
 }
 

@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import type { SSEEvent } from "../../types/index.js";
-import { applySSEStoreUpdate } from "../../sse/registry.js";
+import { applySSEEphemeralUpdate } from "../../sse/registry.js";
 import type { SSEStoreSet, SSEStoreState } from "../../sse/types.js";
 
 export interface SseHandlerSlice {
@@ -17,6 +17,6 @@ export const createSseHandlerSlice: StateCreator<SSEStoreState, [], [], SseHandl
   handleSSEEvent: (event) => {
     const state = get();
     set({ recentSSEEvents: [...state.recentSSEEvents.slice(-99), event] });
-    applySSEStoreUpdate(event, state, set as SSEStoreSet);
+    applySSEEphemeralUpdate(event, state, set as SSEStoreSet);
   },
 });

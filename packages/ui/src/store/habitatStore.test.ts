@@ -128,146 +128,29 @@ describe("habitat store mission selection", () => {
   });
 });
 
-describe("habitat store SSE mission.created", () => {
+describe("habitat store SSE mission events (server projection only)", () => {
   beforeEach(() => {
     useHabitatStore.setState({ features: [], tasks: [] });
   });
 
-  it("adds feature with default progress when progress is absent from SSE data", () => {
+  it("mission.created does not mutate zustand server state (server projector owns it)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
     handleSSEEvent({ type: "mission.created", data: makeFeature("feat-new", "col-1") });
-    // Features are now managed by React Query — the handler delegates to cache invalidation.
-    // Verify column pagination is cleared.
+
     const state = useHabitatStore.getState();
-    expect(state.columnPagination).toBeDefined();
+    expect(state.features).toEqual([]);
   });
 
-  it("does not duplicate an already-existing feature", () => {
+  it("mission.created is idempotent at the store layer (no zustand duplication)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
     handleSSEEvent({ type: "mission.created", data: makeFeature("feat-d", "col-1") });
     handleSSEEvent({ type: "mission.created", data: makeFeature("feat-d", "col-1") });
-    // No features stored in Zustand — handler uses cache invalidation only.
-    expect(true).toBe(true);
-  });
 
-  it("mission.created only uses cache invalidation (no zustand columnPagination change)", () => {
-    useHabitatStore.setState({
-      features: [],
-      columnPagination: {
-        "col-1": paginationFor(),
-        "col-2": paginationFor(),
-      },
-    });
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({ type: "mission.created", data: makeFeature("feat-new", "col-1") });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor());
-    expect(pag["col-2"]).toEqual(paginationFor());
+    expect(useHabitatStore.getState().features).toEqual([]);
   });
 });
 
-describe("habitat store SSE targeted column invalidation", () => {
-  beforeEach(() => {
-    useHabitatStore.setState({
-      features: [makeFeature("feat-1", "col-1") as any],
-      tasks: [],
-      columnPagination: {
-        "col-1": paginationFor([makeFeature("feat-1", "col-1")]),
-        "col-2": paginationFor(),
-      },
-    });
-  });
-
-  it("only invalidates affected column on mission.updated", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({
-      type: "mission.updated",
-      data: { ...makeFeature("feat-1", "col-1"), title: "Updated" },
-    });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
-    expect(pag["col-2"]).toEqual(paginationFor());
-  });
-
-  it("preserves progress when handling mission.updated", () => {
-    useHabitatStore.setState({
-      columnPagination: { "col-1": paginationFor(), "col-2": paginationFor() },
-    });
-    const { handleSSEEvent } = useHabitatStore.getState();
-    handleSSEEvent({
-      type: "mission.updated",
-      data: { ...makeFeature("feat-1", "col-1"), title: "Updated" },
-    });
-    // Features managed by React Query; column pagination is cleared.
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
-  });
-
-  it("invalidates both source and destination columns on mission.moved", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({
-      type: "mission.moved",
-      data: { missionId: "feat-1", fromColumnId: "col-1", toColumnId: "col-2" },
-    });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
-    expect(pag["col-2"]).toBeUndefined();
-  });
-
-  it("mission.status_changed only uses cache invalidation (no zustand columnPagination change)", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({
-      type: "mission.status_changed",
-      data: { missionId: "feat-1", fromStatus: "not_started", toStatus: "in_progress" },
-    });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-2"]).toEqual(paginationFor());
-  });
-
-  it("mission.deleted only uses cache invalidation (no zustand columnPagination change)", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({ type: "mission.deleted", data: { missionId: "feat-1" } });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-2"]).toEqual(paginationFor());
-  });
-
-  it("only invalidates affected column on mission.progress", () => {
-    useHabitatStore.setState({
-      columnPagination: {
-        "col-1": paginationFor(),
-        "col-2": paginationFor(),
-      },
-    });
-    const { handleSSEEvent } = useHabitatStore.getState();
-    handleSSEEvent({
-      type: "mission.progress",
-      data: { missionId: "feat-1", completed: 3, total: 5 },
-    });
-    // Cache handler invalidates RQ keys; no zustand features state.
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor());
-  });
-
-  it("mission.progress updates progress fields and preserves existing fields in single set", () => {
-    // Features are now managed by React Query; mission.progress uses cache invalidation only.
-    // No zustand features state change expected.
-    expect(true).toBe(true);
-  });
-});
-
-describe("habitat store SSE preserves third-column pagination", () => {
+describe("habitat store SSE leaves zustand pagination untouched (server projector owns mutation)", () => {
   beforeEach(() => {
     useHabitatStore.setState({
       features: [makeFeature("feat-1", "col-1") as any],
@@ -280,7 +163,7 @@ describe("habitat store SSE preserves third-column pagination", () => {
     });
   });
 
-  it("preserves col-3 pagination on mission.updated in col-1", () => {
+  it("mission.updated no longer clears columnPagination", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({
@@ -289,11 +172,12 @@ describe("habitat store SSE preserves third-column pagination", () => {
     });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
+    expect(pag["col-2"]).toEqual(paginationFor());
     expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
   });
 
-  it("preserves col-3 pagination on mission.moved from col-1 to col-2", () => {
+  it("mission.moved no longer clears columnPagination", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({
@@ -302,12 +186,25 @@ describe("habitat store SSE preserves third-column pagination", () => {
     });
 
     const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
-    expect(pag["col-2"]).toBeUndefined();
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
+    expect(pag["col-2"]).toEqual(paginationFor());
     expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
   });
 
-  it("preserves all pagination on mission.deleted (no zustand handler)", () => {
+  it("mission.status_changed no longer clears columnPagination", () => {
+    const { handleSSEEvent } = useHabitatStore.getState();
+
+    handleSSEEvent({
+      type: "mission.status_changed",
+      data: { missionId: "feat-1", fromStatus: "not_started", toStatus: "in_progress" },
+    });
+
+    const pag = useHabitatStore.getState().columnPagination;
+    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
+    expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
+  });
+
+  it("mission.deleted no longer clears columnPagination", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({ type: "mission.deleted", data: { missionId: "feat-1" } });
@@ -317,22 +214,19 @@ describe("habitat store SSE preserves third-column pagination", () => {
     expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
   });
 
-  it("preserves all pagination on mission.status_changed (no zustand handler)", () => {
+  it("mission.progress no longer mutates zustand features", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
-
     handleSSEEvent({
-      type: "mission.status_changed",
-      data: { missionId: "feat-1", fromStatus: "not_started", toStatus: "done" },
+      type: "mission.progress",
+      data: { missionId: "feat-1", completed: 3, total: 5 },
     });
 
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
+    expect(useHabitatStore.getState().features).toEqual([makeFeature("feat-1", "col-1")]);
   });
 });
 
-describe("habitat store SSE habitat state consistency after multiple events", () => {
-  it("remains consistent after a sequence of SSE events", () => {
+describe("habitat store SSE mission events leave server state consistent", () => {
+  it("remains consistent after a sequence of SSE events (no zustand server mutation)", () => {
     const f1 = makeFeature("feat-1", "col-1");
     const f2 = makeFeature("feat-2", "col-2");
     useHabitatStore.setState({
@@ -357,10 +251,9 @@ describe("habitat store SSE habitat state consistency after multiple events", ()
     });
 
     const state = useHabitatStore.getState();
-    // Features are managed by React Query; column pagination clears are the Zustand effect.
-    const pag = state.columnPagination;
-    expect(pag["col-1"]).toBeUndefined();
-    expect(pag["col-2"]).toBeUndefined();
+    expect(state.features).toEqual([f1, f2]);
+    expect(state.columnPagination["col-1"]).toEqual(paginationFor([f1]));
+    expect(state.columnPagination["col-2"]).toEqual(paginationFor([f2]));
   });
 });
 

@@ -1,52 +1,64 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { useSSE } from "./useSSE.js";
 
-const mockHandleSSEEvent = vi.fn();
-const mockInvalidateQueries = vi.fn();
-const mockClose = vi.fn();
+const { storeState, mockHandleSSEEvent } = vi.hoisted(() => ({
+  storeState: { handleSSEEvent: vi.fn(), recentSSEEvents: [] as unknown[] },
+  mockHandleSSEEvent: vi.fn(),
+}));
+storeState.handleSSEEvent = mockHandleSSEEvent;
 
 vi.mock("../store/habitatStore.js", () => ({
-  useHabitatStore: (sel: (s: any) => any) => sel({ handleSSEEvent: mockHandleSSEEvent, tasks: [] }),
+  useHabitatStore: Object.assign(() => storeState, { getState: () => storeState }),
 }));
 
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<any>("@tanstack/react-query");
   return {
     ...actual,
-    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+    useQueryClient: () => ({
+      invalidateQueries: vi.fn(),
+      removeQueries: vi.fn(),
+      cancelQueries: vi.fn().mockResolvedValue(undefined),
+      getQueryData: vi.fn(),
+      setQueryData: vi.fn(),
+      resetQueries: vi.fn(),
+    }),
   };
 });
 
+interface MockEventSource {
+  url: string;
+  close: ReturnType<typeof vi.fn>;
+  addEventListener: ReturnType<typeof vi.fn>;
+  deliver: (data: string) => void;
+  fireError: () => void;
+}
+
 const originalEventSource = globalThis.EventSource;
 
-function createMockEventSource() {
-  let messageHandler: ((e: { data: string }) => void) | null = null;
-  let errorHandler: (() => void) | null = null;
-  const es: any = {};
-  Object.defineProperty(es, "onmessage", {
-    get: () => messageHandler,
-    set: (fn: any) => {
-      messageHandler = fn;
-    },
-    enumerable: true,
-  });
-  Object.defineProperty(es, "onerror", {
-    get: () => errorHandler,
-    set: (fn: any) => {
-      errorHandler = fn;
-    },
-    enumerable: true,
-  });
-  es.addEventListener = vi.fn((type: string, fn: any) => {
-    if (type === "message") messageHandler = fn;
-    if (type === "error") errorHandler = fn;
-  });
-  es.removeEventListener = vi.fn();
-  es.close = mockClose;
-  return es;
+function installMockEventSource() {
+  const instances: MockEventSource[] = [];
+  (globalThis as any).EventSource = function (url: string) {
+    const handlers: Record<string, ((...args: any[]) => void) | undefined> = {};
+    const inst: MockEventSource = {
+      url,
+      close: vi.fn(() => {
+        handlers["message"] = undefined;
+        handlers["error"] = undefined;
+      }),
+      addEventListener: vi.fn((type: string, fn: any) => {
+        handlers[type] = fn;
+      }),
+      deliver: (data: string) => handlers["message"]?.({ data }),
+      fireError: () => handlers["error"]?.(),
+    };
+    instances.push(inst);
+    return inst as any;
+  };
+  return instances;
 }
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -55,20 +67,13 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe("useSSE", () => {
-  let mockEs: any;
-  let eventSourceUrl = "";
+  let instances: MockEventSource[];
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockEs = createMockEventSource();
-    eventSourceUrl = "";
-    (globalThis as any).EventSource = function (url: string) {
-      eventSourceUrl = url;
-      return mockEs;
-    } as any;
-    (globalThis as any).localStorage = {
-      getItem: vi.fn(() => null),
-    } as any;
+    mockHandleSSEEvent.mockReset();
+    instances = installMockEventSource();
+    (globalThis as any).localStorage = { getItem: vi.fn(() => null) } as any;
     (globalThis as any).fetch = vi.fn().mockResolvedValue({ ok: false }) as any;
   });
 
@@ -76,181 +81,152 @@ describe("useSSE", () => {
     globalThis.EventSource = originalEventSource;
   });
 
-  async function sendMessage(event: object) {
-    await waitFor(() => {
-      expect(mockEs.onmessage).toBeTruthy();
-    });
-    mockEs.onmessage({ data: JSON.stringify(event) });
+  async function waitForConnect() {
+    await waitFor(() => expect(instances.length).toBeGreaterThan(0));
   }
 
-  it("invalidates reviewers on task.review_assigned", async () => {
+  it("connects to the habitat SSE stream (unauthenticated path)", async () => {
     renderHook(() => useSSE("b1"), { wrapper });
-
-    await sendMessage({
-      type: "task.review_assigned",
-      data: { taskId: "t1", reviewerId: "r1", reviewerType: "human" },
-    });
-
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["reviewers", "t1"]) }),
-    );
+    await waitForConnect();
+    expect(instances[0].url).toBe("/sse/habitats/b1/stream");
   });
 
-  it("connects to the habitat SSE stream", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
+  it("projects fresh-generation events through the server projector", async () => {
+    const { result } = renderHook(() => useSSE("b1"), { wrapper });
+    void result;
+    await waitForConnect();
 
-    await waitFor(() => {
-      expect(eventSourceUrl).toBe("/sse/habitats/b1/stream");
+    act(() => {
+      instances[0].deliver(
+        JSON.stringify({
+          type: "mission.progress",
+          data: { missionId: "m1", completed: 1, total: 2 },
+        }),
+      );
     });
+
+    expect(mockHandleSSEEvent).toHaveBeenCalledTimes(1);
   });
 
-  it("invalidates reviewers and task detail on task.review_completed", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
+  it("ignores events delivered by a stale generation after a habitat switch", async () => {
+    const { rerender } = renderHook(({ id }) => useSSE(id), {
+      wrapper,
+      initialProps: { id: "A" },
+    });
+    await waitForConnect();
+    const staleStream = instances[0];
 
-    await sendMessage({
-      type: "task.review_completed",
-      data: { taskId: "t1", reviewerId: "r1", status: "approved" },
+    rerender({ id: "B" });
+    await waitForConnect();
+
+    const before = mockHandleSSEEvent.mock.calls.length;
+    act(() => {
+      staleStream.deliver(
+        JSON.stringify({
+          type: "mission.progress",
+          data: { missionId: "m1", completed: 1, total: 2 },
+        }),
+      );
     });
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["reviewers", "t1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["detail", "t1"]) }),
-    );
+    expect(mockHandleSSEEvent.mock.calls.length).toBe(before);
   });
 
-  it("invalidates task detail and habitat on task.priority_changed", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
-
-    await sendMessage({
-      type: "task.priority_changed",
-      data: {
-        taskId: "t1",
-        ruleName: "overdue",
-        oldPriority: "medium",
-        newPriority: "critical",
-        score: 95,
-      },
+  it("closes the stale generation's stream on habitat switch", async () => {
+    const { rerender } = renderHook(({ id }) => useSSE(id), {
+      wrapper,
+      initialProps: { id: "A" },
     });
+    await waitForConnect();
+    const staleStream = instances[0];
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["detail", "t1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["habitats", "detail", "b1"]) }),
-    );
+    rerender({ id: "B" });
+    await waitForConnect();
+
+    expect(staleStream.close).toHaveBeenCalled();
   });
 
-  it("invalidates sprint queries on sprint.created", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
-
-    await sendMessage({
-      type: "sprint.created",
-      data: { sprintId: "s1", habitatId: "b1" },
+  it("aborts a pending stream-token request on habitat switch and never installs the stale stream", async () => {
+    const tokenRequests: {
+      signal: AbortSignal;
+      resolve: (v: unknown) => void;
+    }[] = [];
+    (globalThis as any).fetch = vi.fn((url: string, opts?: { signal?: AbortSignal }) => {
+      if (String(url).includes("/api/auth/stream-token")) {
+        return new Promise((resolve) => {
+          tokenRequests.push({ signal: opts!.signal as AbortSignal, resolve });
+          opts?.signal?.addEventListener("abort", () => resolve({ ok: false }));
+        });
+      }
+      return Promise.resolve({ ok: false });
     });
+    (globalThis as any).localStorage = { getItem: vi.fn(() => "token") } as any;
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "list", "b1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "active", "b1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "detail", "s1"]) }),
-    );
+    const { rerender } = renderHook(({ id }) => useSSE(id), {
+      wrapper,
+      initialProps: { id: "A" },
+    });
+    await waitFor(() => expect(tokenRequests.length).toBe(1));
+    const aRequest = tokenRequests[0];
+
+    rerender({ id: "B" });
+    await waitFor(() => expect(tokenRequests.length).toBe(2));
+    tokenRequests[1].resolve({ ok: false });
+    await waitForConnect();
+
+    expect(aRequest.signal.aborted).toBe(true);
+    const streamUrls = instances.map((i) => i.url);
+    expect(streamUrls.every((u) => !u.includes("/habitats/A/"))).toBe(true);
+    expect(streamUrls.some((u) => u.includes("/habitats/B/"))).toBe(true);
   });
 
-  it("invalidates sprint queries on sprint.started", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
+  it("does not navigate on a stale habitat.deleted for the old subscription", async () => {
+    const { rerender } = renderHook(({ id }) => useSSE(id), {
+      wrapper,
+      initialProps: { id: "A" },
+    });
+    await waitForConnect();
+    const staleStream = instances[0];
+    const originalHash = window.location.hash;
 
-    await sendMessage({
-      type: "sprint.started",
-      data: { sprintId: "s1", habitatId: "b1" },
+    rerender({ id: "B" });
+    await waitForConnect();
+
+    act(() => {
+      staleStream.deliver(JSON.stringify({ type: "habitat.deleted", data: { habitatId: "A" } }));
     });
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "list", "b1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "active", "b1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "detail", "s1"]) }),
-    );
+    expect(window.location.hash).toBe(originalHash);
   });
 
-  it("invalidates sprint queries on sprint.completed", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
+  it("navigates home on an active-subscription habitat.deleted", async () => {
+    renderHook(() => useSSE("A"), { wrapper });
+    await waitForConnect();
 
-    await sendMessage({
-      type: "sprint.completed",
-      data: { sprintId: "s1", habitatId: "b1", completedMissions: 5, carriedOver: 2 },
+    act(() => {
+      instances[0].deliver(JSON.stringify({ type: "habitat.deleted", data: { habitatId: "A" } }));
     });
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "list", "b1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "active", "b1"]) }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["sprints", "detail", "s1"]) }),
-    );
+    expect(window.location.hash).toBe("#/");
   });
 
-  it("still handles existing task events after new cases added", async () => {
+  it("parses bad payloads without throwing", async () => {
     renderHook(() => useSSE("b1"), { wrapper });
+    await waitForConnect();
 
-    await sendMessage({
-      type: "task.commented",
-      data: { taskId: "t1", comment: { id: "c1" } },
-    });
-
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["comments", "t1"]) }),
-    );
+    expect(() => {
+      act(() => instances[0].deliver("not-json"));
+    }).not.toThrow();
+    expect(mockHandleSSEEvent).not.toHaveBeenCalled();
   });
 
-  it("invalidates agent list and listWithTasks on agent updates", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
+  it("tears down the stream and aborts on unmount", async () => {
+    const { unmount } = renderHook(() => useSSE("b1"), { wrapper });
+    await waitForConnect();
+    const stream = instances[0];
 
-    await sendMessage({
-      type: "agent.status_changed",
-      data: { agentId: "a1", status: "working" },
-    });
+    unmount();
 
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: ["agents", "list"] }),
-    );
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: ["agents", "listWithTasks"] }),
-    );
-  });
-
-  it("does not crash when task event has null taskId", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
-
-    await sendMessage({
-      type: "task.review_assigned",
-      data: { taskId: null as any, reviewerId: "r1", reviewerType: "human" },
-    });
-
-    expect(mockInvalidateQueries).not.toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["reviewers", null]) }),
-    );
-  });
-
-  it("does not crash when task event has missing taskId", async () => {
-    renderHook(() => useSSE("b1"), { wrapper });
-
-    await sendMessage({
-      type: "task.priority_changed",
-      data: { oldPriority: "medium", newPriority: "critical" } as any,
-    });
-
-    expect(mockInvalidateQueries).not.toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: expect.arrayContaining(["detail", undefined]) }),
-    );
+    expect(stream.close).toHaveBeenCalled();
   });
 });
