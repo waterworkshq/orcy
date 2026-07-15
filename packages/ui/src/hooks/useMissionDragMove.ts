@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/index.js";
-import { ApiError } from "../api/transport.js";
-import { queryKeys } from "../lib/queryKeys.js";
-import { notify } from "../lib/toast.js";
-import type { Mission, MissionWithProgress, PublicHabitat, Column } from "../types/index.js";
-
-type HabitatDetailData = {
-  habitat: PublicHabitat;
-  columns: Column[];
-  missions: MissionWithProgress[];
-};
+import {
+  invalidateHabitatRepresentations,
+  isVersionConflict,
+  notifyVersionConflict,
+  patchMissionInHabitatDetail,
+} from "../lib/habitatMutations.js";
+import type { Mission } from "../types/index.js";
 
 interface MoveEntry {
   currentTarget: string;
@@ -38,30 +35,18 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
   const [activeMoveCount, setActiveMoveCount] = useState(0);
   const movesRef = useRef<Record<string, MoveEntry>>({});
 
-  const detailKey = habitatId ? queryKeys.habitats.detail(habitatId) : null;
-
   const patchMissionInCache = useCallback(
     (mission: Mission) => {
-      if (!detailKey) return;
-      qc.setQueryData<HabitatDetailData>(detailKey, (old) => {
-        if (!old) return old;
-        const existing = old.missions.find((m) => m.id === mission.id);
-        if (existing && existing.version > mission.version) return old;
-        return {
-          ...old,
-          missions: old.missions.map((m) =>
-            m.id === mission.id ? { ...m, ...mission, progress: m.progress } : m,
-          ),
-        };
-      });
+      if (!habitatId) return;
+      patchMissionInHabitatDetail(qc, habitatId, mission);
     },
-    [qc, detailKey],
+    [qc, habitatId],
   );
 
   const invalidate = useCallback(() => {
-    if (!detailKey) return;
-    qc.invalidateQueries({ queryKey: detailKey });
-  }, [qc, detailKey]);
+    if (!habitatId) return;
+    invalidateHabitatRepresentations(qc, habitatId);
+  }, [qc, habitatId]);
 
   const clearPreview = useCallback((missionId: string) => {
     setPreviewByMission((prev) => {
@@ -98,10 +83,8 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
       } catch (err) {
         delete movesRef.current[missionId];
         clearPreview(missionId);
-        if (err instanceof ApiError && err.status === 409) {
-          notify.error("This mission was modified by someone else. Refreshing to the latest.", {
-            action: { label: "Retry", onClick: () => invalidate() },
-          });
+        if (isVersionConflict(err)) {
+          notifyVersionConflict("This mission", invalidate);
         }
         invalidate();
       } finally {

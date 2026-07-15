@@ -3,10 +3,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { useHabitat } from "../../lib/useHabitatData.js";
 import { api } from "../../api/index.js";
+import {
+  invalidateHabitatRepresentations,
+  isVersionConflict,
+  patchMissionInHabitatDetail,
+  resetArchivedForHabitat,
+} from "../../lib/habitatMutations.js";
 import { notify } from "../../lib/toast.js";
-import { queryKeys } from "../../lib/queryKeys.js";
 import { X, Trash2, ArrowRight, Gauge } from "lucide-react";
-import type { TaskPriority } from "../../types/index.js";
+import type { Mission, TaskPriority } from "../../types/index.js";
 
 interface BulkActionBarProps {
   habitatId: string;
@@ -37,7 +42,14 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
 
     let successCount = 0;
     let failureCount = 0;
+    let conflictCount = 0;
     const errors: string[] = [];
+
+    const reconcile = () => {
+      if (successCount === 0) return;
+      resetArchivedForHabitat(qc, habitatId);
+      invalidateHabitatRepresentations(qc, habitatId);
+    };
 
     try {
       if (operation === "delete") {
@@ -49,14 +61,12 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
             successCount++;
           } else {
             failureCount++;
+            if (isVersionConflict(result.reason)) conflictCount++;
             errors.push(result.reason?.message ?? "Unknown error");
           }
         });
-        if (successCount > 0) {
-          qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
-        }
       } else {
-        const updatePromises = selectedMissionIds.map(async (id) => {
+        const updatePromises = selectedMissionIds.map(async (id): Promise<Mission> => {
           if (operation === "priority") {
             const { mission } = await api.missions.update(id, { priority });
             return mission;
@@ -77,20 +87,26 @@ export function BulkActionBar({ habitatId }: BulkActionBarProps) {
         results.forEach((result) => {
           if (result.status === "fulfilled") {
             successCount++;
+            // Consume canonical { mission }: guarded-patch into Habitat detail.
+            patchMissionInHabitatDetail(qc, habitatId, result.value);
           } else {
             failureCount++;
+            if (isVersionConflict(result.reason)) conflictCount++;
             errors.push(result.reason?.message ?? "Unknown error");
           }
         });
-        if (successCount > 0) {
-          qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
-        }
       }
+
+      reconcile();
 
       notify.success(
         `${successCount} feature${successCount !== 1 ? "s" : ""} ${operation === "delete" ? "deleted" : "updated"}`,
       );
-      if (failureCount > 0) {
+      if (conflictCount > 0) {
+        notify.warning(
+          `${conflictCount} conflict${conflictCount !== 1 ? "s" : ""}: refreshed to the latest.`,
+        );
+      } else if (failureCount > 0) {
         notify.warning(`${failureCount} failed: ${errors[0]}`);
       }
       clearMissionSelection();

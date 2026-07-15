@@ -4,7 +4,9 @@ import { Drawer } from "../ui/Drawer.js";
 import { Button } from "../ui/Button.js";
 import { useArchivedMissionsInfinite, useResetArchivedMissions } from "../../lib/useHabitatData.js";
 import { api } from "../../api/index.js";
+import { invalidateHabitatRepresentations } from "../../lib/habitatMutations.js";
 import { notify } from "../../lib/toast.js";
+import { useQueryClient } from "@tanstack/react-query";
 import { Archive, ChevronRight } from "lucide-react";
 import { Badge } from "../ui/Badge.js";
 import type { MissionWithProgress } from "../../types/index.js";
@@ -27,6 +29,7 @@ const taskStatusVariant: Record<string, string> = {
 
 export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPanelProps) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const resetArchived = useResetArchivedMissions(habitatId);
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, refetch } =
     useArchivedMissionsInfinite(habitatId);
@@ -60,10 +63,13 @@ export function ArchivedFeaturesPanel({ habitatId, onClose }: ArchivedFeaturesPa
 
   async function handleUnarchive(missionId: string) {
     try {
-      await api.missions.unarchive(missionId);
-      notify.success("Mission unarchived");
+      const { mission } = await api.missions.unarchive(missionId);
+      // Unarchive changes membership: reset the archived view and reconcile the
+      // active collection via invalidation (response lacks derived progress).
       resetArchived();
+      invalidateHabitatRepresentations(qc, mission.habitatId);
       void refetch();
+      notify.success("Mission unarchived");
     } catch (err) {
       notify.error((err as Error).message);
     }

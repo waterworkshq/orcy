@@ -8,7 +8,12 @@ import {
 } from "../../lib/useHabitatData.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/index.js";
-import { queryKeys } from "../../lib/queryKeys.js";
+import {
+  invalidateHabitatRepresentations,
+  invalidateMissionRepresentations,
+  removeMissionFromHabitatDetail,
+  resetArchivedForHabitat,
+} from "../../lib/habitatMutations.js";
 import { notify } from "../../lib/toast.js";
 import { Button } from "../ui/Button.js";
 import { Badge, type BadgeProps } from "../ui/Badge.js";
@@ -59,22 +64,13 @@ export function FeatureDetailPanel() {
     useModalStore.getState().openModal(taskId);
   }
 
-  async function invalidateMissionCaches(missionId: string) {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.detail(missionId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.missionLinks(missionId) }),
-    ]);
-  }
-
   async function handleDelete() {
     try {
       await api.missions.delete(feature!.id);
-      await invalidateMissionCaches(feature!.id);
+      removeMissionFromHabitatDetail(queryClient, feature!.habitatId, feature!.id);
+      invalidateMissionRepresentations(queryClient, feature!.id);
+      resetArchivedForHabitat(queryClient, feature!.habitatId);
+      invalidateHabitatRepresentations(queryClient, feature!.habitatId);
       setSelectedMission(null);
       notify.success("Mission deleted");
     } catch (err) {
@@ -87,7 +83,7 @@ export function FeatureDetailPanel() {
     setDecomposing(true);
     try {
       const result = await api.missions.decompose(feature!.id);
-      await invalidateMissionCaches(feature!.id);
+      invalidateMissionRepresentations(queryClient, feature!.id);
       notify.success(`Created ${result.proposals.length} tasks`);
     } catch (err) {
       notify.error((err as Error).message);
@@ -98,10 +94,11 @@ export function FeatureDetailPanel() {
 
   async function handleArchive() {
     try {
-      await api.missions.archive(feature!.id);
-      await invalidateMissionCaches(feature!.id);
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(feature!.habitatId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(feature!.habitatId) });
+      const { mission } = await api.missions.archive(feature!.id);
+      removeMissionFromHabitatDetail(queryClient, mission.habitatId, mission.id);
+      invalidateMissionRepresentations(queryClient, mission.id);
+      resetArchivedForHabitat(queryClient, mission.habitatId);
+      invalidateHabitatRepresentations(queryClient, mission.habitatId);
       setSelectedMission(null);
       notify.success("Mission archived");
     } catch (err) {
@@ -111,10 +108,12 @@ export function FeatureDetailPanel() {
 
   async function handleRestore() {
     try {
-      await api.missions.unarchive(feature!.id);
-      await invalidateMissionCaches(feature!.id);
-      queryClient.invalidateQueries({ queryKey: queryKeys.missions.list(feature!.habitatId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.habitats.detail(feature!.habitatId) });
+      const { mission } = await api.missions.unarchive(feature!.id);
+      // Unarchive cannot safely insert into the active collection (response
+      // lacks derived progress), so reconcile via invalidation.
+      invalidateMissionRepresentations(queryClient, mission.id);
+      resetArchivedForHabitat(queryClient, mission.habitatId);
+      invalidateHabitatRepresentations(queryClient, mission.habitatId);
       notify.success("Mission restored");
     } catch (err) {
       notify.error((err as Error).message);

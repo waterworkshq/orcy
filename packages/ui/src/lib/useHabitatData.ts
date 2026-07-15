@@ -2,6 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { api } from "../api/index.js";
 import { queryKeys } from "./queryKeys.js";
+import {
+  invalidateHabitatRepresentations,
+  invalidateMissionRepresentations,
+  isVersionConflict,
+  patchMissionInHabitatDetail,
+  resetArchivedForHabitat,
+} from "./habitatMutations.js";
 import type {
   CreateMissionInput,
   CreateTaskInMissionInput,
@@ -151,8 +158,11 @@ export function useCreateMission(habitatId: string) {
   return useMutation({
     mutationFn: (data: CreateMissionInput) => api.missions.create(habitatId, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
-      qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
+      // Create returns a Mission without derived progress, so it cannot be
+      // inserted into the active collection safely. Membership changed, so
+      // reset the archived view and invalidate every affected representation.
+      resetArchivedForHabitat(qc, habitatId);
+      invalidateHabitatRepresentations(qc, habitatId);
     },
   });
 }
@@ -162,9 +172,20 @@ export function useUpdateMission(missionId: string, habitatId: string) {
   return useMutation({
     mutationFn: (data: Partial<Mission> & { version?: number }) =>
       api.missions.update(missionId, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
-      qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
+    onSuccess: ({ mission }) => {
+      // Consume the canonical { mission } entity. Guarded-merge into the
+      // Habitat-detail active collection (version not older, progress preserved).
+      patchMissionInHabitatDetail(qc, habitatId, mission);
+      invalidateMissionRepresentations(qc, missionId);
+      invalidateHabitatRepresentations(qc, habitatId);
+    },
+    onError: (err) => {
+      // A conflict means another actor's version is authoritative; force the
+      // cache to reconcile without overwriting their change.
+      if (isVersionConflict(err)) {
+        invalidateMissionRepresentations(qc, missionId);
+        invalidateHabitatRepresentations(qc, habitatId);
+      }
     },
   });
 }
@@ -420,11 +441,8 @@ export function useMissionComments(missionId: string | undefined) {
 export function useInvalidateHabitat(habitatId: string) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.habitats.detail(habitatId) });
-    qc.invalidateQueries({ queryKey: queryKeys.habitats.stats(habitatId) });
-    qc.invalidateQueries({ queryKey: queryKeys.habitats.events(habitatId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.list(habitatId) });
-    qc.resetQueries({ queryKey: queryKeys.missions.archived(habitatId, ARCHIVED_PAGE_SIZE) });
+    invalidateHabitatRepresentations(qc, habitatId);
+    resetArchivedForHabitat(qc, habitatId);
   };
 }
 
@@ -445,10 +463,7 @@ export function useInvalidateAgents() {
 export function useInvalidateMission(missionId: string) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.missions.detail(missionId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) });
-    qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
+    invalidateMissionRepresentations(qc, missionId);
   };
 }
 
@@ -518,7 +533,7 @@ export function useArchivedMissionsInfinite(habitatId: string | undefined) {
 export function useResetArchivedMissions(habitatId: string) {
   const qc = useQueryClient();
   return () => {
-    qc.resetQueries({ queryKey: queryKeys.missions.archived(habitatId, ARCHIVED_PAGE_SIZE) });
+    resetArchivedForHabitat(qc, habitatId);
   };
 }
 

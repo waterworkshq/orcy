@@ -29,6 +29,8 @@ vi.mock("../../lib/toast.js", () => ({
 
 // Mock the query client
 const mockInvalidateQueries = vi.fn();
+const mockSetQueryData = vi.fn();
+const mockResetQueries = vi.fn();
 
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual("@tanstack/react-query");
@@ -36,6 +38,8 @@ vi.mock("@tanstack/react-query", async () => {
     ...actual,
     useQueryClient: () => ({
       invalidateQueries: mockInvalidateQueries,
+      setQueryData: mockSetQueryData,
+      resetQueries: mockResetQueries,
     }),
   };
 });

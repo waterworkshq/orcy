@@ -11,6 +11,7 @@ import { Button } from "../ui/Button.js";
 import { RichTextEditor } from "../ui/RichTextEditor.js";
 import { notify } from "../../lib/toast.js";
 import { useUpdateMission, useHabitat } from "../../lib/useHabitatData.js";
+import { isVersionConflict } from "../../lib/habitatMutations.js";
 import type { MissionWithProgress, TaskPriority } from "../../types/index.js";
 
 interface EditMissionFormProps {
@@ -93,11 +94,10 @@ export function EditMissionForm({ open, onClose, mission }: EditMissionFormProps
       notify.success("Mission updated");
       onClose();
     } catch (err) {
-      const msg = (err as Error).message ?? "";
-      if (msg.includes("409") || msg.toLowerCase().includes("version_conflict")) {
+      if (isVersionConflict(err)) {
         notify.error("This mission was edited elsewhere — refresh and try again");
       } else {
-        notify.error(msg || "Failed to update mission");
+        notify.error((err as Error).message || "Failed to update mission");
       }
     }
   }
