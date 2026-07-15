@@ -239,12 +239,8 @@ describe("HabitatPage → Habitat Query ownership integration", () => {
     vi.clearAllMocks();
     setupFetch();
     useHabitatStore.setState({
-      board: null,
-      columns: [],
-      features: [],
-      columnPagination: {},
-      allFeaturesLoaded: false,
-      habitatEvents: [],
+      wipAlerts: {},
+      presence: [],
     });
   });
 
@@ -262,9 +258,7 @@ describe("HabitatPage → Habitat Query ownership integration", () => {
     });
 
     const state = useHabitatStore.getState();
-    expect(state.board).toBeNull();
-    expect(state.features).toEqual([]);
-    expect(state.columnPagination).toEqual({});
+    expect(state.wipAlerts).toEqual({});
   });
 
   it("renders columns from Query data", async () => {

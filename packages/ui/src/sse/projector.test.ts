@@ -13,17 +13,10 @@ import type {
 
 function makeState(overrides: Partial<SSEStoreState> = {}): SSEStoreState {
   return {
-    tasks: [],
-    agents: [],
-    features: [],
-    columns: [],
-    comments: {},
     presence: [],
     wipAlerts: {},
-    columnPagination: {},
     selectedMissionIds: [],
     selectedMissionId: null,
-    board: null,
     recentSSEEvents: [],
     ...overrides,
   } as SSEStoreState;

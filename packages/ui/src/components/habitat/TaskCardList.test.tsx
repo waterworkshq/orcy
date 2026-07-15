@@ -15,10 +15,6 @@ const { mockAgents } = vi.hoisted(() => ({
   ],
 }));
 
-vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: (sel: (s: any) => any) => sel({ agents: mockAgents }),
-}));
-
 vi.mock("../../lib/useHabitatData.js", () => ({
   useAgents: () => ({ data: mockAgents as any[], isLoading: false, isError: false }),
 }));

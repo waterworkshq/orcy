@@ -1,10 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { SSEEvent, Notification } from "../types/index.js";
-import type { AgentSlice } from "../store/slices/agentSlice.js";
 import type { HabitatSlice } from "../store/slices/habitatSlice.js";
-import type { MissionSlice } from "../store/slices/missionSlice.js";
 import type { PresenceSlice } from "../store/slices/presenceSlice.js";
-import type { TaskSlice } from "../store/slices/taskSlice.js";
 import type { ThemeSlice } from "../store/slices/themeSlice.js";
 import type { UiSlice } from "../store/slices/uiSlice.js";
 
@@ -13,9 +10,6 @@ export type SSEEventOf<T extends SSEEventType> = Extract<SSEEvent, { type: T }>;
 
 export type SSEStoreState = ThemeSlice &
   HabitatSlice &
-  MissionSlice &
-  TaskSlice &
-  AgentSlice &
   PresenceSlice &
   UiSlice & {
     recentSSEEvents: SSEEvent[];

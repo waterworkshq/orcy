@@ -72,7 +72,6 @@ vi.mock("./store/habitatStore.js", () => ({
   useHabitatStore: (selector?: any) => {
     const state = {
       setTheme: mockSetTheme,
-      agents: [],
       notifications: [],
       markNotificationRead: vi.fn(),
       clearNotifications: vi.fn(),

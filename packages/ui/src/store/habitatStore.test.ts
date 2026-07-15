@@ -1,87 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useHabitatStore } from "./habitatStore.js";
-import type { Mission, Notification } from "../types/index.js";
-
-const makeTask = (id: string, missionId: string) => ({
-  id,
-  missionId,
-  title: `Task ${id}`,
-  description: "",
-  priority: "medium" as const,
-  assignedAgentId: null,
-  delegatedToAgentId: null,
-  requiredDomain: null,
-  requiredCapabilities: [],
-  status: "pending" as const,
-  claimedAt: null,
-  startedAt: null,
-  submittedAt: null,
-  completedAt: null,
-  rejectedCount: 0,
-  rejectionReason: null,
-  result: null,
-  artifacts: [],
-  order: 0,
-  createdBy: "user-1",
-  createdAt: "2026-04-10T00:00:00.000Z",
-  updatedAt: "2026-04-10T00:00:00.000Z",
-  version: 1,
-  estimatedMinutes: null,
-  actualMinutes: null,
-  cycleTimeMinutes: null,
-  leadTimeMinutes: null,
-  estimationAccuracy: null,
-  retryPolicy: null,
-  retryCount: 0,
-  nextRetryAt: null,
-  labels: [],
-});
-
-const makeFeature = (id: string, columnId: string): Mission => ({
-  id,
-  habitatId: "habitat-1",
-  columnId,
-  title: `Feature ${id}`,
-  description: "",
-  acceptanceCriteria: "",
-  priority: "medium",
-  labels: [],
-  status: "not_started",
-  displayOrder: 0,
-  dependsOn: [],
-  blocks: [],
-  dueAt: null,
-  slaMinutes: null,
-  slaDeadlineAt: null,
-  createdBy: "user-1",
-  createdAt: "2026-04-10T00:00:00.000Z",
-  updatedAt: "2026-04-10T00:00:00.000Z",
-  version: 1,
-  isArchived: false,
-  sprintId: null,
-  releaseGateType: null,
-  releaseGateVersion: null,
-  releaseDeadlineType: null,
-  releaseDeadlineVersion: null,
-  actualMinutes: null,
-  plannedMinutes: null,
-  planningAccuracy: null,
-  completedAt: null,
-});
-
-const paginationFor = (features: Mission[] = []) => ({
-  features: features as any,
-  total: features.length,
-  offset: 0,
-  isLoadingMore: false,
-});
+import type { Notification } from "../types/index.js";
 
 describe("habitat store mission selection", () => {
   beforeEach(() => {
     useHabitatStore.setState({
       isBulkSelectMode: false,
       selectedMissionIds: [],
-      tasks: [makeTask("task-1", "feat-1"), makeTask("task-2", "feat-1")],
     });
   });
 
@@ -110,150 +35,50 @@ describe("habitat store mission selection", () => {
     expect(useHabitatStore.getState().isBulkSelectMode).toBe(false);
   });
 
-  it("removeTask removes task from list", () => {
-    const { removeTask } = useHabitatStore.getState();
-
-    removeTask("task-1");
-    expect(useHabitatStore.getState().tasks).toHaveLength(1);
-    expect(useHabitatStore.getState().tasks[0].id).toBe("task-2");
-  });
-
-  it("handleSSEEvent task.deleted does not mutate zustand tasks (RQ-managed)", () => {
+  it("handleSSEEvent task.deleted does not mutate zustand server state (RQ-managed)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
 
     handleSSEEvent({ type: "task.deleted", data: { taskId: "task-1" } });
 
     const state = useHabitatStore.getState();
-    expect(state.tasks.find((t) => t.id === "task-1")).toBeDefined();
+    expect(state.recentSSEEvents.at(-1)).toEqual({ type: "task.deleted", data: { taskId: "task-1" } });
   });
 });
 
-describe("habitat store SSE mission events (server projection only)", () => {
+describe("habitat store server state stays empty after SSE events", () => {
   beforeEach(() => {
-    useHabitatStore.setState({ features: [], tasks: [] });
+    useHabitatStore.setState({
+      wipAlerts: {},
+      presence: [],
+    });
   });
 
   it("mission.created does not mutate zustand server state (server projector owns it)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
-    handleSSEEvent({ type: "mission.created", data: makeFeature("feat-new", "col-1") });
+    handleSSEEvent({
+      type: "mission.created",
+      data: {
+        id: "feat-new",
+        habitatId: "h1",
+        columnId: "col-1",
+        title: "New",
+      },
+    } as never);
 
     const state = useHabitatStore.getState();
-    expect(state.features).toEqual([]);
+    expect(state.wipAlerts).toEqual({});
   });
 
-  it("mission.created is idempotent at the store layer (no zustand duplication)", () => {
+  it("mission events are idempotent at the store layer (no server-state duplication)", () => {
     const { handleSSEEvent } = useHabitatStore.getState();
-    handleSSEEvent({ type: "mission.created", data: makeFeature("feat-d", "col-1") });
-    handleSSEEvent({ type: "mission.created", data: makeFeature("feat-d", "col-1") });
+    const event = {
+      type: "mission.created",
+      data: { id: "feat-d", habitatId: "h1", columnId: "col-1" },
+    } as never;
+    handleSSEEvent(event);
+    handleSSEEvent(event);
 
-    expect(useHabitatStore.getState().features).toEqual([]);
-  });
-});
-
-describe("habitat store SSE leaves zustand pagination untouched (server projector owns mutation)", () => {
-  beforeEach(() => {
-    useHabitatStore.setState({
-      features: [makeFeature("feat-1", "col-1") as any],
-      tasks: [],
-      columnPagination: {
-        "col-1": paginationFor([makeFeature("feat-1", "col-1")]),
-        "col-2": paginationFor(),
-        "col-3": paginationFor([makeFeature("feat-3", "col-3")]),
-      },
-    });
-  });
-
-  it("mission.updated no longer clears columnPagination", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({
-      type: "mission.updated",
-      data: { ...makeFeature("feat-1", "col-1"), title: "Updated" },
-    });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-2"]).toEqual(paginationFor());
-    expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
-  });
-
-  it("mission.moved no longer clears columnPagination", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({
-      type: "mission.moved",
-      data: { missionId: "feat-1", fromColumnId: "col-1", toColumnId: "col-2" },
-    });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-2"]).toEqual(paginationFor());
-    expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
-  });
-
-  it("mission.status_changed no longer clears columnPagination", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({
-      type: "mission.status_changed",
-      data: { missionId: "feat-1", fromStatus: "not_started", toStatus: "in_progress" },
-    });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
-  });
-
-  it("mission.deleted no longer clears columnPagination", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({ type: "mission.deleted", data: { missionId: "feat-1" } });
-
-    const pag = useHabitatStore.getState().columnPagination;
-    expect(pag["col-1"]).toEqual(paginationFor([makeFeature("feat-1", "col-1")]));
-    expect(pag["col-3"]).toEqual(paginationFor([makeFeature("feat-3", "col-3")]));
-  });
-
-  it("mission.progress no longer mutates zustand features", () => {
-    const { handleSSEEvent } = useHabitatStore.getState();
-    handleSSEEvent({
-      type: "mission.progress",
-      data: { missionId: "feat-1", completed: 3, total: 5 },
-    });
-
-    expect(useHabitatStore.getState().features).toEqual([makeFeature("feat-1", "col-1")]);
-  });
-});
-
-describe("habitat store SSE mission events leave server state consistent", () => {
-  it("remains consistent after a sequence of SSE events (no zustand server mutation)", () => {
-    const f1 = makeFeature("feat-1", "col-1");
-    const f2 = makeFeature("feat-2", "col-2");
-    useHabitatStore.setState({
-      features: [f1, f2] as any,
-      tasks: [],
-      columnPagination: {
-        "col-1": paginationFor([f1]),
-        "col-2": paginationFor([f2]),
-      },
-    });
-
-    const { handleSSEEvent } = useHabitatStore.getState();
-
-    handleSSEEvent({ type: "mission.updated", data: { ...f1, title: "Updated" } });
-    handleSSEEvent({
-      type: "mission.moved",
-      data: { missionId: "feat-2", fromColumnId: "col-2", toColumnId: "col-1" },
-    });
-    handleSSEEvent({
-      type: "mission.status_changed",
-      data: { missionId: "feat-1", fromStatus: "not_started", toStatus: "in_progress" },
-    });
-
-    const state = useHabitatStore.getState();
-    expect(state.features).toEqual([f1, f2]);
-    expect(state.columnPagination["col-1"]).toEqual(paginationFor([f1]));
-    expect(state.columnPagination["col-2"]).toEqual(paginationFor([f2]));
+    expect(useHabitatStore.getState().wipAlerts).toEqual({});
   });
 });
 
@@ -418,23 +243,5 @@ describe("habitat store notifications", () => {
 
     clearNotifications();
     expect(useHabitatStore.getState().notifications).toEqual([]);
-  });
-
-  it("notifications persist across other state updates", () => {
-    const { addNotification, setTasks } = useHabitatStore.getState();
-
-    addNotification({
-      type: "a",
-      taskId: "t1",
-      taskTitle: "T",
-      message: "m",
-      timestamp: "2026-04-30T00:00:00.000Z",
-    });
-
-    setTasks([makeTask("task-new", "feat-1")]);
-
-    const state = useHabitatStore.getState();
-    expect(state.notifications).toHaveLength(1);
-    expect(state.tasks).toHaveLength(1);
   });
 });

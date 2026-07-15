@@ -2,33 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useTaskDetailPanel } from "./useTaskDetailPanel.js";
 
-vi.mock("../store/habitatStore.js", () => ({
-  useHabitatStore: vi.fn((selector?: any) => {
-    const state = {
-      tasks: [
-        {
-          id: "task-1",
-          missionId: "feat-1",
-          title: "Test Task",
-          status: "pending",
-          priority: "medium",
-          labels: [],
-        },
-      ],
-      agents: [],
-      setSelectedTask: vi.fn(),
-      updateTask: vi.fn(),
-      removeTask: vi.fn(),
-      columns: [
-        { id: "col-1", name: "To Do", nextColumnId: "col-2", autoAdvance: false },
-        { id: "col-2", name: "In Progress", nextColumnId: null, autoAdvance: true },
-      ],
-      features: [{ id: "feat-1", columnId: "col-1" }],
-    };
-    return selector ? selector(state) : state;
-  }),
-}));
-
 vi.mock("../store/modalStore.js", () => ({
   useModalStore: vi.fn((selector?: any) => {
     const state = { selectedTaskId: "task-1" };

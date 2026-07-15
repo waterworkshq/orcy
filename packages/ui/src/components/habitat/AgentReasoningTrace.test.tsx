@@ -41,9 +41,8 @@ function makeTask(overrides: Partial<Task> & { id: string; missionId: string }):
   };
 }
 
-const { mockCommentsList, mockBoardStore, mockUseAgents } = vi.hoisted(() => ({
+const { mockCommentsList, mockUseAgents } = vi.hoisted(() => ({
   mockCommentsList: vi.fn(),
-  mockBoardStore: vi.fn(),
   mockUseAgents: vi.fn(() => ({ data: [] as any[], isLoading: false, isError: false })),
 }));
 
@@ -53,10 +52,6 @@ vi.mock("../../api/index.js", () => ({
       list: (...args: any[]) => mockCommentsList(...args),
     },
   },
-}));
-
-vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: (selector: any) => selector(mockBoardStore()),
 }));
 
 vi.mock("../../lib/useHabitatData.js", () => ({
@@ -81,14 +76,12 @@ describe("AgentReasoningTrace", () => {
 
   it("renders agent reasoning trace header", async () => {
     mockCommentsList.mockResolvedValue({ comments: [], total: 0 });
-    mockBoardStore.mockReturnValue({ agents: [] });
     renderWithQuery(<AgentReasoningTrace tasks={[]} />);
     expect(screen.getByText("Agent Reasoning Trace")).toBeTruthy();
   });
 
   it("shows no agent reasoning message when no comments exist", async () => {
     mockCommentsList.mockResolvedValue({ comments: [], total: 0 });
-    mockBoardStore.mockReturnValue({ agents: [] });
     renderWithQuery(<AgentReasoningTrace tasks={[]} />);
     await waitFor(() => {
       expect(screen.getByText("No agent reasoning yet")).toBeTruthy();
@@ -128,7 +121,6 @@ describe("AgentReasoningTrace", () => {
 
   it("shows loading state", async () => {
     mockCommentsList.mockReturnValue(new Promise(() => {}));
-    mockBoardStore.mockReturnValue({ agents: [] });
     const { container } = renderWithQuery(
       <AgentReasoningTrace tasks={[makeTask({ id: "task-1", missionId: "feat-1" })]} />,
     );

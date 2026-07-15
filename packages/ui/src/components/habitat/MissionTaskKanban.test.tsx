@@ -10,10 +10,6 @@ vi.mock("../../store/modalStore.js", () => ({
   useModalStore: (selector: any) => selector({ openModal: mockOpenModal }),
 }));
 
-vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: (selector: any) => selector({ agents: [] }),
-}));
-
 vi.mock("../../lib/useHabitatData.js", () => ({
   useAgents: () => ({ data: [] as any[], isLoading: false, isError: false }),
 }));

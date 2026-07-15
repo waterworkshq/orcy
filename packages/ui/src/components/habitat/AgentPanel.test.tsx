@@ -9,19 +9,11 @@ const mockAgentsListWithTasks = vi.fn();
 const mockAgentStats = vi.fn();
 const mockAgentQuality = vi.fn();
 const mockApiDelete = vi.fn();
-const mockRemoveAgent = vi.fn();
 const mockInvalidateQueries = vi.fn();
 
 const mockStoreState = {
   board: { id: "board-1", name: "Test Board" },
-  removeAgent: mockRemoveAgent,
 };
-
-vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: (selector?: any) => {
-    return selector ? selector(mockStoreState) : mockStoreState;
-  },
-}));
 
 vi.mock("../../lib/useHabitatData.js", () => ({
   useAgentsListWithTasks: (...args: unknown[]) => mockAgentsListWithTasks(...args),

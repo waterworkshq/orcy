@@ -49,32 +49,12 @@ vi.mock("react-router-dom", () => ({
 }));
 
 const mockBoardStoreState: Record<string, any> = {
-  board: { id: "board-1", name: "Test Board" },
-  columns: [],
-  agents: [],
-  features: [],
-  tasks: [],
   isLoading: false,
   error: null,
   wipAlerts: {},
-  comments: {},
-  habitatEvents: [],
-  columnPagination: {},
-  allFeaturesLoaded: false,
   presence: [],
   isBulkSelectMode: false,
   selectedMissionIds: [],
-  setBoard: vi.fn(),
-  setAgents: vi.fn(),
-  setLoading: vi.fn(),
-  setError: vi.fn(),
-  updateColumn: vi.fn(),
-  updateBoard: vi.fn(),
-  addColumn: vi.fn(),
-  removeColumn: vi.fn(),
-  setColumnPagination: vi.fn(),
-  setColumnLoadingMore: vi.fn(),
-  clearColumnPagination: vi.fn(),
   setBulkSelectMode: vi.fn(),
 };
 

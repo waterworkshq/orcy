@@ -7,21 +7,14 @@ import {
   SSE_EVENT_TYPES,
 } from "./registry.js";
 import type { SSEStoreState, ServerProjectionContext } from "./types.js";
-import type { SSEEvent, Task } from "../types/index.js";
+import type { SSEEvent } from "../types/index.js";
 
 function makeState(overrides: Partial<SSEStoreState> = {}): SSEStoreState {
   return {
-    tasks: [],
-    agents: [],
-    features: [],
-    columns: [],
-    comments: {},
     presence: [],
     wipAlerts: {},
-    columnPagination: {},
     selectedMissionIds: [],
     selectedMissionId: null,
-    board: null,
     recentSSEEvents: [],
     ...overrides,
   } as SSEStoreState;
@@ -47,13 +40,8 @@ describe("SSE event registry", () => {
     expect(Object.keys(SSE_EVENT_REGISTRY).toSorted()).toEqual([...SSE_EVENT_TYPES].toSorted());
   });
 
-  it("no longer mutates task store for claimed event (server projection only)", () => {
-    const task = {
-      id: "t1",
-      status: "pending",
-      assignedAgentId: null,
-    } as Task;
-    const state = makeState({ tasks: [task] });
+  it("no longer mutates zustand store for claimed event (server projection only)", () => {
+    const state = makeState();
     const set = vi.fn((partial: Partial<SSEStoreState>) => Object.assign(state, partial));
 
     applySSEEphemeralUpdate(

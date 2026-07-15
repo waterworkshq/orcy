@@ -13,12 +13,6 @@ const mockStoreState = {
   board: { id: "board-1" },
 };
 
-vi.mock("../../store/habitatStore.js", () => ({
-  useHabitatStore: (selector?: any) => {
-    return selector ? selector(mockStoreState) : mockStoreState;
-  },
-}));
-
 vi.mock("../../hooks/useMediaQuery.js", () => ({
   useIsMobile: () => false,
 }));
