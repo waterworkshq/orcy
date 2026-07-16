@@ -3,7 +3,7 @@ import type { Task, TaskTimeReport, HabitatTimeMetrics } from "../../types/index
 
 export const timeTrackingApi = {
   getTaskReport: (taskId: string) => request<TaskTimeReport>(`/tasks/${taskId}/time-report`),
-  getBoardMetrics: (boardId: string) => request<HabitatTimeMetrics>(`/habitats/${boardId}/metrics`),
+  getBoardMetrics: (habitatId: string) => request<HabitatTimeMetrics>(`/habitats/${habitatId}/metrics`),
   updateEstimate: (taskId: string, estimatedMinutes: number) =>
     request<{ task: Task }>(`/tasks/${taskId}/estimate`, {
       method: "PUT",

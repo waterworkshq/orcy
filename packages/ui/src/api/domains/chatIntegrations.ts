@@ -2,9 +2,9 @@ import { request } from "../transport.js";
 import type { ChatIntegration } from "../../types/index.js";
 
 export const chatIntegrationsApi = {
-  list: (boardId: string) => request<ChatIntegration[]>(`/habitats/${boardId}/chat-integrations`),
+  list: (habitatId: string) => request<ChatIntegration[]>(`/habitats/${habitatId}/chat-integrations`),
   create: (
-    boardId: string,
+    habitatId: string,
     data: {
       provider: "slack" | "discord";
       webhookUrl: string;
@@ -13,7 +13,7 @@ export const chatIntegrationsApi = {
       events?: string[];
     },
   ) =>
-    request<ChatIntegration>(`/habitats/${boardId}/chat-integrations`, {
+    request<ChatIntegration>(`/habitats/${habitatId}/chat-integrations`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

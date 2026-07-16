@@ -25,6 +25,6 @@ export const presenceApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  getViewers: (boardId: string) =>
-    request<{ viewers: PresenceEntry[] }>(`/sse/presence/viewers/${boardId}`),
+  getViewers: (habitatId: string) =>
+    request<{ viewers: PresenceEntry[] }>(`/sse/presence/viewers/${habitatId}`),
 };

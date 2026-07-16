@@ -2,11 +2,11 @@ import { request } from "../transport.js";
 import type { ScheduledTask, TaskTemplateEntry } from "../../types/index.js";
 
 export const scheduledTasksApi = {
-  list: (boardId: string) =>
-    request<{ scheduledTasks: ScheduledTask[] }>(`/habitats/${boardId}/scheduled-tasks`),
+  list: (habitatId: string) =>
+    request<{ scheduledTasks: ScheduledTask[] }>(`/habitats/${habitatId}/scheduled-tasks`),
   get: (id: string) => request<{ scheduledTask: ScheduledTask }>(`/scheduled-tasks/${id}`),
   create: (
-    boardId: string,
+    habitatId: string,
     data: {
       name: string;
       description?: string;
@@ -24,7 +24,7 @@ export const scheduledTasksApi = {
       tasksTemplate?: TaskTemplateEntry[];
     },
   ) =>
-    request<{ scheduledTask: ScheduledTask }>(`/habitats/${boardId}/scheduled-tasks`, {
+    request<{ scheduledTask: ScheduledTask }>(`/habitats/${habitatId}/scheduled-tasks`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

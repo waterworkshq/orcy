@@ -104,8 +104,8 @@ export const tasksApi = {
   unwatch: (taskId: string) => request<void>(`/tasks/${taskId}/watch`, { method: "DELETE" }),
   watchers: (taskId: string) =>
     request<{ watchers: TaskWatcher[]; isWatching: boolean }>(`/tasks/${taskId}/watchers`),
-  batch: (boardId: string, data: BatchTaskRequest) =>
-    request<BatchTaskResponse>(`/habitats/${boardId}/tasks/batch`, {
+  batch: (habitatId: string, data: BatchTaskRequest) =>
+    request<BatchTaskResponse>(`/habitats/${habitatId}/tasks/batch`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

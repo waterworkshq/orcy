@@ -2,20 +2,20 @@ import { request } from "../transport.js";
 import type { ProjectInsight } from "../../types/index.js";
 
 export const insightsApi = {
-  list: (boardId: string, params?: Record<string, string | number>) => {
+  list: (habitatId: string, params?: Record<string, string | number>) => {
     const qs = params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "";
     return request<{ items: ProjectInsight[]; total: number }>(
-      `/habitats/${boardId}/insights${qs}`,
+      `/habitats/${habitatId}/insights${qs}`,
     );
   },
   promote: (
-    boardId: string,
+    habitatId: string,
     body: { sourcePulseId: string; relevanceTags?: string[]; subject?: string; body?: string },
   ) =>
-    request<{ insight: ProjectInsight }>(`/habitats/${boardId}/insights`, {
+    request<{ insight: ProjectInsight }>(`/habitats/${habitatId}/insights`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  deactivate: (boardId: string, id: string) =>
-    request<{ success: boolean }>(`/habitats/${boardId}/insights/${id}`, { method: "DELETE" }),
+  deactivate: (habitatId: string, id: string) =>
+    request<{ success: boolean }>(`/habitats/${habitatId}/insights/${id}`, { method: "DELETE" }),
 };

@@ -2,10 +2,10 @@ import { request } from "../transport.js";
 import type { MissionTemplate, TaskPriority, TaskTemplateEntry } from "../../types/index.js";
 
 export const templatesApi = {
-  list: (boardId: string) =>
-    request<{ templates: MissionTemplate[] }>(`/habitats/${boardId}/templates`),
+  list: (habitatId: string) =>
+    request<{ templates: MissionTemplate[] }>(`/habitats/${habitatId}/templates`),
   create: (
-    boardId: string,
+    habitatId: string,
     data: {
       name: string;
       titlePattern: string;
@@ -18,7 +18,7 @@ export const templatesApi = {
       workflowTemplate?: unknown;
     },
   ) =>
-    request<{ template: MissionTemplate }>(`/habitats/${boardId}/templates`, {
+    request<{ template: MissionTemplate }>(`/habitats/${habitatId}/templates`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

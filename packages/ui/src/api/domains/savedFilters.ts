@@ -2,12 +2,12 @@ import { request } from "../transport.js";
 import type { SavedFilter } from "../../types/index.js";
 
 export const savedFiltersApi = {
-  list: (boardId: string) =>
-    request<{ savedFilters: SavedFilter[] }>(`/habitats/${boardId}/saved-filters`).then(
+  list: (habitatId: string) =>
+    request<{ savedFilters: SavedFilter[] }>(`/habitats/${habitatId}/saved-filters`).then(
       (r) => r.savedFilters,
     ),
-  create: (boardId: string, data: { name: string; filterConfig: Record<string, unknown> }) =>
-    request<{ savedFilter: SavedFilter }>(`/habitats/${boardId}/saved-filters`, {
+  create: (habitatId: string, data: { name: string; filterConfig: Record<string, unknown> }) =>
+    request<{ savedFilter: SavedFilter }>(`/habitats/${habitatId}/saved-filters`, {
       method: "POST",
       body: JSON.stringify(data),
     }).then((r) => r.savedFilter),

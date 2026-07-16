@@ -1,11 +1,11 @@
 import { request } from "../transport.js";
 
 export const auditApi = {
-  export: (boardId: string, params: Record<string, string>) => {
+  export: (habitatId: string, params: Record<string, string>) => {
     const qs = new URLSearchParams(params).toString();
-    return request<string>(`/habitats/${boardId}/audit/export?${qs}`);
+    return request<string>(`/habitats/${habitatId}/audit/export?${qs}`);
   },
-  summary: (boardId: string, params?: { since?: string; until?: string }) => {
+  summary: (habitatId: string, params?: { since?: string; until?: string }) => {
     const qs = params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "";
     return request<{
       totalEvents: number;
@@ -13,10 +13,10 @@ export const auditApi = {
       byActorType: Record<string, number>;
       byDay: { date: string; count: number }[];
       topFeatures: { featureId: string; featureTitle: string; count: number }[];
-    }>(`/habitats/${boardId}/audit/summary${qs}`);
+    }>(`/habitats/${habitatId}/audit/summary${qs}`);
   },
   schedules: {
-    list: (boardId: string) =>
+    list: (habitatId: string) =>
       request<{
         schedules: Array<{
           id: string;
@@ -27,12 +27,12 @@ export const auditApi = {
           lastRunAt: string | null;
           nextRunAt: string;
         }>;
-      }>(`/habitats/${boardId}/audit/schedules`),
+      }>(`/habitats/${habitatId}/audit/schedules`),
     create: (
-      boardId: string,
+      habitatId: string,
       data: { name: string; format: string; filters?: Record<string, unknown>; schedule: string },
     ) =>
-      request<{ schedule: unknown }>(`/habitats/${boardId}/audit/schedule`, {
+      request<{ schedule: unknown }>(`/habitats/${habitatId}/audit/schedule`, {
         method: "POST",
         body: JSON.stringify(data),
       }),
