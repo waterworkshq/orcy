@@ -65,6 +65,7 @@ import { sharedApiRoutes } from "./routes/sharedApi.js";
 import { remoteWebhookRoutes } from "./routes/remoteWebhooks.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import { triageRoutes } from "./routes/triage.js";
+import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -224,6 +225,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(sharedInviteRoutes);
   await f.register(pluginRoutes);
   await f.register(triageRoutes);
+  await f.register(taskCreationAttemptRoutes);
 }
 
 await fastify.register(

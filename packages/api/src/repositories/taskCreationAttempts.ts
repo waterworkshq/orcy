@@ -1,16 +1,19 @@
 /**
  * Task Creation Attempt Protocol — reservation, dedup, replay (T3A Phase 1),
- * and worker leases / safe takeover (T3A Phase 3).
+ * worker leases / safe takeover (T3A Phase 3), and compact-vs-detailed
+ * retention (T3A Phase 4).
  *
  * DORMANT additive production code: no production origin routes through this
  * module yet. It is tested in isolation against the T1 storage layer
  * (`db/schema/taskPublication.ts` → `task_creation_attempts`). Phase 2 added
  * the compare-and-set transition matrix (forward-only, terminal-locked) in
- * `taskPublication.ts`. Phase 3 (this module) adds the worker-lease primitives
- * — acquire / renew / release with safe expired-lease takeover — operating on
- * the existing `leaseOwner`/`leaseExpiresAt` columns (no migration). Phase 4
- * will add retention and the authorized `GET /task-creation-attempts/:id` route
- * that consumes {@link getAttemptStatus}.
+ * `taskPublication.ts`. Phase 3 adds the worker-lease primitives — acquire /
+ * renew / release with safe expired-lease takeover — operating on the
+ * existing `leaseOwner`/`leaseExpiresAt` columns (no migration). Phase 4
+ * (this module) adds the compact primitive — {@link compactAttemptDetails} /
+ * {@link compactAttemptDetailsWithClient} — and the authorized
+ * `GET /task-creation-attempts/:id` route (in `routes/taskCreationAttempts.ts`)
+ * consumes {@link getAttemptStatus}.
  *
  * Reservation contract (load-bearing):
  *   - Fresh `(source, source-scope, attempt-key)` → INSERT at `state="pending"`,
@@ -549,6 +552,103 @@ export function releaseAttemptLease(
   workerId: string,
 ): AttemptLeaseReleaseResult {
   return getDb().transaction((tx) => releaseAttemptLeaseWithClient(tx, attemptId, workerId));
+}
+
+// ---------------------------------------------------------------------------
+// Retention (T3A Phase 4) — compact-vs-detailed
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcome of {@link compactAttemptDetailsWithClient}. Closed discriminated
+ * union — never throws for an expected compaction decision; only infrastructure
+ * failures (retryable transport) throw.
+ *
+ * - `compacted` — the attempt row exists; the **detailed** JSON columns
+ *                 (`details`, `terminalResult`, `causalContext`) were set to
+ *                 NULL (or were already NULL — idempotent). The **compact**
+ *                 dedup/recovery identity is preserved verbatim: reservation
+ *                 key (`source`/`sourceScopeKind`/`sourceScopeId`/`attemptKey`),
+ *                 `requestFingerprint`, `state`, `terminalOutcome`, committed
+ *                 IDs, `envelopeEventId`/`reservationId`,
+ *                 `leaseOwner`/`leaseExpiresAt`, and timestamps. The
+ *                 post-compaction row is returned so the caller can verify
+ *                 dedup evidence.
+ * - `not_found` — no attempt row exists for `attemptId` (typed not-found, no
+ *                 throw).
+ *
+ * The compact primitive is the T3A guardrail "habitat deletion/replacement
+ * cannot erase attempt identity" partner for retention: it lets the operator
+ * prune bounded detailed fragments while KEEPING the dedup evidence
+ * (fingerprint + state + outcome) that lets a same-key `reserveAttempt`
+ * continue to REPLAY correctly.
+ */
+export type AttemptCompactResult =
+  | { outcome: "compacted"; attempt: TaskCreationAttemptRow }
+  | { outcome: "not_found" };
+
+/**
+ * Nulls the **detailed** JSON columns of a `task_creation_attempts` row while
+ * KEEPING the compact dedup/recovery identity intact.
+ *
+ * Columns NULL'd (the bounded detailed fragments eligible for earlier pruning):
+ *   - `details`        (proposal / validation detail JSON)
+ *   - `terminalResult` (full terminal envelope JSON)
+ *   - `causalContext`  (origin-chain hop history)
+ *
+ * Columns KEPT (the compact dedup/recovery identity — required for guardrails):
+ *   - reservation key: `source`, `sourceScopeKind`, `sourceScopeId`, `attemptKey`
+ *   - canonical request: `requestFingerprint` (drives REPLAY vs REJECT)
+ *   - state machine: `state`, `terminalOutcome`
+ *   - committed identifiers: `committedTaskId`, `committedMissionId`,
+ *     `prospectiveTaskId`, `envelopeEventId`, `reservationId`
+ *   - recovery metadata: `leaseOwner`, `leaseExpiresAt` (an expired lease is
+ *     the takeover signal — must survive compaction)
+ *   - timestamps: `reservedAt`, `publishedAt`, `completedAt`
+ *
+ * Idempotent: re-compacting a row that already has all three detailed columns
+ * NULL is a no-op (the SET writes NULL over NULL, the conditional UPDATE
+ * matches every row, and the re-read returns the same compact row). Never
+ * calls `getDb()`, never opens a nested tx, never emits external effects.
+ * Throws only on infrastructure failure.
+ */
+export function compactAttemptDetailsWithClient(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+): AttemptCompactResult {
+  // Single UPDATE: the row is matched by id alone — there is no read-then-
+  // decide race window for retention (compaction is idempotent; a concurrent
+  // second compact is safe and produces the same final state).
+  try {
+    db.update(taskCreationAttempts)
+      .set({ details: null, terminalResult: null, causalContext: null })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
+  }
+
+  // Re-read (sql.js-safe) to classify the outcome: a missing id surfaces as
+  // not_found rather than a silent success, and a successful compact surfaces
+  // with the post-compaction row so the caller can verify dedup evidence
+  // (state/fingerprint/outcome intact, detailed columns nulled).
+  const row = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+  return { outcome: "compacted", attempt: row };
+}
+
+/**
+ * Convenience wrapper for {@link compactAttemptDetailsWithClient} that owns its
+ * own short transaction. Use when the compact is the only write; compose the
+ * `*WithClient` variant inside a caller-owned `db.transaction` when retention
+ * must be atomic with other writes (e.g. the later retention automation that
+ * combines compact with audit-log emission).
+ */
+export function compactAttemptDetails(attemptId: string): AttemptCompactResult {
+  return getDb().transaction((tx) => compactAttemptDetailsWithClient(tx, attemptId));
 }
 
 // ---------------------------------------------------------------------------
