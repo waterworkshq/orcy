@@ -93,7 +93,7 @@ export const createTaskInMissionSchema = z.object({
   order: z.number().int().default(0),
 });
 
-export const importHabitatSchema = z.object({
+const importHabitatSchemaBody = z.object({
   version: z.number(),
   exportedAt: z.string().datetime(),
   habitat: z.object({
@@ -189,6 +189,27 @@ export const importHabitatSchema = z.object({
       .default([]),
   }),
 });
+
+// Legacy v1 exports used `board` at the top level and `features` for the
+// mission collection. Normalize before strict parsing so a direct v1 HTTP
+// import isn't silently stripped (the UI dialog already does this; this closes
+// the HTTP-boundary gap so non-UI callers importing old exports also work).
+export const importHabitatSchema = z.preprocess((data) => {
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const d = data as Record<string, unknown>;
+    if (!d.habitat && d.board && typeof d.board === "object") {
+      d.habitat = d.board;
+    }
+    const habitat = d.habitat;
+    if (habitat && typeof habitat === "object" && !Array.isArray(habitat)) {
+      const h = habitat as Record<string, unknown>;
+      if (!h.missions && Array.isArray(h.features)) {
+        h.missions = h.features;
+      }
+    }
+  }
+  return data;
+}, importHabitatSchemaBody);
 
 export const createHabitatSchema = z.object({
   name: z.string().min(1).max(100),
