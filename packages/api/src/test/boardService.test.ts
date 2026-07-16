@@ -595,7 +595,7 @@ describe("boardService", () => {
         habitat: { ...validV2Data.habitat, missions: [], tasks: [] },
       };
       expect(() => importHabitat(emptyData as any, "existing-h1")).toThrow(
-        /no missions or tasks.*refusing/,
+        /no importable missions or tasks.*refusing/,
       );
       expect(habitatRepoMocks.deleteHabitat).not.toHaveBeenCalled();
       expect(habitatRepoMocks.createHabitat).not.toHaveBeenCalled();

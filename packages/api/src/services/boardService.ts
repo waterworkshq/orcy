@@ -463,195 +463,231 @@ export function importHabitat(
   }
 
   const { habitat: habitatData } = data;
+  const missionsData = data.habitat.missions ?? [];
+  const tasksData = data.habitat.tasks ?? [];
+
+  // PREFLIGHT (no DB writes): resolve every referenced column against the
+  // column set the payload itself declares. The rebuilt habitat's columns are
+  // created from `habitatData.columns`, so a mission whose `columnName` is not
+  // in that set cannot be reconstructed. Refusing the whole import up front —
+  // rather than deleting the target and silently dropping the unimportable
+  // rows — is what closes the data-loss path: a malformed-but-nonempty payload
+  // never reaches the destructive delete.
+  const importableColumnNames = new Set(habitatData.columns.map((c) => c.name));
+  for (const missionData of missionsData) {
+    if (!importableColumnNames.has(missionData.columnName)) {
+      throw badRequest(
+        `Import payload cannot be rebuilt: mission "${missionData.title}" references unknown column "${missionData.columnName}"`,
+      );
+    }
+  }
 
   if (existingHabitatId) {
     const existing = habitatRepo.getHabitatById(existingHabitatId);
     if (!existing) {
       throw badRequest(`Habitat ${existingHabitatId} not found`);
     }
-    const missionsData = data.habitat.missions ?? [];
-    const tasksData = data.habitat.tasks ?? [];
-    if (missionsData.length === 0 && tasksData.length === 0) {
+    const standaloneTasks = missionsData.length === 0 ? tasksData.length : 0;
+    const hasImportableContent =
+      missionsData.length > 0 || (standaloneTasks > 0 && habitatData.columns.length > 0);
+    if (!hasImportableContent) {
       throw badRequest(
-        "Import payload contains no missions or tasks; refusing to replace existing habitat with empty data",
+        "Import payload contains no importable missions or tasks; refusing to replace existing habitat with empty data",
       );
     }
   }
 
-  if (existingHabitatId) {
-    habitatRepo.deleteHabitat(existingHabitatId);
-  }
-
+  // BUILD-THEN-SWAP. The replacement habitat is constructed in full BEFORE the
+  // existing target is touched. The existing habitat is deleted only after the
+  // rebuild has completed without exception, so a malformed payload caught by
+  // the preflight above — or a repository failure mid-rebuild below — can never
+  // leave the target gone. This closes the data-loss path without relying on
+  // nested transactions (the repo functions below each open their own
+  // transaction, and the sql.js test driver does not support nesting).
   const habitat = habitatRepo.createHabitat({
     name: habitatData.name,
     description: habitatData.description,
   });
   const habitatId = habitat.id;
-  skillRepo.getOrCreateSkill(habitatId);
 
-  const columnNameToId = new Map<string, string>();
-  const columns: Column[] = [];
+  let persistedMissions = 0;
+  let taskCount = 0;
+  let commentCount = 0;
+  let templateCount = 0;
+  let webhookCount = 0;
 
-  for (const colData of habitatData.columns.toSorted((a, b) => a.order - b.order)) {
-    const col = columnRepo.createColumn({
-      habitatId,
-      name: colData.name,
-      order: colData.order,
-      wipLimit: colData.wipLimit,
-      autoAdvance: colData.autoAdvance,
-      requiresClaim: colData.requiresClaim,
-      isTerminal: colData.isTerminal,
-    });
-    columns.push(col);
-    columnNameToId.set(colData.name, col.id);
-  }
+  try {
+    skillRepo.getOrCreateSkill(habitatId);
 
-  for (const colData of habitatData.columns.toSorted((a, b) => a.order - b.order)) {
-    if (colData.nextColumnName) {
-      const nextColId = columnNameToId.get(colData.nextColumnName);
-      if (nextColId) {
-        const col = columns.find((c) => c.name === colData.name);
-        if (col) {
-          columnRepo.updateColumn(col.id, { nextColumnId: nextColId });
+    const columnNameToId = new Map<string, string>();
+
+    for (const colData of [...habitatData.columns].sort((a, b) => a.order - b.order)) {
+      const col = columnRepo.createColumn({
+        habitatId,
+        name: colData.name,
+        order: colData.order,
+        wipLimit: colData.wipLimit,
+        autoAdvance: colData.autoAdvance,
+        requiresClaim: colData.requiresClaim,
+        isTerminal: colData.isTerminal,
+      });
+      columnNameToId.set(colData.name, col.id);
+    }
+
+    for (const colData of [...habitatData.columns].sort((a, b) => a.order - b.order)) {
+      if (colData.nextColumnName) {
+        const colId = columnNameToId.get(colData.name);
+        const nextColId = columnNameToId.get(colData.nextColumnName);
+        if (colId && nextColId) {
+          columnRepo.updateColumn(colId, { nextColumnId: nextColId });
         }
       }
     }
-  }
 
-  const missionsData = data.habitat.missions ?? [];
-  const tasksData = data.habitat.tasks ?? [];
+    const missionTitleToId = new Map<string, string>();
 
-  const missionTitleToId = new Map<string, string>();
-  let taskCount = 0;
+    for (const missionData of missionsData) {
+      const columnId = columnNameToId.get(missionData.columnName);
+      if (!columnId) continue;
 
-  for (const missionData of missionsData) {
-    const columnId = columnNameToId.get(missionData.columnName);
-    if (!columnId) {
-      warnings.push(
-        `Mission "${missionData.title}": column "${missionData.columnName}" not found, skipping`,
+      const mission = missionRepo.createMission({
+        habitatId,
+        columnId,
+        title: missionData.title,
+        description: missionData.description,
+        acceptanceCriteria: missionData.acceptanceCriteria,
+        priority: missionData.priority,
+        labels: missionData.labels,
+        createdBy: "import",
+      });
+
+      missionTitleToId.set(missionData.title, mission.id);
+      persistedMissions++;
+
+      if (missionData.tasks) {
+        for (const taskData of missionData.tasks) {
+          taskRepo.createTask({
+            missionId: mission.id,
+            title: taskData.title,
+            description: taskData.description,
+            priority: taskData.priority,
+            requiredDomain: taskData.requiredDomain,
+            requiredCapabilities: taskData.requiredCapabilities,
+            createdBy: taskData.createdBy ?? "import",
+          });
+          taskCount++;
+        }
+      }
+    }
+
+    if (missionsData.length === 0 && tasksData.length > 0) {
+      const firstColumnId = columnNameToId.get(habitatData.columns[0]?.name ?? "");
+      if (firstColumnId) {
+        for (const taskData of tasksData) {
+          const mission = missionRepo.createMission({
+            habitatId,
+            columnId: firstColumnId,
+            title: taskData.title,
+            description: taskData.description,
+            priority: taskData.priority,
+            labels: taskData.labels,
+            createdBy: taskData.createdBy ?? "import",
+          });
+          taskRepo.createTask({
+            missionId: mission.id,
+            title: taskData.title,
+            description: taskData.description,
+            priority: taskData.priority,
+            requiredDomain: taskData.requiredDomain,
+            requiredCapabilities: taskData.requiredCapabilities,
+            createdBy: taskData.createdBy ?? "import",
+          });
+          persistedMissions++;
+          taskCount++;
+        }
+      }
+    }
+
+    for (const missionData of missionsData) {
+      const missionId = missionTitleToId.get(missionData.title);
+      if (!missionId) continue;
+
+      const resolvedDependsOn = (missionData.dependsOn || [])
+        .map((depTitle: string) => missionTitleToId.get(depTitle))
+        .filter((id: string | undefined): id is string => id !== undefined);
+
+      if (resolvedDependsOn.length > 0) {
+        missionRepo.updateMission(missionId, { dependsOn: resolvedDependsOn });
+      }
+    }
+
+    const taskTitleToId = new Map<string, string>();
+    const { tasks: allTasks } = taskRepo.getTasksByHabitatId(habitatId);
+    for (const task of allTasks) {
+      taskTitleToId.set(task.title, task.id);
+    }
+
+    const commentsData = data.habitat.comments ?? [];
+    for (const commentData of commentsData) {
+      const taskId = taskTitleToId.get(commentData.taskTitle);
+      if (!taskId) continue;
+
+      commentRepo.createComment({
+        taskId,
+        authorType: commentData.authorType,
+        authorId: commentData.authorId,
+        content: commentData.content,
+        parentId: null,
+      });
+      commentCount++;
+    }
+
+    for (const tmplData of habitatData.templates) {
+      templateRepo.createTemplate({
+        habitatId,
+        name: tmplData.name,
+        titlePattern: tmplData.titlePattern,
+        descriptionPattern: tmplData.descriptionPattern,
+        priority: tmplData.priority as MissionTemplate["priority"],
+        labels: tmplData.labels,
+        requiredDomain: tmplData.requiredDomain,
+        requiredCapabilities: tmplData.requiredCapabilities,
+        isDefault: tmplData.isDefault,
+        createdBy: "import",
+      });
+      templateCount++;
+    }
+
+    for (const webhookData of habitatData.webhooks) {
+      createWebhookSubscription(
+        habitatId,
+        webhookData.name,
+        webhookData.url,
+        webhookData.format as "standard" | "slack" | "discord",
+        webhookData.events,
+        webhookData.headers,
       );
-      continue;
+      webhookCount++;
     }
-
-    const mission = missionRepo.createMission({
-      habitatId,
-      columnId,
-      title: missionData.title,
-      description: missionData.description,
-      acceptanceCriteria: missionData.acceptanceCriteria,
-      priority: missionData.priority,
-      labels: missionData.labels,
-      createdBy: "import",
-    });
-
-    missionTitleToId.set(missionData.title, mission.id);
-
-    if (missionData.tasks) {
-      for (const taskData of missionData.tasks) {
-        taskRepo.createTask({
-          missionId: mission.id,
-          title: taskData.title,
-          description: taskData.description,
-          priority: taskData.priority,
-          requiredDomain: taskData.requiredDomain,
-          requiredCapabilities: taskData.requiredCapabilities,
-          createdBy: taskData.createdBy ?? "import",
-        });
-        taskCount++;
-      }
+  } catch (err) {
+    // The rebuild failed. The existing target was never touched — it is deleted
+    // only after a fully successful rebuild (below). Best-effort cleanup of the
+    // partially-built replacement so a failed import leaves no orphan habitat;
+    // ON DELETE CASCADE drops its columns/missions/tasks. Cleanup failures are
+    // swallowed because the original error is the one that must surface.
+    try {
+      habitatRepo.deleteHabitat(habitatId);
+    } catch {
+      /* best-effort; original error is rethrown below */
     }
+    throw err;
   }
 
-  if (missionsData.length === 0 && tasksData.length > 0) {
-    const firstColumnId = columnNameToId.get(habitatData.columns[0]?.name ?? "");
-    if (firstColumnId) {
-      for (const taskData of tasksData) {
-        const mission = missionRepo.createMission({
-          habitatId,
-          columnId: firstColumnId,
-          title: taskData.title,
-          description: taskData.description,
-          priority: taskData.priority,
-          labels: taskData.labels,
-          createdBy: taskData.createdBy ?? "import",
-        });
-        taskRepo.createTask({
-          missionId: mission.id,
-          title: taskData.title,
-          description: taskData.description,
-          priority: taskData.priority,
-          requiredDomain: taskData.requiredDomain,
-          requiredCapabilities: taskData.requiredCapabilities,
-          createdBy: taskData.createdBy ?? "import",
-        });
-        taskCount++;
-      }
-    }
-  }
-
-  for (const missionData of missionsData) {
-    const missionId = missionTitleToId.get(missionData.title);
-    if (!missionId) continue;
-
-    const resolvedDependsOn = (missionData.dependsOn || [])
-      .map((depTitle: string) => missionTitleToId.get(depTitle))
-      .filter((id: string | undefined): id is string => id !== undefined);
-
-    if (resolvedDependsOn.length > 0) {
-      missionRepo.updateMission(missionId, { dependsOn: resolvedDependsOn });
-    }
-  }
-
-  let commentCount = 0;
-  const taskTitleToId = new Map<string, string>();
-  const { tasks: allTasks } = taskRepo.getTasksByHabitatId(habitatId);
-  for (const task of allTasks) {
-    taskTitleToId.set(task.title, task.id);
-  }
-
-  const commentsData = data.habitat.comments ?? [];
-  for (const commentData of commentsData) {
-    const taskId = taskTitleToId.get(commentData.taskTitle);
-    if (!taskId) continue;
-
-    commentRepo.createComment({
-      taskId,
-      authorType: commentData.authorType,
-      authorId: commentData.authorId,
-      content: commentData.content,
-      parentId: null,
-    });
-    commentCount++;
-  }
-
-  let templateCount = 0;
-  for (const tmplData of habitatData.templates) {
-    templateRepo.createTemplate({
-      habitatId,
-      name: tmplData.name,
-      titlePattern: tmplData.titlePattern,
-      descriptionPattern: tmplData.descriptionPattern,
-      priority: tmplData.priority as MissionTemplate["priority"],
-      labels: tmplData.labels,
-      requiredDomain: tmplData.requiredDomain,
-      requiredCapabilities: tmplData.requiredCapabilities,
-      isDefault: tmplData.isDefault,
-      createdBy: "import",
-    });
-    templateCount++;
-  }
-
-  let webhookCount = 0;
-  for (const webhookData of habitatData.webhooks) {
-    createWebhookSubscription(
-      habitatId,
-      webhookData.name,
-      webhookData.url,
-      webhookData.format as "standard" | "slack" | "discord",
-      webhookData.events,
-      webhookData.headers,
-    );
-    webhookCount++;
+  // SWAP. The replacement is fully built and validated; only now is the old
+  // target retired. No prior step could have removed it, so the target can
+  // never be left gone by a malformed or partially-importable payload.
+  if (existingHabitatId) {
+    habitatRepo.deleteHabitat(existingHabitatId);
   }
 
   sseBroadcaster.publish(habitat.id, {
@@ -663,7 +699,7 @@ export function importHabitat(
     habitat: maskSecretSettings(habitat),
     columns: columnRepo.getColumnsByHabitatId(habitatId),
     imported: {
-      missions: missionsData.length || 0,
+      missions: persistedMissions,
       tasks: taskCount,
       comments: commentCount,
       templates: templateCount,

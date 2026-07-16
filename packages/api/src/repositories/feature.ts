@@ -285,7 +285,7 @@ export function deleteMission(id: string): void {
 export function moveMission(
   missionId: string,
   toColumnId: string,
-  expectedVersion?: number,
+  expectedVersion: number,
 ):
   | { success: true; mission: Mission }
   | { success: false; notFound: true }
@@ -310,15 +310,16 @@ export function moveMission(
     return { success: false, invalidTarget: true };
   }
 
-  const where =
-    expectedVersion !== undefined
-      ? and(eq(missions.id, missionId), eq(missions.version, expectedVersion))
-      : eq(missions.id, missionId);
-
+  // The version is always part of the UPDATE's WHERE clause, so the write is a
+  // single atomic statement: a mission whose version moved between the pre-check
+  // reads above and this update matches zero rows and is classified below. There
+  // is no `WHERE id`-only fallback — callers MUST supply the version they
+  // observed, which makes the optimistic-concurrency contract enforceable at the
+  // repository boundary rather than only at the service/schema boundary.
   try {
     db.update(missions)
       .set({ columnId: toColumnId, updatedAt: now, version: sql`${missions.version} + 1` })
-      .where(where)
+      .where(and(eq(missions.id, missionId), eq(missions.version, expectedVersion)))
       .run();
     const affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
     if (affected === 0) {

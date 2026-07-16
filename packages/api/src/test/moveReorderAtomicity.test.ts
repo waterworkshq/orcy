@@ -87,7 +87,7 @@ describe("M1 — moveMission is server-atomic (version in WHERE, branch on affec
   });
 
   it("returns notFound for a missing mission (no write)", () => {
-    const result = missionRepo.moveMission("nonexistent-id", columnIds[0]);
+    const result = missionRepo.moveMission("nonexistent-id", columnIds[0], 1);
     expect(result.success).toBe(false);
     if (!result.success) expect("notFound" in result).toBe(true);
   });
