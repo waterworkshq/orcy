@@ -332,6 +332,54 @@ export function claimWithAuthority(
 }
 
 // ---------------------------------------------------------------------------
+// Progression gate (T2) — observation + reservation gate WITHOUT mutation.
+// Used by startTask / startTaskByRemoteParticipant to enforce the same new
+// publication gates the claim authority enforces, without re-widening those
+// functions' `Task | null` return shape. Both gates are OPEN for every legacy
+// task (creationIntegrity=0; reservation table empty until T5), so this is a
+// no-op for every production task today. A future non-legacy task missing its
+// observation checkpoint, or a task carrying an active reservation for a
+// different identity, returns `{ ok: false }` — the caller maps that to its
+// existing null result, preserving the `Task | null` contract.
+//
+// This is the gate logic only; task-intrinsic claimability (checkClaimability)
+// and mutation stay owned by the claim authority.
+// ---------------------------------------------------------------------------
+
+export type ProgressionGateResult =
+  | { ok: true }
+  | { ok: false; category: "observation_pending" | "reserved_for_other" };
+
+/**
+ * Checks the observation and reservation publication gates for a task
+ * progression (claimed → in_progress). Pure read on `db`; never mutates and
+ * never throws. A missing row returns `{ ok: true }` (permissive) — the
+ * caller's own missing-task handling takes precedence.
+ */
+export function checkProgressionGates(
+  db: TaskPublicationDbClient,
+  taskId: string,
+  claimantId: string,
+): ProgressionGateResult {
+  const row = db.select().from(tasks).where(eq(tasks.id, taskId)).get() as
+    | typeof tasks.$inferSelect
+    | undefined;
+  if (!row) return { ok: true };
+
+  // Observation gate: T1 Legacy Partial History → open for every prod task.
+  if (!isLegacyPartialHistory(row)) {
+    return { ok: false, category: "observation_pending" };
+  }
+
+  // Reservation gate: an active reservation for a DIFFERENT identity blocks.
+  if (activeReservationForOther(db, taskId, claimantId) !== undefined) {
+    return { ok: false, category: "reserved_for_other" };
+  }
+
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Mutation helpers (run on the caller-supplied tx; throw on DB error)
 // ---------------------------------------------------------------------------
 

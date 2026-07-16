@@ -2,51 +2,86 @@ import { getDb } from "../db/index.js";
 import { tasks } from "../db/schema/index.js";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
-import { logger } from "../lib/logger.js";
-import { isSqliteError } from "../errors/sqlite.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { getTaskById } from "./taskCrud.js";
-import { checkClaimability } from "./taskQueries.js";
+import { claimWithAuthority, checkProgressionGates, type ClaimResult } from "./claimAuthority.js";
+
+/**
+ * Legacy repo claim-result shape consumed unchanged by the service wrappers
+ * (`task-lifecycle.ts`, `task-delegation.ts`), routes, batch/autoAssign/
+ * automation/plugin/daemonEngine callers. T2 Phase 3 keeps this contract
+ * identical; the typed {@link ClaimResult} lives in the authority and is
+ * flattened back to this shape at the repo boundary.
+ */
+type LegacyClaimResult = { success: true; task: Task } | { success: false; reason: string };
+
+/**
+ * Maps the typed authority {@link ClaimResult} back to the legacy
+ * `{success:true, task} | {success:false, reason}` shape so every existing
+ * caller (wrapper, route, batch, autoAssign, automation, plugin, daemonEngine)
+ * stays byte-for-byte compatible. Implements the T2 Phase 3 flatten mapping:
+ *
+ *   - success                       → `{success:true, task}`
+ *   - not_found                     → `"not_found"`
+ *   - already_claimed               → `"already_claimed"`
+ *   - not_pending (not_pending)     → `"already_claimed"`  (legacy collapses
+ *                                     status≠pending into already_claimed)
+ *   - not_pending (invalid_status)  → `"invalid_status"`   (delegated reason)
+ *   - ineligible                    → the specific ADR-0038 reason verbatim
+ *                                     (dependencies_unmet / mission_dependencies_unmet /
+ *                                     release_gate_unmet / workflow_gates_unmet /
+ *                                     capability_mismatch / not_delegated_to_you)
+ *   - reserved_for_other            → `"reserved_for_other"` (NEW, dormant until T5)
+ *   - observation_pending           → `"observation_pending"` (NEW, dormant)
+ *   - version_conflict              → `"claim_failed"`  (serialization conflict)
+ *   - infrastructure_failure        → `"claim_failed"`  (THE COLLAPSE FIX — was
+ *                                     `already_claimed` under claimTask/
+ *                                     claimTaskByRemoteParticipant; matches
+ *                                     claimDelegatedTask's existing pattern)
+ *   - governance_veto               → defensive `"claim_failed"` (never emitted
+ *                                     by the authority — the wrapper throws
+ *                                     InterceptorVetoError)
+ */
+function flattenClaimResult(r: ClaimResult): LegacyClaimResult {
+  if (r.success) return { success: true, task: r.task };
+  switch (r.category) {
+    case "not_found":
+      return { success: false, reason: "not_found" };
+    case "already_claimed":
+      return { success: false, reason: "already_claimed" };
+    case "not_pending":
+      // Legacy parity: a plain-claim task whose status isn't pending collapses
+      // to already_claimed. Delegated mode emits invalid_status, which is a
+      // load-bearing reason preserved verbatim.
+      return {
+        success: false,
+        reason: r.reason === "invalid_status" ? "invalid_status" : "already_claimed",
+      };
+    case "ineligible":
+      // ADR-0038 ordered vocabulary + delegated not_delegated_to_you preserved
+      // verbatim — routes, MCP, and ~15 test files depend on the literal string.
+      return { success: false, reason: r.reason };
+    case "reserved_for_other":
+      return { success: false, reason: "reserved_for_other" };
+    case "observation_pending":
+      return { success: false, reason: "observation_pending" };
+    case "version_conflict":
+      return { success: false, reason: "claim_failed" };
+    case "infrastructure_failure":
+      return { success: false, reason: "claim_failed" };
+    case "governance_veto":
+      return { success: false, reason: "claim_failed" };
+  }
+}
 
 export function claimTask(
   taskId: string,
   agentId: string,
 ): { success: true; task: Task } | { success: false; reason: string } {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  try {
-    return db.transaction((tx: any) => {
-      const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-      if (!task) return { success: false as const, reason: "not_found" };
-
-      if (task.status !== "pending" || task.assignedAgentId) {
-        return { success: false as const, reason: "already_claimed" };
-      }
-
-      const claimability = checkClaimability(taskId);
-      if (!claimability.claimable) {
-        return { success: false as const, reason: claimability.reason! };
-      }
-
-      tx.update(tasks)
-        .set({
-          assignedAgentId: agentId,
-          status: "claimed",
-          claimedAt: now,
-          updatedAt: now,
-          version: sql`${tasks.version} + 1`,
-        } as unknown as Partial<typeof tasks.$inferInsert>)
-        .where(and(eq(tasks.id, taskId), eq(tasks.status, "pending")))
-        .run();
-
-      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-      return { success: true as const, task: updated! };
-    });
-  } catch (err) {
-    logger.warn({ err, taskId, agentId }, "Transaction failed during claimTask");
-    return { success: false, reason: "already_claimed" };
-  }
+  // Routed through the claim authority (T2): the authority owns gates +
+  // checkClaimability + TOCTOU + infra mapping in one transaction. The typed
+  // ClaimResult is flattened back to the legacy shape every caller depends on.
+  return flattenClaimResult(claimWithAuthority(getDb(), taskId, { kind: "local", id: agentId }));
 }
 
 /**
@@ -59,50 +94,9 @@ export function claimTaskByRemoteParticipant(
   taskId: string,
   remoteParticipantId: string,
 ): { success: true; task: Task } | { success: false; reason: string } {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  try {
-    return db.transaction((tx: any) => {
-      const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-      if (!task) return { success: false as const, reason: "not_found" };
-
-      if (task.status !== "pending" || task.assignedAgentId || task.remoteAssignedParticipantId) {
-        return { success: false as const, reason: "already_claimed" };
-      }
-
-      const claimability = checkClaimability(taskId);
-      if (!claimability.claimable) {
-        return { success: false as const, reason: claimability.reason! };
-      }
-
-      tx.update(tasks)
-        .set({
-          remoteAssignedParticipantId: remoteParticipantId,
-          status: "claimed",
-          claimedAt: now,
-          updatedAt: now,
-          version: sql`${tasks.version} + 1`,
-        } as unknown as Partial<typeof tasks.$inferInsert>)
-        .where(
-          and(
-            eq(tasks.id, taskId),
-            eq(tasks.status, "pending"),
-            sql`${tasks.remoteAssignedParticipantId} IS NULL`,
-          ),
-        )
-        .run();
-
-      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-      return { success: true as const, task: updated! };
-    });
-  } catch (err) {
-    logger.warn(
-      { err, taskId, remoteParticipantId },
-      "Transaction failed during claimTaskByRemoteParticipant",
-    );
-    return { success: false, reason: "already_claimed" };
-  }
+  return flattenClaimResult(
+    claimWithAuthority(getDb(), taskId, { kind: "remote", id: remoteParticipantId }),
+  );
 }
 
 /**
@@ -162,6 +156,10 @@ export function startTaskByRemoteParticipant(
     return null;
   }
 
+  // Publication gates (T2): observation + reservation. Open for every legacy
+  // task; returns null (never throws) so the Task|null contract is preserved.
+  if (!checkProgressionGates(db, taskId, remoteParticipantId).ok) return null;
+
   db.update(tasks)
     .set({
       status: "in_progress",
@@ -219,49 +217,32 @@ export function claimDelegatedTask(
   taskId: string,
   agentId: string,
 ): { success: true; task: Task } | { success: false; reason: string } {
-  const db = getDb();
-  const now = new Date().toISOString();
+  // Routed through the claim authority (T2) in delegated mode. The authority
+  // owns the not_delegated_to_you / invalid_status / mutation contract and
+  // maps SQLITE_BUSY + CONSTRAINT failures to infrastructure_failure /
+  // version_conflict — which flatten back to `claim_failed`, matching this
+  // function's pre-T2 better-than-collapse behavior.
+  const result = claimWithAuthority(
+    getDb(),
+    taskId,
+    { kind: "local", id: agentId },
+    { delegated: true },
+  );
 
-  try {
-    return db.transaction((tx: any) => {
-      const task = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-      if (!task) return { success: false as const, reason: "not_found" };
-
-      if (task.delegatedToAgentId !== agentId) {
-        return { success: false as const, reason: "not_delegated_to_you" };
-      }
-
-      if (task.status !== "claimed" && task.status !== "in_progress") {
-        return { success: false as const, reason: "invalid_status" };
-      }
-
-      tx.update(tasks)
-        .set({
-          assignedAgentId: agentId,
-          delegatedToAgentId: null,
-          status: "claimed",
-          claimedAt: sql`COALESCE(${tasks.claimedAt}, ${now})`,
-          updatedAt: now,
-          version: sql`${tasks.version} + 1`,
-        } as unknown as Partial<typeof tasks.$inferInsert>)
-        .where(eq(tasks.id, taskId))
-        .run();
-
-      const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
-      return { success: true as const, task: updated! };
-    });
-  } catch (err) {
-    if (isSqliteError(err) && err.code === "SQLITE_BUSY") {
-      logger.warn({ err, taskId, agentId }, "Delegated claim lost race on busy database");
-      return { success: false, reason: "claim_failed" };
-    }
-    if (isSqliteError(err) && err.code.startsWith("SQLITE_CONSTRAINT")) {
-      logger.warn({ err, taskId, agentId }, "Delegated claim failed due to constraint violation");
-      return { success: false, reason: "claim_failed" };
-    }
-    logger.error({ err, taskId, agentId }, "Unexpected error during claimDelegatedTask");
-    throw repositoryTransactionError("task", err as Error, taskId);
+  // PRESERVE manifest row 3.6: a non-SQLite (unmapped) infrastructure failure
+  // must still surface as a thrown repositoryTransactionError (AppError 500),
+  // not collapse to a returned claim_failed. The authority converts such
+  // throws to { category: "infrastructure_failure", reason: "infrastructure_error" };
+  // re-throw here so the delegated contract is byte-identical to pre-T2.
+  if (
+    !result.success &&
+    result.category === "infrastructure_failure" &&
+    result.reason === "infrastructure_error"
+  ) {
+    throw repositoryTransactionError("task", result.cause as Error, taskId);
   }
+
+  return flattenClaimResult(result);
 }
 
 export function startTask(taskId: string, agentId: string): Task | null {
@@ -271,6 +252,10 @@ export function startTask(taskId: string, agentId: string): Task | null {
   const task = getTaskById(taskId);
   if (!task) return null;
   if (task.status !== "claimed" || task.assignedAgentId !== agentId) return null;
+
+  // Publication gates (T2): observation + reservation. Open for every legacy
+  // task; returns null (never throws) so the Task|null contract is preserved.
+  if (!checkProgressionGates(db, taskId, agentId).ok) return null;
 
   db.update(tasks)
     .set({

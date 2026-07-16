@@ -169,17 +169,17 @@ describe("claimTask — collapse bug (INTENTIONALLY-CHANGE T2)", () => {
       db.transaction = original;
     }
 
-    // INTENTIONALLY-CHANGE (T2): this should become a typed infrastructure_failure.
-    // Today the collapse returns the same reason as real contention (1.3), which is
-    // exactly the bug Phase 3 fixes. We pin the exact shape so Phase 3 reviewers
-    // can see "today's output collapses everything to already_claimed".
-    expect(result).toEqual({ success: false, reason: "already_claimed" });
-    // Failure mode: a refactor that returns a different shape (e.g. throws,
-    // returns null, returns a typed {category}) on collision would fail this
-    // — that is what we WANT Phase 3 to do.
+    // INTENTIONALLY-CHANGE (T2): FIXED. The collapse is gone — an arbitrary
+    // exception is now mapped by the claim authority to a typed
+    // infrastructure_failure, flattened to `claim_failed` (distinct from real
+    // contention's `already_claimed`). This is the bug fix made visible.
+    expect(result).toEqual({ success: false, reason: "claim_failed" });
+    // Failure mode: if a regression re-collapses infra errors to
+    // already_claimed, this test fails — proving the collapse/claim_failed
+    // distinction survives.
   });
 
-  it("returns already_claimed when db.transaction throws an SQLite-shaped error", () => {
+  it("returns claim_failed when db.transaction throws an SQLite-shaped error", () => {
     const { task } = seedMission({ title: "collapse-sqlite" });
     const db = getDb() as unknown as { transaction: (fn: (tx: unknown) => unknown) => unknown };
     const original = db.transaction;
@@ -200,15 +200,15 @@ describe("claimTask — collapse bug (INTENTIONALLY-CHANGE T2)", () => {
       db.transaction = original;
     }
 
-    // INTENTIONALLY-CHANGE (T2): SQLITE_BUSY today is indistinguishable from
-    // real contention. Phase 3 will return { category: "infrastructure_failure",
-    // reason: <code> } so callers can retry-vs-resurface differently.
-    expect(result).toEqual({ success: false, reason: "already_claimed" });
+    // INTENTIONALLY-CHANGE (T2): FIXED. SQLITE_BUSY is now distinguishable from
+    // real contention: it returns `claim_failed` (the claimDelegatedTask
+    // pattern, generalized), so callers can retry-vs-resurface correctly.
+    expect(result).toEqual({ success: false, reason: "claim_failed" });
     // Failure mode: see the prior test — this proves the *infra-error* path
-    // ALSO collapses, not just generic errors.
+    // ALSO surfaces as claim_failed, not collapsed back to already_claimed.
   });
 
-  it("real contention and infra collapse produce IDENTICAL results today (proves the bug)", () => {
+  it("FIXED: real contention and infra collapse now DIVERGE (was identical — the bug)", () => {
     const a1 = seedAgent("a1");
     const a2 = seedAgent("a2");
 
@@ -232,15 +232,17 @@ describe("claimTask — collapse bug (INTENTIONALLY-CHANGE T2)", () => {
       db.transaction = original;
     }
 
-    // INTENTIONALLY-CHANGE (T2): today these two paths yield the SAME shape.
-    // Phase 3 will split them into "already_claimed" vs typed
-    // "infrastructure_failure". This assertion is the load-bearing proof that
-    // the migration is observable as a meaningful behavior change.
-    expect(contention).toEqual(collapse);
+    // INTENTIONALLY-CHANGE (T2): FIXED. Pre-T2 these two paths yielded the SAME
+    // `already_claimed` shape — the collapse bug. After T2 they DIVERGE: real
+    // contention stays `already_claimed` (a legitimate domain refusal), while
+    // infra failure surfaces as `claim_failed` (retryable). The divergence IS
+    // the fix made observable.
     expect(contention).toEqual({ success: false, reason: "already_claimed" });
-    // Failure mode: if a future refactor differentiates them, this test will
-    // fail and the agent MUST update the assertion with the new shape (this
-    // is the safety-net signal Phase 3 needs).
+    expect(collapse).toEqual({ success: false, reason: "claim_failed" });
+    expect(contention).not.toEqual(collapse);
+    // Failure mode: if a future refactor re-collapses the two (both
+    // already_claimed OR both claim_failed), this test fails — the
+    // domain-refusal-vs-infra-failure distinction must survive.
   });
 });
 
@@ -252,10 +254,7 @@ describe("claimTaskByRemoteParticipant — not_found + collapse parity", () => {
   it("returns not_found when taskId does not exist", () => {
     // PRESERVE — same reason as local path; routes emitting the conflict
     // depend on the literal value.
-    const result = taskStateMachine.claimTaskByRemoteParticipant(
-      "does-not-exist",
-      "participant-1",
-    );
+    const result = taskStateMachine.claimTaskByRemoteParticipant("does-not-exist", "participant-1");
     expect(result).toEqual({ success: false, reason: "not_found" });
     // Failure mode: distinct "remote_not_found" would break route compat.
   });
@@ -286,10 +285,12 @@ describe("claimTaskByRemoteParticipant — not_found + collapse parity", () => {
       db.transaction = original;
     }
 
-    // INTENTIONALLY-CHANGE (T2): same collapse as 1.8. Phase 3 will split.
-    expect(result).toEqual({ success: false, reason: "already_claimed" });
-    // Failure mode: proof that the remote path collapses identically to the
-    // local path — they will diverge only after migration.
+    // INTENTIONALLY-CHANGE (T2): FIXED — same fix as the local path. The remote
+    // claim function now routes through the authority and returns `claim_failed`
+    // for infra errors instead of collapsing to already_claimed.
+    expect(result).toEqual({ success: false, reason: "claim_failed" });
+    // Failure mode: proof that the remote path's infra-failure surface now
+    // matches the local path's (both claim_failed), diverging from contention.
   });
 
   it("rejects when local agent already claimed (remote variant)", () => {
@@ -629,13 +630,11 @@ describe("services/tasks/task-lifecycle.ts claimTask — wrapper-level pins", ()
     const agent = seedAgent("veto-victim");
     const { task } = seedMission({ title: "veto-pre" });
 
-    const preSpy = vi
-      .spyOn(pluginManager, "runPreInterceptors")
-      .mockReturnValueOnce({
-        allow: false,
-        reason: "blocked by test interceptor",
-        details: "ctx",
-      });
+    const preSpy = vi.spyOn(pluginManager, "runPreInterceptors").mockReturnValueOnce({
+      allow: false,
+      reason: "blocked by test interceptor",
+      details: "ctx",
+    });
 
     expect(() => taskService.claimTask(task.id, agent.id)).toThrow(InterceptorVetoError);
 
@@ -681,12 +680,14 @@ describe("services/tasks/task-lifecycle.ts claimTask — wrapper-level pins", ()
       db.transaction = original;
     }
 
-    // INTENTIONALLY-CHANGE (T2): today the wrapper returns exactly what the
-    // repo returns for the collapse.
-    expect(result).toEqual({ success: false, reason: "already_claimed" });
+    // INTENTIONALLY-CHANGE (T2): FIXED — the wrapper now passes the repo's
+    // flattened `claim_failed` through (the repo no longer collapses to
+    // already_claimed). No capability fields are added; the shape is still the
+    // bare {success:false, reason} the route layer emits as a 409 conflict.
+    expect(result).toEqual({ success: false, reason: "claim_failed" });
     // Failure mode: a future wrapper that adds a category or capability fields
-    // here is the Phase 3 opportunity — locking today's shape so the
-    // migration diff is visible.
+    // here widens the shape — locking the post-T2 pass-through so the migration
+    // diff stays visible.
   });
 
   it("passes the task-intrinsic reasons (e.g. release_gate_unmet) through unchanged", () => {
