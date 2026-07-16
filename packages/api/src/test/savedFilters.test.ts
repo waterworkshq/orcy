@@ -134,7 +134,7 @@ vi.mock("drizzle-orm", () => ({
   sql: (strings: any, ...values: any[]) => {
     const sqlStr = strings.join("?");
     if (sqlStr.includes("habitatId") && sqlStr.includes("userId")) {
-      return { _type: "savedFilters_list", _boardId: values[0], _userId: values[1] };
+      return { _type: "savedFilters_list", _habitatId: values[0], _userId: values[1] };
     }
     return { _type: "sql", strings, values };
   },

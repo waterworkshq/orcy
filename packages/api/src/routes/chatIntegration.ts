@@ -200,13 +200,13 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
         return;
       }
 
-      const boardId = process.env.ORCY_DEFAULT_HABITAT_ID;
-      if (!boardId) {
+      const habitatId = process.env.ORCY_DEFAULT_HABITAT_ID;
+      if (!habitatId) {
         reply.send({ text: 'No default board configured. Set ORCY_DEFAULT_HABITAT_ID.' });
         return;
       }
 
-      const { response } = await executeCommand(boardId, action, args, payload.user_id);
+      const { response } = await executeCommand(habitatId, action, args, payload.user_id);
       reply.send((response as { slack: object }).slack);
     }
   );
@@ -245,8 +245,8 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
         const { parseDiscordCommand } = await import('../services/discordService.js');
         const { action, args } = parseDiscordCommand(payload.data);
 
-        const boardId = process.env.ORCY_DEFAULT_HABITAT_ID;
-        if (!boardId) {
+        const habitatId = process.env.ORCY_DEFAULT_HABITAT_ID;
+        if (!habitatId) {
           reply.send({
             type: 4,
             data: { content: 'No default board configured. Set ORCY_DEFAULT_HABITAT_ID.' },
@@ -254,7 +254,7 @@ export async function chatIntegrationRoutes(fastify: FastifyInstance): Promise<v
           return;
         }
 
-        const { response } = await executeCommand(boardId, action, args, payload.member?.user?.id);
+        const { response } = await executeCommand(habitatId, action, args, payload.member?.user?.id);
         const discordResponse = (response as { discord: object }).discord;
         reply.send({ type: 4, data: discordResponse });
         return;
