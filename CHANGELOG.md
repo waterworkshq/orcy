@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.31.10 — 2026-07-16
+
+### Refactors
+
+#### canonicalize feature to mission identifiers across UI and API ([`7623a6a`](https://github.com/waterworkshq/orcy/commit/7623a6a30cbc184e46897644d792a63122843a15))
+
+1. Rename the surviving feature-named identifiers to their canonical mission forms: FeatureCard to MissionCard, FeatureHeader to MissionHeader, onSelectFeature to onSelectMission, addFeatureDependency to addMissionDependency, featureId to missionId in API clients, topFeatures to topMissions (matching server return), makeFeature factories to makeMission, setFeature setters to setMission, ScheduledTaskForm labels and error messages, template variable feature_name to mission_name. G8 (global template name 'Feature') kept as a legitimate category label per user decision.
+
+
+
 ## 0.31.9 — 2026-07-16
 
 ### Refactors
@@ -29,18 +39,3 @@
 #### rename feature.ts to mission.ts (repo + factory + shared types) ([`ea1fe8d`](https://github.com/waterworkshq/orcy/commit/ea1fe8d3eff8c4936d07cf47c8ad2cc8e343b200))
 
 1. Pure file rename + import-path sweep: the 3 legacy feature.ts files (repositories, test/factories, shared/types) were the last feature-named files despite their exports already being canonical (Mission, MissionSummary, etc.). git mv preserves history; 178 import paths updated across 165 files. No symbol or behavior change; shared rebuilt before dependents.
-
-
-
-## 0.31.7 — 2026-07-16
-
-### Bug Fixes
-
-#### update mission command routes to canonical /api/habitats/.../missions ([`29b48e1`](https://github.com/waterworkshq/orcy/commit/29b48e10c70d52bdb258c57cb917b254d52ca746))
-
-1. The CLI mission commands called /api/boards/.../features and /api/features/... which the server no longer serves (404 since the board to habitat / feature to mission rename). Replace with the current canonical routes: /api/habitats/:id/missions and /api/missions/:id (list, create, delete, archive, unarchive, details).
-
-
-#### update stale board/features routes to canonical /api/habitats/.../missions ([`2f580ef`](https://github.com/waterworkshq/orcy/commit/2f580efb952c96c29f609448196f3422245fb5fb))
-
-1. The e2e specs called dead routes (/api/boards, /api/boards/.../features, /api/features/.../tasks, /boards/:id page, /features/:id page, /sse/boards/:id/stream) that 404 since the board to habitat / feature to mission rename. Replace with the current canonical routes. Variable names left as-is (cosmetic, separate phase). Also: board.spec.ts is a 100% duplicate of habitat.spec.ts — flagged for deletion in a follow-up cleanup.
