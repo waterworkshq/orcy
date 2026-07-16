@@ -70,7 +70,7 @@ import {
   missionCodeEvidenceRoutes,
   repositorySettingsRoutes,
 } from "./routes/codeEvidence.js";
-import { rebuildCache as rebuildHabitatSecretCache } from "./services/boardSecretCache.js";
+import { rebuildCache as rebuildHabitatSecretCache } from "./services/habitatSecretCache.js";
 import { archiveOldEvents } from "./services/auditArchivalService.js";
 import { seedDefaultTemplates as seedQualityTemplates } from "./services/qualityGateService.js";
 import { startAllSchedulers } from "./services/scheduler.js";

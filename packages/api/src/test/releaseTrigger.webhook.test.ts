@@ -33,7 +33,7 @@ const secretCacheMock = vi.hoisted(() => ({
   findHabitatIdByCiCdSignature: vi.fn((): string | null => null),
 }));
 
-vi.mock("../services/boardSecretCache.js", () => secretCacheMock);
+vi.mock("../services/habitatSecretCache.js", () => secretCacheMock);
 
 let habitatId: string;
 

@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as releaseRepo from "../repositories/release.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
-import { rebuildCache } from "../services/boardSecretCache.js";
+import { rebuildCache } from "../services/habitatSecretCache.js";
 import { codeReviewWebhookRoutes } from "../routes/codeReviewWebhooks.js";
 import { ciCdWebhookRoutes } from "../routes/ciCdWebhooks.js";
 import { triageRoutes } from "../routes/triage.js";

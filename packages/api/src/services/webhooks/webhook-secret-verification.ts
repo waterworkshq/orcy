@@ -8,7 +8,7 @@ import {
   hasAnySecretsConfigured,
   findHabitatIdByGithubSignature,
   hasGithubSecretsConfigured,
-} from "../boardSecretCache.js";
+} from "../habitatSecretCache.js";
 import * as habitatRepo from "../../repositories/habitat.js";
 
 /** HTTP response shape returned by a webhook handler. */

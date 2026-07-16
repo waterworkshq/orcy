@@ -9,7 +9,7 @@ import * as savedFilterRepo from "../repositories/savedFilter.js";
 import { getWebhookSubscriptions, createWebhookSubscription } from "./webhookDispatcher.js";
 import { badRequest } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { rebuildCache as rebuildHabitatSecretCache } from "./boardSecretCache.js";
+import { rebuildCache as rebuildHabitatSecretCache } from "./habitatSecretCache.js";
 import * as missionService from "./featureService.js";
 import * as skillRepo from "../repositories/habitatSkill.js";
 import type {

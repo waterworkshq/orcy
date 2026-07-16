@@ -5,8 +5,8 @@ import jwt from "jsonwebtoken";
 import { initTestDb, closeDb } from "../db/index.js";
 import { habitatRoutes } from "../routes/habitats.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
-import { rebuildCache as rebuildHabitatSecretCache } from "../services/boardSecretCache.js";
-import * as habitatService from "../services/boardService.js";
+import { rebuildCache as rebuildHabitatSecretCache } from "../services/habitatSecretCache.js";
+import * as habitatService from "../services/habitatService.js";
 import * as habitatRepo from "../repositories/habitat.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";

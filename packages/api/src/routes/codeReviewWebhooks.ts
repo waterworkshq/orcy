@@ -3,7 +3,7 @@ import * as prRepo from "../repositories/pullRequest.js";
 import * as githubService from "../services/githubWebhook.js";
 import * as gitlabService from "../services/gitlabWebhook.js";
 import * as githubReleaseWebhook from "../services/githubReleaseWebhook.js";
-import { findHabitatIdByGithubSignature } from "../services/boardSecretCache.js";
+import { findHabitatIdByGithubSignature } from "../services/habitatSecretCache.js";
 import { humanAuth } from "../middleware/auth.js";
 import {
   createCodeReviewSecretSource,

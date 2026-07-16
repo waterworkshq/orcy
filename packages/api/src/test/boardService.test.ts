@@ -60,7 +60,7 @@ vi.mock("../repositories/savedFilter.js", () => filterRepoMocks);
 vi.mock("../repositories/habitatSkill.js", () => skillRepoMocks);
 vi.mock("../services/webhookDispatcher.js", () => webhookMocks);
 vi.mock("../services/featureService.js", () => missionServiceMocks);
-vi.mock("../services/boardSecretCache.js", () => cacheMock);
+vi.mock("../services/habitatSecretCache.js", () => cacheMock);
 vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: sseMock } }));
 vi.mock("../plugins/pluginManager.js", () => pluginMock);
 vi.mock("../errors.js", async (importOriginal) => {
@@ -79,7 +79,7 @@ import {
   createHabitat,
   listHabitats,
   importHabitat,
-} from "../services/boardService.js";
+} from "../services/habitatService.js";
 
 describe("boardService", () => {
   beforeEach(() => {

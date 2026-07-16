@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import { initTestDb, closeDb } from "../db/index.js";
 import { missionRoutes } from "../routes/missions.js";
-import * as habitatService from "../services/boardService.js";
+import * as habitatService from "../services/habitatService.js";
 import * as missionRepo from "../repositories/mission.js";
 
 // M4 / route-facing 404 contract — the `/missions/:id/move` route collapses

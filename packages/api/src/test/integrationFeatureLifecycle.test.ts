@@ -6,7 +6,7 @@ import * as missionRepo from '../repositories/mission.js';
 import * as taskRepo from '../repositories/task.js';
 import * as agentRepo from '../repositories/agent.js';
 import * as missionService from '../services/featureService.js';
-import * as habitatService from '../services/boardService.js';
+import * as habitatService from '../services/habitatService.js';
 import { getTaskDetails } from '../services/tasks/task-details.js';
 import { claimTask, startTask, submitTask, approveTask } from '../services/tasks/task-lifecycle.js';
 import { missionDependencies, taskDependencies } from '../db/schema/index.js';

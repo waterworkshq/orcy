@@ -4,7 +4,7 @@ import { missions as missionsTable } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
-import { importHabitat, getHabitatStats, createHabitat } from "../services/boardService.js";
+import { importHabitat, getHabitatStats, createHabitat } from "../services/habitatService.js";
 import * as dependencyService from "../services/dependencyService.js";
 
 // R1 — Real-write proofs that a malformed import payload never deletes the

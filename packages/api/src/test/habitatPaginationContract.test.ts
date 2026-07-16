@@ -15,10 +15,10 @@ const missionServiceMocks = vi.hoisted(() => ({
 vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
 vi.mock("../services/featureService.js", () => missionServiceMocks);
 vi.mock("../repositories/habitatSkill.js", () => ({ getOrCreateSkill: vi.fn() }));
-vi.mock("../services/boardSecretCache.js", () => ({ rebuildCache: vi.fn() }));
+vi.mock("../services/habitatSecretCache.js", () => ({ rebuildCache: vi.fn() }));
 vi.mock("../sse/broadcaster.js", () => ({ sseBroadcaster: { publish: vi.fn() } }));
 
-import { getHabitat } from "../services/boardService.js";
+import { getHabitat } from "../services/habitatService.js";
 
 describe("Habitat detail vs Mission list — pagination boundary", () => {
   beforeEach(() => {

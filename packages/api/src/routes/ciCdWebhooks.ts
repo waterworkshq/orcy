@@ -3,7 +3,7 @@ import * as ciCdService from "../services/ciCdService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import * as releaseSettingsService from "../services/releaseSettingsService.js";
 import * as pipelineRepo from "../repositories/pipelineEvent.js";
-import { findHabitatIdByCiCdSignature } from "../services/boardSecretCache.js";
+import { findHabitatIdByCiCdSignature } from "../services/habitatSecretCache.js";
 import { humanAuth } from "../middleware/auth.js";
 import {
   createCiCdSecretSource,

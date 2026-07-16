@@ -10,7 +10,7 @@ import * as codeEvidenceLinkRepo from "../repositories/codeEvidenceLinkRepositor
 import * as codeEvidenceCompletenessRepo from "../repositories/codeEvidenceCompletenessRepository.js";
 import * as codeEvidenceGapRepo from "../repositories/codeEvidenceGapRepository.js";
 import * as habitatRepo from "../repositories/habitat.js";
-import * as habitatService from "../services/boardService.js";
+import * as habitatService from "../services/habitatService.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import {

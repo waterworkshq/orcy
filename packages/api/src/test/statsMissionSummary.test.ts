@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeMissionSummary } from "../services/boardService.js";
+import { computeMissionSummary } from "../services/habitatService.js";
 import type { Mission } from "../models/index.js";
 
 function mk(overrides: Partial<Mission> & Pick<Mission, "id">): Mission {

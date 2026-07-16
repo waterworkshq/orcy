@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import * as habitatService from "../services/boardService.js";
+import * as habitatService from "../services/habitatService.js";
 import { habitatEventsQuerySchema } from "../models/schemas.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";

@@ -22,7 +22,7 @@ describe('boardSecretCache', () => {
   beforeEach(async () => {
     vi.resetModules();
     mockListHabitats.mockReset();
-    const mod = await import('../services/boardSecretCache.js');
+    const mod = await import('../services/habitatSecretCache.js');
     rebuildCache = mod.rebuildCache;
     lookupHabitatIdBySecret = mod.lookupHabitatIdBySecret;
     findHabitatIdByGithubSignature = mod.findHabitatIdByGithubSignature;

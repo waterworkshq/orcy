@@ -18,7 +18,7 @@ const habitatRepoMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../config/integrationSecurity.js", () => integrationSecurityMocks);
-vi.mock("../services/boardSecretCache.js", () => secretCacheMocks);
+vi.mock("../services/habitatSecretCache.js", () => secretCacheMocks);
 vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
 
 import {
