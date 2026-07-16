@@ -71,7 +71,7 @@ pnpm install
 
 **Fix:**
 
-- All API endpoints are under `/api/` prefix (e.g., `/api/boards`, not `/boards`)
+- All API endpoints are under `/api/` prefix (e.g., `/api/habitats`, not `/habitats`)
 - Health check is at `/health` (no prefix)
 - SSE is under `/sse/` prefix
 
@@ -142,7 +142,7 @@ pnpm install
 **Debugging steps:**
 
 1. Open browser DevTools → Network tab
-2. Look for the EventSource connection to `/sse/boards/:id/stream`
+2. Look for the EventSource connection to `/sse/habitats/:id/stream`
 3. If the connection is pending with no data, check:
    - Is the API running? (`GET /health`)
    - Is the board ID correct?
@@ -289,7 +289,7 @@ All three must be set. If `ORCY_API_KEY` or `ORCY_AGENT_ID` is empty, the server
 
    ```bash
    curl http://localhost:3000/api/agents/<id>
-   curl http://localhost:3000/api/boards/<boardId>/features
+   curl http://localhost:3000/api/habitats/<habitatId>/missions
    ```
 
 2. Tasks with `requiredDomain` set only appear for matching agents

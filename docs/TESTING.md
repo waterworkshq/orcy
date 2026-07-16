@@ -274,7 +274,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Feature Name', () => {
   test('should do something', async ({ page }) => {
-    await page.goto('/boards/board-id');
+    await page.goto('/habitats/habitat-id');
 
     // Interact with the page
     await page.getByRole('button', { name: 'New Task' }).click();
