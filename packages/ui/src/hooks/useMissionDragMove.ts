@@ -18,6 +18,16 @@ interface MoveEntry {
   controller: AbortController;
 }
 
+// Hung-request sweep bound. A never-resolving `api.missions.move` would keep
+// the `finally` block suspended indefinitely — leaking `movesRef`, the preview,
+// and `activeMoveCount` (perpetual spinner). On expiry we forcibly clean up
+// the entry's UI state without aborting the controller (the server may have
+// committed the move; a late resolve short-circuits via the controller-
+// identity guard in runMove's completion path). Generous enough to tolerate
+// a slow-but-successful response on adverse mobile networks; bounded so a
+// true network hang self-corrects within UX tolerance.
+export const HUNG_MOVE_TIMEOUT_MS = 30_000;
+
 export interface DropArgs {
   missionId: string;
   canonicalColumnId: string;
@@ -90,12 +100,37 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
       setPreviewByMission((prev) => ({ ...prev, [missionId]: targetColumnId }));
       setActiveMoveCount((c) => c + 1);
 
+      // Hung-request sweep: see HUNG_MOVE_TIMEOUT_MS rationale above.
+      // cancelled by the natural-settle paths via clearTimeout so a normal
+      // resolve doesn't trigger redundant cleanup. The sweep itself performs
+      // its own controller-identity-guarded cleanup rather than relying on
+      // the abort path (which intentionally early-returns on
+      // `controller.signal.aborted` and would still leak the entry + preview).
+      // We don't abort the controller here — preserving the documented
+      // "a committed move is never silently aborted" semantics from the
+      // habitat-switch cleanup at ~line 196. The server may have committed;
+      // a late settlement lands via patchMissionInCache above and the
+      // controller-identity guard in this block short-circuits the UI path.
+      let sweepFired = false;
+      const sweepTimer = setTimeout(() => {
+        sweepFired = true;
+        const entry = movesRef.current[missionId];
+        if (entry && entry.controller === controller) {
+          delete movesRef.current[missionId];
+        }
+        if (isActive()) {
+          clearOwnedPreview(missionId, targetColumnId);
+          setActiveMoveCount((c) => Math.max(0, c - 1));
+        }
+      }, HUNG_MOVE_TIMEOUT_MS);
+
       try {
         const { mission } = await api.missions.move(
           missionId,
           { columnId: targetColumnId, expectedVersion },
           controller.signal,
         );
+        clearTimeout(sweepTimer);
         // Reconcile the CAPTURED habitat's cache regardless of a habitat switch:
         // the server may already have committed, so a committed move must never
         // be silently dropped. The closure wrappers target the captured habitat.
@@ -118,6 +153,7 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
         if (!isActive()) return;
         clearOwnedPreview(missionId, targetColumnId);
       } catch (err) {
+        clearTimeout(sweepTimer);
         if (controller.signal.aborted) return;
         invalidate();
         const entry = movesRef.current[missionId];
@@ -128,7 +164,10 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
           notifyVersionConflict("This mission", invalidate);
         }
       } finally {
-        if (isActive()) {
+        // Skip the decrement if the sweep already cleaned up — otherwise a
+        // late settle (rare but possible) would double-decrement and strand
+        // `isMoving=false` going negative, masking a fresh in-flight drop.
+        if (isActive() && !sweepFired) {
           setActiveMoveCount((c) => c - 1);
         }
       }

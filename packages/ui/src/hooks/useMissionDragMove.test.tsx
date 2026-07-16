@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
-import { useMissionDragMove } from "./useMissionDragMove.js";
+import { HUNG_MOVE_TIMEOUT_MS, useMissionDragMove } from "./useMissionDragMove.js";
 import { queryKeys } from "../lib/queryKeys.js";
 import { ApiError } from "../api/transport.js";
 import type { MissionWithProgress } from "../types/index.js";
@@ -98,6 +98,7 @@ describe("useMissionDragMove", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it("does not send a move when target equals canonical column", () => {
@@ -646,5 +647,87 @@ describe("useMissionDragMove", () => {
     });
 
     expect(result.current.isMoving).toBe(false);
+  });
+
+  it("UI-3: sweeps a hung request — clears movesRef, preview, and isMoving after HUNG_MOVE_TIMEOUT_MS", async () => {
+    vi.useFakeTimers();
+    // Hung request: promise that never resolves/rejects — the network is
+    // effectively dead. Without the sweep the in-flight entry would strand
+    // activeMoveCount > 0 (perpetual spinner) and leak the movesRef slot +
+    // preview until the next habitat switch.
+    moveMock.mockReturnValueOnce(new Promise(() => {}));
+
+    const { result } = renderHookWithQC("h1");
+
+    act(() => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+    });
+    await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+
+    // Spinner is on while the request is in-flight.
+    expect(result.current.isMoving).toBe(true);
+    expect(result.current.previewByMission["m1"]).toBe("col-b");
+
+    // Just before the bound — sweep has NOT fired yet, so isMoving stays true.
+    act(() => {
+      vi.advanceTimersByTime(HUNG_MOVE_TIMEOUT_MS - 100);
+    });
+    expect(result.current.isMoving).toBe(true);
+    expect(result.current.previewByMission["m1"]).toBe("col-b");
+
+    // Past the bound — sweep clears movesRef + preview + activeMoveCount.
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(result.current.isMoving).toBe(false);
+    expect(result.current.previewByMission["m1"]).toBeUndefined();
+  });
+
+  it("UI-3: a natural settle before the sweep fires cancels the sweep (no double-cleanup)", async () => {
+    vi.useFakeTimers();
+    let resolveMove: (val: any) => void = () => {};
+    moveMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveMove = resolve;
+      }),
+    );
+
+    const { result } = renderHookWithQC("h1");
+
+    act(() => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+    });
+    await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+    expect(result.current.isMoving).toBe(true);
+
+    // Resolve within the sweep window — sweeps should NOT fire and
+    // activeMoveCount must decrement exactly once.
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+      resolveMove({ mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }) });
+      // Flush microtasks + the natural-settle path.
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.isMoving).toBe(false);
+    expect(result.current.previewByMission["m1"]).toBeUndefined();
+
+    // Advance well past the bound — sweep must NOT have run (it was
+    // clearTimeout'd on natural settle), so state stays clean.
+    act(() => {
+      vi.advanceTimersByTime(HUNG_MOVE_TIMEOUT_MS + 1000);
+    });
+    expect(result.current.isMoving).toBe(false);
+    expect(result.current.previewByMission["m1"]).toBeUndefined();
   });
 });
