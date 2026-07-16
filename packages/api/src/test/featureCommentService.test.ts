@@ -26,7 +26,7 @@ vi.mock("../sse/broadcaster.js", () => ({
   },
 }));
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn(),
 }));
 
@@ -43,7 +43,7 @@ import {
 } from "../services/featureCommentService.js";
 import * as commentRepo from "../repositories/featureComment.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { getMissionById } from "../repositories/feature.js";
+import { getMissionById } from "../repositories/mission.js";
 
 function makeComment(overrides: Record<string, unknown> = {}) {
   return {

@@ -36,7 +36,7 @@ vi.mock("../plugins/pluginManager.js", () => ({
   emitTaskCreated: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn().mockReturnValue({ id: "feat-1", habitatId: "habitat-1" }),
 }));
 

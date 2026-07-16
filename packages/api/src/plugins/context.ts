@@ -25,7 +25,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as pulseService from "../services/pulseService.js";
 import * as taskRepo from "../repositories/task.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as commentRepo from "../repositories/comment.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";

@@ -4,7 +4,7 @@ import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import * as workflowService from "../services/workflowService.js";
 import * as failureContextService from "../services/failureContextService.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { badRequest, conflict, notFound } from "../errors.js";
 
 const joinSpecSchema = z.object({

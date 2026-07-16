@@ -34,7 +34,7 @@ export type {
   PluginAuditProvenance,
 } from "./audit.js";
 
-export type { MissionStatus, MissionEventAction } from "./feature.js";
+export type { MissionStatus, MissionEventAction } from "./mission.js";
 export type {
   Mission,
   MissionWithProgress,
@@ -46,7 +46,7 @@ export type {
   TaskTemplateEntry,
   ScheduledTask,
   ScheduleType,
-} from "./feature.js";
+} from "./mission.js";
 
 export type { TaskPriority, TaskStatus } from "./task.js";
 export type {

@@ -13,7 +13,7 @@ import { renderTemplate } from "./automationTemplateRenderer.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as taskReviewerRepo from "../repositories/taskReviewer.js";

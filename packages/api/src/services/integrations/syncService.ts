@@ -2,7 +2,7 @@ import * as connectionRepo from "../../repositories/integrationConnection.js";
 import * as linkRepo from "../../repositories/externalIssueLink.js";
 import * as syncRunRepo from "../../repositories/integrationSyncRun.js";
 import * as candidateRepo from "../../repositories/externalIntakeCandidate.js";
-import * as missionRepo from "../../repositories/feature.js";
+import * as missionRepo from "../../repositories/mission.js";
 import * as taskRepo from "../../repositories/task.js";
 import { resolveImportColumn } from "../../repositories/column.js";
 import { emitMissionAuditEvent } from "../auditEventEmitter.js";

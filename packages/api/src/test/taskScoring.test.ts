@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { scoreTask, sortTasksBySmartScore, PRIORITY_WEIGHTS, computeCapabilityWeight } from '../services/taskScoring.js';
 import type { TaskPriority, Mission } from '../models/index.js';
 import { makeTask } from './factories/task.js';
-import { makeMission } from './factories/feature.js';
+import { makeMission } from './factories/mission.js';
 
 const mockGetMissionById = vi.hoisted(() => vi.fn<(missionId: string) => Mission | null>().mockReturnValue(null));
 
-vi.mock('../repositories/feature.js', () => ({
+vi.mock('../repositories/mission.js', () => ({
   getMissionById: mockGetMissionById,
 }));
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeMission } from "./factories/feature.js";
+import { makeMission } from "./factories/mission.js";
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn(),
   deleteMission: vi.fn(),
   getMissionsByDependency: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: { publish: vi.fn(), subscribe: vi.fn() },
 }));
 
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { deleteMission } from "../services/featureService.js";

@@ -3,7 +3,7 @@ import type { ScanReport } from "./automationScanService.js";
 import { applyGuards } from "./automationScanService.js";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";
 import * as ruleRepo from "../repositories/automationRule.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageService from "./triageService.js";
 import { getDb } from "../db/index.js";

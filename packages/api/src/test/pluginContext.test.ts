@@ -27,7 +27,7 @@ vi.mock("../repositories/task.js", () => ({
 }));
 
 const getMissionByIdMock = vi.fn();
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: (i: unknown) => getMissionByIdMock(i),
 }));
 

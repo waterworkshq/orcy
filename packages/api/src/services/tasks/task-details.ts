@@ -1,5 +1,5 @@
 import * as taskRepo from "../../repositories/task.js";
-import * as missionRepo from "../../repositories/feature.js";
+import * as missionRepo from "../../repositories/mission.js";
 import * as habitatRepo from "../../repositories/habitat.js";
 import * as columnRepo from "../../repositories/column.js";
 import * as subtaskRepo from "../../repositories/subtask.js";

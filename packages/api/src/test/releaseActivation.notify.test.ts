@@ -16,7 +16,7 @@ import * as teamRepo from "../repositories/team.js";
 import * as orgRepo from "../repositories/organization.js";
 import * as memberRepo from "../repositories/teamMember.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";

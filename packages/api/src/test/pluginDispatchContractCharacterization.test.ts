@@ -39,7 +39,7 @@ import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as pulseRepo from "../repositories/pulse.js";
-import * as featureRepo from "../repositories/feature.js";
+import * as featureRepo from "../repositories/mission.js";
 import type { PluginEvaluationContext } from "@orcy/shared";
 
 // --- Mocks ---

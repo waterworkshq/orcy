@@ -3,7 +3,7 @@ import { getDb, closeDb, initTestDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskCrudRepo from "../repositories/taskCrud.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as pulseRepo from "../repositories/pulse.js";

@@ -1,6 +1,6 @@
 import * as habitatRepo from "../repositories/habitat.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as eventRepo from "../repositories/event.js";
 import * as agentRepo from "../repositories/agent.js";
 import { MS_PER_DAY } from "./analyticsDate.js";

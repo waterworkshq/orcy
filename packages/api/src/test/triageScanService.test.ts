@@ -4,7 +4,7 @@ import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { missions, pulses, triageClusterMissions } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";

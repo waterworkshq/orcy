@@ -10,7 +10,7 @@ import {
 } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as releaseRepo from "../repositories/release.js";
 import * as agentRepo from "../repositories/agent.js";

@@ -4,7 +4,7 @@ import { missions, pulses, triageClusterMissions } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as dependencyRepo from "../repositories/dependency.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import { runOrphanMissionUnmappedScan } from "../services/orphanScanService.js";

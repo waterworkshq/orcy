@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { taskDependencies, missions, missionDependencies } from "../db/schema/index.js";
 import { eq, inArray } from "drizzle-orm";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as releaseRepo from "../repositories/release.js";
 import {
   isReleaseGateSatisfied,

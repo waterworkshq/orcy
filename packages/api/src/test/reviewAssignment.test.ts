@@ -3,7 +3,7 @@ import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as habitatRepo from '../repositories/habitat.js';
 import * as columnRepo from '../repositories/column.js';
 import * as taskRepo from '../repositories/task.js';
-import * as missionRepo from '../repositories/feature.js';
+import * as missionRepo from '../repositories/mission.js';
 import * as reviewRuleRepo from '../repositories/reviewRule.js';
 import * as taskReviewerRepo from '../repositories/taskReviewer.js';
 import { tasks, columns as columnsTable, habitats, users, teamMembers, teams, organizations } from '../db/schema/index.js';

@@ -20,7 +20,7 @@ vi.mock("../services/failureContextService.js", () => ({
   getFailureContext: vi.fn(),
 }));
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn(),
 }));
 
@@ -37,7 +37,7 @@ import {
   getTaskWorkflowContext,
 } from "../services/workflowService.js";
 import { getFailureContext } from "../services/failureContextService.js";
-import { getMissionById } from "../repositories/feature.js";
+import { getMissionById } from "../repositories/mission.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";
 

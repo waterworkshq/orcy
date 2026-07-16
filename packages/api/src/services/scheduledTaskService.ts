@@ -1,7 +1,7 @@
 import { CronExpressionParser } from "cron-parser";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import * as templateRepo from "../repositories/template.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as auditExportService from "./auditExportService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";

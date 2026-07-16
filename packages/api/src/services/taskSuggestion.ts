@@ -5,7 +5,7 @@ import {
   computeCapabilityWeight,
 } from "./taskScoring.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as agentRepo from "../repositories/agent.js";
 import { getDb } from "../db/index.js";
 import { tasks } from "../db/schema/index.js";

@@ -4,7 +4,7 @@ import { z } from "zod";
 import * as missionService from "../services/featureService.js";
 import * as taskRepo from "../repositories/task.js";
 import * as taskService from "../services/tasks/index.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
 import * as decompositionService from "../services/decompositionService.js";
 import {

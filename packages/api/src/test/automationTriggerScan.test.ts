@@ -4,7 +4,7 @@ import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import * as sprintService from "../services/sprintService.js";
 import { ingestEvent } from "../services/automationEventService.js";

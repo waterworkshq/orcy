@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, initTestDb } from "../db/index.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import { buildPluginContext } from "../plugins/context.js";
 

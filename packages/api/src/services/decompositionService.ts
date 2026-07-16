@@ -1,6 +1,6 @@
 import { getLLMConfig, callLLM, LLMMessage } from "../lib/llm.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { badRequest, notFound, serviceUnavailable } from "../errors.js";
 
 /** A single task proposed by AI decomposition of a mission or task. */

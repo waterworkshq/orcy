@@ -17,7 +17,7 @@ import * as findingTriageService from "../services/findingTriageService.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { getHabitatById } from "../repositories/habitat.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { notFound, badRequest, forbidden, unauthorized } from "../errors.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";

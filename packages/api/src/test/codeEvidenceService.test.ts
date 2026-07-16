@@ -3,7 +3,7 @@ import { initTestDb, closeDb } from "../db/index.js";
 import * as codeEvidenceRepository from "../repositories/codeEvidenceRepository.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as prRepo from "../repositories/pullRequest.js";
 import * as pipelineEventRepo from "../repositories/pipelineEvent.js";

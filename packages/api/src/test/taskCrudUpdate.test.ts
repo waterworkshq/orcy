@@ -16,7 +16,7 @@ vi.mock('../repositories/task.js', () => ({
   getHabitatIdForTask: vi.fn().mockReturnValue('habitat-1'),
 }));
 
-vi.mock('../repositories/feature.js', () => ({
+vi.mock('../repositories/mission.js', () => ({
   getMissionById: vi.fn(() => ({ id: 'feat-1', habitatId: 'habitat-1', isArchived: false })),
 }));
 

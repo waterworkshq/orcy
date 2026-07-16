@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeMission } from "./factories/feature.js";
+import { makeMission } from "./factories/mission.js";
 import type { Column } from "../models/index.js";
 
 // Contract: versioned Mission move + auto-advance use repository OCC.
@@ -9,7 +9,7 @@ import type { Column } from "../models/index.js";
 const publisherMock = vi.hoisted(() => ({ publish: vi.fn() }));
 const createMissionEventMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   updateMission: vi.fn(),
   getMissionById: vi.fn(),
   moveMission: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: publisherMock,
 }));
 
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as columnRepo from "../repositories/column.js";
 import { moveMissionToColumn, autoAdvanceMissionColumn } from "../services/featureService.js";
 

@@ -2,7 +2,7 @@ import type { AgentStatus } from "./agent.js";
 import type { Anomaly } from "./settings.js";
 import type { Task } from "./task.js";
 import type { TaskComment } from "./task.js";
-import type { Mission, MissionStatus, MissionComment } from "./feature.js";
+import type { Mission, MissionStatus, MissionComment } from "./mission.js";
 import type { Column } from "./habitat.js";
 import type { Subtask } from "./task.js";
 import type { WikiPageStatus, WikiCoverageMarkerType } from "./wiki.js";

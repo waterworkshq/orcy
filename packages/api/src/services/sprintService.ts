@@ -1,7 +1,7 @@
 import { logger } from "../lib/logger.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as sprintRepo from "../repositories/sprint.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import { badRequest, notFound, conflict, internalError } from "../errors.js";
 import type { Sprint, SprintCreateInput, SprintUpdateInput, CarryOverPolicy } from "@orcy/shared";

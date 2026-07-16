@@ -4,7 +4,7 @@ import type {
   AuditEvent,
   AuditWarning,
 } from "@orcy/shared/types";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import { notFound } from "../errors.js";
 import { queryAuditEvents, summarizeAuditCompleteness } from "./auditQueryService.js";

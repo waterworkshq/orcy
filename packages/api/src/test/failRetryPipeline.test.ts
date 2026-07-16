@@ -9,7 +9,7 @@ vi.mock('../repositories/task.js', () => ({
   claimTask: vi.fn(),
 }));
 
-vi.mock('../repositories/feature.js', () => ({
+vi.mock('../repositories/mission.js', () => ({
   getMissionById: vi.fn(),
 }));
 

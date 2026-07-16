@@ -2,7 +2,7 @@ import * as missionCommentRepo from "../repositories/featureComment.js";
 import * as missionCommentMentionRepo from "../repositories/featureCommentMention.js";
 import { resolveMentions } from "./commentHelper.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
-import { getMissionById } from "../repositories/feature.js";
+import { getMissionById } from "../repositories/mission.js";
 import { notFound, forbidden, badRequest } from "../errors.js";
 
 /** Creates a comment on a mission, resolves `@mentions`, and emits `mission.commented` plus per-mention `mission.mentioned` SSE events to the habitat. */

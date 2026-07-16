@@ -11,7 +11,7 @@ import type {
 import * as codeEvidenceService from "../../services/codeEvidenceService.js";
 import { agentOrHumanAuth } from "../../middleware/auth.js";
 import * as missionEventRepo from "../../repositories/events/event-feature.js";
-import * as missionRepo from "../../repositories/feature.js";
+import * as missionRepo from "../../repositories/mission.js";
 import { badRequest, notFound } from "../../errors.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 import {

@@ -5,7 +5,7 @@ vi.mock("../repositories/task.js", () => ({
   getTaskById: vi.fn(),
 }));
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: vi.fn(),
 }));
 
@@ -62,7 +62,7 @@ vi.mock("drizzle-orm", async () => {
 
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as agentRepo from "../repositories/agent.js";
 
 function makeTask(overrides: Record<string, unknown> = {}) {

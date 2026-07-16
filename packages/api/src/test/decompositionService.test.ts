@@ -5,7 +5,7 @@ vi.mock("../lib/llm.js", () => ({
   callLLM: vi.fn(),
 }));
 vi.mock("../repositories/task.js", () => ({ getTaskById: vi.fn() }));
-vi.mock("../repositories/feature.js", () => ({ getMissionById: vi.fn() }));
+vi.mock("../repositories/mission.js", () => ({ getMissionById: vi.fn() }));
 vi.mock("../errors.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../errors.js")>();
   return { ...actual };
@@ -13,7 +13,7 @@ vi.mock("../errors.js", async (importOriginal) => {
 
 import { decomposeMission, decomposeTask } from "../services/decompositionService.js";
 import { getLLMConfig, callLLM } from "../lib/llm.js";
-import { getMissionById } from "../repositories/feature.js";
+import { getMissionById } from "../repositories/mission.js";
 import { getTaskById } from "../repositories/task.js";
 
 describe("decompositionService", () => {

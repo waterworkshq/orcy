@@ -3,7 +3,7 @@ import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { pulses, findingTriage as findingTriageTable, missions } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as findingTriageRepo from "../repositories/findingTriage.js";
 import * as findingTriageService from "../services/findingTriageService.js";

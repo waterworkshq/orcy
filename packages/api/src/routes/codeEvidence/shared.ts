@@ -3,7 +3,7 @@ import type { CodeEvidenceActorType } from "@orcy/shared";
 
 import * as eventRepo from "../../repositories/events/event-crud.js";
 import * as missionEventRepo from "../../repositories/events/event-feature.js";
-import * as missionRepo from "../../repositories/feature.js";
+import * as missionRepo from "../../repositories/mission.js";
 import * as taskRepo from "../../repositories/task.js";
 import { sseBroadcaster } from "../../sse/broadcaster.js";
 

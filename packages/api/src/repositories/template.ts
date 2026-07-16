@@ -17,7 +17,7 @@ import type {
   JoinMode,
 } from "../models/index.js";
 import { v4 as uuid } from "uuid";
-import * as missionRepo from "./feature.js";
+import * as missionRepo from "./mission.js";
 import * as taskRepo from "./task.js";
 import {
   repositoryCreateError,

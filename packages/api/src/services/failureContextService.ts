@@ -2,7 +2,7 @@ import { getDb } from "../db/index.js";
 import { pulses, taskEvents, workflows, taskWorkflowGates } from "../db/schema/index.js";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import * as taskRepo from "../repositories/taskCrud.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as failureContextRepo from "../repositories/failureContext.js";
 import type {
   FailureContextRow,

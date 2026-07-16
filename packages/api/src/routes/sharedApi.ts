@@ -16,7 +16,7 @@ import {
 } from "../services/sharedGrantVisibilityService.js";
 import { badRequest, forbidden, notFound, unauthorized, conflict } from "../errors.js";
 import * as habitatRepo from "../repositories/habitat.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as credentialService from "../services/remoteCredentialService.js";

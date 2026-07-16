@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as habitatService from "../services/boardService.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as timeRepo from "../repositories/timeTracking.js";

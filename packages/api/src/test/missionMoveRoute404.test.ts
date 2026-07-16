@@ -5,7 +5,7 @@ import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod
 import { initTestDb, closeDb } from "../db/index.js";
 import { missionRoutes } from "../routes/missions.js";
 import * as habitatService from "../services/boardService.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 
 // M4 / route-facing 404 contract — the `/missions/:id/move` route collapses
 // both not-found-mission and invalid-target-column into a 404 so a caller

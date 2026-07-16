@@ -171,7 +171,7 @@ vi.mock("../repositories/externalIntakeCandidate.js", () => ({
   update: vi.fn(),
 }));
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   createMission: vi.fn(() => ({
     id: "mis-new",
     habitatId: "hab-1",
@@ -851,7 +851,7 @@ describe("POST /intake-candidates/:candidateId/promote", () => {
       (r) => r.method === "POST" && r.path === "/intake-candidates/:candidateId/promote",
     )!;
     const candRepo = await import("../repositories/externalIntakeCandidate.js");
-    const missionRepo = await import("../repositories/feature.js");
+    const missionRepo = await import("../repositories/mission.js");
     const linkRepo = await import("../repositories/externalIssueLink.js");
 
     const candidate = {

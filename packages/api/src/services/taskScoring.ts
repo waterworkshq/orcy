@@ -1,5 +1,5 @@
 import type { Task, TaskPriority } from "../models/index.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 
 /** Weight multipliers per priority level used by the smart scoring algorithm. */
 export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {

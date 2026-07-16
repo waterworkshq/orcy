@@ -12,7 +12,7 @@ const repoMocks = vi.hoisted(() => ({
 vi.mock("../repositories/habitat.js", () => ({
   getHabitatWithColumnsAndTasks: repoMocks.getHabitatWithColumnsAndTasks,
 }));
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionsByHabitatId: repoMocks.getMissionsByHabitatId,
 }));
 vi.mock("../repositories/task.js", () => ({

@@ -11,7 +11,7 @@ import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import { resetPlugins } from "../plugins/pluginManager.js";

@@ -13,7 +13,7 @@ import type {
   RoadmapSettings,
 } from "./settings.js";
 import type { TaskPriority } from "./task.js";
-import type { MissionStatus } from "./feature.js";
+import type { MissionStatus } from "./mission.js";
 import type { Artifact } from "./task.js";
 
 /** A single kanban-style column belonging to a {@link Habitat}, with WIP controls and optional auto-advance/claim semantics. */

@@ -1,7 +1,7 @@
 import * as prefRepo from "../repositories/notificationPreferences.js";
 import type { NotificationPreferences } from "../repositories/notificationPreferences.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as watcherRepo from "../repositories/watcher.js";
 import * as userRepo from "../repositories/user.js";

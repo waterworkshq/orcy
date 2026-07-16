@@ -3,7 +3,7 @@ import { tasks, agents, taskDependencies } from "../db/schema/index.js";
 import { eq, inArray, count } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { scoreTask } from "./taskScoring.js";
 import { logger } from "../lib/logger.js";

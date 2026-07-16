@@ -6,7 +6,7 @@ import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { effortRoutes } from "../routes/effort.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as habitatService from "../services/boardService.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as effortRepo from "../repositories/effortEntry.js";

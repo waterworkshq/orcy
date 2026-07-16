@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as wikiPageRepo from "../repositories/wikiPage.js";
 import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
 import * as wikiCoverageRepo from "../repositories/wikiCoverage.js";

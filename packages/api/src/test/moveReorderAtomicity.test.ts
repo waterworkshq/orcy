@@ -6,7 +6,7 @@ import {
   missionEvents,
 } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as columnRepo from "../repositories/column.js";
 import * as habitatService from "../services/boardService.js";
 import { moveMissionToColumn, autoAdvanceMissionColumn } from "../services/featureService.js";

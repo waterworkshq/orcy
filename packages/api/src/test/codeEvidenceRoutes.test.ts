@@ -183,7 +183,7 @@ vi.mock("../repositories/task.js", () => ({
   getHabitatIdForTask: mockGetHabitatIdForTask,
 }));
 
-vi.mock("../repositories/feature.js", () => ({
+vi.mock("../repositories/mission.js", () => ({
   getMissionById: mockGetMissionById,
 }));
 

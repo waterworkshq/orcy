@@ -1,4 +1,4 @@
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import * as columnRepo from "../repositories/column.js";
 import * as eventRepo from "../repositories/event.js";

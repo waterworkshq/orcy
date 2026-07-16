@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import * as effortService from "../services/effortService.js";
 import * as taskRepo from "../repositories/task.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { notFound } from "../errors.js";
 import type { CodeEvidenceActorType } from "@orcy/shared";

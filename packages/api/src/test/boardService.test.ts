@@ -52,7 +52,7 @@ const pluginMock = vi.hoisted(() => ({ emitHabitatCreated: vi.fn(() => Promise.r
 vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
 vi.mock("../repositories/column.js", () => columnRepoMocks);
 vi.mock("../repositories/task.js", () => taskRepoMocks);
-vi.mock("../repositories/feature.js", () => missionRepoMocks);
+vi.mock("../repositories/mission.js", () => missionRepoMocks);
 vi.mock("../repositories/event.js", () => eventRepoMocks);
 vi.mock("../repositories/comment.js", () => commentRepoMocks);
 vi.mock("../repositories/template.js", () => templateRepoMocks);

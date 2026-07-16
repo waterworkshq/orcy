@@ -11,7 +11,7 @@ import * as codeEvidenceCompletenessRepo from "../repositories/codeEvidenceCompl
 import * as codeEvidenceGapRepo from "../repositories/codeEvidenceGapRepository.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as habitatService from "../services/boardService.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
 import {
   habitatCodeRepositories,

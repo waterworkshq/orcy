@@ -7,7 +7,7 @@ import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 import { getHabitatById } from '../repositories/habitat.js';
 import { getTaskById } from '../repositories/task.js';
-import { getMissionById } from '../repositories/feature.js';
+import { getMissionById } from '../repositories/mission.js';
 import { z } from 'zod';
 
 const STRATEGIES = ['domain_expert', 'round_robin', 'least_loaded', 'random', 'fixed'] as const;

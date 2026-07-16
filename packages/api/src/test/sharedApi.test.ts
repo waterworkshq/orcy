@@ -6,7 +6,7 @@ import { sharedApiRoutes } from "../routes/sharedApi.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as podRepo from "../repositories/remotePod.js";

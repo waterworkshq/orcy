@@ -3,7 +3,7 @@ import * as connectionRepo from "../repositories/integrationConnection.js";
 import * as linkRepo from "../repositories/externalIssueLink.js";
 import * as candidateRepo from "../repositories/externalIntakeCandidate.js";
 import * as syncRunRepo from "../repositories/integrationSyncRun.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { syncConnection, promoteIntakeCandidate } from "../services/integrations/syncService.js";
 import {
   startGitHubDeviceFlow,

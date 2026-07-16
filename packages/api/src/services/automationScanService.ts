@@ -2,7 +2,7 @@ import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as sprintRepo from "../repositories/sprint.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { buildFingerprint } from "@orcy/shared";
 import type { AutomationScanType, AutomationRule } from "@orcy/shared";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";

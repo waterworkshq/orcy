@@ -5,7 +5,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as agentRepo from "../repositories/agent.js";
 import { habitats, columns, missions, tasks } from "../db/schema/index.js";
 import {

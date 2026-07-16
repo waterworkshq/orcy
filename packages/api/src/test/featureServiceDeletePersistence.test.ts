@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import * as missionEventRepo from "../repositories/events/event-feature.js";
 import { columns, habitats, missionEvents, missions } from "../db/schema/index.js";
 import { deleteMission } from "../services/featureService.js";

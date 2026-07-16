@@ -3,7 +3,7 @@ import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { missions as missionsTable } from "../db/schema/index.js";
 import { eq, sql } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { importHabitat, getHabitatStats, createHabitat } from "../services/boardService.js";
 import * as dependencyService from "../services/dependencyService.js";
 

@@ -1,5 +1,5 @@
 import type { Artifact } from "./task.js";
-import type { TaskTemplateEntry } from "./feature.js";
+import type { TaskTemplateEntry } from "./mission.js";
 import type { SignalType } from "./signal.js";
 import type { AutomationCondition } from "./automation.js";
 

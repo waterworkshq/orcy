@@ -3,7 +3,7 @@ import { getDb, closeDb, initTestDb } from "../db/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as connectionRepo from "../repositories/integrationConnection.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { handleGitHubIssueWebhook } from "../services/integrations/webhookService.js";
 import type { GitHubWebhookPayload } from "../services/integrations/webhookService.js";
 import { tasks, columns as columnsTable, habitats } from "../db/schema/index.js";

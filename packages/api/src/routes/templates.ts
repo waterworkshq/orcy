@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as templateRepo from "../repositories/template.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { z } from "zod";

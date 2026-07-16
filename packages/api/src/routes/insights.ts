@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import * as insightRepo from "../repositories/insight.js";
 import * as pulseRepo from "../repositories/pulse.js";
-import * as missionRepo from "../repositories/feature.js";
+import * as missionRepo from "../repositories/mission.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, notFound, unauthorized, forbidden } from "../errors.js";
 import { getCallerInfo } from "./pulse-shared.js";
