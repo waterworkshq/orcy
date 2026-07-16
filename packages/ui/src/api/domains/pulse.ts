@@ -6,7 +6,7 @@ export const pulseApi = {
     const qs = params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "";
     return request<{ items: Pulse[]; total: number }>(`/missions/${missionId}/pulse${qs}`);
   },
-  listByBoard: (habitatId: string, params?: Record<string, string | number>) => {
+  listByHabitat: (habitatId: string, params?: Record<string, string | number>) => {
     const qs = params ? "?" + new URLSearchParams(params as Record<string, string>).toString() : "";
     return request<{ items: Pulse[]; total: number }>(`/habitats/${habitatId}/pulse${qs}`);
   },

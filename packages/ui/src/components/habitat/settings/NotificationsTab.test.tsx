@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NotificationsTab, NotificationsTabHandle } from './NotificationsTab.js';
 
 const mockGetGlobalPrefs = vi.fn();
-const mockGetBoardPrefs = vi.fn();
+const mockGetHabitatPrefs = vi.fn();
 const mockUpdateGlobalPrefs = vi.fn();
-const mockUpdateBoardPrefs = vi.fn();
+const mockUpdateHabitatPrefs = vi.fn();
 const mockUpdateEmail = vi.fn();
 const mockNotifySuccess = vi.fn();
 const mockNotifyError = vi.fn();
@@ -17,9 +17,9 @@ vi.mock('../../../api/index.js', () => ({
   api: {
     notifications: {
       getGlobalPrefs: (...args: unknown[]) => mockGetGlobalPrefs(...args),
-      getBoardPrefs: (...args: unknown[]) => mockGetBoardPrefs(...args),
+      getHabitatPrefs: (...args: unknown[]) => mockGetHabitatPrefs(...args),
       updateGlobalPrefs: (...args: unknown[]) => mockUpdateGlobalPrefs(...args),
-      updateBoardPrefs: (...args: unknown[]) => mockUpdateBoardPrefs(...args),
+      updateHabitatPrefs: (...args: unknown[]) => mockUpdateHabitatPrefs(...args),
       updateEmail: (...args: unknown[]) => mockUpdateEmail(...args),
     },
   },
@@ -83,11 +83,11 @@ describe('NotificationsTab', () => {
       email: 'test@test.com',
       preferences: mockPrefs,
     });
-    mockGetBoardPrefs.mockResolvedValue({
+    mockGetHabitatPrefs.mockResolvedValue({
       preferences: { ...mockPrefs, habitatId: 'b1' },
     });
     mockUpdateGlobalPrefs.mockResolvedValue({ preferences: mockPrefs });
-    mockUpdateBoardPrefs.mockResolvedValue({ preferences: { ...mockPrefs, habitatId: 'b1' } });
+    mockUpdateHabitatPrefs.mockResolvedValue({ preferences: { ...mockPrefs, habitatId: 'b1' } });
     mockUpdateEmail.mockResolvedValue({});
   });
 
@@ -144,7 +144,7 @@ describe('NotificationsTab', () => {
 
   it('shows error when loading fails', async () => {
     mockGetGlobalPrefs.mockRejectedValue(new Error('fail'));
-    mockGetBoardPrefs.mockRejectedValue(new Error('fail'));
+    mockGetHabitatPrefs.mockRejectedValue(new Error('fail'));
 
     renderWithQC(<NotificationsTab habitatId="b1" />);
 
@@ -189,7 +189,7 @@ describe('NotificationsTab', () => {
     expect(mockNotifySuccess).toHaveBeenCalledWith('Notification settings saved');
   });
 
-  it('save() calls updateBoardPrefs when useBoardPrefs is true', async () => {
+  it('save() calls updateHabitatPrefs when useBoardPrefs is true', async () => {
     const ref = React.createRef<NotificationsTabHandle>();
     renderWithQC(<NotificationsTab ref={ref} habitatId="b1" />);
 
@@ -200,13 +200,13 @@ describe('NotificationsTab', () => {
     screen.getByTestId('toggle').click();
 
     await waitFor(() => {
-      expect(mockUpdateBoardPrefs).not.toHaveBeenCalled();
+      expect(mockUpdateHabitatPrefs).not.toHaveBeenCalled();
     });
 
     await ref.current!.save();
 
     expect(mockUpdateEmail).toHaveBeenCalledWith('test@test.com');
-    expect(mockUpdateBoardPrefs).toHaveBeenCalledWith('b1', { ...mockPrefs, habitatId: 'b1' });
+    expect(mockUpdateHabitatPrefs).toHaveBeenCalledWith('b1', { ...mockPrefs, habitatId: 'b1' });
     expect(mockUpdateGlobalPrefs).not.toHaveBeenCalled();
   });
 

@@ -87,12 +87,12 @@ export const queryKeys = {
     byMission: (missionId: string) => [...queryKeys.pulse.all, missionId] as const,
     byTask: (missionId: string, taskId: string) =>
       [...queryKeys.pulse.all, "byTask", missionId, taskId] as const,
-    byBoard: (habitatId: string) => [...queryKeys.pulse.all, "byBoard", habitatId] as const,
+    byHabitat: (habitatId: string) => [...queryKeys.pulse.all, "byHabitat", habitatId] as const,
     replies: (pulseId: string) => [...queryKeys.pulse.all, "replies", pulseId] as const,
   },
   insights: {
     all: ["insights"] as const,
-    byBoard: (habitatId: string) => [...queryKeys.insights.all, habitatId] as const,
+    byHabitat: (habitatId: string) => [...queryKeys.insights.all, habitatId] as const,
   },
   organizations: {
     all: ["organizations"] as const,
@@ -136,7 +136,7 @@ export const queryKeys = {
   },
   notificationPrefs: {
     all: ["notificationPrefs"] as const,
-    board: (habitatId: string) => [...queryKeys.notificationPrefs.all, habitatId] as const,
+    habitat: (habitatId: string) => [...queryKeys.notificationPrefs.all, habitatId] as const,
   },
   sprints: {
     all: ["sprints"] as const,

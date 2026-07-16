@@ -72,14 +72,14 @@ export const NotificationsTab = forwardRef<NotificationsTabHandle, Notifications
         await api.notifications.updateEmail(email || null);
       }
       if (useBoardPrefs && boardPrefs) {
-        const result = await api.notifications.updateBoardPrefs(habitatId, boardPrefs);
+        const result = await api.notifications.updateHabitatPrefs(habitatId, boardPrefs);
         setBoardPrefs(result.preferences);
       } else if (globalPrefs) {
         const result = await api.notifications.updateGlobalPrefs(globalPrefs);
         setGlobalPrefs(result.preferences);
       }
       notify.success('Notification settings saved');
-      qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.board(habitatId) });
+      qc.invalidateQueries({ queryKey: queryKeys.notificationPrefs.habitat(habitatId) });
     } catch (err) {
       notify.error((err as Error).message);
     } finally {

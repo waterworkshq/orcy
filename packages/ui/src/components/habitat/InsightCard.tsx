@@ -17,7 +17,7 @@ export function InsightCard({ insight, habitatId }: InsightCardProps) {
   const deactivateMutation = useMutation({
     mutationFn: () => api.insights.deactivate(habitatId, insight.id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.insights.byBoard(habitatId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.insights.byHabitat(habitatId) });
     },
     onError: (err: Error) => {
       console.error('Failed to deactivate insight:', err.message);

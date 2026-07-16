@@ -11,7 +11,7 @@ const mockTimeMetrics = vi.fn();
 vi.mock("../../api/index.js", () => ({
   api: {
     habitats: { stats: (...args: any[]) => mockStats(...args) },
-    timeTracking: { getBoardMetrics: (...args: any[]) => mockTimeMetrics(...args) },
+    timeTracking: { getHabitatMetrics: (...args: any[]) => mockTimeMetrics(...args) },
   },
 }));
 

@@ -20,7 +20,7 @@ vi.mock("../api/index.js", () => ({
     },
     notifications: {
       getGlobalPrefs: vi.fn().mockResolvedValue({ preferences: { email: true }, email: "a@b.c" }),
-      getBoardPrefs: vi.fn().mockResolvedValue({ preferences: { slack: true } }),
+      getHabitatPrefs: vi.fn().mockResolvedValue({ preferences: { slack: true } }),
     },
     scheduledTasks: {
       list: vi.fn().mockResolvedValue({ scheduledTasks: [{ id: "st1", name: "Daily" }] }),
@@ -91,7 +91,7 @@ describe("useNotificationPrefs", () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.notifications.getGlobalPrefs).toHaveBeenCalled();
-    expect(api.notifications.getBoardPrefs).toHaveBeenCalledWith("board-1");
+    expect(api.notifications.getHabitatPrefs).toHaveBeenCalledWith("board-1");
     expect(result.current.data).toEqual({
       global: { preferences: { email: true }, email: "a@b.c" },
       board: { preferences: { slack: true } },
@@ -104,7 +104,7 @@ describe("useNotificationPrefs", () => {
     });
     expect(result.current.fetchStatus).toBe("idle");
     expect(api.notifications.getGlobalPrefs).not.toHaveBeenCalled();
-    expect(api.notifications.getBoardPrefs).not.toHaveBeenCalled();
+    expect(api.notifications.getHabitatPrefs).not.toHaveBeenCalled();
   });
 });
 

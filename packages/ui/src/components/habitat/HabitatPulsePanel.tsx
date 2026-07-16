@@ -20,7 +20,7 @@ export function HabitatPulsePanel({ habitatId }: HabitatPulsePanelProps) {
   const [composeOpen, setComposeOpen] = useState(false);
 
   const queryKey = [
-    ...queryKeys.pulse.byBoard(habitatId),
+    ...queryKeys.pulse.byHabitat(habitatId),
     { activeTypes, hideAuto, showExperience },
   ];
 
@@ -37,7 +37,7 @@ export function HabitatPulsePanel({ habitatId }: HabitatPulsePanelProps) {
       if (hideAuto) {
         params.isAuto = "false";
       }
-      return api.pulse.listByBoard(habitatId, params);
+      return api.pulse.listByHabitat(habitatId, params);
     },
     staleTime: 30 * 1000,
   });
@@ -176,7 +176,7 @@ function HabitatPulseComposeDialog({
     mutationFn: (input: PostPulseInput) => api.pulse.postHabitat(habitatId, input),
     onSuccess: () => {
       setError(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(habitatId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byHabitat(habitatId) });
       onClose();
     },
     onError: (err: Error) => {

@@ -25,7 +25,7 @@ export function PulseReactions({ pulseId, counts, missionId, habitatId }: PulseR
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byMission(missionId) });
       if (habitatId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(habitatId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byHabitat(habitatId) });
       }
     },
     onError: (err: Error) => {

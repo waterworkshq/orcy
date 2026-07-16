@@ -13,7 +13,7 @@ export function InsightsPanel({ habitatId }: InsightsPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.insights.byBoard(habitatId),
+    queryKey: queryKeys.insights.byHabitat(habitatId),
     queryFn: () => api.insights.list(habitatId),
     staleTime: 30 * 1000,
   });

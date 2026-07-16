@@ -11,11 +11,11 @@ export const notificationsApi = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  getBoardPrefs: (habitatId: string) =>
+  getHabitatPrefs: (habitatId: string) =>
     request<{ preferences: NotificationPreferences }>(
       `/habitats/${habitatId}/notification-preferences`,
     ),
-  updateBoardPrefs: (habitatId: string, data: Partial<NotificationPreferences>) =>
+  updateHabitatPrefs: (habitatId: string, data: Partial<NotificationPreferences>) =>
     request<{ preferences: NotificationPreferences }>(
       `/habitats/${habitatId}/notification-preferences`,
       {

@@ -347,7 +347,7 @@ export function useHabitatTasks(habitatId: string | undefined, filters?: Habitat
 export function useHabitatTimeMetrics(habitatId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.habitats.metrics(habitatId ?? ""),
-    queryFn: () => api.timeTracking.getBoardMetrics(habitatId!),
+    queryFn: () => api.timeTracking.getHabitatMetrics(habitatId!),
     enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
@@ -493,11 +493,11 @@ export function useChatIntegrations(habitatId: string | undefined) {
 
 export function useNotificationPrefs(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.notificationPrefs.board(habitatId ?? ""),
+    queryKey: queryKeys.notificationPrefs.habitat(habitatId ?? ""),
     queryFn: async () => {
       const [global, board] = await Promise.all([
         api.notifications.getGlobalPrefs(),
-        api.notifications.getBoardPrefs(habitatId!),
+        api.notifications.getHabitatPrefs(habitatId!),
       ]);
       return { global, board };
     },

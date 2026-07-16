@@ -453,9 +453,9 @@ export const SSE_EVENT_REGISTRY = {
   "agent.message_received": noopHandler,
   "pulse.signal_posted": defineSSEHandler<"pulse.signal_posted">({
     server: ({ queryClient, subscriptionHabitatId }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byBoard(subscriptionHabitatId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.pulse.byHabitat(subscriptionHabitatId) });
       queryClient.invalidateQueries({
-        queryKey: queryKeys.insights.byBoard(subscriptionHabitatId),
+        queryKey: queryKeys.insights.byHabitat(subscriptionHabitatId),
       });
       queryClient.invalidateQueries({ queryKey: ["wiki", "signalSurface", subscriptionHabitatId] });
     },
