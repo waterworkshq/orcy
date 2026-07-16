@@ -1,13 +1,16 @@
 /**
- * Task Creation Attempt Protocol — reservation, dedup, and replay (T3A Phase 1).
+ * Task Creation Attempt Protocol — reservation, dedup, replay (T3A Phase 1),
+ * and worker leases / safe takeover (T3A Phase 3).
  *
  * DORMANT additive production code: no production origin routes through this
  * module yet. It is tested in isolation against the T1 storage layer
- * (`db/schema/taskPublication.ts` → `task_creation_attempts`). Phase 2 will add
- * the compare-and-set transition matrix (replacing the permissive
- * `checkpointAttemptWithClient` in `taskPublication.ts`); Phase 3 will add
- * worker leases, safe takeover, retention, and the authorized
- * `GET /task-creation-attempts/:id` route that consumes {@link getAttemptStatus}.
+ * (`db/schema/taskPublication.ts` → `task_creation_attempts`). Phase 2 added
+ * the compare-and-set transition matrix (forward-only, terminal-locked) in
+ * `taskPublication.ts`. Phase 3 (this module) adds the worker-lease primitives
+ * — acquire / renew / release with safe expired-lease takeover — operating on
+ * the existing `leaseOwner`/`leaseExpiresAt` columns (no migration). Phase 4
+ * will add retention and the authorized `GET /task-creation-attempts/:id` route
+ * that consumes {@link getAttemptStatus}.
  *
  * Reservation contract (load-bearing):
  *   - Fresh `(source, source-scope, attempt-key)` → INSERT at `state="pending"`,
@@ -41,15 +44,16 @@
  */
 import { getDb } from "../db/index.js";
 import { taskCreationAttempts } from "../db/schema/index.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or, isNull, lt, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import { isSqliteError } from "../errors/sqlite.js";
-import { repositoryCreateError } from "../errors/repository.js";
+import { repositoryCreateError, repositoryUpdateError } from "../errors/repository.js";
 import type {
   TaskPublicationDbClient,
   CausalContext,
   AttemptTerminalResult,
 } from "./taskPublication.js";
+import { TERMINAL_ATTEMPT_STATES } from "./taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Shared row / state types (re-derived from the schema so callers don't depend
@@ -285,6 +289,266 @@ export function getAttemptStatus(attemptId: string): AttemptStatusResult {
     .get();
   if (!row) return { found: false };
   return { found: true, status: rowToStatus(row) };
+}
+
+// ---------------------------------------------------------------------------
+// Worker leases (T3A Phase 3) — safe takeover via compare-and-set
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcome of {@link acquireAttemptLeaseWithClient}. Closed discriminated
+ * union — never throws for an expected acquire decision; only infrastructure
+ * failures (retryable transport) throw.
+ *
+ * - `acquired`         — the lease was free (no owner OR expired) AND the
+ *                        attempt is non-terminal; `leaseOwner`/`leaseExpiresAt`
+ *                        are now this worker's.
+ * - `held_by_other`    — another worker holds an ACTIVE (unexpired) lease;
+ *                        the lease columns are UNCHANGED. (Safe-takeover guard:
+ *                        an EXPIRED lease is `acquired`, not `held_by_other`.)
+ * - `terminal_locked`  — the attempt is in a terminal state (or has
+ *                        `completedAt` set); acquire is refused, the lease
+ *                        columns and terminal state are UNCHANGED. This is the
+ *                        "lease expiry transfers work without changing terminal
+ *                        state" guardrail — defense in depth alongside the
+ *                        Phase-2 transition matrix terminal-lock.
+ * - `not_found`        — no attempt row exists for `attemptId`.
+ */
+export type AttemptLeaseAcquireResult =
+  | { outcome: "acquired"; attempt: TaskCreationAttemptRow }
+  | { outcome: "held_by_other"; attempt: TaskCreationAttemptRow }
+  | { outcome: "terminal_locked"; attempt: TaskCreationAttemptRow }
+  | { outcome: "not_found" };
+
+/**
+ * Outcome of {@link renewAttemptLeaseWithClient}. Only the current owner can
+ * extend the lease; a non-owner (including a worker that took over an expired
+ * lease) is refused without mutation.
+ *
+ * - `renewed`   — caller IS the owner; `leaseExpiresAt` extended.
+ * - `not_owner` — caller is NOT the owner (or the lease was cleared); no
+ *                 mutation.
+ * - `not_found` — no attempt row exists for `attemptId`.
+ */
+export type AttemptLeaseRenewResult =
+  | { outcome: "renewed"; attempt: TaskCreationAttemptRow }
+  | { outcome: "not_owner"; attempt: TaskCreationAttemptRow }
+  | { outcome: "not_found" };
+
+/**
+ * Outcome of {@link releaseAttemptLeaseWithClient}. Only the current owner can
+ * clear the lease; a non-owner release is refused without mutation.
+ *
+ * - `released`  — caller IS the owner; `leaseOwner`/`leaseExpiresAt` cleared.
+ * - `not_owner` — caller is NOT the owner; no mutation.
+ * - `not_found` — no attempt row exists for `attemptId`.
+ */
+export type AttemptLeaseReleaseResult =
+  | { outcome: "released"; attempt: TaskCreationAttemptRow }
+  | { outcome: "not_owner"; attempt: TaskCreationAttemptRow }
+  | { outcome: "not_found" };
+
+/**
+ * Acquires (or takes over) the worker lease on a task-creation attempt via a
+ * single **compare-and-set** UPDATE whose WHERE encodes BOTH preconditions:
+ *   1. the lease is FREE — `leaseOwner IS NULL OR leaseExpiresAt < now` (an
+ *      expired lease is takeable = safe takeover), AND
+ *   2. the attempt is NON-TERMINAL — `state NOT IN (terminal set) AND
+ *      completedAt IS NULL` (the guardrail: a terminal attempt refuses acquire
+ *      so lease handoff can never change terminal state).
+ *
+ * The WHERE predicate IS the entire defense — there is no read-then-decide
+ * race window. A concurrent acquire by a second worker is serialized by SQLite
+ * (single-writer): the first UPDATE matches and commits; the second worker's
+ * UPDATE no-ops (the first's lease now violates the free-lease predicate) and
+ * the re-read classifies it `held_by_other`. Re-reading (sql.js-safe;
+ * `runResult.changes` is undefined in the test driver) classifies the outcome.
+ *
+ * The terminal-set is the SAME canonical {@link TERMINAL_ATTEMPT_STATES}
+ * shared with the Phase-2 transition matrix — the terminal-lock is a domain
+ * invariant, not per-module logic. Never calls `getDb()`, never opens a nested
+ * tx, never emits external effects. Throws only on infrastructure failure.
+ */
+export function acquireAttemptLeaseWithClient(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+  workerId: string,
+  durationMs: number,
+): AttemptLeaseAcquireResult {
+  const now = new Date().toISOString();
+  const newExpiry = new Date(Date.now() + durationMs).toISOString();
+
+  // Compare-and-set: the WHERE predicate encodes BOTH the free-lease and
+  // non-terminal preconditions. A row that fails EITHER predicate is untouched.
+  try {
+    db.update(taskCreationAttempts)
+      .set({ leaseOwner: workerId, leaseExpiresAt: newExpiry })
+      .where(
+        and(
+          eq(taskCreationAttempts.id, attemptId),
+          // Non-terminal (defense in depth: state set + completedAt signal).
+          isNull(taskCreationAttempts.completedAt),
+          sql`${taskCreationAttempts.state} NOT IN (${sql.join(
+            [...TERMINAL_ATTEMPT_STATES].map((s) => sql`${s}`),
+            sql`, `,
+          )})`,
+          // Free lease: no owner, OR an expired (takeable) lease.
+          or(isNull(taskCreationAttempts.leaseOwner), lt(taskCreationAttempts.leaseExpiresAt, now)),
+        ),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
+  }
+
+  // Re-read (sql.js-safe) to classify the outcome from actual row state.
+  const row = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  // Terminal check FIRST: a terminal attempt refuses acquire even if the row
+  // happens to carry this workerId from a prior (pre-terminal) lease.
+  if (row.completedAt !== null || TERMINAL_ATTEMPT_STATES.has(row.state)) {
+    return { outcome: "terminal_locked", attempt: row };
+  }
+  // Our UPDATE took effect (compare-and-set matched) → we own it now.
+  if (row.leaseOwner === workerId) {
+    return { outcome: "acquired", attempt: row };
+  }
+  // Another worker holds an active lease our WHERE predicate could not match.
+  return { outcome: "held_by_other", attempt: row };
+}
+
+/**
+ * Extends `leaseExpiresAt` by `durationMs` ONLY if the caller is the current
+ * `leaseOwner`. Compare-and-set UPDATE (`WHERE id AND leaseOwner = workerId`);
+ * re-read classifies. A non-owner renew is refused without mutation. Never
+ * calls `getDb()`.
+ *
+ * Renew does NOT check terminal state: extending a lease you already own on a
+ * since-terminalized attempt is harmless (the terminal-lock is enforced at
+ * transition + acquire, not at renew). The coordinator decides whether to
+ * renew dead work.
+ */
+export function renewAttemptLeaseWithClient(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+  workerId: string,
+  durationMs: number,
+): AttemptLeaseRenewResult {
+  const newExpiry = new Date(Date.now() + durationMs).toISOString();
+
+  try {
+    db.update(taskCreationAttempts)
+      .set({ leaseExpiresAt: newExpiry })
+      .where(
+        and(eq(taskCreationAttempts.id, attemptId), eq(taskCreationAttempts.leaseOwner, workerId)),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
+  }
+
+  const row = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+  // The conditional UPDATE matched (we still own it) → renewed.
+  if (row.leaseOwner === workerId) {
+    return { outcome: "renewed", attempt: row };
+  }
+  // We did not own it (or a concurrent takeover cleared/reassigned it).
+  return { outcome: "not_owner", attempt: row };
+}
+
+/**
+ * Clears `leaseOwner`/`leaseExpiresAt` ONLY if the caller is the current
+ * `leaseOwner`. Pre-reads to disambiguate "we just cleared it" (`released`)
+ * from "it was already clear / owned by another" (`not_owner`); the subsequent
+ * compare-and-set UPDATE (`WHERE id AND leaseOwner = workerId`) makes a
+ * concurrent takeover between read and write surface as `not_owner` on re-read.
+ * Never calls `getDb()`.
+ */
+export function releaseAttemptLeaseWithClient(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+  workerId: string,
+): AttemptLeaseReleaseResult {
+  const current = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .get();
+  if (!current) return { outcome: "not_found" };
+  // Fast refusal: not our lease → no mutation attempt.
+  if (current.leaseOwner !== workerId) {
+    return { outcome: "not_owner", attempt: current };
+  }
+
+  try {
+    db.update(taskCreationAttempts)
+      .set({ leaseOwner: null, leaseExpiresAt: null })
+      .where(
+        and(eq(taskCreationAttempts.id, attemptId), eq(taskCreationAttempts.leaseOwner, workerId)),
+      )
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
+  }
+
+  const row = db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.id, attemptId))
+    .all()[0];
+  if (!row) return { outcome: "not_found" }; // vanished mid-call (data anomaly)
+  // Cleared (by us) → released. A concurrent re-acquire would set a new owner.
+  if (row.leaseOwner === null) {
+    return { outcome: "released", attempt: row };
+  }
+  // Concurrent takeover re-acquired the lease between our UPDATE and re-read.
+  return { outcome: "not_owner", attempt: row };
+}
+
+/**
+ * Convenience wrapper for {@link acquireAttemptLeaseWithClient} that owns its
+ * own short transaction. Use when the acquire is the only write; compose the
+ * `*WithClient` variant inside a caller-owned `db.transaction` when the lease
+ * must be atomic with other writes (e.g. the later coordinator composing
+ * lease-acquire + transition).
+ */
+export function acquireAttemptLease(
+  attemptId: string,
+  workerId: string,
+  durationMs: number,
+): AttemptLeaseAcquireResult {
+  return getDb().transaction((tx) =>
+    acquireAttemptLeaseWithClient(tx, attemptId, workerId, durationMs),
+  );
+}
+
+/** Convenience wrapper for {@link renewAttemptLeaseWithClient} (own tx). */
+export function renewAttemptLease(
+  attemptId: string,
+  workerId: string,
+  durationMs: number,
+): AttemptLeaseRenewResult {
+  return getDb().transaction((tx) =>
+    renewAttemptLeaseWithClient(tx, attemptId, workerId, durationMs),
+  );
+}
+
+/** Convenience wrapper for {@link releaseAttemptLeaseWithClient} (own tx). */
+export function releaseAttemptLease(
+  attemptId: string,
+  workerId: string,
+): AttemptLeaseReleaseResult {
+  return getDb().transaction((tx) => releaseAttemptLeaseWithClient(tx, attemptId, workerId));
 }
 
 // ---------------------------------------------------------------------------

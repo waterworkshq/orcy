@@ -226,8 +226,12 @@ export type AttemptTransitionResult =
  * further active-work transition (the one-way terminal door). Set both by
  * {@link completeAttemptWithClient} and reachable directly from `pending`
  * (rejected_validation / vetoed / batch_rejected).
+ *
+ * Exported so the lease primitives (`taskCreationAttempts.ts` Phase 3) reuse
+ * the SAME canonical set rather than duplicating it — the terminal-lock is a
+ * shared domain invariant, not per-module logic.
  */
-const TERMINAL_ATTEMPT_STATES: ReadonlySet<string> = new Set([
+export const TERMINAL_ATTEMPT_STATES: ReadonlySet<string> = new Set([
   "created",
   "created_unassigned",
   "rejected_validation",
