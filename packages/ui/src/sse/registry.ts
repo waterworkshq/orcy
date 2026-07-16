@@ -153,11 +153,15 @@ function invalidateTaskDetail<T extends SSEEventType>(context: ServerProjectionC
 }
 
 /**
- * Task lifecycle can change Mission progress, so it invalidates the Task
- * representations, the owning Mission progress/detail, and the Habitat detail
- * (complete active collection). Invalidate-only — no speculative patch.
+ * Invalidate the Task representations, the owning Mission progress/detail, and
+ * the Habitat detail (complete active collection) for a task-lifecycle SSE.
+ * Invalidate-only — no speculative patch. Does NOT reset the events-infinite
+ * family: that ownership belongs to exactly one canonical SSE per transition
+ * (see `projectTaskServer`).
  */
-function projectTaskServer<T extends SSEEventType>(context: ServerProjectionContext<T>): void {
+function invalidateTaskLifecycle<T extends SSEEventType>(
+  context: ServerProjectionContext<T>,
+): void {
   invalidateTaskDetail(context);
   const taskId = getTaskId(context.event);
   if (taskId) {
@@ -177,6 +181,28 @@ function projectTaskServer<T extends SSEEventType>(context: ServerProjectionCont
   context.queryClient.invalidateQueries({
     queryKey: queryKeys.habitats.detail(context.subscriptionHabitatId),
   });
+}
+
+/**
+ * Canonical activity-feed reset owner for a task transition.
+ *
+ * The backend emits BOTH a specific task SSE (e.g. `task.completed`) AND a
+ * co-emitted `task.updated` for a single transition. Assigning the
+ * events-infinite reset to exactly one SSE per transition avoids the
+ * double-reset refetch (N3) while keeping coverage: every transition that
+ * writes a habitat event row resets exactly once.
+ *
+ *   - `task.updated` (this handler) owns the reset for every transition whose
+ *     backend action co-emits it (claimed, submitted, approved, rejected,
+ *     completed, failed, released, updated, delegated, retry_executed,
+ *     escalated, ...). The specific SSEs for those transitions use
+ *     `invalidateTaskLifecycle` only.
+ *   - Sole-emission actions that write a row but emit NO `task.updated`
+ *     (`task.created`, `task.retry_scheduled`) own their own reset via this
+ *     handler.
+ */
+function projectTaskServer<T extends SSEEventType>(context: ServerProjectionContext<T>): void {
+  invalidateTaskLifecycle(context);
   resetEventsInfiniteForHabitat(context.queryClient, context.subscriptionHabitatId);
 }
 
@@ -220,7 +246,7 @@ export const SSE_EVENT_REGISTRY = {
   "task.updated": taskServerHandler,
   "task.moved": taskServerHandler,
   "task.claimed": defineSSEHandler<"task.claimed">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const agentName = getAgentName(event.data.agentId);
       const taskTitle = getTaskTitle(event.data.taskId);
@@ -228,7 +254,7 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.submitted": defineSSEHandler<"task.submitted">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const agentName = getAgentName(event.data.agentId);
       const taskTitle = getTaskTitle(event.data.taskId);
@@ -240,14 +266,14 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.approved": defineSSEHandler<"task.approved">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(event, "success", `Task "${taskTitle}" approved`);
     },
   }),
   "task.rejected": defineSSEHandler<"task.rejected">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       const message = `Task "${taskTitle}" rejected${event.data.reason ? `: ${event.data.reason}` : ""}`;
@@ -255,14 +281,14 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.completed": defineSSEHandler<"task.completed">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(event, "success", `Task "${taskTitle}" completed`);
     },
   }),
   "task.failed": defineSSEHandler<"task.failed">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       const message = `Task "${taskTitle}" failed${event.data.reason ? `: ${event.data.reason}` : ""}`;
@@ -270,14 +296,14 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.released": defineSSEHandler<"task.released">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
     notification: ({ event }) => {
       const taskTitle = getTaskTitle(event.data.taskId);
       return taskNotification(event, "info", `Task "${taskTitle}" released`);
     },
   }),
   "task.delegated": defineSSEHandler<"task.delegated">({
-    server: projectTaskServer,
+    server: invalidateTaskLifecycle,
   }),
   "task.cloned": noopHandler,
   "task.deleted": defineSSEHandler<"task.deleted">({
@@ -314,9 +340,10 @@ export const SSE_EVENT_REGISTRY = {
     },
   }),
   "task.commented": defineSSEHandler<"task.commented">({
-    server: ({ event, queryClient }) => {
+    server: ({ event, queryClient, subscriptionHabitatId }) => {
       const taskId = getTaskId(event);
       if (taskId) queryClient.invalidateQueries({ queryKey: queryKeys.tasks.comments(taskId) });
+      resetEventsInfiniteForHabitat(queryClient, subscriptionHabitatId);
     },
   }),
   "task.comment_deleted": defineSSEHandler<"task.comment_deleted">({
@@ -433,9 +460,15 @@ export const SSE_EVENT_REGISTRY = {
       queryClient.invalidateQueries({ queryKey: ["wiki", "signalSurface", subscriptionHabitatId] });
     },
   }),
-  "task.retry_scheduled": noopHandler,
-  "task.retry_executed": noopHandler,
-  "task.escalated": noopHandler,
+  "task.retry_scheduled": defineSSEHandler<"task.retry_scheduled">({
+    server: projectTaskServer,
+  }),
+  "task.retry_executed": defineSSEHandler<"task.retry_executed">({
+    server: invalidateTaskLifecycle,
+  }),
+  "task.escalated": defineSSEHandler<"task.escalated">({
+    server: invalidateTaskLifecycle,
+  }),
   "anomaly.detected": noopHandler,
   "mission.created": defineSSEHandler<"mission.created">({
     server: ({ event, queryClient }) => {

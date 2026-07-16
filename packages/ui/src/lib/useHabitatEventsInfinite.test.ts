@@ -16,15 +16,14 @@ function eventsPage(start: number, count: number, total: number) {
   return { events, total };
 }
 
-vi.mock("../api/index.js", () => ({
-  api: {
-    habitats: {
-      events: vi.fn(),
-    },
-  },
-}));
-
-import { api } from "../api/index.js";
+/** Build a fetch Response-like object the real transport (`request`) accepts. */
+function okResponse(body: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve(body),
+  } as Response;
+}
 
 function createWrapper(qc?: QueryClient) {
   const client = qc ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -37,19 +36,22 @@ function createWrapper(qc?: QueryClient) {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("useHabitatEventsInfinite — M11 empty-page terminal guard", () => {
   it("terminates (no next page) when a page returns empty while total > rawAccumulated", async () => {
     const TOTAL = 100;
-    const mockEvents = api.habitats.events as ReturnType<typeof vi.fn>;
-    mockEvents.mockImplementation((_habitat: string, filters: { offset?: number }) => {
-      const offset = filters.offset ?? 0;
-      if (offset === 0) return Promise.resolve(eventsPage(0, PAGE_SIZE, TOTAL));
+    // Real api: spy on globalThis.fetch (the transport calls fetch) and answer
+    // based on the request URL's offset query param.
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : (input as URL).toString();
+      const offsetMatch = url.match(/[?&]offset=(\d+)/);
+      const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+      if (offset === 0) return Promise.resolve(okResponse(eventsPage(0, PAGE_SIZE, TOTAL)));
       // A later page comes back empty but total still reports 100 — without the
       // empty-page guard this would loop on the same offset forever.
-      return Promise.resolve({ events: [], total: TOTAL });
+      return Promise.resolve(okResponse({ events: [], total: TOTAL }));
     });
 
     const { result } = renderHook(() => useHabitatEventsInfinite("h1"), {
@@ -66,29 +68,34 @@ describe("useHabitatEventsInfinite — M11 empty-page terminal guard", () => {
 
     expect(result.current.hasNextPage).toBe(false);
     // No third fetch is attempted after the empty terminal page.
-    expect(api.habitats.events).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("useHabitatEventsInfinite — m6 signal forwarded (abort on unmount)", () => {
-  it("forwards the React Query AbortSignal to api.habitats.events", async () => {
-    const capturedSignals: AbortSignal[] = [];
-    const mockEvents = api.habitats.events as ReturnType<typeof vi.fn>;
-    mockEvents.mockImplementation((_habitat: string, _filters: unknown, signal?: AbortSignal) => {
-      capturedSignals.push(signal!);
-      return new Promise(() => {});
+describe("useHabitatEventsInfinite — m6 signal forwarded through the real api to fetch", () => {
+  it("forwards the React Query AbortSignal to globalThis.fetch and aborts on unmount", async () => {
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      seenSignals.push((init as RequestInit | undefined)?.signal ?? undefined);
+      // Never resolves: the query stays in-flight so unmount is what aborts it.
+      return new Promise<Response>(() => {});
     });
 
     const { unmount } = renderHook(() => useHabitatEventsInfinite("h1"), {
       wrapper: createWrapper().wrapper,
     });
 
-    await waitFor(() => expect(capturedSignals.length).toBe(1));
-    expect(capturedSignals[0].aborted).toBe(false);
-    expect(capturedSignals[0]).toBeInstanceOf(AbortSignal);
+    await waitFor(() => expect(seenSignals).toHaveLength(1));
+    const signal = seenSignals[0]!;
+    // The signal is a real AbortSignal threaded from the hook → queryFn →
+    // api.habitats.events → transport.request → fetch's RequestInit.signal.
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
 
     unmount();
 
-    await waitFor(() => expect(capturedSignals[0].aborted).toBe(true));
+    // On unmount React Query aborts the in-flight query's signal, which is the
+    // SAME object handed to fetch — proving the abort reaches the network layer.
+    await waitFor(() => expect(signal.aborted).toBe(true));
   });
 });

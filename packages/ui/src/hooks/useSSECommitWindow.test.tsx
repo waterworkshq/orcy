@@ -97,30 +97,52 @@ describe("useSSE — M10 commit-to-cleanup window (real QueryClient)", () => {
       data: { id: "m1", habitatId: "A", version: 4, isArchived: true } as never,
     };
 
-    const { rerender } = renderHook(({ id }) => useSSE(id), {
-      wrapper: wrapperWith(client),
-      initialProps: { id: "A" },
-    });
+    // The stale A message handler, captured before the switch.
+    const staleHandlerRef: { current: ((e: { data: string }) => void) | null } = {
+      current: null,
+    };
+    // Switch driver: exposes setId so the test can re-render via React state
+    // (NOT RTL `rerender`, whose `act` wrapper flushes passive effects and
+    // would bump the generation before the window is observable).
+    const switchRef: { current: ((id: string) => void) | null } = { current: null };
+
+    function useHarness() {
+      const [id, setId] = React.useState("A");
+      switchRef.current = setId;
+      useSSE(id);
+      // This layout effect fires on id change AFTER useSSE's committed-habitat
+      // layout effect (committedHabitatRef = id) but BEFORE useSSE's PASSIVE
+      // cleanup (which bumps the generation). Layout effects always precede
+      // passive effects in a commit, so the generation is still the stale
+      // subscription's here — a generation-ONLY isActive() would read true and
+      // apply the stale effect. Only the committed-habitat leg (B != A) makes
+      // isActive() false. The delivery result is fixed at this instant,
+      // independent of when passives later flush.
+      React.useLayoutEffect(() => {
+        if (staleHandlerRef.current) {
+          staleHandlerRef.current({ data: JSON.stringify(archivePayload) });
+        }
+      }, [id]);
+    }
+
+    renderHook(() => useHarness(), { wrapper: wrapperWith(client) });
     await waitFor(() => expect(instances.length).toBe(1));
 
-    // Capture the stale subscription's listener before any cleanup can run.
-    const staleHandler = captureMessageHandler(instances[0]);
-    const missionsBefore = client.getQueryData<{ missions: { id: string; version: number }[] }>(
-      queryKeys.habitats.detail("A"),
-    )!.missions;
+    // Capture the stale A subscription's listener before any cleanup can run.
+    staleHandlerRef.current = captureMessageHandler(instances[0]);
+    const missionsBefore = client.getQueryData<{
+      missions: { id: string; version: number }[];
+    }>(queryKeys.habitats.detail("A"))!.missions;
 
-    // flushSync forces the re-render + layout effects synchronously (committed
-    // habitat becomes B) while DEFERRING passive-effect cleanup (the generation
-    // is NOT bumped yet). This is the exact window M10 exploits.
+    // Switch A->B. flushSync forces the synchronous commit (render + layout
+    // effects) so the stale event is delivered during the layout phase. No
+    // `act` wrapper: act would flush passive effects, but the delivery's effect
+    // is already decided during the layout effect above.
     flushSync(() => {
-      rerender({ id: "B" });
+      switchRef.current!("B");
     });
 
-    // Deliver the stale A event in the window: generation still matches, but the
-    // committed habitat (B) no longer matches the subscription (A).
-    staleHandler({ data: JSON.stringify(archivePayload) });
-
-    // Store: handleSSEEvent never ran.
+    // Store: handleSSEEvent never ran (handler returned at the isActive gate).
     expect(mockHandleSSEEvent).not.toHaveBeenCalled();
     // Cache: the newer active entry is intact (archive did not evict it).
     const missionsAfter = client.getQueryData<{

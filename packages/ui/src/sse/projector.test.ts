@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { projectSSEServerEvent, applySSEEphemeralUpdate } from "./registry.js";
 import { queryKeys } from "../lib/queryKeys.js";
-import type { ServerProjectionContext, SSEStoreState } from "./types.js";
+import type { ServerProjectionContext, SSEStoreState, SSEEventType } from "./types.js";
 import type {
   SSEEvent,
   Mission,
@@ -435,9 +435,8 @@ describe("M5 — version-guarded archive removal (real QueryClient)", () => {
   });
 });
 
-describe("M6 — task lifecycle resets the events-infinite family (real QueryClient)", () => {
-  it("a task.completed event resets (not invalidates) the eventsInfinite key", async () => {
-    const qc = qcWithDetail();
+describe("M6 — canonical events-infinite reset ownership (real QueryClient)", () => {
+  function seedInfinite(qc: QueryClient) {
     const infiniteKey = queryKeys.habitats.eventsInfinite("h1", undefined, 50);
     // Seed cached activity data so we can observe a reset clearing it. An
     // invalidate would leave the stale data in place (refetch in background);
@@ -446,27 +445,96 @@ describe("M6 — task lifecycle resets the events-infinite family (real QueryCli
       pages: [{ events: [{ id: "e1" } as never], total: 1 }],
       pageParams: [0],
     });
-    expect(qc.getQueryData(infiniteKey)).toBeDefined();
+    return infiniteKey;
+  }
 
-    const event: SSEEvent = { type: "task.completed", data: { taskId: "t1" } };
+  // Sole-emission events: the backend emits NO co-emitted task.updated, so the
+  // specific SSE itself owns the activity-feed reset. Each writes a habitat
+  // event row (transition-emitter createEvent / comment activity).
+  const soleEmission: { type: SSEEventType; data: unknown }[] = [
+    { type: "task.created", data: { id: "t1", missionId: "m1" } },
+    { type: "task.retry_scheduled", data: { taskId: "t1", nextRetryAt: "", retryCount: 0 } },
+    { type: "task.commented", data: { taskId: "t1", comment: { id: "c1" } } },
+  ];
+
+  it.each(soleEmission)(
+    "sole-emission $type owns the eventsInfinite reset",
+    async ({ type, data }) => {
+      const qc = qcWithDetail();
+      const infiniteKey = seedInfinite(qc);
+      const event = { type, data } as SSEEvent;
+      await projectSSEServerEvent(event, ctx(event, qc));
+      expect(qc.getQueryData(infiniteKey)).toBeUndefined();
+    },
+  );
+
+  // Specific lifecycle SSEs do NOT reset — the backend co-emits task.updated
+  // for these transitions, and task.updated owns the reset (avoids N3
+  // double-reset). The specific SSE still invalidates task/mission detail.
+  const pairedSpecific: { type: SSEEventType; data: unknown }[] = [
+    { type: "task.completed", data: { taskId: "t1" } },
+    { type: "task.claimed", data: { taskId: "t1", agentId: "a1" } },
+    { type: "task.submitted", data: { taskId: "t1", agentId: "a1" } },
+    { type: "task.failed", data: { taskId: "t1", reason: "" } },
+    { type: "task.delegated", data: { taskId: "t1", fromAgentId: "", toAgentId: "" } },
+    { type: "task.retry_executed", data: { taskId: "t1", retryCount: 0 } },
+    { type: "task.escalated", data: { taskId: "t1", retryCount: 0, reason: "" } },
+  ];
+
+  it.each(pairedSpecific)(
+    "specific $type does NOT reset eventsInfinite (task.updated owns it)",
+    async ({ type, data }) => {
+      const qc = qcWithDetail();
+      const infiniteKey = seedInfinite(qc);
+      const event = { type, data } as SSEEvent;
+      await projectSSEServerEvent(event, ctx(event, qc));
+      // Specific event does not reset — cached activity survives until the
+      // co-emitted task.updated resets it.
+      expect(qc.getQueryData(infiniteKey)).toBeDefined();
+    },
+  );
+
+  it("task.updated (canonical co-emission) resets eventsInfinite", async () => {
+    const qc = qcWithDetail();
+    const infiniteKey = seedInfinite(qc);
+    const event = {
+      type: "task.updated",
+      data: { id: "t1", missionId: "m1" },
+    } as unknown as SSEEvent;
     await projectSSEServerEvent(event, ctx(event, qc));
-
-    // Reset clears the cached data — proving reset, not invalidate.
     expect(qc.getQueryData(infiniteKey)).toBeUndefined();
   });
 
   it("invalidateHabitatRepresentations resets the eventsInfinite family", async () => {
     const { invalidateHabitatRepresentations } = await import("../lib/habitatMutations.js");
     const qc = qcWithDetail();
-    const infiniteKey = queryKeys.habitats.eventsInfinite("h1", undefined, 50);
-    qc.setQueryData(infiniteKey, {
-      pages: [{ events: [{ id: "e1" } as never], total: 1 }],
-      pageParams: [0],
-    });
-
+    const infiniteKey = seedInfinite(qc);
     invalidateHabitatRepresentations(qc, "h1");
-
     expect(qc.getQueryData(infiniteKey)).toBeUndefined();
+  });
+});
+
+describe("N3 — a transition's specific SSE + task.updated reset eventsInfinite exactly once", () => {
+  it("projects task.completed + task.updated with a single eventsInfinite reset", async () => {
+    const qc = qcWithDetail();
+    const resetSpy = vi.spyOn(qc, "resetQueries");
+
+    // Backend emits BOTH a specific SSE AND task.updated for one transition.
+    const specific = { type: "task.completed", data: { taskId: "t1" } } as SSEEvent;
+    const updated = {
+      type: "task.updated",
+      data: { id: "t1", missionId: "m1" },
+    } as unknown as SSEEvent;
+    await projectSSEServerEvent(specific, ctx(specific, qc));
+    await projectSSEServerEvent(updated, ctx(updated, qc));
+
+    const eventsResets = resetSpy.mock.calls.filter(
+      (call) =>
+        Array.isArray((call[0] as { queryKey?: unknown })?.queryKey) &&
+        (call[0] as { queryKey: unknown[] }).queryKey.includes("eventsInfinite"),
+    );
+    // Exactly one reset per transition — not two (the N3 double-reset defect).
+    expect(eventsResets).toHaveLength(1);
   });
 });
 
