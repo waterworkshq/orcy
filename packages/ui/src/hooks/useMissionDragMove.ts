@@ -6,10 +6,13 @@ import {
   isVersionConflict,
   notifyVersionConflict,
   patchMissionInHabitatDetail,
+  type HabitatDetailData,
 } from "../lib/habitatMutations.js";
+import { queryKeys } from "../lib/queryKeys.js";
 import type { Mission } from "../types/index.js";
 
 interface MoveEntry {
+  habitatId: string;
   currentTarget: string;
   queuedTarget: string | null;
   controller: AbortController;
@@ -61,14 +64,25 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
     });
   }, []);
 
+  const clearOwnedPreview = useCallback((missionId: string, ownedTarget: string) => {
+    setPreviewByMission((prev) => {
+      if (prev[missionId] !== ownedTarget) return prev;
+      const next = { ...prev };
+      delete next[missionId];
+      return next;
+    });
+  }, []);
+
   const runMove = useCallback(
     async (missionId: string, targetColumnId: string, expectedVersion: number) => {
+      if (!habitatId) return;
       const generation = generationRef.current;
       const capturedHabitatId = habitatId;
       const isActive = () =>
         generation === generationRef.current && capturedHabitatId === committedHabitatRef.current;
       const controller = new AbortController();
       movesRef.current[missionId] = {
+        habitatId: capturedHabitatId,
         currentTarget: targetColumnId,
         queuedTarget: null,
         controller,
@@ -82,42 +96,63 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
           { columnId: targetColumnId, expectedVersion },
           controller.signal,
         );
-        if (!isActive()) return;
+        // Reconcile the CAPTURED habitat's cache regardless of a habitat switch:
+        // the server may already have committed, so a committed move must never
+        // be silently dropped. The closure wrappers target the captured habitat.
         patchMissionInCache(mission);
         invalidate();
 
         const entry = movesRef.current[missionId];
         if (!entry || entry.controller !== controller) return;
-        if (entry.queuedTarget && entry.queuedTarget !== entry.currentTarget) {
+        if (
+          isActive() &&
+          entry.queuedTarget != null &&
+          entry.queuedTarget !== entry.currentTarget
+        ) {
           const nextTarget = entry.queuedTarget;
           delete movesRef.current[missionId];
           void runMove(missionId, nextTarget, mission.version);
           return;
         }
         delete movesRef.current[missionId];
-        clearPreview(missionId);
+        if (!isActive()) return;
+        clearOwnedPreview(missionId, targetColumnId);
       } catch (err) {
-        if (controller.signal.aborted || !isActive()) return;
-        delete movesRef.current[missionId];
-        clearPreview(missionId);
+        if (controller.signal.aborted) return;
+        invalidate();
+        const entry = movesRef.current[missionId];
+        if (entry && entry.controller === controller) delete movesRef.current[missionId];
+        if (!isActive()) return;
+        clearOwnedPreview(missionId, targetColumnId);
         if (isVersionConflict(err)) {
           notifyVersionConflict("This mission", invalidate);
         }
-        invalidate();
       } finally {
         if (isActive()) {
           setActiveMoveCount((c) => c - 1);
         }
       }
     },
-    [habitatId, patchMissionInCache, invalidate, clearPreview],
+    [habitatId, patchMissionInCache, invalidate, clearOwnedPreview],
+  );
+
+  const resolveCanonicalVersion = useCallback(
+    (missionId: string, fallback: number) => {
+      if (!habitatId) return fallback;
+      const detail = qc.getQueryData<HabitatDetailData>(queryKeys.habitats.detail(habitatId));
+      const cached = detail?.missions.find((m) => m.id === missionId);
+      return cached ? cached.version : fallback;
+    },
+    [qc, habitatId],
   );
 
   const drop = useCallback(
     (args: DropArgs) => {
       const { missionId, canonicalColumnId, targetColumnId, expectedVersion } = args;
       const existing = movesRef.current[missionId];
-      if (existing) {
+      // Coalesce only onto an entry belonging to the CURRENT habitat; a stale
+      // entry from a pre-switch habitat is overwritten by the fresh move below.
+      if (existing && existing.habitatId === habitatId) {
         existing.queuedTarget = targetColumnId;
         setPreviewByMission((prev) => ({ ...prev, [missionId]: targetColumnId }));
         return;
@@ -126,9 +161,10 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
         clearPreview(missionId);
         return;
       }
-      void runMove(missionId, targetColumnId, expectedVersion);
+      const canonicalVersion = resolveCanonicalVersion(missionId, expectedVersion);
+      void runMove(missionId, targetColumnId, canonicalVersion);
     },
-    [runMove, clearPreview],
+    [runMove, clearPreview, habitatId, resolveCanonicalVersion],
   );
 
   const setPreview = useCallback((missionId: string, targetColumnId: string) => {
@@ -161,11 +197,12 @@ export function useMissionDragMove(habitatId: string | undefined): UseMissionDra
     setActiveMoveCount(0);
     setPreviewByMission({});
     return () => {
+      // Bump the generation so stale completions skip UI continuations for the
+      // new habitat. A committed move is NEVER aborted: the server may already
+      // have applied it, so the in-flight entry is left to complete and patch
+      // its captured habitat's cache (reconciling on revisit). Entries self-
+      // clean via the controller-identity guard in the completion path.
       generationRef.current++;
-      for (const id of Object.keys(movesRef.current)) {
-        movesRef.current[id]?.controller.abort();
-      }
-      movesRef.current = {};
       setActiveMoveCount(0);
       setPreviewByMission({});
     };

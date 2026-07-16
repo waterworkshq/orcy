@@ -18,6 +18,8 @@ interface CapturedHandlers {
 
 let captured: CapturedHandlers = {};
 
+let bulkMode = false;
+
 const dragMoveResult = {
   previewByMission: {} as Record<string, string>,
   isMoving: false,
@@ -83,7 +85,7 @@ vi.mock("../../lib/useHabitatData.js", () => ({
 
 vi.mock("../../store/habitatStore.js", () => ({
   useHabitatStore: (selector?: any) =>
-    selector ? selector({ isBulkSelectMode: false }) : { isBulkSelectMode: false },
+    selector ? selector({ isBulkSelectMode: bulkMode }) : { isBulkSelectMode: bulkMode },
 }));
 
 const baseProgress = {
@@ -196,9 +198,26 @@ function renderHabitat(missions: MissionWithProgress[]) {
   );
 }
 
+function rerenderHabitat(rerender: (ui: React.ReactNode) => void, missions: MissionWithProgress[]) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  rerender(
+    <QueryClientProvider client={qc}>
+      <Habitat
+        habitat={habitat}
+        columns={columns}
+        missions={missions}
+        onColumnSettingsClick={vi.fn()}
+        onAddColumnClick={vi.fn()}
+        presence={[]}
+      />
+    </QueryClientProvider>,
+  );
+}
+
 describe("Habitat drag lifecycle (M9, m1)", () => {
   beforeEach(() => {
     captured = {};
+    bulkMode = false;
     dragMoveResult.previewByMission = {};
     dragMoveResult.isMoving = false;
     dragMoveResult.drop.mockReset();
@@ -287,5 +306,58 @@ describe("Habitat drag lifecycle (M9, m1)", () => {
     expect(dragMoveResult.drop).toHaveBeenCalledWith(
       expect.objectContaining({ missionId: "m1", targetColumnId: "col-b" }),
     );
+  });
+
+  it("R7: restores the preview when the mission disappeared mid-drag (archive/delete)", () => {
+    const { rerender } = renderHabitat([makeMission("m1", "col-a")]);
+
+    act(() => {
+      captured.onDragStart!({ active: { id: "m1" } });
+    });
+
+    // The mission disappears before drag end (realtime archive/delete/filter).
+    rerenderHabitat(rerender, []);
+
+    act(() => {
+      captured.onDragEnd!({ active: { id: "m1" }, over: { id: "col-b" } });
+    });
+
+    expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1");
+    expect(dragMoveResult.drop).not.toHaveBeenCalled();
+  });
+
+  it("R7: clears the drag overlay and restores the preview when bulk mode toggles mid-drag", () => {
+    const { rerender } = renderHabitat([makeMission("m1", "col-a")]);
+
+    act(() => {
+      captured.onDragStart!({ active: { id: "m1" } });
+    });
+
+    // Bulk-select mode is toggled while a drag is in progress.
+    bulkMode = true;
+    rerenderHabitat(rerender, [makeMission("m1", "col-a")]);
+
+    act(() => {
+      captured.onDragEnd!({ active: { id: "m1" }, over: { id: "col-b" } });
+    });
+
+    expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1");
+    expect(dragMoveResult.drop).not.toHaveBeenCalled();
+  });
+
+  it("R7: drag cancel restores the preview when the mission disappeared mid-drag", () => {
+    const { rerender } = renderHabitat([makeMission("m1", "col-a")]);
+
+    act(() => {
+      captured.onDragStart!({ active: { id: "m1" } });
+    });
+
+    rerenderHabitat(rerender, []);
+
+    act(() => {
+      captured.onDragCancel!({ active: { id: "m1" } });
+    });
+
+    expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1");
   });
 });

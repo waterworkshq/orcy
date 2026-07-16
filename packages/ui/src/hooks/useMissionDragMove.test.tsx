@@ -312,7 +312,7 @@ describe("useMissionDragMove", () => {
     expect(result.current.previewByMission["m1"]).toBeUndefined();
   });
 
-  it("aborts the in-flight move on habitat switch; a stale completion cannot patch the cache or clear a newer preview", async () => {
+  it("R4: does not abort a committed move on habitat switch; completion reconciles the captured habitat's cache", async () => {
     let resolveMove: (val: any) => void = () => {};
     moveMock.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -348,7 +348,8 @@ describe("useMissionDragMove", () => {
 
     rerender({ hid: "h2" });
 
-    expect(signal.aborted).toBe(true);
+    // The committed move is NEVER aborted — the server may already have applied it.
+    expect(signal.aborted).toBe(false);
     expect(result.current.previewByMission["m1"]).toBeUndefined();
     expect(result.current.isMoving).toBe(false);
 
@@ -357,15 +358,16 @@ describe("useMissionDragMove", () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
+    // The captured (h1) habitat reconciles — it must not render stale-but-fresh.
     const h1Detail = qc.getQueryData<{ missions: MissionWithProgress[] }>(
       queryKeys.habitats.detail("h1"),
     );
     const cached = h1Detail?.missions.find((m) => m.id === "m1");
-    expect(cached?.columnId).toBe("col-a");
-    expect(cached?.version).toBe(1);
+    expect(cached?.columnId).toBe("col-b");
+    expect(cached?.version).toBe(2);
   });
 
-  it("aborts the in-flight move on unmount; a stale completion cannot patch the cache", async () => {
+  it("R4: does not abort a committed move on unmount; completion reconciles the cache", async () => {
     let resolveMove: (val: any) => void = () => {};
     moveMock.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -398,7 +400,7 @@ describe("useMissionDragMove", () => {
 
     unmount();
 
-    expect(signal.aborted).toBe(true);
+    expect(signal.aborted).toBe(false);
 
     await act(async () => {
       resolveMove({ mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }) });
@@ -409,8 +411,160 @@ describe("useMissionDragMove", () => {
       queryKeys.habitats.detail("h1"),
     );
     const cached = h1Detail?.missions.find((m) => m.id === "m1");
-    expect(cached?.columnId).toBe("col-a");
-    expect(cached?.version).toBe(1);
+    expect(cached?.columnId).toBe("col-b");
+    expect(cached?.version).toBe(2);
+  });
+
+  it("R5: a completion does not clear a newer drag-over preview for the same mission", async () => {
+    let resolveB: (val: any) => void = () => {};
+    moveMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveB = resolve;
+      }),
+    );
+
+    const { result } = renderHookWithQC("h1");
+
+    // Drop B: col-a → col-b (in-flight)
+    act(() => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+    });
+    await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+    expect(result.current.previewByMission["m1"]).toBe("col-b");
+
+    // A newer drag-over previews col-c while B is pending.
+    act(() => {
+      result.current.setPreview("m1", "col-c");
+    });
+    expect(result.current.previewByMission["m1"]).toBe("col-c");
+
+    // Resolving B must NOT snap the card back (clear the newer col-c preview).
+    await act(async () => {
+      resolveB({ mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }) });
+    });
+
+    expect(result.current.previewByMission["m1"]).toBe("col-c");
+  });
+
+  it("R5: a fast follow-up drop derives expectedVersion from the just-patched cache, not the lagging prop", async () => {
+    moveMock.mockResolvedValueOnce({
+      mission: makeMission({ id: "m1", columnId: "col-b", version: 2 }),
+    });
+
+    const { result, qc } = renderHookWithQC("h1");
+
+    // Drop B (col-a → col-b, v1). Completes and patches the cache → m1 v2.
+    await act(async () => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+      await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+    });
+
+    const detail = qc.getQueryData<{ missions: MissionWithProgress[] }>(
+      queryKeys.habitats.detail("h1"),
+    );
+    expect(detail?.missions.find((m) => m.id === "m1")?.version).toBe(2);
+
+    // Immediately drop C before the parent rerenders — pass the LAGGING prop (v1).
+    moveMock.mockResolvedValueOnce({
+      mission: makeMission({ id: "m1", columnId: "col-c", version: 3 }),
+    });
+    await act(async () => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-c",
+        expectedVersion: 1,
+      });
+      await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(2));
+    });
+
+    // The canonical version (2) was read from the just-patched cache, not the prop (1).
+    expect(moveMock).toHaveBeenLastCalledWith(
+      "m1",
+      { columnId: "col-c", expectedVersion: 2 },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("R6: a drop after a habitat switch issues a fresh move, not coalesced onto the stale pre-switch entry", async () => {
+    let resolveH1: (val: any) => void = () => {};
+    moveMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveH1 = resolve;
+      }),
+    );
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(queryKeys.habitats.detail("h1"), {
+      habitat: { id: "h1" },
+      columns: [],
+      missions: [makeMission({ id: "m1", columnId: "col-a", version: 1 })],
+    });
+    qc.setQueryData(queryKeys.habitats.detail("h2"), {
+      habitat: { id: "h2" },
+      columns: [],
+      missions: [makeMission({ id: "m1", columnId: "col-a", version: 1 })],
+    });
+
+    const { result, rerender } = renderHook(({ hid }: { hid: string }) => useMissionDragMove(hid), {
+      initialProps: { hid: "h1" },
+      wrapper: makeWrapper(qc),
+    });
+
+    // h1 drop B (in-flight). Entry is tagged h1.
+    act(() => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-b",
+        expectedVersion: 1,
+      });
+    });
+    await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(1));
+
+    // Switch habitat. The stale h1 entry remains in the registry (not aborted).
+    rerender({ hid: "h2" });
+
+    // h2 drop for m1 must issue a fresh move immediately, NOT queue onto the h1
+    // entry (which would only fire after h1 resolves, or be discarded).
+    moveMock.mockResolvedValueOnce({
+      mission: makeMission({ id: "m1", columnId: "col-c", version: 2 }),
+    });
+    await act(async () => {
+      result.current.drop({
+        missionId: "m1",
+        canonicalColumnId: "col-a",
+        targetColumnId: "col-c",
+        expectedVersion: 1,
+      });
+      await vi.waitFor(() => expect(moveMock).toHaveBeenCalledTimes(2));
+    });
+
+    expect(moveMock).toHaveBeenLastCalledWith(
+      "m1",
+      { columnId: "col-c", expectedVersion: 1 },
+      expect.any(AbortSignal),
+    );
+
+    // The stale h1 entry still completes and reconciles h1 (R4, no data loss).
+    await act(async () => {
+      resolveH1({ mission: makeMission({ id: "m1", columnId: "col-b", version: 5 }) });
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    const h1Detail = qc.getQueryData<{ missions: MissionWithProgress[] }>(
+      queryKeys.habitats.detail("h1"),
+    );
+    expect(h1Detail?.missions.find((m) => m.id === "m1")?.columnId).toBe("col-b");
   });
 
   it("restorePreview returns to the in-flight target while a move is running, and clears when idle", async () => {

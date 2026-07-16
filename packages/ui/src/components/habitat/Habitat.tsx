@@ -156,12 +156,18 @@ export function Habitat({
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    if (isBulkSelectMode) return;
     const { active, over } = event;
     setActiveFeature(null);
+    if (isBulkSelectMode) {
+      restorePreview(String(active.id));
+      return;
+    }
 
     const dragged = missions.find((f) => f.id === active.id);
-    if (!dragged) return;
+    if (!dragged) {
+      restorePreview(String(active.id));
+      return;
+    }
 
     if (!over) {
       restorePreview(dragged.id);
@@ -190,10 +196,12 @@ export function Habitat({
   }
 
   function handleDragCancel(event: DragCancelEvent) {
-    if (isBulkSelectMode) return;
     setActiveFeature(null);
-    const dragged = missions.find((f) => f.id === event.active.id);
-    if (dragged) restorePreview(dragged.id);
+    if (isBulkSelectMode) {
+      restorePreview(String(event.active.id));
+      return;
+    }
+    restorePreview(String(event.active.id));
   }
 
   if (!habitat) {
