@@ -24,6 +24,7 @@ import {
   taskSubtasks,
   taskDependencies,
   missionRecalculationMarkers,
+  scheduledOccurrences,
   tasks,
 } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
@@ -492,6 +493,28 @@ describe("Attempt / envelope / dispatch / reservation survive habitat replace", 
       .where(eq(taskCreationAttempts.id, attemptId))
       .run();
 
+    // m5 strengthening: seed BOTH a scheduled_occurrences row AND a
+    // mission_recalculation_markers row BEFORE the habitat delete. The prior
+    // test seeded the marker AFTER the delete (and never seeded an occurrence),
+    // so it proved no-FK-insert works but NOT that pre-existing cross-chain
+    // rows survive a habitat replace. These two tables are forward-compatible
+    // Story-3 / projection storage with plain-text cross-chain IDs (no FK) —
+    // the test now proves pre-existing rows are not swept by the cascade.
+    db.insert(scheduledOccurrences)
+      .values({
+        id: "occ-non-cascade",
+        scheduledTaskId: "sched-non-cascade",
+        scheduledFor: now,
+        ordinal: 1,
+        state: "reserved",
+        attemptId,
+        createdMissionId: missionId,
+      })
+      .run();
+    db.insert(missionRecalculationMarkers)
+      .values({ id: "mkr-non-cascade", missionId, reason: "non-cascade-test", state: "pending" })
+      .run();
+
     // Replace the habitat — delete it. The cascade goes Habitat → Mission → Task.
     habitatRepo.deleteHabitat(habitatId);
 
@@ -526,20 +549,39 @@ describe("Attempt / envelope / dispatch / reservation survive habitat replace", 
         .all(),
     ).toHaveLength(1);
 
-    // Sanity: mission-recalculation marker (also cross-chain plain text, no FK)
-    // survives too. Insert after the habitat/mission are gone — missionId is a
-    // plain-text column with no FK, so the reference may dangle by design.
-    db.insert(missionRecalculationMarkers)
-      .values({ id: "mkr-non-cascade", missionId, reason: "non-cascade-test", state: "pending" })
-      .run();
-    expect(getDb().select().from(missionRecalculationMarkers).all()).toHaveLength(1);
+    // The pre-existing scheduled occurrence AND mission-recalculation marker
+    // ALSO survive — both reference the habitat's mission/task via plain-text
+    // columns with no FK, so the habitat-replace cascade cannot reach them.
+    expect(
+      getDb()
+        .select()
+        .from(scheduledOccurrences)
+        .where(eq(scheduledOccurrences.id, "occ-non-cascade"))
+        .all(),
+    ).toHaveLength(1);
+    expect(
+      getDb()
+        .select()
+        .from(scheduledOccurrences)
+        .where(eq(scheduledOccurrences.id, "occ-non-cascade"))
+        .all()[0].createdMissionId,
+    ).toBe(missionId);
+    expect(
+      getDb()
+        .select()
+        .from(missionRecalculationMarkers)
+        .where(eq(missionRecalculationMarkers.id, "mkr-non-cascade"))
+        .all(),
+    ).toHaveLength(1);
 
     // **Failure mode that breaks this assertion**: if the schema accidentally
     // added a cascade-FK on `envelopes.task_id`, `dispatch_targets` (via
-    // envelopes), `reservations.task_id`, or `attempts.committed_task_id` /
-    // `.committed_mission_id`, the habitat delete would cascade through and
-    // delete these rows. The test proves the "non-cascade by design" invariant
-    // actually holds at the SQL level.
+    // envelopes), `reservations.task_id`, `attempts.committed_task_id` /
+    // `.committed_mission_id`, `scheduled_occurrences.created_mission_id` /
+    // `.attempt_id`, or `mission_recalc_markers.mission_id`, the habitat delete
+    // would cascade through and delete these rows. The test proves the
+    // "non-cascade by design" invariant actually holds at the SQL level for
+    // pre-existing rows — not just that a post-delete insert succeeds.
   });
 });
 

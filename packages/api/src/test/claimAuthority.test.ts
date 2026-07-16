@@ -45,9 +45,12 @@ import { addTaskDependency } from "../repositories/dependency.js";
 import {
   claimWithAuthority,
   claimWithAuthorityClient,
+  progressWithAuthority,
   type Claimant,
   type ClaimResult,
 } from "../repositories/claimAuthority.js";
+import * as taskStateMachine from "../repositories/taskStateMachine.js";
+import type { Task } from "../models/index.js";
 import { FailingDbClient } from "./helpers/failingDbClient.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 
@@ -621,6 +624,403 @@ describe("claimWithAuthority — delegated mode", () => {
     // Failure mode: running checkClaimability in delegated mode would be a
     // behavior change vs the legacy claimDelegatedTask — pinned so Phase 3
     // makes the decision explicitly, not by accident.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M1 remediation — delegated claims honor observation + reservation gates.
+//
+// Pre-remediation the delegated branch returned via commitDelegatedClaim BEFORE
+// the gate checks, letting a delegated claim bypass the publication gates. The
+// fix runs observation + reservation in delegated mode too (only the four
+// ADR-0038 intrinsic guards stay skipped — delegated parity). All dormant for
+// legacy tasks (creationIntegrity=0; reservation table empty until T5).
+// ---------------------------------------------------------------------------
+
+describe("M1 remediation — delegated claims honor the publication gates", () => {
+  function seedDelegated(title: string, delegateToId: string, assigneeId: string) {
+    const { task } = seedMission({ title });
+    taskRepo.updateTask(task.id, {
+      delegatedToAgentId: delegateToId,
+      status: "claimed",
+      assignedAgentId: assigneeId,
+    });
+    return task;
+  }
+
+  it("returns observation_pending when a delegated task lacks its creation-dispatch checkpoint (creationIntegrity > 0)", () => {
+    const assignee = seedAgent("assignee");
+    const delegate = seedAgent("delegate-obs");
+    const task = seedDelegated("delegated-observation", delegate.id, assignee.id);
+    // Simulate a post-cutover task missing its observation checkpoint.
+    getDb().update(tasks).set({ creationIntegrity: 1 }).where(eq(tasks.id, task.id)).run();
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(delegate.id), {
+      delegated: true,
+    });
+    expect(result).toEqual({
+      success: false,
+      category: "observation_pending",
+      reason: "observation_pending",
+    });
+    // Failure mode: pre-M1 the delegated branch returned via commitDelegatedClaim
+    // before this gate — the claim would SUCCEED, defeating the observation guard
+    // for delegated claims. This proves the gate now fires on both paths.
+  });
+
+  it("returns reserved_for_other when an active reservation exists for a different identity (delegated)", () => {
+    const assignee = seedAgent("assignee");
+    const delegate = seedAgent("delegate-res");
+    const holder = seedAgent("holder-res");
+    const task = seedDelegated("delegated-reserved", delegate.id, assignee.id);
+    // Another agent holds an active reservation on this task.
+    seedActiveReservation(getDb(), task.id, holder.id, "resv-delegated-other");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(delegate.id), {
+      delegated: true,
+    });
+    expect(result).toEqual({
+      success: false,
+      category: "reserved_for_other",
+      reason: "reserved_for_other",
+      reservedFor: holder.id,
+    });
+    // Failure mode: pre-M1 the delegated branch skipped the reservation gate —
+    // the delegate would claim a task explicitly reserved for someone else.
+  });
+
+  it("the delegated reservation gate also fires through claimDelegatedTask (end-to-end via the repo function)", () => {
+    const assignee = seedAgent("assignee");
+    const delegate = seedAgent("delegate-e2e");
+    const holder = seedAgent("holder-e2e");
+    const task = seedDelegated("delegated-e2e", delegate.id, assignee.id);
+    seedActiveReservation(getDb(), task.id, holder.id, "resv-e2e");
+
+    const result = taskStateMachine.claimDelegatedTask(task.id, delegate.id);
+    // The legacy flatten maps reserved_for_other → "reserved_for_other" (NEW
+    // reason; never fires for legacy until T5).
+    expect(result).toEqual({ success: false, reason: "reserved_for_other" });
+    // Failure mode: if claimDelegatedTask still bypassed the gate, the claim
+    // would succeed and the task would be stolen from the reservation holder.
+  });
+
+  it("PRESERVE: delegated claim still succeeds for a legacy task with no reservation (the gate-open case)", () => {
+    // Regression guard: the M1 gate additions must NOT change legacy behavior.
+    // A legacy delegated task (creationIntegrity=0, no reservations) still claims.
+    const assignee = seedAgent("assignee");
+    const delegate = seedAgent("delegate-legacy");
+    const task = seedDelegated("delegated-legacy-ok", delegate.id, assignee.id);
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(delegate.id), {
+      delegated: true,
+    });
+    expect(result.success).toBe(true);
+    // Failure mode: a gate that blocks legacy delegated claims would regress
+    // the delegated claim path on the day reservations/observation land.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M2 remediation — reservation gate is transport-safe + NULL fails closed.
+//
+// Pre-remediation activeReservationForOther compared only the raw ID string, so
+// a remote participant presenting the same string as the reserved local agent
+// could claim; an active NULL requested_agent_id failed OPEN. The fix matches
+// on kind==="local" + id, and treats NULL as BLOCKING (invalid state).
+// ---------------------------------------------------------------------------
+
+describe("M2 remediation — reservation gate (transport-safe + NULL blocks)", () => {
+  it("BLOCKS a remote participant presenting the SAME string as the reserved local agent", () => {
+    const holder = seedAgent("agent-x"); // local agent id
+    const { task } = seedMission({ title: "remote-id-collision" });
+    // Reservation targets the local agent "agent-x".
+    seedActiveReservation(getDb(), task.id, holder.id, "resv-collision");
+    // A remote participant using the LITERAL SAME STRING tries to claim.
+    const result = claimWithAuthority(getDb(), task.id, remoteClaimant(holder.id));
+
+    expect(result).toEqual({
+      success: false,
+      category: "reserved_for_other",
+      reason: "reserved_for_other",
+      reservedFor: holder.id,
+    });
+    // Failure mode: pre-M2 the raw-ID comparison matched (string === string),
+    // letting the remote participant steal the targeted reservation. The fix
+    // requires kind==="local" — remote never matches.
+  });
+
+  it("BLOCKS when an active reservation has requested_agent_id IS NULL (invalid state fails closed)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "null-reservation" });
+    // Seed an active reservation with a NULL requested_agent_id directly (the
+    // creation seam now forbids this, but the column stays nullable — the gate
+    // defends against legacy/direct inserts).
+    getDb()
+      .insert(taskCreationAttempts)
+      .values({
+        id: "attempt-null-res",
+        source: "test",
+        sourceScopeKind: "mission",
+        sourceScopeId: "m-test",
+        attemptKey: "key-null-res",
+        requestFingerprint: "fp-null-res",
+        publicationKind: "create",
+        actorType: "human",
+        actorId: "user-1",
+        state: "pending",
+      })
+      .run();
+    getDb()
+      .insert(taskCreationAssignmentReservations)
+      .values({
+        id: "res-null",
+        taskId: task.id,
+        attemptId: "attempt-null-res",
+        requestedAgentId: null, // the invalid state
+        deadline: new Date().toISOString(),
+        state: "active",
+      })
+      .run();
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result).toEqual({
+      success: false,
+      category: "reserved_for_other",
+      reason: "reserved_for_other",
+      reservedFor: "<unspecified>",
+    });
+    // Failure mode: pre-M2 a NULL requested_agent_id was treated as "no
+    // specific identity" and did NOT block (failed open). The fix treats NULL
+    // as an invalid blocking state — nobody matches, so nobody may claim.
+  });
+
+  it("still lets the MATCHING local agent claim (reservation honored)", () => {
+    const holder = seedAgent("matching-agent");
+    const { task } = seedMission({ title: "matching-local" });
+    seedActiveReservation(getDb(), task.id, holder.id, "resv-match-m2");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(holder.id));
+    expect(result.success).toBe(true);
+    // Failure mode: over-blocking (treating the matching local agent as
+    // "other") would defeat the reservation's whole purpose.
+  });
+
+  it("BLOCKS a local agent with a DIFFERENT id from the reserved one", () => {
+    const holder = seedAgent("reserved-agent");
+    const other = seedAgent("other-agent");
+    const { task } = seedMission({ title: "local-other" });
+    seedActiveReservation(getDb(), task.id, holder.id, "resv-local-other");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(other.id));
+    expect(result).toEqual({
+      success: false,
+      category: "reserved_for_other",
+      reason: "reserved_for_other",
+      reservedFor: holder.id,
+    });
+    // Failure mode: matching on id alone (without the kind guard) would still
+    // block here, but the transport-safety is proven by the remote-collision
+    // test above; this row pins the ordinary different-local-id block.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M3 remediation — start functions are TOCTOU-safe (progressWithAuthority).
+//
+// Pre-remediation startTask / startTaskByRemoteParticipant ran checkProgressionGates
+// then a SEPARATE UPDATE with no transaction — a reservation appearing between
+// the gate-check and the mutation could let the start through. progressWithAuthority
+// runs gates + mutation + verify in ONE transaction, with the reservation gate
+// inlined as a NOT EXISTS subquery in the UPDATE WHERE so a mid-tx reservation
+// is observed and the UPDATE no-ops. Proven by a tx-injection shim.
+// ---------------------------------------------------------------------------
+
+/**
+ * Tx-injection shim for the M3 TOCTOU proof. Wraps the real tx so that the
+ * first `.update(...)...run()` (progressWithAuthorityClient's mutation) first
+ * inserts an active reservation for `raceAgentId` on `raceTaskId` INTO THE SAME
+ * TX. This models a reservation appearing in the window between the gate SELECT
+ * and the mutation. progressWithAuthority's inlined NOT EXISTS subquery sees
+ * the just-inserted row (same tx snapshot) → the UPDATE no-ops → post-write
+ * verify returns null → the start is blocked.
+ */
+class RaceInjectingClient {
+  private injected = false;
+  constructor(
+    public readonly inner: TaskPublicationDbClient,
+    private readonly inject: () => void,
+  ) {}
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  select(...args: any[]): any {
+    return (this.inner as unknown as { select: (...a: unknown[]) => unknown }).select(...args);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  insert(table: unknown): any {
+    return (this.inner as unknown as { insert: (t: unknown) => unknown }).insert(table);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete(table: unknown): any {
+    return (this.inner as unknown as { delete: (t: unknown) => unknown }).delete(table);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  update(table: unknown): any {
+    const innerBuilder = (this.inner as unknown as { update: (t: unknown) => unknown }).update(
+      table,
+    );
+    return this.wrapChain(innerBuilder);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private wrapChain(builder: unknown): any {
+    return new Proxy(builder as object, {
+      get: (target, prop) => {
+        if (prop === "run") {
+          return () => {
+            if (!this.injected) {
+              this.injected = true;
+              this.inject();
+            }
+            return (target as { run: () => unknown }).run();
+          };
+        }
+        const value = Reflect.get(target as object, prop);
+        if (typeof value === "function") {
+          return (...args: unknown[]) => {
+            const result = (value as (...a: unknown[]) => unknown).apply(target, args);
+            return this.wrapChain(result);
+          };
+        }
+        return value;
+      },
+    });
+  }
+}
+
+/** Patches `db.transaction` so the callback receives a RaceInjectingClient tx. */
+function withReservationRace(
+  raceTaskId: string,
+  raceAgentId: string,
+  raceAttemptId: string,
+  fn: () => void,
+): void {
+  const db = getDb() as unknown as {
+    transaction: (cb: (tx: TaskPublicationDbClient) => unknown) => unknown;
+  };
+  const real = db.transaction;
+  db.transaction = (cb: (tx: TaskPublicationDbClient) => unknown) => {
+    return real.call(db, (tx: TaskPublicationDbClient) => {
+      const w = new RaceInjectingClient(tx, () => {
+        // Insert the racing reservation on the SAME tx (visible to the
+        // UPDATE's NOT EXISTS subquery within this tx).
+        tx.insert(taskCreationAssignmentReservations)
+          .values({
+            id: `race-${raceAttemptId}`,
+            taskId: raceTaskId,
+            attemptId: raceAttemptId,
+            requestedAgentId: raceAgentId,
+            deadline: new Date().toISOString(),
+            state: "active",
+          })
+          .run();
+      });
+      return cb(w as unknown as TaskPublicationDbClient);
+    });
+  };
+  try {
+    fn();
+  } finally {
+    db.transaction = real;
+  }
+}
+
+describe("M3 remediation — progressWithAuthority closes the start-TOCTOU race", () => {
+  function seedAttemptRow(id: string) {
+    getDb()
+      .insert(taskCreationAttempts)
+      .values({
+        id,
+        source: "test",
+        sourceScopeKind: "mission",
+        sourceScopeId: "m-test",
+        attemptKey: `key-${id}`,
+        requestFingerprint: `fp-${id}`,
+        publicationKind: "create",
+        actorType: "human",
+        actorId: "user-1",
+        state: "pending",
+      })
+      .run();
+  }
+
+  it("a reservation appearing between the gate-check and the UPDATE cannot let the start through", () => {
+    const claimer = seedAgent("claimer");
+    const holder = seedAgent("race-holder");
+    const { task } = seedMission({ title: "start-toc" });
+    seedAttemptRow("attempt-race"); // FK target for the racing reservation
+    // Claim the task (legacy → gates open) so it is ready to start.
+    expect(claimWithAuthority(getDb(), task.id, localClaimant(claimer.id)).success).toBe(true);
+
+    // Start, but inject a reservation for ANOTHER agent between the gate SELECT
+    // and the UPDATE. Pre-M3 (separate gate-check + bare UPDATE, no tx) the
+    // start would succeed. With progressWithAuthority the UPDATE's NOT EXISTS
+    // subquery observes the just-injected reservation → UPDATE no-ops → null.
+    let result: Task | null = null;
+    withReservationRace(task.id, holder.id, "attempt-race", () => {
+      result = progressWithAuthority(getDb(), task.id, localClaimant(claimer.id));
+    });
+
+    expect(result).toBeNull();
+    // The task did NOT progress — still claimed, not in_progress.
+    const after = getDb().select().from(tasks).where(eq(tasks.id, task.id)).all()[0];
+    expect(after?.status).toBe("claimed");
+    // Failure mode: if progressWithAuthority checked the gate on a separate
+    // statement then mutated (the pre-M3 shape), the injected reservation would
+    // be missed and the start would succeed — returning a task and flipping
+    // status to in_progress. The null + claimed-status assertions prove the
+    // atomic defense held.
+  });
+
+  it("the TOCTOU defense also holds through the public startTask repo function (end-to-end)", () => {
+    const claimer = seedAgent("claimer-e2e");
+    const holder = seedAgent("race-holder-e2e");
+    const { task } = seedMission({ title: "start-toc-e2e" });
+    seedAttemptRow("attempt-race-e2e");
+    taskStateMachine.claimTask(task.id, claimer.id); // ready to start
+
+    let result: Task | null = null;
+    withReservationRace(task.id, holder.id, "attempt-race-e2e", () => {
+      result = taskStateMachine.startTask(task.id, claimer.id);
+    });
+
+    expect(result).toBeNull();
+    const after = getDb().select().from(tasks).where(eq(tasks.id, task.id)).all()[0];
+    expect(after?.status).toBe("claimed");
+    // Failure mode: if startTask did not delegate to progressWithAuthority (or
+    // the delegation regressed to a non-tx shape), the racing reservation would
+    // be missed and startTask would return the progressed task.
+  });
+
+  it("PRESERVE: startTask still succeeds for a legacy claimed task with no racing reservation", () => {
+    // Regression guard: the M3 atomic wrapping must not regress the happy path.
+    const claimer = seedAgent("claimer-happy");
+    const { task } = seedMission({ title: "start-happy-m3" });
+    taskStateMachine.claimTask(task.id, claimer.id);
+
+    const result = taskStateMachine.startTask(task.id, claimer.id);
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe("in_progress");
+    // Failure mode: over-defending (blocking when no reservation exists) would
+    // null the happy path — the route layer would emit a spurious 409.
+  });
+
+  it("PRESERVE: startTaskByRemoteParticipant still succeeds for a legacy remote-claimed task", () => {
+    const { task } = seedMission({ title: "remote-start-happy-m3" });
+    taskStateMachine.claimTaskByRemoteParticipant(task.id, "participant-happy");
+
+    const result = taskStateMachine.startTaskByRemoteParticipant(task.id, "participant-happy");
+    expect(result?.status).toBe("in_progress");
+    // Failure mode: the remote progression path must not regress under M3.
   });
 });
 

@@ -4,7 +4,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import type { Task, Artifact } from "../models/index.js";
 import { repositoryTransactionError } from "../errors/repository.js";
 import { getTaskById } from "./taskCrud.js";
-import { claimWithAuthority, checkProgressionGates, type ClaimResult } from "./claimAuthority.js";
+import { claimWithAuthority, progressWithAuthority, type ClaimResult } from "./claimAuthority.js";
 
 /**
  * Legacy repo claim-result shape consumed unchanged by the service wrappers
@@ -147,36 +147,14 @@ export function startTaskByRemoteParticipant(
   taskId: string,
   remoteParticipantId: string,
 ): Task | null {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  const task = getTaskById(taskId);
-  if (!task) return null;
-  if (task.status !== "claimed" || task.remoteAssignedParticipantId !== remoteParticipantId) {
-    return null;
-  }
-
-  // Publication gates (T2): observation + reservation. Open for every legacy
-  // task; returns null (never throws) so the Task|null contract is preserved.
-  if (!checkProgressionGates(db, taskId, remoteParticipantId).ok) return null;
-
-  db.update(tasks)
-    .set({
-      status: "in_progress",
-      startedAt: now,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(
-      and(
-        eq(tasks.id, taskId),
-        eq(tasks.remoteAssignedParticipantId, remoteParticipantId),
-        eq(tasks.status, "claimed"),
-      ),
-    )
-    .run();
-
-  return getTaskById(taskId);
+  // Routed through the progression authority (T2 remediation M3): the
+  // claimed → in_progress transition runs identity/status re-read + gates +
+  // conditional UPDATE + post-write verify in ONE transaction, closing the
+  // TOCTOU race the pre-remediation gate-check-then-separate-UPDATE left open.
+  // Public Task | null shape and null-on-missing/wrong-participant/wrong-status
+  // semantics are preserved (manifest §5). Gates are open for every legacy
+  // task; a future post-cutover reservation for another identity blocks → null.
+  return progressWithAuthority(getDb(), taskId, { kind: "remote", id: remoteParticipantId });
 }
 
 /**
@@ -246,30 +224,14 @@ export function claimDelegatedTask(
 }
 
 export function startTask(taskId: string, agentId: string): Task | null {
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  const task = getTaskById(taskId);
-  if (!task) return null;
-  if (task.status !== "claimed" || task.assignedAgentId !== agentId) return null;
-
-  // Publication gates (T2): observation + reservation. Open for every legacy
-  // task; returns null (never throws) so the Task|null contract is preserved.
-  if (!checkProgressionGates(db, taskId, agentId).ok) return null;
-
-  db.update(tasks)
-    .set({
-      status: "in_progress",
-      startedAt: now,
-      updatedAt: now,
-      version: sql`${tasks.version} + 1`,
-    })
-    .where(
-      and(eq(tasks.id, taskId), eq(tasks.assignedAgentId, agentId), eq(tasks.status, "claimed")),
-    )
-    .run();
-
-  return getTaskById(taskId);
+  // Routed through the progression authority (T2 remediation M3): the
+  // claimed → in_progress transition runs identity/status re-read + gates +
+  // conditional UPDATE + post-write verify in ONE transaction, closing the
+  // TOCTOU race the pre-remediation gate-check-then-separate-UPDATE left open.
+  // Public Task | null shape and null-on-missing/wrong-agent/wrong-status
+  // semantics are preserved (manifest §4). Gates are open for every legacy
+  // task; a future post-cutover reservation for another identity blocks → null.
+  return progressWithAuthority(getDb(), taskId, { kind: "local", id: agentId });
 }
 
 export function submitTask(

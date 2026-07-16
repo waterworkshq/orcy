@@ -157,7 +157,14 @@ export interface CommittedEnvelopeResult {
 export interface PreparedReservationInput {
   taskId: string;
   attemptId: string;
-  requestedAgentId?: string;
+  /**
+   * The local agent this reservation targets. REQUIRED at the creation seam so
+   * the primitive never mints a NULL `requested_agent_id` (an active NULL
+   * reservation is an invalid state the claim gate defends against — see
+   * `activeReservationForOther` in `claimAuthority.ts`). The schema COLUMN
+   * stays nullable (no migration): the gate is the defender, not the column.
+   */
+  requestedAgentId: string;
   deadline: string;
   leaseOwner?: string;
   leaseExpiresAt?: string;
@@ -514,7 +521,7 @@ export function createAssignmentReservationWithClient(
         id,
         taskId: input.taskId,
         attemptId: input.attemptId,
-        requestedAgentId: input.requestedAgentId ?? null,
+        requestedAgentId: input.requestedAgentId,
         deadline: input.deadline,
         leaseOwner: input.leaseOwner ?? null,
         leaseExpiresAt: input.leaseExpiresAt ?? null,

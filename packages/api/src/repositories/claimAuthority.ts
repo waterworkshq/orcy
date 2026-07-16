@@ -262,6 +262,14 @@ export function claimWithAuthorityClient(
     if (row.status !== "claimed" && row.status !== "in_progress") {
       return { success: false, category: "not_pending", reason: "invalid_status" };
     }
+    // M1 remediation: run the observation + reservation publication gates in
+    // delegated mode TOO. Previously this branch returned via
+    // commitDelegatedClaim before the gate checks, letting a delegated claim
+    // bypass them. Delegated parity is preserved for the four ADR-0038
+    // task-intrinsic guards (still skipped — see claimDelegatedTask model);
+    // only the publication gates are now enforced on both paths.
+    const gate = publicationGateFailure(tx, row, claimant);
+    if (gate) return gate;
     return commitDelegatedClaim(tx, row);
   }
 
@@ -287,21 +295,13 @@ export function claimWithAuthorityClient(
     };
   }
 
-  // 4. observation gate (T1 Legacy Partial History → open for every prod task).
-  if (!isLegacyPartialHistory(row)) {
-    return { success: false, category: "observation_pending", reason: "observation_pending" };
-  }
-
-  // 5. reservation gate (T1 task_creation_assignment_reservations; empty today).
-  const reservedFor = activeReservationForOther(tx, taskId, claimant.id);
-  if (reservedFor !== undefined) {
-    return {
-      success: false,
-      category: "reserved_for_other",
-      reason: "reserved_for_other",
-      reservedFor,
-    };
-  }
+  // 4 + 5. observation + reservation publication gates. Both OPEN for every
+  //    legacy task (creationIntegrity=0; reservation table empty until T5).
+  //    See {@link publicationGateFailure} for the matching rule (M2: a remote
+  //    participant presenting the same string as the reserved local agent is
+  //    STILL reserved_for_other; an active NULL reservation blocks).
+  const gate = publicationGateFailure(tx, row, claimant);
+  if (gate) return gate;
 
   return commitPlainClaim(tx, row, claimant);
 }
@@ -332,18 +332,54 @@ export function claimWithAuthority(
 }
 
 // ---------------------------------------------------------------------------
-// Progression gate (T2) — observation + reservation gate WITHOUT mutation.
-// Used by startTask / startTaskByRemoteParticipant to enforce the same new
-// publication gates the claim authority enforces, without re-widening those
-// functions' `Task | null` return shape. Both gates are OPEN for every legacy
-// task (creationIntegrity=0; reservation table empty until T5), so this is a
-// no-op for every production task today. A future non-legacy task missing its
-// observation checkpoint, or a task carrying an active reservation for a
-// different identity, returns `{ ok: false }` — the caller maps that to its
-// existing null result, preserving the `Task | null` contract.
+// Publication-gate evaluators (shared by claim + progression paths).
 //
-// This is the gate logic only; task-intrinsic claimability (checkClaimability)
-// and mutation stay owned by the claim authority.
+// Both the claim authority (plain + delegated) and the progression authority
+// (startTask / startTaskByRemoteParticipant) enforce the SAME two publication
+// gates: observation (creationIntegrity) and reservation. Two evaluators share
+// the logic without collapsing their distinct result shapes:
+//   - publicationGateFailure → ClaimFailure (for the claim paths; carries the
+//     reserved identity diagnostic).
+//   - evaluateProgressionGates → ProgressionGateResult (for progression; the
+//     Task | null return has no room for diagnostics).
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluates the observation + reservation publication gates against an
+ * already-read task row and returns the matching {@link ClaimFailure} if either
+ * blocks, or `undefined` if both are open. Used by BOTH the plain and delegated
+ * claim paths (M1 remediation: delegated previously bypassed these). Does NOT
+ * run the four ADR-0038 task-intrinsic guards — those stay owned by
+ * `checkClaimability` (plain) / intentionally skipped (delegated parity).
+ */
+function publicationGateFailure(
+  tx: TaskPublicationDbClient,
+  row: typeof tasks.$inferSelect,
+  claimant: Claimant,
+): ClaimFailure | undefined {
+  // Observation gate: T1 Legacy Partial History → open for every prod task.
+  if (!isLegacyPartialHistory(row)) {
+    return { success: false, category: "observation_pending", reason: "observation_pending" };
+  }
+  // Reservation gate (M2 matching rule — see activeReservationForOther).
+  const reservedFor = activeReservationForOther(tx, row.id, claimant);
+  if (reservedFor !== undefined) {
+    return {
+      success: false,
+      category: "reserved_for_other",
+      reason: "reserved_for_other",
+      reservedFor,
+    };
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Progression gate (T2) — observation + reservation gate WITHOUT mutation.
+// `checkProgressionGates` is the pure-read public primitive (a future
+// progression caller can query the gates without mutating); the start functions
+// delegate to {@link progressWithAuthority} which runs gates + mutation in ONE
+// transaction. Both gates are OPEN for every legacy task.
 // ---------------------------------------------------------------------------
 
 export type ProgressionGateResult =
@@ -351,32 +387,149 @@ export type ProgressionGateResult =
   | { ok: false; category: "observation_pending" | "reserved_for_other" };
 
 /**
+ * Evaluates the publication gates against an already-read row on `tx`. Shared
+ * by {@link checkProgressionGates} (pure read) and {@link progressWithAuthority}
+ * (transactional mutation). Returns `{ ok: false, category }` on a block — the
+ * caller maps that to its own result shape (null for progression).
+ */
+function evaluateProgressionGates(
+  tx: TaskPublicationDbClient,
+  row: typeof tasks.$inferSelect,
+  claimant: Claimant,
+): ProgressionGateResult {
+  if (!isLegacyPartialHistory(row)) {
+    return { ok: false, category: "observation_pending" };
+  }
+  if (activeReservationForOther(tx, row.id, claimant) !== undefined) {
+    return { ok: false, category: "reserved_for_other" };
+  }
+  return { ok: true };
+}
+
+/**
  * Checks the observation and reservation publication gates for a task
  * progression (claimed → in_progress). Pure read on `db`; never mutates and
  * never throws. A missing row returns `{ ok: true }` (permissive) — the
  * caller's own missing-task handling takes precedence.
+ *
+ * Takes the full {@link Claimant} (not just an id string) so the reservation
+ * gate matching rule is transport-aware (M2): a remote participant presenting
+ * the same string as a reserved local agent is STILL `reserved_for_other`.
  */
 export function checkProgressionGates(
   db: TaskPublicationDbClient,
   taskId: string,
-  claimantId: string,
+  claimant: Claimant,
 ): ProgressionGateResult {
   const row = db.select().from(tasks).where(eq(tasks.id, taskId)).get() as
     | typeof tasks.$inferSelect
     | undefined;
   if (!row) return { ok: true };
+  return evaluateProgressionGates(db, row, claimant);
+}
 
-  // Observation gate: T1 Legacy Partial History → open for every prod task.
-  if (!isLegacyPartialHistory(row)) {
-    return { ok: false, category: "observation_pending" };
-  }
+// ---------------------------------------------------------------------------
+// Progression authority (T2 remediation M3) — transactional claimed→in_progress.
+//
+// `startTask` / `startTaskByRemoteParticipant` delegate here. Runs, in ONE
+// transaction: identity/status re-read on `tx` → progression gates on `tx` →
+// conditional UPDATE on `tx` → post-write verify → return `Task | null`. This
+// closes the TOCTOU race the legacy functions left open (gate-check on one
+// statement, then a separate UPDATE on no transaction): a reservation appearing
+// between the gate SELECT and the mutation cannot let the start through because
+// the reservation gate is inlined as a NOT EXISTS subquery in the UPDATE WHERE,
+// so the mutation no-ops and the post-write verify returns null.
+//
+// Public `Task | null` shape + null-on-missing/wrong-agent/wrong-status
+// semantics are preserved (manifest §4 / §5). Infrastructure exceptions
+// propagate (manifest 4.4: "propagates up unwrapped") — progression does not
+// widen to a typed result; a future caller wanting typed surfacing should use
+// {@link progressWithAuthorityClient} inside its own tx.
+// ---------------------------------------------------------------------------
 
-  // Reservation gate: an active reservation for a DIFFERENT identity blocks.
-  if (activeReservationForOther(db, taskId, claimantId) !== undefined) {
-    return { ok: false, category: "reserved_for_other" };
-  }
+/**
+ * Transactional entry point for the claimed → in_progress progression.
+ * `db` defaults to `getDb()`. Returns the progressed `Task`, or `null` on any
+ * domain refusal (missing / wrong-agent / wrong-status / gate-block / the
+ * UPDATE no-op'd under a surfaced reservation). Infra exceptions propagate.
+ */
+export function progressWithAuthority(
+  db: TaskPublicationDbClient | undefined,
+  taskId: string,
+  claimant: Claimant,
+): Task | null {
+  const client = db ?? getDb();
+  return client.transaction((tx) => progressWithAuthorityClient(tx, taskId, claimant));
+}
 
-  return { ok: true };
+/**
+ * Client primitive for the progression authority — runs on the caller-supplied
+ * `tx` (the tx from `db.transaction` or the top-level client). Domain refusals
+ * return `null`; infrastructure errors re-throw (the transactional entry point
+ * or caller's tx owns the rollback). Never calls `getDb()`, never opens a
+ * nested tx.
+ */
+function progressWithAuthorityClient(
+  tx: TaskPublicationDbClient,
+  taskId: string,
+  claimant: Claimant,
+): Task | null {
+  type TaskRow = typeof tasks.$inferSelect;
+
+  // 1. identity/status re-read on tx (closes the TOCTOU window).
+  const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+  if (!row) return null;
+
+  const identityMatches =
+    claimant.kind === "local"
+      ? row.assignedAgentId === claimant.id
+      : row.remoteAssignedParticipantId === claimant.id;
+  // PRESERVE startTask / startTaskByRemoteParticipant: null on wrong-agent or
+  // wrong-status (anything other than "claimed" by this identity).
+  if (!identityMatches || row.status !== "claimed") return null;
+
+  // 2. progression gates on tx (observation + reservation). Open for legacy.
+  if (!evaluateProgressionGates(tx, row, claimant).ok) return null;
+
+  // 3. conditional UPDATE on tx. The WHERE re-asserts id + identity + claimed
+  //    AND inlines the reservation gate as a NOT EXISTS subquery. A
+  //    reservation inserted into this tx AFTER the gate SELECT (step 2) is
+  //    visible to the subquery (same tx snapshot), so the UPDATE no-ops and
+  //    the post-write verify (step 4) returns null — the atomic defense.
+  const now = new Date().toISOString();
+  const identityColumn =
+    claimant.kind === "local" ? tasks.assignedAgentId : tasks.remoteAssignedParticipantId;
+  // A blocking reservation = active AND NOT matching this claimant. Matching
+  // requires the claimant be the local agent the reservation targets (remote
+  // claimants never match); a NULL requested_agent_id never matches (blocks).
+  const blockingPredicate =
+    claimant.kind === "local"
+      ? sql`(requested_agent_id IS NULL OR requested_agent_id != ${claimant.id})`
+      : sql`(1=1)`;
+
+  tx.update(tasks)
+    .set({
+      status: "in_progress",
+      startedAt: now,
+      updatedAt: now,
+      version: sql`${tasks.version} + 1`,
+    } as unknown as Partial<typeof tasks.$inferInsert>)
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(identityColumn, claimant.id),
+        eq(tasks.status, "claimed"),
+        sql`NOT EXISTS (SELECT 1 FROM task_creation_assignment_reservations WHERE task_id = ${taskId} AND state = 'active' AND ${blockingPredicate})`,
+      ),
+    )
+    .run();
+
+  // 4. post-write verify on tx — the UPDATE no-ops if a blocking reservation
+  //    surfaced inside this tx (NOT EXISTS subquery); a no-op leaves
+  //    status === "claimed" → null. Also guards the serialized-write case.
+  const updated = tx.select().from(tasks).where(eq(tasks.id, taskId)).get() as TaskRow | undefined;
+  if (!updated || updated.status !== "in_progress") return null;
+  return updated as unknown as Task;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,11 +630,22 @@ function verifyAndReturn(
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the identity of an ACTIVE reservation on `taskId` for a claimant
- * OTHER than `claimantId`, or `undefined` if none. An active reservation for
- * the matching identity is permitted (only the matching reservation identity
- * may claim a targeted task). `requestedAgentId` is the transport-agnostic
- * identity column (nullable text, no FK — see schema).
+ * Returns the identity of an ACTIVE reservation on `taskId` held by a claimant
+ * OTHER than `claimant`, or `undefined` if none. Only the matching reservation
+ * identity may claim a targeted task.
+ *
+ * Identity matching (ADR-0038 §3 + the publication plan): reservations target a
+ * requested internal Orcy (a local agent). A claimant is the matching identity
+ * ONLY when `claimant.kind === "local"` AND `reservation.requestedAgentId ===
+ * claimant.id`. Remote paths can NEVER match — so a remote participant who
+ * happens to present the same string as the reserved local agent is still
+ * `reserved_for_other` (M2: the raw-ID comparison was not transport-safe).
+ *
+ * An active reservation whose `requested_agent_id IS NULL` is an INVALID state
+ * — the creation seam (`PreparedReservationInput.requestedAgentId` is now
+ * required) never mints one, but the schema column stays nullable. The gate
+ * defends: NULL blocks (nobody matches). Returns `"<unspecified>"` as the
+ * diagnostic identity in that case.
  *
  * The table is EMPTY in production today (no origin creates reservations —
  * that's T5), so this returns `undefined` for every real task → gate open.
@@ -489,7 +653,7 @@ function verifyAndReturn(
 function activeReservationForOther(
   tx: TaskPublicationDbClient,
   taskId: string,
-  claimantId: string,
+  claimant: Claimant,
 ): string | undefined {
   const rows = tx
     .select({ requestedAgentId: taskCreationAssignmentReservations.requestedAgentId })
@@ -503,11 +667,16 @@ function activeReservationForOther(
     .all() as { requestedAgentId: string | null }[];
 
   for (const r of rows) {
-    // A reservation for a different identity blocks. A reservation whose
-    // requestedAgentId is null is treated as "no specific identity" and does
-    // NOT block (defensive — T5 will define the null semantics).
-    if (r.requestedAgentId !== null && r.requestedAgentId !== claimantId) {
-      return r.requestedAgentId;
+    // A reservation matches the claimant ONLY when the claimant is the local
+    // agent the reservation was created for. Remote claimants never match.
+    const matchesClaimant =
+      r.requestedAgentId !== null &&
+      claimant.kind === "local" &&
+      r.requestedAgentId === claimant.id;
+    if (!matchesClaimant) {
+      // Anyone else (local with a different id, any remote claimant, or an
+      // active NULL reservation = invalid state) → reserved_for_other.
+      return r.requestedAgentId ?? "<unspecified>";
     }
   }
   return undefined;
