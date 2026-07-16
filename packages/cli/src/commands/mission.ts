@@ -29,7 +29,7 @@ export function registerMissionCommands(program: any) {
           params.set("limit", options.limit);
           const qs = params.toString();
           const result = await api.get<any>(
-            `/api/boards/${habitatId}/features${qs ? `?${qs}` : ""}`,
+            `/api/habitats/${habitatId}/missions${qs ? `?${qs}` : ""}`,
           );
           console.log(JSON.stringify(result, null, 2));
         },
@@ -59,7 +59,7 @@ export function registerMissionCommands(program: any) {
           body.dependsOn = options.dependsOn.split(",").map((s: string) => s.trim());
         if (options.dueAt) body.dueAt = options.dueAt;
         if (options.slaMinutes) body.slaMinutes = Number(options.slaMinutes);
-        const result = await api.post<any>(`/api/boards/${habitatId}/features`, body);
+        const result = await api.post<any>(`/api/habitats/${habitatId}/missions`, body);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -70,7 +70,7 @@ export function registerMissionCommands(program: any) {
     .argument("<missionId>", "Mission UUID")
     .action(
       withErrorHandling(async (missionId: string) => {
-        await api.delete(`/api/features/${missionId}`);
+        await api.delete(`/api/missions/${missionId}`);
         console.log(JSON.stringify({ success: true, missionId }, null, 2));
       }),
     );
@@ -81,7 +81,7 @@ export function registerMissionCommands(program: any) {
     .argument("<missionId>", "Mission UUID")
     .action(
       withErrorHandling(async (missionId: string) => {
-        const result = await api.post<any>(`/api/features/${missionId}/archive`);
+        const result = await api.post<any>(`/api/missions/${missionId}/archive`);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -92,7 +92,7 @@ export function registerMissionCommands(program: any) {
     .argument("<missionId>", "Mission UUID")
     .action(
       withErrorHandling(async (missionId: string) => {
-        const result = await api.post<any>(`/api/features/${missionId}/unarchive`);
+        const result = await api.post<any>(`/api/missions/${missionId}/unarchive`);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
@@ -103,7 +103,7 @@ export function registerMissionCommands(program: any) {
     .argument("<missionId>", "Mission UUID")
     .action(
       withErrorHandling(async (missionId: string) => {
-        const result = await api.get<any>(`/api/features/${missionId}/details`);
+        const result = await api.get<any>(`/api/missions/${missionId}/details`);
         console.log(JSON.stringify(result, null, 2));
       }),
     );
