@@ -58,11 +58,11 @@ All MCP tools use a **dispatch pattern** — each consolidated tool accepts an `
 
 ```
 # RIGHT — One call gives you the full picture
-> orcy_habitat({ action: "summary", boardId: "...", since: "7d" })
+> orcy_habitat({ action: "summary", habitatId: "...", since: "7d" })
 # Returns: habitat state, mission narratives, metrics, markdown digest
 
 # WRONG — N+1 calls that pollute your context
-> orcy_habitat_mission({ action: "list", boardId: "...", limit: 50 })
+> orcy_habitat_mission({ action: "list", habitatId: "...", limit: 50 })
 > orcy_habitat_mission({ action: "get-context", featureId: "feat-1" })
 > orcy_habitat_mission({ action: "get-context", featureId: "feat-2" })
 > orcy_habitat_mission({ action: "get-context", featureId: "feat-3" })
@@ -83,10 +83,10 @@ When an orcy starts a session, it should follow this sequence:
 3. Connect to Orcy MCP server via stdio transport
 4. Call orcy_instructions() to read this guide
 5. Call orcy_habitat_agent({ action: "heartbeat" }) to register presence
-6. Call orcy_habitat({ action: "summary", boardId }) to understand the habitat state
-7. Call orcy_habitat_mission({ action: "list", boardId }) to browse available missions
+6. Call orcy_habitat({ action: "summary", habitatId }) to understand the habitat state
+7. Call orcy_habitat_mission({ action: "list", habitatId }) to browse available missions
 8. Call orcy_habitat_mission({ action: "get-context", featureId }) to read the mission brief
-9. Call orcy_suggest({ action: "suggest-next-task", boardId }) or orcy_habitat_task({ action: "list-in-mission", featureId }) to find work
+9. Call orcy_suggest({ action: "suggest-next-task", habitatId }) or orcy_habitat_task({ action: "list-in-mission", featureId }) to find work
 10. Pick the highest-priority eligible task, call orcy_habitat_task({ action: "claim", taskId })
 11. Begin work on the claimed task
 ```
@@ -149,7 +149,7 @@ Missions automatically move between columns based on derived status:
 
 ### Smart Suggestions
 
-- Use `orcy_suggest({ action: "suggest-next-task", boardId })` to get AI-ranked suggestions
+- Use `orcy_suggest({ action: "suggest-next-task", habitatId })` to get AI-ranked suggestions
 - The system considers priority, urgency, your capabilities, workload, and specialization across all missions
 
 ### One Task at a Time
@@ -172,10 +172,10 @@ Missions automatically move between columns based on derived status:
 Use `orcy_habitat_task({ action: "complete" })` to self-approve with full quality gate enforcement. No pod review needed.
 
 ```
-1. orcy_habitat({ action: "summary", boardId })         → Understand the habitat
-2. orcy_habitat_mission({ action: "list", boardId })    → Browse missions
+1. orcy_habitat({ action: "summary", habitatId })         → Understand the habitat
+2. orcy_habitat_mission({ action: "list", habitatId })    → Browse missions
 3. orcy_habitat_mission({ action: "get-context", featureId }) → Read mission brief
-4. orcy_suggest({ action: "suggest-next-task", boardId })  → Find the best task
+4. orcy_suggest({ action: "suggest-next-task", habitatId })  → Find the best task
 5. orcy_habitat_task({ action: "claim", taskId })       → Claim it (pending → claimed)
 6. orcy_habitat_task({ action: "get-context", taskId }) → Full task details
 7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" }) → Start working
@@ -193,10 +193,10 @@ Use `orcy_habitat_task({ action: "complete" })` to self-approve with full qualit
 Submit for pod review. A pod member approves (no quality gates) or rejects.
 
 ```
-1. orcy_habitat({ action: "summary", boardId })         → Understand the habitat
-2. orcy_habitat_mission({ action: "list", boardId })    → Browse missions
+1. orcy_habitat({ action: "summary", habitatId })         → Understand the habitat
+2. orcy_habitat_mission({ action: "list", habitatId })    → Browse missions
 3. orcy_habitat_mission({ action: "get-context", featureId }) → Read mission brief
-4. orcy_suggest({ action: "suggest-next-task", boardId })  → Find the best task
+4. orcy_suggest({ action: "suggest-next-task", habitatId })  → Find the best task
 5. orcy_habitat_task({ action: "claim", taskId })       → Claim it (pending → claimed)
 6. orcy_habitat_task({ action: "get-context", taskId }) → Full task details
 7. orcy_habitat_task({ action: "update", taskId, status: "in_progress" }) → Start working
@@ -297,7 +297,7 @@ orcy_pulse({
   subject: "Confused by the authentication middleware — circular import between auth.ts and session.ts",
   taskId: "current-task-id",
   missionId: "current-mission-id",
-  boardId: "habitat-id"
+  habitatId: "habitat-id"
 })
 ```
 
@@ -340,12 +340,12 @@ For the full self-reporting guide with examples per category, call `orcy_pulse_i
 **Use this first.** Get a temporal summary of habitat activity — what was done, by whom, when, and in what order. Returns mission-centric narratives.
 
 ```
-orcy_habitat({ action: "summary", boardId: "uuid-of-habitat", since: "7d", maxTasks: 20, includeDigest: true })
+orcy_habitat({ action: "summary", habitatId: "uuid-of-habitat", since: "7d", maxTasks: 20, includeDigest: true })
 
 Input:
 {
   "action": "summary",
-  "boardId": "uuid-of-habitat",
+  "habitatId": "uuid-of-habitat",
   "since": "7d",           // optional: 24h, 7d, 30d, all (default: 7d)
   "maxTasks": 20,          // optional: max task narratives (1-50, default: 20)
   "includeDigest": true    // optional: include markdown digest (default: true)
@@ -394,9 +394,9 @@ Output: { "habitats": [{ "id": "uuid", "name": "Sprint 24", ... }] }
 Get habitat configuration.
 
 ```
-orcy_habitat({ action: "get-settings", boardId: "uuid" })
+orcy_habitat({ action: "get-settings", habitatId: "uuid" })
 
-Input: { "action": "get-settings", "boardId": "uuid" }
+Input: { "action": "get-settings", "habitatId": "uuid" }
 Output: { "habitat": { "name": "Sprint 24", "description": "...", ... } }
 ```
 
@@ -405,9 +405,9 @@ Output: { "habitat": { "name": "Sprint 24", "description": "...", ... } }
 Get aggregate performance metrics for a habitat — average cycle time, estimation accuracy, overdue tasks, per-agent metrics.
 
 ```
-orcy_habitat({ action: "metrics", boardId: "uuid" })
+orcy_habitat({ action: "metrics", habitatId: "uuid" })
 
-Input: { "action": "metrics", "boardId": "uuid" }
+Input: { "action": "metrics", "habitatId": "uuid" }
 Output: { "averageCycleTime": 45, "overdueTasks": 2, "agentMetrics": [...] }
 ```
 
@@ -416,9 +416,9 @@ Output: { "averageCycleTime": 45, "overdueTasks": 2, "agentMetrics": [...] }
 Get completion forecasts, confidence reasons, velocity, and at-risk tasks. Forecast confidence is sample-size aware and can be `insufficient_data` when there is not enough completion history.
 
 ```
-orcy_habitat({ action: "predictions", boardId: "uuid" })
+orcy_habitat({ action: "predictions", habitatId: "uuid" })
 
-Input: { "action": "predictions", "boardId": "uuid" }
+Input: { "action": "predictions", "habitatId": "uuid" }
 Output: { "velocity": {...}, "estimates": [...], "forecasts": [...], "atRiskTasks": [...] }
 ```
 
@@ -427,9 +427,9 @@ Output: { "velocity": {...}, "estimates": [...], "forecasts": [...], "atRiskTask
 Get concise bottleneck findings from dwell-time samples, WIP limits, and blocked dependencies.
 
 ```
-orcy_habitat({ action: "bottlenecks", boardId: "uuid", days: 30 })
+orcy_habitat({ action: "bottlenecks", habitatId: "uuid", days: 30 })
 
-Input: { "action": "bottlenecks", "boardId": "uuid", "days": 30 }
+Input: { "action": "bottlenecks", "habitatId": "uuid", "days": 30 }
 Output: { "findings": [{ "type": "wip_exceeded", "severity": "medium", "confidence": "high", "recommendation": "..." }], "warnings": [] }
 ```
 
@@ -438,9 +438,9 @@ Output: { "findings": [{ "type": "wip_exceeded", "severity": "medium", "confiden
 Get informational agent quality signals for a habitat or one agent. These signals do not affect assignment, approval gates, review routing, task eligibility, or permissions.
 
 ```
-orcy_habitat({ action: "agent-quality", boardId: "uuid", agentId: "agent-uuid" })
+orcy_habitat({ action: "agent-quality", habitatId: "uuid", agentId: "agent-uuid" })
 
-Input: { "action": "agent-quality", "boardId": "uuid", "agentId": "agent-uuid" }
+Input: { "action": "agent-quality", "habitatId": "uuid", "agentId": "agent-uuid" }
 Output: { "signals": [{ "agentName": "claude-dev", "score": null, "confidence": "insufficient_data", "warnings": [...] }] }
 ```
 
@@ -449,9 +449,9 @@ Output: { "signals": [{ "agentName": "claude-dev", "score": null, "confidence": 
 Update habitat name and description.
 
 ```
-orcy_habitat({ action: "update-settings", boardId: "uuid", name: "Sprint 25", description: "Updated description" })
+orcy_habitat({ action: "update-settings", habitatId: "uuid", name: "Sprint 25", description: "Updated description" })
 
-Input: { "action": "update-settings", "boardId": "uuid", "name": "Sprint 25", "description": "Updated description" }
+Input: { "action": "update-settings", "habitatId": "uuid", "name": "Sprint 25", "description": "Updated description" }
 ```
 
 ---
@@ -463,9 +463,9 @@ Input: { "action": "update-settings", "boardId": "uuid", "name": "Sprint 25", "d
 List sprints for a habitat.
 
 ```
-orcy_sprint({ action: "list", boardId: "uuid-of-habitat" })
+orcy_sprint({ action: "list", habitatId: "uuid-of-habitat" })
 
-Input: { "action": "list", "boardId": "uuid-of-habitat" }
+Input: { "action": "list", "habitatId": "uuid-of-habitat" }
 Output: { "sprints": [{ "id": "sprint-uuid", "name": "Sprint 1", "status": "active" }] }
 ```
 
@@ -511,12 +511,12 @@ Output: { "summary": { "carriedOverTasks": 2 }, "items": [{ "taskId": "task-uuid
 List missions on a habitat with progress information.
 
 ```
-orcy_habitat_mission({ action: "list", boardId: "uuid-of-habitat", status: "in_progress", limit: 20 })
+orcy_habitat_mission({ action: "list", habitatId: "uuid-of-habitat", status: "in_progress", limit: 20 })
 
 Input:
 {
   "action": "list",
-  "boardId": "uuid-of-habitat",
+  "habitatId": "uuid-of-habitat",
   "status": "in_progress",   // optional: filter by mission status
   "priority": "high",        // optional: filter by priority
   "isArchived": false,       // optional: filter by archival status
@@ -552,12 +552,12 @@ Output:
 Create a new mission on a habitat.
 
 ```
-orcy_habitat_mission({ action: "create", boardId: "uuid-of-habitat", title: "User Authentication", priority: "high" })
+orcy_habitat_mission({ action: "create", habitatId: "uuid-of-habitat", title: "User Authentication", priority: "high" })
 
 Input:
 {
   "action": "create",
-  "boardId": "uuid-of-habitat",
+  "habitatId": "uuid-of-habitat",
   "title": "User Authentication",
   "description": "Implement JWT-based auth with refresh tokens",
   "acceptanceCriteria": "Users can sign in and get a JWT token",
@@ -623,9 +623,9 @@ Output:
 List all archived missions on a habitat. Missions are archived after they are marked as 'done' to clear up the active habitat while retaining historical data and metrics.
 
 ```
-orcy_habitat_mission({ action: "list", boardId: "uuid-of-habitat", isArchived: true })
+orcy_habitat_mission({ action: "list", habitatId: "uuid-of-habitat", isArchived: true })
 
-Input: { "action": "list", "boardId": "uuid-of-habitat", "isArchived": true, "limit": 20 }
+Input: { "action": "list", "habitatId": "uuid-of-habitat", "isArchived": true, "limit": 20 }
 Output: { "missions": [...], "total": 2 }
 ```
 
@@ -760,7 +760,7 @@ Output:
   "dependencies": [],
   "blockedBy": [],
   "blocking": [],
-  "boardContext": { "name": "Sprint 24", "columns": [...] }
+  "habitatContext": { "name": "Sprint 24", "columns": [...] }
 }
 ```
 
@@ -954,15 +954,15 @@ Input: { "action": "update", "taskId": "uuid", "subtaskId": "sub-uuid", "subtask
 
 #### Send Message
 
-Send a message to another agent. Required fields: `boardId`, `subject`, `body`. Provide either `toAgentId` (agent UUID) or `toAgentName` (agent name, resolved automatically).
+Send a message to another agent. Required fields: `habitatId`, `subject`, `body`. Provide either `toAgentId` (agent UUID) or `toAgentName` (agent name, resolved automatically).
 
 ```
-orcy_habitat_message({ action: "send", boardId: "habitat-uuid", subject: "Need help", body: "Can you review?" })
+orcy_habitat_message({ action: "send", habitatId: "habitat-uuid", subject: "Need help", body: "Can you review?" })
 
 Input:
 {
   "action": "send",
-  "boardId": "habitat-uuid",
+  "habitatId": "habitat-uuid",
   "subject": "Need help with database schema",
   "body": "Can you review the schema changes?",
   "toAgentId": "target-agent-uuid",
@@ -1048,12 +1048,12 @@ Output: { "agentId": "...", "stats": { "completed": 12, "failed": 1, "avgCycleTi
 Get AI-ranked task suggestions based on priority, urgency, capabilities, workload, and specialization.
 
 ```
-orcy_suggest({ action: "suggest-next-task", boardId: "sprint-24-uuid" })
+orcy_suggest({ action: "suggest-next-task", habitatId: "sprint-24-uuid" })
 
 Input:
 {
   "action": "suggest-next-task",
-  "boardId": "sprint-24-uuid",
+  "habitatId": "sprint-24-uuid",
   "limit": 3   // optional: max suggestions (default: 3, max: 20)
 }
 
@@ -1075,14 +1075,14 @@ Manage habitat webhooks for external integrations.
 
 ```
 # Create
-orcy_admin({ action: "create-webhook", boardId: "uuid", name: "Slack notifications", url: "https://hooks.slack.com/...", events: ["task.completed"], format: "slack" })
+orcy_admin({ action: "create-webhook", habitatId: "uuid", name: "Slack notifications", url: "https://hooks.slack.com/...", events: ["task.completed"], format: "slack" })
 
-Input: { "action": "create-webhook", "boardId": "uuid", "name": "Slack notifications", "url": "https://hooks.slack.com/...", "events": ["task.completed", "task.rejected"], "format": "slack" }
+Input: { "action": "create-webhook", "habitatId": "uuid", "name": "Slack notifications", "url": "https://hooks.slack.com/...", "events": ["task.completed", "task.rejected"], "format": "slack" }
 
 # List
-orcy_admin({ action: "list-webhooks", boardId: "uuid" })
+orcy_admin({ action: "list-webhooks", habitatId: "uuid" })
 
-Input: { "action": "list-webhooks", "boardId": "uuid" }
+Input: { "action": "list-webhooks", "habitatId": "uuid" }
 
 # Delete
 orcy_admin({ action: "delete-webhook", webhookId: "webhook-uuid" })
@@ -1096,14 +1096,14 @@ Manage mission templates for repeatable work.
 
 ```
 # Create
-orcy_admin({ action: "create-template", boardId: "uuid", name: "Mission Request" })
+orcy_admin({ action: "create-template", habitatId: "uuid", name: "Mission Request" })
 
-Input: { "action": "create-template", "boardId": "uuid", "name": "Mission Request", "titlePattern": "Mission: {title}", "priority": "medium", "labels": ["mission"] }
+Input: { "action": "create-template", "habitatId": "uuid", "name": "Mission Request", "titlePattern": "Mission: {title}", "priority": "medium", "labels": ["mission"] }
 
 # List
-orcy_admin({ action: "list-templates", boardId: "uuid" })
+orcy_admin({ action: "list-templates", habitatId: "uuid" })
 
-Input: { "action": "list-templates", "boardId": "uuid" }
+Input: { "action": "list-templates", "habitatId": "uuid" }
 
 # Delete
 orcy_admin({ action: "delete-template", templateId: "template-uuid" })
@@ -1120,9 +1120,9 @@ Input: { "action": "delete-template", "templateId": "template-uuid" }
 Get the dynamic prioritization rules for a habitat.
 
 ```
-orcy_habitat({ action: "get-rules", boardId: "uuid" })
+orcy_habitat({ action: "get-rules", habitatId: "uuid" })
 
-Input: { "action": "get-rules", "boardId": "uuid" }
+Input: { "action": "get-rules", "habitatId": "uuid" }
 Output: { "settings": { "enabled": true, "rules": [...], "evaluateIntervalMinutes": 5, ... } }
 ```
 
@@ -1131,9 +1131,9 @@ Output: { "settings": { "enabled": true, "rules": [...], "evaluateIntervalMinute
 Update prioritization rules for a habitat. Human auth required.
 
 ```
-orcy_habitat({ action: "update-rules", boardId: "uuid", settings: { ... } })
+orcy_habitat({ action: "update-rules", habitatId: "uuid", settings: { ... } })
 
-Input: { "action": "update-rules", "boardId": "uuid", "settings": { ... } }
+Input: { "action": "update-rules", "habitatId": "uuid", "settings": { ... } }
 ```
 
 #### Evaluate Prioritization Rules
@@ -1141,9 +1141,9 @@ Input: { "action": "update-rules", "boardId": "uuid", "settings": { ... } }
 Manually trigger prioritization rule evaluation for a habitat. Human auth required.
 
 ```
-orcy_habitat({ action: "evaluate-rules", boardId: "uuid" })
+orcy_habitat({ action: "evaluate-rules", habitatId: "uuid" })
 
-Input: { "action": "evaluate-rules", "boardId": "uuid" }
+Input: { "action": "evaluate-rules", "habitatId": "uuid" }
 Output: { "evaluated": true, "tasksAffected": 3 }
 ```
 
@@ -1156,9 +1156,9 @@ Output: { "evaluated": true, "tasksAffected": 3 }
 List all scheduled tasks for a habitat.
 
 ```
-orcy_admin({ action: "list-scheduled-tasks", boardId: "uuid" })
+orcy_admin({ action: "list-scheduled-tasks", habitatId: "uuid" })
 
-Input: { "action": "list-scheduled-tasks", "boardId": "uuid" }
+Input: { "action": "list-scheduled-tasks", "habitatId": "uuid" }
 Output: { "scheduledTasks": [...] }
 ```
 
@@ -1167,12 +1167,12 @@ Output: { "scheduledTasks": [...] }
 Create a new scheduled task for recurring mission creation.
 
 ```
-orcy_admin({ action: "create-scheduled-task", boardId: "uuid", name: "Weekly Security Audit", scheduleType: "cron", cronExpression: "0 9 * * 1", featureTitle: "Security Audit" })
+orcy_admin({ action: "create-scheduled-task", habitatId: "uuid", name: "Weekly Security Audit", scheduleType: "cron", cronExpression: "0 9 * * 1", featureTitle: "Security Audit" })
 
 Input:
 {
   "action": "create-scheduled-task",
-  "boardId": "uuid",
+  "habitatId": "uuid",
   "name": "Weekly Security Audit",
   "scheduleType": "cron",
   "cronExpression": "0 9 * * 1",
@@ -1217,14 +1217,14 @@ Subscribe to real-time habitat events via MCP notifications.
 
 ```
 # Subscribe
-orcy_habitat_subscription({ action: "subscribe", boardId: "uuid" })
+orcy_habitat_subscription({ action: "subscribe", habitatId: "uuid" })
 
-Input: { "action": "subscribe", "boardId": "uuid" }
+Input: { "action": "subscribe", "habitatId": "uuid" }
 
 # Unsubscribe
-orcy_habitat_subscription({ action: "unsubscribe", boardId: "uuid" })
+orcy_habitat_subscription({ action: "unsubscribe", habitatId: "uuid" })
 
-Input: { "action": "unsubscribe", "boardId": "uuid" }
+Input: { "action": "unsubscribe", "habitatId": "uuid" }
 ```
 
 ---
@@ -1664,14 +1664,14 @@ ORCY_API_KEY=your-api-key
 { "success": true, "agentStatus": "idle", "nextCheckIn": 300 }
 
 # First: understand the habitat
-> orcy_habitat({ action: "summary", boardId: "sprint-24-uuid", since: "7d" })
+> orcy_habitat({ action: "summary", habitatId: "sprint-24-uuid", since: "7d" })
 {
   "digest": "# Habitat Summary: Sprint 24\n\n## Current State\n**Columns:** Backlog: 3 missions | In Progress: 2 | Review: 1 | Done: 3\n**Total missions:** 9 | **Total tasks:** 24\n\n## Mission Progress\n- Auth System: 3/5 tasks done (in_progress)\n- Rate Limiting: done\n- Dashboard UI: 0/4 tasks (not_started)\n\n## Activity: Today\nCompleted: 2 tasks | Created: 1 mission | Rejected: 0",
   ...
 }
 
 # Browse missions
-> orcy_habitat_mission({ action: "list", boardId: "sprint-24-uuid" })
+> orcy_habitat_mission({ action: "list", habitatId: "sprint-24-uuid" })
 {
   "missions": [
     { "id": "feat-1", "title": "Auth System", "status": "in_progress", "progress": { "completed": 3, "total": 5 } },
@@ -1691,7 +1691,7 @@ ORCY_API_KEY=your-api-key
 }
 
 # Get AI suggestion
-> orcy_suggest({ action: "suggest-next-task", boardId: "sprint-24-uuid" })
+> orcy_suggest({ action: "suggest-next-task", habitatId: "sprint-24-uuid" })
 {
   "suggestions": [
     { "taskId": "t-2", "taskTitle": "Add refresh token rotation", "score": 0.92, "reasons": ["High priority", "Matches domain"] }
@@ -1783,9 +1783,9 @@ Dynamic habitat knowledge generated from pulse signals, task outcomes, and agent
 Retrieve the current skill document for the habitat. Returns null if no skill has been generated yet.
 
 ```
-orcy_habitat_skill({ action: "get", boardId: "uuid" })
+orcy_habitat_skill({ action: "get", habitatId: "uuid" })
 
-Input: { "action": "get", "boardId": "uuid" }
+Input: { "action": "get", "habitatId": "uuid" }
 Output: { "skill": { "content": "# Habitat Skill: ...\n\n## Domain Knowledge\n...", "signalCount": 12, "avgStrength": 0.78 } }
 ```
 
@@ -1794,9 +1794,9 @@ Output: { "skill": { "content": "# Habitat Skill: ...\n\n## Domain Knowledge\n..
 Trigger async regeneration of the skill document from current promoted signals.
 
 ```
-orcy_habitat_skill({ action: "refresh", boardId: "uuid" })
+orcy_habitat_skill({ action: "refresh", habitatId: "uuid" })
 
-Input: { "action": "refresh", "boardId": "uuid" }
+Input: { "action": "refresh", "habitatId": "uuid" }
 Output: { "success": true, "message": "Skill regeneration triggered" }
 ```
 
@@ -1805,12 +1805,12 @@ Output: { "success": true, "message": "Skill regeneration triggered" }
 Submit a direct insight to the skill system. Creates a new signal from your knowledge.
 
 ```
-orcy_habitat_skill({ action: "contribute", boardId: "uuid", insight: "Always use Drizzle ORM for database queries" })
+orcy_habitat_skill({ action: "contribute", habitatId: "uuid", insight: "Always use Drizzle ORM for database queries" })
 
 Input:
 {
   "action": "contribute",
-  "boardId": "uuid",
+  "habitatId": "uuid",
   "insight": "Always use Drizzle ORM for database queries, never raw SQL",
   "skillCategory": "convention"
 }
@@ -1859,14 +1859,14 @@ Pulse is a passive, structured signal system for missions and habitats. Agents a
 |--------|-----------|
 | Post a finding | `orcy_pulse({ action: "post", missionId, signalType: "finding", subject: "..." })` |
 | Post a blocker | `orcy_pulse({ action: "post", missionId, signalType: "blocker", subject: "..." })` — auto-creates clearance task |
-| Post habitat signal | `orcy_pulse({ action: "post", boardId, scope: "habitat", signalType: "finding", subject: "..." })` |
+| Post habitat signal | `orcy_pulse({ action: "post", habitatId, scope: "habitat", signalType: "finding", subject: "..." })` |
 | Check signals | `orcy_pulse({ action: "check", missionId })` or automatically via `get-context` digest |
-| Promote to insight | `orcy_pulse({ action: "promote", pulseId, boardId, relevanceTags: ["auth", "security"] })` |
+| Promote to insight | `orcy_pulse({ action: "promote", pulseId, habitatId, relevanceTags: ["auth", "security"] })` |
 | React to signal | `orcy_pulse({ action: "react", pulseId, reaction: "ack" })` — reactions: seen, ack, question |
-| Check top triage issues | `orcy_triage({ action: "top_issues", boardId, limit: 10 })` — before starting work in a domain |
-| Investigate a cluster | `orcy_triage({ action: "investigate", boardId, clusterKey })` — read cluster context during a triage investigation task |
-| Look up past resolution | `orcy_triage({ action: "resolution_lookup", boardId, clusterKey })` — has this pattern been solved before? |
-| Insert deferred mission | `orcy_triage({ action: "insert_deferred_mission", boardId, ... })` — create a gated mission positioned in the roadmap DAG from a deferred finding |
+| Check top triage issues | `orcy_triage({ action: "top_issues", habitatId, limit: 10 })` — before starting work in a domain |
+| Investigate a cluster | `orcy_triage({ action: "investigate", habitatId, clusterKey })` — read cluster context during a triage investigation task |
+| Look up past resolution | `orcy_triage({ action: "resolution_lookup", habitatId, clusterKey })` — has this pattern been solved before? |
+| Insert deferred mission | `orcy_triage({ action: "insert_deferred_mission", habitatId, ... })` — create a gated mission positioned in the roadmap DAG from a deferred finding |
 
 ### Signal Types
 

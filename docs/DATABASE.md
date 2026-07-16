@@ -55,7 +55,7 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 │ habitats         │────<│ columns         │     │ agents          │
 │                  │     │                  │     │                  │
 │ id (PK)          │     │ id (PK)          │     │ id (PK)          │
-│ name             │     │ boardId (FK)     │     │ name (unique)    │
+│ name             │     │ habitatId (FK)  │     │ name (unique)    │
 │ description      │     │ name             │     │ type             │
 │ retrySettings    │     │ order            │     │ domain           │
 │ anomalySettings │     │ wipLimit         │     │ capabilities     │
@@ -71,7 +71,7 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 │ missions         │            │
                         │                  │────────────┘
                         │ id (PK)          │  (no direct FK)
-                        │ boardId (FK)     │
+                        │ habitatId (FK)  │
                         │ columnId (FK)    │
                         │ title            │
                         │ description      │
@@ -155,10 +155,10 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 │ task_dependencies│     │ feature_templates│ └──────────────────┘
 │                  │     │                  │
 │ taskId (FK)      │     │ id (PK)          │ ┌──────────────────┐
-│ dependsOnId (FK) │     │ boardId (FK)     │ │ saved_filters    │
+│ dependsOnId (FK) │     │ habitatId (FK)  │ │ saved_filters    │
 └──────────────────┘     │ name             │ │                  │
                          │ titlePattern     │ │ id (PK)          │
-                         │ descriptionPattern│ │ boardId (FK)     │
+                         │ descriptionPattern│ │ habitatId (FK)  │
                          │ priority         │ │ userId           │
                          │ labels (JSON)    │ │ name             │
                          │ requiredDomain  │ │ filterConfig     │
@@ -173,9 +173,9 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 │ webhook_subscr   │     │ notification_    │     │ chat_integrations│
 │                  │     │ preferences      │     │                  │
 │ id (PK)          │     │                  │     │ id (PK)          │
-│ boardId (FK)     │     │ id (PK)          │     │ boardId (FK)     │
+│ habitatId (FK)  │     │ id (PK)          │     │ habitatId (FK)  │
 │ name             │     │ userId           │     │ provider         │
-│ url              │     │ boardId (FK)     │     │ webhookUrl       │
+│ url              │     │ habitatId (FK)  │     │ webhookUrl       │
 │ secret           │     │ taskAssigned     │     │ channelId        │
 │ events (JSON)    │     │ taskSubmitted    │     │ botToken         │
 │ format           │     │ taskApproved     │     │ enabled          │
@@ -188,7 +188,7 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
          ▼               └──────────────────┘ │ agent_messages   │
 ┌──────────────────┐                          │                  │
 │ webhook_deliveries│                         │ id (PK)          │
-│                  │                          │ boardId (FK)     │
+│                  │                          │ habitatId (FK)  │
 │ id (PK)          │                          │ fromAgentId (FK) │
 │ subscriptionId(FK)│                         │ toAgentId (FK)   │
 │ eventType        │                          │ taskId (FK)     │
@@ -222,13 +222,13 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 
 > **Note:** SQL column names use `snake_case`. TypeScript uses `camelCase` (Drizzle maps automatically).
 
-#### `boards`
+#### `habitats`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `id` | TEXT | PK | Board identifier (UUID) |
-| `name` | TEXT | NOT NULL | Board name |
-| `description` | TEXT | NOT NULL DEFAULT '' | Board description |
+| `id` | TEXT | PK | Habitat identifier (UUID) |
+| `name` | TEXT | NOT NULL | Habitat name |
+| `description` | TEXT | NOT NULL DEFAULT '' | Habitat description |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `retry_settings` | TEXT | JSON | Retry policy configuration |
@@ -241,14 +241,14 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 | `prioritization_settings` | TEXT | JSON, nullable | Dynamic prioritization rules configuration (`PrioritizationSettings | null`) |
 | `team_id` | TEXT | FK → teams(id) ON DELETE SET NULL | Owning team |
 
-**Indexes:** `idx_boards_name`, `idx_boards_team_id`
+**Indexes:** `idx_habitats_name`, `idx_habitats_team_id`
 
 #### `columns`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Column identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent board |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `name` | TEXT | NOT NULL | Column display name |
 | `order` | INTEGER | NOT NULL | Sort position |
 | `wip_limit` | INTEGER | DEFAULT NULL | Work-in-progress limit |
@@ -257,17 +257,17 @@ The schema is defined in `packages/api/src/db/schema.ts` using Drizzle ORM. Sche
 | `next_column_id` | TEXT | FK → columns(id) | Next column for auto-advance |
 | `is_terminal` | INTEGER | NOT NULL DEFAULT 0 (boolean) | Terminal column (marks tasks as done) |
 
-**Constraints:** `UNIQUE(board_id, order)`
-**Indexes:** `idx_columns_board_id`, `idx_columns_next`
+**Constraints:** `UNIQUE(habitat_id, order)`
+**Indexes:** `idx_columns_habitat_id`, `idx_columns_next`
 
 #### `features`
 
-The board-level cards. Features flow through columns and contain tasks. Feature status is auto-derived from child task states.
+The habitat-level cards. Features flow through columns and contain tasks. Feature status is auto-derived from child task states.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Feature identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent board |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `column_id` | TEXT | NOT NULL FK → columns(id) | Current column |
 | `title` | TEXT | NOT NULL | Feature title |
 | `description` | TEXT | NOT NULL DEFAULT '' | Detailed description (feature brief) |
@@ -293,7 +293,7 @@ The board-level cards. Features flow through columns and contain tasks. Feature 
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 | `version` | INTEGER | NOT NULL DEFAULT 1 | Optimistic locking version |
 
-**Indexes:** `idx_features_board_column(board_id, column_id)`, `idx_features_status`, `idx_features_priority`, `idx_features_column_order(column_id, display_order)`, `idx_features_due_at`, `idx_missions_habitat_gate` (release-gate lookup by habitat)
+**Indexes:** `idx_features_habitat_column(habitat_id, column_id)`, `idx_features_status`, `idx_features_priority`, `idx_features_column_order(column_id, display_order)`, `idx_features_due_at`, `idx_missions_habitat_gate` (release-gate lookup by habitat)
 
 #### `feature_dependencies`
 
@@ -342,7 +342,7 @@ Feature-level watch notifications (replaces task_watchers for new features).
 
 #### `tasks`
 
-Tasks are work units inside features. Every task belongs to exactly one feature. Tasks use a state machine for lifecycle but do NOT have board/column references — they inherit column position from their parent feature.
+Tasks are work units inside features. Every task belongs to exactly one feature. Tasks use a state machine for lifecycle but do NOT have habitat/column references — they inherit column position from their parent feature.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
@@ -503,7 +503,7 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Template identifier (UUID) |
-| `board_id` | TEXT | FK → boards(id) ON DELETE CASCADE | Board-specific or NULL for global |
+| `habitat_id` | TEXT | FK → habitats(id) ON DELETE CASCADE | Habitat-specific or NULL for global |
 | `name` | TEXT | NOT NULL | Template display name |
 | `title_pattern` | TEXT | NOT NULL DEFAULT '' | Prepended to task title |
 | `description_pattern` | TEXT | NOT NULL DEFAULT '' | Markdown template for description |
@@ -518,21 +518,21 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `created_by` | TEXT | NOT NULL | Creator identifier |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
-**Indexes:** `idx_templates_board`, `idx_templates_default`
+**Indexes:** `idx_templates_habitat`, `idx_templates_default`
 
 #### `saved_filters`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Filter identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Board |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `user_id` | TEXT | NOT NULL | User who saved this filter |
 | `name` | TEXT | NOT NULL | Filter display name |
 | `filter_config` | TEXT | NOT NULL (JSON) | Serialized filter criteria |
 | `is_builtin` | INTEGER | DEFAULT 0 (boolean) | System-provided filter |
 | `created_at` | TEXT | DEFAULT (datetime('now')) | Creation timestamp |
 
-**Index:** (board_id)
+**Index:** (habitat_id)
 
 #### `task_attachments`
 
@@ -555,7 +555,7 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Preference identifier (UUID) |
 | `user_id` | TEXT | NOT NULL | User |
-| `board_id` | TEXT | FK → boards(id) ON DELETE CASCADE | Board (NULL = global) |
+| `habitat_id` | TEXT | FK → habitats(id) ON DELETE CASCADE | Habitat (NULL = global) |
 | `task_assigned` | INTEGER | NOT NULL DEFAULT 1 | Notify on task assignment |
 | `task_submitted` | INTEGER | NOT NULL DEFAULT 1 | Notify on task submission |
 | `task_approved` | INTEGER | NOT NULL DEFAULT 0 | Notify on approval |
@@ -566,15 +566,15 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Unique constraint:** `(user_id, board_id)`
-**Index:** `idx_notif_prefs_user_board`
+**Unique constraint:** `(user_id, habitat_id)`
+**Index:** `idx_notif_prefs_user_habitat`
 
 #### `chat_integrations`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Integration identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Subscribed board |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Subscribed habitat |
 | `provider` | TEXT | NOT NULL CHECK (IN 'slack','discord') | Chat provider |
 | `webhook_url` | TEXT | NOT NULL | Webhook URL |
 | `channel_id` | TEXT | DEFAULT NULL | Provider channel ID |
@@ -584,14 +584,14 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_chat_integrations_board`, `idx_chat_integrations_provider`, `idx_chat_integrations_enabled`
+**Indexes:** `idx_chat_integrations_habitat`, `idx_chat_integrations_provider`, `idx_chat_integrations_enabled`
 
 #### `webhook_subscriptions`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Subscription identifier (UUID) |
-| `board_id` | TEXT | FK → boards(id) ON DELETE CASCADE | Subscribed board |
+| `habitat_id` | TEXT | FK → habitats(id) ON DELETE CASCADE | Subscribed habitat |
 | `name` | TEXT | NOT NULL | Display name |
 | `url` | TEXT | NOT NULL | Webhook target URL |
 | `secret` | TEXT | DEFAULT NULL | Plain webhook secret (shown once at creation) |
@@ -602,7 +602,7 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_webhook_subscriptions_board`, `idx_webhook_subscriptions_enabled`
+**Indexes:** `idx_webhook_subscriptions_habitat`, `idx_webhook_subscriptions_enabled`
 
 #### `webhook_deliveries`
 
@@ -627,7 +627,7 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Message identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Related board |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Related habitat |
 | `from_agent_id` | TEXT | NOT NULL FK → agents(id) ON DELETE CASCADE | Sending agent |
 | `to_agent_id` | TEXT | NOT NULL FK → agents(id) ON DELETE CASCADE | Receiving agent |
 | `task_id` | TEXT | FK → tasks(id) ON DELETE CASCADE | Related task (optional) |
@@ -638,17 +638,17 @@ Within-feature sibling task dependencies only. Cross-feature dependencies use `f
 | `read_at` | TEXT | DEFAULT NULL | When message was read |
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 
-**Indexes:** `idx_agent_messages_to_agent`, `idx_agent_messages_from_agent`, `idx_agent_messages_board`, `idx_agent_messages_task`, `idx_agent_messages_read`
+**Indexes:** `idx_agent_messages_to_agent`, `idx_agent_messages_from_agent`, `idx_agent_messages_habitat`, `idx_agent_messages_task`, `idx_agent_messages_read`
 
 #### `pulses`
 
-Structured signals for agent-to-agent and human-to-agent communication. Supports both mission-scoped and habitat-scoped (board-level) signals via the `scope` column. When `scope` is `"habitat"`, `mission_id` is NULL.
+Structured signals for agent-to-agent and human-to-agent communication. Supports both mission-scoped and habitat-scoped (habitat-level) signals via the `scope` column. When `scope` is `"habitat"`, `mission_id` is NULL.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Pulse identifier (UUID) |
 | `mission_id` | TEXT | FK → features(id) ON DELETE CASCADE | Mission scope (NULL when scope is `"habitat"`) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Board (habitat) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Signal scope |
 | `from_type` | TEXT | NOT NULL CHECK (IN 'human','agent','system') | Author type |
 | `from_id` | TEXT | NOT NULL | Author identifier (user.id, agent.id, or 'system') |
@@ -665,13 +665,13 @@ Structured signals for agent-to-agent and human-to-agent communication. Supports
 | `pinned` | INTEGER | NOT NULL DEFAULT 0 | Pinned signals |
 | `is_auto` | INTEGER | NOT NULL DEFAULT 0 | System-generated (1) vs intentional (0) |
 
-**Indexes:** `idx_pulses_mission`, `idx_pulses_board`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`, `idx_pulses_scope`
+**Indexes:** `idx_pulses_mission`, `idx_pulses_habitat`, `idx_pulses_signal_type`, `idx_pulses_from`, `idx_pulses_to`, `idx_pulses_task`, `idx_pulses_created`, `idx_pulses_reply_to`, `idx_pulses_scope`
 
 **Deep Linking:**
 
 ```
 Pulse ──mission_id──→ Feature (Mission) [nullable in V2]
-      ──board_id────→ Board (Habitat)
+      ──habitat_id────→ Habitat
       ──task_id─────→ Task (source)
       ──linked_task_id → Task (blocker clearance)
       ──reply_to_id───→ Pulse (thread parent)
@@ -679,11 +679,11 @@ Pulse ──mission_id──→ Feature (Mission) [nullable in V2]
 
 #### `pulse_cursors`
 
-Lightweight read-tracking: one row per reader per scope (mission or habitat) storing the last-checked timestamp. Uses `scope_key` (mission UUID or board UUID) with a `scope` column instead of a direct `mission_id` FK.
+Lightweight read-tracking: one row per reader per scope (mission or habitat) storing the last-checked timestamp. Uses `scope_key` (mission UUID or habitat UUID) with a `scope` column instead of a direct `mission_id` FK.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
-| `scope_key` | TEXT | NOT NULL | Mission UUID or board UUID |
+| `scope_key` | TEXT | NOT NULL | Mission UUID or habitat UUID |
 | `scope` | TEXT | NOT NULL DEFAULT 'mission' CHECK (IN 'mission','habitat') | Scope type |
 | `reader_type` | TEXT | NOT NULL CHECK (IN 'human','agent') | Reader type |
 | `reader_id` | TEXT | NOT NULL | Reader identifier |
@@ -698,7 +698,7 @@ Institutional memory for a habitat. Insights are promoted from high-value pulse 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Insight identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Habitat (board) |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Habitat |
 | `title` | TEXT | NOT NULL | Insight title |
 | `body` | TEXT | NOT NULL DEFAULT '' | Full insight body |
 | `source` | TEXT | NOT NULL DEFAULT 'manual' CHECK (IN 'signal','manual','auto') | How the insight was created |
@@ -708,7 +708,7 @@ Institutional memory for a habitat. Insights are promoted from high-value pulse 
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_insights_board`, `idx_insights_source_pulse`
+**Indexes:** `idx_insights_habitat`, `idx_insights_source_pulse`
 
 #### `pulse_reactions`
 
@@ -926,7 +926,7 @@ Recurring scheduled creation of features and tasks from templates. Supports cron
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Scheduled task identifier (UUID) |
-| `board_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent board |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `template_id` | TEXT | FK → feature_templates(id) ON DELETE SET NULL | Feature template reference (nullable) |
 | `name` | TEXT | NOT NULL | Schedule display name |
 | `description` | TEXT | NOT NULL DEFAULT '' | Schedule description |
@@ -950,7 +950,7 @@ Recurring scheduled creation of features and tasks from templates. Supports cron
 | `created_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now')) | Last update timestamp |
 
-**Indexes:** `idx_scheduled_tasks_board(board_id)`, `idx_scheduled_tasks_next(next_run_at)`, `idx_scheduled_tasks_enabled(enabled)`
+**Indexes:** `idx_scheduled_tasks_habitat(habitat_id)`, `idx_scheduled_tasks_next(next_run_at)`, `idx_scheduled_tasks_enabled(enabled)`
 
 #### `daemon_instances`
 
@@ -1189,7 +1189,7 @@ One row per habitat establishing canonical repository identity. Provides the anc
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Repository record identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL UNIQUE FK → boards(id) ON DELETE CASCADE | Parent habitat (1:1) |
+| `habitat_id` | TEXT | NOT NULL UNIQUE FK → habitats(id) ON DELETE CASCADE | Parent habitat (1:1) |
 | `provider` | TEXT | NOT NULL CHECK (IN 'github','gitlab') | Git provider |
 | `repo_slug` | TEXT | NOT NULL | Canonical repository identifier (e.g., `owner/repo`) |
 | `verification_state` | TEXT | NOT NULL DEFAULT 'unverified' CHECK (IN 'unverified','verified','failed') | Whether the repository connection has been verified |
@@ -1317,7 +1317,7 @@ Gap lifecycle tracking. Records identified evidence gaps (missing branches, comm
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Gap identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `target_type` | TEXT | NOT NULL CHECK (IN 'mission','task','subtask') | Polymorphic target type |
 | `target_id` | TEXT | NOT NULL | Target entity UUID |
 | `gap_type` | TEXT | NOT NULL CHECK (IN 'missing_branch','missing_commit','missing_review','missing_pipeline','incomplete_evidence') | Category of the gap |
@@ -1537,7 +1537,7 @@ Provider-backed identity configuration per habitat.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Provider identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `kind` | TEXT | NOT NULL CHECK (IN 'github','oidc') | Provider kind |
 | `name` | TEXT | NOT NULL | Display name |
 | `issuer` | TEXT | DEFAULT NULL | OIDC issuer URL |
@@ -1557,7 +1557,7 @@ OAuth/OIDC state records for PKCE flow safety.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | State identifier (UUID) |
 | `provider_id` | TEXT | NOT NULL FK → identity_providers(id) ON DELETE CASCADE | Parent provider |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `state` | TEXT | NOT NULL UNIQUE | OAuth state parameter |
 | `nonce` | TEXT | DEFAULT NULL | OIDC nonce |
 | `code_verifier` | TEXT | DEFAULT NULL | PKCE code verifier |
@@ -1577,7 +1577,7 @@ Provider-first or manual invite records.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Invite identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `invite_type` | TEXT | NOT NULL CHECK (IN 'provider','manual') | Invite kind |
 | `provider_id` | TEXT | DEFAULT NULL FK → identity_providers(id) ON DELETE SET NULL | Linked provider for provider invites |
 | `baseline_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Participant standing at acceptance |
@@ -1603,7 +1603,7 @@ Trusted external pod/admin group records.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Pod identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `name` | TEXT | NOT NULL | Display name |
 | `description` | TEXT | DEFAULT '' NOT NULL | Description |
 | `default_standing` | TEXT | NOT NULL DEFAULT 'remote_observer' | Default standing for participants |
@@ -1627,7 +1627,7 @@ Remote humans/orcys under a remote pod.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Participant identifier (UUID) |
 | `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Parent pod |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `participant_type` | TEXT | NOT NULL CHECK (IN 'remote_human','remote_orcy') | Participant type |
 | `display_name` | TEXT | NOT NULL | Display name |
 | `standing` | TEXT | NOT NULL DEFAULT 'remote_observer' CHECK (IN 'local_member','remote_observer','remote_contributor','remote_reviewer','trusted_remote_pod') | Current standing |
@@ -1653,7 +1653,7 @@ SHA-256 hashed credentials for remote participants.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Credential identifier (UUID) |
 | `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Owner participant |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `credential_type` | TEXT | NOT NULL CHECK (IN 'api','mcp') | Credential type |
 | `secret_hash` | TEXT | NOT NULL UNIQUE | SHA-256 hash of the credential secret |
 | `label` | TEXT | DEFAULT '' NOT NULL | Credential label |
@@ -1675,7 +1675,7 @@ Scoped access grants for remote participants and pods.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Grant identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Target pod |
 | `remote_participant_id` | TEXT | DEFAULT NULL FK → remote_participants(id) ON DELETE CASCADE | Target participant (NULL = pod-wide) |
 | `grant_type` | TEXT | NOT NULL CHECK (IN 'baseline_observer','scoped_elevation','permanent_execution') | Grant type |
@@ -1750,7 +1750,7 @@ Idempotency records for remote write retries.
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Key identifier (UUID) |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `remote_participant_id` | TEXT | NOT NULL FK → remote_participants(id) ON DELETE CASCADE | Acting participant |
 | `remote_credential_id` | TEXT | DEFAULT NULL FK → remote_credentials(id) ON DELETE SET NULL | Credential used |
 | `action` | TEXT | NOT NULL | Action being retried |
@@ -1774,7 +1774,7 @@ Host-approved remote pod webhook endpoints.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Endpoint identifier (UUID) |
 | `remote_pod_id` | TEXT | NOT NULL FK → remote_pods(id) ON DELETE CASCADE | Owner pod |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `url` | TEXT | NOT NULL | Webhook URL |
 | `description` | TEXT | DEFAULT '' NOT NULL | Description |
 | `events` | TEXT | DEFAULT '[]' NOT NULL | Subscribed event types JSON |
@@ -1802,7 +1802,7 @@ Delivery records for compact remote webhook payloads.
 |--------|------|-------------|-------------|
 | `id` | TEXT | PK | Delivery identifier (UUID) |
 | `endpoint_id` | TEXT | NOT NULL FK → remote_webhook_endpoints(id) ON DELETE CASCADE | Target endpoint |
-| `habitat_id` | TEXT | NOT NULL FK → boards(id) ON DELETE CASCADE | Parent habitat |
+| `habitat_id` | TEXT | NOT NULL FK → habitats(id) ON DELETE CASCADE | Parent habitat |
 | `event_type` | TEXT | NOT NULL | Event type delivered |
 | `payload` | TEXT | NOT NULL | Compact payload JSON |
 | `signature` | TEXT | NOT NULL | HMAC-SHA256 signature |
