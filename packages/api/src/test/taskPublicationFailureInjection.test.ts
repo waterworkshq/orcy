@@ -694,35 +694,362 @@ describe("completeAttemptWithClient terminal-replay no-side-effects", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkpointAttemptWithClient re-entrancy", () => {
-  it("advances state observation → assignment without throwing", () => {
+  it("advances state observation → assignment; backward observation is rejected (no-op) with stable publishedAt", () => {
     const db = getDb();
     const attemptId = seedAttempt(db, "reentrant-1");
 
-    // First checkpoint: pending → published_pending_observation.
+    // First checkpoint: pending → published_pending_observation (legal forward).
     const first = checkpointAttemptWithClient(db, attemptId, {
       stage: "published_pending_observation",
     });
-    expect(first.state).toBe("published_pending_observation");
-    expect(first.publishedAt).not.toBeNull();
+    expect(first.outcome).toBe("transitioned");
+    expect(first.attempt.state).toBe("published_pending_observation");
+    expect(first.attempt.publishedAt).not.toBeNull();
+    const firstPublishedAt = first.attempt.publishedAt;
 
-    // Second checkpoint: published_pending_observation → published_pending_assignment.
-    // Must NOT throw — checkpoint is a transition, not a one-shot.
+    // Second checkpoint: published_pending_observation → published_pending_assignment
+    // (legal forward). Must NOT throw — checkpoint is a forward transition, not a
+    // one-shot. COALESCE preserves the FIRST publishedAt.
     const second = checkpointAttemptWithClient(db, attemptId, {
       stage: "published_pending_assignment",
     });
-    expect(second.state).toBe("published_pending_assignment");
-    expect(second.id).toBe(attemptId);
+    expect(second.outcome).toBe("transitioned");
+    expect(second.attempt.state).toBe("published_pending_assignment");
+    expect(second.attempt.id).toBe(attemptId);
+    // publishedAt is COALESCE-preserved (unchanged across the second transition).
+    expect(second.attempt.publishedAt).toBe(firstPublishedAt);
 
-    // Third call also works — observation is idempotent at the schema level
-    // (no constraint preventing re-setting the same state).
+    // Third call: BACKWARD transition (assignment → observation) is now REJECTED
+    // (the M4 fix made this visible — the permissive primitive used to bless it).
     const third = checkpointAttemptWithClient(db, attemptId, {
       stage: "published_pending_observation",
     });
-    expect(third.state).toBe("published_pending_observation");
+    expect(third.outcome).toBe("rejected_transition");
+    if (third.outcome !== "rejected_transition") return;
+    expect(third.fromState).toBe("published_pending_assignment");
+    expect(third.toStage).toBe("published_pending_observation");
+    // The row is returned read-only (unchanged) — no backward corruption.
+    expect(third.attempt.state).toBe("published_pending_assignment");
+    // publishedAt is stable — the rejection did not re-stamp it.
+    expect(third.attempt.publishedAt).toBe(firstPublishedAt);
 
-    // **Failure mode that breaks this assertion**: if checkpoint were one-shot
-    // (e.g. rejected non-pending state before the UPDATE), the second call
-    // would throw.
+    // **Failure mode that breaks this assertion**: if the permissive primitive
+    // (M4 defect) were still in place, the third call would silently move state
+    // back to published_pending_observation (backward) and re-stamp publishedAt,
+    // so third.outcome would not be "rejected_transition" and publishedAt would
+    // differ from firstPublishedAt. If COALESCE were missing, second.attempt
+    // .publishedAt would differ from firstPublishedAt.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8b. checkpointAttemptWithClient transition matrix (M4 fix — forward-only,
+//     same-state no-op, backward/terminal rejected, COALESCE publishedAt,
+//     compare-and-set under concurrent state change).
+// ---------------------------------------------------------------------------
+
+/**
+ * Seeds a `task_creation_attempts` row at an arbitrary state (the default
+ * `seedAttempt` always inserts `pending`; the matrix tests need non-pending
+ * starting states to exercise same-state / backward / terminal paths).
+ */
+function seedAttemptAtState(
+  db: TaskPublicationDbClient,
+  id: string,
+  state: string,
+  extra?: Partial<{ publishedAt: string; completedAt: string; state: string }>,
+): string {
+  db.insert(taskCreationAttempts)
+    .values({
+      id,
+      source: "test",
+      sourceScopeKind: "mission",
+      sourceScopeId: "m-matrix",
+      attemptKey: `key-${id}`,
+      requestFingerprint: `fp-${id}`,
+      publicationKind: "create",
+      actorType: "human",
+      actorId: "user-1",
+      state: state as typeof taskCreationAttempts.$inferSelect.state,
+      publishedAt: extra?.publishedAt ?? null,
+      completedAt: extra?.completedAt ?? null,
+    })
+    .run();
+  return id;
+}
+
+/**
+ * Tx-injection shim for the compare-and-set race test. Wraps a real drizzle
+ * client and, on the FIRST `.update(...).run()` boundary, runs
+ * `competingMutation` against the INNER client BEFORE delegating the update —
+ * simulating a concurrent writer that mutates state in the window between the
+ * primitive's in-tx read and its conditional UPDATE. Reads / inserts / deletes
+ * pass through unchanged.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function raceInjectingClient(
+  inner: TaskPublicationDbClient,
+  competingMutation: (db: TaskPublicationDbClient) => void,
+): TaskPublicationDbClient {
+  let injected = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wrapUpdateBuilder = (builder: any): any =>
+    new Proxy(builder, {
+      get: (target, prop, receiver) => {
+        if (prop === "run") {
+          return () => {
+            if (!injected) {
+              injected = true;
+              competingMutation(inner);
+            }
+            return (target as { run: () => unknown }).run();
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value === "function") {
+          return (...args: unknown[]) => wrapUpdateBuilder(value.apply(target, args));
+        }
+        return value;
+      },
+    });
+  return new Proxy(inner as object, {
+    get: (target, prop, receiver) => {
+      if (prop === "update") {
+        return (table: unknown) => {
+          const builder = (target as { update: (t: unknown) => unknown }).update(table);
+          return wrapUpdateBuilder(builder);
+        };
+      }
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value === "function") return value.bind(target);
+      return value;
+    },
+  }) as unknown as TaskPublicationDbClient;
+}
+
+describe("checkpointAttemptWithClient transition matrix (M4 fix)", () => {
+  it("forward pending → observation SUCCEEDS and sets publishedAt the FIRST time", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "fwd-pending");
+
+    const result = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+    expect(result.outcome).toBe("transitioned");
+    expect(result.attempt.state).toBe("published_pending_observation");
+    expect(result.attempt.publishedAt).not.toBeNull();
+
+    // **Failure mode**: if the matrix rejected pending→observation (e.g. the
+    // legal-forward check were inverted), outcome would be "rejected_transition"
+    // and publishedAt would be null.
+  });
+
+  it("forward observation → assignment SUCCEEDS and COALESCE-preserves publishedAt", () => {
+    const db = getDb();
+    const stamped = "2025-01-01T00:00:00.000Z";
+    const attemptId = seedAttemptAtState(db, "fwd-obs", "published_pending_observation", {
+      publishedAt: stamped,
+    });
+
+    const result = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_assignment",
+    });
+    expect(result.outcome).toBe("transitioned");
+    expect(result.attempt.state).toBe("published_pending_assignment");
+    // COALESCE: the FIRST publishedAt is preserved, NOT overwritten with now().
+    expect(result.attempt.publishedAt).toBe(stamped);
+
+    // **Failure mode**: if COALESCE were missing, publishedAt would be a fresh
+    // `now()` ISO stamp, not equal to `stamped`.
+  });
+
+  it("same-state observation → observation is NO-OP with publishedAt UNCHANGED", () => {
+    const db = getDb();
+    const stamped = "2025-02-02T00:00:00.000Z";
+    const attemptId = seedAttemptAtState(db, "same-obs", "published_pending_observation", {
+      publishedAt: stamped,
+    });
+
+    const result = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+    expect(result.outcome).toBe("no_op");
+    expect(result.attempt.state).toBe("published_pending_observation");
+    // Same-state never re-stamps publishedAt.
+    expect(result.attempt.publishedAt).toBe(stamped);
+
+    // **Failure mode**: if same-state did not short-circuit (the M4 defect:
+    // unconditional UPDATE), publishedAt would be overwritten with now() and
+    // outcome would be "transitioned".
+  });
+
+  it("backward assignment → observation is REJECTED with stable state + publishedAt", () => {
+    const db = getDb();
+    const stamped = "2025-03-03T00:00:00.000Z";
+    const attemptId = seedAttemptAtState(db, "back-assign", "published_pending_assignment", {
+      publishedAt: stamped,
+    });
+
+    const result = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+    expect(result.outcome).toBe("rejected_transition");
+    if (result.outcome !== "rejected_transition") return;
+    expect(result.fromState).toBe("published_pending_assignment");
+    expect(result.toStage).toBe("published_pending_observation");
+    // The row is returned read-only — no backward corruption.
+    expect(result.attempt.state).toBe("published_pending_assignment");
+    expect(result.attempt.publishedAt).toBe(stamped);
+
+    // **Failure mode**: if backward transitions were not rejected (the M4
+    // defect), state would move to published_pending_observation and outcome
+    // would be "transitioned".
+  });
+
+  it("forward-skip pending → assignment is REJECTED (must pass observation first)", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "skip-assign");
+
+    const result = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_assignment",
+    });
+    expect(result.outcome).toBe("rejected_transition");
+    if (result.outcome !== "rejected_transition") return;
+    expect(result.fromState).toBe("pending");
+    expect(result.toStage).toBe("published_pending_assignment");
+    expect(result.attempt.state).toBe("pending");
+
+    // **Failure mode**: if the matrix only checked "target is a published state"
+    // without the from→to pairing, pending→assignment would wrongly fire,
+    // skipping the observation gate.
+  });
+
+  it("terminal-locked: a `created` attempt rejects any checkpoint transition", () => {
+    const db = getDb();
+    const stamped = "2025-04-04T00:00:00.000Z";
+    const attemptId = seedAttemptAtState(db, "term-created", "created", {
+      publishedAt: stamped,
+      completedAt: stamped,
+    });
+
+    const toObservation = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+    expect(toObservation.outcome).toBe("rejected_transition");
+    expect(toObservation.attempt.state).toBe("created");
+    expect(toObservation.attempt.completedAt).toBe(stamped);
+
+    const toAssignment = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_assignment",
+    });
+    expect(toAssignment.outcome).toBe("rejected_transition");
+    expect(toAssignment.attempt.state).toBe("created");
+
+    // **Failure mode**: if the terminal-lock (completedAt / terminal-state
+    // check) were missing, a `created` attempt could be dragged back into
+    // published_pending_* — violating the guardrail "terminal replay cannot
+    // transition back to active work."
+  });
+
+  it("terminal-locked: a `rejected_validation` attempt (no completedAt) rejects any checkpoint", () => {
+    const db = getDb();
+    // rejected_validation reachable directly from pending WITHOUT completeAttempt,
+    // so completedAt is null — the state-set terminal check is what locks it.
+    const attemptId = seedAttemptAtState(db, "term-rejected", "rejected_validation");
+
+    const result = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+    expect(result.outcome).toBe("rejected_transition");
+    expect(result.attempt.state).toBe("rejected_validation");
+    expect(result.attempt.completedAt).toBeNull();
+
+    // **Failure mode**: if the terminal-lock only checked `completedAt !== null`
+    // (ignoring the terminal STATE set), this rejected_validation attempt (null
+    // completedAt) would slip through and re-enter active publication.
+  });
+
+  it("compare-and-set: a concurrent state change between read and UPDATE no-ops without corruption", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "race-1");
+    // Advance to observation so the legal-forward path under test is
+    // observation → assignment.
+    checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+
+    // Racer: between the primitive's in-tx read (state=observation) and its
+    // conditional UPDATE, a concurrent worker TERMINALIZES the attempt.
+    const racer = raceInjectingClient(db, (inner) => {
+      completeAttemptWithClient(inner, attemptId, {
+        terminalOutcome: "created",
+        finalState: "created",
+        terminalResult: { outcome: "created", taskId: "t-race-winner" },
+      });
+    });
+
+    const result = checkpointAttemptWithClient(racer, attemptId, {
+      stage: "published_pending_assignment",
+    });
+
+    // The conditional UPDATE's WHERE (state = observation) did NOT match (the
+    // racer moved state to `created`), so the result is no_op — NOT a transition
+    // onto a terminal state.
+    expect(result.outcome).toBe("no_op");
+    // The row reflects the concurrent winner, untouched by our UPDATE.
+    expect(result.attempt.state).toBe("created");
+    expect(result.attempt.completedAt).not.toBeNull();
+    expect(result.attempt.terminalResult?.taskId).toBe("t-race-winner");
+
+    // **Failure mode**: if the UPDATE were unconditional (the M4 defect — no
+    // `AND state = fromState` in the WHERE), our UPDATE would have OVERWRITTEN
+    // the racer's terminal `created` row back to published_pending_assignment
+    // (state corruption + lost completedAt), and outcome would be "transitioned".
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8c. completeAttemptWithClient + transition terminal-lock interaction.
+// ---------------------------------------------------------------------------
+
+describe("completeAttemptWithClient + checkpoint terminal-lock", () => {
+  it("completeAttempt is idempotent on re-call, THEN a checkpoint transition is rejected", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "term-lock-1");
+
+    // First completion → terminal `created`.
+    const first = completeAttemptWithClient(db, attemptId, {
+      terminalOutcome: "created",
+      finalState: "created",
+      terminalResult: { outcome: "created", taskId: "t-first" },
+    });
+    expect(first.state).toBe("created");
+    expect(first.completedAt).not.toBeNull();
+    const firstCompletedAt = first.completedAt;
+
+    // Idempotent re-call: prior completion is authoritative, no overwrite.
+    const second = completeAttemptWithClient(db, attemptId, {
+      terminalOutcome: "created_unassigned",
+      finalState: "created_unassigned",
+      terminalResult: { outcome: "created_unassigned", taskId: "t-DIFFERENT" },
+    });
+    expect(second.completedAt).toBe(firstCompletedAt);
+    expect(second.state).toBe("created");
+    expect(second.terminalResult?.taskId).toBe("t-first");
+
+    // Terminal-lock: once completedAt is set, the transition API refuses to
+    // reopen — terminalization is a one-way door.
+    const transition = checkpointAttemptWithClient(db, attemptId, {
+      stage: "published_pending_observation",
+    });
+    expect(transition.outcome).toBe("rejected_transition");
+    expect(transition.attempt.state).toBe("created");
+    expect(transition.attempt.completedAt).toBe(firstCompletedAt);
+
+    // **Failure mode**: if the checkpoint did not treat completedAt !== null as
+    // terminal-locked, the transition would fire onto an already-completed
+    // attempt, reopening terminal work (violating the one-way door) and outcome
+    // would be "transitioned".
   });
 });
 

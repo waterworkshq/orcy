@@ -31,7 +31,7 @@ import {
   taskCreationAssignmentReservations,
   missionRecalculationMarkers,
 } from "../db/schema/index.js";
-import { eq, max, sql } from "drizzle-orm";
+import { and, eq, max, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -190,6 +190,61 @@ export interface TerminalResult {
     | "batch_rejected";
   /** Defaults to `now` (ISO) when omitted. Set only on first completion (idempotent). */
   completedAt?: string;
+}
+
+/**
+ * Closed result of {@link checkpointAttemptWithClient} — the compare-and-set
+ * transition matrix. Never throws for an expected transition decision; only
+ * infrastructure failures (retryable transport) throw.
+ *
+ * - `transitioned`        — a legal forward transition fired (compare-and-set
+ *                           UPDATE matched the expected current state).
+ * - `no_op`                — same-state request (returns the row unchanged; does
+ *                           NOT re-stamp `publishedAt`), OR a concurrent writer
+ *                           moved state between the in-tx read and the
+ *                           conditional UPDATE so the WHERE did not match.
+ * - `rejected_transition`  — the request is illegal: backward, a forward skip,
+ *                           or a transition out of a terminal state (the
+ *                           T3A guardrail: "terminal replay cannot transition
+ *                           back to active work"). `fromState`/`toStage` carry
+ *                           the rejected pair for diagnostics.
+ */
+export type AttemptTransitionResult =
+  | { outcome: "transitioned"; attempt: typeof taskCreationAttempts.$inferSelect }
+  | { outcome: "no_op"; attempt: typeof taskCreationAttempts.$inferSelect }
+  | {
+      outcome: "rejected_transition";
+      attempt: typeof taskCreationAttempts.$inferSelect;
+      /** State read on the passed client when the request was decided. */
+      fromState: string;
+      /** Target checkpoint stage the request named. */
+      toStage: AttemptCheckpoint["stage"];
+    };
+
+/**
+ * Terminal attempt states — once reached, the transition API refuses any
+ * further active-work transition (the one-way terminal door). Set both by
+ * {@link completeAttemptWithClient} and reachable directly from `pending`
+ * (rejected_validation / vetoed / batch_rejected).
+ */
+const TERMINAL_ATTEMPT_STATES: ReadonlySet<string> = new Set([
+  "created",
+  "created_unassigned",
+  "rejected_validation",
+  "vetoed",
+  "batch_rejected",
+]);
+
+/**
+ * Legal forward checkpoint transitions ONLY. The state machine is forward-only:
+ * `pending → published_pending_observation → published_pending_assignment`.
+ * Same-state and every other pair are handled by the caller (no-op / rejected).
+ */
+function isLegalCheckpointForward(from: string, to: AttemptCheckpoint["stage"]): boolean {
+  if (from === "pending" && to === "published_pending_observation") return true;
+  if (from === "published_pending_observation" && to === "published_pending_assignment")
+    return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -548,45 +603,102 @@ export function createAssignmentReservationWithClient(
 // ---------------------------------------------------------------------------
 
 /**
- * Advances a `task_creation_attempts` row to a post-publish checkpoint: sets
- * `published_at` and moves `state` to `published_pending_observation` or
- * `published_pending_assignment`. Re-reads the row through the SAME client and
- * throws `repositoryNotFoundError` if the attempt does not exist. Never calls `getDb()`.
+ * Advances a `task_creation_attempts` row through the forward-only checkpoint
+ * state machine via a **compare-and-set** transition matrix (the T3A Phase 2 /
+ * M4 fix — replaces the permissive unconditional UPDATE that overwrote state
+ * and `publishedAt` without inspecting current state / `completedAt`).
+ *
+ * Legal forward transitions ONLY:
+ *   - `pending → published_pending_observation`
+ *   - `published_pending_observation → published_pending_assignment`
+ *
+ * Decision order (all inside the caller's transaction, all on the passed
+ * client — never `getDb()`, never a nested tx, never an external effect):
+ *   1. Read current row on `tx` (in-tx decision support).
+ *   2. Terminal-lock: `completedAt` set OR a terminal `state` →
+ *      `rejected_transition` (the guardrail: terminal replay cannot transition
+ *      back to active work).
+ *   3. Same-state (`from === to`) → `no_op`, row unchanged, `publishedAt` NOT
+ *      re-stamped.
+ *   4. Non-legal-forward (backward, forward-skip) → `rejected_transition`.
+ *   5. Compare-and-set UPDATE: `WHERE id = attemptId AND state = fromState`, so
+ *      a concurrent state mutation between the read and the write no-ops rather
+ *      than corrupting. `publishedAt` is preserved via `COALESCE` (the FIRST
+ *      checkpoint wins; later transitions never overwrite it).
+ *   6. Re-verify by re-read (sql.js-safe — `runResult.changes` is undefined in
+ *      the test driver, so the re-read is the portable detector). State advanced
+ *      to `toStage` → `transitioned`; otherwise a concurrent writer won the
+ *      race → `no_op` with the actual current row.
+ *
+ * Throws {@link repositoryNotFoundError} only when the attempt does not exist
+ * (a data-integrity / transport condition, not an expected transition outcome).
+ * Infrastructure failures throw (retryable transport).
  */
 export function checkpointAttemptWithClient(
   db: TaskPublicationDbClient,
   attemptId: string,
   publication: AttemptCheckpoint,
-): typeof taskCreationAttempts.$inferSelect {
-  const publishedAt = publication.publishedAt ?? new Date().toISOString();
-
-  // Existence guard on the passed client (stays inside the caller's tx).
-  const existing = db
-    .select({ id: taskCreationAttempts.id })
+): AttemptTransitionResult {
+  // 1. In-tx read of the current state (supports the compare-and-set decision).
+  const current = db
+    .select()
     .from(taskCreationAttempts)
     .where(eq(taskCreationAttempts.id, attemptId))
     .get();
-  if (!existing) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
+  if (!current) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
 
+  const fromState = current.state;
+  const toStage = publication.stage;
+
+  // 2. Terminal-lock: a completed / terminal attempt cannot transition back to
+  //    active work. `completedAt` is the strongest signal (completeAttempt sets
+  //    it atomically with a terminal state); the state set covers direct-from-
+  //    pending terminals that never set completedAt via the checkpoint path.
+  if (current.completedAt !== null || TERMINAL_ATTEMPT_STATES.has(fromState)) {
+    return { outcome: "rejected_transition", attempt: current, fromState, toStage };
+  }
+
+  // 3. Same-state = no-op (return the row unchanged; do NOT re-stamp publishedAt).
+  if (fromState === toStage) {
+    return { outcome: "no_op", attempt: current };
+  }
+
+  // 4. Legal forward transitions ONLY (rejects backward + forward-skip).
+  if (!isLegalCheckpointForward(fromState, toStage)) {
+    return { outcome: "rejected_transition", attempt: current, fromState, toStage };
+  }
+
+  // 5. Compare-and-set: conditional UPDATE whose WHERE includes the expected
+  //    current state, so a concurrent state change between the read and the
+  //    write no-ops rather than corrupting. COALESCE preserves the FIRST
+  //    publishedAt across subsequent transitions.
+  const publishedAt = publication.publishedAt ?? new Date().toISOString();
   try {
     db.update(taskCreationAttempts)
       .set({
-        state: publication.stage,
-        publishedAt,
+        state: toStage,
+        publishedAt: sql`COALESCE(${taskCreationAttempts.publishedAt}, ${publishedAt})`,
       })
-      .where(eq(taskCreationAttempts.id, attemptId))
+      .where(and(eq(taskCreationAttempts.id, attemptId), eq(taskCreationAttempts.state, fromState)))
       .run();
   } catch (err) {
     throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
   }
 
+  // 6. Re-verify by re-read (sql.js-safe). The conditional UPDATE took effect
+  //    only if state advanced to the target; a WHERE mismatch (concurrent writer
+  //    moved state between the read and the write) leaves state !== toStage.
   const row = db
     .select()
     .from(taskCreationAttempts)
     .where(eq(taskCreationAttempts.id, attemptId))
     .all()[0];
   if (!row) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
-  return row;
+
+  if (row.state === toStage) {
+    return { outcome: "transitioned", attempt: row };
+  }
+  return { outcome: "no_op", attempt: row };
 }
 
 // ---------------------------------------------------------------------------
@@ -601,6 +713,13 @@ export function checkpointAttemptWithClient(
  * set), the existing row is returned UNCHANGED — the terminal timestamp and
  * result are not overwritten. This guarantees no side effects when a terminal
  * replay reaches this layer. Never calls `getDb()`.
+ *
+ * Terminal-lock integration (T3A Phase 2): terminalization is a one-way door.
+ * Once `completedAt` is set here, {@link checkpointAttemptWithClient} refuses
+ * any further transition (its step 2 treats `completedAt !== null` as
+ * terminal-locked → `rejected_transition`). Together this primitive + the
+ * transition matrix enforce the T3A guardrail: "terminal replay cannot
+ * transition back to active work."
  */
 export function completeAttemptWithClient(
   db: TaskPublicationDbClient,

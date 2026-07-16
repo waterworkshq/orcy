@@ -396,15 +396,16 @@ describe("createAssignmentReservationWithClient", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkpointAttemptWithClient", () => {
-  it("advances state to published_pending_observation and sets published_at", () => {
+  it("advances state to published_pending_observation (legal forward) and sets published_at", () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
 
-    const row = checkpointAttemptWithClient(db, attemptId, {
+    const result = checkpointAttemptWithClient(db, attemptId, {
       stage: "published_pending_observation",
     });
-    expect(row.state).toBe("published_pending_observation");
-    expect(row.publishedAt).not.toBeNull();
+    expect(result.outcome).toBe("transitioned");
+    expect(result.attempt.state).toBe("published_pending_observation");
+    expect(result.attempt.publishedAt).not.toBeNull();
   });
 
   it("throws notFound when the attempt does not exist", () => {
