@@ -131,8 +131,8 @@ export function computeLayout(features: MissionWithProgress[]): {
   return { nodes, edges };
 }
 
-export function useDependencyGraph(boardId: string) {
-  const { data: habitatData, isLoading, error } = useHabitat(boardId);
+export function useDependencyGraph(habitatId: string) {
+  const { data: habitatData, isLoading, error } = useHabitat(habitatId);
   const features = useMemo(() => habitatData?.missions ?? [], [habitatData?.missions]);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
 

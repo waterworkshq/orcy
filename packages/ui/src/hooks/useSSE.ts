@@ -28,14 +28,14 @@ import type { SSEEvent } from "../types/index.js";
  * callback, so a stale generation can never patch, invalidate, notify, or
  * navigate.
  */
-export function useSSE(boardId: string) {
+export function useSSE(habitatId: string) {
   const queryClient = useQueryClient();
   const generationRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryDelayRef = useRef(1000);
   const tokenAbortRef = useRef<AbortController | null>(null);
-  const committedHabitatRef = useRef(boardId);
+  const committedHabitatRef = useRef(habitatId);
 
   const abortGeneration = useCallback(() => {
     generationRef.current++;
@@ -51,7 +51,7 @@ export function useSSE(boardId: string) {
 
   const connect = useCallback(async () => {
     const generation = ++generationRef.current;
-    const subscriptionHabitatId = boardId;
+    const subscriptionHabitatId = habitatId;
     const isActive = () =>
       generation === generationRef.current && subscriptionHabitatId === committedHabitatRef.current;
 
@@ -66,7 +66,7 @@ export function useSSE(boardId: string) {
     const tokenAbort = new AbortController();
     tokenAbortRef.current = tokenAbort;
 
-    let streamUrl = `/sse/habitats/${boardId}/stream`;
+    let streamUrl = `/sse/habitats/${habitatId}/stream`;
     const token = localStorage.getItem("orcy_token");
     if (token) {
       try {
@@ -78,7 +78,7 @@ export function useSSE(boardId: string) {
         if (res.ok) {
           const data = await res.json();
           if (!isActive()) return;
-          streamUrl = `/sse/habitats/${boardId}/stream?token=${encodeURIComponent(data.token)}`;
+          streamUrl = `/sse/habitats/${habitatId}/stream?token=${encodeURIComponent(data.token)}`;
         }
       } catch {
         if (tokenAbort.signal.aborted || !isActive()) return;
@@ -128,11 +128,11 @@ export function useSSE(boardId: string) {
         void connect();
       }, retryDelayRef.current);
     });
-  }, [boardId, queryClient]);
+  }, [habitatId, queryClient]);
 
   useLayoutEffect(() => {
-    committedHabitatRef.current = boardId;
-  }, [boardId]);
+    committedHabitatRef.current = habitatId;
+  }, [habitatId]);
 
   useEffect(() => {
     void connect();

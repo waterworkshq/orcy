@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 
 describe("useTemplates", () => {
-  it("fetches data when boardId is provided", async () => {
+  it("fetches data when habitatId is provided", async () => {
     const { result } = renderHook(() => useTemplates("board-1"), {
       wrapper: createWrapper(),
     });
@@ -56,7 +56,7 @@ describe("useTemplates", () => {
     expect(result.current.data).toEqual({ templates: [{ id: "t1", name: "Template 1" }] });
   });
 
-  it("is disabled when boardId is undefined", () => {
+  it("is disabled when habitatId is undefined", () => {
     const { result } = renderHook(() => useTemplates(undefined), {
       wrapper: createWrapper(),
     });
@@ -66,7 +66,7 @@ describe("useTemplates", () => {
 });
 
 describe("useChatIntegrations", () => {
-  it("fetches data when boardId is provided", async () => {
+  it("fetches data when habitatId is provided", async () => {
     const { result } = renderHook(() => useChatIntegrations("board-1"), {
       wrapper: createWrapper(),
     });
@@ -75,7 +75,7 @@ describe("useChatIntegrations", () => {
     expect(result.current.data).toEqual([{ id: "ci1", provider: "slack" }]);
   });
 
-  it("is disabled when boardId is undefined", () => {
+  it("is disabled when habitatId is undefined", () => {
     const { result } = renderHook(() => useChatIntegrations(undefined), {
       wrapper: createWrapper(),
     });
@@ -98,7 +98,7 @@ describe("useNotificationPrefs", () => {
     });
   });
 
-  it("is disabled when boardId is undefined", () => {
+  it("is disabled when habitatId is undefined", () => {
     const { result } = renderHook(() => useNotificationPrefs(undefined), {
       wrapper: createWrapper(),
     });
@@ -109,7 +109,7 @@ describe("useNotificationPrefs", () => {
 });
 
 describe("useScheduledTasks", () => {
-  it("fetches data when boardId is provided", async () => {
+  it("fetches data when habitatId is provided", async () => {
     const { result } = renderHook(() => useScheduledTasks("board-1"), {
       wrapper: createWrapper(),
     });
@@ -118,7 +118,7 @@ describe("useScheduledTasks", () => {
     expect(result.current.data).toEqual({ scheduledTasks: [{ id: "st1", name: "Daily" }] });
   });
 
-  it("is disabled when boardId is undefined", () => {
+  it("is disabled when habitatId is undefined", () => {
     const { result } = renderHook(() => useScheduledTasks(undefined), {
       wrapper: createWrapper(),
     });

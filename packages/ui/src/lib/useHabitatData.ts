@@ -362,11 +362,11 @@ export function useAgentStats(agentId: string | undefined) {
   });
 }
 
-export function useAgentsListWithTasks(boardId: string | undefined) {
+export function useAgentsListWithTasks(habitatId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.agents.listWithTasks(),
     queryFn: () => api.agents.listWithTasks(),
-    enabled: !!boardId,
+    enabled: !!habitatId,
     staleTime: 30 * 1000,
   });
 }
@@ -405,32 +405,32 @@ export function useUserProfile() {
   });
 }
 
-export function useSavedFilters(boardId: string | undefined) {
+export function useSavedFilters(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.savedFilters.list(boardId ?? ""),
-    queryFn: () => api.savedFilters.list(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.savedFilters.list(habitatId ?? ""),
+    queryFn: () => api.savedFilters.list(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useHabitatHealth(boardId: string | undefined) {
+export function useHabitatHealth(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.health.current(boardId ?? ""),
-    queryFn: () => api.health.get(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.health.current(habitatId ?? ""),
+    queryFn: () => api.health.get(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
 export function useAuditSummary(
-  boardId: string | undefined,
+  habitatId: string | undefined,
   params?: { since?: string; until?: string },
 ) {
   return useQuery({
-    queryKey: [...queryKeys.audit.summary(boardId ?? ""), params] as const,
-    queryFn: () => api.audit.summary(boardId!, params),
-    enabled: !!boardId,
+    queryKey: [...queryKeys.audit.summary(habitatId ?? ""), params] as const,
+    queryFn: () => api.audit.summary(habitatId!, params),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -473,44 +473,44 @@ export function useInvalidateMission(missionId: string) {
   };
 }
 
-export function useTemplates(boardId: string | undefined) {
+export function useTemplates(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.templates.list(boardId ?? ""),
-    queryFn: () => api.templates.list(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.templates.list(habitatId ?? ""),
+    queryFn: () => api.templates.list(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useChatIntegrations(boardId: string | undefined) {
+export function useChatIntegrations(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.chatIntegrations.list(boardId ?? ""),
-    queryFn: () => api.chatIntegrations.list(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.chatIntegrations.list(habitatId ?? ""),
+    queryFn: () => api.chatIntegrations.list(habitatId!),
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useNotificationPrefs(boardId: string | undefined) {
+export function useNotificationPrefs(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.notificationPrefs.board(boardId ?? ""),
+    queryKey: queryKeys.notificationPrefs.board(habitatId ?? ""),
     queryFn: async () => {
       const [global, board] = await Promise.all([
         api.notifications.getGlobalPrefs(),
-        api.notifications.getBoardPrefs(boardId!),
+        api.notifications.getBoardPrefs(habitatId!),
       ]);
       return { global, board };
     },
-    enabled: !!boardId,
+    enabled: !!habitatId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useScheduledTasks(boardId: string | undefined) {
+export function useScheduledTasks(habitatId: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.scheduledTasks.list(boardId ?? ""),
-    queryFn: () => api.scheduledTasks.list(boardId!),
-    enabled: !!boardId,
+    queryKey: queryKeys.scheduledTasks.list(habitatId ?? ""),
+    queryFn: () => api.scheduledTasks.list(habitatId!),
+    enabled: !!habitatId,
     staleTime: 30 * 1000,
   });
 }
