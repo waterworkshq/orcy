@@ -81,6 +81,8 @@ const mockStoreState = {
   selectedMissionIds: [],
   notifications: [],
   setBulkSelectMode: vi.fn(),
+  clearMissionSelection: vi.fn(),
+  clearSelectionOnHabitatChange: vi.fn(),
 };
 
 const useHabitatStoreMock = vi.fn((selector?: any) => {

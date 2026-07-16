@@ -149,6 +149,8 @@ describe("HabitatPage Query ownership", () => {
       isBulkSelectMode: false,
       clearTaskSelection: vi.fn(),
       setBulkSelectMode: vi.fn(),
+      clearMissionSelection: vi.fn(),
+      clearSelectionOnHabitatChange: vi.fn(),
     };
     mocks.agentsList.mockResolvedValue([]);
   });

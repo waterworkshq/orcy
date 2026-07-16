@@ -99,6 +99,8 @@ const mockBoardStoreState: Record<string, any> = {
   selectedMissionIds: [],
   selectedTaskIds: [],
   setBulkSelectMode: vi.fn(),
+  clearMissionSelection: vi.fn(),
+  clearSelectionOnHabitatChange: vi.fn(),
   clearTaskSelection: clearTaskSelectionMock,
 };
 

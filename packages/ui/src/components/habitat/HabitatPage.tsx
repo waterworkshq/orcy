@@ -209,20 +209,20 @@ export function HabitatPage() {
   const prevHabitatIdRef = useRef(habitatId);
   useEffect(() => {
     if (prevHabitatIdRef.current !== habitatId) {
-      clearMissionSelection?.();
-      clearSelectionOnHabitatChange?.(habitatId ?? "");
+      clearMissionSelection();
+      clearSelectionOnHabitatChange(habitatId ?? "");
     }
     prevHabitatIdRef.current = habitatId;
   }, [habitatId, clearMissionSelection, clearSelectionOnHabitatChange]);
 
   useEffect(() => {
-    clearSelectionOnHabitatChange?.(habitatId ?? "");
+    clearSelectionOnHabitatChange(habitatId ?? "");
   }, []);
 
   useEffect(() => {
     return () => {
-      clearMissionSelection?.();
-      setBulkSelectMode?.(false);
+      clearMissionSelection();
+      setBulkSelectMode(false);
     };
   }, []);
 

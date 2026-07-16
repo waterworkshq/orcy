@@ -52,6 +52,7 @@ vi.mock("../../store/habitatStore.js", () => ({
     const state = {
       selectedMissionIds: ["feat-1", "feat-2", "feat-3"],
       clearMissionSelection: mockClearFeatureSelection,
+      clearSelectionOnHabitatChange: vi.fn(),
       setBulkSelectMode: mockSetBulkSelectMode,
     };
     return selector ? selector(state) : state;
