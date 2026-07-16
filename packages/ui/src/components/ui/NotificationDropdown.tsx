@@ -1,8 +1,8 @@
 import * as React from "react";
 import { clsx } from "clsx";
-import { useNavigate } from "react-router-dom";
 import { Bell, Trash2, X } from "lucide-react";
 import { useHabitatStore } from "../../store/habitatStore.js";
+import { useModalStore } from "../../store/modalStore.js";
 import { formatRelativeTime } from "../../lib/formatting.js";
 import type { Notification } from "../../types/index.js";
 
@@ -18,15 +18,15 @@ function formatTimestamp(ts: string): string {
 function NotificationItem({
   notification,
   onRead,
-  onNavigate,
+  onOpenTask,
 }: {
   notification: Notification;
   onRead: (id: string) => void;
-  onNavigate: (taskId: string) => void;
+  onOpenTask: (taskId: string) => void;
 }) {
   const handleClick = () => {
     if (!notification.read) onRead(notification.id);
-    onNavigate(notification.taskId);
+    onOpenTask(notification.taskId);
   };
 
   return (
@@ -65,10 +65,10 @@ function NotificationItem({
 
 export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
   const notifications = useHabitatStore((s) => s.notifications);
   const markNotificationRead = useHabitatStore((s) => s.markNotificationRead);
   const clearNotifications = useHabitatStore((s) => s.clearNotifications);
+  const openTaskModal = useModalStore((s) => s.openModal);
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -94,9 +94,9 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleNavigate = (taskId: string) => {
+  const handleOpenTask = (taskId: string) => {
     onClose();
-    navigate(`/missions/${taskId}`);
+    openTaskModal(taskId);
   };
 
   return (
@@ -160,7 +160,7 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
                   key={n.id}
                   notification={n}
                   onRead={markNotificationRead}
-                  onNavigate={handleNavigate}
+                  onOpenTask={handleOpenTask}
                 />
               ))}
             </div>

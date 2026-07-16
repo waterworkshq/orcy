@@ -18,38 +18,57 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   href?: string;
-  activePattern?: string;
+  match: (path: string) => boolean;
   habitatScoped?: string;
+  disabledTitle: string;
 }
+
+const HABITAT_DETAIL_PATTERN = /^\/habitats\/[^/]+$/;
+const HABITAT_WIKI_PATTERN = /^\/habitats\/[^/]+\/wiki$/;
+const MISSION_DETAIL_PATTERN = /^\/missions\/[^/]+$/;
+const HABITAT_ACTIVITY_PATTERN = /^\/habitats\/[^/]+\/activity\/?$/;
+const HABITAT_REMOTE_PODS_PATTERN = /^\/habitats\/[^/]+\/remote-pods\/?$/;
+const HABITAT_ADMIN_WORKFLOWS_PATTERN = /^\/habitats\/[^/]+\/admin\/workflows\/?$/;
 
 const navItems: NavItem[] = [
   {
     label: "Pod Base",
     icon: <BarChart3 className="h-4 w-4" />,
     href: "/dashboard",
-    activePattern: "/dashboard",
+    match: (path: string) => path === "/dashboard" || path.startsWith("/dashboard/"),
+    disabledTitle: "Open a habitat to view its analytics",
   },
   {
     label: "Echo Base",
     icon: <LayoutDashboard className="h-4 w-4" />,
     href: "/",
-    activePattern: "/",
+    match: (path: string) =>
+      path === "/" ||
+      HABITAT_DETAIL_PATTERN.test(path) ||
+      HABITAT_WIKI_PATTERN.test(path) ||
+      MISSION_DETAIL_PATTERN.test(path),
+    disabledTitle: "Open a habitat to view its board",
   },
   {
     label: "Orcy Pod",
     icon: <Users className="h-4 w-4" />,
     href: "/agents",
-    activePattern: "/agents",
+    match: (path: string) => path === "/agents" || path.startsWith("/agents/"),
+    disabledTitle: "Open Orcy Pod",
   },
   {
     label: "Wake",
     icon: <Activity className="h-4 w-4" />,
     habitatScoped: "activity",
+    match: (path: string) => HABITAT_ACTIVITY_PATTERN.test(path),
+    disabledTitle: "Open a habitat to view its activity",
   },
   {
     label: "Remote Pods",
     icon: <Globe className="h-4 w-4" />,
     habitatScoped: "remote-pods",
+    match: (path: string) => HABITAT_REMOTE_PODS_PATTERN.test(path),
+    disabledTitle: "Open a habitat to view its remote pods",
   },
 ];
 
@@ -104,19 +123,14 @@ export const SideNavBar = React.memo(function SideNavBar({
                 ? `/habitats/${currentHabitatId}/${item.habitatScoped}`
                 : null
               : item.href;
-            const isActive = item.habitatScoped
-              ? new RegExp(`/habitats/[^/]+/${item.habitatScoped}`).test(location.pathname)
-              : location.pathname === item.activePattern ||
-                (item.activePattern === "/" &&
-                  (location.pathname.startsWith("/habitats") ||
-                    location.pathname.startsWith("/missions")));
+            const isActive = item.match(location.pathname);
 
             if (!resolvedHref) {
               return (
                 <span
                   key={item.label}
                   data-testid={testId}
-                  title="Open a habitat to view its activity"
+                  title={item.disabledTitle}
                   aria-disabled="true"
                   className="flex cursor-not-allowed items-center gap-3 rounded-md px-3 py-2 text-sm text-on-surface-variant/40"
                 >
@@ -174,7 +188,7 @@ export const SideNavBar = React.memo(function SideNavBar({
               to={`/habitats/${currentHabitatId}/admin/workflows`}
               data-testid="nav-item-workflow-metrics"
               className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                location.pathname.includes("/admin/workflows")
+                HABITAT_ADMIN_WORKFLOWS_PATTERN.test(location.pathname)
                   ? "bg-primary-container text-on-surface font-medium"
                   : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
               }`}

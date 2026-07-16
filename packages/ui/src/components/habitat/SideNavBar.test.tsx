@@ -138,11 +138,17 @@ describe("SideNavBar", () => {
     expect(workspaceLink.getAttribute("href")).toBe("/");
   });
 
-  it("highlights active Echo Base nav item on habitat routes", () => {
+  it("highlights active Echo Base nav item on habitat detail routes", () => {
     renderWithRouter(<SideNavBar />, ["/habitats/board-1"]);
     const activeItem = screen.getByTestId("nav-item-echo-base");
     expect(activeItem.className).toContain("bg-primary-container");
     expect(activeItem.className).toContain("font-medium");
+  });
+
+  it("highlights active Echo Base nav item on habitat wiki routes", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/board-1/wiki"]);
+    const activeItem = screen.getByTestId("nav-item-echo-base");
+    expect(activeItem.className).toContain("bg-primary-container");
   });
 
   it("highlights active Echo Base nav item on /missions/:id route", () => {
@@ -172,6 +178,64 @@ describe("SideNavBar", () => {
     expect(activeItem.className).toContain("font-medium");
   });
 
+  it("activates ONLY Wake on habitat activity route (no Echo Base double-active)", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1/activity"]);
+    const activeLabels = ["nav-item-echo-base", "nav-item-wake", "nav-item-remote-pods"]
+      .filter((id) => screen.getByTestId(id).className.includes("bg-primary-container"));
+    expect(activeLabels).toEqual(["nav-item-wake"]);
+  });
+
+  it("activates ONLY Remote Pods on habitat remote-pods route (no Echo Base double-active)", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1/remote-pods"]);
+    const activeLabels = ["nav-item-echo-base", "nav-item-wake", "nav-item-remote-pods"]
+      .filter((id) => screen.getByTestId(id).className.includes("bg-primary-container"));
+    expect(activeLabels).toEqual(["nav-item-remote-pods"]);
+  });
+
+  it("activates ONLY Workflow Metrics on habitat admin workflows route", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1/admin/workflows"]);
+    const adminLink = screen.getByTestId("nav-item-workflow-metrics");
+    expect(adminLink.className).toContain("bg-primary-container");
+    const activeRouteLabels = [
+      "nav-item-echo-base",
+      "nav-item-wake",
+      "nav-item-remote-pods",
+    ].filter((id) => screen.getByTestId(id).className.includes("bg-primary-container"));
+    expect(activeRouteLabels).toEqual([]);
+  });
+
+  it("does not activate Wake or Remote Pods on near-prefix paths", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1/activity-archive"]);
+    const wake = screen.getByTestId("nav-item-wake");
+    const remote = screen.getByTestId("nav-item-remote-pods");
+    expect(wake.className).not.toContain("bg-primary-container");
+    expect(remote.className).not.toContain("bg-primary-container");
+  });
+
+  it("does not activate Pod Base on near-prefix paths like /dashboard-archive", () => {
+    renderWithRouter(<SideNavBar />, ["/dashboard-archive"]);
+    const podBase = screen.getByTestId("nav-item-pod-base");
+    expect(podBase.className).not.toContain("bg-primary-container");
+  });
+
+  it("does not activate Orcy Pod on near-prefix paths like /agents-old", () => {
+    renderWithRouter(<SideNavBar />, ["/agents-old"]);
+    const orcyPod = screen.getByTestId("nav-item-orcy-pod");
+    expect(orcyPod.className).not.toContain("bg-primary-container");
+  });
+
+  it("does not activate Workflow Metrics on near-prefix paths", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1/admin/workflows-archive"]);
+    const adminLink = screen.getByTestId("nav-item-workflow-metrics");
+    expect(adminLink.className).not.toContain("bg-primary-container");
+  });
+
+  it("activates Echo Base on /habitats/:id/wiki and not on /habitats/:id/wiki-archive", () => {
+    renderWithRouter(<SideNavBar />, ["/habitats/hab-1/wiki-archive"]);
+    const echo = screen.getByTestId("nav-item-echo-base");
+    expect(echo.className).not.toContain("bg-primary-container");
+  });
+
   it("Remote Pods links to habitat-scoped route when habitat is in context", () => {
     renderWithRouter(<SideNavBar />, ["/habitats/hab-1"]);
     const remotePodsLink = screen.getByTestId("nav-item-remote-pods");
@@ -184,6 +248,22 @@ describe("SideNavBar", () => {
     const remotePodsItem = screen.getByTestId("nav-item-remote-pods");
     expect(remotePodsItem.tagName).not.toBe("A");
     expect(remotePodsItem.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("Remote Pods disabled title describes the feature (not the Wake activity title)", () => {
+    renderWithRouter(<SideNavBar />);
+    const remotePodsItem = screen.getByTestId("nav-item-remote-pods");
+    expect(remotePodsItem.getAttribute("title")).toBe(
+      "Open a habitat to view its remote pods",
+    );
+  });
+
+  it("Wake disabled title still describes the activity feature", () => {
+    renderWithRouter(<SideNavBar />);
+    const wakeItem = screen.getByTestId("nav-item-wake");
+    expect(wakeItem.getAttribute("title")).toBe(
+      "Open a habitat to view its activity",
+    );
   });
 
   it("inactive items do not have active styling", () => {

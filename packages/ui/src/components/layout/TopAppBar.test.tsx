@@ -137,6 +137,12 @@ describe("TopAppBar", () => {
       expect(echoBase.className).toContain("bg-slate-700/50");
     });
 
+    it("highlights Echo Base on /habitats/:id/wiki route", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/habitats/hab-1/wiki") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      expect(echoBase.className).toContain("bg-slate-700/50");
+    });
+
     it("highlights Echo Base on /missions/:id route", () => {
       render(<TopAppBar />, { wrapper: createWrapperWithPath("/missions/mission-1") });
       const echoBase = screen.getByTestId("top-nav-echo-base");
@@ -145,6 +151,48 @@ describe("TopAppBar", () => {
 
     it("does not highlight Echo Base on /agents route", () => {
       render(<TopAppBar />, { wrapper: createWrapperWithPath("/agents") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      expect(echoBase.className).not.toContain("bg-slate-700/50");
+    });
+
+    it("does not double-highlight Echo Base on /habitats/:id/activity (only Wake active)", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/habitats/hab-1/activity") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      const wake = screen.getByTestId("top-nav-wake");
+      expect(echoBase.className).not.toContain("bg-slate-700/50");
+      expect(wake.className).toContain("bg-slate-700/50");
+    });
+
+    it("does not double-highlight Echo Base on /habitats/:id/remote-pods (only Remote Pods active)", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/habitats/hab-1/remote-pods") });
+      const echoBase = screen.getByTestId("top-nav-echo-base");
+      expect(echoBase.className).not.toContain("bg-slate-700/50");
+    });
+
+    it("does not highlight Pod Base on near-prefix path /dashboard-archive", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/dashboard-archive") });
+      const podBase = screen.getByTestId("top-nav-pod-base");
+      expect(podBase.className).not.toContain("bg-slate-700/50");
+    });
+
+    it("does not highlight Orcy Pod on near-prefix path /agents-old", () => {
+      render(<TopAppBar />, { wrapper: createWrapperWithPath("/agents-old") });
+      const orcyPod = screen.getByTestId("top-nav-orcy-pod");
+      expect(orcyPod.className).not.toContain("bg-slate-700/50");
+    });
+
+    it("does not highlight Wake on near-prefix path /habitats/:id/activity-archive", () => {
+      render(<TopAppBar />, {
+        wrapper: createWrapperWithPath("/habitats/hab-1/activity-archive"),
+      });
+      const wake = screen.getByTestId("top-nav-wake");
+      expect(wake.className).not.toContain("bg-slate-700/50");
+    });
+
+    it("does not highlight Echo Base on near-prefix wiki path /habitats/:id/wiki-archive", () => {
+      render(<TopAppBar />, {
+        wrapper: createWrapperWithPath("/habitats/hab-1/wiki-archive"),
+      });
       const echoBase = screen.getByTestId("top-nav-echo-base");
       expect(echoBase.className).not.toContain("bg-slate-700/50");
     });

@@ -26,30 +26,37 @@ interface NavTab {
   habitatScoped?: string;
 }
 
+const HABITAT_DETAIL_PATTERN = /^\/habitats\/[^/]+$/;
+const HABITAT_WIKI_PATTERN = /^\/habitats\/[^/]+\/wiki$/;
+const MISSION_DETAIL_PATTERN = /^\/missions\/[^/]+$/;
+
 const navTabs: NavTab[] = [
   {
     label: "Echo Base",
     href: "/",
     match: (path: string) =>
-      path === "/" || path.startsWith("/habitats") || path.startsWith("/missions"),
+      path === "/" ||
+      HABITAT_DETAIL_PATTERN.test(path) ||
+      HABITAT_WIKI_PATTERN.test(path) ||
+      MISSION_DETAIL_PATTERN.test(path),
     description: "Workspace board",
   },
   {
     label: "Orcy Pod",
     href: "/agents",
-    match: (path: string) => path.startsWith("/agents"),
+    match: (path: string) => path === "/agents" || path.startsWith("/agents/"),
     description: "Agent management",
   },
   {
     label: "Wake",
     habitatScoped: "activity",
-    match: (path: string) => /\/habitats\/[^/]+\/activity/.test(path),
+    match: (path: string) => /^\/habitats\/[^/]+\/activity\/?$/.test(path),
     description: "Activity log",
   },
   {
     label: "Pod Base",
     href: "/dashboard",
-    match: (path: string) => path.startsWith("/dashboard"),
+    match: (path: string) => path === "/dashboard" || path.startsWith("/dashboard/"),
     description: "Analytics dashboard",
   },
 ];

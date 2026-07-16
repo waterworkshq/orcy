@@ -1,14 +1,10 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "@testing-library/jest-dom/vitest";
 import { NotificationDropdown } from "./NotificationDropdown.js";
 import type { Notification } from "../../types/index.js";
-
-const mockNavigate = vi.fn();
-vi.mock("react-router-dom", () => ({
-  useNavigate: () => mockNavigate,
-}));
 
 const mockMarkRead = vi.fn();
 const mockClearNotifications = vi.fn();
@@ -29,6 +25,52 @@ vi.mock("../../store/habitatStore.js", () => ({
   useHabitatStore: (...args: any[]) => useHabitatStoreMock(...args),
 }));
 
+const mockOpenModal = vi.fn((taskId: string) => {
+  modalState = { ...modalState, isOpen: true, selectedTaskId: taskId };
+  return Promise.resolve();
+});
+
+let modalState = {
+  isOpen: false,
+  selectedTaskId: null as string | null,
+  modalTask: null,
+  isLoading: false,
+};
+
+const useModalStoreMock = vi.fn((selector?: any) => {
+  if (selector) {
+    return selector({
+      ...modalState,
+      openModal: mockOpenModal,
+      closeModal: vi.fn(),
+      setModalTask: vi.fn(),
+    });
+  }
+  return modalState;
+});
+
+vi.mock("../../store/modalStore.js", () => ({
+  useModalStore: (...args: any[]) => useModalStoreMock(...args),
+}));
+
+vi.mock("../../api/index.js", () => ({
+  api: {
+    tasks: {
+      get: vi.fn().mockResolvedValue({
+        task: {
+          id: "task-42",
+          title: "Test Task",
+          status: "todo",
+          priority: "medium",
+          labels: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    },
+  },
+}));
+
 const makeNotification = (overrides: Partial<Notification> = {}): Notification => ({
   id: `notif-${Math.random().toString(36).slice(2, 8)}`,
   type: "task.completed",
@@ -46,7 +88,13 @@ describe("NotificationDropdown", () => {
 
   beforeEach(() => {
     notificationsState = [];
-    mockNavigate.mockClear();
+    modalState = {
+      isOpen: false,
+      selectedTaskId: null,
+      modalTask: null,
+      isLoading: false,
+    };
+    mockOpenModal.mockClear();
     mockMarkRead.mockClear();
     mockClearNotifications.mockClear();
     mockOnClose.mockClear();
@@ -102,15 +150,38 @@ describe("NotificationDropdown", () => {
     expect(mockMarkRead).not.toHaveBeenCalled();
   });
 
-  it("navigates to task when notification clicked", () => {
+  it("opens the global TaskDetailModal with the taskId when notification clicked", () => {
     const notif = makeNotification({ id: "n1", taskId: "task-42" });
     notificationsState = [notif];
 
     render(<NotificationDropdown isOpen={true} onClose={mockOnClose} />);
 
     fireEvent.click(screen.getByTestId("notification-item-n1"));
-    expect(mockNavigate).toHaveBeenCalledWith("/missions/task-42");
+
+    expect(mockOpenModal).toHaveBeenCalledWith("task-42");
     expect(mockOnClose).toHaveBeenCalled();
+  });
+
+  it("does not route to /missions/<taskId> when notification clicked", () => {
+    const notif = makeNotification({ id: "n1", taskId: "task-42" });
+    notificationsState = [notif];
+
+    render(
+      <MemoryRouter initialEntries={["/habitats/hab-1"]}>
+        <Routes>
+          <Route
+            path="/habitats/:habitatId"
+            element={<NotificationDropdown isOpen={true} onClose={mockOnClose} />}
+          />
+          <Route path="/missions/:id" element={<div data-testid="mission-route">mission</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-n1"));
+
+    expect(screen.queryByTestId("mission-route")).toBeNull();
+    expect(modalState.selectedTaskId).toBe("task-42");
   });
 
   it("calls clearNotifications when Clear all clicked", () => {
