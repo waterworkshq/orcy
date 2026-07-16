@@ -36,7 +36,7 @@ export const queryKeys = {
   },
   missions: {
     all: ["missions"] as const,
-    list: (boardId: string) => [...queryKeys.missions.all, "list", boardId] as const,
+    list: (habitatId: string) => [...queryKeys.missions.all, "list", habitatId] as const,
     detail: (missionId: string) => [...queryKeys.missions.all, "detail", missionId] as const,
     details: (missionId: string) => [...queryKeys.missions.all, "details", missionId] as const,
     tasks: (missionId: string) => [...queryKeys.missions.all, "tasks", missionId] as const,
@@ -87,12 +87,12 @@ export const queryKeys = {
     byMission: (missionId: string) => [...queryKeys.pulse.all, missionId] as const,
     byTask: (missionId: string, taskId: string) =>
       [...queryKeys.pulse.all, "byTask", missionId, taskId] as const,
-    byBoard: (boardId: string) => [...queryKeys.pulse.all, "byBoard", boardId] as const,
+    byBoard: (habitatId: string) => [...queryKeys.pulse.all, "byBoard", habitatId] as const,
     replies: (pulseId: string) => [...queryKeys.pulse.all, "replies", pulseId] as const,
   },
   insights: {
     all: ["insights"] as const,
-    byBoard: (boardId: string) => [...queryKeys.insights.all, boardId] as const,
+    byBoard: (habitatId: string) => [...queryKeys.insights.all, habitatId] as const,
   },
   organizations: {
     all: ["organizations"] as const,
@@ -102,16 +102,16 @@ export const queryKeys = {
   },
   savedFilters: {
     all: ["savedFilters"] as const,
-    list: (boardId: string) => [...queryKeys.savedFilters.all, boardId] as const,
+    list: (habitatId: string) => [...queryKeys.savedFilters.all, habitatId] as const,
   },
   health: {
     all: ["health"] as const,
-    current: (boardId: string) => [...queryKeys.health.all, boardId] as const,
-    history: (boardId: string) => [...queryKeys.health.all, "history", boardId] as const,
+    current: (habitatId: string) => [...queryKeys.health.all, habitatId] as const,
+    history: (habitatId: string) => [...queryKeys.health.all, "history", habitatId] as const,
   },
   audit: {
     all: ["audit"] as const,
-    summary: (boardId: string) => [...queryKeys.audit.all, "summary", boardId] as const,
+    summary: (habitatId: string) => [...queryKeys.audit.all, "summary", habitatId] as const,
   },
   missionComments: {
     all: ["missionComments"] as const,
@@ -123,20 +123,20 @@ export const queryKeys = {
   },
   scheduledTasks: {
     all: ["scheduledTasks"] as const,
-    list: (boardId: string) => [...queryKeys.scheduledTasks.all, boardId] as const,
+    list: (habitatId: string) => [...queryKeys.scheduledTasks.all, habitatId] as const,
     detail: (id: string) => [...queryKeys.scheduledTasks.all, "detail", id] as const,
   },
   templates: {
     all: ["templates"] as const,
-    list: (boardId: string) => [...queryKeys.templates.all, boardId] as const,
+    list: (habitatId: string) => [...queryKeys.templates.all, habitatId] as const,
   },
   chatIntegrations: {
     all: ["chatIntegrations"] as const,
-    list: (boardId: string) => [...queryKeys.chatIntegrations.all, boardId] as const,
+    list: (habitatId: string) => [...queryKeys.chatIntegrations.all, habitatId] as const,
   },
   notificationPrefs: {
     all: ["notificationPrefs"] as const,
-    board: (boardId: string) => [...queryKeys.notificationPrefs.all, boardId] as const,
+    board: (habitatId: string) => [...queryKeys.notificationPrefs.all, habitatId] as const,
   },
   sprints: {
     all: ["sprints"] as const,
