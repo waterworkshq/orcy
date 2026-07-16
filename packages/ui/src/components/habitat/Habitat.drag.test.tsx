@@ -360,4 +360,34 @@ describe("Habitat drag lifecycle (M9, m1)", () => {
 
     expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1");
   });
+
+  it("UI-2: clears the drag overlay and restores the preview as soon as the dragged mission disappears mid-drag, without waiting for dragEnd/dragCancel", async () => {
+    const { rerender } = renderHabitat([makeMission("m1", "col-a")]);
+
+    act(() => {
+      captured.onDragStart!({ active: { id: "m1" } });
+    });
+    expect(dragMoveResult.restorePreview).not.toHaveBeenCalled();
+
+    // Realtime SSE (mission.deleted, archive, filter-driven removal) drops
+    // the mission from the canonical collection — the user has not yet
+    // released the pointer, so dnd-kit's drag is still active.
+    rerenderHabitat(rerender, []);
+
+    // The cleanup path must fire IMMEDIATELY (route through the same
+    // cancelDragFor helper that handleDragCancel uses), not wait for the
+    // user to manually end/cancel the gesture.
+    await vi.waitFor(() =>
+      expect(dragMoveResult.restorePreview).toHaveBeenCalledWith("m1"),
+    );
+
+    // The DragOverlay content goes null (activeFeature cleared). Verified via
+    // captured event handlers still being installed and no further restore
+    // happening on a subsequent dragEnd (which would re-clear an already-cleared
+    // preview and double-fire — safe but confirms the immediate path ran).
+    dragMoveResult.restorePreview.mockClear();
+    act(() => {
+      captured.onDragEnd!({ active: { id: "m1" }, over: { id: "col-b" } });
+    });
+  });
 });

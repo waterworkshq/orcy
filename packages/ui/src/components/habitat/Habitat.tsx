@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import {
   DndContext,
   DragCancelEvent,
@@ -195,14 +195,34 @@ export function Habitat({
     });
   }
 
+  // The single cancel/cleanup path. Used by handleDragCancel (manual gesture
+  // end) and by the realtime disappearance effect below — keeping the two
+  // in lockstep so neither path forgets to clear the overlay or restore the
+  // preview. (handleDragEnd covers its own !dragged branch inline.)
+  const cancelDragFor = useCallback(
+    (missionId: string) => {
+      setActiveFeature(null);
+      restorePreview(missionId);
+    },
+    [restorePreview],
+  );
+
   function handleDragCancel(event: DragCancelEvent) {
-    setActiveFeature(null);
-    if (isBulkSelectMode) {
-      restorePreview(String(event.active.id));
-      return;
-    }
-    restorePreview(String(event.active.id));
+    cancelDragFor(String(event.active.id));
   }
+
+  // If the actively-dragged mission disappears from the canonical collection
+  // mid-drag (realtime SSE archive/delete — see mission.deleted handler in
+  // sse/registry.ts), dnd-kit has no public way to dispatch a synthetic
+  // dragCancel. Until the user releases the pointer, dnd-kit still considers
+  // a drag active. Hide the overlay by clearing activeFeature; when the user
+  // eventually releases, the existing dragEnd path's "!dragged" branch runs
+  // the same cleanup redundantly (idempotent).
+  useEffect(() => {
+    if (!activeFeature) return;
+    if (missions.some((m) => m.id === activeFeature.id)) return;
+    cancelDragFor(activeFeature.id);
+  }, [missions, activeFeature, cancelDragFor]);
 
   if (!habitat) {
     return (
