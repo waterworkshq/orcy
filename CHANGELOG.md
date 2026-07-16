@@ -2,6 +2,21 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.31.9 — 2026-07-16
+
+### Refactors
+
+#### rename board method names to habitat, coordinate cache-key literals ([`2550d14`](https://github.com/waterworkshq/orcy/commit/2550d14b1265de4f473fe5d3857d0efde3416c17))
+
+1. Rename the surviving board-named UI methods to their canonical habitat forms: queryKeys.pulse.byBoard to byHabitat (including the cache-key discriminator literal), insights.byBoard to byHabitat, notificationPrefs.board to habitat, getBoardPrefs to getHabitatPrefs, updateBoardPrefs to updateHabitatPrefs, listByBoard to listByHabitat, getBoardMetrics to getHabitatMetrics. All callers updated. Cache-key discriminator literals change deliberately (one-time cache miss, not a bug).
+
+
+#### rename boardService and boardSecretCache to habitat ([`4cf75db`](https://github.com/waterworkshq/orcy/commit/4cf75db24342dbe6e25d8a1c5fec18be4c4173fc))
+
+1. Rename the two remaining board-named service modules: boardService.ts to habitatService.ts, boardSecretCache.ts to habitatSecretCache.ts. Exports already canonical; all import paths updated including webhook-secret-verification. No behavior change.
+
+
+
 ## 0.31.8 — 2026-07-16
 
 ### Refactors
@@ -29,13 +44,3 @@
 #### update stale board/features routes to canonical /api/habitats/.../missions ([`2f580ef`](https://github.com/waterworkshq/orcy/commit/2f580efb952c96c29f609448196f3422245fb5fb))
 
 1. The e2e specs called dead routes (/api/boards, /api/boards/.../features, /api/features/.../tasks, /boards/:id page, /features/:id page, /sse/boards/:id/stream) that 404 since the board to habitat / feature to mission rename. Replace with the current canonical routes. Variable names left as-is (cosmetic, separate phase). Also: board.spec.ts is a 100% duplicate of habitat.spec.ts — flagged for deletion in a follow-up cleanup.
-
-
-
-## 0.31.6 — 2026-07-16
-
-### Tests
-
-#### assert every task transition emits a reset-owning SSE event ([`53a0844`](https://github.com/waterworkshq/orcy/commit/53a0844546fec7b5a67badd245c0512e2317f26f))
-
-1. Add a regression guard for the canonical single-owner SSE reset scheme: each row-writing task transition must emit at least one SSE event whose type owns the events-infinite reset (task.updated/created/deleted/retry_scheduled). Drives the matrix from the TaskAction union via an AssertNever mirror, so adding a row-writing action that forgets a reset-owner breaks the build. No production change; the current matrix is complete.
