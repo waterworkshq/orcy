@@ -22,7 +22,7 @@ async function authenticatePage(page: Page, token: string): Promise<void> {
 }
 
 async function createBoard(request: APIRequestContext, token: string, name: string) {
-  const res = await request.post('/api/boards', {
+  const res = await request.post('/api/habitats', {
     data: { name, defaultColumns: true },
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -31,7 +31,7 @@ async function createBoard(request: APIRequestContext, token: string, name: stri
 }
 
 async function createFeature(request: APIRequestContext, token: string, boardId: string, title: string, columnId: string) {
-  const res = await request.post(`/api/boards/${boardId}/features`, {
+  const res = await request.post(`/api/habitats/${boardId}/missions`, {
     data: { title, columnId },
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -40,7 +40,7 @@ async function createFeature(request: APIRequestContext, token: string, boardId:
 }
 
 async function createTask(request: APIRequestContext, token: string, featureId: string, title: string) {
-  const res = await request.post(`/api/features/${featureId}/tasks`, {
+  const res = await request.post(`/api/missions/${featureId}/tasks`, {
     data: { title },
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -90,7 +90,7 @@ async function completeQualityGates(request: APIRequestContext, token: string, t
 
 async function deleteBoard(request: APIRequestContext, token: string, boardId: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const res = await request.delete(`/api/boards/${boardId}`, {
+    const res = await request.delete(`/api/habitats/${boardId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status() === 429) {
@@ -121,7 +121,7 @@ test.describe('E2E: Core Agent Workflow', () => {
       const featureTitle = `E2E Feature ${Date.now()}`;
       const { feature } = await createFeature(request, token, boardId, featureTitle, columns[0].id);
 
-      await page.goto(`/boards/${boardId}`);
+      await page.goto(`/habitats/${boardId}`);
       await expect(page.locator(`[data-testid="feature-card-${feature.id}"]`)).toBeVisible({ timeout: 15000 });
       await expect(page.locator(`[data-testid="feature-card-${feature.id}"]`)).toContainText(featureTitle);
     });
@@ -167,7 +167,7 @@ test.describe('E2E: Core Agent Workflow', () => {
       });
       expect(approveRes.status()).toBe(200);
 
-      await page.goto(`/features/${feature.id}`);
+      await page.goto(`/missions/${feature.id}`);
       await expect(page.locator(`text=${taskTitle}`).first()).toBeVisible({ timeout: 10000 });
       await expect(page.locator('text=Approved').first()).toBeVisible({ timeout: 10000 });
     });
@@ -214,7 +214,7 @@ test.describe('E2E: Core Agent Workflow', () => {
           const { token: streamToken } = await tokenRes.json();
 
           await new Promise<void>((resolve) => {
-            const es = new EventSource(`/sse/boards/${bId}/stream?token=${encodeURIComponent(streamToken)}`);
+            const es = new EventSource(`/sse/habitats/${bId}/stream?token=${encodeURIComponent(streamToken)}`);
             es.onmessage = (e) => {
               try {
                 const event = JSON.parse(e.data);
