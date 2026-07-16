@@ -5,7 +5,7 @@ export const presenceApi = {
   join: (data: {
     sessionId: string;
     type: "human" | "agent";
-    boardId: string;
+    habitatId: string;
     userId?: string;
     userName?: string;
     agentId?: string;
@@ -15,12 +15,12 @@ export const presenceApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  heartbeat: (data: { sessionId: string; boardId: string; viewingTaskId?: string | null }) =>
+  heartbeat: (data: { sessionId: string; habitatId: string; viewingTaskId?: string | null }) =>
     request<{ success: boolean }>(`/sse/presence/heartbeat`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  leave: (data: { sessionId: string; boardId: string }) =>
+  leave: (data: { sessionId: string; habitatId: string }) =>
     request<{ success: boolean }>(`/sse/presence/leave`, {
       method: "POST",
       body: JSON.stringify(data),

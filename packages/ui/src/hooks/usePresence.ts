@@ -19,12 +19,12 @@ function getStoredUser(): { id: string; username: string } | null {
  * Tracks the current user's presence on a board: joins on mount, sends heartbeats
  * every 30 s, and sends a sendBeacon on unload to mark the session as gone.
  */
-export function usePresence(boardId: string | null | undefined) {
+export function usePresence(habitatId: string | null | undefined) {
   const sessionIdRef = useRef<string>(generateSessionId());
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!boardId) return;
+    if (!habitatId) return;
 
     const user = getStoredUser();
     const sessionId = sessionIdRef.current;
@@ -32,7 +32,7 @@ export function usePresence(boardId: string | null | undefined) {
     api.presence.join({
       sessionId,
       type: 'human',
-      boardId,
+      habitatId,
       userId: user?.id,
       userName: user?.username,
     }).catch(() => {});
@@ -40,14 +40,14 @@ export function usePresence(boardId: string | null | undefined) {
     heartbeatRef.current = setInterval(() => {
       api.presence.heartbeat({
         sessionId,
-        boardId,
+        habitatId,
       }).catch(() => {});
     }, 30_000);
 
     const handleUnload = () => {
       navigator.sendBeacon?.(
         '/sse/presence/leave',
-        new Blob([JSON.stringify({ sessionId, boardId })], { type: 'application/json' })
+        new Blob([JSON.stringify({ sessionId, habitatId })], { type: 'application/json' })
       );
     };
     window.addEventListener('beforeunload', handleUnload);
@@ -55,7 +55,7 @@ export function usePresence(boardId: string | null | undefined) {
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
       window.removeEventListener('beforeunload', handleUnload);
-      api.presence.leave({ sessionId, boardId }).catch(() => {});
+      api.presence.leave({ sessionId, habitatId }).catch(() => {});
     };
-  }, [boardId]);
+  }, [habitatId]);
 }
