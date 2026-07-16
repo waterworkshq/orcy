@@ -12,7 +12,7 @@ export const auditApi = {
       byAction: Record<string, number>;
       byActorType: Record<string, number>;
       byDay: { date: string; count: number }[];
-      topFeatures: { featureId: string; featureTitle: string; count: number }[];
+      topMissions: { missionId: string; featureTitle: string; count: number }[];
     }>(`/habitats/${habitatId}/audit/summary${qs}`);
   },
   schedules: {

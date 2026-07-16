@@ -16,7 +16,7 @@ import {
   FEATURE_STATUS_VARIANT,
 } from "../../lib/formatting.js";
 
-interface FeatureCardProps {
+interface MissionCardProps {
   feature: MissionWithProgress;
   isDragOverlay?: boolean;
 }
@@ -28,7 +28,7 @@ const priorityTooltip: Record<string, string> = {
   low: "Low priority",
 };
 
-function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
+function MissionCardInner({ feature, isDragOverlay }: MissionCardProps) {
   const navigate = useNavigate();
   const isBulkSelectMode = useHabitatStore((s) => s.isBulkSelectMode);
   const selectedMissionIds = useHabitatStore((s) => s.selectedMissionIds);
@@ -222,9 +222,9 @@ function FeatureCardInner({ feature, isDragOverlay }: FeatureCardProps) {
   );
 }
 
-export const FeatureCard = React.memo(FeatureCardInner);
+export const MissionCard = React.memo(MissionCardInner);
 
-export function SortableFeatureCard({ feature }: { feature: MissionWithProgress }) {
+export function SortableMissionCard({ feature }: { feature: MissionWithProgress }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: feature.id,
   });
@@ -237,7 +237,7 @@ export function SortableFeatureCard({ feature }: { feature: MissionWithProgress 
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <FeatureCard feature={feature} />
+      <MissionCard feature={feature} />
     </div>
   );
 }

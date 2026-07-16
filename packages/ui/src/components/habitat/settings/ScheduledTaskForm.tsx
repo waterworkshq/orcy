@@ -94,11 +94,11 @@ export function ScheduledTaskForm({
   const [intervalMinutes, setIntervalMinutes] = useState('60');
   const [scheduledAt, setScheduledAt] = useState('');
   const [timezone, setTimezone] = useState('UTC');
-  const [missionTitle, setFeatureTitle] = useState('');
-  const [missionDescription, setFeatureDescription] = useState('');
-  const [missionPriority, setFeaturePriority] = useState<TaskPriority>('medium');
-  const [missionLabels, setFeatureLabels] = useState('');
-  const [missionDomain, setFeatureDomain] = useState('');
+  const [missionTitle, setMissionTitle] = useState('');
+  const [missionDescription, setMissionDescription] = useState('');
+  const [missionPriority, setMissionPriority] = useState<TaskPriority>('medium');
+  const [missionLabels, setMissionLabels] = useState('');
+  const [missionDomain, setMissionDomain] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -111,11 +111,11 @@ export function ScheduledTaskForm({
       setIntervalMinutes(existing.intervalMinutes?.toString() ?? '60');
       setScheduledAt(existing.scheduledAt ?? '');
       setTimezone(existing.timezone);
-      setFeatureTitle(existing.missionTitle);
-      setFeatureDescription(existing.missionDescription);
-      setFeaturePriority(existing.missionPriority);
-      setFeatureLabels(existing.missionLabels.join(', '));
-      setFeatureDomain(existing.missionDomain ?? '');
+      setMissionTitle(existing.missionTitle);
+      setMissionDescription(existing.missionDescription);
+      setMissionPriority(existing.missionPriority);
+      setMissionLabels(existing.missionLabels.join(', '));
+      setMissionDomain(existing.missionDomain ?? '');
     }
   }, [existing]);
 
@@ -124,11 +124,11 @@ export function ScheduledTaskForm({
       const tmpl = templates.find((t) => t.id === templateId);
       if (tmpl) {
         if (!existing) {
-          setFeatureTitle(tmpl.titlePattern);
-          setFeatureDescription(tmpl.descriptionPattern);
-          setFeaturePriority(tmpl.priority);
-          setFeatureLabels(tmpl.labels.join(', '));
-          setFeatureDomain(tmpl.requiredDomain ?? '');
+          setMissionTitle(tmpl.titlePattern);
+          setMissionDescription(tmpl.descriptionPattern);
+          setMissionPriority(tmpl.priority);
+          setMissionLabels(tmpl.labels.join(', '));
+          setMissionDomain(tmpl.requiredDomain ?? '');
         }
       }
     }
@@ -137,7 +137,7 @@ export function ScheduledTaskForm({
   function validate(): boolean {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = 'Name is required';
-    if (!missionTitle.trim()) errs.missionTitle = 'Feature title is required';
+    if (!missionTitle.trim()) errs.missionTitle = 'Mission title is required';
     if (scheduleType === 'cron' && !cronExpression.trim()) errs.cronExpression = 'Cron expression is required';
     if (scheduleType === 'cron' && cronExpression.trim() && !errs.cronExpression) {
       try {
@@ -326,17 +326,17 @@ export function ScheduledTaskForm({
         </div>
 
         <div className="col-span-2 border-t border-border pt-4">
-          <p className="text-sm font-medium mb-2">Feature Overrides</p>
+          <p className="text-sm font-medium mb-2">Mission Overrides</p>
         </div>
 
         <div className="col-span-2">
-          <label htmlFor="st-feature-title" className="text-sm font-medium">Feature Title</label>
+          <label htmlFor="st-mission-title" className="text-sm font-medium">Mission Title</label>
           <input
-            id="st-feature-title"
-            data-testid="st-feature-title"
+            id="st-mission-title"
+            data-testid="st-mission-title"
             type="text"
             value={missionTitle}
-            onChange={(e) => setFeatureTitle(e.target.value)}
+            onChange={(e) => setMissionTitle(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
           {errors.missionTitle && <p className="text-xs text-destructive mt-1">{errors.missionTitle}</p>}
@@ -344,13 +344,13 @@ export function ScheduledTaskForm({
         </div>
 
         <div>
-          <label htmlFor="st-feature-desc" className="text-sm font-medium">Feature Description</label>
+          <label htmlFor="st-mission-desc" className="text-sm font-medium">Mission Description</label>
           <input
-            id="st-feature-desc"
-            data-testid="st-feature-desc"
+            id="st-mission-desc"
+            data-testid="st-mission-desc"
             type="text"
             value={missionDescription}
-            onChange={(e) => setFeatureDescription(e.target.value)}
+            onChange={(e) => setMissionDescription(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
           <TokenHints testId="desc-token-hints" />
@@ -362,7 +362,7 @@ export function ScheduledTaskForm({
             id="st-feature-priority"
             data-testid="st-feature-priority"
             value={missionPriority}
-            onChange={(e) => setFeaturePriority(e.target.value as TaskPriority)}
+            onChange={(e) => setMissionPriority(e.target.value as TaskPriority)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
             {priorityOptions().map((opt) => (
@@ -378,7 +378,7 @@ export function ScheduledTaskForm({
             data-testid="st-feature-labels"
             type="text"
             value={missionLabels}
-            onChange={(e) => setFeatureLabels(e.target.value)}
+            onChange={(e) => setMissionLabels(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
         </div>
@@ -390,7 +390,7 @@ export function ScheduledTaskForm({
             data-testid="st-feature-domain"
             type="text"
             value={missionDomain}
-            onChange={(e) => setFeatureDomain(e.target.value)}
+            onChange={(e) => setMissionDomain(e.target.value)}
             className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           />
         </div>

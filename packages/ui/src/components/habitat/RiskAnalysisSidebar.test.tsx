@@ -4,7 +4,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { RiskAnalysisSidebar } from "./RiskAnalysisSidebar.js";
 import type { Task, MissionWithProgress, MissionEvent } from "../../types/index.js";
 
-function makeFeature(
+function makeMission(
   overrides: Partial<MissionWithProgress> & { id: string },
 ): MissionWithProgress {
   return {
@@ -118,7 +118,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders risk analysis header", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(
       <RiskAnalysisSidebar
         feature={feature}
@@ -131,7 +131,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders projected impact section", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(
       <RiskAnalysisSidebar
         feature={feature}
@@ -144,7 +144,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders critical blockers section with no blockers message", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(
       <RiskAnalysisSidebar
         feature={feature}
@@ -158,7 +158,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders failed tasks as blockers", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [
       makeTask({
         id: "t1",
@@ -181,7 +181,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders history timeline", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const events = [
       makeEvent({ id: "evt-1", missionId: "feat-1", action: "created", actorType: "system" }),
     ];
@@ -198,7 +198,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders configure gates button", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(
       <RiskAnalysisSidebar
         feature={feature}
@@ -211,7 +211,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("renders projected impact level based on task statuses", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [makeTask({ id: "t1", missionId: "feat-1", status: "failed" })];
     render(
       <RiskAnalysisSidebar
@@ -225,7 +225,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("shows no history message when events are empty", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(
       <RiskAnalysisSidebar
         feature={feature}
@@ -238,7 +238,7 @@ describe("RiskAnalysisSidebar", () => {
   });
 
   it("shows blocked dependencies count", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(
       <RiskAnalysisSidebar
         feature={feature}

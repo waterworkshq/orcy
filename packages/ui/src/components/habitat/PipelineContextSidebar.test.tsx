@@ -4,7 +4,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { PipelineContextSidebar } from "./PipelineContextSidebar.js";
 import type { Task, MissionWithProgress } from "../../types/index.js";
 
-function makeFeature(
+function makeMission(
   overrides: Partial<MissionWithProgress> & { id: string },
 ): MissionWithProgress {
   return {
@@ -124,13 +124,13 @@ describe("PipelineContextSidebar", () => {
   });
 
   it("renders pipeline context header", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     render(<PipelineContextSidebar feature={feature} tasks={[]} />);
     expect(screen.getByText("Pipeline Context")).toBeTruthy();
   });
 
   it("renders feature status with health percentage", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [
       makeTask({ id: "t1", missionId: "feat-1", status: "done" }),
       makeTask({ id: "t2", missionId: "feat-1", status: "pending" }),
@@ -140,7 +140,7 @@ describe("PipelineContextSidebar", () => {
   });
 
   it("groups tasks by status sections", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [
       makeTask({ id: "t1", missionId: "feat-1", status: "in_progress", title: "Active One" }),
       makeTask({ id: "t2", missionId: "feat-1", status: "submitted", title: "Review One" }),
@@ -155,7 +155,7 @@ describe("PipelineContextSidebar", () => {
   });
 
   it("opens modal when task is clicked", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [
       makeTask({ id: "task-click", missionId: "feat-1", status: "pending", title: "Clickable" }),
     ];
@@ -165,7 +165,7 @@ describe("PipelineContextSidebar", () => {
   });
 
   it("renders task priority badges", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [
       makeTask({ id: "t1", missionId: "feat-1", status: "pending", priority: "critical" }),
     ];
@@ -174,7 +174,7 @@ describe("PipelineContextSidebar", () => {
   });
 
   it("renders task ID prefix", () => {
-    const feature = makeFeature({ id: "feat-1" });
+    const feature = makeMission({ id: "feat-1" });
     const tasks = [makeTask({ id: "task-abc123", missionId: "feat-1", status: "pending" })];
     render(<PipelineContextSidebar feature={feature} tasks={tasks} />);
     expect(screen.getByText("#task")).toBeTruthy();

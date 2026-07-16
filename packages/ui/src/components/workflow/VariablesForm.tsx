@@ -53,7 +53,7 @@ export function VariablesForm({ variables, onChange }: VariablesFormProps) {
               data-testid={`variable-key-${index}`}
               value={variable.key}
               onChange={(e) => updateVariable(index, { key: e.target.value })}
-              placeholder="feature_name"
+              placeholder="mission_name"
               className={`${inputClass} font-mono`}
             />
           </div>

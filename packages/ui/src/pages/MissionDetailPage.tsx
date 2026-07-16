@@ -14,7 +14,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import {
-  FeatureHeader,
+  MissionHeader,
   formatStatus,
   formatRelativeTime,
 } from "../components/habitat/MissionHeader.js";
@@ -170,7 +170,7 @@ export function MissionDetailPage() {
         <PipelineContextSidebar feature={feature} tasks={tasks} />
 
         <section className="flex-1 flex flex-col min-w-0">
-          <FeatureHeader feature={feature} onEdit={() => setEditOpen(true)} />
+          <MissionHeader feature={feature} onEdit={() => setEditOpen(true)} />
 
           <div className="flex border-b border-[var(--outline-variant)] bg-[var(--surface-container)]/50">
             {tabs.map(({ key, label, icon: Icon }) => (

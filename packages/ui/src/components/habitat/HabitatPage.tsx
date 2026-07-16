@@ -521,7 +521,7 @@ export function HabitatPage() {
           <DependencyGraphModal
             habitatId={habitatId}
             onClose={() => setShowDepGraph(false)}
-            onSelectFeature={(missionId) => {
+            onSelectMission={(missionId) => {
               setShowDepGraph(false);
               navigate(`/missions/${missionId}`);
             }}

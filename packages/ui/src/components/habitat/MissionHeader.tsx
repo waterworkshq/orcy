@@ -29,12 +29,12 @@ function statusBadgeVariant(status: string) {
   return "default";
 }
 
-interface FeatureHeaderProps {
+interface MissionHeaderProps {
   feature: MissionWithProgress;
   onEdit?: () => void;
 }
 
-export function FeatureHeader({ feature, onEdit }: FeatureHeaderProps) {
+export function MissionHeader({ feature, onEdit }: MissionHeaderProps) {
   const priorityVariant = feature.priority as "critical" | "high" | "medium" | "low";
 
   return (

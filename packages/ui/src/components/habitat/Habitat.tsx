@@ -16,7 +16,7 @@ import { SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortabl
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useHabitatStore } from "../../store/habitatStore.js";
 import { Column } from "./Column.js";
-import { FeatureCard } from "./MissionCard.js";
+import { MissionCard } from "./MissionCard.js";
 import { ColumnSwiper } from "./ColumnSwiper.js";
 import { useIsMobile } from "../../hooks/useMediaQuery.js";
 import { useArchivedMissionsInfinite } from "../../lib/useHabitatData.js";
@@ -379,7 +379,7 @@ export function Habitat({
 
         <DragOverlay>
           {activeFeature && !isBulkSelectMode && (
-            <FeatureCard feature={activeFeature} isDragOverlay />
+            <MissionCard feature={activeFeature} isDragOverlay />
           )}
         </DragOverlay>
       </DndContext>

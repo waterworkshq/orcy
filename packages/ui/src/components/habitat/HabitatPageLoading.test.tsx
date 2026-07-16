@@ -121,7 +121,7 @@ vi.mock("./MobileNav.js", () => ({
   MobileNav: () => <div />,
 }));
 
-function makeFeatures(count: number, columnId: string, startId: number = 0) {
+function makeMissions(count: number, columnId: string, startId: number = 0) {
   return Array.from({ length: count }, (_, i) => ({
     id: `f${startId + i}`,
     title: `Feature ${startId + i}`,
@@ -160,7 +160,7 @@ describe("HabitatPage Query ownership", () => {
   });
 
   it("passes canonical habitat, columns, and missions to Habitat", async () => {
-    const features = makeFeatures(10, "col-1");
+    const features = makeMissions(10, "col-1");
     mockBoardData.missions = features;
 
     await act(async () => {
@@ -196,7 +196,7 @@ describe("HabitatPage Query ownership", () => {
   });
 
   it("does not partition missions into columnPagination store entries", async () => {
-    mockBoardData.missions = makeFeatures(50, "col-1");
+    mockBoardData.missions = makeMissions(50, "col-1");
 
     await act(async () => {
       render(<HabitatPage />);
@@ -206,8 +206,8 @@ describe("HabitatPage Query ownership", () => {
   });
 
   it("distributes features correctly across columns via props", async () => {
-    const col1Features = makeFeatures(3, "col-1", 0);
-    const col2Features = makeFeatures(2, "col-2", 3);
+    const col1Features = makeMissions(3, "col-1", 0);
+    const col2Features = makeMissions(2, "col-2", 3);
     mockBoardData = {
       habitat: { id: "board-1", name: "Test Board" },
       columns: [

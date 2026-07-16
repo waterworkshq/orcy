@@ -105,7 +105,7 @@ describe("ScheduledTaskForm", () => {
     );
     const cronInput = screen.getByTestId("st-cron-expression") as HTMLInputElement;
     expect(cronInput.value).toBe("0 9 * * 1");
-    const titleInput = screen.getByTestId("st-feature-title") as HTMLInputElement;
+    const titleInput = screen.getByTestId("st-mission-title") as HTMLInputElement;
     expect(titleInput.value).toBe("Sprint");
   });
 
@@ -178,7 +178,7 @@ describe("ScheduledTaskForm", () => {
       />,
     );
     fireEvent.change(screen.getByTestId("st-template"), { target: { value: "tmpl-1" } });
-    const titleInput = screen.getByTestId("st-feature-title") as HTMLInputElement;
+    const titleInput = screen.getByTestId("st-mission-title") as HTMLInputElement;
     expect(titleInput.value).toBe("Sprint {{date}}");
   });
 
@@ -194,7 +194,7 @@ describe("ScheduledTaskForm", () => {
     );
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(screen.getByText("Name is required")).toBeTruthy();
-    expect(screen.getByText("Feature title is required")).toBeTruthy();
+    expect(screen.getByText("Mission title is required")).toBeTruthy();
     expect(screen.getByText("Cron expression is required")).toBeTruthy();
     expect(mockOnSave).not.toHaveBeenCalled();
   });
@@ -211,7 +211,7 @@ describe("ScheduledTaskForm", () => {
     );
     fireEvent.change(screen.getByTestId("st-name"), { target: { value: "Daily Standup" } });
     fireEvent.change(screen.getByTestId("st-cron-expression"), { target: { value: "0 9 * * *" } });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Standup" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Standup" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(mockOnSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -236,7 +236,7 @@ describe("ScheduledTaskForm", () => {
     fireEvent.change(screen.getByTestId("st-name"), { target: { value: "Check Health" } });
     fireEvent.change(screen.getByTestId("st-schedule-type"), { target: { value: "interval" } });
     fireEvent.change(screen.getByTestId("st-interval-minutes"), { target: { value: "30" } });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Health Check" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Health Check" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(mockOnSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -309,7 +309,7 @@ describe("ScheduledTaskForm", () => {
     fireEvent.change(screen.getByTestId("st-cron-expression"), {
       target: { value: "every monday" },
     });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Test" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Test" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(screen.getByText("Invalid cron expression")).toBeTruthy();
     expect(mockOnSave).not.toHaveBeenCalled();
@@ -329,7 +329,7 @@ describe("ScheduledTaskForm", () => {
     fireEvent.change(screen.getByTestId("st-cron-expression"), {
       target: { value: "99 99 99 99 99" },
     });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Test" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Test" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(screen.getByText("Invalid cron expression")).toBeTruthy();
     expect(mockOnSave).not.toHaveBeenCalled();
@@ -347,7 +347,7 @@ describe("ScheduledTaskForm", () => {
     );
     fireEvent.change(screen.getByTestId("st-name"), { target: { value: "Bad Text" } });
     fireEvent.change(screen.getByTestId("st-cron-expression"), { target: { value: "not a cron" } });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Test" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Test" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(screen.getByText("Invalid cron expression")).toBeTruthy();
     expect(mockOnSave).not.toHaveBeenCalled();
@@ -419,7 +419,7 @@ describe("ScheduledTaskForm", () => {
     );
     fireEvent.change(screen.getByTestId("st-name"), { target: { value: "New Task" } });
     fireEvent.change(screen.getByTestId("st-cron-expression"), { target: { value: "0 9 * * *" } });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Test" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Test" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(mockOnSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -442,7 +442,7 @@ describe("ScheduledTaskForm", () => {
     fireEvent.change(screen.getByTestId("st-cron-expression"), {
       target: { value: "*/15 * * * *" },
     });
-    fireEvent.change(screen.getByTestId("st-feature-title"), { target: { value: "Test" } });
+    fireEvent.change(screen.getByTestId("st-mission-title"), { target: { value: "Test" } });
     fireEvent.click(screen.getByTestId("st-submit"));
     expect(mockOnSave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -451,7 +451,7 @@ describe("ScheduledTaskForm", () => {
     );
   });
 
-  it("renders token hints below Feature Title input", () => {
+  it("renders token hints below Mission Title input", () => {
     render(
       <ScheduledTaskForm
         existing={null}
@@ -468,7 +468,7 @@ describe("ScheduledTaskForm", () => {
     expect(titleHints.textContent).toContain("YYYY-MM-DD");
   });
 
-  it("renders token hints below Feature Description input", () => {
+  it("renders token hints below Mission Description input", () => {
     render(
       <ScheduledTaskForm
         existing={null}
@@ -513,7 +513,7 @@ describe("ScheduledTaskForm", () => {
     expect(screen.getByTestId("desc-token-hints")).toBeTruthy();
     fireEvent.change(screen.getByTestId("st-name"), { target: { value: "Sprint Task" } });
     fireEvent.change(screen.getByTestId("st-cron-expression"), { target: { value: "0 9 * * 1" } });
-    fireEvent.change(screen.getByTestId("st-feature-title"), {
+    fireEvent.change(screen.getByTestId("st-mission-title"), {
       target: { value: "Sprint {{counter}} — {{date}}" },
     });
     fireEvent.click(screen.getByTestId("st-submit"));

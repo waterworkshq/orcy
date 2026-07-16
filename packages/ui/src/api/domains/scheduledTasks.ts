@@ -53,7 +53,7 @@ export const scheduledTasksApi = {
     }),
   delete: (id: string) => request<void>(`/scheduled-tasks/${id}`, { method: "DELETE" }),
   run: (id: string) =>
-    request<{ success: boolean; featureId?: string; error?: string }>(
+    request<{ success: boolean; missionId?: string; error?: string }>(
       `/scheduled-tasks/${id}/run`,
       {
         method: "POST",

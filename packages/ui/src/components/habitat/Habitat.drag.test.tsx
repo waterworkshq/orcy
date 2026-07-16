@@ -61,7 +61,7 @@ vi.mock("./Column.js", () => ({
 }));
 
 vi.mock("./MissionCard.js", () => ({
-  FeatureCard: ({ feature }: any) => <div data-testid={`feature-card-${feature.id}`} />,
+  MissionCard: ({ feature }: any) => <div data-testid={`feature-card-${feature.id}`} />,
 }));
 
 vi.mock("./ColumnSwiper.js", () => ({

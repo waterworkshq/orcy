@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { SortableFeatureCard } from './MissionCard.js';
+import { SortableMissionCard } from './MissionCard.js';
 import { Tooltip } from '../ui/Tooltip.js';
 import type { MissionWithProgress, Column as ColumnType } from '../../types/index.js';
 import { Settings, ChevronDown, ChevronRight } from 'lucide-react';
@@ -130,7 +130,7 @@ export const Column = React.memo(function Column({ column, features, onSettingsC
             >
               <div className="flex flex-col gap-2">
                 {visibleFeatures.map((feature) => (
-                  <SortableFeatureCard key={feature.id} feature={feature} />
+                  <SortableMissionCard key={feature.id} feature={feature} />
                 ))}
               </div>
             </SortableContext>

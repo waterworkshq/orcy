@@ -13,7 +13,7 @@ vi.mock("@dnd-kit/sortable", () => ({
 }));
 
 vi.mock("./MissionCard.js", () => ({
-  SortableFeatureCard: ({ feature }: any) => (
+  SortableMissionCard: ({ feature }: any) => (
     <div data-testid={`feature-card-${feature.id}`}>{feature.title}</div>
   ),
 }));

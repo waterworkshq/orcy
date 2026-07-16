@@ -16,13 +16,13 @@ export const dependenciesApi = {
     }>(`/tasks/${taskId}/dependencies`),
   getBlockedStatus: (taskId: string) =>
     request<TaskBlockedStatus>(`/tasks/${taskId}/blocked-status`),
-  addFeatureDependency: (featureId: string, dependsOnFeatureId: string) =>
-    request<{ success: boolean }>(`/missions/${featureId}/dependencies`, {
+  addMissionDependency: (missionId: string, dependsOnMissionId: string) =>
+    request<{ success: boolean }>(`/missions/${missionId}/dependencies`, {
       method: "POST",
-      body: JSON.stringify({ dependsOnFeatureId }),
+      body: JSON.stringify({ dependsOnMissionId }),
     }),
-  removeFeatureDependency: (featureId: string, depId: string) =>
-    request<{ success: boolean }>(`/missions/${featureId}/dependencies/${depId}`, {
+  removeMissionDependency: (missionId: string, depId: string) =>
+    request<{ success: boolean }>(`/missions/${missionId}/dependencies/${depId}`, {
       method: "DELETE",
     }),
 };

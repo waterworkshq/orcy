@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MissionDetailPage } from "./MissionDetailPage.js";
 import type { MissionWithProgress, Task, MissionEvent } from "../types/index.js";
 
-function makeFeature(
+function makeMission(
   overrides: Partial<MissionWithProgress> & { id: string },
 ): MissionWithProgress {
   return {
@@ -256,7 +256,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("fetches feature details on mount with correct id", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -273,7 +273,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders 3-panel grid layout", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -293,7 +293,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders pipeline context sidebar with task list", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({
         id: "task-1",
@@ -321,7 +321,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders risk analysis sidebar with projected impact", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -339,7 +339,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders code review section", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -356,7 +356,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders agent reasoning trace section", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -373,7 +373,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders comment input bar at bottom", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -390,7 +390,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders feature header with title and status", async () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-123",
       title: "My Feature",
       status: "in_progress",
@@ -412,7 +412,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders feature description", async () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-123",
       description: "Detailed description of the feature",
     });
@@ -432,7 +432,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders labels when present", async () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-123",
       labels: ["frontend", "bug"],
     });
@@ -453,7 +453,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders metrics with completion percentage", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -471,7 +471,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders metrics showing blocked dependencies", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -488,7 +488,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders read-only kanban with 4 columns", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({ id: "task-1", missionId: "feat-123", status: "pending", title: "Pending Task" }),
       makeTask({
@@ -524,7 +524,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("opens the portable task modal from a feature task click", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({
         id: "task-feature-open",
@@ -552,7 +552,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders total task count in kanban header", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({ id: "task-1", missionId: "feat-123", status: "pending" }),
       makeTask({ id: "task-2", missionId: "feat-123", status: "done" }),
@@ -573,7 +573,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders task ID prefix in task cards", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({ id: "task-abcd1234", missionId: "feat-123", status: "pending", title: "A Task" }),
     ];
@@ -593,7 +593,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders estimated minutes on tasks that have them", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({
         id: "task-1",
@@ -619,7 +619,7 @@ describe("MissionDetailPage", () => {
   });
 
   it("renders configure gates button in risk sidebar", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -636,7 +636,7 @@ describe("MissionDetailPage", () => {
   });
 
   it('shows "No review comments yet" when no comments exist', async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -653,7 +653,7 @@ describe("MissionDetailPage", () => {
   });
 
   it('shows "No agent reasoning yet" when no agent comments exist', async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],
@@ -686,7 +686,7 @@ describe("MissionDetailPage integration", () => {
   });
 
   it("navigates to /missions/:id and shows feature detail", async () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-456",
       title: "Integration Feature",
       status: "review",
@@ -716,7 +716,7 @@ describe("MissionDetailPage integration", () => {
   });
 
   it("renders complete page with all sections", async () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-789",
       title: "Full Page Feature",
       priority: "critical",
@@ -759,7 +759,7 @@ describe("MissionDetailPage integration", () => {
   });
 
   it("task click in pipeline sidebar opens TaskDetailModal", async () => {
-    const feature = makeFeature({ id: "feat-123" });
+    const feature = makeMission({ id: "feat-123" });
     const tasks = [
       makeTask({
         id: "task-sidebar",
@@ -807,7 +807,7 @@ describe("MissionDetailPage integration", () => {
   });
 
   it("renders back to habitat link", async () => {
-    const feature = makeFeature({ id: "feat-123", habitatId: "habitat-1" });
+    const feature = makeMission({ id: "feat-123", habitatId: "habitat-1" });
     mockFeatureDetails.mockResolvedValue({
       mission: feature,
       tasks: [],

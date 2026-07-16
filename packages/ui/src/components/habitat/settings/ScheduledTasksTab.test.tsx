@@ -213,7 +213,7 @@ describe('ScheduledTasksTab', () => {
 
   it('calls run API and invalidates cache', async () => {
     mockListScheduledTasks.mockResolvedValue({ scheduledTasks: [mockTask] });
-    mockRunScheduledTask.mockResolvedValue({ success: true, featureId: 'f1' });
+    mockRunScheduledTask.mockResolvedValue({ success: true, missionId: 'f1' });
 
     renderWithQC(<ScheduledTasksTab habitatId="b1" />);
 

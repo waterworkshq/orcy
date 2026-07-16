@@ -152,7 +152,7 @@ describe("seedGlobalTemplates — Build-Test-Review-Deploy template", () => {
     expect(tmpl).not.toBeNull();
     expect(tmpl!.tasksTemplate).toHaveLength(4);
     expect(tmpl!.tasksTemplate.map((t) => t.key)).toEqual(["build", "test", "review", "deploy"]);
-    expect(tmpl!.tasksTemplate[0].title).toBe("Build: {{feature_name}}");
+    expect(tmpl!.tasksTemplate[0].title).toBe("Build: {{mission_name}}");
     expect(tmpl!.tasksTemplate[0].requiredDomain).toBe("backend");
 
     expect(tmpl!.workflowTemplate).not.toBeNull();
@@ -160,7 +160,7 @@ describe("seedGlobalTemplates — Build-Test-Review-Deploy template", () => {
     expect(tmpl!.workflowTemplate!.gates.every((g) => g.gateType === "on_approve")).toBe(true);
 
     expect(tmpl!.workflowTemplate!.variables).toEqual([
-      { key: "feature_name", description: "Name of the feature being built", required: true },
+      { key: "mission_name", description: "Name of the mission being built", required: true },
     ]);
 
     expect(tmpl!.workflowTemplate!.failureHandler).toBeDefined();
@@ -174,7 +174,7 @@ describe("seedGlobalTemplates — Build-Test-Review-Deploy template", () => {
     const tmpl = getGlobalTemplateByName("Build-Test-Review-Deploy")!;
 
     const result = templateRepo.applyTemplate(tmpl.id, habitatId, {
-      variables: { feature_name: "OAuth2" },
+      variables: { mission_name: "OAuth2" },
     });
 
     expect(result).not.toBeNull();

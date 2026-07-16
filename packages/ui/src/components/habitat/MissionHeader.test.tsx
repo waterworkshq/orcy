@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { FeatureHeader, formatStatus, formatRelativeTime } from "./MissionHeader.js";
+import { MissionHeader, formatStatus, formatRelativeTime } from "./MissionHeader.js";
 import type { MissionWithProgress } from "../../types/index.js";
 
 vi.mock("../ui/Button.js", () => ({
@@ -28,7 +28,7 @@ vi.mock("react-markdown", () => ({
   default: ({ children }: any) => <div data-testid="markdown">{children}</div>,
 }));
 
-function makeFeature(
+function makeMission(
   overrides: Partial<MissionWithProgress> & { id: string },
 ): MissionWithProgress {
   return {
@@ -87,7 +87,7 @@ function renderWithRouter(ui: React.ReactElement) {
   );
 }
 
-describe("FeatureHeader", () => {
+describe("MissionHeader", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2024-06-15T14:30:00Z"));
@@ -99,8 +99,8 @@ describe("FeatureHeader", () => {
   });
 
   it("renders feature title as h1", () => {
-    const feature = makeFeature({ id: "feat-1", title: "My Feature Title" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", title: "My Feature Title" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const h1 = screen.getByText("My Feature Title");
     expect(h1.tagName).toBe("SPAN");
@@ -108,8 +108,8 @@ describe("FeatureHeader", () => {
   });
 
   it("renders priority badge", () => {
-    const feature = makeFeature({ id: "feat-1", priority: "critical" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", priority: "critical" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const priorityBadge = badges.find((b) => b.dataset.variant === "critical");
@@ -118,8 +118,8 @@ describe("FeatureHeader", () => {
   });
 
   it("renders status badge", () => {
-    const feature = makeFeature({ id: "feat-1", status: "in_progress" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", status: "in_progress" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const statusBadge = badges.find((b) => b.dataset.variant === "in_progress");
@@ -128,11 +128,11 @@ describe("FeatureHeader", () => {
   });
 
   it("renders labels as pills", () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-1",
       labels: ["frontend", "bug", "urgent"],
     });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.getByText("frontend")).toBeTruthy();
     expect(screen.getByText("bug")).toBeTruthy();
@@ -140,18 +140,18 @@ describe("FeatureHeader", () => {
   });
 
   it("renders no labels section when labels empty", () => {
-    const feature = makeFeature({ id: "feat-1", labels: [] });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", labels: [] });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.queryByTestId("icon-tag")).toBeNull();
   });
 
   it("renders description as markdown", () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-1",
       description: "# Heading\n\nSome **bold** text",
     });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const markdown = screen.getByTestId("markdown");
     expect(markdown.textContent).toContain("Heading");
@@ -159,74 +159,74 @@ describe("FeatureHeader", () => {
   });
 
   it("renders no description when empty", () => {
-    const feature = makeFeature({ id: "feat-1", description: "" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", description: "" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.queryByTestId("markdown")).toBeNull();
   });
 
   it("renders created date", () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-1",
       createdAt: new Date("2024-06-15T13:30:00Z").toISOString(),
     });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.getByText(/1h ago/)).toBeTruthy();
   });
 
   it("renders updated date", () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-1",
       updatedAt: new Date("2024-06-15T14:00:00Z").toISOString(),
     });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.getByText(/Updated/)).toBeTruthy();
   });
 
   it("renders due date when present", () => {
-    const feature = makeFeature({
+    const feature = makeMission({
       id: "feat-1",
       dueAt: new Date("2024-06-16T14:30:00Z").toISOString(),
     });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.getByText(/Due/)).toBeTruthy();
   });
 
   it("does not render due date when null", () => {
-    const feature = makeFeature({ id: "feat-1", dueAt: null });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", dueAt: null });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.queryByText(/Due/)).toBeNull();
   });
 
   it("renders feature ID prefix", () => {
-    const feature = makeFeature({ id: "feat-abcdef12" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-abcdef12" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(screen.getByText(/ID: feat-abc/)).toBeTruthy();
   });
 
   it("renders back to habitat link", () => {
-    const feature = makeFeature({ id: "feat-1", habitatId: "board-42" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", habitatId: "board-42" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const backLink = screen.getByText("Back to Habitat").closest("a");
     expect(backLink?.getAttribute("href")).toBe("/habitats/board-42");
   });
 
   it("applies cool-glow class", () => {
-    const feature = makeFeature({ id: "feat-1" });
-    const { container } = renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1" });
+    const { container } = renderWithRouter(<MissionHeader feature={feature} />);
 
     expect(container.querySelector(".cool-glow")).toBeTruthy();
   });
 
   it("renders done status badge correctly", () => {
-    const feature = makeFeature({ id: "feat-1", status: "done" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", status: "done" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const statusBadge = badges.find((b) => b.dataset.variant === "done");
@@ -235,8 +235,8 @@ describe("FeatureHeader", () => {
   });
 
   it("renders failed status badge correctly", () => {
-    const feature = makeFeature({ id: "feat-1", status: "failed" });
-    renderWithRouter(<FeatureHeader feature={feature} />);
+    const feature = makeMission({ id: "feat-1", status: "failed" });
+    renderWithRouter(<MissionHeader feature={feature} />);
 
     const badges = screen.getAllByTestId("badge");
     const statusBadge = badges.find((b) => b.dataset.variant === "failed");

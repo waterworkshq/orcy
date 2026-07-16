@@ -166,13 +166,13 @@ describe("applyTemplate — workflow instantiation", () => {
   it("throws on missing required variable", () => {
     const wfTemplate = makeWorkflowTemplate({
       gates: [{ upstreamTaskKey: "a", downstreamTaskKey: "b", gateType: "on_complete" }],
-      variables: [{ key: "feature_name", description: "Feature name", required: true }],
+      variables: [{ key: "mission_name", description: "Mission name", required: true }],
     });
 
     const template = templateRepo.createTemplate({
       habitatId,
       name: "Required Var",
-      titlePattern: "{{feature_name}}",
+      titlePattern: "{{mission_name}}",
       tasksTemplate: [
         { key: "a", title: "A", order: 0 },
         { key: "b", title: "B", order: 1 },
@@ -182,14 +182,14 @@ describe("applyTemplate — workflow instantiation", () => {
     });
 
     expect(() => templateRepo.applyTemplate(template.id, habitatId)).toThrow(
-      /Required template variable "feature_name" was not provided/,
+      /Required template variable "mission_name" was not provided/,
     );
   });
 
   it("resolves variables from caller overrides", () => {
     const wfTemplate = makeWorkflowTemplate({
       gates: [{ upstreamTaskKey: "a", downstreamTaskKey: "b", gateType: "on_complete" }],
-      variables: [{ key: "feature_name", description: "Feature name", required: true }],
+      variables: [{ key: "mission_name", description: "Mission name", required: true }],
     });
 
     const template = templateRepo.createTemplate({
@@ -197,21 +197,21 @@ describe("applyTemplate — workflow instantiation", () => {
       name: "Caller Var",
       titlePattern: "Test",
       tasksTemplate: [
-        { key: "a", title: "Build: {{feature_name}}", order: 0 },
-        { key: "b", title: "Deploy: {{feature_name}}", order: 1 },
+        { key: "a", title: "Build: {{mission_name}}", order: 0 },
+        { key: "b", title: "Deploy: {{mission_name}}", order: 1 },
       ],
       workflowTemplate: wfTemplate,
       createdBy: "human",
     });
 
     const result = templateRepo.applyTemplate(template.id, habitatId, {
-      variables: { feature_name: "Auth" },
+      variables: { mission_name: "Auth" },
     });
 
     expect(result).not.toBeNull();
     expect(result!.tasks[0].title).toBe("Build: Auth");
     expect(result!.tasks[1].title).toBe("Deploy: Auth");
-    expect(result!.workflow!.resolvedVariables).toEqual({ feature_name: "Auth" });
+    expect(result!.workflow!.resolvedVariables).toEqual({ mission_name: "Auth" });
   });
 
   it("resolves variables from defaults when caller does not provide", () => {

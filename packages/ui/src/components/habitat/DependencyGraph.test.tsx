@@ -22,7 +22,7 @@ vi.mock('../../hooks/useMediaQuery.js', () => ({
 
 describe('DependencyGraph', () => {
   it('shows empty state when no features', () => {
-    render(<DependencyGraph habitatId="board-1" onSelectFeature={vi.fn()} />);
+    render(<DependencyGraph habitatId="board-1" onSelectMission={vi.fn()} />);
     expect(screen.getByText('No features on this board.')).toBeTruthy();
     expect(screen.getByText('Add features to see them in the graph.')).toBeTruthy();
   });
@@ -38,7 +38,7 @@ describe('DependencyGraph', () => {
       clearHighlight: vi.fn(),
       featureCount: 0,
     });
-    render(<DependencyGraph habitatId="board-1" onSelectFeature={vi.fn()} />);
+    render(<DependencyGraph habitatId="board-1" onSelectMission={vi.fn()} />);
     expect(document.querySelector('.animate-spin')).toBeTruthy();
   });
 
@@ -53,7 +53,7 @@ describe('DependencyGraph', () => {
       clearHighlight: vi.fn(),
       featureCount: 0,
     });
-    render(<DependencyGraph habitatId="board-1" onSelectFeature={vi.fn()} />);
+    render(<DependencyGraph habitatId="board-1" onSelectMission={vi.fn()} />);
     expect(screen.getByText('Failed to load')).toBeTruthy();
   });
 });

@@ -69,7 +69,7 @@ const VALID_WORKFLOW_TEMPLATE = {
       gateType: "on_complete" as const,
     },
   ],
-  variables: [{ key: "feature_name", description: "Name of the feature being built" }],
+  variables: [{ key: "mission_name", description: "Name of the mission being built" }],
 };
 
 describe("templateRoutes — workflowTemplate passthrough", () => {

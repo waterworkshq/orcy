@@ -18,7 +18,7 @@ vi.mock("../lib/useHabitatData.js", () => ({
 
 import { computeLayout, computeChain, useDependencyGraph } from "./useDependencyGraph.js";
 
-function makeFeatureWithProgress(overrides: {
+function makeMissionWithProgress(overrides: {
   id: string;
   dependsOn?: string[];
   status?: MissionWithProgress["status"];
@@ -77,9 +77,9 @@ describe("computeLayout", () => {
 
   it("returns nodes without edges when no feature dependencies", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1" }),
-      makeFeatureWithProgress({ id: "feat-2" }),
-      makeFeatureWithProgress({ id: "feat-3" }),
+      makeMissionWithProgress({ id: "feat-1" }),
+      makeMissionWithProgress({ id: "feat-2" }),
+      makeMissionWithProgress({ id: "feat-3" }),
     ];
     const result = computeLayout(features);
     expect(result.nodes).toHaveLength(3);
@@ -88,9 +88,9 @@ describe("computeLayout", () => {
 
   it("creates edges from feature dependsOn relationships", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
-      makeFeatureWithProgress({ id: "feat-3", dependsOn: ["feat-2"] }),
+      makeMissionWithProgress({ id: "feat-1" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-3", dependsOn: ["feat-2"] }),
     ];
     const result = computeLayout(features);
 
@@ -104,8 +104,8 @@ describe("computeLayout", () => {
 
   it("marks edges as animated when dependency is not met", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1", status: "not_started" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-1", status: "not_started" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
     ];
     const result = computeLayout(features);
 
@@ -115,8 +115,8 @@ describe("computeLayout", () => {
 
   it("marks edges as non-animated when dependency is met (done)", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1", status: "done" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-1", status: "done" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
     ];
     const result = computeLayout(features);
 
@@ -126,8 +126,8 @@ describe("computeLayout", () => {
 
   it("marks edges as animated when dependency is not done (review)", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1", status: "review" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-1", status: "review" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
     ];
     const result = computeLayout(features);
 
@@ -137,8 +137,8 @@ describe("computeLayout", () => {
 
   it("positions nodes using dagre layout", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-1" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
     ];
     const result = computeLayout(features);
 
@@ -151,8 +151,8 @@ describe("computeLayout", () => {
 
   it("skips edges for dangling feature dependsOn IDs", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1", dependsOn: ["nonexistent"] }),
-      makeFeatureWithProgress({ id: "feat-2" }),
+      makeMissionWithProgress({ id: "feat-1", dependsOn: ["nonexistent"] }),
+      makeMissionWithProgress({ id: "feat-2" }),
     ];
     const result = computeLayout(features);
 
@@ -163,7 +163,7 @@ describe("computeLayout", () => {
 
 describe("computeChain", () => {
   it("returns only the node itself for an isolated node with no edges", () => {
-    const features = [makeFeatureWithProgress({ id: "feat-1" })];
+    const features = [makeMissionWithProgress({ id: "feat-1" })];
     const { nodes, edges } = computeLayout(features);
     const chain = computeChain("feat-1", nodes, edges);
     expect(chain).toEqual(new Set(["feat-1"]));
@@ -171,9 +171,9 @@ describe("computeChain", () => {
 
   it("finds full upstream chain", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
-      makeFeatureWithProgress({ id: "feat-3", dependsOn: ["feat-2"] }),
+      makeMissionWithProgress({ id: "feat-1" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-3", dependsOn: ["feat-2"] }),
     ];
     const { nodes, edges } = computeLayout(features);
     const chain = computeChain("feat-3", nodes, edges);
@@ -182,9 +182,9 @@ describe("computeChain", () => {
 
   it("finds full downstream chain", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
-      makeFeatureWithProgress({ id: "feat-3", dependsOn: ["feat-2"] }),
+      makeMissionWithProgress({ id: "feat-1" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-3", dependsOn: ["feat-2"] }),
     ];
     const { nodes, edges } = computeLayout(features);
     const chain = computeChain("feat-1", nodes, edges);
@@ -193,10 +193,10 @@ describe("computeChain", () => {
 
   it("does not include disconnected nodes", () => {
     const features = [
-      makeFeatureWithProgress({ id: "feat-1" }),
-      makeFeatureWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
-      makeFeatureWithProgress({ id: "feat-3" }),
-      makeFeatureWithProgress({ id: "feat-4", dependsOn: ["feat-3"] }),
+      makeMissionWithProgress({ id: "feat-1" }),
+      makeMissionWithProgress({ id: "feat-2", dependsOn: ["feat-1"] }),
+      makeMissionWithProgress({ id: "feat-3" }),
+      makeMissionWithProgress({ id: "feat-4", dependsOn: ["feat-3"] }),
     ];
     const { nodes, edges } = computeLayout(features);
     const chain = computeChain("feat-1", nodes, edges);
@@ -207,7 +207,7 @@ describe("computeChain", () => {
 describe("useDependencyGraph (Habitat-detail selector)", () => {
   it("includes every active Mission beyond the mission-list first 20", () => {
     const many: MissionWithProgress[] = Array.from({ length: 25 }, (_, i) =>
-      makeFeatureWithProgress({ id: `feat-${i}` }),
+      makeMissionWithProgress({ id: `feat-${i}` }),
     );
     mockHabitatData.mockReturnValue({
       data: { habitat: { id: "board-1" }, columns: [], missions: many },

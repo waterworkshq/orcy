@@ -4,9 +4,9 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { DependencyGraphModal } from './DependencyGraphModal.js';
 
 vi.mock('./DependencyGraph.js', () => ({
-  DependencyGraph: ({ onSelectFeature }: { habitatId: string; onSelectFeature: (id: string) => void }) => (
+  DependencyGraph: ({ onSelectMission }: { habitatId: string; onSelectMission: (id: string) => void }) => (
     <div data-testid="dependency-graph-mock">
-      <button onClick={() => onSelectFeature('feat-1')}>Select Feature</button>
+      <button onClick={() => onSelectMission('feat-1')}>Select Feature</button>
     </div>
   ),
 }));
@@ -16,7 +16,7 @@ afterEach(cleanup);
 const defaultProps = {
   habitatId: 'board-1',
   onClose: vi.fn(),
-  onSelectFeature: vi.fn(),
+  onSelectMission: vi.fn(),
 };
 
 describe('DependencyGraphModal', () => {
@@ -54,11 +54,11 @@ describe('DependencyGraphModal', () => {
     expect(screen.getByTestId('dependency-graph-mock')).toBeTruthy();
   });
 
-  it('passes habitatId and onSelectFeature to DependencyGraph', () => {
-    const onSelectFeature = vi.fn();
-    render(<DependencyGraphModal {...defaultProps} onSelectFeature={onSelectFeature} />);
+  it('passes habitatId and onSelectMission to DependencyGraph', () => {
+    const onSelectMission = vi.fn();
+    render(<DependencyGraphModal {...defaultProps} onSelectMission={onSelectMission} />);
     fireEvent.click(screen.getByText('Select Feature'));
-    expect(onSelectFeature).toHaveBeenCalledWith('feat-1');
+    expect(onSelectMission).toHaveBeenCalledWith('feat-1');
   });
 
   it('renders status legend items', () => {
