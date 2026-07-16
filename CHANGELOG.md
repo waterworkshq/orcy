@@ -2,6 +2,21 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.31.2 — 2026-07-16
+
+### Bug Fixes
+
+#### clear drag overlay when dragged mission disappears mid-drag ([`4315d14`](https://github.com/waterworkshq/orcy/commit/4315d14243fafd237a7f119746b243bf38465458))
+
+1. A realtime SSE event (archive/delete) removing the actively-dragged mission left the DragOverlay rendered until the user manually ended the gesture, since cleanup only ran on dragEnd/dragCancel. Extract a cancelDragFor helper and add an effect that clears the overlay and restores the preview the moment the dragged id leaves the canonical missions collection, routing through the same path as handleDragCancel. dnd-kit exposes no synthetic dragCancel, so the overlay is hidden by clearing activeFeature; the eventual pointer release re-runs dragEnd's existing branch idempotently.
+
+
+#### bound drag-move spinner with a hung-request sweep ([`4596e75`](https://github.com/waterworkshq/orcy/commit/4596e7535a1994096d1813a9d761317f0861e4d2))
+
+1. A never-settling api.missions.move kept runMove's finally suspended, stranding activeMoveCount (perpetual isMoving spinner) and leaking the movesRef entry + preview. Add a 30s sweep that cleans up the entry, preview, and counter without aborting the controller (the server may have committed; a late settle short-circuits the UI continuation via the controller-identity guard). clearTimeout on natural settle plus a sweepFired flag in finally prevent a double-decrement.
+
+
+
 ## 0.31.1 — 2026-07-16
 
 ### Bug Fixes
@@ -393,15 +408,3 @@
 11. repository-wide search confirms zero production references remain. Test
 12. fixtures and stale useHabitatStore mocks that referenced the removed fields
 13. are cleaned up.
-
-
-
-## 0.30.2 — 2026-07-15
-
-### Refactors
-
-#### centralize atomic detected-signal persistence ([`2d26fce`](https://github.com/waterworkshq/orcy/commit/2d26fce800fea7e291e126ee280fe20c9e3ac9d6))
-
-1. Extract batch construction, metadata validation, stamping, and transactional
-2. pulse creation into a shared helper for detector and post-interceptor result
-3. hooks.
