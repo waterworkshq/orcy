@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../repositories/daemon.js", () => mocks.daemonRepo);
-vi.mock("../repositories/board.js", () => mocks.habitatRepo);
+vi.mock("../repositories/habitat.js", () => mocks.habitatRepo);
 vi.mock("../services/daemonEngine.js", () => mocks.daemonEngine);
 vi.mock("../services/agentService.js", () => ({ createAgent: vi.fn() }));
 vi.mock("../services/tasks/index.js", () => ({ claimTask: vi.fn() }));

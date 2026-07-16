@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import * as agentService from "../services/agentService.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { getMissionById } from "../repositories/feature.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import type { HumanRole } from "./auth.js";

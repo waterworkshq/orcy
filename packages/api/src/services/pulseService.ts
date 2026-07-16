@@ -1,6 +1,6 @@
 import * as pulseRepo from "../repositories/pulse.js";
 import * as missionRepo from "../repositories/feature.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/task.js";
 import * as taskService from "./tasks/index.js";

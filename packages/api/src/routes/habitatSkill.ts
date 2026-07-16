@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { SKILL_CATEGORIES } from "@orcy/shared";
 import * as skillRepo from "../repositories/habitatSkill.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as skillService from "../services/habitatSkillService.js";
 import { agentOrHumanAuth, humanAuth } from "../middleware/auth.js";
 import { notFound, badRequest, forbidden } from "../errors.js";

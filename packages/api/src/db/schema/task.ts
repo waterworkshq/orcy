@@ -10,7 +10,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import type { Artifact, RetryPolicy } from "../../models/index.js";
-import { missions } from "./board.js";
+import { missions } from "./habitat.js";
 import { agents } from "./agent.js";
 
 export const tasks = sqliteTable(

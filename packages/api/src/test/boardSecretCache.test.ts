@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockListHabitats = vi.fn();
 
-vi.mock('../repositories/board.js', () => ({
+vi.mock('../repositories/habitat.js', () => ({
   listHabitats: (...args: unknown[]) => mockListHabitats(...args),
 }));
 

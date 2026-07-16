@@ -5,7 +5,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as releaseSettingsService from "./releaseSettingsService.js";
 import { ingestEvent } from "./automationEventService.js";
 import { enqueueNotificationForRecipients } from "./notificationCommandService.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as teamMemberRepo from "../repositories/teamMember.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { RepositoryError } from "../errors/repository.js";

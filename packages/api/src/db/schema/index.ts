@@ -15,7 +15,7 @@ export {
   habitatHealthSnapshots,
   cumulativeFlowSnapshots,
   sprints,
-} from "./board.js";
+} from "./habitat.js";
 export {
   tasks,
   taskEvents,

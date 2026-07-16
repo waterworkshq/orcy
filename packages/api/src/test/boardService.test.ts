@@ -49,7 +49,7 @@ const cacheMock = vi.hoisted(() => ({ rebuildCache: vi.fn() }));
 const sseMock = vi.hoisted(() => vi.fn());
 const pluginMock = vi.hoisted(() => ({ emitHabitatCreated: vi.fn(() => Promise.resolve()) }));
 
-vi.mock("../repositories/board.js", () => habitatRepoMocks);
+vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
 vi.mock("../repositories/column.js", () => columnRepoMocks);
 vi.mock("../repositories/task.js", () => taskRepoMocks);
 vi.mock("../repositories/feature.js", () => missionRepoMocks);

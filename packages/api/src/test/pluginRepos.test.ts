@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
 import * as runRepo from "../repositories/pluginRun.js";
 import type { PluginRunStatus } from "../repositories/pluginRun.js";

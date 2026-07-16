@@ -1,7 +1,7 @@
 import { getDb } from "../db/index.js";
 import { tasks, agents, taskDependencies } from "../db/schema/index.js";
 import { eq, inArray, count } from "drizzle-orm";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";

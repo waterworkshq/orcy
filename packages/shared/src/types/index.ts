@@ -8,7 +8,7 @@ export type {
   HabitatStats,
   MissionSummary,
   HabitatExport,
-} from "./board.js";
+} from "./habitat.js";
 
 export {
   AUDIT_ENTITY_TYPES,

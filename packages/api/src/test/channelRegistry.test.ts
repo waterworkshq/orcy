@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { closeDb, initTestDb } from "../db/index.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";

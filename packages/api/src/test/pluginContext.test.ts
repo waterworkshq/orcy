@@ -35,7 +35,7 @@ vi.mock("../repositories/comment.js", () => ({
   listByHabitatSince: (h: unknown, s: unknown) => listCommentsMock(h, s),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: (i: unknown) => getHabitatByIdMock(i),
 }));
 

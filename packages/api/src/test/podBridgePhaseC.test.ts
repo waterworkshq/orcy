@@ -6,7 +6,7 @@ import { initTestDb, closeDb } from "../db/index.js";
 import { remoteAccessRoutes } from "../routes/remoteAccess.js";
 import { sharedInviteRoutes } from "../routes/sharedInvite.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as readinessService from "../services/shareHabitatReadinessService.js";
 import * as providerService from "../services/identityProviderService.js";
 import * as inviteService from "../services/remoteInviteService.js";

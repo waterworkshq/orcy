@@ -1,4 +1,4 @@
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import { verifyGitHubHmac } from "../config/integrationSecurity.js";
 
 const secretToHabitatId = new Map<string, string>();

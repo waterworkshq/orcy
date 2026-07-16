@@ -1,5 +1,5 @@
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import { logger } from "../lib/logger.js";
 import type { Task, RetryPolicy } from "../models/index.js";
 import { emitTransition } from "./tasks/transition-emitter.js";

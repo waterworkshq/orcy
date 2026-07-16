@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, rmSync } from "fs";
 import { join, resolve } from "path";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/task.js";

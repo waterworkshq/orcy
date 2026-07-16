@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
 import { eq, and } from "drizzle-orm";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskCrudRepo from "../repositories/taskCrud.js";

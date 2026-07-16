@@ -63,7 +63,7 @@ vi.mock('../services/scheduledTaskService.js', () => ({
   executeScheduledTask: mockExecuteScheduledTask,
 }));
 
-vi.mock('../repositories/board.js', () => ({
+vi.mock('../repositories/habitat.js', () => ({
   getHabitatById: mockGetHabitatById,
 }));
 

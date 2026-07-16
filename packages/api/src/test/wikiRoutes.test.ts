@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { wikiRoutes } from "../routes/wiki.js";
 import * as wikiService from "../services/wikiService.js";
 import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as signalSurfaceService from "../services/wikiSignalSurfaceService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
@@ -217,7 +217,7 @@ vi.mock("../repositories/wikiPage.js", () => ({
   search: mockSearchPages,
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: mockGetHabitatById,
 }));
 

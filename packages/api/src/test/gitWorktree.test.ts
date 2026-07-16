@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as path from 'path';
-import { makeHabitat } from './factories/board.js';
+import { makeHabitat } from './factories/habitat.js';
 import { makeTask } from './factories/task.js';
 
 vi.mock('../db/index.js', () => ({
@@ -18,7 +18,7 @@ vi.mock('fs', () => ({
   rmSync: vi.fn(),
 }));
 
-vi.mock('../repositories/board.js', () => ({
+vi.mock('../repositories/habitat.js', () => ({
   getHabitatById: vi.fn().mockReturnValue(null),
   createHabitat: vi.fn(),
   updateHabitat: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock('../repositories/task.js', () => ({
 
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
-import { getHabitatById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/habitat.js';
 import { getTaskById, getHabitatIdForTask } from '../repositories/task.js';
 
 const VALID_TASK_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';

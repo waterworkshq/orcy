@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { initTestDb, closeDb } from "../db/index.js";
 import * as codeEvidenceRepository from "../repositories/codeEvidenceRepository.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/task.js";

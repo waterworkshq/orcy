@@ -3,7 +3,7 @@ import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as orgRepo from '../repositories/organization.js';
 import * as teamRepo from '../repositories/team.js';
 import * as memberRepo from '../repositories/teamMember.js';
-import * as habitatRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/habitat.js';
 import { users } from '../db/schema/index.js';
 import { eq } from 'drizzle-orm';
 

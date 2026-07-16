@@ -1,7 +1,7 @@
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as retentionRepo from "../repositories/notificationRetentionPolicy.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import type { NotificationDelivery, NotificationDeliveryStatus } from "@orcy/shared";
 
 const STATUS_CLEARABLE_BY_ACKNOWLEDGED = ["acknowledged"] as NotificationDeliveryStatus[];

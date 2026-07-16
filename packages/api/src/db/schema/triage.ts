@@ -1,6 +1,6 @@
 import { sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
-import { habitats, missions } from "./board.js";
+import { habitats, missions } from "./habitat.js";
 import { pulses } from "./pulse.js";
 import { SUGGESTED_BUCKETS } from "@orcy/shared";
 

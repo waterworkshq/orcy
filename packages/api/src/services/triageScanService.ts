@@ -9,7 +9,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as triageService from "./triageService.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import type { Pulse } from "@orcy/shared";
 
 /** Resolves habitat-level triage thresholds, falling back to defaults. */

@@ -5,7 +5,7 @@ import { agentOrHumanAuth, humanAuth } from '../middleware/auth.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import { badRequest, notFound, forbidden, unauthorized } from '../errors.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
-import { getHabitatById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/habitat.js';
 import { getTaskById } from '../repositories/task.js';
 import { getMissionById } from '../repositories/feature.js';
 import { z } from 'zod';

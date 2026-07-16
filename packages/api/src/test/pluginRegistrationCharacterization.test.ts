@@ -1084,7 +1084,7 @@ describe("v0.28-T1: register round-trip (lifecycleInterceptor priority sort)", (
 
     // Create a habitat and enroll the rt-int-prio plugin for the same event
     // so isEnrolled() returns true when runPreInterceptors iterates.
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { create: createEnrollment } = await import(
       "../repositories/pluginEnrollment.js"
     );
@@ -1155,7 +1155,7 @@ describe("v0.28-T1: register round-trip (lifecycleInterceptor priority sort)", (
       }`,
     );
 
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { create: createEnrollment } = await import(
       "../repositories/pluginEnrollment.js"
     );

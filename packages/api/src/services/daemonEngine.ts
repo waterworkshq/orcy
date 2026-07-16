@@ -10,7 +10,7 @@ import * as daemonRepo from "../repositories/daemon.js";
 import * as agentService from "../services/agentService.js";
 import * as taskService from "../services/tasks/index.js";
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import { getSuggestionsForAgent } from "../services/taskSuggestion.js";
 import { generateDaemonToken } from "../lib/daemonToken.js";
 import { logger } from "../lib/logger.js";

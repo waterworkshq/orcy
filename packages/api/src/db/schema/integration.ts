@@ -1,7 +1,7 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import { habitats } from './board.js';
-import { missions } from './board.js';
+import { habitats } from './habitat.js';
+import { missions } from './habitat.js';
 
 export const integrationConnections = sqliteTable('integration_connections', {
   id: text('id').primaryKey(),

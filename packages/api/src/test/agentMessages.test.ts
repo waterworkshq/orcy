@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { getDb, closeDb, initTestDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as habitatRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/habitat.js';
 import * as agentMessageRepo from '../repositories/agentMessage.js';
 
 describe('AgentMessage Repository', () => {

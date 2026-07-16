@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { closeDb, initTestDb, getDb } from "../db/index.js";
 import { users } from "../db/schema/user.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as participantRepo from "../repositories/remoteParticipant.js";
 import * as grantRepo from "../repositories/remoteGrant.js";

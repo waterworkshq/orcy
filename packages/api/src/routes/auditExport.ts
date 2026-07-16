@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import * as auditExportService from "../services/auditExportService.js";
 import { humanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { badRequest, forbidden, notFound, unauthorized } from "../errors.js";
 import { z } from "zod";

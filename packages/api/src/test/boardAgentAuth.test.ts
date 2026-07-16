@@ -52,42 +52,42 @@ describe("Habitat Route Authentication", () => {
   });
 
   it("anonymous GET /habitats/:id returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Test Habitat" });
     const res = await app!.inject({ method: "GET", url: `/api/habitats/${habitat.id}` });
     expect(res.statusCode).toBe(401);
   });
 
   it("anonymous GET /habitats/:id/stats returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Stats Habitat" });
     const res = await app!.inject({ method: "GET", url: `/api/habitats/${habitat.id}/stats` });
     expect(res.statusCode).toBe(401);
   });
 
   it("anonymous GET /habitats/:id/events returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Events Habitat" });
     const res = await app!.inject({ method: "GET", url: `/api/habitats/${habitat.id}/events` });
     expect(res.statusCode).toBe(401);
   });
 
   it("anonymous GET /habitats/:id/anomalies returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Anomaly Habitat" });
     const res = await app!.inject({ method: "GET", url: `/api/habitats/${habitat.id}/anomalies` });
     expect(res.statusCode).toBe(401);
   });
 
   it("anonymous GET /habitats/:id/capacity returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Cap Habitat" });
     const res = await app!.inject({ method: "GET", url: `/api/habitats/${habitat.id}/capacity` });
     expect(res.statusCode).toBe(401);
   });
 
   it("anonymous GET /habitats/:id/predictions returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Pred Habitat" });
     const res = await app!.inject({
       method: "GET",
@@ -97,14 +97,14 @@ describe("Habitat Route Authentication", () => {
   });
 
   it("anonymous GET /habitats/:id/burndown returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Burndown Habitat" });
     const res = await app!.inject({ method: "GET", url: `/api/habitats/${habitat.id}/burndown` });
     expect(res.statusCode).toBe(401);
   });
 
   it("anonymous GET /habitats/:id/cumulative-flow returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "CF Habitat" });
     const res = await app!.inject({
       method: "GET",
@@ -114,7 +114,7 @@ describe("Habitat Route Authentication", () => {
   });
 
   it("anonymous GET /habitats/:id/bottlenecks returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "BN Habitat" });
     const res = await app!.inject({
       method: "GET",
@@ -124,7 +124,7 @@ describe("Habitat Route Authentication", () => {
   });
 
   it("anonymous GET /habitats/:id/agent-quality returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "AQ Habitat" });
     const res = await app!.inject({
       method: "GET",
@@ -134,7 +134,7 @@ describe("Habitat Route Authentication", () => {
   });
 
   it("anonymous GET /habitats/:id/audit/events returns 401", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const habitat = createHabitat({ name: "Audit Habitat" });
     const res = await app!.inject({
       method: "GET",
@@ -144,7 +144,7 @@ describe("Habitat Route Authentication", () => {
   });
 
   it("authenticated unauthorized human cannot read another team habitat", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { createTeam } = await import("../repositories/team.js");
     const { createOrganization } = await import("../repositories/organization.js");
 

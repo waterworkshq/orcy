@@ -3,7 +3,7 @@ import { tasks } from "../db/schema/index.js";
 import { eq, and, sql, inArray, isNotNull } from "drizzle-orm";
 import { cycleTimeMinutes } from "../db/dialect-helpers.js";
 import * as agentRepo from "../repositories/agent.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import { getAutoAssignSettings } from "./autoAssignService.js";
 import { daysAgoISO } from "./analyticsDate.js";
 

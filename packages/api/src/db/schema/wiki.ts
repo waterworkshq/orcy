@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { isNull } from "drizzle-orm";
-import { habitats } from "./board.js";
+import { habitats } from "./habitat.js";
 
 /** Current page state and denormalized current-version content for habitat Wiki Pages. */
 export const wikiPages = sqliteTable(

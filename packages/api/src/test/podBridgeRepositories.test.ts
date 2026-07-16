@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, initTestDb, getDb } from "../db/index.js";
 import { users } from "../db/schema/user.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as providerRepo from "../repositories/identityProvider.js";
 import * as externalIdentityRepo from "../repositories/externalIdentity.js";
 import * as inviteRepo from "../repositories/remoteInvite.js";

@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { forbidden, notFound } from "../errors.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import * as auditBundleService from "../services/auditBundleService.js";
 

@@ -9,7 +9,7 @@ import {
   tasks,
   taskTimeRecords,
 } from "../db/schema/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as sprintService from "../services/sprintService.js";

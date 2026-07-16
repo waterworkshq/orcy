@@ -12,7 +12,7 @@ const missionServiceMocks = vi.hoisted(() => ({
   listMissions: vi.fn(),
 }));
 
-vi.mock("../repositories/board.js", () => habitatRepoMocks);
+vi.mock("../repositories/habitat.js", () => habitatRepoMocks);
 vi.mock("../services/featureService.js", () => missionServiceMocks);
 vi.mock("../repositories/habitatSkill.js", () => ({ getOrCreateSkill: vi.fn() }));
 vi.mock("../services/boardSecretCache.js", () => ({ rebuildCache: vi.fn() }));

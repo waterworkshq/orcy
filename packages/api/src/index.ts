@@ -26,7 +26,7 @@ import { missionCommentRoutes } from "./routes/missionComments.js";
 import { auditExportRoutes } from "./routes/auditExport.js";
 import { auditBundleRoutes } from "./routes/auditBundle.js";
 import { habitatHealthRoutes } from "./routes/boardHealth.js";
-import * as habitatRepo from "./repositories/board.js";
+import * as habitatRepo from "./repositories/habitat.js";
 import * as habitatHealthService from "./services/boardHealthService.js";
 import { templateRoutes } from "./routes/templates.js";
 import { workflowRoutes } from "./routes/workflow.js";

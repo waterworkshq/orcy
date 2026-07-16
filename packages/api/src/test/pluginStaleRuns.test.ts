@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { initTestDb, closeDb } from "../db/index.js";
 import { pluginRoutes } from "../routes/plugins.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as runRepo from "../repositories/pluginRun.js";
 import {
   scanStalePluginRuns,

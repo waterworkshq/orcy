@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { closeDb, initTestDb, getDb } from "../db/index.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import { automationRules, automationRuleRuns } from "../db/schema/index.js";
 import { buildFingerprint } from "@orcy/shared";
 import type {

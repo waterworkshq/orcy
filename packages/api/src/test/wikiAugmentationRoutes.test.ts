@@ -8,7 +8,7 @@ import { wikiRoutes } from "../routes/wiki.js";
 import * as augmentation from "../services/wikiAugmentationService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
 import * as wikiService from "../services/wikiService.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 
 interface CapturedRoute {
   method: string;

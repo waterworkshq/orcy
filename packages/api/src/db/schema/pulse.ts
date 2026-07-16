@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
-import { habitats, missions } from "./board.js";
+import { habitats, missions } from "./habitat.js";
 import { tasks } from "./task.js";
 import { SIGNAL_TYPES } from "@orcy/shared";
 

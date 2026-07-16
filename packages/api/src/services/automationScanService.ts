@@ -1,6 +1,6 @@
 import * as ruleRepo from "../repositories/automationRule.js";
 import * as runRepo from "../repositories/automationRuleRun.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import * as missionRepo from "../repositories/feature.js";
 import { buildFingerprint } from "@orcy/shared";

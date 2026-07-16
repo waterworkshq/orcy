@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 import { existsSync, rmSync } from "fs";
 import * as path from "path";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as taskRepo from "../repositories/task.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
 import type { GitWorktreeSettings } from "../models/index.js";

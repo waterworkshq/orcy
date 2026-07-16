@@ -30,7 +30,7 @@ import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { requireHabitatAccess } from "../middleware/team.js";
 import { badRequest, notFound, forbidden, unauthorized } from "../errors.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { resolveImportColumn } from "../repositories/column.js";
 import { getProviderAdapter } from "../plugins/pluginManager.js";
 import type { IssueProviderAdapter } from "../services/integrations/types.js";

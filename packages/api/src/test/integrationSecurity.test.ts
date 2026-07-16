@@ -125,7 +125,7 @@ vi.mock("../repositories/pipelineEvent.js", () => ({
   findByProviderAndRunId: vi.fn(() => null),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   listHabitats: vi.fn(() => Object.values(habitatMocks.state.habitats)),
   getHabitatById: vi.fn((id: string) => habitatMocks.state.habitats[id] ?? null),
 }));

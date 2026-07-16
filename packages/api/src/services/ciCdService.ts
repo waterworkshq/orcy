@@ -1,7 +1,7 @@
 import * as pipelineRepo from "../repositories/pipelineEvent.js";
 import * as taskRepo from "../repositories/task.js";
 import { getHabitatIdForTask } from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as eventRepo from "../repositories/event.js";
 import * as prRepo from "../repositories/pullRequest.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";

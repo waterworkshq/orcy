@@ -37,7 +37,7 @@ import { habitatRoutes } from "../routes/habitats.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import * as boardSecretCache from "../services/boardSecretCache.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as prRepo from "../repositories/pullRequest.js";
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";

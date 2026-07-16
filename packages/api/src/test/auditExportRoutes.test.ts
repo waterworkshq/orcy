@@ -75,7 +75,7 @@ vi.mock("../middleware/team.js", () => ({
   requireHabitatAccess: mockRequireHabitatAccess,
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: mockGetHabitatById,
 }));
 

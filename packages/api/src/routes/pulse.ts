@@ -3,7 +3,7 @@ import * as pulseRepo from "../repositories/pulse.js";
 import * as pulseService from "../services/pulseService.js";
 import * as reactionRepo from "../repositories/pulseReaction.js";
 import * as missionRepo from "../repositories/feature.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { badRequest, unauthorized, notFound, forbidden } from "../errors.js";
 import { getCallerInfo } from "./pulse-shared.js";

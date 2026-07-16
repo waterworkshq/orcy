@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, initTestDb } from "../db/index.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/taskCrud.js";

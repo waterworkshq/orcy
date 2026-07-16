@@ -5,7 +5,7 @@ import { requireHabitatAccess } from '../middleware/team.js';
 import * as scheduledTaskRepo from '../repositories/scheduledTask.js';
 import * as scheduledTaskService from '../services/scheduledTaskService.js';
 import { notFound, forbidden, unauthorized } from '../errors.js';
-import { getHabitatById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/habitat.js';
 import { isTeamMemberByHabitatId } from '../repositories/teamMember.js';
 
 const createScheduledTaskSchema = z.object({

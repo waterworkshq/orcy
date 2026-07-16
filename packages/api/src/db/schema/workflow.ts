@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
-import { missions, habitats } from "./board.js";
+import { missions, habitats } from "./habitat.js";
 import { tasks } from "./task.js";
 import type {
   WorkflowFailureHandlerConfig,

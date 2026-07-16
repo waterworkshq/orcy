@@ -27,7 +27,7 @@ import * as taskRepo from "../repositories/task.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as commentRepo from "../repositories/comment.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { isValidEventType } from "../services/notificationSubscriptionResolver.js";

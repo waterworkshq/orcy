@@ -6,7 +6,7 @@ import { missions, missionDependencies, releases as releasesTable } from "../db/
 import { getDb } from "../db/index.js";
 import { priorityOrderExpr } from "../db/sql-helpers.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
-import { getHabitatById, updateHabitat } from "../repositories/board.js";
+import { getHabitatById, updateHabitat } from "../repositories/habitat.js";
 import { isTeamMemberByHabitatId } from "../repositories/teamMember.js";
 import { forbidden, unauthorized, notFound } from "../errors.js";
 import * as releaseRepo from "../repositories/release.js";

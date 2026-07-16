@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { habitats } from "../db/schema/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import {
   isAutoPromoteEnabled,
   resolveReleaseSettings,

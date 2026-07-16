@@ -4,7 +4,7 @@ import { humanAuth, agentOrHumanAuth } from '../middleware/auth.js';
 import { requireHabitatAccess } from '../middleware/team.js';
 import * as prioritizationService from '../services/prioritizationService.js';
 import * as taskRepo from '../repositories/task.js';
-import * as habitatRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/habitat.js';
 import { notFound } from '../errors.js';
 
 import type { PrioritizationSettings } from '../models/index.js';

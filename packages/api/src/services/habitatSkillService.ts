@@ -6,7 +6,7 @@ import type {
 } from "../repositories/habitatSkill.js";
 import type { ExperienceCategory } from "@orcy/shared";
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as pulseService from "./pulseService.js";
 import * as taskLifecycle from "./tasks/task-lifecycle.js";
 import * as commentService from "./commentService.js";

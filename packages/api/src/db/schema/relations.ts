@@ -16,7 +16,7 @@ import {
   sprints,
   habitatHealthSnapshots,
   cumulativeFlowSnapshots,
-} from "./board.js";
+} from "./habitat.js";
 import {
   tasks,
   taskEvents,

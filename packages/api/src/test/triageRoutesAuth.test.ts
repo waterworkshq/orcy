@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { triageRoutes } from "../routes/triage.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as pulseRepo from "../repositories/pulse.js";

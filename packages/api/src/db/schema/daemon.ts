@@ -1,7 +1,7 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { agents } from "./agent.js";
 import { tasks } from "./task.js";
-import { habitats } from "./board.js";
+import { habitats } from "./habitat.js";
 
 export const daemonInstances = sqliteTable(
   "daemon_instances",

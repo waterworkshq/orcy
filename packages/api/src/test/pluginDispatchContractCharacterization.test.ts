@@ -36,7 +36,7 @@ import * as pluginManager from "../plugins/pluginManager.js";
 import * as runRepo from "../repositories/pluginRun.js";
 import * as quarantineRepo from "../repositories/pluginQuarantine.js";
 import * as enrollmentRepo from "../repositories/pluginEnrollment.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as featureRepo from "../repositories/feature.js";

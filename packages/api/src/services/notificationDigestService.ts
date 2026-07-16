@@ -2,7 +2,7 @@ import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import * as deliveryRepo from "../repositories/notificationDelivery.js";
 import * as eventRepo from "../repositories/notificationEvent.js";
 import * as digestRepo from "../repositories/notificationDigest.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import type { NotificationSubscription, NotificationCadence } from "@orcy/shared";
 
 /** Outcome of grouping a recipient's pending deliveries into a single digest event for a given cadence. */

@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
-import { habitats } from "./board.js";
+import { habitats } from "./habitat.js";
 
 export const users = sqliteTable(
   "users",

@@ -6,7 +6,7 @@ import * as attemptRepo from "../repositories/notificationDeliveryAttempt.js";
 import * as subscriptionRepo from "../repositories/notificationSubscription.js";
 import * as retentionRepo from "../repositories/notificationRetentionPolicy.js";
 import * as digestRepo from "../repositories/notificationDigest.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import { habitats, notificationEvents, notificationDeliveries } from "../db/schema/index.js";
 
 function setupHabitat() {

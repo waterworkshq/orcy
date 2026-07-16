@@ -9,7 +9,7 @@ const repoMocks = vi.hoisted(() => ({
   listAgents: vi.fn(),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatWithColumnsAndTasks: repoMocks.getHabitatWithColumnsAndTasks,
 }));
 vi.mock("../repositories/feature.js", () => ({

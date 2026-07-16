@@ -20,7 +20,7 @@ export async function teamHabitatAccess(
   const isMember = isTeamMemberByHabitatId(habitatId, request.user.id);
   if (isMember) return;
 
-  const { getHabitatById } = await import("../repositories/board.js");
+  const { getHabitatById } = await import("../repositories/habitat.js");
   const habitat = getHabitatById(habitatId);
   if (!habitat) throw notFound("Habitat not found");
 

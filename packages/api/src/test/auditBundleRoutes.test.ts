@@ -25,7 +25,7 @@ vi.mock("../services/auditBundleService.js", () => ({
   getMissionAuditBundle: mockGetMissionAuditBundle,
 }));
 vi.mock("../middleware/auth.js", () => ({ agentOrHumanAuth: mockAgentOrHumanAuth }));
-vi.mock("../repositories/board.js", () => ({ getHabitatById: mockGetHabitatById }));
+vi.mock("../repositories/habitat.js", () => ({ getHabitatById: mockGetHabitatById }));
 vi.mock("../repositories/teamMember.js", () => ({
   isTeamMemberByHabitatId: mockIsTeamMemberByHabitatId,
 }));

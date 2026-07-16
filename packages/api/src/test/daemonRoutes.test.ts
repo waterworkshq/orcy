@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../services/agentService.js", () => mocks.agentService);
 vi.mock("../services/tasks/index.js", () => mocks.taskService);
 vi.mock("../repositories/task.js", () => mocks.taskRepo);
-vi.mock("../repositories/board.js", () => mocks.habitatRepo);
+vi.mock("../repositories/habitat.js", () => mocks.habitatRepo);
 vi.mock("../repositories/daemon.js", () => mocks.daemonRepo);
 vi.mock("../services/taskSuggestion.js", () => mocks.suggestionService);
 vi.mock("../lib/daemonToken.js", () => ({

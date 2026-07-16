@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
-import { habitats } from './board.js';
+import { habitats } from './habitat.js';
 
 export const webhookSubscriptions = sqliteTable('webhook_subscriptions', {
   id: text('id').primaryKey(),

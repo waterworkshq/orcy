@@ -58,7 +58,7 @@ vi.mock("../repositories/task.js", () => ({
   addArtifact: mockAddArtifact,
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   listHabitats: mockListHabitats,
   getHabitatById: mockGetHabitatById,
 }));

@@ -6,7 +6,7 @@ vi.mock("../repositories/task.js", () => ({
   getTasksPendingRetry: vi.fn(),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: vi.fn(),
 }));
 
@@ -37,7 +37,7 @@ import {
   processPendingRetries,
 } from "../services/retryService.js";
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as eventRepo from "../repositories/event.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 

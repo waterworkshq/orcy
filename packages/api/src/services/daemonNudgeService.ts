@@ -1,7 +1,7 @@
 import * as daemonRepo from "../repositories/daemon.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 
 const NUDGE_DEBOUNCE_MS = 5 * 60 * 1000;
 const lastNudgeByHabitat = new Map<string, number>();

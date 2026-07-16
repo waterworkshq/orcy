@@ -199,7 +199,7 @@ describe('Realtime Auth Middleware', () => {
 
     it('allows agent principal access to any habitat', async () => {
       const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
-      const { createHabitat } = await import('../repositories/board.js');
+      const { createHabitat } = await import('../repositories/habitat.js');
       const { createTeam } = await import('../repositories/team.js');
       const { createOrganization } = await import('../repositories/organization.js');
 
@@ -217,7 +217,7 @@ describe('Realtime Auth Middleware', () => {
 
     it('allows human team member access to habitat', async () => {
       const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
-      const { createHabitat } = await import('../repositories/board.js');
+      const { createHabitat } = await import('../repositories/habitat.js');
       const { createTeam } = await import('../repositories/team.js');
       const { addMember } = await import('../repositories/teamMember.js');
       const { createOrganization } = await import('../repositories/organization.js');
@@ -238,7 +238,7 @@ describe('Realtime Auth Middleware', () => {
 
     it('denies non-member human access to a team habitat', async () => {
       const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
-      const { createHabitat } = await import('../repositories/board.js');
+      const { createHabitat } = await import('../repositories/habitat.js');
       const { createTeam } = await import('../repositories/team.js');
       const { createOrganization } = await import('../repositories/organization.js');
 
@@ -263,7 +263,7 @@ describe('Realtime Auth Middleware', () => {
 
     it('allows human access to a habitat with no team', async () => {
       const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
-      const { createHabitat } = await import('../repositories/board.js');
+      const { createHabitat } = await import('../repositories/habitat.js');
 
       const habitat = createHabitat({ name: 'Open Habitat' });
 
@@ -277,7 +277,7 @@ describe('Realtime Auth Middleware', () => {
 
     it('returns 401 when no principal is set', async () => {
       const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
-      const { createHabitat } = await import('../repositories/board.js');
+      const { createHabitat } = await import('../repositories/habitat.js');
 
       const habitat = createHabitat({ name: 'Auth Habitat' });
 
@@ -297,7 +297,7 @@ describe('Realtime Auth Middleware', () => {
 
     it('works with :id param (SSE route style)', async () => {
       const { authorizeHabitatAccess } = await import('../middleware/realtimeAuth.js');
-      const { createHabitat } = await import('../repositories/board.js');
+      const { createHabitat } = await import('../repositories/habitat.js');
 
       const habitat = createHabitat({ name: 'SSE Habitat' });
 
@@ -320,7 +320,7 @@ describe('Realtime Auth — Integration', () => {
   beforeEach(async () => {
     await initTestDb();
 
-    const { createHabitat } = await import('../repositories/board.js');
+    const { createHabitat } = await import('../repositories/habitat.js');
     const { createAgent } = await import('../repositories/agent.js');
     const { createTeam } = await import('../repositories/team.js');
     const { addMember } = await import('../repositories/teamMember.js');

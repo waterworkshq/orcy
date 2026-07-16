@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 
 import { agentOrHumanAuth, humanAuth } from "../../middleware/auth.js";
 import { badRequest, notFound } from "../../errors.js";
-import * as habitatRepo from "../../repositories/board.js";
+import * as habitatRepo from "../../repositories/habitat.js";
 import * as codeEvidenceRepository from "../../repositories/codeEvidenceRepository.js";
 import * as connectionRepo from "../../repositories/integrationConnection.js";
 import {

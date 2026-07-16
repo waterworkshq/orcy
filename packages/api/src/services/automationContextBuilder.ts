@@ -1,7 +1,7 @@
 import * as taskRepo from "../repositories/task.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as agentRepo from "../repositories/agent.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as sprintRepo from "../repositories/sprint.js";
 import type {
   AutomationTriggerContext,

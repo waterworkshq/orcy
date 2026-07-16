@@ -4,7 +4,7 @@ import { z } from "zod";
 import * as columnRepo from "../repositories/column.js";
 import { createColumnSchema, updateColumnSchema, reorderColumnsSchema } from "../models/schemas.js";
 import type { CreateColumnInput, UpdateColumnInput } from "../models/schemas.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 import { humanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";

@@ -647,7 +647,7 @@ function notifyAutomationRunCompleted(opts: Parameters<AutomationRunCompletedHoo
 
 // --- Kill switch: checks env var + habitat automationSettings before executing actions ---
 
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 
 /** Returns `true` if automation actions should execute for the given habitat, checking env var override then habitat settings; defaults to `true`. */
 export function shouldExecuteActions(habitatId: string): boolean {

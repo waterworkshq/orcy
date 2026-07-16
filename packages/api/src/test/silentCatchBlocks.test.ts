@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { makeAgent } from "./factories/agent.js";
 import { makeTask } from "./factories/task.js";
-import { makeHabitat } from "./factories/board.js";
+import { makeHabitat } from "./factories/habitat.js";
 import { mockRequest, mockReply } from "./factories/mockRequest.js";
 
 vi.mock("../lib/logger.js", () => ({
@@ -36,7 +36,7 @@ vi.mock("../repositories/task.js", () => ({
   releaseTask: vi.fn(),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: vi.fn().mockReturnValue(null),
   createHabitat: vi.fn(),
   updateHabitat: vi.fn(),
@@ -108,7 +108,7 @@ import { heartbeat } from "../services/agentService.js";
 import { recordWork } from "../services/timeTrackingService.js";
 import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/task.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import {

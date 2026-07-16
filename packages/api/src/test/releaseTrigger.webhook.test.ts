@@ -5,7 +5,7 @@ import {
   findingTriage as findingTriageTable,
 } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as releaseRepo from "../repositories/release.js";
 import * as githubReleaseWebhook from "../services/githubReleaseWebhook.js";
 import * as releaseTriggerService from "../services/releaseTriggerService.js";

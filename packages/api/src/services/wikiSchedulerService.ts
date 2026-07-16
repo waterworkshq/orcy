@@ -2,7 +2,7 @@ import { v4 as uuid } from "uuid";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { wikiPages, pulses, habitatSkillSignals, projectInsights } from "../db/schema/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as wikiCoverageRepo from "../repositories/wikiCoverage.js";
 import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import * as scheduledTaskService from "./scheduledTaskService.js";

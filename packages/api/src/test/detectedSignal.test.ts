@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as pulseRepo from "../repositories/pulse.js";
 import * as skillRepo from "../repositories/habitatSkill.js";

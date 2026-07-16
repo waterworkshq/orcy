@@ -1,4 +1,4 @@
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "@orcy/shared";
 
 /**

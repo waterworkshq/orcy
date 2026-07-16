@@ -50,7 +50,7 @@ vi.mock('../services/prioritizationService.js', () => ({
   evaluateRules: vi.fn(() => []),
 }));
 
-vi.mock('../repositories/board.js', () => ({
+vi.mock('../repositories/habitat.js', () => ({
   getHabitatById: vi.fn(() => ({
     id: 'habitat-1',
     name: 'Test Habitat',
@@ -175,7 +175,7 @@ describe('PUT /habitats/:habitatId/rules handler', () => {
   it('saves prioritization rules to habitat settings', async () => {
     const routes = capturePrioritizationRoutes();
     const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
-    const { updateHabitat } = await import('../repositories/board.js');
+    const { updateHabitat } = await import('../repositories/habitat.js');
 
     const newRules = {
       enabled: true,
@@ -267,7 +267,7 @@ describe('PUT /habitats/:habitatId/rules handler', () => {
   it('accepts rules with recursive and condition', async () => {
     const routes = capturePrioritizationRoutes();
     const putRules = routes.find(r => r.method === 'PUT' && r.path === '/habitats/:habitatId/rules');
-    const { updateHabitat } = await import('../repositories/board.js');
+    const { updateHabitat } = await import('../repositories/habitat.js');
 
     const reply: any = { status: vi.fn(() => reply), send: vi.fn(() => reply) };
     await putRules!.handler({

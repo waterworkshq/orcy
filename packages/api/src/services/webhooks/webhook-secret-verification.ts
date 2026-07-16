@@ -9,7 +9,7 @@ import {
   findHabitatIdByGithubSignature,
   hasGithubSecretsConfigured,
 } from "../boardSecretCache.js";
-import * as habitatRepo from "../../repositories/board.js";
+import * as habitatRepo from "../../repositories/habitat.js";
 
 /** HTTP response shape returned by a webhook handler. */
 export interface WebhookResponse {

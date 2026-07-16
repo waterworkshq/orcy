@@ -20,7 +20,7 @@ vi.mock("../repositories/column.js", () => ({
   deleteColumn: vi.fn(),
   reorderColumns: () => reorderState.result,
 }));
-vi.mock("../repositories/board.js", () => ({ getHabitatById: vi.fn() }));
+vi.mock("../repositories/habitat.js", () => ({ getHabitatById: vi.fn() }));
 vi.mock("../sse/broadcaster.js", () => ({
   sseBroadcaster: {
     publish: (_habitatId: string, evt: { type: string; data: unknown }) => publishCalls.push(evt),

@@ -29,7 +29,7 @@ vi.mock("../db/dialect-helpers.js", () => ({
 }));
 
 vi.mock("../repositories/agent.js", () => ({ listAgents: vi.fn() }));
-vi.mock("../repositories/board.js", () => ({ getHabitatById: vi.fn() }));
+vi.mock("../repositories/habitat.js", () => ({ getHabitatById: vi.fn() }));
 vi.mock("../services/autoAssignService.js", () => ({ getAutoAssignSettings: vi.fn() }));
 
 vi.mock("drizzle-orm", async () => {
@@ -47,7 +47,7 @@ vi.mock("drizzle-orm", async () => {
 
 import { getCapacityReport } from "../services/capacityService.js";
 import * as agentRepo from "../repositories/agent.js";
-import { getHabitatById } from "../repositories/board.js";
+import { getHabitatById } from "../repositories/habitat.js";
 import { getAutoAssignSettings } from "../services/autoAssignService.js";
 
 function makeAgent(overrides: Record<string, unknown> = {}) {

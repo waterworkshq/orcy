@@ -3,7 +3,7 @@ import { initTestDb, closeDb, getDb } from "../db/index.js";
 import { habitatRoutes } from "../routes/habitats.js";
 import { habitatAnalyticsRoutes } from "../routes/board-analytics.js";
 import { habitatExportRoutes } from "../routes/board-export.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as teamRepo from "../repositories/team.js";
 import * as orgRepo from "../repositories/organization.js";
 import * as teamMemberRepo from "../repositories/teamMember.js";
@@ -124,7 +124,7 @@ describe("requireHabitatAccess", () => {
   });
 
   it("allows human team member access", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { createTeam } = await import("../repositories/team.js");
     const { addMember } = await import("../repositories/teamMember.js");
     const { createOrganization } = await import("../repositories/organization.js");
@@ -145,7 +145,7 @@ describe("requireHabitatAccess", () => {
   });
 
   it("denies non-member human access to a habitat with a team", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { createTeam } = await import("../repositories/team.js");
     const { createOrganization } = await import("../repositories/organization.js");
     const { requireHabitatAccess } = await import("../middleware/team.js");
@@ -170,7 +170,7 @@ describe("requireHabitatAccess", () => {
   });
 
   it("allows any human access to a habitat with no team", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { requireHabitatAccess } = await import("../middleware/team.js");
 
     const habitat = createHabitat({ name: "Orphan Habitat" });
@@ -184,7 +184,7 @@ describe("requireHabitatAccess", () => {
   });
 
   it("allows agent principal access to any habitat", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { createTeam } = await import("../repositories/team.js");
     const { createOrganization } = await import("../repositories/organization.js");
     const { requireHabitatAccess } = await import("../middleware/team.js");
@@ -202,7 +202,7 @@ describe("requireHabitatAccess", () => {
   });
 
   it("returns 401 when no principal is set", async () => {
-    const { createHabitat } = await import("../repositories/board.js");
+    const { createHabitat } = await import("../repositories/habitat.js");
     const { requireHabitatAccess } = await import("../middleware/team.js");
 
     const habitat = createHabitat({ name: "Public Habitat" });

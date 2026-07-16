@@ -5,7 +5,7 @@ import { applyGuards } from "./automationScanService.js";
 import { executeAndRecordRuleRun } from "./automationExecutor.js";
 import { getAgentQualitySignals } from "./agentQualityService.js";
 import * as ruleRepo from "../repositories/automationRule.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 
 /** Resolves habitat-level agent-quality thresholds, falling back to defaults. */
 function resolveThresholds(habitatId: string): {

@@ -132,7 +132,7 @@ vi.mock("../services/integrations/githubOAuth.js", () => ({
   getGitHubViewer: vi.fn().mockResolvedValue({ id: 123, login: "testuser", name: "Test User" }),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: vi.fn(() => ({ id: "hab-1", name: "Test", teamId: null })),
 }));
 

@@ -1,4 +1,4 @@
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as anomalyRepo from "../repositories/anomaly.js";
 import { daysAgoISO } from "./analyticsDate.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";

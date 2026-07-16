@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
-import { habitats } from "./board.js";
+import { habitats } from "./habitat.js";
 import { remoteWebhookEndpoints } from "./remote-pod.js";
 
 export const remoteWebhookDeliveries = sqliteTable(

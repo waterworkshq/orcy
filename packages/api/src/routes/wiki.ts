@@ -3,7 +3,7 @@ import { z } from "zod";
 import { WIKI_LINK_TARGET_TYPES } from "@orcy/shared";
 import * as wikiService from "../services/wikiService.js";
 import * as wikiPageVersionRepo from "../repositories/wikiPageVersion.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as augmentation from "../services/wikiAugmentationService.js";
 import * as scheduler from "../services/wikiSchedulerService.js";
 import * as signalSurface from "../services/wikiSignalSurfaceService.js";

@@ -40,7 +40,7 @@ vi.mock("../repositories/feature.js", () => ({
   getMissionById: vi.fn().mockReturnValue({ id: "feat-1", habitatId: "habitat-1" }),
 }));
 
-vi.mock("../repositories/board.js", () => ({
+vi.mock("../repositories/habitat.js", () => ({
   getHabitatById: vi.fn().mockReturnValue({ id: "habitat-1", name: "Test Habitat" }),
 }));
 

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getIntegrationsByHabitat, getIntegrationById, createIntegration, updateIntegration, deleteIntegration } from '../repositories/chatIntegration.js';
-import { getHabitatById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/habitat.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { verifySlackRequestWithTimestamp, parseSlackCommand } from '../services/slackService.js';

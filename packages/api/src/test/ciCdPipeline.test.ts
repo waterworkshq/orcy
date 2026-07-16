@@ -144,7 +144,7 @@ vi.mock('../repositories/task.js', () => ({
   addArtifact: vi.fn(),
 }));
 
-vi.mock('../repositories/board.js', () => ({
+vi.mock('../repositories/habitat.js', () => ({
   listHabitats: vi.fn(() => []),
   getHabitatById: vi.fn(),
 }));

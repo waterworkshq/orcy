@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { initTestDb, closeDb } from '../db/index.js';
 import * as agentRepo from '../repositories/agent.js';
-import * as habitatRepo from '../repositories/board.js';
+import * as habitatRepo from '../repositories/habitat.js';
 import * as agentMessageRepo from '../repositories/agentMessage.js';
 import { agentMessageRoutes, requireSelfAgent } from '../routes/agentMessages.js';
 import { isAppError } from '../errors.js';

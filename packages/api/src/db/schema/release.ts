@@ -1,6 +1,6 @@
 import { sqliteTable, text, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
-import { habitats } from "./board.js";
+import { habitats } from "./habitat.js";
 import type { ReleaseType, DetectorSource } from "@orcy/shared";
 
 /**

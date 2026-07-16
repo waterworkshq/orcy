@@ -1,6 +1,6 @@
 import * as pulseRepo from "../repositories/pulse.js";
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 
 /** Result of building a daily digest for one habitat: the rendered summary and the pulse it was posted as, or null when skipped or failed. */
 export interface DigestResult {

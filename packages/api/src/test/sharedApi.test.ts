@@ -4,7 +4,7 @@ import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod
 import { initTestDb, closeDb } from "../db/index.js";
 import { sharedApiRoutes } from "../routes/sharedApi.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/taskCrud.js";

@@ -3,7 +3,7 @@ import { tasks, taskEvents } from "../db/schema/index.js";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import * as agentRepo from "../repositories/agent.js";
 import * as taskRepo from "../repositories/task.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import type { AutoAssignSettings, Task } from "../models/index.js";
 import { emitTransition } from "./tasks/transition-emitter.js";
 

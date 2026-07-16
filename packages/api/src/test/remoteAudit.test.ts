@@ -7,7 +7,7 @@ import {
   withAuditProvenanceMetadata,
 } from "../services/auditProvenanceContext.js";
 import * as eventRepo from "../repositories/events/event-crud.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/taskCrud.js";

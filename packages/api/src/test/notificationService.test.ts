@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("../repositories/notificationPreferences.js", () => ({ getPreferences: vi.fn() }));
 vi.mock("../repositories/task.js", () => ({ getTaskById: vi.fn() }));
 vi.mock("../repositories/feature.js", () => ({ getMissionById: vi.fn() }));
-vi.mock("../repositories/board.js", () => ({ getHabitatById: vi.fn() }));
+vi.mock("../repositories/habitat.js", () => ({ getHabitatById: vi.fn() }));
 vi.mock("../repositories/user.js", () => ({
   getActorName: vi.fn(),
   getUserEmail: vi.fn(),

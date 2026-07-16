@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getDb, closeDb, initTestDb } from "../db/index.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as connectionRepo from "../repositories/integrationConnection.js";
 import * as linkRepo from "../repositories/externalIssueLink.js";

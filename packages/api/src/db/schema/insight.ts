@@ -1,6 +1,6 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
-import { habitats } from './board.js';
+import { habitats } from './habitat.js';
 import { pulses } from './pulse.js';
 
 export const projectInsights = sqliteTable('project_insights', {

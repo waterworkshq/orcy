@@ -9,7 +9,7 @@ import {
   getDeliveriesForSubscription,
   sendTestWebhook,
 } from '../services/webhookDispatcher.js';
-import { getHabitatById } from '../repositories/board.js';
+import { getHabitatById } from '../repositories/habitat.js';
 import { humanAuth } from '../middleware/auth.js';
 import { adminOnly } from '../middleware/rbac.js';
 import { validateOutboundUrl, filterUnsafeHeaders } from '../config/integrationSecurity.js';

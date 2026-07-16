@@ -15,7 +15,7 @@ import {
   listMyGrants,
 } from "../services/sharedGrantVisibilityService.js";
 import { badRequest, forbidden, notFound, unauthorized, conflict } from "../errors.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/feature.js";
 import * as taskRepo from "../repositories/taskCrud.js";
 import * as taskStateMachine from "../repositories/taskStateMachine.js";

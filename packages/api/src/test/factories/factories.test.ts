@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTask } from './task.js';
 import { makeMission } from './feature.js';
-import { makeHabitat } from './board.js';
+import { makeHabitat } from './habitat.js';
 import { makeColumn } from './column.js';
 import { makeAgent } from './agent.js';
 import { makeTaskEvent } from './event.js';

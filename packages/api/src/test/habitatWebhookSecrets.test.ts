@@ -7,7 +7,7 @@ import { habitatRoutes } from "../routes/habitats.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import { rebuildCache as rebuildHabitatSecretCache } from "../services/boardSecretCache.js";
 import * as habitatService from "../services/boardService.js";
-import * as habitatRepo from "../repositories/board.js";
+import * as habitatRepo from "../repositories/habitat.js";
 
 const JWT_SECRET = "dev-secret-change-in-production";
 

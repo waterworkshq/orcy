@@ -4,7 +4,7 @@ import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod
 import { initTestDb, closeDb } from "../db/index.js";
 import { remoteWebhookRoutes } from "../routes/remoteWebhooks.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
-import * as boardRepo from "../repositories/board.js";
+import * as boardRepo from "../repositories/habitat.js";
 import * as podRepo from "../repositories/remotePod.js";
 import * as endpointRepo from "../repositories/remoteWebhookEndpoint.js";
 import * as deliveryRepo from "../repositories/remoteWebhookDelivery.js";
