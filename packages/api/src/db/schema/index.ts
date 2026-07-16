@@ -28,6 +28,18 @@ export {
   taskTimeRecords,
   effortEntries,
 } from "./task.js";
+export {
+  taskCreationAttempts,
+  taskCreationGovernanceDecisions,
+  taskCreationEnvelopes,
+  taskCreationDispatchTargets,
+  taskCreationAssignmentReservations,
+  missionRecalculationMarkers,
+  scheduledOccurrences,
+  TASK_CREATION_INTEGRITY_VERSION,
+  type TaskCreationIntegrityVersion,
+  isLegacyPartialHistory,
+} from "./taskPublication.js";
 export { agents, agentMessages } from "./agent.js";
 export { users, organizations, teams, teamMembers, notificationPreferences } from "./user.js";
 export { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
@@ -188,4 +200,11 @@ export {
   triageResolutionsRelations,
   triageClusterMissionsRelations,
   releasesRelations,
+  taskCreationAttemptsRelations,
+  taskCreationGovernanceDecisionsRelations,
+  taskCreationEnvelopesRelations,
+  taskCreationDispatchTargetsRelations,
+  taskCreationAssignmentReservationsRelations,
+  missionRecalculationMarkersRelations,
+  scheduledOccurrencesRelations,
 } from "./relations.js";

@@ -211,6 +211,13 @@
       "when": 1783919602000,
       "tag": "0053_plugin_quarantine_kind_safe_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1784006002000,
+      "tag": "0054_task_publication",
+      "breakpoints": true
     }
   ]
 }

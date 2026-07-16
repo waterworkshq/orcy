@@ -75,6 +75,12 @@ export const tasks = sqliteTable(
     cycleTimeMinutes: integer("cycle_time_minutes"),
     leadTimeMinutes: integer("lead_time_minutes"),
     estimationAccuracy: real("estimation_accuracy"),
+    // Task creation-integrity version (T1 / Legacy Partial History).
+    // 0 = pre-cutover Task (no synthetic initial creation event; observation
+    // gate open). Future versions mark post-cutover Tasks that traversed the
+    // full publication boundary. Additive: old inserts continue to produce 0.
+    // See TASK_CREATION_INTEGRITY_VERSION + isLegacyPartialHistory in taskPublication.ts.
+    creationIntegrity: integer("creation_integrity").notNull().default(0),
   },
   (table) => [
     index("idx_tasks_mission").on(table.missionId),

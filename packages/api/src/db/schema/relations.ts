@@ -86,6 +86,15 @@ import {
 } from "./quality.js";
 import { findingTriage, triageResolutions, triageClusterMissions } from "./triage.js";
 import { releases } from "./release.js";
+import {
+  taskCreationAttempts,
+  taskCreationGovernanceDecisions,
+  taskCreationEnvelopes,
+  taskCreationDispatchTargets,
+  taskCreationAssignmentReservations,
+  missionRecalculationMarkers,
+  scheduledOccurrences,
+} from "./taskPublication.js";
 
 export const habitatsRelations = relations(habitats, ({ many, one }) => ({
   columns: many(columns),
@@ -1049,5 +1058,68 @@ export const releasesRelations = relations(releases, ({ one }) => ({
   habitat: one(habitats, {
     fields: [releases.habitatId],
     references: [habitats.id],
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Task Publication (T1 — dormant; within-family relations only)
+// ---------------------------------------------------------------------------
+// Cross-chain references (committed_task_id, mission_id, etc.) are intentionally
+// NOT modeled as relations: they are plain-text audit refs that outlive habitat
+// replacement and may dangle by design.
+
+export const taskCreationAttemptsRelations = relations(taskCreationAttempts, ({ many }) => ({
+  governanceDecisions: many(taskCreationGovernanceDecisions),
+  envelopes: many(taskCreationEnvelopes),
+  reservations: many(taskCreationAssignmentReservations),
+}));
+
+export const taskCreationGovernanceDecisionsRelations = relations(
+  taskCreationGovernanceDecisions,
+  ({ one }) => ({
+    attempt: one(taskCreationAttempts, {
+      fields: [taskCreationGovernanceDecisions.attemptId],
+      references: [taskCreationAttempts.id],
+    }),
+  }),
+);
+
+export const taskCreationEnvelopesRelations = relations(taskCreationEnvelopes, ({ one, many }) => ({
+  attempt: one(taskCreationAttempts, {
+    fields: [taskCreationEnvelopes.attemptId],
+    references: [taskCreationAttempts.id],
+  }),
+  dispatchTargets: many(taskCreationDispatchTargets),
+}));
+
+export const taskCreationDispatchTargetsRelations = relations(
+  taskCreationDispatchTargets,
+  ({ one }) => ({
+    envelope: one(taskCreationEnvelopes, {
+      fields: [taskCreationDispatchTargets.eventId],
+      references: [taskCreationEnvelopes.eventId],
+    }),
+  }),
+);
+
+export const taskCreationAssignmentReservationsRelations = relations(
+  taskCreationAssignmentReservations,
+  ({ one }) => ({
+    attempt: one(taskCreationAttempts, {
+      fields: [taskCreationAssignmentReservations.attemptId],
+      references: [taskCreationAttempts.id],
+    }),
+  }),
+);
+
+export const missionRecalculationMarkersRelations = relations(
+  missionRecalculationMarkers,
+  () => ({}),
+);
+
+export const scheduledOccurrencesRelations = relations(scheduledOccurrences, ({ one }) => ({
+  attempt: one(taskCreationAttempts, {
+    fields: [scheduledOccurrences.attemptId],
+    references: [taskCreationAttempts.id],
   }),
 }));
