@@ -2,6 +2,16 @@
 
 > Older releases: see [git tags](https://github.com/waterworkshq/orcy/tags) and [GitHub Releases](https://github.com/waterworkshq/orcy/releases).
 
+## 0.31.4 — 2026-07-16
+
+### Refactors
+
+#### call uiSlice store actions directly in HabitatPage ([`6602855`](https://github.com/waterworkshq/orcy/commit/66028556c1b0b35d51ad98854fce887426fb9ea4))
+
+1. The three selection/bulk-select actions (clearMissionSelection, clearSelectionOnHabitatChange, setBulkSelectMode) were invoked with defensive optional-chaining to tolerate stale test mocks that omitted them; the production store always defines them. Drop the optional-chaining and add the missing actions to the affected test mocks.
+
+
+
 ## 0.31.3 — 2026-07-16
 
 ### Bug Fixes
@@ -47,13 +57,3 @@
 #### bound drag-move spinner with a hung-request sweep ([`4596e75`](https://github.com/waterworkshq/orcy/commit/4596e7535a1994096d1813a9d761317f0861e4d2))
 
 1. A never-settling api.missions.move kept runMove's finally suspended, stranding activeMoveCount (perpetual isMoving spinner) and leaking the movesRef entry + preview. Add a 30s sweep that cleans up the entry, preview, and counter without aborting the controller (the server may have committed; a late settle short-circuits the UI continuation via the controller-identity guard). clearTimeout on natural settle plus a sweepFired flag in finally prevent a double-decrement.
-
-
-
-## 0.31.1 — 2026-07-16
-
-### Bug Fixes
-
-#### derive task detail modal from React Query, drop store snapshot ([`39b5186`](https://github.com/waterworkshq/orcy/commit/39b51862a68bde766643dd0f8848bf77e77691a3))
-
-1. modalStore ran its own api.tasks.get() fetch and cached a Task snapshot that TaskDetailModal preferred over React Query data, rendering stale title/status/priority after a refetch (ADR-0040 violation). The store now holds only isOpen + selectedTaskId with a synchronous openModal; the modal derives the task and loading state solely from useTaskDetails.
