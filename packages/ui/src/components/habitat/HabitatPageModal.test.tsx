@@ -69,16 +69,12 @@ vi.mock("../../store/habitatStore.js", () => ({
 
 const mockOpenModal = vi.fn();
 const mockCloseModal = vi.fn();
-const mockSetModalTask = vi.fn();
 
 let modalStoreState: Record<string, any> = {
   isOpen: false,
   selectedTaskId: null,
-  modalTask: null,
-  isLoading: false,
   openModal: mockOpenModal,
   closeModal: mockCloseModal,
-  setModalTask: mockSetModalTask,
 };
 
 const useModalStoreMock = vi.fn((selector?: any) =>
@@ -141,11 +137,8 @@ describe("HabitatPage Modal Integration", () => {
     modalStoreState = {
       isOpen: false,
       selectedTaskId: null,
-      modalTask: null,
-      isLoading: false,
       openModal: mockOpenModal,
       closeModal: mockCloseModal,
-      setModalTask: mockSetModalTask,
     };
     mockBoardStoreState.isBulkSelectMode = false;
   });

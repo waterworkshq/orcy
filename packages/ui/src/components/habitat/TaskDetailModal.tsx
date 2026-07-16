@@ -136,7 +136,7 @@ function mapTaskEventToActivityEvent(event: TaskEvent, agents: Agent[]): Activit
 }
 
 export function TaskDetailModal() {
-  const { isOpen, selectedTaskId, modalTask, isLoading, closeModal } = useModalStore();
+  const { isOpen, selectedTaskId, closeModal } = useModalStore();
   const { data: agentsData } = useAgents();
   const agents = agentsData ?? [];
   const [visible, setVisible] = React.useState(false);
@@ -148,7 +148,7 @@ export function TaskDetailModal() {
   const { data: missionData } = useMissionTasks(taskDetails?.mission?.id);
   const missionTasks = missionData?.tasks ?? [];
 
-  const task = modalTask ?? taskDetails?.task ?? null;
+  const task = taskDetails?.task ?? null;
   const subtasks = taskDetails?.subtasks ?? [];
   const events = taskDetails?.events ?? [];
   const dependencies = taskDetails?.dependencies ?? [];
@@ -201,13 +201,13 @@ export function TaskDetailModal() {
       <div
         className={`glass-modal relative w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col transition-all duration-200 ${modalClasses}`}
       >
-        {(isLoading || detailsLoading) && (
+        {detailsLoading && (
           <div className="flex items-center justify-center py-32">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         )}
 
-        {!isLoading && !detailsLoading && task && (
+        {!detailsLoading && task && (
           <>
             <div className="relative p-10 pb-4 flex justify-between items-start">
               <div className="space-y-2 min-w-0 flex-1">
@@ -492,7 +492,7 @@ export function TaskDetailModal() {
           </>
         )}
 
-        {!isLoading && !detailsLoading && !task && selectedTaskId && (
+        {!detailsLoading && !task && selectedTaskId && (
           <div className="flex items-center justify-center py-32">
             <div className="text-center space-y-2">
               <p className="text-on-surface-variant">Failed to load task</p>

@@ -33,8 +33,6 @@ const mockOpenModal = vi.fn((taskId: string) => {
 let modalState = {
   isOpen: false,
   selectedTaskId: null as string | null,
-  modalTask: null,
-  isLoading: false,
 };
 
 const useModalStoreMock = vi.fn((selector?: any) => {
@@ -43,7 +41,6 @@ const useModalStoreMock = vi.fn((selector?: any) => {
       ...modalState,
       openModal: mockOpenModal,
       closeModal: vi.fn(),
-      setModalTask: vi.fn(),
     });
   }
   return modalState;
@@ -91,8 +88,6 @@ describe("NotificationDropdown", () => {
     modalState = {
       isOpen: false,
       selectedTaskId: null,
-      modalTask: null,
-      isLoading: false,
     };
     mockOpenModal.mockClear();
     mockMarkRead.mockClear();

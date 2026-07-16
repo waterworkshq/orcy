@@ -96,11 +96,8 @@ vi.mock("../../store/modalStore.js", () => ({
   useModalStore: vi.fn(() => ({
     isOpen: false,
     selectedTaskId: null,
-    modalTask: null,
-    isLoading: false,
     openModal: vi.fn(),
     closeModal: vi.fn(),
-    setModalTask: vi.fn(),
   })),
 }));
 

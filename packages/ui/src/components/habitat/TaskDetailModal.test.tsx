@@ -7,24 +7,17 @@ import type { Task, Agent, TaskEvent, Subtask, Task as TaskType } from "../../ty
 
 const mockOpenModal = vi.fn();
 const mockCloseModal = vi.fn();
-const mockSetModalTask = vi.fn();
 
 let modalStoreState: {
   isOpen: boolean;
   selectedTaskId: string | null;
-  modalTask: Task | null;
-  isLoading: boolean;
   openModal: typeof mockOpenModal;
   closeModal: typeof mockCloseModal;
-  setModalTask: typeof mockSetModalTask;
 } = {
   isOpen: false,
   selectedTaskId: null,
-  modalTask: null,
-  isLoading: false,
   openModal: mockOpenModal,
   closeModal: mockCloseModal,
-  setModalTask: mockSetModalTask,
 };
 
 const useModalStoreMock = vi.fn((..._args: any[]) => modalStoreState);
@@ -156,11 +149,8 @@ describe("TaskDetailModal", () => {
     modalStoreState = {
       isOpen: false,
       selectedTaskId: null,
-      modalTask: null,
-      isLoading: false,
       openModal: mockOpenModal,
       closeModal: mockCloseModal,
-      setModalTask: mockSetModalTask,
     };
 
     boardStoreState = {
@@ -212,7 +202,6 @@ describe("TaskDetailModal", () => {
   it("renders with glass-modal class when open", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -227,7 +216,6 @@ describe("TaskDetailModal", () => {
   it("shows task title in header", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -241,7 +229,6 @@ describe("TaskDetailModal", () => {
   it("shows feature breadcrumb when feature exists", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -255,7 +242,6 @@ describe("TaskDetailModal", () => {
   it("shows assignee name from agents list", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -270,7 +256,35 @@ describe("TaskDetailModal", () => {
     const unassignedTask = { ...baseTask, assignedAgentId: null };
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = unassignedTask;
+
+    mockTaskDetails.mockReturnValue({
+      data: {
+        task: unassignedTask,
+        mission: {
+          id: "feat-1",
+          title: "Test Feature",
+          description: "",
+          acceptanceCriteria: "",
+          priority: "medium",
+          status: "in_progress",
+        },
+        subtasks: [] as Subtask[],
+        pullRequests: [],
+        pipelineEvents: [],
+        events: [] as TaskEvent[],
+        comments: [],
+        totalComments: 0,
+        attachments: [],
+        watchers: [],
+        isWatching: false,
+        dependencies: [] as TaskType[],
+        crossHabitatDependsOn: [],
+        blockedBy: [] as TaskType[],
+        blocking: [] as TaskType[],
+        habitatContext: { name: "Board", columns: [] },
+      },
+      isLoading: false,
+    });
 
     render(<TaskDetailModal />);
 
@@ -284,7 +298,6 @@ describe("TaskDetailModal", () => {
   it("shows priority dot", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -298,7 +311,6 @@ describe("TaskDetailModal", () => {
   it("shows status badge", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -312,7 +324,6 @@ describe("TaskDetailModal", () => {
   it("shows description in left column", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -327,7 +338,6 @@ describe("TaskDetailModal", () => {
   it("renders 7/5 split layout without tabs", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -345,7 +355,6 @@ describe("TaskDetailModal", () => {
   it("shows activity feed in the right column simultaneously with description", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -361,7 +370,6 @@ describe("TaskDetailModal", () => {
   it("shows dependencies in the left column without switching tabs", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -375,7 +383,6 @@ describe("TaskDetailModal", () => {
   it("renders footer actions with disabled save placeholder and glow class", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -395,7 +402,6 @@ describe("TaskDetailModal", () => {
   it("close button calls closeModal", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -416,7 +422,6 @@ describe("TaskDetailModal", () => {
   it("escape key triggers close", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -436,7 +441,6 @@ describe("TaskDetailModal", () => {
   it("closes on backdrop click", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -459,7 +463,6 @@ describe("TaskDetailModal", () => {
   it("does not close when clicking inside the modal", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -476,8 +479,7 @@ describe("TaskDetailModal", () => {
   it("shows loading spinner when isLoading is true", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.isLoading = true;
-    modalStoreState.modalTask = null;
+    mockTaskDetails.mockReturnValue({ data: undefined, isLoading: true });
 
     render(<TaskDetailModal />);
 
@@ -492,8 +494,6 @@ describe("TaskDetailModal", () => {
   it("shows error state when task is null and not loading", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.isLoading = false;
-    modalStoreState.modalTask = null;
 
     mockTaskDetails.mockReturnValue({ data: undefined, isLoading: false });
 
@@ -509,7 +509,6 @@ describe("TaskDetailModal", () => {
   it("sets body overflow hidden when open", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -523,7 +522,6 @@ describe("TaskDetailModal", () => {
   it("restores body overflow on close", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     const { unmount } = render(<TaskDetailModal />);
 
@@ -538,7 +536,6 @@ describe("TaskDetailModal", () => {
   it("shows subtasks in overview when present", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     mockTaskDetails.mockReturnValue({
       data: {
@@ -609,7 +606,35 @@ describe("TaskDetailModal", () => {
     };
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = taskWithArtifacts;
+
+    mockTaskDetails.mockReturnValue({
+      data: {
+        task: taskWithArtifacts,
+        mission: {
+          id: "feat-1",
+          title: "Test Feature",
+          description: "",
+          acceptanceCriteria: "",
+          priority: "medium",
+          status: "in_progress",
+        },
+        subtasks: [] as Subtask[],
+        pullRequests: [],
+        pipelineEvents: [],
+        events: [] as TaskEvent[],
+        comments: [],
+        totalComments: 0,
+        attachments: [],
+        watchers: [],
+        isWatching: false,
+        dependencies: [] as TaskType[],
+        crossHabitatDependsOn: [],
+        blockedBy: [] as TaskType[],
+        blocking: [] as TaskType[],
+        habitatContext: { name: "Board", columns: [] },
+      },
+      isLoading: false,
+    });
 
     render(<TaskDetailModal />);
 
@@ -623,7 +648,6 @@ describe("TaskDetailModal", () => {
   it("shows capabilities as glass badges", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -638,7 +662,6 @@ describe("TaskDetailModal", () => {
   it("does not render decorative blur elements", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -653,7 +676,6 @@ describe("TaskDetailModal", () => {
   it("overlay does not use backdrop-blur-sm", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -669,7 +691,6 @@ describe("TaskDetailModal", () => {
   it("overlay has solid semi-transparent background", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
@@ -685,7 +706,6 @@ describe("TaskDetailModal", () => {
   it("overlay preserves z-index stacking", () => {
     modalStoreState.isOpen = true;
     modalStoreState.selectedTaskId = "task-1";
-    modalStoreState.modalTask = baseTask;
 
     render(<TaskDetailModal />);
 
