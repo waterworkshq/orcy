@@ -105,7 +105,7 @@ describe("automationEventService", () => {
     expect(second.skipped).toBeGreaterThanOrEqual(1);
   });
 
-  it("automation event with self-loop provenance is skipped", async () => {
+  it("automation event with causal-cycle chain is skipped", async () => {
     const habitat = setupHabitat();
     const rule = createEnabledRule(habitat.id, "task.rejected");
 
@@ -114,8 +114,10 @@ describe("automationEventService", () => {
       data: {
         taskId: "task-1",
         eventId: "evt-auto",
-        provenanceType: "automation",
-        provenanceRuleId: rule.id,
+        causalContext: {
+          root: { type: "automation", id: rule.id },
+          hops: [{ type: "automation", id: rule.id }],
+        },
       },
     });
 

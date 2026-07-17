@@ -356,6 +356,18 @@ describe("generic adapters — clone single-handoff (one envelope → one call e
     });
     expectAccepted(result);
     expect(ingestEvent).toHaveBeenCalledTimes(1);
+    // The cloned envelope forwards lifecycleAction "cloned" + causalContext.
+    expect(ingestEvent).toHaveBeenCalledWith(
+      clonedEnvelope.habitatId,
+      expect.objectContaining({
+        type: "task.created",
+        data: expect.objectContaining({
+          lifecycleAction: "cloned",
+          causalContext: clonedEnvelope.causalContext,
+          eventId: clonedEnvelope.eventId,
+        }),
+      }),
+    );
   });
 
   it("postInterceptorAdapter fires exactly once for a cloned envelope", () => {
@@ -462,6 +474,21 @@ describe("automationAdapter", () => {
         data: expect.objectContaining({
           eventId: testEnvelope.eventId,
           taskId: testEnvelope.taskId,
+        }),
+      }),
+    );
+  });
+
+  it("forwards lifecycleAction and causalContext (trusted-envelope signature)", () => {
+    const result = automationAdapter.attempt(testEnvelope, testTarget);
+    expectAccepted(result);
+    expect(ingestEvent).toHaveBeenCalledWith(
+      testEnvelope.habitatId,
+      expect.objectContaining({
+        type: "task.created",
+        data: expect.objectContaining({
+          lifecycleAction: testEnvelope.lifecycleAction,
+          causalContext: testEnvelope.causalContext,
         }),
       }),
     );

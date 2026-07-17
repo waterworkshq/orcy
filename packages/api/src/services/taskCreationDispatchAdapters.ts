@@ -244,17 +244,15 @@ export const chatAdapter: DispatchTargetAdapter = {
  * ingestion is invoked — rule matching / execution is the automation
  * subsystem's concern.
  *
- * Includes `envelope.eventId` in the event `data` so the receiver can dedup
- * (at-least-once) — `ingestEvent` already reads `data.eventId` for run
- * correlation.
+ * Forwards the trusted-envelope signature (`eventId`, `lifecycleAction`,
+ * `causalContext`) so `ingestEvent` can: (1) gate on `causalContext` presence
+ * to distinguish trusted-envelope delivery from legacy SSE data, (2) inspect
+ * `causalContext.hops` for causal-cycle/depth-limit detection, and (3) key
+ * the `(eventId, ruleId)` reservation on the Lifecycle Event ID.
  *
  * Wraps: `ingestEvent(habitatId, { type: "task.created", data })` — the same
- * call `sseBroadcaster.publish` fires for automation ingestion.
- *
- * Note: `task.created` is NOT currently in the `EVENT_ALLOWLIST`, so
- * `ingestEvent` returns `{ matched: 0, skipped: 0 }` without matching any
- * rules. The adapter still returns `{accepted}` — the durable ingress was
- * attempted; whether any rules match is the automation subsystem's policy.
+ * call `sseBroadcaster.publish` fires for automation ingestion (but the
+ * trusted-envelope data carries fields the legacy SSE Task DTO does not).
  */
 export const automationAdapter: DispatchTargetAdapter = {
   targetKind: "automation",
@@ -265,6 +263,8 @@ export const automationAdapter: DispatchTargetAdapter = {
         taskId: envelope.taskId,
         eventId: envelope.eventId,
         habitatId: envelope.habitatId,
+        lifecycleAction: envelope.lifecycleAction,
+        causalContext: envelope.causalContext,
       };
       if (task) {
         data.id = task.id;
