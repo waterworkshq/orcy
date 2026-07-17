@@ -309,12 +309,16 @@ function isLegalCheckpointForward(from: string, to: AttemptCheckpoint["stage"]):
  *     checkpoint. `pending → created*` is REJECTED (success requires passing
  *     both checkpoints; a direct jump would bypass the observation/assignment
  *     gates).
+ *   - `published_pending_observation` → `created` ONLY (T4A Phase 2 widened
+ *     this edge: when every dispatch target is accepted AND there is no active
+ *     assignment reservation, observation satisfaction terminalizes the
+ *     attempt directly to `created`). `→ created_unassigned` is REJECTED here
+ *     — that is a LATER assignment-exhaustion terminal reached from
+ *     `published_pending_assignment` (observation is about dispatch acceptance,
+ *     not assignment). Failure terminals from observation are a later
+ *     governance exit, not modeled here.
  *   - `published_pending_assignment` → success terminals (`created`,
  *     `created_unassigned`) — reached only after the assignment gate.
- *   - `published_pending_observation` → NO terminal: a success terminal here
- *     would skip the assignment gate; a failure terminal is a Phase-2
- *     governance exit not modeled in Phase 1. Rejected to keep completion a
- *     strict forward door.
  *
  * Same {@link isLegalCheckpointForward} machinery + the canonical
  * {@link TERMINAL_ATTEMPT_STATES} set — the forward invariant is shared, not
@@ -323,6 +327,12 @@ function isLegalCheckpointForward(from: string, to: AttemptCheckpoint["stage"]):
 function isLegalTerminalForward(from: string, to: TerminalResult["finalState"]): boolean {
   if (from === "pending") {
     return to === "rejected_validation" || to === "vetoed" || to === "batch_rejected";
+  }
+  if (from === "published_pending_observation") {
+    // T4A Phase 2: the no-reservation observation-success terminal ONLY.
+    // `created_unassigned` stays illegal here (assignment-exhaustion is reached
+    // from published_pending_assignment, not observation).
+    return to === "created";
   }
   if (from === "published_pending_assignment") {
     return to === "created" || to === "created_unassigned";
@@ -689,6 +699,44 @@ export function createAssignmentReservationWithClient(
     .all();
   if (fallback.length > 0) return fallback[0];
   throw repositoryNotFoundError("taskCreationAssignmentReservation", id);
+}
+
+// ---------------------------------------------------------------------------
+// 7b. hasActiveReservationForAttemptWithClient
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether ANY active assignment reservation exists for an attempt on the passed
+ * client. The `created` vs `published_pending_assignment` decision signal for
+ * T4A Phase 2's observation-advancement: a post-cutover attempt at
+ * `published_pending_observation` whose dispatch targets are all accepted
+ * terminalizes to `created` (no reservation) or checkpoints to
+ * `published_pending_assignment` (active reservation — the assignment gate
+ * still owes the requested claim).
+ *
+ * Existence probe (`SELECT 1 ... LIMIT 1`) — NOT by taskId + claimant (that is
+ * the claim-gate's `activeReservationForOther` in `claimAuthority.ts`, a
+ * different question). Here the question is "does THIS attempt hold an
+ * outstanding active reservation?" — keyed by `attemptId` alone.
+ *
+ * Never calls `getDb()`, never opens a tx, never emits external effects.
+ */
+export function hasActiveReservationForAttemptWithClient(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+): boolean {
+  const row = db
+    .select({ one: sql<number>`1` })
+    .from(taskCreationAssignmentReservations)
+    .where(
+      and(
+        eq(taskCreationAssignmentReservations.attemptId, attemptId),
+        eq(taskCreationAssignmentReservations.state, "active"),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 // ---------------------------------------------------------------------------
