@@ -32,6 +32,7 @@ import {
   missionRecalculationMarkers,
 } from "../db/schema/index.js";
 import { and, eq, isNull, max, sql } from "drizzle-orm";
+import type { CausalContext } from "@orcy/shared";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -61,12 +62,12 @@ type ActorType = "human" | "agent" | "system" | "remote_human" | "remote_orcy" |
 // JSON column shapes (mirror db/schema/taskPublication.ts; not exported there)
 // ---------------------------------------------------------------------------
 
-/** Compact causal context connecting a publication to its origin chain. */
-export interface CausalContext {
-  root: { type: string; id: string };
-  parent?: { type: string; id: string };
-  hops?: Array<{ type: string; id: string; label?: string }>;
-}
+/**
+ * Re-exported from `@orcy/shared` so existing callers keep resolving
+ * `import type { CausalContext } from "../repositories/taskPublication.js"`.
+ * Canonical definition lives in `packages/shared/src/types/causalContext.ts`.
+ */
+export type { CausalContext, CausalRef, CausalHop } from "@orcy/shared";
 
 /** Compact terminal outcome sufficient for deduplication and audit replay. */
 export interface AttemptTerminalResult {

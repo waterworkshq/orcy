@@ -20,6 +20,7 @@
  */
 import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
+import type { CausalContext } from "@orcy/shared";
 
 // ---------------------------------------------------------------------------
 // Integrity versioning (Legacy Partial History)
@@ -75,12 +76,13 @@ export function isLegacyPartialHistory(task: { creationIntegrity: number | null 
 // Compact JSON column types (forward-compatible; refined in later phases)
 // ---------------------------------------------------------------------------
 
-/** Compact causal context connecting a publication to its origin chain. */
-type CausalContextJson = {
-  root: { type: string; id: string };
-  parent?: { type: string; id: string };
-  hops?: Array<{ type: string; id: string; label?: string }>;
-};
+/**
+ * Compact causal context connecting a publication to its origin chain.
+ * Aliased to the canonical shared type so the JSON column shape and the
+ * repository / service types stay structurally identical. Canonical source:
+ * `packages/shared/src/types/causalContext.ts`.
+ */
+type CausalContextJson = CausalContext;
 
 /** Compact terminal outcome sufficient for deduplication and audit replay. */
 type TerminalResultJson = {

@@ -1,3 +1,5 @@
+import type { CausalContext } from "./causalContext.js";
+
 /** Discriminator for real-time events that can fire an automation rule. */
 export type AutomationEventType =
   | "task.rejected"
@@ -5,6 +7,7 @@ export type AutomationEventType =
   | "task.priority_changed"
   | "task.review_assigned"
   | "task.review_completed"
+  | "task.created"
   | "mission.status_changed"
   | "mission.progress"
   | "pulse.signal_posted"
@@ -184,13 +187,15 @@ export type AutomationRunStatus =
   | "failed"
   | "simulated";
 
-/** Reason a rule run did not execute — disabled, false condition, cooldown, loop guard, or rate limit. */
+/** Reason a rule run did not execute — disabled, false condition, cooldown, loop guard, rate limit, causal cycle, causal depth limit, or missing target. */
 export type AutomationSkipReason =
   | "disabled"
   | "condition_false"
   | "cooldown"
   | "loop_guard"
   | "rate_limited"
+  | "causal_cycle"
+  | "causal_depth_limit"
   | "missing_target";
 
 /** Kind of domain object an automation operated on. */
@@ -281,11 +286,13 @@ export interface AutomationTriggerContext {
   targetId: string | null;
   habitatId: string;
   payload: Record<string, unknown>;
-  provenance?: {
-    source: string;
-    ruleId?: string;
-    runId?: string;
-  };
+  /**
+   * Server-constructed causal context connecting this trigger to its origin
+   * chain (root + parent + appended rule/run hops). Used by chain-membership
+   * inspection to detect `causal_cycle` / `causal_depth_limit` skips.
+   * Untrusted callers cannot inject these identities.
+   */
+  causalContext?: CausalContext;
 }
 
 /** Payload for creating a new {@link AutomationRule}. */

@@ -106,7 +106,7 @@ export function buildTriggerContext(args: {
   targetType?: AutomationTargetType | null;
   targetId?: string | null;
   payload?: Record<string, unknown>;
-  provenance?: AutomationTriggerContext["provenance"];
+  causalContext?: AutomationTriggerContext["causalContext"];
 }): AutomationTriggerContext {
   return {
     triggerType: args.triggerType as AutomationTriggerContext["triggerType"],
@@ -115,6 +115,6 @@ export function buildTriggerContext(args: {
     targetType: args.targetType ?? "none",
     targetId: args.targetId ?? null,
     payload: args.payload ?? {},
-    provenance: args.provenance,
+    causalContext: args.causalContext,
   };
 }

@@ -314,6 +314,8 @@ export type {
   RemoteAuditMetadata,
 } from "./pod-bridge.js";
 
+export type { CausalContext, CausalRef, CausalHop } from "./causalContext.js";
+
 export type {
   CliType,
   DetectedCli,
