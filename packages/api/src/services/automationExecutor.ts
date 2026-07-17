@@ -671,15 +671,21 @@ export async function executeAndRecordRuleRun(
   targetType: AutomationTargetType | null,
   targetId: string | null,
   payload?: Record<string, unknown>,
+  eventDedupeKey?: string | null,
 ): Promise<{ run: AutomationRuleRun; outcome: AutomationRunStatus }> {
-  const run = runRepo.startRuleRun({
+  const { run, created } = runRepo.startRuleRun({
     ruleId: rule.id,
     habitatId,
     triggerType: triggerType as AutomationRuleRun["triggerType"],
     triggerEventId,
     targetType,
     targetId,
+    eventDedupeKey,
   });
+
+  if (!created) {
+    return { run, outcome: run.status };
+  }
 
   if (!shouldExecuteActions(habitatId)) {
     runRepo.finishRuleRun(run.id, { status: "succeeded" });

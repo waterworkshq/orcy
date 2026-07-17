@@ -34,7 +34,7 @@ describe("automationAuditProjection", () => {
         actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "Deploy" }],
         createdBy: "user-1",
       });
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -74,7 +74,7 @@ describe("automationAuditProjection", () => {
         actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
         createdBy: "user-1",
       });
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -120,7 +120,7 @@ describe("automationAuditProjection", () => {
         actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
         createdBy: "user-1",
       });
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "mission_blocked",
@@ -142,7 +142,7 @@ describe("automationAuditProjection", () => {
         actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
         createdBy: "user-1",
       });
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",
@@ -368,7 +368,7 @@ describe("automationAuditProjection", () => {
         actions: [{ type: "notify", recipients: [{ type: "assignee" }], template: "X" }],
         createdBy: "user-1",
       });
-      const run = runRepo.startRuleRun({
+      const { run } = runRepo.startRuleRun({
         ruleId: rule.id,
         habitatId: habitat.id,
         triggerType: "task.rejected",

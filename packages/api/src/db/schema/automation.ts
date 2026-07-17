@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import { habitats } from "./habitat.js";
 
 export const automationRules = sqliteTable(
@@ -50,6 +51,7 @@ export const automationRuleRuns = sqliteTable(
     targetType: text("target_type"),
     targetId: text("target_id"),
     fingerprint: text("fingerprint").notNull(),
+    eventDedupeKey: text("event_dedupe_key"),
     status: text("status").notNull(),
     skipReason: text("skip_reason"),
     conditionResult: text("condition_result", { mode: "json" }).$type<Record<
@@ -68,5 +70,8 @@ export const automationRuleRuns = sqliteTable(
     index("idx_automation_runs_habitat").on(table.habitatId, table.startedAt),
     index("idx_automation_runs_fingerprint").on(table.fingerprint, table.startedAt),
     index("idx_automation_runs_status").on(table.habitatId, table.status),
+    uniqueIndex("uq_automation_runs_event_dedupe")
+      .on(table.eventDedupeKey, table.ruleId)
+      .where(sql`event_dedupe_key IS NOT NULL`),
   ],
 );

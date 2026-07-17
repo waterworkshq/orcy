@@ -177,7 +177,7 @@ function recordSkippedRun(
   event: IncomingEvent,
   reason: string,
 ): void {
-  const run = runRepo.startRuleRun({
+  const { run, created } = runRepo.startRuleRun({
     ruleId,
     habitatId,
     triggerType,
@@ -189,6 +189,8 @@ function recordSkippedRun(
         event.data?.agentId ??
         event.data?.sprintId) as string) ?? null,
   });
+
+  if (!created) return;
 
   runRepo.skipRuleRun(run.id, reason as any, {
     eventType: event.type,
