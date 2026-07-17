@@ -49,6 +49,7 @@ import type { Task } from "../models/index.js";
 import { logger } from "../lib/logger.js";
 import { isSqliteError } from "../errors/sqlite.js";
 import { checkClaimability } from "./taskQueries.js";
+import { creationObservationStateForTaskWithClient } from "./taskPublication.js";
 import type { TaskPublicationDbClient } from "./taskPublication.js";
 
 // ---------------------------------------------------------------------------
@@ -358,8 +359,15 @@ function publicationGateFailure(
   claimant: Claimant,
 ): ClaimFailure | undefined {
   // Observation gate: T1 Legacy Partial History → open for every prod task.
+  // Post-cutover Tasks (creationIntegrity > 0) require the creation-dispatch
+  // observation checkpoint to be SATISFIED — the attempt advanced past
+  // `published_pending_observation` (T4A Phase 3 wires the real check BEHIND
+  // the legacy short-circuit, so production Tasks are unaffected). A missing /
+  // unresolvable / non-post-observation attempt is fail-safe observation_pending.
   if (!isLegacyPartialHistory(row)) {
-    return { success: false, category: "observation_pending", reason: "observation_pending" };
+    if (!creationObservationStateForTaskWithClient(tx, row.id).observed) {
+      return { success: false, category: "observation_pending", reason: "observation_pending" };
+    }
   }
   // Reservation gate (M2 matching rule — see activeReservationForOther).
   const reservedFor = activeReservationForOther(tx, row.id, claimant);
@@ -397,8 +405,12 @@ function evaluateProgressionGates(
   row: typeof tasks.$inferSelect,
   claimant: Claimant,
 ): ProgressionGateResult {
+  // Observation gate: legacy short-circuit FIRST (see publicationGateFailure);
+  // post-cutover Tasks require the dispatch checkpoint satisfied.
   if (!isLegacyPartialHistory(row)) {
-    return { ok: false, category: "observation_pending" };
+    if (!creationObservationStateForTaskWithClient(tx, row.id).observed) {
+      return { ok: false, category: "observation_pending" };
+    }
   }
   if (activeReservationForOther(tx, row.id, claimant) !== undefined) {
     return { ok: false, category: "reserved_for_other" };

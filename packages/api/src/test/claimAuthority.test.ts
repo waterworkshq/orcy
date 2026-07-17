@@ -34,6 +34,7 @@ import { eq } from "drizzle-orm";
 import {
   tasks,
   taskCreationAttempts,
+  taskCreationEnvelopes,
   taskCreationAssignmentReservations,
 } from "../db/schema/index.js";
 import * as habitatRepo from "../repositories/habitat.js";
@@ -46,6 +47,7 @@ import {
   claimWithAuthority,
   claimWithAuthorityClient,
   progressWithAuthority,
+  checkProgressionGates,
   type Claimant,
   type ClaimResult,
 } from "../repositories/claimAuthority.js";
@@ -138,6 +140,80 @@ function seedActiveReservation(
     })
     .run();
   return reservationId;
+}
+
+/** Seeds an active reservation on an EXISTING attempt (e.g. one from
+ * {@link seedCreationEnvelope}). Used to combine the observation gate (satisfied)
+ * with a reservation for another agent in one test. */
+function seedReservationOnAttempt(
+  db: TaskPublicationDbClient,
+  taskId: string,
+  attemptId: string,
+  requestedAgentId: string,
+  suffix = "resv",
+): string {
+  const reservationId = `res-${suffix}`;
+  db.insert(taskCreationAssignmentReservations)
+    .values({
+      id: reservationId,
+      taskId,
+      attemptId,
+      requestedAgentId,
+      deadline: new Date().toISOString(),
+      state: "active",
+    })
+    .run();
+  return reservationId;
+}
+
+/**
+ * Seeds a post-cutover creation trail for `taskId`: a `taskCreationAttempts`
+ * row at `attemptState` + a `taskCreationEnvelopes` row linking the task to
+ * that attempt. This is what T3C's publication coordinator writes atomically;
+ * tests construct it directly to exercise the Phase 3 observation gate without
+ * the coordinator. Returns the ids so a test can also seed a reservation.
+ */
+function seedCreationEnvelope(
+  db: TaskPublicationDbClient,
+  taskId: string,
+  attemptState: string,
+  suffix = "env",
+): { envelopeId: string; attemptId: string } {
+  const attemptId = `attempt-${suffix}`;
+  db.insert(taskCreationAttempts)
+    .values({
+      id: attemptId,
+      source: "test",
+      sourceScopeKind: "mission",
+      sourceScopeId: "m-test",
+      attemptKey: `key-${suffix}`,
+      requestFingerprint: `fp-${suffix}`,
+      publicationKind: "create",
+      actorType: "human",
+      actorId: "user-1",
+      state: attemptState as never,
+    })
+    .run();
+  const envelopeId = `env-${suffix}`;
+  db.insert(taskCreationEnvelopes)
+    .values({
+      eventId: envelopeId,
+      lifecycleAction: "created",
+      taskId,
+      habitatId,
+      occurredAt: new Date().toISOString(),
+      attemptId,
+      actorType: "human",
+      actorId: "user-1",
+      source: "test",
+    })
+    .run();
+  return { envelopeId, attemptId };
+}
+
+/** Marks a task post-cutover (creationIntegrity=1). createTask cannot set this. */
+function markPostCutover(taskId: string): void {
+  getDb().update(tasks).set({ creationIntegrity: 1 }).where(eq(tasks.id, taskId)).run();
 }
 
 const localClaimant = (id: string): Claimant => ({ kind: "local", id });
@@ -324,12 +400,14 @@ describe("claimWithAuthority — observation gate (creationIntegrity)", () => {
     // existing claim path on the day Phase 3 wires the authority.
   });
 
-  it("returns observation_pending for a post-cutover task (creationIntegrity > 0)", () => {
+  it("returns observation_pending for a post-cutover task with NO dispatch envelope (fail-safe)", () => {
     const a1 = seedAgent("a1");
     const { task } = seedMission({ title: "post-cutover" });
     // Simulate a post-cutover task that has NOT traversed the dispatch
-    // checkpoint. Direct write — createTask cannot set this.
-    getDb().update(tasks).set({ creationIntegrity: 1 }).where(eq(tasks.id, task.id)).run();
+    // checkpoint. Direct write — createTask cannot set this. No envelope →
+    // creationObservationStateForTaskWithClient returns {observed:false,
+    // reason:"no_envelope"} → fail-safe observation_pending.
+    markPostCutover(task.id);
 
     const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
     expect(result).toEqual({
@@ -340,6 +418,109 @@ describe("claimWithAuthority — observation gate (creationIntegrity)", () => {
     // Failure mode: allowing a post-cutover task to claim without its dispatch
     // checkpoint would defeat the whole observation gate — this is the forward
     // guard the plan adds structurally (T4A owns the checkpoint emission).
+  });
+
+  // --- T4A Phase 3: the REAL observation check (behind the legacy short-circuit)
+
+  it("is OPEN for a post-cutover task whose attempt advanced to published_pending_assignment", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "obs-ppa" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "published_pending_assignment", "env-ppa");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result.success).toBe(true);
+    // Failure mode: if Phase 3 left the placeholder block, EVERY post-cutover
+    // task would be observation_pending regardless of attempt state — this would
+    // fail, proving the real check engages.
+  });
+
+  it("is OPEN for a post-cutover task whose attempt terminalized to created", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "obs-created" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "created", "env-created");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result.success).toBe(true);
+    // Failure mode: a gate that only accepted published_pending_assignment (not
+    // the terminal success states) would block a fully-created task.
+  });
+
+  it("is OPEN for a post-cutover task whose attempt terminalized to created_unassigned (claimable)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "obs-unassigned" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "created_unassigned", "env-unassigned");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result.success).toBe(true);
+    // Failure mode: created_unassigned means published + observed + reservation
+    // released — it MUST be claimable. Excluding it from POST_OBSERVATION_STATES
+    // would wrongly block the assignment-exhaustion terminal.
+  });
+
+  it("returns observation_pending for a post-cutover task whose attempt is STILL at published_pending_observation", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "obs-pending" });
+    markPostCutover(task.id);
+    // The dispatch checkpoint has been reached but NOT yet advanced past
+    // observation (targets still pending, or the worker hasn't run).
+    seedCreationEnvelope(getDb(), task.id, "published_pending_observation", "env-ppo");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result).toEqual({
+      success: false,
+      category: "observation_pending",
+      reason: "observation_pending",
+    });
+    // Failure mode: treating published_pending_observation as observed would
+    // let a task be claimed before its dispatch targets are accepted.
+  });
+
+  it("returns observation_pending for a post-cutover task whose attempt FAILED terminally (rejected_validation — fail-safe)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "obs-rejected" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "rejected_validation", "env-rej");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result).toEqual({
+      success: false,
+      category: "observation_pending",
+      reason: "observation_pending",
+    });
+    // Failure mode: a failed-terminal attempt must NOT open claimability — the
+    // task's creation failed; treating any terminal state as observed would
+    // let a dead task be claimed.
+  });
+
+  it("observation + reservation are SEPARATE gates: an observed task reserved for ANOTHER agent → reserved_for_other", () => {
+    const a1 = seedAgent("a1");
+    const holder = seedAgent("holder-obs");
+    const { task } = seedMission({ title: "obs-reserved" });
+    markPostCutover(task.id);
+    // Observation is SATISFIED (attempt advanced)...
+    const { attemptId } = seedCreationEnvelope(
+      getDb(),
+      task.id,
+      "published_pending_assignment",
+      "env-obs-res",
+    );
+    // ...but an active reservation targets a DIFFERENT agent.
+    seedReservationOnAttempt(getDb(), task.id, attemptId, holder.id, "resv-obs-other");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(result).toEqual({
+      success: false,
+      category: "reserved_for_other",
+      reason: "reserved_for_other",
+      reservedFor: holder.id,
+    });
+    // Failure mode: if the observation check threw or short-circuited the
+    // reservation gate, a1 would either get observation_pending (gate ordering
+    // bug) or succeed (reservation gate dropped). The reserved_for_other result
+    // proves observation passed AND the reservation gate still fires.
   });
 });
 
@@ -648,12 +829,14 @@ describe("M1 remediation — delegated claims honor the publication gates", () =
     return task;
   }
 
-  it("returns observation_pending when a delegated task lacks its creation-dispatch checkpoint (creationIntegrity > 0)", () => {
+  it("returns observation_pending when a delegated post-cutover task has NO dispatch envelope (fail-safe)", () => {
     const assignee = seedAgent("assignee");
     const delegate = seedAgent("delegate-obs");
     const task = seedDelegated("delegated-observation", delegate.id, assignee.id);
-    // Simulate a post-cutover task missing its observation checkpoint.
-    getDb().update(tasks).set({ creationIntegrity: 1 }).where(eq(tasks.id, task.id)).run();
+    // Simulate a post-cutover task missing its observation checkpoint. No
+    // envelope → fail-safe observation_pending (the delegated path runs the
+    // SAME publication gate as the plain path — M1 parity).
+    markPostCutover(task.id);
 
     const result = claimWithAuthority(getDb(), task.id, localClaimant(delegate.id), {
       delegated: true,
@@ -666,6 +849,24 @@ describe("M1 remediation — delegated claims honor the publication gates", () =
     // Failure mode: pre-M1 the delegated branch returned via commitDelegatedClaim
     // before this gate — the claim would SUCCEED, defeating the observation guard
     // for delegated claims. This proves the gate now fires on both paths.
+  });
+
+  it("delegated claim SUCCEEDS for an OBSERVED post-cutover task (M1 + Phase 3 parity)", () => {
+    const assignee = seedAgent("assignee");
+    const delegate = seedAgent("delegate-obs-ok");
+    const task = seedDelegated("delegated-observed", delegate.id, assignee.id);
+    markPostCutover(task.id);
+    // The dispatch checkpoint is satisfied — observation gate opens for the
+    // delegated path too (the real Phase 3 check, not the placeholder block).
+    seedCreationEnvelope(getDb(), task.id, "published_pending_assignment", "env-delegated");
+
+    const result = claimWithAuthority(getDb(), task.id, localClaimant(delegate.id), {
+      delegated: true,
+    });
+    expect(result.success).toBe(true);
+    // Failure mode: if the delegated path kept the placeholder (block every
+    // post-cutover task), this observed delegated claim would fail — proving
+    // the real observation check engages on the delegated path.
   });
 
   it("returns reserved_for_other when an active reservation exists for a different identity (delegated)", () => {
@@ -1021,6 +1222,101 @@ describe("M3 remediation — progressWithAuthority closes the start-TOCTOU race"
     const result = taskStateMachine.startTaskByRemoteParticipant(task.id, "participant-happy");
     expect(result?.status).toBe("in_progress");
     // Failure mode: the remote progression path must not regress under M3.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T4A Phase 3 — progression gate honors the REAL observation check.
+//
+// evaluateProgressionGates (shared by checkProgressionGates + progressWithAuthority)
+// was the same placeholder as publicationGateFailure: every post-cutover task
+// blocked. Phase 3 wires it to creationObservationStateForTaskWithClient behind
+// the legacy short-circuit, so progression mirrors the claim gate. Legacy
+// progression stays open byte-identically (already covered by the M3 PRESERVE
+// tests above).
+// ---------------------------------------------------------------------------
+
+describe("T4A Phase 3 — progression observation gate (evaluateProgressionGates)", () => {
+  it("checkProgressionGates is OPEN for a legacy task (creationIntegrity=0)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "prog-legacy" });
+    expect(checkProgressionGates(getDb(), task.id, localClaimant(a1.id))).toEqual({ ok: true });
+    // Failure mode: a gate that blocked legacy progression would regress every
+    // startTask path.
+  });
+
+  it("checkProgressionGates is OPEN for an OBSERVED post-cutover task", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "prog-obs" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "published_pending_assignment", "env-prog-obs");
+    expect(checkProgressionGates(getDb(), task.id, localClaimant(a1.id))).toEqual({ ok: true });
+    // Failure mode: if evaluateProgressionGates kept the placeholder, this would
+    // return {ok:false, category:"observation_pending"} for every post-cutover
+    // task regardless of attempt state.
+  });
+
+  it("checkProgressionGates returns observation_pending for a post-cutover task STILL at published_pending_observation", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "prog-pending" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "published_pending_observation", "env-prog-ppo");
+    expect(checkProgressionGates(getDb(), task.id, localClaimant(a1.id))).toEqual({
+      ok: false,
+      category: "observation_pending",
+    });
+    // Failure mode: treating published_pending_observation as observed would
+    // let a task progress before its dispatch targets are accepted.
+  });
+
+  it("checkProgressionGates returns observation_pending for a post-cutover task with NO envelope (fail-safe)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "prog-no-env" });
+    markPostCutover(task.id);
+    expect(checkProgressionGates(getDb(), task.id, localClaimant(a1.id))).toEqual({
+      ok: false,
+      category: "observation_pending",
+    });
+    // Failure mode: a missing envelope must fail closed, not pass through to the
+    // reservation gate (which would return {ok:true} and let progression through).
+  });
+
+  it("progressWithAuthority SUCCEEDS for an observed post-cutover claimed task (end-to-end)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "prog-e2e-obs" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "published_pending_assignment", "env-prog-e2e");
+    // Claim succeeds because the observation gate is OPEN (observed).
+    expect(claimWithAuthority(getDb(), task.id, localClaimant(a1.id)).success).toBe(true);
+
+    const started = progressWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(started).not.toBeNull();
+    expect(started?.status).toBe("in_progress");
+    // Failure mode: if evaluateProgressionGates kept the placeholder, the start
+    // would return null (gate blocks) for this observed task.
+  });
+
+  it("progressWithAuthority returns null for an un-observed post-cutover task pushed to claimed (gate blocks)", () => {
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "prog-e2e-blocked" });
+    markPostCutover(task.id);
+    seedCreationEnvelope(getDb(), task.id, "published_pending_observation", "env-prog-block");
+    // The task CANNOT be claimed (observation blocks claim), so directly write
+    // it to claimed + assigned to isolate the PROGRESSION gate from the claim
+    // gate — proving evaluateProgressionGates enforces observation independently.
+    getDb()
+      .update(tasks)
+      .set({ status: "claimed", assignedAgentId: a1.id })
+      .where(eq(tasks.id, task.id))
+      .run();
+
+    const started = progressWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(started).toBeNull();
+    const after = getDb().select().from(tasks).where(eq(tasks.id, task.id)).all()[0];
+    expect(after?.status).toBe("claimed");
+    // Failure mode: if the progression observation gate were dropped, the start
+    // would succeed and flip status to in_progress despite the task still being
+    // at published_pending_observation.
   });
 });
 

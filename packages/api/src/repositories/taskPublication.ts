@@ -289,6 +289,28 @@ export const TERMINAL_ATTEMPT_STATES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Attempt states that lie STRICTLY PAST the creation-dispatch observation
+ * checkpoint — i.e. the attempt advanced beyond `published_pending_observation`.
+ * The T4A Phase 3 claim gate reads this to decide whether a post-cutover Task's
+ * creation has been observed (claimability open):
+ *   - `published_pending_assignment` — observation satisfied, awaiting assignment.
+ *   - `created`                     — terminal success (no-reservation path).
+ *   - `created_unassigned`          — terminal success (reservation released;
+ *                                     still claimable — observation is done).
+ *
+ * Every OTHER attempt state (`pending`, `published_pending_observation`, and the
+ * terminal-failure states already in {@link TERMINAL_ATTEMPT_STATES}) is treated
+ * as NOT observed → `observation_pending` (fail-safe: keep unavailable). Kept
+ * alongside {@link TERMINAL_ATTEMPT_STATES} so the Phase 3 predicate is
+ * data-driven + auditable, not an inline literal.
+ */
+export const POST_OBSERVATION_STATES: ReadonlySet<string> = new Set([
+  "published_pending_assignment",
+  "created",
+  "created_unassigned",
+]);
+
+/**
  * Legal forward checkpoint transitions ONLY. The state machine is forward-only:
  * `pending → published_pending_observation → published_pending_assignment`.
  * Same-state and every other pair are handled by the caller (no-op / rejected).
@@ -737,6 +759,71 @@ export function hasActiveReservationForAttemptWithClient(
     .limit(1)
     .get();
   return row !== undefined;
+}
+
+// ---------------------------------------------------------------------------
+// 7b. creationObservationStateForTaskWithClient — the Phase 3 claim-gate signal
+// ---------------------------------------------------------------------------
+
+/**
+ * Closed result of {@link creationObservationStateForTaskWithClient}. The claim
+ * gate reads ONLY `.observed`; `attemptState` / `reason` are diagnostics for
+ * tests + operational introspection.
+ */
+export type CreationObservationState =
+  | { observed: true; attemptState: string }
+  | { observed: false; attemptState?: string; reason?: "no_envelope" | "no_attempt" };
+
+/**
+ * Resolves whether a Task's creation has been OBSERVED past the dispatch
+ * checkpoint — the T4A Phase 3 claim-gate signal. Pure read on `db`; never
+ * calls `getDb()`, never opens a tx, never throws for a decision.
+ *
+ * Resolution: Task → `taskCreationEnvelopes` (by `taskId`) → `attemptId` →
+ * `taskCreationAttempts.state`. A Task may carry multiple envelopes (e.g. a
+ * later clone); the gate is satisfied when ANY envelope's attempt advanced past
+ * `published_pending_observation` (a successfully-created Task must not be
+ * blocked by an unrelated in-flight envelope). See
+ * {@link POST_OBSERVATION_STATES}.
+ *
+ * Fail-safe (ADR-0038 — keep unavailable on doubt):
+ *   - no envelope for the task → `{ observed: false, reason: "no_envelope" }`
+ *   - envelope exists but its attempt is unresolvable (FK violation; unreachable
+ *     under `PRAGMA foreign_keys = ON`) → `{ observed: false, reason: "no_attempt" }`
+ *   - attempt resolved but NOT in a post-observation state →
+ *     `{ observed: false, attemptState }`
+ *
+ * Mirrors {@link hasActiveReservationForAttemptWithClient} (existence probe by
+ * `attemptId`); this is the envelope-keyed counterpart keyed by `taskId`.
+ */
+export function creationObservationStateForTaskWithClient(
+  db: TaskPublicationDbClient,
+  taskId: string,
+): CreationObservationState {
+  // LEFT JOIN so a corrupt envelope (missing attempt row) is distinguishable
+  // from a missing envelope — both are fail-safe `observed: false` but carry
+  // different diagnostic reasons.
+  const rows = db
+    .select({ attemptState: taskCreationAttempts.state })
+    .from(taskCreationEnvelopes)
+    .leftJoin(taskCreationAttempts, eq(taskCreationEnvelopes.attemptId, taskCreationAttempts.id))
+    .where(eq(taskCreationEnvelopes.taskId, taskId))
+    .all() as { attemptState: string | null }[];
+
+  if (rows.length === 0) {
+    return { observed: false, reason: "no_envelope" };
+  }
+
+  const resolvable = rows.filter((r): r is { attemptState: string } => r.attemptState !== null);
+  if (resolvable.length === 0) {
+    return { observed: false, reason: "no_attempt" };
+  }
+
+  const observed = resolvable.find((r) => POST_OBSERVATION_STATES.has(r.attemptState));
+  if (observed) {
+    return { observed: true, attemptState: observed.attemptState };
+  }
+  return { observed: false, attemptState: resolvable[0].attemptState };
 }
 
 // ---------------------------------------------------------------------------
