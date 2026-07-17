@@ -396,6 +396,20 @@ describe("satisfyObservationCheckpointWithClient", () => {
     // published_pending_observation) → the primitive returns no_op.
     expect(result.outcome).toBe("no_op");
   });
+
+  it("M1 guard: TWO envelopes for one attempt → throws (no silent wrong-envelope pick)", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db);
+    seedEnvelope(db, { attemptId });
+    seedEnvelope(db, { attemptId }); // second envelope — a data-integrity anomaly
+
+    // Failure mode this catches: without the envelopeForAttempt uniqueness
+    // guard, the engine silently resolves `.all()[0]` (the first row) and
+    // processes only it — a future second-envelope writer would be invisible.
+    expect(() => satisfyObservationCheckpointWithClient(db, attemptId)).toThrow(
+      /data-integrity anomaly \(M1 guard\)/,
+    );
+  });
 });
 
 // ===========================================================================

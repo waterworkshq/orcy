@@ -102,6 +102,32 @@ export type ObservationCheckpointResult =
   | { outcome: "not_at_observation" };
 
 /**
+ * Resolves the SINGLE committed envelope for an attempt. An attempt has AT MOST
+ * one envelope (T3C writes exactly one per publication; a re-publication after a
+ * rolled-back guard mismatch replaces rather than duplicates, since the prior
+ * envelope write was in the rolled-back transaction). A second envelope is a
+ * data-integrity anomaly — throw loudly rather than silently pick the first
+ * (M1 hardening from cold review #3). Returns `undefined` when the attempt has
+ * no envelope yet (the dormant / not-yet-published case). Never `getDb()`.
+ */
+function envelopeForAttempt(
+  db: TaskPublicationDbClient,
+  attemptId: string,
+): typeof taskCreationEnvelopes.$inferSelect | undefined {
+  const rows = db
+    .select()
+    .from(taskCreationEnvelopes)
+    .where(eq(taskCreationEnvelopes.attemptId, attemptId))
+    .all();
+  if (rows.length > 1) {
+    throw new Error(
+      `taskCreationDispatchEngine: attempt "${attemptId}" has ${rows.length} committed envelopes; expected at most one — data-integrity anomaly (M1 guard).`,
+    );
+  }
+  return rows[0];
+}
+
+/**
  * Advance the observation checkpoint for an attempt when its dispatch targets
  * are all accepted (the T4A Phase 2 observation-satisfaction step).
  *
@@ -142,11 +168,7 @@ export function satisfyObservationCheckpointWithClient(
   // 2. Resolve the envelope by attemptId → eventId. The envelope carries the
   //    (eventId, attemptId, taskId) linkage; the attempt's committedTaskId is
   //    NOT set at observation (T3C), so the envelope is the authoritative link.
-  const envelope = db
-    .select()
-    .from(taskCreationEnvelopes)
-    .where(eq(taskCreationEnvelopes.attemptId, attemptId))
-    .all()[0];
+  const envelope = envelopeForAttempt(db, attemptId);
   const eventId = envelope?.eventId ?? null;
 
   // 3. All targets accepted? A missing envelope is treated as the zero-target
@@ -261,11 +283,7 @@ export function processEnvelopeDispatchWithClient(
   }
 
   // 2-4. Resolve the envelope; list + attempt its non-accepted targets.
-  const envelope = db
-    .select()
-    .from(taskCreationEnvelopes)
-    .where(eq(taskCreationEnvelopes.attemptId, attemptId))
-    .all()[0];
+  const envelope = envelopeForAttempt(db, attemptId);
 
   const targetResults: DispatchTargetTransitionResult[] = [];
   if (envelope) {
