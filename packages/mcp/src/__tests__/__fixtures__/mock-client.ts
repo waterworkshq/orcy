@@ -15,6 +15,7 @@ export function createMockClient() {
 
     listTasksInMission: vi.fn(),
     createTaskInMission: vi.fn(),
+    publishTaskInMission: vi.fn(),
     claimTask: vi.fn(),
     startTask: vi.fn(),
     updateTaskStatus: vi.fn(),

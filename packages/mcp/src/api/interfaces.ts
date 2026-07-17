@@ -59,6 +59,49 @@ export interface TaskFilters {
   offset?: number;
 }
 
+/**
+ * Discriminated outcome of the dormant publication route
+ * `POST /missions/:missionId/task-publications` (T6 P2, committed `fce30b8`).
+ *
+ * Mirrors the body shapes the REST route sends in
+ * `outcomeToHttpResponse` (`routes/taskPublication.ts`): each branch of the
+ * adapter's {@link TaskCreationPublicationResult} is forwarded verbatim with
+ * a derived HTTP status. The 2xx branches arrive as the client method's
+ * resolved value; the 422/409/503 branches arrive as `ApiClientError` bodies
+ * (the handler interprets them rather than re-throwing).
+ *
+ * DORMANT: the legacy `createTaskInMission` / `POST /missions/:id/tasks`
+ * path stays the active production route until T11 swaps them.
+ */
+export interface TaskPublicationOutcome {
+  outcome:
+    | "created"
+    | "replayed"
+    | "rejected_validation"
+    | "vetoed"
+    | "rejected_fingerprint"
+    | "guard_mismatch"
+    | "governance_denied";
+  attemptId: string;
+  /** Present on `created` (fresh or recovering-replay). */
+  taskId?: string;
+  /** `true` when the Task committed but is not yet observed (HTTP 202). */
+  recovering?: boolean;
+  recoveringState?: string;
+  /** `rejected_validation` detail. */
+  errors?: unknown;
+  /** `vetoed` governance refusal. */
+  veto?: unknown;
+  /** `rejected_fingerprint` / `governance_denied` human-readable detail. */
+  message?: string;
+  /** `guard_mismatch` detail. */
+  reasons?: unknown;
+  /** `governance_denied` interceptor kind. */
+  kind?: string;
+  reason?: string;
+  interceptorKey?: string;
+}
+
 export interface MissionClient {
   listMissions(habitatId: string, options?: TaskFilters): Promise<ListMissionsResponse>;
   getMission(missionId: string): Promise<{ mission: MissionWithProgress }>;
@@ -145,6 +188,34 @@ export interface TaskClient {
       order?: number;
     },
   ): Promise<{ task: Task }>;
+  /**
+   * T6 Phase 3a — dormant publication client. Calls the dormant REST route
+   * `POST /missions/:missionId/task-publications` (P2, committed `fce30b8`).
+   *
+   * The MCP client is an HTTP wrapper — the REST route derives provenance
+   * (`auditSource:"rest_api"` + `actorType:"agent"`) from the authenticated
+   * caller. This method MUST NOT carry `auditSource` or `order` in the body
+   * (the route does not accept them; the kernel allocates order).
+   *
+   * DORMANT: the legacy {@link TaskClient.createTaskInMission} stays the
+   * active production path until T11.
+   */
+  publishTaskInMission(
+    missionId: string,
+    input: {
+      attemptKey: string;
+      title: string;
+      description?: string;
+      priority?: "low" | "medium" | "high" | "critical";
+      requiredDomain?: string | null;
+      requiredCapabilities?: string[];
+      estimatedMinutes?: number;
+      labels?: string[];
+      dependsOn?: string[];
+      assignment?: { kind: "auto" } | { kind: "targeted"; agentId: string };
+      targetedAssignmentDeadline?: string;
+    },
+  ): Promise<TaskPublicationOutcome>;
   claimTask(
     taskId: string,
     agentId: string,

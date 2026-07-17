@@ -79,6 +79,7 @@ import type {
   WikiSearchHit,
   WikiSignalSurface,
   RoadmapContext,
+  TaskPublicationOutcome,
 } from "./api/interfaces.js";
 import { composeMissionContext } from "./services/mission-context.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -445,6 +446,72 @@ export class KanbanApiClient
       estimatedMinutes: input.estimatedMinutes,
       order: input.order,
     });
+  }
+
+  /**
+   * T6 Phase 3a — dormant publication client method.
+   *
+   * Calls the dormant REST route `POST /missions/:missionId/task-publications`
+   * (T6 P2, committed `fce30b8`) which fronts the dormant
+   * {@link publishTaskCreation} adapter (T6 P1, `c111a9f`).
+   *
+   * Provenance (`auditSource:"rest_api"` + `actorType:"agent"`) is derived
+   * server-side from the authenticated MCP caller — this client MUST NOT
+   * assert `auditSource` in the body (an untrusted LLM client could spoof
+   * it). The MCP-initiated publication therefore carries
+   * `auditSource:"rest_api"` + `actorType:"agent"` → causal root type
+   * `"api"`. A future `"mcp_tool"` distinction would require a trusted
+   * server-side header + a route read (post-cutover hardening, out of scope).
+   *
+   * The body mirrors {@link taskPublicationSchema}: NO `order` (the kernel
+   * allocates `max(order)+1`); NO `auditSource`. Non-2xx domain outcomes
+   * (422 validation / 409 veto / 409 fingerprint / 503 guard) arrive as
+   * `ApiClientError` throws — the MCP tool handler interprets them rather
+   * than treating them as failures (validation/veto/recovering are normal
+   * publication results, not errors).
+   *
+   * DORMANT: the legacy {@link createTaskInMission} +
+   * `POST /missions/:id/tasks` stays the active production path until T11
+   * swaps them. Tests are the sole exerciser.
+   */
+  async publishTaskInMission(
+    missionId: string,
+    input: {
+      attemptKey: string;
+      title: string;
+      description?: string;
+      priority?: "low" | "medium" | "high" | "critical";
+      requiredDomain?: string | null;
+      requiredCapabilities?: string[];
+      estimatedMinutes?: number;
+      labels?: string[];
+      dependsOn?: string[];
+      assignment?: { kind: "auto" } | { kind: "targeted"; agentId: string };
+      targetedAssignmentDeadline?: string;
+    },
+  ): Promise<TaskPublicationOutcome> {
+    missionId = normalizeMissionId(missionId);
+    return this.request<TaskPublicationOutcome>(
+      "POST",
+      `/api/missions/${missionId}/task-publications`,
+      {
+        attemptKey: input.attemptKey,
+        title: input.title,
+        ...(input.description !== undefined && { description: input.description }),
+        ...(input.priority !== undefined && { priority: input.priority }),
+        ...(input.requiredDomain !== undefined && { requiredDomain: input.requiredDomain }),
+        ...(input.requiredCapabilities !== undefined && {
+          requiredCapabilities: input.requiredCapabilities,
+        }),
+        ...(input.estimatedMinutes !== undefined && { estimatedMinutes: input.estimatedMinutes }),
+        ...(input.labels !== undefined && { labels: input.labels }),
+        ...(input.dependsOn !== undefined && { dependsOn: input.dependsOn }),
+        ...(input.assignment !== undefined && { assignment: input.assignment }),
+        ...(input.targetedAssignmentDeadline !== undefined && {
+          targetedAssignmentDeadline: input.targetedAssignmentDeadline,
+        }),
+      },
+    );
   }
 
   async getMissionContext(missionId: string): Promise<MissionContext> {

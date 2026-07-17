@@ -1,6 +1,9 @@
 import type { MissionClient } from "../api/interfaces.js";
+import type { TaskPublicationOutcome } from "../api/interfaces.js";
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
+import { randomUUID } from 'crypto';
+import { ApiClientError } from '@orcy/shared';
 import { PRIORITY_LEVELS, FEATURE_STATUSES } from './constants.js';
 
 /**
@@ -253,6 +256,336 @@ export async function missionCreateTask(
     estimatedMinutes: args.estimatedMinutes,
   });
   return { task: result.task };
+}
+
+/**
+ * T6 Phase 3a — dormant publication tool (a sibling of
+ * {@link MISSION_CREATE_TASK_TOOL} that targets the dormant publication
+ * route `POST /missions/:missionId/task-publications`).
+ *
+ * Why a sibling rather than a replacement:
+ *   The kernel's shared publication contract (T5) is landed DORMANT — the
+ *   legacy {@link MISSION_CREATE_TASK_TOOL} / `mission_create_task` /
+ *   `createTaskInMission` / `POST /missions/:missionId/tasks` stay the
+ *   active production path until T11 swaps them. This tool ships alongside
+ *   them, exercised only by tests (the sole dormancy exerciser). It is NOT
+ *   registered in `ALL_TOOLS` / `TASK_ACTIONS` (mirroring how
+ *   {@link MISSION_CREATE_TASK_TOOL} is also a standalone export not wired
+ *   into the dispatch — only its handler sibling `missionCreateTask` is
+ *   dispatched via `TASK_ACTIONS["create-in-mission"]`, which is the ACTIVE
+ *   production path and stays byte-unchanged).
+ *
+ * Provenance:
+ *   The MCP client is an HTTP wrapper — the REST route derives
+ *   `auditSource:"rest_api"` + `actorType:"agent"` from the authenticated
+ *   MCP caller. This tool MUST NOT assert `auditSource` in its input (the
+ *   body is untrusted; an LLM client could spoof `"mcp_tool"` to mask its
+ *   tracks). A future trusted `"mcp_tool"` distinction requires a
+ *   server-side header + a route read (post-cutover hardening).
+ *
+ * Idempotent retry contract:
+ *   `attemptKey` is the client-supplied attempt identity. The handler
+ *   generates a UUID when the caller omits one and ALWAYS returns the
+ *   `attemptKey` used in the result so the LLM can retry an unchanged
+ *   publication with the same key (the adapter reserves/replays off the
+ *   key). Editing a known terminal rejection uses a NEW key; unchanged
+ *   retry keeps the old key.
+ *
+ * Outcome interpretation:
+ *   The handler does NOT throw for domain outcomes — validation/veto/
+ *   recovering/replay are normal publication results, not errors. The route
+ *   forwards 422/409/503 bodies verbatim; the handler parses them out of
+ *   the {@link ApiClientError} and returns a clear LLM-facing result object
+ *   with a `message` field explaining the next action (retry same key /
+ *   new key / poll the attempt).
+ *
+ * See: T6 ticket § "Execution phases" (P3a) + § "Phase 2 carry-over".
+ */
+export const MISSION_PUBLISH_TASK_TOOL: Tool = {
+  name: 'mission_publish_task',
+  description:
+    'Publish a task within a mission via the shared publication contract (dormant — prefer mission_create_task until the cutover). ' +
+    'Idempotent: pass the same attemptKey to retry an unchanged Publish; use a new attemptKey only when changing a rejected payload. ' +
+    'Returns a clear result object (created/recovering/replayed/rejected_validation/vetoed/rejected_fingerprint/guard_mismatch/governance_denied) with the attemptKey used.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      missionId: {
+        type: 'string',
+        description: 'Parent mission ID',
+      },
+      attemptKey: {
+        type: 'string',
+        description:
+          'Client-supplied attempt identity for idempotent retry. Retain across unchanged Publishes; ' +
+          'use a new key only when changing a previously-rejected payload. Omit to have the handler generate a UUID.',
+      },
+      title: {
+        type: 'string',
+        description: 'Task title',
+      },
+      description: {
+        type: 'string',
+        description: 'Detailed description with context and expected behavior',
+      },
+      priority: {
+        type: 'string',
+        enum: [...PRIORITY_LEVELS],
+        description: 'Task priority (default: medium)',
+      },
+      requiredDomain: {
+        type: 'string',
+        description: 'Domain filter: frontend, backend, devops, testing, or fullstack',
+      },
+      requiredCapabilities: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Required capabilities (e.g., ["typescript", "react"])',
+      },
+      estimatedMinutes: {
+        type: 'number',
+        description: 'Estimated time to complete in minutes',
+      },
+      labels: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Labels to categorize the task',
+      },
+      dependsOn: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Task UUIDs this task depends on (must complete first)',
+      },
+      assignment: {
+        type: 'object',
+        description:
+          "Assignment intent (defaults to {kind:'auto'}). For targeted, supply {kind:'targeted', agentId} AND targetedAssignmentDeadline.",
+        properties: {
+          kind: { type: 'string', enum: ['auto', 'targeted'] },
+          agentId: {
+            type: 'string',
+            description: 'Target agent UUID (required when kind === "targeted")',
+          },
+        },
+        required: ['kind'],
+      },
+      targetedAssignmentDeadline: {
+        type: 'string',
+        description:
+          'ISO 8601 timestamp; REQUIRED when assignment.kind === "targeted" (the adapter reserves the seat until this deadline).',
+      },
+    },
+    required: ['missionId', 'title'],
+  },
+};
+
+/** Publication outcomes that arrive as ApiClientError bodies (422/409/503) —
+ * domain results the handler interprets rather than re-throws. */
+const PUBLICATION_DOMAIN_OUTCOMES = new Set<TaskPublicationOutcome['outcome']>([
+  'created',
+  'replayed',
+  'rejected_validation',
+  'vetoed',
+  'rejected_fingerprint',
+  'guard_mismatch',
+  'governance_denied',
+]);
+
+/**
+ * Parses the JSON body the publication route sent on a non-2xx response out
+ * of the {@link ApiClientError} message (the transport surfaces them as
+ * `API <status>: <body>`). Returns `null` when the body is not a
+ * publication-outcome envelope (so the handler can re-throw the original
+ * error for non-domain failures — e.g. a 500 from a programming bug).
+ */
+function parsePublicationErrorBody(err: ApiClientError): TaskPublicationOutcome | null {
+  const raw = err.message.replace(/^API \d+: /, '');
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      typeof (parsed as TaskPublicationOutcome).outcome === 'string' &&
+      PUBLICATION_DOMAIN_OUTCOMES.has((parsed as TaskPublicationOutcome).outcome) &&
+      typeof (parsed as TaskPublicationOutcome).attemptId === 'string'
+    ) {
+      return parsed as TaskPublicationOutcome;
+    }
+  } catch {
+    // Not JSON — fall through; the error is not a publication domain outcome.
+  }
+  return null;
+}
+
+/**
+ * Maps a {@link TaskPublicationOutcome} to a clear LLM-facing result object.
+ *
+ * The result ALWAYS carries `attemptKey` so the caller can retry an
+ * unchanged publication with the same key (or switch to a new key for a
+ * corrected payload — the `message` field explains which). Recovering /
+ * validation / veto / fingerprint / guard outcomes are results, NOT errors
+ * — the handler does not throw them.
+ */
+function interpretPublicationOutcome(
+  outcome: TaskPublicationOutcome,
+  attemptKey: string,
+): Record<string, unknown> {
+  const base = { attemptKey };
+  switch (outcome.outcome) {
+    case 'created':
+      if (outcome.recovering) {
+        return {
+          ...base,
+          outcome: 'created',
+          attemptId: outcome.attemptId,
+          ...(outcome.taskId !== undefined && { taskId: outcome.taskId }),
+          recovering: true,
+          ...(outcome.recoveringState !== undefined && { recoveringState: outcome.recoveringState }),
+          message:
+            'Task committed but still recovering — poll the attempt to confirm it is observed before reporting success.',
+        };
+      }
+      return {
+        ...base,
+        outcome: 'created',
+        attemptId: outcome.attemptId,
+        ...(outcome.taskId !== undefined && { taskId: outcome.taskId }),
+        message: 'Task created.',
+      };
+    case 'replayed':
+      return {
+        ...base,
+        outcome: 'replayed',
+        attemptId: outcome.attemptId,
+        ...(outcome.taskId !== undefined && { taskId: outcome.taskId }),
+        message:
+          'Idempotent retry — the attempt already settled with this terminal outcome (no new side effect).',
+      };
+    case 'rejected_validation':
+      return {
+        ...base,
+        outcome: 'rejected_validation',
+        attemptId: outcome.attemptId,
+        ...(outcome.errors !== undefined && { errors: outcome.errors }),
+        message:
+          'Validation failed — correct the flagged fields and retry with the SAME attemptKey (the adapter will re-prepare on the same key).',
+      };
+    case 'vetoed':
+      return {
+        ...base,
+        outcome: 'vetoed',
+        attemptId: outcome.attemptId,
+        ...(outcome.veto !== undefined && { veto: outcome.veto }),
+        message: 'Publication vetoed by governance — review the veto detail before retrying.',
+      };
+    case 'rejected_fingerprint':
+      return {
+        ...base,
+        outcome: 'rejected_fingerprint',
+        attemptId: outcome.attemptId,
+        message:
+          'Payload fingerprint mismatch — the corrected payload requires a NEW attemptKey (do not reuse the current one).',
+      };
+    case 'guard_mismatch':
+      return {
+        ...base,
+        outcome: 'guard_mismatch',
+        attemptId: outcome.attemptId,
+        ...(outcome.reasons !== undefined && { reasons: outcome.reasons }),
+        message:
+          'Guard mismatch — retry with the SAME attemptKey (the adapter re-prepares the reservation on the same key).',
+      };
+    case 'governance_denied':
+      return {
+        ...base,
+        outcome: 'governance_denied',
+        attemptId: outcome.attemptId,
+        ...(outcome.kind !== undefined && { kind: outcome.kind }),
+        ...(outcome.reason !== undefined && { reason: outcome.reason }),
+        ...(outcome.interceptorKey !== undefined && { interceptorKey: outcome.interceptorKey }),
+        message:
+          'Governance denied — retry with the SAME attemptKey after addressing the denial reason.',
+      };
+    default: {
+      // Exhaustiveness guard — should be unreachable while the outcome union
+      // stays in sync with PUBLICATION_DOMAIN_OUTCOMES.
+      const _exhaustive: never = outcome.outcome;
+      void _exhaustive;
+      return {
+        ...base,
+        outcome: outcome.outcome,
+        attemptId: outcome.attemptId,
+        message: `Publication attempt ${attemptKey} returned outcome "${outcome.outcome}".`,
+      };
+    }
+  }
+}
+
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
+export async function missionPublishTask(
+  client: KanbanApiClient,
+  args: {
+    missionId: string;
+    attemptKey?: string;
+    title: string;
+    description?: string;
+    priority?: 'low' | 'medium' | 'high' | 'critical';
+    requiredDomain?: string | null;
+    requiredCapabilities?: string[];
+    estimatedMinutes?: number;
+    labels?: string[];
+    dependsOn?: string[];
+    assignment?: { kind: 'auto' } | { kind: 'targeted'; agentId: string };
+    targetedAssignmentDeadline?: string;
+  },
+) {
+  // Idempotent-retry contract: the caller retains the key across an unchanged
+  // Publish; the handler backstops an omitted key with a fresh UUID so a
+  // first-time publish still gets a stable retry identity.
+  const attemptKey =
+    typeof args.attemptKey === 'string' && args.attemptKey.length > 0
+      ? args.attemptKey
+      : randomUUID();
+
+  let outcome: TaskPublicationOutcome;
+  try {
+    outcome = await client.publishTaskInMission(args.missionId, {
+      attemptKey,
+      title: args.title,
+      ...(args.description !== undefined && { description: args.description }),
+      ...(args.priority !== undefined && { priority: args.priority }),
+      ...(args.requiredDomain !== undefined && { requiredDomain: args.requiredDomain }),
+      ...(args.requiredCapabilities !== undefined && { requiredCapabilities: args.requiredCapabilities }),
+      ...(args.estimatedMinutes !== undefined && { estimatedMinutes: args.estimatedMinutes }),
+      ...(args.labels !== undefined && { labels: args.labels }),
+      ...(args.dependsOn !== undefined && { dependsOn: args.dependsOn }),
+      ...(args.assignment !== undefined && { assignment: args.assignment }),
+      ...(args.targetedAssignmentDeadline !== undefined && {
+        targetedAssignmentDeadline: args.targetedAssignmentDeadline,
+      }),
+    });
+  } catch (err) {
+    // The route sends domain outcomes (422 validation / 409 veto / 409
+    // fingerprint / 503 guard) as typed JSON bodies — the transport surfaces
+    // them as ApiClientError. Parse the body and interpret; do NOT re-throw
+    // (these are normal publication results). Non-domain errors (500 from a
+    // programming bug, network failure, etc.) propagate as real failures.
+    if (err instanceof ApiClientError) {
+      const parsed = parsePublicationErrorBody(err);
+      if (parsed !== null) {
+        outcome = parsed;
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  return interpretPublicationOutcome(outcome, attemptKey);
 }
 
 /**
