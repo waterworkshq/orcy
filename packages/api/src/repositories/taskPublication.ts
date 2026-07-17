@@ -893,6 +893,52 @@ export function releaseAssignmentReservationWithClient(
   return classifyReservationCas(db, reservationId, affected);
 }
 
+/**
+ * Retires an `active` reservation to `expired` AND stamps `failureReason` on
+ * the caller-supplied client. Called by the assignment coordinator's Phase 2
+ * deadline branch when the bounded reservation deadline elapsed WITHOUT the
+ * requested claim committing (the requested identity LOST the race against the
+ * clock). Compare-and-set on `state = 'active'`; a concurrent
+ * consume/release/expiry → `no_op` (the winner's row returned UNCHANGED).
+ *
+ * The `expired` transition is DISTINCT from `release`: `release` is a
+ * claim-refusal signal (the requested identity was found INELIGIBLE at the
+ * gate), while `expired` is a TIME-based exhaustion (the claim never settled).
+ * Both open the reservation gate for ordinary claimants — the distinction is
+ * for audit/retry surfaces that need to reconstruct WHY the reservation
+ * retired. `failureReason` carries the preserved reason string (the
+ * coordinator passes `"deadline_exceeded"`).
+ *
+ * Never calls `getDb()`, never opens a tx, never emits effects. Throws
+ * {@link repositoryNotFoundError} only when the reservation does not exist.
+ */
+export function expireAssignmentReservationWithClient(
+  db: TaskPublicationDbClient,
+  reservationId: string,
+  reason: string,
+): ReservationTransitionResult {
+  let affected: number;
+  try {
+    db.update(taskCreationAssignmentReservations)
+      .set({
+        state: "expired",
+        failureReason: reason,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(taskCreationAssignmentReservations.id, reservationId),
+          eq(taskCreationAssignmentReservations.state, "active"),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAssignmentReservation", err as Error, reservationId);
+  }
+  return classifyReservationCas(db, reservationId, affected);
+}
+
 // ---------------------------------------------------------------------------
 // 7b. creationObservationStateForTaskWithClient — the Phase 3 claim-gate signal
 // ---------------------------------------------------------------------------

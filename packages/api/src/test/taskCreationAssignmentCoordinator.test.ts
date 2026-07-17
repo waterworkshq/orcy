@@ -50,10 +50,13 @@ import {
 import {
   consumeAssignmentReservationWithClient,
   releaseAssignmentReservationWithClient,
+  expireAssignmentReservationWithClient,
 } from "../repositories/taskPublication.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import {
   resolveTargetedAssignment,
+  listAttemptsPendingAssignmentWithClient,
+  sweepTargetedAssignments,
   type TargetedAssignmentResolution,
 } from "../services/taskCreationAssignmentCoordinator.js";
 import { FailingDbClient } from "./helpers/failingDbClient.js";
@@ -754,5 +757,415 @@ describe("resolveTargetedAssignment — terminal replay + no_op guards", () => {
       workerId: "w1",
     });
     expect(result.outcome).toBe("not_found");
+  });
+});
+
+// ===========================================================================
+// 8. expireAssignmentReservationWithClient — CAS active → expired + reason
+// ===========================================================================
+
+describe("expireAssignmentReservationWithClient — CAS active → expired + reason", () => {
+  it("transitions an active reservation to expired AND stamps failureReason", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "expire-ok" });
+    const { reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "expire-ok",
+    });
+
+    const result = expireAssignmentReservationWithClient(db, reservationId, "deadline_exceeded");
+
+    expect(result.outcome).toBe("transitioned");
+    const row = readReservation(db, reservationId);
+    expect(row.state).toBe("expired");
+    expect(row.failureReason).toBe("deadline_exceeded");
+  });
+
+  it("returns no_op when the reservation is already expired (CAS loser preserves winner reason)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "expire-replay" });
+    const { reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "expire-replay",
+    });
+    expireAssignmentReservationWithClient(db, reservationId, "deadline_exceeded");
+
+    const result = expireAssignmentReservationWithClient(db, reservationId, "too_late");
+
+    expect(result.outcome).toBe("no_op");
+    expect(result.reservation.state).toBe("expired");
+    // The winner's reason is preserved — the loser never overwrites it.
+    expect(result.reservation.failureReason).toBe("deadline_exceeded");
+  });
+
+  it("returns no_op when the reservation was already consumed (winner was success)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "expire-after-consume" });
+    const { reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "expire-after-consume",
+    });
+    consumeAssignmentReservationWithClient(db, reservationId);
+
+    const result = expireAssignmentReservationWithClient(db, reservationId, "deadline_exceeded");
+
+    expect(result.outcome).toBe("no_op");
+    expect(result.reservation.state).toBe("consumed");
+  });
+});
+
+// ===========================================================================
+// 9. Deadline enforcement (the load-bearing P2 guardrail)
+// ===========================================================================
+
+describe("resolveTargetedAssignment — deadline enforcement", () => {
+  it("deadline elapsed → deadline_exceeded; reservation expired; attempt created_unassigned; Task pending", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "dlx" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "dlx",
+    });
+    // Backdate the deadline so it has already elapsed.
+    db.update(taskCreationAssignmentReservations)
+      .set({ deadline: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(taskCreationAssignmentReservations.id, reservationId))
+      .run();
+
+    const result = resolveTargetedAssignment(attemptId, { db, workerId: "w1" });
+    const dlx = result as Extract<TargetedAssignmentResolution, { outcome: "deadline_exceeded" }>;
+
+    expect(dlx.outcome).toBe("deadline_exceeded");
+    expect(dlx.taskId).toBe(task.id);
+    expect(dlx.deadline).not.toBeNull();
+    // Reservation expired with the typed reason stamped.
+    const resRow = readReservation(db, reservationId);
+    expect(resRow.state).toBe("expired");
+    expect(resRow.failureReason).toBe("deadline_exceeded");
+    // Attempt terminalized to created_unassigned (terminalOutcome recorded).
+    const attemptRow = readAttempt(db, attemptId);
+    expect(attemptRow.state).toBe("created_unassigned");
+    expect(attemptRow.completedAt).not.toBeNull();
+    expect(attemptRow.terminalOutcome).toBe("assignment_deadline_exceeded");
+    // The Task is NOT claimed; it stays pending.
+    const taskRow = readTask(db, task.id);
+    expect(taskRow.status).toBe("pending");
+    expect(taskRow.assignedAgentId).toBeNull();
+  });
+
+  it("after deadline exhaustion, the reservation gate OPENS — a different agent's ordinary claim SUCCEEDS", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const b1 = seedAgent("b1");
+    const { task } = seedMission({ title: "dlx-open" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "dlx-open",
+    });
+    db.update(taskCreationAssignmentReservations)
+      .set({ deadline: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(taskCreationAssignmentReservations.id, reservationId))
+      .run();
+
+    // Before resolution: B is blocked by the active reservation for A.
+    const before = claimWithAuthority(getDb(), task.id, localClaimant(b1.id));
+    expect(before.success).toBe(false);
+    if (!before.success && before.category === "reserved_for_other") {
+      expect(before.reservedFor).toBe(a1.id);
+    }
+
+    resolveTargetedAssignment(attemptId, { db, workerId: "w1" });
+
+    // After deadline exhaustion: the reservation is expired → the gate opens
+    // fully. B's ordinary claim SUCCEEDS (no deps, no reservation blocking).
+    const after = claimWithAuthority(getDb(), task.id, localClaimant(b1.id));
+    expect(after.success).toBe(true);
+    expect(readTask(db, task.id).assignedAgentId).toBe(b1.id);
+  });
+
+  it("deadline NOT yet elapsed → coordinator ignores it and takes the normal claim path (assigned)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "dlx-future" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "dlx-future",
+    });
+    // Deadline is in the future (default seed is now+60s; make it explicit).
+    db.update(taskCreationAssignmentReservations)
+      .set({ deadline: new Date(Date.now() + 120_000).toISOString() })
+      .where(eq(taskCreationAssignmentReservations.id, reservationId))
+      .run();
+
+    const result = resolveTargetedAssignment(attemptId, { db, workerId: "w1" });
+
+    // The future deadline is ignored — the claim path proceeds normally.
+    expect(result.outcome).toBe("assigned");
+    expect(readTask(db, task.id).assignedAgentId).toBe(a1.id);
+    expect(readReservation(db, reservationId).state).toBe("consumed");
+    expect(readAttempt(db, attemptId).state).toBe("created");
+  });
+});
+
+// ===========================================================================
+// 10. Kill-worker resumption via lease-expiry takeover (deadline path)
+// ===========================================================================
+
+describe("resolveTargetedAssignment — kill-worker resumption (deadline path)", () => {
+  it("crash after lease acquire but before resolution: an expired lease is taken over → deadline_exceeded", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "dlx-crash" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "dlx-crash",
+    });
+    // Deadline already elapsed.
+    db.update(taskCreationAssignmentReservations)
+      .set({ deadline: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(taskCreationAssignmentReservations.id, reservationId))
+      .run();
+
+    // Worker-1 acquires a lease then "crashes" (never runs the resolution tx).
+    getDb()
+      .update(taskCreationAttempts)
+      .set({
+        leaseOwner: "dead-worker",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
+
+    // Worker-2 calls the coordinator while worker-1's lease is still active.
+    const blocked = resolveTargetedAssignment(attemptId, { db, workerId: "w2" });
+    expect(blocked.outcome).toBe("lease_unavailable");
+    // Nothing committed by the blocked call.
+    expect(readAttempt(db, attemptId).state).toBe("published_pending_assignment");
+    expect(readReservation(db, reservationId).state).toBe("active");
+
+    // Time passes → worker-1's lease expires. Simulate by backdating the expiry.
+    getDb()
+      .update(taskCreationAttempts)
+      .set({ leaseExpiresAt: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
+
+    // Worker-2 takes over the expired lease (built-in CAS takeover) and the
+    // deadline path completes deterministically.
+    const resumed = resolveTargetedAssignment(attemptId, { db, workerId: "w2" });
+    expect(resumed.outcome).toBe("deadline_exceeded");
+    expect(readReservation(db, reservationId).state).toBe("expired");
+    expect(readAttempt(db, attemptId).state).toBe("created_unassigned");
+    // The Task stays pending + claimable (the gate opened for all claimants).
+    expect(readTask(db, task.id).status).toBe("pending");
+    expect(readTask(db, task.id).assignedAgentId).toBeNull();
+  });
+});
+
+// ===========================================================================
+// 11. listAttemptsPendingAssignmentWithClient — recovery scan
+// ===========================================================================
+
+describe("listAttemptsPendingAssignmentWithClient — recovery scan", () => {
+  it("returns only attempts at published_pending_assignment (terminal + other states excluded)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task: t1 } = seedMission({ title: "scan-ppa-1" });
+    const { attemptId: ppa1 } = seedAssignmentTrail(db, {
+      taskId: t1.id,
+      requestedAgentId: a1.id,
+      suffix: "scan-ppa-1",
+    });
+    const { task: t2 } = seedMission({ title: "scan-ppa-2" });
+    const { attemptId: ppa2 } = seedAssignmentTrail(db, {
+      taskId: t2.id,
+      requestedAgentId: a1.id,
+      suffix: "scan-ppa-2",
+    });
+    // A terminal attempt (created) — must be excluded.
+    const { task: t3 } = seedMission({ title: "scan-created" });
+    seedAssignmentTrail(db, {
+      taskId: t3.id,
+      requestedAgentId: a1.id,
+      suffix: "scan-created",
+      attemptState: "created",
+    });
+    // A pending-observation attempt — must be excluded.
+    const { task: t4 } = seedMission({ title: "scan-obs" });
+    seedAssignmentTrail(db, {
+      taskId: t4.id,
+      requestedAgentId: a1.id,
+      suffix: "scan-obs",
+      attemptState: "published_pending_observation",
+    });
+
+    const result = listAttemptsPendingAssignmentWithClient(db);
+    const ids = result.map((r) => r.id);
+
+    expect(ids).toContain(ppa1);
+    expect(ids).toContain(ppa2);
+    expect(result.every((r) => r.state === "published_pending_assignment")).toBe(true);
+    expect(result).toHaveLength(2);
+  });
+
+  it("bounded: limit caps the page size", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    for (let i = 0; i < 3; i++) {
+      const { task } = seedMission({ title: `scan-limit-${i}` });
+      seedAssignmentTrail(db, {
+        taskId: task.id,
+        requestedAgentId: a1.id,
+        suffix: `scan-limit-${i}`,
+      });
+    }
+
+    const result = listAttemptsPendingAssignmentWithClient(db, { limit: 2 });
+    expect(result).toHaveLength(2);
+  });
+
+  it("offset paginates past earlier rows with no overlap", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    for (let i = 0; i < 3; i++) {
+      const { task } = seedMission({ title: `scan-page-${i}` });
+      seedAssignmentTrail(db, {
+        taskId: task.id,
+        requestedAgentId: a1.id,
+        suffix: `scan-page-${i}`,
+      });
+    }
+
+    const page1 = listAttemptsPendingAssignmentWithClient(db, { limit: 2, offset: 0 });
+    const page2 = listAttemptsPendingAssignmentWithClient(db, { limit: 2, offset: 2 });
+    expect(page1).toHaveLength(2);
+    expect(page2).toHaveLength(1);
+    const page1Ids = new Set(page1.map((r) => r.id));
+    expect(page2.every((r) => !page1Ids.has(r.id))).toBe(true);
+  });
+
+  it("returns an empty array when no attempts are pending assignment", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "scan-empty" });
+    seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "scan-empty",
+      attemptState: "pending",
+    });
+
+    expect(listAttemptsPendingAssignmentWithClient(db)).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// 12. sweepTargetedAssignments — recovery orchestration + idempotency
+// ===========================================================================
+
+describe("sweepTargetedAssignments — recovery orchestration", () => {
+  it("aggregates outcomes across a mixed batch (assigned + deadline_exceeded + refused)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const b1 = seedAgent("b1");
+
+    // (1) An assignable attempt → assigned.
+    const { task: t1 } = seedMission({ title: "sweep-assign" });
+    markPostCutover(t1.id);
+    const { attemptId: att1 } = seedAssignmentTrail(db, {
+      taskId: t1.id,
+      requestedAgentId: a1.id,
+      suffix: "sweep-assign",
+    });
+
+    // (2) A deadline-elapsed attempt → deadline_exceeded.
+    const { task: t2 } = seedMission({ title: "sweep-dlx" });
+    markPostCutover(t2.id);
+    const { attemptId: att2, reservationId: res2 } = seedAssignmentTrail(db, {
+      taskId: t2.id,
+      requestedAgentId: b1.id,
+      suffix: "sweep-dlx",
+    });
+    db.update(taskCreationAssignmentReservations)
+      .set({ deadline: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(taskCreationAssignmentReservations.id, res2))
+      .run();
+
+    // (3) A refused attempt (unmet dependency) → refused.
+    const { task: blocker3 } = seedMission({ title: "sweep-refused-blocker" });
+    const { task: t3 } = seedMission({ title: "sweep-refused" });
+    addTaskDependency(t3.id, blocker3.id); // unmet → ineligible
+    markPostCutover(t3.id);
+    const { attemptId: att3 } = seedAssignmentTrail(db, {
+      taskId: t3.id,
+      requestedAgentId: a1.id,
+      suffix: "sweep-refused",
+    });
+
+    const result = sweepTargetedAssignments({ db });
+
+    expect(result.processed).toBe(3);
+    expect(result.assigned).toBe(1);
+    expect(result.deadlineExceeded).toBe(1);
+    expect(result.refused).toBe(1);
+    expect(result.resumable).toBe(0);
+    expect(result.leaseUnavailable).toBe(0);
+    // Spot-check terminal states.
+    expect(readAttempt(db, att1).state).toBe("created");
+    expect(readAttempt(db, att2).state).toBe("created_unassigned");
+    expect(readAttempt(db, att3).state).toBe("created_unassigned");
+    expect(readReservation(db, res2).state).toBe("expired");
+  });
+
+  it("sweep idempotency: re-sweeping terminal attempts → empty result, no categoricals grow", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "sweep-idem" });
+    markPostCutover(task.id);
+    const { attemptId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "sweep-idem",
+    });
+
+    // First sweep: resolves the one pending attempt (assigned).
+    const first = sweepTargetedAssignments({ db });
+    expect(first.processed).toBe(1);
+    expect(first.assigned).toBe(1);
+    expect(readAttempt(db, attemptId).state).toBe("created");
+
+    // Second sweep: the attempt is now terminal → scan returns nothing (ppa
+    // predicate excludes terminal) → empty result, no errors.
+    const second = sweepTargetedAssignments({ db });
+    expect(second.processed).toBe(0);
+    expect(second.assigned).toBe(0);
+  });
+
+  it("sweep with no pending attempts → empty result, no errors", () => {
+    const db = getDb();
+
+    const result = sweepTargetedAssignments({ db });
+
+    expect(result.processed).toBe(0);
+    expect(result.assigned).toBe(0);
+    expect(result.refused).toBe(0);
+    expect(result.deadlineExceeded).toBe(0);
+    expect(result.resumable).toBe(0);
+    expect(result.leaseUnavailable).toBe(0);
   });
 });

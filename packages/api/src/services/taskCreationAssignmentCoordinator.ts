@@ -57,13 +57,17 @@ import type { TaskPublicationDbClient } from "../repositories/taskPublication.js
 import {
   consumeAssignmentReservationWithClient,
   releaseAssignmentReservationWithClient,
+  expireAssignmentReservationWithClient,
   completeAttemptWithClient,
 } from "../repositories/taskPublication.js";
 import {
   acquireAttemptLeaseWithClient,
   releaseAttemptLeaseWithClient,
 } from "../repositories/taskCreationAttempts.js";
-import type { AttemptLeaseAcquireResult } from "../repositories/taskCreationAttempts.js";
+import type {
+  AttemptLeaseAcquireResult,
+  TaskCreationAttemptRow,
+} from "../repositories/taskCreationAttempts.js";
 import {
   claimWithAuthorityClient,
   mapInfraErrorToFailure,
@@ -133,6 +137,14 @@ export interface ResolveTargetedAssignmentOptions {
  *                        `not_pending` so the P3 retry surface can report who
  *                        won (null = the task flipped status without an
  *                        assignee).
+ * - `deadline_exceeded` — the bounded reservation deadline elapsed WITHOUT the
+ *                        requested claim committing (the requested identity
+ *                        LOST the race against the clock). The reservation is
+ *                        `expired` (with `"deadline_exceeded"` stamped), the
+ *                        attempt terminalized to `created_unassigned`, and the
+ *                        Task is pending + ordinarily claimable (the gate
+ *                        opened for ALL claimants). `deadline` carries the ISO
+ *                        timestamp that elapsed.
  * - `resumable`        — the resolution could NOT complete (transient infra
  *                        failure, CAS conflict, or a defensive
  *                        observation_pending / not_found). NOTHING committed:
@@ -164,6 +176,7 @@ export type TargetedAssignmentResolution =
       /** Present for already_claimed/not_pending (null = status flipped, no assignee). */
       currentAssignee?: { kind: "local" | "remote"; id: string } | null;
     }
+  | { outcome: "deadline_exceeded"; taskId: string; deadline: string }
   | { outcome: "resumable"; category: ClaimFailureCategory }
   | { outcome: "terminal_replay"; attemptId: string; terminalState: string }
   | { outcome: "lease_unavailable"; acquire: AttemptLeaseAcquireResult }
@@ -280,6 +293,33 @@ function resolveAcquired(
   // 3. Run the resolution in ONE transaction (atomicity invariant).
   try {
     return db.transaction((tx) => {
+      // Phase 2 — deadline pre-check (additive branch BEFORE the claim): if the
+      // bounded reservation deadline elapsed WITHOUT the requested claim
+      // committing, the requested identity LOST the race against the clock.
+      // Expire the reservation + terminalize the attempt → created_unassigned in
+      // this SAME tx, leaving the Task pending + ordinarily claimable (the
+      // reservation gate opens for ALL claimants once it is `expired`). A future
+      // deadline (`deadline` in the future) falls through to the claim/refusal/
+      // transient routing below unchanged.
+      if (reservation.deadline !== null && new Date(reservation.deadline).getTime() < Date.now()) {
+        expireAssignmentReservationWithClient(tx, reservation.id, "deadline_exceeded");
+        completeAttemptWithClient(tx, attemptId, {
+          finalState: "created_unassigned",
+          terminalOutcome: "assignment_deadline_exceeded",
+          terminalResult: {
+            outcome: "assignment_deadline_exceeded",
+            attemptId,
+            taskId,
+            assignmentFailure: { reason: "deadline_exceeded" },
+          },
+        });
+        return {
+          outcome: "deadline_exceeded" as const,
+          taskId,
+          deadline: reservation.deadline,
+        };
+      }
+
       const claim = claimWithAuthorityClient(tx, taskId, {
         kind: "local",
         id: requestedAgentId,
@@ -383,4 +423,157 @@ function getActiveReservationForAttempt(
       ),
     )
     .all()[0];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — recovery scan + sweeper
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for {@link listAttemptsPendingAssignmentWithClient}. Mirrors
+ * {@link ListAttemptsPendingObservationOptions} (the observation-scan
+ * counterpart in the dispatch engine) for shape parity.
+ */
+export interface ListAttemptsPendingAssignmentOptions {
+  /** Page size. Defaults to 100. */
+  limit?: number;
+  /** Page offset. Defaults to 0. */
+  offset?: number;
+}
+
+/**
+ * Bounded recovery scan of attempts currently at `published_pending_assignment`
+ * — the surface an operational scheduler (the T11 boot cron) polls to drive
+ * {@link resolveTargetedAssignment}. Oldest-first (`reservedAt` ASC) so
+ * prolonged-pending attempts (and elapsed deadlines) are revisited first.
+ *
+ * Mirrors {@link listAttemptsPendingObservationWithClient} (the dispatch
+ * engine's observation scan) in shape + ordering. Terminal attempts are
+ * excluded by the `state = 'published_pending_assignment'` predicate (terminal
+ * states live outside this state). The scan only READS — all resolution
+ * authority (lease acquire, deadline check, claim, terminalization) stays in
+ * {@link resolveTargetedAssignment}, which the sweeper calls per row.
+ *
+ * Never calls `getDb()`, never opens a tx, never emits external effects.
+ */
+export function listAttemptsPendingAssignmentWithClient(
+  db: TaskPublicationDbClient,
+  opts: ListAttemptsPendingAssignmentOptions = {},
+): TaskCreationAttemptRow[] {
+  const limit = opts.limit ?? 100;
+  const offset = opts.offset ?? 0;
+  return db
+    .select()
+    .from(taskCreationAttempts)
+    .where(eq(taskCreationAttempts.state, "published_pending_assignment"))
+    .orderBy(taskCreationAttempts.reservedAt)
+    .limit(limit)
+    .offset(offset)
+    .all();
+}
+
+/** Options for {@link sweepTargetedAssignments}. */
+export interface SweepTargetedAssignmentsOptions {
+  /** Page size passed to {@link listAttemptsPendingAssignmentWithClient}. */
+  limit?: number;
+  /** Page offset passed to {@link listAttemptsPendingAssignmentWithClient}. */
+  offset?: number;
+  /**
+   * Worker identity forwarded to {@link resolveTargetedAssignment} for each
+   * attempt's lease acquire. Defaults to a fresh `uuid()` PER attempt (each
+   * resolution gets its own worker id so a lease taken on attempt N does not
+   * collide with attempt N+1). Injectable for deterministic sweep tests.
+   */
+  workerId?: string;
+  /**
+   * Test injection: the drizzle client to run against. Defaults to `getDb()`.
+   * Production callers omit this.
+   */
+  db?: TaskPublicationDbClient;
+}
+
+/**
+ * Closed result of {@link sweepTargetedAssignments} — the aggregate over a
+ * single sweep pass. `processed` counts every attempt the sweeper iterated;
+ * the categorical fields tally the per-attempt {@link TargetedAssignmentResolution}
+ * outcomes the coordinator owns. Outcomes that are NOT load-bearing for retry
+ * telemetry (`terminal_replay`, `no_op`, `not_found`) are counted in
+ * `processed` but not in a categorical field (they are no-ops for the sweep).
+ */
+export interface SweepTargetedAssignmentsResult {
+  processed: number;
+  assigned: number;
+  refused: number;
+  deadlineExceeded: number;
+  resumable: number;
+  leaseUnavailable: number;
+}
+
+/**
+ * Recovery entry point — the thin orchestration an operational scheduler (the
+ * T11 boot cron) polls. Scans `published_pending_assignment` attempts (oldest
+ * first) and resolves each via {@link resolveTargetedAssignment}, which owns
+ * ALL resolution authority: lease acquire (with its built-in expired-lease
+ * takeover), the deadline pre-check, and the claim/refusal/transient routing.
+ *
+ * This sweeper is THIN — it does not re-implement lease/deadline/claim logic.
+ * Automatic kill-worker recovery comes from `acquireAttemptLeaseWithClient`'s
+ * CAS already encoding takeover (`leaseOwner IS NULL OR leaseExpiresAt < now`):
+ * a crashed worker's expired lease is re-takeable on a LATER sweep pass, so
+ * repeated sweeps converge. Lease renewal is NOT required — each resolution is
+ * one quick tx (sub-millisecond); there is no long-running work to renew
+ * mid-resolution.
+ *
+ * Sweep idempotency: resolving an already-terminal attempt returns
+ * `terminal_replay` (the lease acquire refuses terminal rows), so a re-sweep
+ * over settled attempts is a safe no-op. The sweeper does NOT build the cron/
+ * queue (cutover concern — T11); it delivers the function the scheduler calls.
+ *
+ * Never calls `getDb()` directly when `opts.db` is injected.
+ */
+export function sweepTargetedAssignments(
+  opts: SweepTargetedAssignmentsOptions = {},
+): SweepTargetedAssignmentsResult {
+  const db = opts.db ?? getDb();
+  const attempts = listAttemptsPendingAssignmentWithClient(db, {
+    limit: opts.limit,
+    offset: opts.offset,
+  });
+  const aggregate: SweepTargetedAssignmentsResult = {
+    processed: 0,
+    assigned: 0,
+    refused: 0,
+    deadlineExceeded: 0,
+    resumable: 0,
+    leaseUnavailable: 0,
+  };
+  for (const attempt of attempts) {
+    // Each attempt resolves with its own lease; forwarding a single workerId
+    // would make attempt N's lease collide with attempt N+1's acquire. Default
+    // to a fresh uuid per attempt; tests may override for determinism.
+    const result = resolveTargetedAssignment(attempt.id, {
+      db,
+      workerId: opts.workerId ?? uuid(),
+    });
+    aggregate.processed++;
+    switch (result.outcome) {
+      case "assigned":
+        aggregate.assigned++;
+        break;
+      case "refused":
+        aggregate.refused++;
+        break;
+      case "deadline_exceeded":
+        aggregate.deadlineExceeded++;
+        break;
+      case "resumable":
+        aggregate.resumable++;
+        break;
+      case "lease_unavailable":
+        aggregate.leaseUnavailable++;
+        break;
+      // terminal_replay | no_op | not_found — counted in processed only.
+    }
+  }
+  return aggregate;
 }
