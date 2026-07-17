@@ -79,9 +79,7 @@ export class FailingDbClient {
     this.errorFactory =
       options.errorFactory ??
       ((record) =>
-        new Error(
-          `Injected failure at write #${record.index} (${record.kind}) for Phase 3 test`,
-        ));
+        new Error(`Injected failure at write #${record.index} (${record.kind}) for Phase 3 test`));
   }
 
   // ---------------------------------------------------------------------------
@@ -92,36 +90,46 @@ export class FailingDbClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   select(...args: any[]): any {
     this.readCount += 1;
-    return (this.inner as unknown as { select: (...a: unknown[]) => unknown }).select(
-      ...args,
-    );
+    return (this.inner as unknown as { select: (...a: unknown[]) => unknown }).select(...args);
   }
 
   /** Wraps the insert builder so terminal `.run()` / `.all()` count as writes. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   insert(table: unknown): any {
-    const innerBuilder = (
-      this.inner as unknown as { insert: (t: unknown) => unknown }
-    ).insert(table);
+    const innerBuilder = (this.inner as unknown as { insert: (t: unknown) => unknown }).insert(
+      table,
+    );
     return this.wrapChain(innerBuilder, "insert", table);
   }
 
   /** Wraps the update builder so terminal `.run()` / `.all()` count as writes. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   update(table: unknown): any {
-    const innerBuilder = (
-      this.inner as unknown as { update: (t: unknown) => unknown }
-    ).update(table);
+    const innerBuilder = (this.inner as unknown as { update: (t: unknown) => unknown }).update(
+      table,
+    );
     return this.wrapChain(innerBuilder, "update", table);
   }
 
   /** Wraps the delete builder so terminal `.run()` / `.all()` count as writes. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete(table: unknown): any {
-    const innerBuilder = (
-      this.inner as unknown as { delete: (t: unknown) => unknown }
-    ).delete(table);
+    const innerBuilder = (this.inner as unknown as { delete: (t: unknown) => unknown }).delete(
+      table,
+    );
     return this.wrapChain(innerBuilder, "delete", table);
+  }
+
+  /**
+   * Pass-through for raw SQL reads (e.g. `db.get(sql\`SELECT changes() AS n\`)`
+   * in {@link checkpointAttemptWithClient}). NOT a write boundary — raw SQL
+   * execution is read-side here; write-counting happens at the insert/update/
+   * delete builder-chain terminals. Without this pass-through the wrapper
+   * cannot proxy a coordinator that composes the checkpoint primitive.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  get(...args: any[]): any {
+    return (this.inner as unknown as { get: (...a: unknown[]) => unknown }).get(...args);
   }
 
   /**

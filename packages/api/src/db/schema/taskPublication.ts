@@ -33,16 +33,21 @@ import { sql } from "drizzle-orm";
  * initial creation event, no durable creation envelope, and no dispatch
  * checkpoint. Every claim path treats them as observation-gate-open.
  *
- * Future versions (`1+`) will mark post-cutover Tasks that traversed the full
- * publication boundary (prospective governance, guarded transaction, committed
- * envelope, dispatch plan). Only those Tasks require the dispatch/reservation
- * gates before claiming.
+ * Post-cutover versions mark Tasks that traversed the full publication boundary
+ * (prospective governance, guarded transaction, committed envelope, dispatch
+ * plan). Only those Tasks require the dispatch/reservation gates before
+ * claiming. The atomic publication coordinator (T3C) stamps `POST_CUTOVER` on
+ * every Task it commits so the claim paths' `isLegacyPartialHistory` gate
+ * engages; without it a published Task would be indistinguishable from a legacy
+ * one and the gates would never fire.
  *
  * No backfill: historical Tasks remain at `0` forever; the cutover is a
  * forward-only marker.
  */
 export const TASK_CREATION_INTEGRITY_VERSION = {
   LEGACY_PARTIAL_HISTORY: 0,
+  /** Stamped by the atomic publication coordinator on every committed Task. */
+  POST_CUTOVER: 1,
 } as const;
 
 export type TaskCreationIntegrityVersion =

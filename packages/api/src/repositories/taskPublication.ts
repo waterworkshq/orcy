@@ -96,6 +96,22 @@ export interface PreparedTaskInput {
   /** When omitted, the primitive allocates `max(order)+1` ON THE PASSED CLIENT. */
   order?: number;
   estimatedMinutes?: number | null;
+  /**
+   * Caller-supplied Task ID. When omitted, the primitive mints a fresh `uuid()`
+   * (byte-identical to the pre-extension behavior). The atomic publication
+   * coordinator (T3C) passes the prospective Task ID so governance-decision /
+   * envelope / reservation linkage resolves to the SAME row — additive;
+   * legacy callers continue to receive a minted id.
+   */
+  id?: string;
+  /**
+   * Creation-integrity version stamped on the inserted row. When omitted, the
+   * column default (`0` = Legacy Partial History) applies — byte-identical to
+   * the pre-extension behavior. The atomic publication coordinator (T3C) passes
+   * {@link TASK_CREATION_INTEGRITY_VERSION.POST_CUTOVER} so the claim paths'
+   * `isLegacyPartialHistory` gate engages on the committed Task. Additive.
+   */
+  creationIntegrity?: number;
 }
 
 /** Prepared initial lifecycle event (`created` / `cloned`) for {@link createTaskEventWithClient}. */
@@ -322,9 +338,13 @@ function isLegalTerminalForward(from: string, to: TerminalResult["finalState"]):
  * Inserts a `tasks` row at status `pending` on the caller-supplied client.
  *
  * Allocates `order` (like `taskCrud.createTask`) but ON THE PASSED CLIENT so the
- * allocation is visible inside the same transaction. Does NOT set
- * `creationIntegrity` — the column defaults to `0` (Legacy Partial History); only
- * the post-cutover publication coordinator stamps a higher version.
+ * allocation is visible inside the same transaction.
+ *
+ * Stamps `creationIntegrity` ONLY when the caller supplies it (T3C passes the
+ * post-cutover version); when omitted the column default (`0` = Legacy Partial
+ * History) applies — byte-identical to the pre-extension behavior. Likewise the
+ * caller may supply an explicit `id` (the prospective Task ID); when omitted the
+ * primitive mints a fresh `uuid()` — byte-identical for legacy callers.
  *
  * Does NOT replace `taskCrud.createTask` (that remains the live path until later
  * tickets retire it). Never calls `getDb()`.
@@ -333,7 +353,7 @@ export function createTaskWithClient(
   db: TaskPublicationDbClient,
   input: PreparedTaskInput,
 ): typeof tasks.$inferSelect {
-  const id = uuid();
+  const id = input.id ?? uuid();
   const now = new Date().toISOString();
 
   let order = input.order;
@@ -365,6 +385,12 @@ export function createTaskWithClient(
         estimatedMinutes: input.estimatedMinutes ?? null,
         createdAt: now,
         updatedAt: now,
+        // Additive (T3C): only stamped when the caller supplies it. Omitted →
+        // the column default (0 = Legacy Partial History) applies, byte-identical
+        // to the pre-extension insert.
+        ...(input.creationIntegrity !== undefined
+          ? { creationIntegrity: input.creationIntegrity }
+          : {}),
       })
       .returning()
       .all();
