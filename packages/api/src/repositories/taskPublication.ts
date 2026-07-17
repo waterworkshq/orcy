@@ -763,6 +763,137 @@ export function hasActiveReservationForAttemptWithClient(
 }
 
 // ---------------------------------------------------------------------------
+// 7c/7d. Reservation state transitions (T5 Phase 1) — active → consumed / released
+//
+// The two one-way transitions out of `state = "active"` that the assignment
+// coordinator (services/taskCreationAssignmentCoordinator.ts) drives atomically
+// with the claim + attempt terminalization:
+//   - consume  — the requested claim SUCCEEDED; the reservation is retired so
+//                the gate (activeReservationForOther) no longer blocks anyone.
+//   - release  — the requested claim was definitively REFUSED (or the bounded
+//                deadline exhausted, a P2 concern); the reservation is retired
+//                AND the specific failure reason is stamped for audit/retry.
+//
+// Both use the SAME compare-and-set shape as {@link completeAttemptWithClient}
+// (`WHERE id AND state = 'active'`, classify from `SELECT changes()`): a
+// concurrent consumer/releaser/expiry is serialized by SQLite, and the loser's
+// CAS matches zero rows → `no_op` (the authoritative row is returned UNCHANGED
+// — the loser never overwrites the winner's state/reason). This is the
+// portable cross-backend pattern (sql.js `run()` does not return `{changes}`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Closed result of {@link consumeAssignmentReservationWithClient} /
+ * {@link releaseAssignmentReservationWithClient}. Mirrors the CAS transition
+ * matrix shape of {@link AttemptCompletionResult}.
+ *
+ * - `transitioned` — the legal `active → consumed|released` CAS UPDATE matched
+ *                    exactly one row (this call retired the reservation).
+ * - `no_op`         — the reservation was ALREADY retired (the CAS
+ *                    `state = 'active'` predicate matched zero rows): a
+ *                    concurrent transition won, or a replay reached this layer.
+ *                    The authoritative row is returned UNCHANGED.
+ */
+export type ReservationTransitionResult =
+  | { outcome: "transitioned"; reservation: typeof taskCreationAssignmentReservations.$inferSelect }
+  | { outcome: "no_op"; reservation: typeof taskCreationAssignmentReservations.$inferSelect };
+
+/** Classify a reservation CAS UPDATE from its affected-row count. Shared by
+ * consume + release so both follow the identical post-CAS re-read + classify
+ * discipline as {@link completeAttemptWithClient} (lines 1057-1070). */
+function classifyReservationCas(
+  db: TaskPublicationDbClient,
+  reservationId: string,
+  affected: number,
+): ReservationTransitionResult {
+  const row = db
+    .select()
+    .from(taskCreationAssignmentReservations)
+    .where(eq(taskCreationAssignmentReservations.id, reservationId))
+    .all()[0];
+  if (!row) throw repositoryNotFoundError("taskCreationAssignmentReservation", reservationId);
+  return affected === 1
+    ? { outcome: "transitioned", reservation: row }
+    : { outcome: "no_op", reservation: row };
+}
+
+/**
+ * Retires an `active` reservation to `consumed` on the caller-supplied client.
+ * Called by the assignment coordinator AFTER the requested claim committed
+ * (the gate was satisfied by the matching identity, the Task is now claimed).
+ * Compare-and-set on `state = 'active'`; a concurrent consume/release/expiry
+ * makes the loser's CAS match zero rows → `no_op` (the winner's row returned
+ * UNCHANGED). Never calls `getDb()`, never opens a tx, never emits effects.
+ *
+ * Throws {@link repositoryNotFoundError} only when the reservation does not
+ * exist (a data-integrity condition, not an expected transition outcome).
+ */
+export function consumeAssignmentReservationWithClient(
+  db: TaskPublicationDbClient,
+  reservationId: string,
+): ReservationTransitionResult {
+  let affected: number;
+  try {
+    db.update(taskCreationAssignmentReservations)
+      .set({ state: "consumed", updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(taskCreationAssignmentReservations.id, reservationId),
+          eq(taskCreationAssignmentReservations.state, "active"),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAssignmentReservation", err as Error, reservationId);
+  }
+  return classifyReservationCas(db, reservationId, affected);
+}
+
+/**
+ * Retires an `active` reservation to `released` AND stamps `failureReason` on
+ * the caller-supplied client. Called by the assignment coordinator when the
+ * requested claim was DEFINITIVELY refused (the gate stays closed for the
+ * requested identity, and the bounded deadline path in P2 will use the same
+ * primitive with `reason: "deadline_exceeded"`). Compare-and-set on
+ * `state = 'active'`; a concurrent consume/release/expiry → `no_op`.
+ *
+ * `failureReason` is a free-form audit string — the coordinator passes the
+ * preserved {@link ClaimRefusalReason} (e.g. `"ineligible"`,
+ * `"dependencies_unmet"`) so retry/audit surfaces can reconstruct why the
+ * reservation was retired without re-reading the attempt's terminalResult.
+ *
+ * Never calls `getDb()`, never opens a tx, never emits effects. Throws
+ * {@link repositoryNotFoundError} only when the reservation does not exist.
+ */
+export function releaseAssignmentReservationWithClient(
+  db: TaskPublicationDbClient,
+  reservationId: string,
+  reason: string,
+): ReservationTransitionResult {
+  let affected: number;
+  try {
+    db.update(taskCreationAssignmentReservations)
+      .set({
+        state: "released",
+        failureReason: reason,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(taskCreationAssignmentReservations.id, reservationId),
+          eq(taskCreationAssignmentReservations.state, "active"),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("taskCreationAssignmentReservation", err as Error, reservationId);
+  }
+  return classifyReservationCas(db, reservationId, affected);
+}
+
+// ---------------------------------------------------------------------------
 // 7b. creationObservationStateForTaskWithClient — the Phase 3 claim-gate signal
 // ---------------------------------------------------------------------------
 
