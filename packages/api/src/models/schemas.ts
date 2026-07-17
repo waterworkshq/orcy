@@ -327,6 +327,17 @@ export const claimTaskSchema = z.object({
   agentId: z.string().uuid().optional(),
 });
 
+/**
+ * T5 Phase 3 — body for `POST /tasks/:taskId/assignment-attempts`. The
+ * targeted-assignment RETRY surface (assigns an EXISTING task, post
+ * `created_unassigned`, to a SPECIFIED agent). Distinct from
+ * {@link claimTaskSchema} which lets the caller claim for themselves — this
+ * route targets an explicit identity.
+ */
+export const assignmentAttemptSchema = z.object({
+  requestedAgentId: z.string().min(1),
+});
+
 export const approveTaskSchema = z.object({
   reviewerId: z.string().min(1),
 });
@@ -457,6 +468,7 @@ export type UpdateColumnInput = z.infer<typeof updateColumnSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type ClaimTaskInput = z.infer<typeof claimTaskSchema>;
+export type AssignmentAttemptInput = z.infer<typeof assignmentAttemptSchema>;
 export type ApproveTaskInput = z.infer<typeof approveTaskSchema>;
 export type RejectTaskInput = z.infer<typeof rejectTaskSchema>;
 export type ReleaseTaskInput = z.infer<typeof releaseTaskSchema>;
