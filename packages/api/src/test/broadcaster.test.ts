@@ -21,8 +21,15 @@ vi.mock("../services/chatService.js", () => ({
   processEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../services/automationEventService.js", () => ({
+  ingestEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { logger } from "../lib/logger.js";
 import * as notificationService from "../services/notificationService.js";
+import { dispatchWebhooks } from "../services/webhookDispatcher.js";
+import { processEvent as chatProcessEvent } from "../services/chatService.js";
+import { ingestEvent } from "../services/automationEventService.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
 
 describe("SSEBroadcaster notifySafe (via triggerNotifications)", () => {
@@ -255,5 +262,93 @@ describe("SSEBroadcaster notifySafe (via triggerNotifications)", () => {
     } as SSEEvent);
 
     expect(notificationService.processEvent).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// publishToClients — pure-SSE seam (T4B Phase 2 routing split)
+//
+// Proves the new ADDITIVE method reaches direct SSE subscribers WITHOUT
+// triggering the domain fan-out (webhook/chat/automation/notifications). The
+// existing `publish` tests above remain UNMODIFIED — they prove `publish` is
+// byte-identical (the load-bearing safety check for the ~30 callers).
+// ===========================================================================
+
+describe("SSEBroadcaster.publishToClients (pure-SSE seam)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reaches direct-SSE subscribers via habitatStreams", () => {
+    const handler = vi.fn();
+    const unsubscribe = sseBroadcaster.subscribe("habitat-pure-sse", handler);
+
+    sseBroadcaster.publishToClients("habitat-pure-sse", {
+      type: "task.deleted",
+      data: { taskId: "t-1" },
+    });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ type: "task.deleted" }));
+    unsubscribe();
+  });
+
+  it("does NOT call dispatchWebhooks (no webhook fan-out)", () => {
+    sseBroadcaster.publishToClients("habitat-pure-sse", {
+      type: "task.deleted",
+      data: { taskId: "t-1" },
+    });
+
+    expect(dispatchWebhooks).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call chatProcessEvent (no chat fan-out)", () => {
+    sseBroadcaster.publishToClients("habitat-pure-sse", {
+      type: "task.deleted",
+      data: { taskId: "t-1" },
+    });
+
+    expect(chatProcessEvent).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call ingestEvent (no automation fan-out)", () => {
+    sseBroadcaster.publishToClients("habitat-pure-sse", {
+      type: "task.deleted",
+      data: { taskId: "t-1" },
+    });
+
+    expect(ingestEvent).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call notificationService.processEvent (no notifications)", () => {
+    // task.claimed would trigger notifications via publish; publishToClients must not.
+    sseBroadcaster.publishToClients("habitat-pure-sse", {
+      type: "task.claimed",
+      data: { taskId: "t-1", agentId: "a-1" },
+    });
+
+    expect(notificationService.processEvent).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when no subscribers are connected (no throw)", () => {
+    expect(() => {
+      sseBroadcaster.publishToClients("habitat-no-subscribers", {
+        type: "task.deleted",
+        data: { taskId: "t-1" },
+      });
+    }).not.toThrow();
+  });
+
+  it("contrast: publish DOES fan out for the same event (proves the split)", () => {
+    // Sanity check that the mocked fan-out targets ARE wired for publish —
+    // so the publishToClients "not called" assertions above are meaningful.
+    // task.deleted starts with "task." so publish's fan-out block fires.
+    sseBroadcaster.publish("habitat-pure-sse", {
+      type: "task.deleted",
+      data: { taskId: "t-1" },
+    });
+
+    expect(dispatchWebhooks).toHaveBeenCalledTimes(1);
+    expect(chatProcessEvent).toHaveBeenCalledTimes(1);
   });
 });

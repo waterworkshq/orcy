@@ -1,5 +1,5 @@
 /**
- * Creation Dispatch Adapters — DORMANT (T4B Phase 1).
+ * Creation Dispatch Adapters — DORMANT (T4B Phase 1 + Phase 2).
  *
  * Six {@link DispatchTargetAdapter} implementations that WRAP the existing
  * fan-out mechanisms (sseBroadcaster, webhook/chat/automation delivery,
@@ -15,11 +15,15 @@
  * via T3C and the T4A dispatcher processes the envelope.
  *
  * Phase 1 covers the CREATE case (one `created` envelope, one signal per
- * consumer). Clone dual-signal / single-handoff is Phase 2.
+ * consumer). Phase 2 adds the CLONE case + the client/domain routing split:
+ * the client-stream adapter emits both `task.cloned` + `task.created` (clone
+ * order) via the pure-SSE `publishToClients`, while the generic adapters hand
+ * off the ONE canonical `created` envelope (no double-trigger via the SSE bus).
  *
- * See: T4B ticket § "Phase 1 grounding" and the Technical Plan § "Post-Commit
+ * See: T4B ticket § "Phase 2 grounding" and the Technical Plan § "Post-Commit
  * Sequencing" (line 450 — required target classes; line 474 — `accepted`
- * semantics).
+ * semantics) and § "Clone observation compatibility" (line 427 — dual-signal
+ * order).
  */
 import { taskCreationEnvelopes } from "../db/schema/index.js";
 import { sseBroadcaster } from "../sse/broadcaster.js";
@@ -112,15 +116,23 @@ function fault(kind: string, envelope: EnvelopeRow, err: unknown): DispatchTarge
 // ---------------------------------------------------------------------------
 
 /**
- * Pushes the `task.created` SSE event to direct clients via
- * `sseBroadcaster.publish`. `accepted` once the publish is attempted — the
- * direct-client push is synchronous; the downstream webhook/chat/automation
- * fan-out the broadcaster triggers is fire-and-forget (durable ingress is the
- * downstream adapters' concern, not this one's).
+ * Pushes creation SSE events to direct clients via the pure-SSE seam
+ * `sseBroadcaster.publishToClients` — NOT `publish` (the domain bus). This is
+ * the load-bearing routing split (T4B Phase 2): the client-stream adapter must
+ * reach direct clients WITHOUT double-firing the generic consumers, which now
+ * fire via their own dedicated adapters (webhook/chat/automation/post-
+ * interceptor/transition) — exactly once per envelope.
  *
- * Wraps: `sseBroadcaster.publish(habitatId, { type: "task.created", data: task })`
- * — same call `emitTransition` → `publishSseForAction` makes for the `"created"`
- * action.
+ * Signal shape mirrors the LIVE emission paths:
+ *  - **`created`** envelope → `task.created` (same shape as
+ *    `transition-emitter.ts:367` and `createTask`).
+ *  - **`cloned`** envelope → `task.cloned` THEN `task.created` (order preserved
+ *    per Technical Plan line 427; mirrors `task-crud.ts:115/120`). Both signals
+ *    correlate to the same envelope `eventId`; `task.cloned` carries
+ *    `{ sourceTaskId, clonedTask }` and `task.created` carries the new task.
+ *
+ * `accepted` once the direct-SSE push is attempted — the direct-client push is
+ * synchronous; downstream generic fan-out is the dedicated adapters' concern.
  */
 export const clientStreamAdapter: DispatchTargetAdapter = {
   targetKind: "client_stream",
@@ -133,7 +145,17 @@ export const clientStreamAdapter: DispatchTargetAdapter = {
           error: `client_stream: task ${envelope.taskId} not found`,
         };
       }
-      sseBroadcaster.publish(envelope.habitatId, { type: "task.created", data: task });
+      if (envelope.lifecycleAction === "cloned") {
+        // Clone dual-signal: task.cloned THEN task.created (mirror task-crud.ts:115/120).
+        // Both via publishToClients so the generic bus is NOT triggered twice.
+        sseBroadcaster.publishToClients(envelope.habitatId, {
+          type: "task.cloned",
+          data: { sourceTaskId: envelope.cloneSourceTaskId ?? "", clonedTask: task },
+        });
+        sseBroadcaster.publishToClients(envelope.habitatId, { type: "task.created", data: task });
+      } else {
+        sseBroadcaster.publishToClients(envelope.habitatId, { type: "task.created", data: task });
+      }
       return { outcome: "accepted" };
     } catch (err) {
       return fault("client_stream", envelope, err);

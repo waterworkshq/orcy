@@ -48,7 +48,7 @@ vi.mock("../repositories/task.js", () => ({
 }));
 
 vi.mock("../sse/broadcaster.js", () => ({
-  sseBroadcaster: { publish: vi.fn() },
+  sseBroadcaster: { publish: vi.fn(), publishToClients: vi.fn() },
 }));
 
 vi.mock("../services/webhookDispatcher.js", () => ({
@@ -131,6 +131,24 @@ const testEnvelope: EnvelopeRow = {
   cloneSourceTaskId: null,
 };
 
+// Clone envelope — lifecycleAction "cloned" + cloneSourceTaskId set (mirrors
+// the envelope a T3C-published clone produces). The new task is still
+// `mockTask` (resolveTask returns it for `taskId`); `cloneSourceTaskId` is the
+// SOURCE task the clone was copied from (matches `task-crud.ts` live shape).
+const clonedEnvelope: EnvelopeRow = {
+  eventId: "evt-clone-001",
+  lifecycleAction: "cloned",
+  taskId: "task-adapter-test",
+  habitatId: "habitat-adapter-test",
+  occurredAt: new Date().toISOString(),
+  attemptId: "attempt-clone",
+  actorType: "human",
+  actorId: "user-1",
+  source: "test",
+  causalContext: { root: { type: "test", id: "root-1" } },
+  cloneSourceTaskId: "task-source-001",
+};
+
 const testTarget: TargetRow = {
   id: "target-test-001",
   eventId: "evt-test-001",
@@ -204,34 +222,161 @@ describe("registerCreationDispatchAdapters", () => {
 });
 
 // ===========================================================================
-// 3. clientStreamAdapter
+// 3. clientStreamAdapter — Phase 2: publishToClients + clone dual-signal +
+// routing split (no domain fan-out from the client-stream path).
 // ===========================================================================
 
 describe("clientStreamAdapter", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns accepted and publishes task.created SSE via sseBroadcaster", () => {
+  // ----- Created single-signal (Phase 1 invariant, now via publishToClients) -----
+
+  it("returns accepted and emits task.created via publishToClients (created envelope)", () => {
     const result = clientStreamAdapter.attempt(testEnvelope, testTarget);
     expectAccepted(result);
-    expect(sseBroadcaster.publish).toHaveBeenCalledWith(testEnvelope.habitatId, {
+    expect(sseBroadcaster.publishToClients).toHaveBeenCalledWith(testEnvelope.habitatId, {
       type: "task.created",
       data: mockTask,
     });
+    // Exactly one SSE signal for a created envelope.
+    expect(sseBroadcaster.publishToClients).toHaveBeenCalledTimes(1);
   });
 
   it("returns attention when task not found (no silent claimability)", () => {
     vi.mocked(taskRepo.getTaskById).mockReturnValueOnce(null);
     const result = clientStreamAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "not found");
-    expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+    expect(sseBroadcaster.publishToClients).not.toHaveBeenCalled();
   });
 
-  it("returns attention when sseBroadcaster.publish throws", () => {
-    vi.mocked(sseBroadcaster.publish).mockImplementationOnce(() => {
+  it("returns attention when publishToClients throws", () => {
+    vi.mocked(sseBroadcaster.publishToClients).mockImplementationOnce(() => {
       throw new Error("SSE transport down");
     });
     const result = clientStreamAdapter.attempt(testEnvelope, testTarget);
     expectAttention(result, "SSE transport down");
+  });
+
+  // ----- Clone dual-signal (Phase 2 invariant) -----
+
+  it("emits task.cloned THEN task.created for a cloned envelope (order + count + shape)", () => {
+    const result = clientStreamAdapter.attempt(clonedEnvelope, {
+      ...testTarget,
+      targetKind: "client_stream",
+      eventId: clonedEnvelope.eventId,
+    });
+    expectAccepted(result);
+
+    // Exactly TWO publishToClients calls — one cloned, one created.
+    expect(sseBroadcaster.publishToClients).toHaveBeenCalledTimes(2);
+
+    // Order: cloned THEN created (mirror task-crud.ts:115/120).
+    const calls = vi.mocked(sseBroadcaster.publishToClients).mock.calls;
+    expect(calls[0][1].type).toBe("task.cloned");
+    expect(calls[1][1].type).toBe("task.created");
+
+    // Shape: task.cloned carries { sourceTaskId, clonedTask }.
+    expect(calls[0][0]).toBe(clonedEnvelope.habitatId);
+    expect(calls[0][1]).toEqual({
+      type: "task.cloned",
+      data: { sourceTaskId: "task-source-001", clonedTask: mockTask },
+    });
+
+    // Shape: task.created carries the new task.
+    expect(calls[1][0]).toBe(clonedEnvelope.habitatId);
+    expect(calls[1][1]).toEqual({ type: "task.created", data: mockTask });
+
+    // publish (the domain bus) is NEVER called by the client-stream adapter.
+    expect(sseBroadcaster.publish).not.toHaveBeenCalled();
+  });
+
+  // ----- Routing split (the load-bearing Phase 2 invariant) -----
+
+  it("routing split: client-stream adapter NEVER triggers domain fan-out (no webhook/chat/automation)", () => {
+    // Created envelope — the single-signal case.
+    clientStreamAdapter.attempt(testEnvelope, testTarget);
+    expect(dispatchWebhooks).not.toHaveBeenCalled();
+    expect(chatProcessEvent).not.toHaveBeenCalled();
+    expect(ingestEvent).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+
+    // Cloned envelope — the dual-signal case. Even with TWO publishToClients
+    // calls, none of the generic domain consumers fire (they have their own
+    // dedicated adapters).
+    clientStreamAdapter.attempt(clonedEnvelope, testTarget);
+    expect(dispatchWebhooks).not.toHaveBeenCalled();
+    expect(chatProcessEvent).not.toHaveBeenCalled();
+    expect(ingestEvent).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// 3b. Generic single-handoff (Phase 2 invariant) — cloned envelope fires each
+// generic adapter EXACTLY ONCE (the canonical `created`), not twice.
+// ===========================================================================
+
+describe("generic adapters — clone single-handoff (one envelope → one call each)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("webhookAdapter fires exactly once for a cloned envelope (task.created shape)", () => {
+    const result = webhookAdapter.attempt(clonedEnvelope, {
+      ...testTarget,
+      targetKind: "webhook",
+      eventId: clonedEnvelope.eventId,
+    });
+    expectAccepted(result);
+    expect(dispatchWebhooks).toHaveBeenCalledTimes(1);
+    expect(dispatchWebhooks).toHaveBeenCalledWith(clonedEnvelope.habitatId, {
+      type: "task.created",
+      data: mockTask,
+    });
+  });
+
+  it("chatAdapter fires exactly once for a cloned envelope (task.created shape)", () => {
+    const result = chatAdapter.attempt(clonedEnvelope, {
+      ...testTarget,
+      targetKind: "chat",
+      eventId: clonedEnvelope.eventId,
+    });
+    expectAccepted(result);
+    expect(chatProcessEvent).toHaveBeenCalledTimes(1);
+    expect(chatProcessEvent).toHaveBeenCalledWith(
+      "task.created",
+      clonedEnvelope.habitatId,
+      expect.objectContaining({ id: mockTask.id }),
+    );
+  });
+
+  it("automationAdapter fires exactly once for a cloned envelope (task.created shape)", () => {
+    const result = automationAdapter.attempt(clonedEnvelope, {
+      ...testTarget,
+      targetKind: "automation",
+      eventId: clonedEnvelope.eventId,
+    });
+    expectAccepted(result);
+    expect(ingestEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("postInterceptorAdapter fires exactly once for a cloned envelope", () => {
+    const result = postInterceptorAdapter.attempt(clonedEnvelope, {
+      ...testTarget,
+      targetKind: "post_interceptor",
+      eventId: clonedEnvelope.eventId,
+    });
+    expectAccepted(result);
+    expect(runPostInterceptors).toHaveBeenCalledTimes(1);
+  });
+
+  it("transitionSubscriberAdapter fires exactly once for a cloned envelope (action 'created')", () => {
+    const result = transitionSubscriberAdapter.attempt(clonedEnvelope, {
+      ...testTarget,
+      targetKind: "transition_subscriber",
+      eventId: clonedEnvelope.eventId,
+    });
+    expectAccepted(result);
+    expect(notifyTransition).toHaveBeenCalledTimes(1);
+    expect(notifyTransition).toHaveBeenCalledWith(expect.objectContaining({ action: "created" }));
   });
 });
 
@@ -574,14 +719,14 @@ describe("Integration with processEnvelopeDispatchWithClient", () => {
       // First pass: adapter called, target accepted.
       const first = processEnvelopeDispatchWithClient(db, attemptId);
       expect(first.outcome).toBe("dispatched");
-      const firstCallCount = vi.mocked(sseBroadcaster.publish).mock.calls.length;
+      const firstCallCount = vi.mocked(sseBroadcaster.publishToClients).mock.calls.length;
 
       // Second pass: target is already accepted → NOT re-attempted.
       const second = processEnvelopeDispatchWithClient(db, attemptId);
       expect(second.outcome).toBe("dispatched");
       if (second.outcome !== "dispatched") return;
       expect(second.targets).toHaveLength(0); // no outstanding targets
-      expect(vi.mocked(sseBroadcaster.publish).mock.calls.length).toBe(firstCallCount);
+      expect(vi.mocked(sseBroadcaster.publishToClients).mock.calls.length).toBe(firstCallCount);
     } finally {
       await closeDb();
     }
