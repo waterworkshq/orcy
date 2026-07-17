@@ -782,3 +782,49 @@ function ledgerRowToRecorded(
 export function guardCarriesPhase1Sentinel(guard: PublicationGuard): boolean {
   return guard.interceptorEnrollmentFingerprint === PHASE1_INTERCEPTOR_FINGERPRINT_PLACEHOLDER;
 }
+
+// ---------------------------------------------------------------------------
+// Additive helpers for Phase 3 guard re-verify + commit authorization
+// (these re-expose the private freeze path without duplicating the serializer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-freezes the CURRENT batch admission for a habitat — the SAME path
+ * {@link freezeBatchAdmission} takes at governance time. Returns the full
+ * {@link FrozenBatchAdmissionSnapshot} so Phase 3's commit-authorization check
+ * can recompute per-interceptor governance fingerprints against the live
+ * enrollment/configuration state.
+ *
+ * This is an additive public alias for the private {@link freezeBatchAdmission}
+ * (governance-time freeze). It does NOT duplicate the serializer, reach into
+ * private registry state, or modify any runtime code. Phase 3's
+ * {@link authorizeCommitFromGovernance} uses it to distinguish a matching
+ * decision revision (governance fingerprint computed with the CURRENT
+ * enrollment) from a stale one (computed with an earlier enrollment).
+ *
+ * DORMANT: no production caller until Phase 3's re-verify/authorization
+ * primitives are composed into the publication tx by T3C.
+ */
+export function freezeCurrentBatchAdmission(habitatId: string): FrozenBatchAdmissionSnapshot {
+  return freezeBatchAdmission(habitatId);
+}
+
+/**
+ * Computes the CURRENT enrollment/configuration fingerprint for a habitat —
+ * the SAME value {@link freezeBatchAdmission} stamps onto a governed guard.
+ * Phase 3's {@link verifyPublicationGuard} re-verify primitive recomputes this
+ * and compares it to {@link PublicationGuard.interceptorEnrollmentFingerprint}
+ * to detect enrollment/config drift between governance and commit.
+ *
+ * This is the minimal-surface additive helper the Phase 3 ticket specifies:
+ * it mirrors the governance-time fingerprint path WITHOUT exposing the full
+ * frozen snapshot (which carries live handler references). Internally it
+ * delegates to {@link freezeBatchAdmission} + the private serializer — it does
+ * NOT duplicate the fingerprint computation or reach into private state.
+ *
+ * DORMANT: no production caller until Phase 3's re-verify primitive is
+ * composed into the publication tx by T3C.
+ */
+export function computeCurrentEnrollmentFingerprint(habitatId: string): string {
+  return freezeBatchAdmission(habitatId).enrollmentFingerprint;
+}
