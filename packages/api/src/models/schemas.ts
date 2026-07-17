@@ -93,6 +93,74 @@ export const createTaskInMissionSchema = z.object({
   order: z.number().int().default(0),
 });
 
+/**
+ * T6 Phase 2 — body for `POST /missions/:missionId/task-publications`
+ * (the dormant REST publication route exposing {@link publishTaskCreation}).
+ *
+ * Distinct from {@link createTaskInMissionSchema} (legacy, T11 swaps it):
+ *   - carries `attemptKey` (the client-supplied retry identity; retained
+ *     across an unchanged Publish so the adapter can idempotently resume);
+ *   - has NO `order` field — the kernel allocates `max(order)+1` in
+ *     `createTaskWithClient`; the route MUST NOT force one;
+ *   - carries an explicit `assignment` intent (auto | targeted);
+ *   - `targetedAssignmentDeadline` is REQUIRED when `assignment.kind ===
+ *     "targeted"` (the adapter throws otherwise; the route surfaces the
+ *     constraint as a 422 via `.superRefine` instead of leaking the
+ *     throwable).
+ *
+ * DORMANT: the legacy `POST /missions/:missionId/tasks` +
+ * {@link createTaskInMissionSchema} stay byte-unchanged until T11 swaps
+ * them. The new route ships alongside them.
+ */
+export const taskPublicationAssignmentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("auto") }),
+  z.object({
+    kind: z.literal("targeted"),
+    agentId: z.string().min(1),
+  }),
+]);
+
+export const taskPublicationSchema = z
+  .object({
+    /** Client-supplied attempt identity — retained across unchanged Publishes. */
+    attemptKey: z.string().min(1),
+
+    /** Work-definition fields (mirror the kernel's canonical proposal). */
+    title: z.string().min(1).max(500),
+    description: z.string().max(10000).optional(),
+    priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+    requiredDomain: z.string().nullable().optional(),
+    requiredCapabilities: z.array(z.string()).optional(),
+    estimatedMinutes: z.number().int().positive().nullable().optional(),
+    labels: z.array(z.string()).optional(),
+    dependsOn: z.array(z.string().uuid()).optional(),
+
+    /** Assignment intent — defaults to `{kind:"auto"}`. */
+    assignment: taskPublicationAssignmentSchema.optional().default({ kind: "auto" }),
+
+    /**
+     * Targeted-assignment reservation deadline. REQUIRED when
+     * `assignment.kind === "targeted"`; the adapter throws otherwise. ISO
+     * timestamp (e.g. `new Date(Date.now() + 24*3600_000).toISOString()`).
+     * The cross-field constraint is enforced by `.superRefine` below to
+     * surface as a typed 422 instead of leaking the adapter's throw.
+     */
+    targetedAssignmentDeadline: z.string().datetime().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.assignment.kind === "targeted" && value.targetedAssignmentDeadline === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetedAssignmentDeadline"],
+        message:
+          "targetedAssignmentDeadline is required when assignment.kind === 'targeted' " +
+          "(the adapter reserves the seat until this ISO timestamp).",
+      });
+    }
+  });
+
+export type TaskPublicationInput = z.infer<typeof taskPublicationSchema>;
+
 const importHabitatSchemaBody = z.object({
   version: z.number(),
   exportedAt: z.string().datetime(),
@@ -570,3 +638,4 @@ export type MissionQueryInput = z.infer<typeof missionQuerySchema>;
 export type MoveMissionInput = z.infer<typeof moveMissionSchema>;
 export type ReorderColumnsInput = z.infer<typeof reorderColumnsSchema>;
 export type CreateTaskInMissionInput = z.infer<typeof createTaskInMissionSchema>;
+export type TaskPublicationAssignment = z.infer<typeof taskPublicationAssignmentSchema>;
