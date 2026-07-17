@@ -49,7 +49,10 @@ export async function authenticateRealtime(
 }
 
 /** Shared habitat-membership check used by both habitat-param and mission-param authorization. */
-async function checkHabitatAccess(request: FastifyRequest, habitatId: string): Promise<void> {
+export async function checkHabitatAccess(
+  request: FastifyRequest,
+  habitatId: string,
+): Promise<void> {
   const habitat = getHabitatById(habitatId);
   if (!habitat) {
     throw notFound("Habitat not found");

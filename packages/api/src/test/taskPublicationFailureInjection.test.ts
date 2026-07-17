@@ -649,6 +649,11 @@ describe("completeAttemptWithClient terminal-replay no-side-effects", () => {
   it("a re-call with DIFFERENT terminal values performs ZERO writes on the wrapper", () => {
     const db = getDb();
     const attemptId = seedAttempt(db, "replay-1");
+    // `created` is a legal terminal ONLY from `published_pending_assignment`.
+    db.update(taskCreationAttempts)
+      .set({ state: "published_pending_assignment" })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
 
     // First completion — real DB, captures the row + completedAt.
     const first = completeAttemptWithClient(db, attemptId, {
@@ -656,13 +661,15 @@ describe("completeAttemptWithClient terminal-replay no-side-effects", () => {
       finalState: "created",
       terminalResult: { outcome: "created", taskId: "t-original" },
     });
-    expect(first.state).toBe("created");
-    const firstCompletedAt = first.completedAt;
+    expect(first.outcome).toBe("completed");
+    if (first.outcome !== "completed") return;
+    expect(first.attempt.state).toBe("created");
+    const firstCompletedAt = first.attempt.completedAt;
     expect(firstCompletedAt).not.toBeNull();
 
     // Second call: re-use a wrapper to assert NO writes happen at this layer.
-    // The primitive does a SELECT existing first (read through wrapper) then,
-    // because completedAt !== null, returns existing WITHOUT calling UPDATE.
+    // The primitive reads current (through wrapper) then, because completedAt
+    // !== null, returns the authoritative row WITHOUT calling UPDATE.
     const w = new FailingDbClient(db, { failAtWriteN: null });
     const second = completeAttemptWithClient(asPubClient(w), attemptId, {
       // DIFFERENT values — would corrupt state if the idempotency guard were missing.
@@ -674,13 +681,15 @@ describe("completeAttemptWithClient terminal-replay no-side-effects", () => {
     // CRITICAL invariant: zero writes on the wrapper.
     expect(w.writeCount).toBe(0);
     expect(w.writes).toHaveLength(0);
-    // The primitive DID read the attempt (existence guard + idempotency check).
+    // The primitive DID read the attempt (replay fast-path read).
     expect(w.readCount).toBeGreaterThanOrEqual(1);
     // The returned row is the original — terminal fields untouched.
-    expect(second.completedAt).toBe(firstCompletedAt);
-    expect(second.terminalOutcome).toBe("created");
-    expect(second.state).toBe("created");
-    expect(second.terminalResult?.taskId).toBe("t-original");
+    expect(second.outcome).toBe("no_op");
+    if (second.outcome !== "no_op") return;
+    expect(second.attempt.completedAt).toBe(firstCompletedAt);
+    expect(second.attempt.terminalOutcome).toBe("created");
+    expect(second.attempt.state).toBe("created");
+    expect(second.attempt.terminalResult?.taskId).toBe("t-original");
 
     // **Failure mode that breaks this assertion**: if the idempotency guard
     // (`if (existing.completedAt !== null) return existing`) were missing, the
@@ -979,12 +988,14 @@ describe("checkpointAttemptWithClient transition matrix (M4 fix)", () => {
     });
 
     // Racer: between the primitive's in-tx read (state=observation) and its
-    // conditional UPDATE, a concurrent worker TERMINALIZES the attempt.
+    // conditional UPDATE, a concurrent worker ADVANCES the attempt via the
+    // legal checkpoint observation→assignment. (Pre-R1 the racer terminalized
+    // observation→created; R1's legal terminal matrix now rejects that as a
+    // forward-skip past the assignment gate, so the meaningful concurrent
+    // mutation is a legal checkpoint advance — same CAS-race shape.)
     const racer = raceInjectingClient(db, (inner) => {
-      completeAttemptWithClient(inner, attemptId, {
-        terminalOutcome: "created",
-        finalState: "created",
-        terminalResult: { outcome: "created", taskId: "t-race-winner" },
+      checkpointAttemptWithClient(inner, attemptId, {
+        stage: "published_pending_assignment",
       });
     });
 
@@ -993,18 +1004,20 @@ describe("checkpointAttemptWithClient transition matrix (M4 fix)", () => {
     });
 
     // The conditional UPDATE's WHERE (state = observation) did NOT match (the
-    // racer moved state to `created`), so the result is no_op — NOT a transition
-    // onto a terminal state.
+    // racer moved state to assignment), so the result is no_op — NOT a
+    // transition. R5 classifies by the affected-row count (0), not the re-read
+    // state, so even though the re-read sees the target the outcome is no_op.
     expect(result.outcome).toBe("no_op");
     // The row reflects the concurrent winner, untouched by our UPDATE.
-    expect(result.attempt.state).toBe("created");
-    expect(result.attempt.completedAt).not.toBeNull();
-    expect(result.attempt.terminalResult?.taskId).toBe("t-race-winner");
+    expect(result.attempt.state).toBe("published_pending_assignment");
+    expect(result.attempt.completedAt).toBeNull();
 
     // **Failure mode**: if the UPDATE were unconditional (the M4 defect — no
     // `AND state = fromState` in the WHERE), our UPDATE would have OVERWRITTEN
-    // the racer's terminal `created` row back to published_pending_assignment
-    // (state corruption + lost completedAt), and outcome would be "transitioned".
+    // the racer's `published_pending_assignment` row (re-stamping publishedAt
+    // and losing the winner's transition), and outcome would be "transitioned".
+    // R5's affected-row classification additionally catches the case where the
+    // re-read happens to show the target despite a zero-row UPDATE.
   });
 });
 
@@ -1016,6 +1029,11 @@ describe("completeAttemptWithClient + checkpoint terminal-lock", () => {
   it("completeAttempt is idempotent on re-call, THEN a checkpoint transition is rejected", () => {
     const db = getDb();
     const attemptId = seedAttempt(db, "term-lock-1");
+    // `created` is a legal terminal ONLY from `published_pending_assignment`.
+    db.update(taskCreationAttempts)
+      .set({ state: "published_pending_assignment" })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
 
     // First completion → terminal `created`.
     const first = completeAttemptWithClient(db, attemptId, {
@@ -1023,9 +1041,11 @@ describe("completeAttemptWithClient + checkpoint terminal-lock", () => {
       finalState: "created",
       terminalResult: { outcome: "created", taskId: "t-first" },
     });
-    expect(first.state).toBe("created");
-    expect(first.completedAt).not.toBeNull();
-    const firstCompletedAt = first.completedAt;
+    expect(first.outcome).toBe("completed");
+    if (first.outcome !== "completed") return;
+    expect(first.attempt.state).toBe("created");
+    expect(first.attempt.completedAt).not.toBeNull();
+    const firstCompletedAt = first.attempt.completedAt;
 
     // Idempotent re-call: prior completion is authoritative, no overwrite.
     const second = completeAttemptWithClient(db, attemptId, {
@@ -1033,9 +1053,11 @@ describe("completeAttemptWithClient + checkpoint terminal-lock", () => {
       finalState: "created_unassigned",
       terminalResult: { outcome: "created_unassigned", taskId: "t-DIFFERENT" },
     });
-    expect(second.completedAt).toBe(firstCompletedAt);
-    expect(second.state).toBe("created");
-    expect(second.terminalResult?.taskId).toBe("t-first");
+    expect(second.outcome).toBe("no_op");
+    if (second.outcome !== "no_op") return;
+    expect(second.attempt.completedAt).toBe(firstCompletedAt);
+    expect(second.attempt.state).toBe("created");
+    expect(second.attempt.terminalResult?.taskId).toBe("t-first");
 
     // Terminal-lock: once completedAt is set, the transition API refuses to
     // reopen — terminalization is a one-way door.

@@ -12,7 +12,7 @@
  * origin routes through it yet. Phase 2 owns the prospective interceptor
  * transition; Phase 3 owns guard re-verify inside the publication tx.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { tasks } from "../db/schema/index.js";
@@ -20,6 +20,7 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
 import * as missionRepo from "../repositories/mission.js";
 import { createTask } from "../repositories/taskCrud.js";
+import * as taskQueries from "../repositories/taskQueries.js";
 import {
   prepareTaskPublication,
   PHASE1_INTERCEPTOR_FINGERPRINT_PLACEHOLDER,
@@ -460,5 +461,82 @@ describe("prepareTaskPublication — guard captures mutable state for re-verify"
     // The captured snapshot is now stale — Phase 3 re-verify detects it.
     expect(captured.status).toBe("pending"); // unchanged snapshot
     expect(captured.version).toBe(1); // unchanged snapshot
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3B Phase R — cold-review remediation (R2 malformed-input + R3 one-snapshot).
+// ---------------------------------------------------------------------------
+
+describe("R2 — malformed input returns rejected_validation (validation decisions never throw)", () => {
+  it("non-array selectedDependencies → rejected_validation (not a TypeError)", () => {
+    // OLD code: `selectedDeps.map(...)` threw TypeError on a string because
+    // `input.selectedDependencies ?? []` kept the truthy non-array. NEW code
+    // normalizes to a safe array first and collects the shape error.
+    const result = prepareTaskPublication(
+      baseInput({ selectedDependencies: "not-an-array" as never }),
+    );
+    expect(result.outcome).toBe("rejected_validation");
+    if (result.outcome !== "rejected_validation") return;
+    expect(result.errors.some((e) => e.code === "invalid_selected_dependencies_shape")).toBe(true);
+  });
+
+  it("non-string description → rejected_validation (not a TypeError from .trim())", () => {
+    const result = prepareTaskPublication(baseInput({ description: 12345 as never }));
+    expect(result.outcome).toBe("rejected_validation");
+    if (result.outcome !== "rejected_validation") return;
+    expect(result.errors.some((e) => e.code === "invalid_description_shape")).toBe(true);
+  });
+
+  it("non-string requestedAssigneeId → rejected_validation", () => {
+    const result = prepareTaskPublication(baseInput({ requestedAssigneeId: 42 as never }));
+    expect(result.outcome).toBe("rejected_validation");
+    if (result.outcome !== "rejected_validation") return;
+    expect(result.errors.some((e) => e.code === "invalid_requested_assignee_shape")).toBe(true);
+  });
+
+  it("non-string subtask assigneeId → rejected_validation", () => {
+    const result = prepareTaskPublication(
+      baseInput({ subtasks: [{ title: "ok", assigneeId: false as never }] }),
+    );
+    expect(result.outcome).toBe("rejected_validation");
+    if (result.outcome !== "rejected_validation") return;
+    expect(result.errors.some((e) => e.code === "invalid_subtask_assignee_shape")).toBe(true);
+  });
+});
+
+describe("R3 — guard captures the validated dependency snapshot from ONE read", () => {
+  it("getTasksByIds is called exactly ONCE regardless of dep count (no per-dep guard re-read)", () => {
+    const depA = seedTask("r3-dep-a");
+    const depB = seedTask("r3-dep-b");
+    const spy = vi.spyOn(taskQueries, "getTasksByIds");
+
+    const result = prepareTaskPublication(
+      baseInput({
+        selectedDependencies: [{ dependsOnId: depA }, { dependsOnId: depB }],
+      }),
+    );
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+
+    // NEW: ONE getTasksByIds call (the validated snapshot reused for the guard).
+    // OLD code: 1 (validation) + 2 (per-dep blind re-read in guard-build) = 3.
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("the captured snapshot matches the validated rows (id + version + status), coherently", () => {
+    const dep = seedTask("r3-snap");
+    const result = prepareTaskPublication(
+      baseInput({ selectedDependencies: [{ dependsOnId: dep }] }),
+    );
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+    expect(result.guard.dependencies).toHaveLength(1);
+    const snap = result.guard.dependencies[0];
+    expect(snap.taskId).toBe(dep);
+    const depRow = getDb().select().from(tasks).where(eq(tasks.id, dep)).get();
+    expect(snap.version).toBe(depRow?.version);
+    expect(snap.status).toBe(depRow?.status);
   });
 });

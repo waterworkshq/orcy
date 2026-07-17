@@ -1,0 +1,23 @@
+-- 0055: Authorization-scope column on task_creation_attempts (T3B Phase R / R4).
+--
+-- The authorized `GET /task-creation-attempts/:attemptId` route must resolve the
+-- caller's habitat access before projecting recovery state. Previously the
+-- route was authenticated-only (`agentOrHumanAuth` establishes identity but no
+-- habitat-membership / actor-ownership check), so any valid user/agent who
+-- obtained an attempt UUID could read another habitat's terminal result,
+-- committed IDs, and lease ownership.
+--
+-- `habitat_id` is the authorization scope: persisted at reservation time and
+-- re-used by the GET route's membership check. It is plain TEXT with NO foreign
+-- key — NON-cascading by design, for the same reason `committed_task_id` /
+-- `committed_mission_id` are plain text: a replacement Habitat import deletes
+-- and recreates the Habitat row (cascading to missions/tasks), but the attempt
+-- is operational/audit history that MUST survive. Authorization is therefore
+-- resolved against the habitats table at read time (the membership check treats
+-- a since-deleted habitat as not-found → access refused), never derived from a
+-- Mission/Task FK that disappears on replacement.
+--
+-- Nullable: the column is additive on a dormant table (no production rows), and
+-- the reservation primitive (the sole writer) always populates it; nullable
+-- keeps the migration a safe additive ALTER with no backfill.
+ALTER TABLE task_creation_attempts ADD COLUMN habitat_id TEXT;

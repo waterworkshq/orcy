@@ -69,6 +69,7 @@ function baseInput(overrides: Partial<ReserveAttemptInput> = {}): ReserveAttempt
     attemptKey: "key-1",
     requestFingerprint: "fp-1",
     publicationKind: "create",
+    habitatId,
     actorType: "human",
     actorId: "user-1",
     ...overrides,
@@ -293,6 +294,43 @@ describe("concurrent acquire — compare-and-set", () => {
     // and just returned `acquired` whenever the row existed, B would also report
     // `acquired`. The `held_by_other` outcome proves the re-read sees A's
     // committed lease and the predicate prevented B's write.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4b. R6 — same-worker reacquire on an ACTIVE lease reports `already_owned`
+//     (not a false `acquired`), and the lease is NOT extended.
+// ---------------------------------------------------------------------------
+
+describe("R6 — same-worker active reacquire classifies by affected-row count", () => {
+  it("reacquire on an own active lease with a longer durationMs → already_owned, leaseExpiresAt UNCHANGED", () => {
+    const attempt = seedPendingAttempt();
+    const db = getDb();
+
+    // First acquire on a free lease → acquired, installs a SHORT expiry.
+    const first = acquireAttemptLeaseWithClient(db, attempt.id, "worker-A", 1_000);
+    expect(first.outcome).toBe("acquired");
+    if (first.outcome !== "acquired") return;
+    const firstExpiry = first.attempt.leaseExpiresAt;
+    expect(firstExpiry).toBeTruthy();
+
+    // Same worker reacquires with a LONGER duration. The free-lease CAS
+    // predicate rejects the UPDATE (lease is active, not free) → affected=0.
+    // OLD code (classify by re-read: leaseOwner === workerId) returned a FALSE
+    // `acquired` while leaseExpiresAt stayed at the short expiry — a resumed
+    // worker would believe it held a fresh lease. NEW code reports
+    // `already_owned` (caller must use renew to extend).
+    const second = acquireAttemptLeaseWithClient(db, attempt.id, "worker-A", 60_000);
+    expect(second.outcome).toBe("already_owned");
+    if (second.outcome !== "already_owned") return;
+    // The lease is UNCHANGED — NOT extended to the longer duration.
+    expect(second.attempt.leaseExpiresAt).toBe(firstExpiry);
+    expect(second.attempt.leaseOwner).toBe("worker-A");
+
+    // **Failure mode**: OLD code returned `acquired` here (re-read saw
+    // leaseOwner === workerId), so this assertion (`already_owned`) fails on
+    // the pre-fix code and `leaseExpiresAt` would have read as the short
+    // expiry while the caller believed it requested 60s.
   });
 });
 

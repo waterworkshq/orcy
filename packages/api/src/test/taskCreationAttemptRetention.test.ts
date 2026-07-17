@@ -69,6 +69,7 @@ function baseInput(overrides: Partial<ReserveAttemptInput> = {}): ReserveAttempt
     attemptKey: "key-1",
     requestFingerprint: "fp-1",
     publicationKind: "create",
+    habitatId,
     actorType: "human",
     actorId: "user-1",
     ...overrides,
@@ -475,9 +476,7 @@ describe("compactAttemptDetailsWithClient — *WithClient contract", () => {
   it("returns not_found via the caller-supplied client when the id does not exist", () => {
     const db = getDb();
 
-    const result = db.transaction((tx) =>
-      compactAttemptDetailsWithClient(tx, "does-not-exist"),
-    );
+    const result = db.transaction((tx) => compactAttemptDetailsWithClient(tx, "does-not-exist"));
 
     expect(result.outcome).toBe("not_found");
 

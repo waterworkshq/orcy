@@ -398,6 +398,19 @@ function collectFieldErrors(input: PrepareTaskPublicationInput): PublicationErro
     });
   }
 
+  // --- description (string-or-absent; canonicalize calls .trim()) ---
+  if (
+    input.description !== undefined &&
+    input.description !== null &&
+    typeof input.description !== "string"
+  ) {
+    errors.push({
+      field: "description",
+      code: "invalid_description_shape",
+      message: "description must be a string (or omitted).",
+    });
+  }
+
   // --- priority ---
   if (input.priority !== undefined && !VALID_PRIORITIES.has(input.priority)) {
     errors.push({
@@ -476,11 +489,7 @@ function collectFieldErrors(input: PrepareTaskPublicationInput): PublicationErro
   }
 
   // --- provenance presence ---
-  if (
-    !input.actor ||
-    typeof input.actor !== "object" ||
-    typeof input.actor.type !== "string"
-  ) {
+  if (!input.actor || typeof input.actor !== "object" || typeof input.actor.type !== "string") {
     errors.push({
       field: "actor",
       code: "invalid_actor",
@@ -555,6 +564,17 @@ function collectFieldErrors(input: PrepareTaskPublicationInput): PublicationErro
             message: `subtasks[${i}].order must be a non-negative integer.`,
           });
         }
+        if (
+          st.assigneeId !== undefined &&
+          st.assigneeId !== null &&
+          typeof st.assigneeId !== "string"
+        ) {
+          errors.push({
+            field: `subtasks[${i}].assigneeId`,
+            code: "invalid_subtask_assignee_shape",
+            message: `subtasks[${i}].assigneeId must be a string (or null).`,
+          });
+        }
       });
     }
   }
@@ -580,6 +600,19 @@ function collectFieldErrors(input: PrepareTaskPublicationInput): PublicationErro
     }
   }
 
+  // --- requestedAssigneeId (string-or-null when present) ---
+  if (
+    input.requestedAssigneeId !== undefined &&
+    input.requestedAssigneeId !== null &&
+    typeof input.requestedAssigneeId !== "string"
+  ) {
+    errors.push({
+      field: "requestedAssigneeId",
+      code: "invalid_requested_assignee_shape",
+      message: "requestedAssigneeId must be a string (or null).",
+    });
+  }
+
   return errors;
 }
 
@@ -601,10 +634,13 @@ function canonicalize(
     priority: input.priority ?? "medium",
     labels: input.labels ?? [],
     requiredDomain:
-      input.requiredDomain === undefined ? null : input.requiredDomain === null ? null : input.requiredDomain,
+      input.requiredDomain === undefined
+        ? null
+        : input.requiredDomain === null
+          ? null
+          : input.requiredDomain,
     requiredCapabilities: input.requiredCapabilities ?? [],
-    estimatedMinutes:
-      input.estimatedMinutes === undefined ? null : input.estimatedMinutes,
+    estimatedMinutes: input.estimatedMinutes === undefined ? null : input.estimatedMinutes,
     subtasks: (input.subtasks ?? []).map((st, i) => ({
       title: st.title.trim(),
       order: st.order ?? i,
@@ -613,8 +649,7 @@ function canonicalize(
     selectedDependencies: (input.selectedDependencies ?? []).map((d) => ({
       dependsOnId: d.dependsOnId,
     })),
-    requestedAssigneeId:
-      input.requestedAssigneeId === undefined ? null : input.requestedAssigneeId,
+    requestedAssigneeId: input.requestedAssigneeId === undefined ? null : input.requestedAssigneeId,
     cloneSourceTaskId: isNonEmpty(input.cloneSourceTaskId) ? input.cloneSourceTaskId! : null,
     actor: input.actor,
     auditSource: input.auditSource,
@@ -647,9 +682,7 @@ function canonicalize(
  * @see CanonicalTaskPublicationProposal — the prepared proposal shape.
  * @see PublicationGuard — the mutable-state snapshot Phase 3 re-verifies.
  */
-export function prepareTaskPublication(
-  input: PrepareTaskPublicationInput,
-): PrepareTaskResult {
+export function prepareTaskPublication(input: PrepareTaskPublicationInput): PrepareTaskResult {
   const errors: PublicationError[] = [];
 
   // 1. Field validation (collected, never short-circuited).
@@ -700,11 +733,23 @@ export function prepareTaskPublication(
 
   // 3. Dependency-graph integrity (existence, scope, self-ref, dup, cycle).
   //    Reuses getTasksByIds + wouldCreateTaskCycle (read-only).
-  const prospectiveTaskId = isNonEmpty(input.prospectiveTaskId)
-    ? input.prospectiveTaskId
-    : uuid();
+  const prospectiveTaskId = isNonEmpty(input.prospectiveTaskId) ? input.prospectiveTaskId : uuid();
 
-  const selectedDeps = input.selectedDependencies ?? [];
+  // Normalize untrusted input into a SAFE local array FIRST. A non-array
+  // (e.g. a string) is recorded as `invalid_selected_dependencies_shape` by
+  // collectFieldErrors above; here it is treated as empty so the graph checks
+  // and guard capture below never `.map`/iterate a non-array and throw —
+  // validation DECISIONS never throw, they return rejected_validation.
+  const selectedDeps = Array.isArray(input.selectedDependencies) ? input.selectedDependencies : [];
+  // ONE validated snapshot of the depended-on tasks, captured during the
+  // existence+scope check (3c) and REUSED for guard capture. R3: the guard
+  // MUST capture the mutable state that was ACTUALLY validated — a second
+  // read could see a row deleted/changed between validation and capture,
+  // crashing on a blind `[0]` deref or capturing state never scope-checked.
+  const depById = new Map<
+    string,
+    { id: string; version: number; status: TaskStatus; missionId: string }
+  >();
   if (selectedDeps.length > 0) {
     // 3a. Self-reference (the Phase-1 cycle-class rejection — a new task with
     //     only outgoing edges cannot otherwise form a topological cycle, so
@@ -735,7 +780,14 @@ export function prepareTaskPublication(
     // 3c. Existence + scope (same-Habitat as the authoritative Habitat).
     const depIds = [...new Set(selectedDeps.map((d) => d.dependsOnId))];
     const depTasks = getTasksByIds(depIds);
-    const depById = new Map(depTasks.map((t) => [t.id, t]));
+    for (const t of depTasks) {
+      depById.set(t.id, {
+        id: t.id,
+        version: t.version,
+        status: t.status,
+        missionId: t.missionId,
+      });
+    }
     for (const depId of depIds) {
       const depTask = depById.get(depId);
       if (!depTask) {
@@ -785,14 +837,18 @@ export function prepareTaskPublication(
   const proposal = canonicalize(input, prospectiveTaskId);
   const resolvedMission = mission!;
 
-  // The depended-on tasks' id + version + status snapshot. The publication tx
-  // re-verifies these (Phase 3): if a depended-on task's version/status
+  // The depended-on tasks' id + version + status snapshot, captured from the
+  // SINGLE validated read (depById, 3c) — NOT a fresh re-read. The publication
+  // tx re-verifies these (Phase 3): if a depended-on task's version/status
   // changed between preparation and commit, the guard mismatches and the
-  // attempt re-prepares under the same pending key.
-  const dependencySnapshots = (input.selectedDependencies ?? []).map((d) => {
-    const t = getTasksByIds([d.dependsOnId])[0];
-    return { taskId: t.id, version: t.version, status: t.status };
-  });
+  // attempt re-prepares under the same pending key. Reusing depById guarantees
+  // the guard captures exactly the state that passed existence+scope+cycle
+  // validation (R3); a missing row here is a coherent `dangling_dependency`
+  // already collected above, never a blind-deref crash.
+  const dependencySnapshots = selectedDeps
+    .map((d) => depById.get(d.dependsOnId))
+    .filter((t): t is { id: string; version: number; status: TaskStatus; missionId: string } => !!t)
+    .map((t) => ({ taskId: t.id, version: t.version, status: t.status }));
 
   const guard: PublicationGuard = {
     missionId: resolvedMission.id,

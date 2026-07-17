@@ -93,6 +93,52 @@ function seedAttempt(db: TaskPublicationDbClient, suffix = "1"): string {
   return id;
 }
 
+/**
+ * Deterministic competing-writer probe (the R5 CAS-race simulation).
+ *
+ * Wraps a real drizzle client so the FIRST `update(...).run()` on the wrapped
+ * client invokes `inject()` BEFORE delegating the real UPDATE — reproducing a
+ * concurrent writer that mutates the row between the function's in-tx read and
+ * its conditional UPDATE. On single-threaded sql.js the in-tx read and the
+ * UPDATE otherwise always agree, so the CAS race (UPDATE matches zero rows
+ * while the re-read sees the target) is only reachable via this injection.
+ * `inject` runs against the REAL (unwrapped) client so it does not re-trigger
+ * the probe. `select`/`get`/`insert` pass through untouched.
+ */
+function withCompetingWrite<T extends TaskPublicationDbClient>(realDb: T, inject: () => void): T {
+  const wrapBuilder = (builder: unknown, onRun: () => void): unknown =>
+    new Proxy(builder as object, {
+      get(target, prop) {
+        if (prop === "run") {
+          return (...args: unknown[]) => {
+            onRun();
+            return (target as { run: (...a: unknown[]) => unknown }).run(...args);
+          };
+        }
+        const value = (target as Record<string | symbol, unknown>)[prop];
+        if (typeof value === "function") {
+          return (...args: unknown[]) => {
+            const result = (value as (...a: unknown[]) => unknown).apply(target, args);
+            return result && typeof result === "object" ? wrapBuilder(result, onRun) : result;
+          };
+        }
+        return value;
+      },
+    });
+
+  return new Proxy(realDb, {
+    get(target, prop) {
+      const value = (target as Record<string | symbol, unknown>)[prop];
+      if (prop === "update") {
+        return (...args: unknown[]) =>
+          wrapBuilder((target as { update: (...a: unknown[]) => unknown }).update(...args), inject);
+      }
+      if (typeof value === "function") return value.bind(target);
+      return value;
+    },
+  }) as T;
+}
+
 // ---------------------------------------------------------------------------
 // 1. createTaskWithClient — insert + readback + order allocation via passed tx
 // ---------------------------------------------------------------------------
@@ -415,6 +461,40 @@ describe("checkpointAttemptWithClient", () => {
       }),
     ).toThrow();
   });
+
+  it("R5: a losing same-target CAS reports no_op, not transitioned (classifies by affected-row count)", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "r5-race");
+    // Sit at the observation checkpoint so observation→assignment is the legal
+    // forward path under test.
+    db.update(taskCreationAttempts)
+      .set({ state: "published_pending_observation" })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
+
+    let injected = false;
+    const probed = withCompetingWrite(db, () => {
+      // Simulate a concurrent writer advancing observation→assignment BEFORE
+      // this call's CAS UPDATE executes. The conditional WHERE
+      // (state = observation) now matches ZERO rows, but the re-read sees the
+      // target. OLD code (classify by re-read state) would return
+      // "transitioned"; NEW code (affected-row count) returns "no_op".
+      injected = true;
+      db.update(taskCreationAttempts)
+        .set({ state: "published_pending_assignment" })
+        .where(eq(taskCreationAttempts.id, attemptId))
+        .run();
+    });
+
+    const result = checkpointAttemptWithClient(probed, attemptId, {
+      stage: "published_pending_assignment",
+    });
+    expect(injected).toBe(true);
+    expect(result.outcome).toBe("no_op");
+    if (result.outcome !== "no_op") return;
+    // The winner's (concurrent writer's) row is returned unchanged.
+    expect(result.attempt.state).toBe("published_pending_assignment");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -422,43 +502,61 @@ describe("checkpointAttemptWithClient", () => {
 // ---------------------------------------------------------------------------
 
 describe("completeAttemptWithClient", () => {
-  it("sets terminal fields + final state on first call", () => {
+  it("sets terminal fields + final state on first call (legal assignment→created terminal)", () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
+    // Advance to the assignment checkpoint — `created` is a legal terminal
+    // ONLY from `published_pending_assignment` (pending→created would bypass
+    // the observation/assignment gates; R1 rejects that pair).
+    db.update(taskCreationAttempts)
+      .set({ state: "published_pending_assignment" })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
 
-    const row = completeAttemptWithClient(db, attemptId, {
+    const result = completeAttemptWithClient(db, attemptId, {
       terminalOutcome: "created",
       finalState: "created",
       terminalResult: { outcome: "created", taskId: "t-1" },
     });
-    expect(row.state).toBe("created");
-    expect(row.terminalOutcome).toBe("created");
-    expect(row.completedAt).not.toBeNull();
-    expect(row.terminalResult?.outcome).toBe("created");
+    expect(result.outcome).toBe("completed");
+    if (result.outcome !== "completed") return;
+    expect(result.attempt.state).toBe("created");
+    expect(result.attempt.terminalOutcome).toBe("created");
+    expect(result.attempt.completedAt).not.toBeNull();
+    expect(result.attempt.terminalResult?.outcome).toBe("created");
   });
 
-  it("is idempotent on re-call — does not overwrite the prior completion", () => {
+  it("is idempotent on re-call — a second completion returns the original terminal unchanged (CAS loser)", () => {
     const db = getDb();
     const attemptId = seedAttempt(db);
+    db.update(taskCreationAttempts)
+      .set({ state: "published_pending_assignment" })
+      .where(eq(taskCreationAttempts.id, attemptId))
+      .run();
 
     const first = completeAttemptWithClient(db, attemptId, {
       terminalOutcome: "created",
       finalState: "created",
       terminalResult: { outcome: "created", taskId: "t-1" },
     });
-    const firstCompletedAt = first.completedAt;
+    expect(first.outcome).toBe("completed");
+    if (first.outcome !== "completed") return;
+    const firstCompletedAt = first.attempt.completedAt;
 
-    // Re-call with a DIFFERENT terminal result — the prior completion is authoritative.
+    // Re-call with a DIFFERENT terminal result — the prior completion is
+    // authoritative (terminal-replay fast path → no_op, winner unchanged).
     const second = completeAttemptWithClient(db, attemptId, {
       terminalOutcome: "created_unassigned",
       finalState: "created_unassigned",
       terminalResult: { outcome: "created_unassigned", taskId: "t-2" },
     });
 
-    expect(second.completedAt).toBe(firstCompletedAt);
-    expect(second.terminalOutcome).toBe("created");
-    expect(second.state).toBe("created");
-    expect(second.terminalResult?.outcome).toBe("created");
+    expect(second.outcome).toBe("no_op");
+    if (second.outcome !== "no_op") return;
+    expect(second.attempt.completedAt).toBe(firstCompletedAt);
+    expect(second.attempt.terminalOutcome).toBe("created");
+    expect(second.attempt.state).toBe("created");
+    expect(second.attempt.terminalResult?.outcome).toBe("created");
   });
 
   it("throws notFound when the attempt does not exist", () => {
@@ -468,5 +566,42 @@ describe("completeAttemptWithClient", () => {
         finalState: "vetoed",
       }),
     ).toThrow();
+  });
+
+  it("R1: rejects an illegal terminal pair (pending→created bypasses the observation/assignment gates)", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "r1-illegal");
+    // Attempt sits at `pending`; `created` is reachable only via BOTH
+    // checkpoints. R1 routes completion through the transition matrix, so the
+    // pending→created bypass is rejected (OLD code accepted it via the
+    // permissive `.where(eq(id))` UPDATE).
+
+    const result = completeAttemptWithClient(db, attemptId, {
+      terminalOutcome: "created",
+      finalState: "created",
+      terminalResult: { outcome: "created", taskId: "t-1" },
+    });
+    expect(result.outcome).toBe("rejected_transition");
+    if (result.outcome !== "rejected_transition") return;
+    expect(result.fromState).toBe("pending");
+    expect(result.toFinalState).toBe("created");
+    // No terminalization happened — state + completedAt untouched.
+    expect(result.attempt.state).toBe("pending");
+    expect(result.attempt.completedAt).toBeNull();
+  });
+
+  it("R1: accepts the legal early-exit pair pending→rejected_validation", () => {
+    const db = getDb();
+    const attemptId = seedAttempt(db, "r1-legal-exit");
+
+    const result = completeAttemptWithClient(db, attemptId, {
+      terminalOutcome: "rejected_validation",
+      finalState: "rejected_validation",
+      terminalResult: { outcome: "rejected_validation" },
+    });
+    expect(result.outcome).toBe("completed");
+    if (result.outcome !== "completed") return;
+    expect(result.attempt.state).toBe("rejected_validation");
+    expect(result.attempt.completedAt).not.toBeNull();
   });
 });

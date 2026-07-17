@@ -143,6 +143,15 @@ export const taskCreationAttempts = sqliteTable(
     actorId: text("actor_id").notNull(),
     causalContext: text("causal_context", { mode: "json" }).$type<CausalContextJson>(),
 
+    // --- authorization scope (T3B Phase R / R4) ---
+    // Plain TEXT (NO FK) — NON-cascading, same design as committed_task_id /
+    // committed_mission_id: the authorized GET route resolves the caller's
+    // habitat membership against this id at read time, and it must survive a
+    // replacement Habitat import that deletes/recreates the Habitat row.
+    // Populated at reservation; the GET route refuses access when null or when
+    // the caller lacks the habitat's membership.
+    habitatId: text("habitat_id"),
+
     // --- state machine ---
     state: text("state", {
       enum: [

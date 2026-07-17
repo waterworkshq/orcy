@@ -31,7 +31,7 @@ import {
   taskCreationAssignmentReservations,
   missionRecalculationMarkers,
 } from "../db/schema/index.js";
-import { and, eq, max, sql } from "drizzle-orm";
+import { and, eq, isNull, max, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 import {
   repositoryCreateError,
@@ -222,6 +222,39 @@ export type AttemptTransitionResult =
     };
 
 /**
+ * Closed result of {@link completeAttemptWithClient} — terminalization through
+ * the same compare-and-set transition matrix as
+ * {@link checkpointAttemptWithClient}. Never throws for an expected completion
+ * decision; only infrastructure failures (retryable transport) throw.
+ *
+ * - `completed`           — the legal `fromState→finalState` CAS UPDATE matched
+ *                           exactly one row (this call installed the terminal
+ *                           state, timestamp, and result).
+ * - `no_op`               — the attempt was ALREADY terminal (the CAS
+ *                           `completedAt IS NULL` predicate matched zero rows):
+ *                           a concurrent completion won, or a terminal replay
+ *                           reached this layer. The authoritative terminal row
+ *                           is returned UNCHANGED — the loser never overwrites
+ *                           the winner's result.
+ * - `rejected_transition` — the `fromState→finalState` pair is illegal (e.g.
+ *                           `pending→created` bypasses the observation/
+ *                           assignment gates, or a terminal state is being
+ *                           re-asserted via a different `finalState`).
+ *                           `fromState`/`toFinalState` carry the rejected pair.
+ */
+export type AttemptCompletionResult =
+  | { outcome: "completed"; attempt: typeof taskCreationAttempts.$inferSelect }
+  | { outcome: "no_op"; attempt: typeof taskCreationAttempts.$inferSelect }
+  | {
+      outcome: "rejected_transition";
+      attempt: typeof taskCreationAttempts.$inferSelect;
+      /** Live state read on the passed client when the request was decided. */
+      fromState: string;
+      /** Final state the request named. */
+      toFinalState: TerminalResult["finalState"];
+    };
+
+/**
  * Terminal attempt states — once reached, the transition API refuses any
  * further active-work transition (the one-way terminal door). Set both by
  * {@link completeAttemptWithClient} and reachable directly from `pending`
@@ -248,6 +281,36 @@ function isLegalCheckpointForward(from: string, to: AttemptCheckpoint["stage"]):
   if (from === "pending" && to === "published_pending_observation") return true;
   if (from === "published_pending_observation" && to === "published_pending_assignment")
     return true;
+  return false;
+}
+
+/**
+ * Legal forward TERMINAL transitions ONLY (completion / terminalization). Pairs
+ * the live `fromState` with the requested `finalState`. Terminalization is a
+ * one-way door that must respect the forward-only state machine:
+ *   - `pending` → early failure exits (`rejected_validation`, `vetoed`,
+ *     `batch_rejected`) — governance/validation failures detected before any
+ *     checkpoint. `pending → created*` is REJECTED (success requires passing
+ *     both checkpoints; a direct jump would bypass the observation/assignment
+ *     gates).
+ *   - `published_pending_assignment` → success terminals (`created`,
+ *     `created_unassigned`) — reached only after the assignment gate.
+ *   - `published_pending_observation` → NO terminal: a success terminal here
+ *     would skip the assignment gate; a failure terminal is a Phase-2
+ *     governance exit not modeled in Phase 1. Rejected to keep completion a
+ *     strict forward door.
+ *
+ * Same {@link isLegalCheckpointForward} machinery + the canonical
+ * {@link TERMINAL_ATTEMPT_STATES} set — the forward invariant is shared, not
+ * per-function.
+ */
+function isLegalTerminalForward(from: string, to: TerminalResult["finalState"]): boolean {
+  if (from === "pending") {
+    return to === "rejected_validation" || to === "vetoed" || to === "batch_rejected";
+  }
+  if (from === "published_pending_assignment") {
+    return to === "created" || to === "created_unassigned";
+  }
   return false;
 }
 
@@ -629,10 +692,16 @@ export function createAssignmentReservationWithClient(
  *      a concurrent state mutation between the read and the write no-ops rather
  *      than corrupting. `publishedAt` is preserved via `COALESCE` (the FIRST
  *      checkpoint wins; later transitions never overwrite it).
- *   6. Re-verify by re-read (sql.js-safe — `runResult.changes` is undefined in
- *      the test driver, so the re-read is the portable detector). State advanced
- *      to `toStage` → `transitioned`; otherwise a concurrent writer won the
- *      race → `no_op` with the actual current row.
+ *   6. Classify from the UPDATE's **affected-row count** on the SAME client
+ *      via `SELECT changes() AS n` (mirrors `mission.ts`; works on BOTH
+ *      better-sqlite3 and sql.js, unlike drizzle's `run().changes` which is
+ *      undefined in the test driver). `transitioned` ONLY when THIS UPDATE
+ *      advanced exactly one row; a concurrent writer that moved state between
+ *      the in-tx read (step 1) and this conditional UPDATE makes the
+ *      `state = fromState` predicate match zero rows → `no_op` with the
+ *      winner's row. Re-reading alone is INSUFFICIENT — a losing CAS whose
+ *      target state a concurrent writer happened to reach would see the
+ *      target on re-read and falsely report `transitioned`.
  *
  * Throws {@link repositoryNotFoundError} only when the attempt does not exist
  * (a data-integrity / transport condition, not an expected transition outcome).
@@ -676,7 +745,11 @@ export function checkpointAttemptWithClient(
   //    current state, so a concurrent state change between the read and the
   //    write no-ops rather than corrupting. COALESCE preserves the FIRST
   //    publishedAt across subsequent transitions.
+  // 6. Classify from the UPDATE's affected-row count (NOT the re-read state):
+  //    a losing CAS whose target a concurrent writer reached would show the
+  //    target on re-read, so only a one-row change counts as `transitioned`.
   const publishedAt = publication.publishedAt ?? new Date().toISOString();
+  let affected: number;
   try {
     db.update(taskCreationAttempts)
       .set({
@@ -685,13 +758,18 @@ export function checkpointAttemptWithClient(
       })
       .where(and(eq(taskCreationAttempts.id, attemptId), eq(taskCreationAttempts.state, fromState)))
       .run();
+    // `SELECT changes()` returns the rows affected by the LAST statement on
+    // this connection — portable across both backends (mission.ts:324).
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
   } catch (err) {
     throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
   }
 
-  // 6. Re-verify by re-read (sql.js-safe). The conditional UPDATE took effect
-  //    only if state advanced to the target; a WHERE mismatch (concurrent writer
-  //    moved state between the read and the write) leaves state !== toStage.
+  // Re-read the current row: when affected === 1 it is the row we just
+  // advanced; when affected === 0 a concurrent writer moved state between the
+  // in-tx read (step 1) and the conditional UPDATE, so this is the winner's
+  // row. The row is the RETURN VALUE for both outcomes — the OUTCOME is
+  // decided solely by the affected-row count above.
   const row = db
     .select()
     .from(taskCreationAttempts)
@@ -699,10 +777,9 @@ export function checkpointAttemptWithClient(
     .all()[0];
   if (!row) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
 
-  if (row.state === toStage) {
-    return { outcome: "transitioned", attempt: row };
-  }
-  return { outcome: "no_op", attempt: row };
+  return affected === 1
+    ? { outcome: "transitioned", attempt: row }
+    : { outcome: "no_op", attempt: row };
 }
 
 // ---------------------------------------------------------------------------
@@ -711,56 +788,122 @@ export function checkpointAttemptWithClient(
 
 /**
  * Terminates a `task_creation_attempts` row: sets the nullable terminal fields
- * (`terminal_outcome`, `terminal_result`, `completed_at`) and the final `state`.
+ * (`terminal_outcome`, `terminal_result`, `completed_at`) and the final `state`
+ * through the SAME compare-and-set transition matrix as
+ * {@link checkpointAttemptWithClient} (the R1 fix — the prior `.where(eq(id))`
+ * UPDATE bypassed the matrix and was not compare-and-set).
  *
- * IDEMPOTENT on re-call: if the attempt is already completed (`completed_at` is
- * set), the existing row is returned UNCHANGED — the terminal timestamp and
- * result are not overwritten. This guarantees no side effects when a terminal
- * replay reaches this layer. Never calls `getDb()`.
+ * Decision order (all on the passed client — never `getDb()`, never a nested
+ * tx, never an external effect):
+ *   1. Read the current row (in-tx decision support).
+ *   2. Terminal-replay fast path: `completedAt !== null` → `no_op` returning
+ *      the authoritative terminal row UNCHANGED (a prior completion wins; the
+ *      loser never overwrites the winner). The legality of a SETTLED attempt
+ *      is not re-judged.
+ *   3. Legal-pair check on the LIVE (non-terminal) `fromState`:
+ *      {@link isLegalTerminalForward}(`fromState`, `finalState`). An illegal
+ *      pair (e.g. `pending→created`, which would bypass the observation/
+ *      assignment gates) → `rejected_transition`.
+ *   4. Compare-and-set UPDATE `WHERE id AND state = fromState AND completedAt
+ *      IS NULL`: the `completedAt IS NULL` predicate is the terminal-lock CAS
+ *      — two concurrent completions both pass the read-side fast path (both
+ *      read non-terminal), but only one UPDATE matches (the other's
+ *      `completedAt` is now non-null). The `state = fromState` predicate
+ *      additionally guards against state drift between the read and the write.
+ *   5. Classify from the UPDATE's affected-row count (`SELECT changes() AS n`,
+ *      portable across both backends). One row → `completed` (this call
+ *      installed the terminal envelope). Zero rows → `no_op`: a concurrent
+ *      completion terminalized the attempt between the read and the UPDATE, so
+ *      the authoritative terminal row is returned UNCHANGED.
  *
- * Terminal-lock integration (T3A Phase 2): terminalization is a one-way door.
- * Once `completedAt` is set here, {@link checkpointAttemptWithClient} refuses
- * any further transition (its step 2 treats `completedAt !== null` as
- * terminal-locked → `rejected_transition`). Together this primitive + the
- * transition matrix enforce the T3A guardrail: "terminal replay cannot
- * transition back to active work."
+ * Terminal-lock integration (T3A Phase 2): once `completedAt` is set here,
+ * {@link checkpointAttemptWithClient} refuses any further transition (its
+ * step 2 treats `completedAt !== null` as terminal-locked →
+ * `rejected_transition`). Together this primitive + the checkpoint matrix
+ * enforce the T3A guardrail: "terminal replay cannot transition back to
+ * active work."
+ *
+ * Throws {@link repositoryNotFoundError} only when the attempt does not exist.
  */
 export function completeAttemptWithClient(
   db: TaskPublicationDbClient,
   attemptId: string,
   terminal: TerminalResult,
-): typeof taskCreationAttempts.$inferSelect {
-  const existing = db
+): AttemptCompletionResult {
+  // 1. In-tx read of the current state (supports the legal-pair + CAS decision).
+  const current = db
     .select()
     .from(taskCreationAttempts)
     .where(eq(taskCreationAttempts.id, attemptId))
     .all()[0];
-  if (!existing) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
+  if (!current) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
 
-  // Idempotency: a prior completion is authoritative — return it as-is.
-  if (existing.completedAt !== null) return existing;
+  const fromState = current.state;
+  const toFinalState = terminal.finalState;
 
+  // 2. Terminal-replay fast path: an attempt that is ALREADY terminal
+  //    (`completedAt !== null`) is authoritative — return it UNCHANGED as
+  //    `no_op`, regardless of the requested `finalState`. This is the
+  //    idempotent re-call / replay case (the prior completion wins; a loser
+  //    never overwrites the winner's result/timestamp). The legality of a
+  //    SETTLED attempt is not re-judged — only LIVE (non-terminal) transitions
+  //    are subject to the legal-pair check below. The CAS in step 4 is the
+  //    race defender for two concurrent completions that both read
+  //    non-terminal here.
+  if (current.completedAt !== null) {
+    return { outcome: "no_op", attempt: current };
+  }
+
+  // 3. Legal terminal pair ONLY for the LIVE (non-terminal) state (rejects
+  //    `pending→created*` and other bypasses of the observation/assignment
+  //    gates). `fromState` is necessarily non-terminal here (step 2 returned).
+  if (!isLegalTerminalForward(fromState, toFinalState)) {
+    return {
+      outcome: "rejected_transition",
+      attempt: current,
+      fromState,
+      toFinalState,
+    };
+  }
+
+  // 4. Compare-and-set terminalization: the `completedAt IS NULL` predicate is
+  //    the one-way door (two concurrent completions race; only the first
+  //    UPDATE matches). `state = fromState` guards against state drift.
   const completedAt = terminal.completedAt ?? new Date().toISOString();
-
+  let affected: number;
   try {
     db.update(taskCreationAttempts)
       .set({
-        state: terminal.finalState,
+        state: toFinalState,
         terminalOutcome: terminal.terminalOutcome,
         terminalResult: terminal.terminalResult ?? null,
         completedAt,
       })
-      .where(eq(taskCreationAttempts.id, attemptId))
+      .where(
+        and(
+          eq(taskCreationAttempts.id, attemptId),
+          eq(taskCreationAttempts.state, fromState),
+          isNull(taskCreationAttempts.completedAt),
+        ),
+      )
       .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
   } catch (err) {
     throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
   }
 
+  // 4. Re-read the authoritative terminal row (the return value for both
+  //    outcomes). When affected === 1 it is the row we just terminalized; when
+  //    affected === 0 a concurrent completion won, and this is the winner's
+  //    row returned UNCHANGED (the loser never overwrites the winner).
   const row = db
     .select()
     .from(taskCreationAttempts)
     .where(eq(taskCreationAttempts.id, attemptId))
     .all()[0];
   if (!row) throw repositoryNotFoundError("taskCreationAttempt", attemptId);
-  return row;
+
+  return affected === 1
+    ? { outcome: "completed", attempt: row }
+    : { outcome: "no_op", attempt: row };
 }

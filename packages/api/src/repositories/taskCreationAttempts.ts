@@ -123,6 +123,14 @@ export interface ReserveAttemptInput {
   requestFingerprint: string;
   /** Publication kind for this attempt. */
   publicationKind: AttemptPublicationKind;
+  /**
+   * Authorization scope: the Habitat this attempt belongs to. Persisted at
+   * reservation time so the authorized `GET /task-creation-attempts/:attemptId`
+   * route can resolve the caller's habitat membership against it (R4). Plain
+   * text / non-cascading — survives habitat replacement; the route refuses
+   * access when the caller lacks this habitat's membership.
+   */
+  habitatId: string;
   /** Actor provenance — server-constructed; never trusted from an untrusted caller. */
   actorType: AttemptActorType;
   /** Actor id (user / agent / system identifier). */
@@ -176,6 +184,8 @@ export type AttemptReservationResult =
 export interface AttemptStatus {
   attemptId: string;
   state: TaskCreationAttemptState;
+  /** Authorization scope persisted at reservation; the GET route membership-checks against it. */
+  habitatId: string | null;
   reservedAt: string;
   publishedAt: string | null;
   completedAt: string | null;
@@ -230,6 +240,7 @@ export function reserveAttemptWithClient(
         attemptKey: input.attemptKey,
         requestFingerprint: input.requestFingerprint,
         publicationKind: input.publicationKind,
+        habitatId: input.habitatId,
         actorType: input.actorType,
         actorId: input.actorId,
         causalContext: input.causalContext ?? null,
@@ -304,8 +315,16 @@ export function getAttemptStatus(attemptId: string): AttemptStatusResult {
  * failures (retryable transport) throw.
  *
  * - `acquired`         — the lease was free (no owner OR expired) AND the
- *                        attempt is non-terminal; `leaseOwner`/`leaseExpiresAt`
- *                        are now this worker's.
+ *                        attempt is non-terminal; this call's CAS UPDATE matched
+ *                        exactly one row, so `leaseOwner`/`leaseExpiresAt` are
+ *                        now this worker's at the requested `durationMs`.
+ * - `already_owned`    — the caller ALREADY holds an ACTIVE lease on a
+ *                        non-terminal attempt; the free-lease CAS predicate did
+ *                        NOT match (the lease is not free), so the lease columns
+ *                        are UNCHANGED (`leaseExpiresAt` is NOT extended — the
+ *                        caller must use {@link renewAttemptLeaseWithClient} for
+ *                        that). Reported instead of a false `acquired` so a
+ *                        resumed worker knows it did NOT install a fresh lease.
  * - `held_by_other`    — another worker holds an ACTIVE (unexpired) lease;
  *                        the lease columns are UNCHANGED. (Safe-takeover guard:
  *                        an EXPIRED lease is `acquired`, not `held_by_other`.)
@@ -319,6 +338,7 @@ export function getAttemptStatus(attemptId: string): AttemptStatusResult {
  */
 export type AttemptLeaseAcquireResult =
   | { outcome: "acquired"; attempt: TaskCreationAttemptRow }
+  | { outcome: "already_owned"; attempt: TaskCreationAttemptRow }
   | { outcome: "held_by_other"; attempt: TaskCreationAttemptRow }
   | { outcome: "terminal_locked"; attempt: TaskCreationAttemptRow }
   | { outcome: "not_found" };
@@ -363,9 +383,16 @@ export type AttemptLeaseReleaseResult =
  * The WHERE predicate IS the entire defense — there is no read-then-decide
  * race window. A concurrent acquire by a second worker is serialized by SQLite
  * (single-writer): the first UPDATE matches and commits; the second worker's
- * UPDATE no-ops (the first's lease now violates the free-lease predicate) and
- * the re-read classifies it `held_by_other`. Re-reading (sql.js-safe;
- * `runResult.changes` is undefined in the test driver) classifies the outcome.
+ * UPDATE no-ops (the first's lease now violates the free-lease predicate).
+ * Outcome is classified from the UPDATE's **affected-row count** via
+ * `SELECT changes() AS n` (portable across both backends, unlike drizzle's
+ * `run().changes` which is undefined in the test driver): exactly one changed
+ * row → `acquired`; zero rows → the re-read distinguishes `already_owned`
+ * (same worker holds an active lease) / `held_by_other` / `terminal_locked`.
+ * Classifying by re-read state alone would falsely report `acquired` when the
+ * same worker already owns an active lease (the free-lease WHERE rejects the
+ * UPDATE but `leaseOwner === workerId` on re-read) while `leaseExpiresAt`
+ * stays unchanged despite a longer `durationMs`.
  *
  * The terminal-set is the SAME canonical {@link TERMINAL_ATTEMPT_STATES}
  * shared with the Phase-2 transition matrix — the terminal-lock is a domain
@@ -383,6 +410,7 @@ export function acquireAttemptLeaseWithClient(
 
   // Compare-and-set: the WHERE predicate encodes BOTH the free-lease and
   // non-terminal preconditions. A row that fails EITHER predicate is untouched.
+  let affected: number;
   try {
     db.update(taskCreationAttempts)
       .set({ leaseOwner: workerId, leaseExpiresAt: newExpiry })
@@ -400,11 +428,13 @@ export function acquireAttemptLeaseWithClient(
         ),
       )
       .run();
+    // Classify from the affected-row count (portable across both backends).
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
   } catch (err) {
     throw repositoryUpdateError("taskCreationAttempt", err as Error, attemptId);
   }
 
-  // Re-read (sql.js-safe) to classify the outcome from actual row state.
+  // Re-read to classify the zero-row case (and to return the current row).
   const row = db
     .select()
     .from(taskCreationAttempts)
@@ -412,14 +442,20 @@ export function acquireAttemptLeaseWithClient(
     .all()[0];
   if (!row) return { outcome: "not_found" };
 
-  // Terminal check FIRST: a terminal attempt refuses acquire even if the row
-  // happens to carry this workerId from a prior (pre-terminal) lease.
+  // This call installed the lease (the free/non-terminal CAS matched) →
+  // acquired at the requested duration. No further checks needed: the WHERE
+  // excluded terminal rows, so a one-row change is necessarily a fresh lease.
+  if (affected === 1) return { outcome: "acquired", attempt: row };
+
+  // affected === 0: the WHERE predicate did not match. Classify why from the
+  // actual row state.
   if (row.completedAt !== null || TERMINAL_ATTEMPT_STATES.has(row.state)) {
     return { outcome: "terminal_locked", attempt: row };
   }
-  // Our UPDATE took effect (compare-and-set matched) → we own it now.
+  // Same worker already holds an ACTIVE lease — the free-lease predicate
+  // rejected the UPDATE, so the lease is UNCHANGED (NOT extended; use renew).
   if (row.leaseOwner === workerId) {
-    return { outcome: "acquired", attempt: row };
+    return { outcome: "already_owned", attempt: row };
   }
   // Another worker holds an active lease our WHERE predicate could not match.
   return { outcome: "held_by_other", attempt: row };
@@ -699,6 +735,7 @@ function rowToStatus(row: TaskCreationAttemptRow): AttemptStatus {
   return {
     attemptId: row.id,
     state: row.state as TaskCreationAttemptState,
+    habitatId: row.habitatId,
     reservedAt: row.reservedAt,
     publishedAt: row.publishedAt,
     completedAt: row.completedAt,

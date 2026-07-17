@@ -57,6 +57,7 @@ function baseInput(overrides: Partial<ReserveAttemptInput> = {}): ReserveAttempt
     attemptKey: "key-1",
     requestFingerprint: "fp-1",
     publicationKind: "create",
+    habitatId,
     actorType: "human",
     actorId: "user-1",
     ...overrides,
