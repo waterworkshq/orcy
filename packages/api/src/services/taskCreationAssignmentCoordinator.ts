@@ -293,6 +293,38 @@ function resolveAcquired(
   // 3. Run the resolution in ONE transaction (atomicity invariant).
   try {
     return db.transaction((tx) => {
+      // Phase 2 — matching-agent reconcile (additive branch BEFORE the deadline
+      // check + the claim). If the requested agent already WON the Task via an
+      // ordinary claim path before the coordinator ran (the reservation is FOR
+      // the requested agent, so the agent is NOT "other" → the ordinary claim
+      // gate admits them), the coordinator would otherwise receive
+      // `already_claimed` with `currentAssignee === requestedAgentId` and the
+      // definitive-refusal branch below would mislabel a SUCCESS as
+      // `created_unassigned` (cold-review M1). Re-read the task row INSIDE the tx
+      // (read-consistency with the claim mutation) + short-circuit to a real
+      // success: consume the reservation + terminalize `created` with the
+      // committed taskId stamped (so the replay path recovers it — M4-1). This
+      // branch ALSO subsumes the "A claimed before the deadline fired" case
+      // (the reconcile runs BEFORE the deadline check, so an already-won
+      // assignment short-circuits to success regardless of the deadline). The
+      // case where ANOTHER agent (not the requested one) won still falls through
+      // to the refusal/deadline routing below unchanged (the reconcile ONLY
+      // catches the matching-agent-won case).
+      const reconcileTaskRow = tx.select().from(tasks).where(eq(tasks.id, taskId)).all()[0];
+      if (reconcileTaskRow !== undefined && reconcileTaskRow.assignedAgentId === requestedAgentId) {
+        consumeAssignmentReservationWithClient(tx, reservation.id);
+        completeAttemptWithClient(tx, attemptId, {
+          finalState: "created",
+          terminalOutcome: "assigned",
+          terminalResult: { outcome: "assigned", attemptId, taskId },
+        });
+        return {
+          outcome: "assigned" as const,
+          taskId,
+          assigneeId: requestedAgentId,
+        };
+      }
+
       // Phase 2 — deadline pre-check (additive branch BEFORE the claim): if the
       // bounded reservation deadline elapsed WITHOUT the requested claim
       // committing, the requested identity LOST the race against the clock.
@@ -300,7 +332,9 @@ function resolveAcquired(
       // this SAME tx, leaving the Task pending + ordinarily claimable (the
       // reservation gate opens for ALL claimants once it is `expired`). A future
       // deadline (`deadline` in the future) falls through to the claim/refusal/
-      // transient routing below unchanged.
+      // transient routing below unchanged. (The matching-agent reconcile above
+      // already short-circuited the case where the requested agent won before
+      // the deadline fired.)
       if (reservation.deadline !== null && new Date(reservation.deadline).getTime() < Date.now()) {
         expireAssignmentReservationWithClient(tx, reservation.id, "deadline_exceeded");
         completeAttemptWithClient(tx, attemptId, {
@@ -331,6 +365,7 @@ function resolveAcquired(
         completeAttemptWithClient(tx, attemptId, {
           finalState: "created",
           terminalOutcome: "assigned",
+          terminalResult: { outcome: "assigned", attemptId, taskId },
         });
         return {
           outcome: "assigned" as const,

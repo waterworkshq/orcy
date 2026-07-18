@@ -471,6 +471,150 @@ describe("resolveTargetedAssignment — reservation wins against every claim ori
 });
 
 // ===========================================================================
+// 3a. Matching-agent reconcile (Fix-P2 / cold-review M1)
+//
+// The reservation is FOR the requested agent A → A is NOT "other" → A's
+// ORDINARY claim (outside the coordinator) is admitted by the claim gate.
+// If A claims via that ordinary path BEFORE the coordinator runs, the
+// coordinator would otherwise see `already_claimed` with
+// `currentAssignee === A` and mislabel a SUCCESS as `created_unassigned`.
+// The reconcile branch at the top of the resolution tx re-reads the task
+// row + short-circuits to a real success when A already won. It runs
+// BEFORE the deadline check, so "A won before the deadline fired" also
+// short-circuits to success.
+// ===========================================================================
+
+describe("resolveTargetedAssignment — matching-agent reconcile (M1)", () => {
+  it("A claims via the ORDINARY claim path before the coordinator → reconcile terminalizes created (NOT created_unassigned)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "reconcile-external-A" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "reconcile-ext",
+    });
+
+    // A wins via the ORDINARY claim path (outside the coordinator). The
+    // reservation is FOR A → A is not "other" → the gate admits A.
+    const externalClaim = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(externalClaim.success).toBe(true);
+    expect(readTask(db, task.id).assignedAgentId).toBe(a1.id);
+
+    // The coordinator runs LATER. Pre-Fix-P2 it would receive
+    // `already_claimed` + `currentAssignee=A` and mislabel this SUCCESS as
+    // `created_unassigned`. Post-Fix-P2 the reconcile branch recognizes
+    // the matching-agent-won state + terminalizes `created`.
+    const result = resolveTargetedAssignment(attemptId, { db, workerId: "w1" });
+
+    expect(result).toEqual({
+      outcome: "assigned",
+      taskId: task.id,
+      assigneeId: a1.id,
+    });
+    // Reservation consumed (not released).
+    expect(readReservation(db, reservationId).state).toBe("consumed");
+    // Attempt terminalized to created (NOT created_unassigned).
+    const attemptRow = readAttempt(db, attemptId);
+    expect(attemptRow.state).toBe("created");
+    expect(attemptRow.terminalOutcome).toBe("assigned");
+    expect(attemptRow.terminalResult).toEqual({
+      outcome: "assigned",
+      attemptId,
+      taskId: task.id,
+    });
+    expect(attemptRow.completedAt).not.toBeNull();
+    // Failure mode: pre-Fix-P2 the refusal branch would have released the
+    // reservation + terminalized `created_unassigned`, mislabeling the
+    // external-A-claim success as a failure.
+  });
+
+  it("A claims AFTER the deadline elapsed → reconcile still short-circuits to assigned (NOT deadline_exceeded)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const { task } = seedMission({ title: "reconcile-after-deadline" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "reconcile-dlx",
+    });
+    // Backdate the deadline so it has already elapsed.
+    db.update(taskCreationAssignmentReservations)
+      .set({ deadline: new Date(Date.now() - 60_000).toISOString() })
+      .where(eq(taskCreationAssignmentReservations.id, reservationId))
+      .run();
+
+    // A wins via the ordinary claim path AFTER the deadline fired.
+    const externalClaim = claimWithAuthority(getDb(), task.id, localClaimant(a1.id));
+    expect(externalClaim.success).toBe(true);
+
+    // The coordinator runs. The reconcile branch sits BEFORE the deadline
+    // check, so an already-won assignment short-circuits to success
+    // regardless of the deadline.
+    const result = resolveTargetedAssignment(attemptId, { db, workerId: "w1" });
+    expect(result).toEqual({
+      outcome: "assigned",
+      taskId: task.id,
+      assigneeId: a1.id,
+    });
+    expect(readReservation(db, reservationId).state).toBe("consumed");
+    expect(readAttempt(db, attemptId).state).toBe("created");
+    // Failure mode: without the reconcile-before-deadline ordering, the
+    // deadline branch would have expired the reservation + terminalized
+    // `created_unassigned`, contradicting the external-A-claim success.
+  });
+
+  it("ANOTHER agent B wins → reconcile does NOT fire; coordinator returns refused(created_unassigned, currentAssignee=B)", () => {
+    const db = getDb();
+    const a1 = seedAgent("a1");
+    const b1 = seedAgent("b1");
+    const { task } = seedMission({ title: "reconcile-other-B" });
+    markPostCutover(task.id);
+    const { attemptId, reservationId } = seedAssignmentTrail(db, {
+      taskId: task.id,
+      requestedAgentId: a1.id,
+      suffix: "reconcile-B",
+    });
+
+    // Force-open the reservation gate so B can claim (expire the
+    // reservation first — the requested assignment genuinely lost).
+    expireAssignmentReservationWithClient(getDb(), reservationId, "test_force_open");
+    // B claims via the ordinary path (the gate is open).
+    const externalClaim = claimWithAuthority(getDb(), task.id, localClaimant(b1.id));
+    expect(externalClaim.success).toBe(true);
+    expect(readTask(db, task.id).assignedAgentId).toBe(b1.id);
+
+    // Re-activate the reservation so the coordinator has an active
+    // reservation to load (otherwise it short-circuits to no_op). This
+    // models the race where the reservation was active when the
+    // coordinator loaded it but B won in the gap.
+    getDb()
+      .update(taskCreationAssignmentReservations)
+      .set({ state: "active" })
+      .where(eq(taskCreationAssignmentReservations.id, reservationId))
+      .run();
+
+    // The coordinator runs. The reconcile branch does NOT fire (the
+    // assignee is B, not the requested A) → the existing refusal routing
+    // handles it: already_claimed + currentAssignee=B → created_unassigned.
+    const result = resolveTargetedAssignment(attemptId, { db, workerId: "w1" });
+    const refused = result as Extract<TargetedAssignmentResolution, { outcome: "refused" }>;
+
+    expect(refused.outcome).toBe("refused");
+    expect(refused.category).toBe("already_claimed");
+    expect(refused.currentAssignee).toEqual({ kind: "local", id: b1.id });
+    // Reservation released (the requested assignment genuinely lost).
+    expect(readReservation(db, reservationId).state).toBe("released");
+    // Attempt terminalized to created_unassigned (unchanged behavior).
+    expect(readAttempt(db, attemptId).state).toBe("created_unassigned");
+    // The Task stays claimed by B (the winner).
+    expect(readTask(db, task.id).assignedAgentId).toBe(b1.id);
+  });
+});
+
+// ===========================================================================
 // 4. already_claimed / not_pending surface the current assignee
 // ===========================================================================
 

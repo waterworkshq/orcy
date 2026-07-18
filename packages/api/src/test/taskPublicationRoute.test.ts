@@ -453,6 +453,116 @@ describe("T6P2 attempt-key replay — same-key idempotency + fingerprint mismatc
     // the UI couldn't tell the user "your edit needs a new key". The 409 +
     // message is the explicit signal.
   });
+
+  it("replayed → 200 carries the committed taskId (envelope backfill when terminal lacks it — Fix-P2/M4)", async () => {
+    // The cold review (M4) found that the replay path lost the taskId: the
+    // success terminalization stamped no `terminalResult.taskId` and the
+    // route replay mapper ignored the `envelopeTaskId` argument. This test
+    // proves the BELTS-AND-SUSPENDERS contract holds: even when the stored
+    // terminal carries NO taskId, the envelope row recovers it so the
+    // response-loss → link-to-Task contract holds on a same-key retry.
+    const key = freshKey("replay-taskid");
+    const first = await app!.inject({
+      method: "POST",
+      url: `/api/missions/${missionId}/task-publications`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: basePayload({ attemptKey: key, title: "Replay TaskId" }),
+    });
+    expect(first.statusCode).toBe(202);
+    const firstBody = JSON.parse(first.body);
+    expect(firstBody.taskId).toBeDefined();
+    const committedTaskId: string = firstBody.taskId;
+
+    // Manually terminalize the attempt as `created` WITHOUT a taskId in
+    // the stored terminal — simulates a pre-Fix-P2 success terminal or
+    // any terminal whose outcome is not task-bearing. The envelope row
+    // is the durable backfill source.
+    const attempt = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.attemptKey, key))
+      .all()[0];
+    if (!attempt) throw new Error("expected an attempt row");
+    getDb()
+      .update(taskCreationAttempts)
+      .set({
+        state: "created",
+        terminalOutcome: "created",
+        terminalResult: { outcome: "created", attemptId: attempt.id }, // NO taskId
+        completedAt: new Date().toISOString(),
+      })
+      .where(eq(taskCreationAttempts.id, attempt.id))
+      .run();
+
+    const replay = await app!.inject({
+      method: "POST",
+      url: `/api/missions/${missionId}/task-publications`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: basePayload({ attemptKey: key, title: "Replay TaskId" }),
+    });
+    expect(replay.statusCode).toBe(200);
+    const replayBody = JSON.parse(replay.body);
+    expect(replayBody.outcome).toBe("replayed");
+    expect(replayBody.attemptId).toBe(attempt.id);
+    // The committed taskId is recovered from the envelope row (the
+    // terminal stored none). Pre-Fix-P2 the replay response carried NO
+    // taskId → the client could not link the retry to the committed Task.
+    expect(replayBody.taskId).toBe(committedTaskId);
+
+    // **Failure mode**: pre-Fix-P2 the replay mapper destructured
+    // `result.terminal` and forwarded `terminalRest` verbatim — when the
+    // terminal lacked `taskId`, the replay body had no `taskId` field at
+    // all. The envelope backfill (M4-2) is the fix.
+  });
+
+  it("replayed → 200 carries the terminal's taskId when present (M4-1 success terminalization)", async () => {
+    // Counterpart to the envelope-backfill test: when the stored terminal
+    // DOES carry a taskId (post-Fix-P2 success terminals via the
+    // coordinator's `assigned` branch — M4-1), the replay body forwards
+    // THAT taskId (the terminal is authoritative; the envelope is the
+    // fallback).
+    const key = freshKey("replay-terminal-taskid");
+    const first = await app!.inject({
+      method: "POST",
+      url: `/api/missions/${missionId}/task-publications`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: basePayload({ attemptKey: key, title: "Replay Terminal TaskId" }),
+    });
+    expect(first.statusCode).toBe(202);
+
+    const attempt = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.attemptKey, key))
+      .all()[0];
+    if (!attempt) throw new Error("expected an attempt row");
+    // Terminal carries an explicit taskId (the post-Fix-P2 shape stamped
+    // by the coordinator's success branch).
+    const terminalTaskId = "t-terminal-stamped";
+    getDb()
+      .update(taskCreationAttempts)
+      .set({
+        state: "created",
+        terminalOutcome: "assigned",
+        terminalResult: { outcome: "assigned", attemptId: attempt.id, taskId: terminalTaskId },
+        completedAt: new Date().toISOString(),
+      })
+      .where(eq(taskCreationAttempts.id, attempt.id))
+      .run();
+
+    const replay = await app!.inject({
+      method: "POST",
+      url: `/api/missions/${missionId}/task-publications`,
+      headers: { "x-agent-api-key": agentApiKey },
+      payload: basePayload({ attemptKey: key, title: "Replay Terminal TaskId" }),
+    });
+    expect(replay.statusCode).toBe(200);
+    const replayBody = JSON.parse(replay.body);
+    expect(replayBody.outcome).toBe("replayed");
+    // The terminal's taskId wins over the envelope's taskId (terminal is
+    // authoritative when present; envelope is the fallback).
+    expect(replayBody.taskId).toBe(terminalTaskId);
+  });
 });
 
 // ===========================================================================
@@ -619,8 +729,11 @@ describe("T6P2 no order forcing — kernel allocates max(order)+1", () => {
     // silently ignored (Zod's default for non-strict object schemas is to
     // strip unknown keys). Verify the schema accepts a payload WITHOUT an
     // `order` and the resulting Task.order is kernel-allocated (≥ 0).
-    const beforeCount = getDb().select().from(tasks).where(eq(tasks.missionId, missionId)).all()
-      .length;
+    const beforeCount = getDb()
+      .select()
+      .from(tasks)
+      .where(eq(tasks.missionId, missionId))
+      .all().length;
 
     const res = await app!.inject({
       method: "POST",
@@ -630,12 +743,19 @@ describe("T6P2 no order forcing — kernel allocates max(order)+1", () => {
     });
 
     expect(res.statusCode).toBe(202);
-    const afterCount = getDb().select().from(tasks).where(eq(tasks.missionId, missionId)).all()
-      .length;
+    const afterCount = getDb()
+      .select()
+      .from(tasks)
+      .where(eq(tasks.missionId, missionId))
+      .all().length;
     expect(afterCount).toBe(beforeCount + 1);
 
     const task = JSON.parse(res.body).taskId
-      ? getDb().select().from(tasks).where(eq(tasks.id, JSON.parse(res.body).taskId)).all()[0]
+      ? getDb()
+          .select()
+          .from(tasks)
+          .where(eq(tasks.id, JSON.parse(res.body).taskId))
+          .all()[0]
       : null;
     expect(task).toBeDefined();
     // The kernel allocates `max(order)+1`; the seeded mission has no tasks

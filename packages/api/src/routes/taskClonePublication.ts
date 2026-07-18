@@ -92,146 +92,23 @@ import { agentOrHumanAuth } from "../middleware/auth.js";
 import { checkHabitatAccess } from "../middleware/realtimeAuth.js";
 import { forbidden, notFound, unprocessableEntity } from "../errors.js";
 import { clonePublicationSchema, type ClonePublicationInput } from "../models/schemas.js";
-import {
-  publishTaskCreation,
-  type TaskCreationPublicationResult,
-} from "../services/taskCreationPublication.js";
+import { publishTaskCreation } from "../services/taskCreationPublication.js";
 import { prepareClonePublication } from "../services/taskClonePreparation.js";
 import * as missionRepo from "../repositories/mission.js";
 import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
+import { publicationResultToHttpResponse } from "./helpers/taskPublicationHttp.js";
 
 const clonePreparationParamsSchema = z.object({ sourceTaskId: z.string() });
 const clonePublicationParamsSchema = z.object({ sourceTaskId: z.string() });
 
-/**
- * Maps a {@link TaskCreationPublicationResult} to an HTTP response shape.
- *
- * DUPLICATED from `routes/taskPublication.ts:outcomeToHttpResponse` (T6 P2,
- * committed at `fce30b8`). Justification for duplication over extraction:
- *
- *   - The function is small (~100 lines) and the mapping is mechanical —
- *     the drift risk is low for one additional copy.
- *   - Extracting to a shared helper would require EDITING the committed T6
- *     P2 route file to import the shared function, which the T7 ticket
- *     explicitly forbids ("Do NOT modify the T6 P2 route file (`taskPublication.ts`)
- *     — if you want to share `outcomeToHttpResponse`, either duplicate it
- *     (it's small) OR extract it to a shared helper (justify). Do NOT edit
- *     the committed T6 route.").
- *   - The T11 cutover will resolve the duplication by deleting the legacy
- *     legacy path AND consolidating the helper (the post-T11 refactor
- *     can move both call sites onto the shared module without touching a
- *     dormant route).
- *
- * Status codes (mirror of T6 P2 mapping):
- *   - `created` + `recovering:true` → 202 Accepted (committed but not yet
- *     observed — the client polls `GET /task-creation-attempts/:attemptId`).
- *   - `created` + `recovering:false` (terminal created) → 201 Created.
- *   - `replayed` → 200 OK (idempotent retry — the stored terminal).
- *   - `rejected_validation` → 422 Unprocessable Entity.
- *   - `vetoed` → 409 Conflict (governance refusal).
- *   - `rejected_fingerprint` → 409 Conflict (corrected payload needs a new
- *     key).
- *   - `guard_mismatch` / `governance_denied` → 503 Service Unavailable
- *     (retryable — the client retries with the same key; the adapter
- *     re-prepares).
- *
- * Note: a recovering Task is NOT mapped to 500. The P1 carry-over
- * explicitly requires that "HTTP/MCP mappings preserve the shared domain
- * outcome and do not throw committed success as failure".
- */
-function outcomeToHttpResponse(
-  result: TaskCreationPublicationResult,
-  envelopeTaskId: string | null,
-): {
-  statusCode: number;
-  body: Record<string, unknown>;
-} {
-  switch (result.outcome) {
-    case "created": {
-      const taskId = result.publication.task.id ?? envelopeTaskId ?? undefined;
-      if (result.recovering) {
-        return {
-          statusCode: 202,
-          body: {
-            outcome: "created",
-            attemptId: result.attemptId,
-            taskId,
-            recovering: true,
-            ...(result.recoveringState ? { recoveringState: result.recoveringState } : {}),
-          },
-        };
-      }
-      return {
-        statusCode: 201,
-        body: { outcome: "created", attemptId: result.attemptId, taskId },
-      };
-    }
-    case "replayed": {
-      const { outcome: _terminalOutcome, ...terminalRest } = result.terminal;
-      void _terminalOutcome;
-      return {
-        statusCode: 200,
-        body: {
-          outcome: "replayed",
-          attemptId: result.attemptId,
-          ...terminalRest,
-        },
-      };
-    }
-    case "rejected_validation": {
-      return {
-        statusCode: 422,
-        body: {
-          outcome: "rejected_validation",
-          attemptId: result.attemptId,
-          errors: result.errors,
-        },
-      };
-    }
-    case "vetoed": {
-      return {
-        statusCode: 409,
-        body: {
-          outcome: "vetoed",
-          attemptId: result.attemptId,
-          veto: result.veto,
-        },
-      };
-    }
-    case "rejected_fingerprint": {
-      return {
-        statusCode: 409,
-        body: {
-          outcome: "rejected_fingerprint",
-          attemptId: result.attemptId,
-          message: "corrected payload requires a new attempt key",
-        },
-      };
-    }
-    case "guard_mismatch": {
-      return {
-        statusCode: 503,
-        body: {
-          outcome: "guard_mismatch",
-          attemptId: result.attemptId,
-          reasons: result.reasons,
-        },
-      };
-    }
-    case "governance_denied": {
-      return {
-        statusCode: 503,
-        body: {
-          outcome: "governance_denied",
-          attemptId: result.attemptId,
-          kind: result.kind,
-          reason: result.reason,
-          ...(result.interceptorKey ? { interceptorKey: result.interceptorKey } : {}),
-        },
-      };
-    }
-  }
-}
+// NOTE: The outcome → HTTP mapper previously lived inline here as
+// `outcomeToHttpResponse` and was DUPLICATED in `taskPublication.ts`. Fix-P2
+// (cold-review M4-3) extracted it to the shared helper
+// `routes/helpers/taskPublicationHttp.ts:publicationResultToHttpResponse` so
+// the two publication routes cannot drift apart. The shared helper ALSO
+// backfills `envelopeTaskId` into the `replayed` branch (M4-2) so the
+// response-loss → link-to-Task contract holds even when the stored terminal
+// carries no `taskId`.
 
 export async function taskClonePublicationRoutes(fastify: FastifyInstance): Promise<void> {
   // ---------------------------------------------------------------------
@@ -433,7 +310,7 @@ export async function taskClonePublicationRoutes(fastify: FastifyInstance): Prom
           .get();
         const envelopeTaskId = envelopeRow?.taskId ?? null;
 
-        const { statusCode, body } = outcomeToHttpResponse(result, envelopeTaskId);
+        const { statusCode, body } = publicationResultToHttpResponse(result, envelopeTaskId);
         reply.code(statusCode).send(body);
       },
     );

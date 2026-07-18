@@ -77,18 +77,11 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { agentOrHumanAuth } from "../middleware/auth.js";
 import { requireMissionAccess } from "../middleware/team.js";
-import {
-  forbidden,
-  notFound,
-  serviceUnavailable,
-  unprocessableEntity,
-} from "../errors.js";
+import { forbidden, notFound, serviceUnavailable, unprocessableEntity } from "../errors.js";
 import { taskPublicationSchema, type TaskPublicationInput } from "../models/schemas.js";
-import {
-  publishTaskCreation,
-  type TaskCreationPublicationResult,
-} from "../services/taskCreationPublication.js";
+import { publishTaskCreation } from "../services/taskCreationPublication.js";
 import * as missionRepo from "../repositories/mission.js";
+import { publicationResultToHttpResponse } from "./helpers/taskPublicationHttp.js";
 
 const publicationParamsSchema = z.object({ missionId: z.string() });
 
@@ -105,10 +98,7 @@ const publicationParamsSchema = z.object({ missionId: z.string() });
  * transport. The full recovery surface lives on
  * `GET /task-creation-attempts/:attemptId`.
  */
-function surfaceFromEnvelope(envelopeRow: {
-  attemptId: string;
-  taskId: string;
-}): {
+function surfaceFromEnvelope(envelopeRow: { attemptId: string; taskId: string }): {
   outcome: "created";
   attemptId: string;
   taskId: string;
@@ -120,135 +110,14 @@ function surfaceFromEnvelope(envelopeRow: {
   };
 }
 
-/**
- * Maps a {@link TaskCreationPublicationResult} to an HTTP response shape.
- *
- * The route forwards the adapter's outcome union verbatim to the client —
- * the route is a thin transport; the adapter owns the result envelope.
- * Status codes are derived from the outcome discriminator:
- *
- *   - `created` + `recovering:true` → 202 (committed but not yet observed).
- *   - `created` + `recovering:false` (terminal created) → 201.
- *   - `replayed` → 200 (idempotent retry — the stored terminal).
- *   - `rejected_validation` → 422.
- *   - `vetoed` → 409.
- *   - `rejected_fingerprint` → 409 (corrected payload needs a new key).
- *   - `guard_mismatch` / `governance_denied` → 503 (retryable — the client
- *     retries under the SAME key; the adapter re-prepares).
- *
- * Note: a recovering Task is NOT mapped to 500. The P1 carry-over
- * explicitly requires that "HTTP/MCP mappings preserve the shared domain
- * outcome and do not throw committed success as failure" — a 502/500 for a
- * committed-recovering Task would leak the recovery state as a failure.
- */
-function outcomeToHttpResponse(
-  result: TaskCreationPublicationResult,
-  envelopeTaskId: string | null,
-): {
-  statusCode: number;
-  body: Record<string, unknown>;
-} {
-  switch (result.outcome) {
-    case "created": {
-      // The committed task id can be sourced from either the inline
-      // `publication.task.id` (fresh publish) or the envelope row (the
-      // adapter's `readCommittedPublication` path on a recovering replay).
-      const taskId = result.publication.task.id ?? envelopeTaskId ?? undefined;
-      if (result.recovering) {
-        return {
-          statusCode: 202,
-          body: {
-            outcome: "created",
-            attemptId: result.attemptId,
-            taskId,
-            recovering: true,
-            ...(result.recoveringState ? { recoveringState: result.recoveringState } : {}),
-          },
-        };
-      }
-      // Terminal `created` should not normally appear here (the dispatcher /
-      // coordinator advance the attempt off `published_pending_*` and a same-
-      // key retry surfaces via the `replayed` branch). Defensive fallback —
-      // treat as 201 to never throw committed success as failure.
-      return {
-        statusCode: 201,
-        body: { outcome: "created", attemptId: result.attemptId, taskId },
-      };
-    }
-    case "replayed": {
-      // The client is retrying under the same key with the same payload — the
-      // attempt settled; return its stored terminal outcome verbatim. 200 is
-      // the right code for an idempotent retrieval (NOT 201 — the side effect
-      // already ran on the first call). The `outcome` field is set to
-      // `"replayed"` so the caller can distinguish an idempotent retry from
-      // a fresh publish; the rest of the terminal fields (taskId, errors,
-      // veto, etc.) arrive verbatim so the caller can render the stored
-      // outcome without a follow-up GET.
-      const { outcome: _terminalOutcome, ...terminalRest } = result.terminal;
-      void _terminalOutcome;
-      return {
-        statusCode: 200,
-        body: {
-          outcome: "replayed",
-          attemptId: result.attemptId,
-          ...terminalRest,
-        },
-      };
-    }
-    case "rejected_validation": {
-      return {
-        statusCode: 422,
-        body: {
-          outcome: "rejected_validation",
-          attemptId: result.attemptId,
-          errors: result.errors,
-        },
-      };
-    }
-    case "vetoed": {
-      return {
-        statusCode: 409,
-        body: {
-          outcome: "vetoed",
-          attemptId: result.attemptId,
-          veto: result.veto,
-        },
-      };
-    }
-    case "rejected_fingerprint": {
-      return {
-        statusCode: 409,
-        body: {
-          outcome: "rejected_fingerprint",
-          attemptId: result.attemptId,
-          message: "corrected payload requires a new attempt key",
-        },
-      };
-    }
-    case "guard_mismatch": {
-      return {
-        statusCode: 503,
-        body: {
-          outcome: "guard_mismatch",
-          attemptId: result.attemptId,
-          reasons: result.reasons,
-        },
-      };
-    }
-    case "governance_denied": {
-      return {
-        statusCode: 503,
-        body: {
-          outcome: "governance_denied",
-          attemptId: result.attemptId,
-          kind: result.kind,
-          reason: result.reason,
-          ...(result.interceptorKey ? { interceptorKey: result.interceptorKey } : {}),
-        },
-      };
-    }
-  }
-}
+// NOTE: The outcome → HTTP mapper previously lived inline here as
+// `outcomeToHttpResponse` and was DUPLICATED in `taskClonePublication.ts`.
+// Fix-P2 (cold-review M4-3) extracted it to the shared helper
+// `routes/helpers/taskPublicationHttp.ts:publicationResultToHttpResponse`
+// so the two publication routes cannot drift apart. The shared helper
+// ALSO backfills `envelopeTaskId` into the `replayed` branch (M4-2) so
+// the response-loss → link-to-Task contract holds even when the stored
+// terminal carries no `taskId`.
 
 export async function taskPublicationRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.withTypeProvider<ZodTypeProvider>().post(
@@ -302,8 +171,7 @@ export async function taskPublicationRoutes(fastify: FastifyInstance): Promise<v
       // a caller slips past the schema (e.g. an empty ISO string that
       // passes the `.datetime()` check but would throw inside the adapter),
       // surface as 422 rather than a 500.
-      let targetedAssignmentDeadline: string | undefined =
-        parsed.targetedAssignmentDeadline;
+      let targetedAssignmentDeadline: string | undefined = parsed.targetedAssignmentDeadline;
       if (parsed.assignment.kind === "targeted" && targetedAssignmentDeadline === undefined) {
         // Should never reach here — the schema's superRefine would have
         // surfaced a 400. Defensive fallback surfaces the adapter-shaped 422.
@@ -342,16 +210,17 @@ export async function taskPublicationRoutes(fastify: FastifyInstance): Promise<v
           ? { selectedDependencies: parsed.dependsOn.map((dependsOnId) => ({ dependsOnId })) }
           : {}),
         assignment: parsed.assignment,
-        ...(targetedAssignmentDeadline !== undefined
-          ? { targetedAssignmentDeadline }
-          : {}),
+        ...(targetedAssignmentDeadline !== undefined ? { targetedAssignmentDeadline } : {}),
       });
 
       // Recover the committed envelope (if any) so the HTTP layer can include
       // the task id even on a recovering-replay path where the adapter's
       // inline publication is reconstructed rather than fresh.
       const envelopeRow = getDb()
-        .select({ attemptId: taskCreationEnvelopes.attemptId, taskId: taskCreationEnvelopes.taskId })
+        .select({
+          attemptId: taskCreationEnvelopes.attemptId,
+          taskId: taskCreationEnvelopes.taskId,
+        })
         .from(taskCreationEnvelopes)
         .where(eq(taskCreationEnvelopes.attemptId, result.attemptId))
         .get();
@@ -364,7 +233,7 @@ export async function taskPublicationRoutes(fastify: FastifyInstance): Promise<v
       // the global error handler.
       void surfaceFromEnvelope; // kept for symmetry with future enrichment
 
-      const { statusCode, body } = outcomeToHttpResponse(result, envelopeTaskId);
+      const { statusCode, body } = publicationResultToHttpResponse(result, envelopeTaskId);
       reply.code(statusCode).send(body);
     },
   );
