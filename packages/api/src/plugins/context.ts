@@ -31,6 +31,11 @@ import * as habitatRepo from "../repositories/habitat.js";
 import * as chatIntegrationRepo from "../repositories/chatIntegration.js";
 import { enqueueNotificationForRecipients } from "../services/notificationCommandService.js";
 import { isValidEventType } from "../services/notificationSubscriptionResolver.js";
+import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
+import {
+  publishPluginTask,
+  mapPluginPublicationResultToTask,
+} from "../services/pluginTaskPublication.js";
 import { badRequest } from "../errors.js";
 import { logger as rootLogger } from "../lib/logger.js";
 
@@ -72,10 +77,17 @@ export function buildPluginContext(opts: {
   if (has("pulseWriter")) ctx.pulseWriter = buildPulseWriter(pluginId, runId, habitatId);
   if (has("commentReader")) ctx.commentReader = buildCommentReader(habitatId);
   if (has("taskReader")) ctx.taskReader = buildTaskReader(habitatId);
-  if (has("taskWriter")) ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId, sharedWriteCounter);
+  if (has("taskWriter"))
+    ctx.taskWriter = buildTaskWriter(pluginId, runId, habitatId, sharedWriteCounter);
   if (has("notificationSender"))
-    ctx.notificationSender = buildNotificationSender(pluginId, runId, habitatId, sharedWriteCounter);
-  if (has("webhookCaller")) ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId, sharedWriteCounter);
+    ctx.notificationSender = buildNotificationSender(
+      pluginId,
+      runId,
+      habitatId,
+      sharedWriteCounter,
+    );
+  if (has("webhookCaller"))
+    ctx.webhookCaller = buildWebhookCaller(pluginId, runId, habitatId, sharedWriteCounter);
   if (has("habitatReader")) ctx.habitatReader = buildHabitatReader(habitatId);
   if (has("chatIntegrationReader"))
     ctx.chatIntegrationReader = buildChatIntegrationReader(habitatId);
@@ -262,6 +274,16 @@ function buildTaskWriter(
     return { missionId: task.missionId };
   }
 
+  // Per-run monotonic counter for `createTask` actions. Each `createTask` call
+  // within a run advances this, deriving the stable attempt-action key the
+  // migrated publication path reserves under `(runId, actionKey)`. A same-run
+  // retry of the same call replays; a distinct call creates a distinct
+  // attempt. Separate from the shared `writeCounter` so the attempt key
+  // depends ONLY on the create-task call sequence, not on interleaved
+  // assign/release/notify/webhook writes. Unused by the legacy raw-insert
+  // path (flag OFF).
+  const taskCreateSequence = { count: 0 };
+
   return {
     createTask: async (input: PluginTaskCreateInput) => {
       if (!habitatId) throw new Error("createTask requires a habitat-scoped plugin context");
@@ -271,6 +293,40 @@ function buildTaskWriter(
       if (mission.habitatId !== habitatId) {
         throw new Error(`Mission ${input.missionId} does not belong to this habitat`);
       }
+
+      // T8B Phase 2 — flag-gated producer migration. When the cutover flag is
+      // ON (tests / T11), route through the dormant `publishPluginTask`
+      // adapter (kernel chain: reserve → prepare → govern → publish) with a
+      // fresh `plugin_run` causal root + server-constructed provenance. The
+      // scope/cap checks above (the plugin-contract guards) run BEFORE the
+      // publication, preserved verbatim. When OFF (production default), the
+      // legacy raw-insert path below runs byte-unchanged.
+      if (isCreationPublicationEnabled()) {
+        const actionKey = String(taskCreateSequence.count);
+        taskCreateSequence.count++;
+        const result = publishPluginTask({
+          pluginId,
+          runId,
+          habitatId,
+          missionId: input.missionId,
+          title: input.title,
+          description: input.description,
+          labels: input.labels,
+          priority: input.priority,
+          actionKey,
+        });
+        // The plugin `createTask` contract is `Promise<Task>` (success or
+        // throw) — map every non-created publication outcome to a thrown
+        // error. The `runId` is now persisted on the committed envelope's
+        // causal root (gap-audit O5), not merely logged.
+        const task = mapPluginPublicationResultToTask(result);
+        rootLogger.info(
+          { pluginId, runId, taskId: task.id, missionId: input.missionId, action: "task.create" },
+          "plugin.taskWriter: createTask (published)",
+        );
+        return task as never;
+      }
+
       const task = taskRepo.createTask({
         missionId: input.missionId,
         title: input.title,
@@ -370,7 +426,13 @@ function buildNotificationSender(
         },
       );
       rootLogger.info(
-        { pluginId, runId, eventId: result.event.id, deliveryCount: result.deliveries.length, action: "notification.send" },
+        {
+          pluginId,
+          runId,
+          eventId: result.event.id,
+          deliveryCount: result.deliveries.length,
+          action: "notification.send",
+        },
         "plugin.notificationSender: notify",
       );
       return { eventId: result.event.id, deliveryCount: result.deliveries.length };
@@ -426,7 +488,11 @@ function buildWebhookCaller(
       try {
         const response = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "User-Agent": `Orcy-Plugin/${pluginId}`, ...headers },
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": `Orcy-Plugin/${pluginId}`,
+            ...headers,
+          },
           body: body ?? undefined,
         });
         const responseText = await response.text().catch(() => "");
@@ -437,7 +503,10 @@ function buildWebhookCaller(
         return { statusCode: response.status, ok: response.ok, body: responseText.slice(0, 1000) };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        rootLogger.warn({ pluginId, runId, url, err: message }, "plugin.webhookCaller: call failed");
+        rootLogger.warn(
+          { pluginId, runId, url, err: message },
+          "plugin.webhookCaller: call failed",
+        );
         throw new Error(`Webhook call to ${url} failed: ${message}`);
       }
     },
