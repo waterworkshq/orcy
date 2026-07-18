@@ -22,6 +22,8 @@ import { claimTask } from "./tasks/task-lifecycle.js";
 import { assignReviewers } from "./reviewAssignmentService.js";
 import type { AssignResult } from "./autoAssignService.js";
 import { logger } from "../lib/logger.js";
+import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
+import { executeCreateTaskViaPublication } from "./automationTaskPublication.js";
 
 const BANNED_HEADERS = new Set(["authorization", "cookie", "x-api-key", "x-token", "x-secret"]);
 
@@ -260,9 +262,18 @@ function executeCreateTask(
   action: AutomationAction & { type: "create_task" },
   index: number,
   rule: AutomationRule,
-  _run: AutomationRuleRun,
+  run: AutomationRuleRun,
   ctx: AutomationEvaluationContext,
 ): AutomationActionResult {
+  // T8B Phase 1 — flag-gated producer migration. When the cutover flag is ON
+  // (tests / T11), route through the dormant `publishAutomationTask` adapter
+  // (kernel chain: reserve → prepare → govern → publish) with causal-hop
+  // propagation + server-constructed provenance. When OFF (production
+  // default), the legacy raw-insert path runs byte-unchanged.
+  if (isCreationPublicationEnabled()) {
+    return executeCreateTaskViaPublication(rule, run, action, index, ctx);
+  }
+
   const missionId = action.missionId ?? ctx.mission?.id;
   if (!missionId) {
     return {
