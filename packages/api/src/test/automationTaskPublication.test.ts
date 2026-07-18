@@ -42,6 +42,7 @@ import {
   publishAutomationTask,
   executeCreateTaskViaPublication,
 } from "../services/automationTaskPublication.js";
+import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 import type { AutomationRuleRun, CausalContext } from "@orcy/shared";
 
@@ -540,6 +541,45 @@ describe("T8B P1 replay — same-(runId, actionIndex) does not create twice", ()
     if (r1.outcome !== "created" || r2.outcome !== "created") return;
     expect(r1.publication.task.id).not.toBe(r2.publication.task.id);
     expect(allTaskCount()).toBe(baseline + 2);
+  });
+});
+
+// ===========================================================================
+// 5b. REPLAY AFTER TERMINALIZATION carries taskId (cold-review #2 M3).
+//     The observation terminalizer stamps terminalResult.taskId on the success
+//     path; the Automation replay mapper surfaces it on the succeeded action.
+// ===========================================================================
+
+describe("T8B P1 replay taskId — replay-after-terminal surfaces taskId (cold-review #2 M3)", () => {
+  it("publish → terminalize → same-key replay carries taskId on the succeeded action result", () => {
+    const { ruleId, action } = createChainedCreateTaskRule("ReplayTaskId");
+    const rule = ruleRepo.getAutomationRuleById(ruleId)!;
+    const run = startRun(ruleId, "replay-taskid");
+    const ctx = ctxWithMission();
+    const baseline = allTaskCount();
+
+    // 1. Publish via the full entry point (publish + mapToActionResult) →
+    //    succeeded with taskId from the publication.
+    const r1 = executeCreateTaskViaPublication(rule, run, action, 0, ctx);
+    expect(r1.status).toBe("succeeded");
+    expect(r1.result?.taskId).toBeDefined();
+    const firstTaskId = r1.result!.taskId as string;
+    expect(allTaskCount()).toBe(baseline + 1);
+
+    // 2. Terminalize via the observation checkpoint (zero dispatch targets,
+    //    no reservation → stamps terminalResult.taskId).
+    const pubResult = publishAutomationTask(rule, run, action, 0, ctx);
+    if (pubResult.outcome !== "created") throw new Error("expected recovering created");
+    const obs = satisfyObservationCheckpointWithClient(getDb(), pubResult.attemptId);
+    expect(obs.outcome).toBe("advanced");
+
+    // 3. Same-key replay via the full entry point → succeeded with taskId
+    //    recovered from the terminal (NOT null — the M3 fix).
+    const r2 = executeCreateTaskViaPublication(rule, run, action, 0, ctx);
+    expect(r2.status).toBe("succeeded");
+    expect(r2.result?.taskId).toBe(firstTaskId);
+    expect(r2.result?.replayed).toBe(true);
+    expect(allTaskCount()).toBe(baseline + 1);
   });
 });
 

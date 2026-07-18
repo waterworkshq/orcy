@@ -350,7 +350,9 @@ function mapToActionResult(
     case "replayed": {
       // The terminal outcome is the source of truth for the prior run's
       // disposition. created → succeeded; anything else → failed with the
-      // stored reason.
+      // stored reason. The terminal carries `taskId` (stamped by the
+      // observation terminalizer — cold-review #2 M3) so the replay response
+      // links the caller to the committed Task.
       const terminalOutcome = result.terminal.outcome;
       if (terminalOutcome === "created") {
         return {
@@ -359,6 +361,7 @@ function mapToActionResult(
           status: "succeeded",
           result: {
             attemptId: result.attemptId,
+            ...(result.terminal.taskId ? { taskId: result.terminal.taskId } : {}),
             replayed: true,
           },
         };

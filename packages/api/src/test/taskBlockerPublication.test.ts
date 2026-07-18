@@ -45,6 +45,7 @@ import {
   type PublishBlockerClearanceTaskInput,
   type BlockerClearancePublicationResult,
 } from "../services/taskBlockerPublication.js";
+import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 
 // --- Mocks: the adapter composes the kernel, which emits NO pre-commit
@@ -233,6 +234,23 @@ describe("T8A-pre P2 C1 — habitat-scoped blocker rejection (the defining behav
     const result = publishBlockerClearanceTask(blockerInput({ pulseId: freshPulseId("mis-A") }));
     expectCreatedRecovering(result);
     expect(missionTaskCount()).toBe(before + 1);
+  });
+
+  it("habitat-scoped pulse with empty subject + no targeted agent → rejected_no_target_mission, NOT a validation error (cold-review #2 N3)", () => {
+    // The habitat-scope check runs BEFORE field validation so a habitat-scoped
+    // pulse with irrelevant-field anomalies (empty subject, missing targeted-
+    // agent/deadline) still produces the scope rejection, not a throw the
+    // caller would mistake for a fixable field bug.
+    const result = publishBlockerClearanceTask(
+      habitatScopedBlockerInput({
+        pulseId: freshPulseId("hab-empty-subject"),
+        pulseSubject: "   ",
+        assignment: { kind: "auto" },
+      }),
+    );
+    expect(result.outcome).toBe("rejected_no_target_mission");
+    if (result.outcome !== "rejected_no_target_mission") return;
+    expect(result.pulseId).toBeDefined();
   });
 });
 
@@ -467,6 +485,39 @@ describe("T8A-pre P2 replay — same-pulse does not create twice", () => {
     expectCreatedRecovering(r2);
     expect(r1.publication.task.id).not.toBe(r2.publication.task.id);
     expect(missionTaskCount()).toBe(baseline + 2);
+  });
+});
+
+// ===========================================================================
+// 4b. REPLAY AFTER TERMINALIZATION carries taskId (cold-review #2 M3).
+//     The observation terminalizer stamps terminalResult.taskId on the success
+//     path so the Blocker adapter's same-key replay carries it on the terminal.
+// ===========================================================================
+
+describe("T8A-pre P2 replay taskId — terminal carries the committed taskId (cold-review #2 M3)", () => {
+  it("publish → terminalize → same-pulse replay surfaces terminal.taskId", () => {
+    const pulseId = freshPulseId("replay-taskid");
+    const payload = blockerInput({ pulseId });
+    const baseline = missionTaskCount();
+
+    // 1. Publish → recovering (published_pending_observation).
+    const first = publishBlockerClearanceTask(payload);
+    expectCreatedRecovering(first);
+    const taskId = first.publication.task.id;
+    expect(missionTaskCount()).toBe(baseline + 1);
+
+    // 2. Terminalize via the observation checkpoint (zero dispatch targets,
+    //    no reservation → stamps terminalResult.taskId).
+    const obs = satisfyObservationCheckpointWithClient(getDb(), first.attemptId);
+    expect(obs.outcome).toBe("advanced");
+
+    // 3. Same-pulse replay → the terminal carries taskId.
+    const retry = publishBlockerClearanceTask(payload);
+    expect(retry.outcome).toBe("replayed");
+    if (retry.outcome !== "replayed") return;
+    expect(retry.terminal.taskId).toBe(taskId);
+    expect(retry.terminal.outcome).toBe("created");
+    expect(missionTaskCount()).toBe(baseline + 1);
   });
 });
 

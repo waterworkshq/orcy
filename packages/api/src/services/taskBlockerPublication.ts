@@ -592,7 +592,34 @@ export function publishBlockerClearanceTask(
 ): BlockerClearancePublicationResult {
   const db = getDb();
 
-  // ----- 0. Input validation + C1 scope check --------------------------------
+  // ----- 0. C1 BOUNDARY: habitat-scoped rejection --------------------------
+  // A habitat-scoped blocker pulse has NO valid target Mission. The legacy
+  // path forwards the `habitatId` as `missionId` (a data-integrity bug —
+  // gap-audit O2 + cold-critique C1). This adapter corrects it at the
+  // boundary: NO attempt reserved, NO Task created. The signal remains as a
+  // visible pulse; the replacement path is an Automation Rule or manual
+  // creation under an explicit Mission.
+  //
+  // The rejection is a typed result — NOT hidden behind `blockerTaskCreated:
+  // false` (the legacy boolean cannot distinguish "boundary rejected" from
+  // "creation failed"). The caller surfaces it truthfully.
+  //
+  // Runs BEFORE field validation (cold-review #2 N3): a habitat-scoped pulse
+  // should immediately reject without evaluating irrelevant fields (empty
+  // subject, targeted-agent, deadline). The scope is the primary gate.
+  if (input.scope.kind === "habitat") {
+    return {
+      outcome: "rejected_no_target_mission",
+      pulseId: input.pulseId,
+      habitatId: input.habitatId,
+      reason: REJECTED_NO_TARGET_MISSION_REASON,
+    };
+  }
+
+  // ----- 0a. Input validation ----------------------------------------------
+  // Field-level validation runs AFTER the scope gate so a habitat-scoped pulse
+  // with irrelevant-field anomalies still produces the scope rejection (not a
+  // validation error the caller would mistake for a fixable field bug).
   if (input.pulseId.trim().length === 0) {
     throw new Error("publishBlockerClearanceTask: pulseId must be a non-empty string");
   }
@@ -611,26 +638,6 @@ export function publishBlockerClearanceTask(
           "(the configured reservation window). Pass an ISO timestamp from app/config.",
       );
     }
-  }
-
-  // ----- 0a. C1 BOUNDARY: habitat-scoped rejection --------------------------
-  // A habitat-scoped blocker pulse has NO valid target Mission. The legacy
-  // path forwards the `habitatId` as `missionId` (a data-integrity bug —
-  // gap-audit O2 + cold-critique C1). This adapter corrects it at the
-  // boundary: NO attempt reserved, NO Task created. The signal remains as a
-  // visible pulse; the replacement path is an Automation Rule or manual
-  // creation under an explicit Mission.
-  //
-  // The rejection is a typed result — NOT hidden behind `blockerTaskCreated:
-  // false` (the legacy boolean cannot distinguish "boundary rejected" from
-  // "creation failed"). The caller surfaces it truthfully.
-  if (input.scope.kind === "habitat") {
-    return {
-      outcome: "rejected_no_target_mission",
-      pulseId: input.pulseId,
-      habitatId: input.habitatId,
-      reason: REJECTED_NO_TARGET_MISSION_REASON,
-    };
   }
 
   // Mission-scoped — the clearance Task targets this Mission.

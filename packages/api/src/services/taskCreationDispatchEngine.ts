@@ -184,11 +184,27 @@ export function satisfyObservationCheckpointWithClient(
   }
 
   // 5. Advance: active reservation → assignment checkpoint; else → terminalize.
+  //    On the terminalize path, stamp `terminalResult.taskId` from the
+  //    envelope so ALL replay paths (system-origin adapters + the HTTP mapper)
+  //    recover the committed taskId from the terminal without envelope
+  //    backfill (cold-review #2 M3 — root-cause fix). The JSON `outcome` is
+  //    `"created"` to match the adapters' existing replay-success recognition
+  //    (`=== "created"`); the column `terminalOutcome` stays `"published"` for
+  //    audit granularity.
   const transition = hasActiveReservationForAttemptWithClient(db, attemptId)
     ? checkpointAttemptWithClient(db, attemptId, { stage: "published_pending_assignment" })
     : completeAttemptWithClient(db, attemptId, {
         finalState: "created",
         terminalOutcome: "published",
+        ...(envelope?.taskId
+          ? {
+              terminalResult: {
+                outcome: "created" as const,
+                attemptId,
+                taskId: envelope.taskId,
+              },
+            }
+          : {}),
       });
 
   // 6. Map the underlying CAS outcome.

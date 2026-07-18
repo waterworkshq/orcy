@@ -104,7 +104,7 @@
  * contracts"; gap-audit O3; cold-critique C2.
  */
 import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import { getDb } from "../db/index.js";
 import {
@@ -402,16 +402,32 @@ export function buildRecoveryLinkageParticipant(linkage: RecoveryLinkage): Parti
       })
       .run();
 
-    // 2. Link the original gate back to the spawned recovery task (idempotency
-    //    marker — the `if (gate.recoveryTaskId)` guard in the legacy
-    //    spawnRecoveryForGate). This is what makes a same-gate recovery spawn
-    //    idempotent at the failure-handler layer.
+    // 2. Link the original gate back to the spawned recovery task. This is a
+    //    COMPARE-AND-SET claim: `WHERE recovery_task_id IS NULL` ensures
+    //    exactly one attempt can win the gate (cold-review #2 M1). Two
+    //    distinct Recovery attempts for the same gate (different runIds →
+    //    different attempt keys) race here; the loser's CAS matches zero rows
+    //    → throw inside the participant → the whole publication aggregate
+    //    rolls back (no Task, no event, no next-depth gate, no linkage). The
+    //    losing attempt's failure handler surfaces the gate-already-linked
+    //    rejection cleanly.
     //
-    //    Mirrors legacy L338-341 exactly, on the tx client.
+    //    `SELECT changes() AS n` is the kernel's portable CAS-classification
+    //    pattern (same as `completeAttemptWithClient`,
+    //    `consumeAssignmentReservationWithClient`, etc.).
     db.update(taskWorkflowGates)
       .set({ recoveryTaskId })
-      .where(eq(taskWorkflowGates.id, linkage.gateId))
+      .where(
+        and(eq(taskWorkflowGates.id, linkage.gateId), isNull(taskWorkflowGates.recoveryTaskId)),
+      )
       .run();
+    const gateCasAffected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+    if (gateCasAffected === 0) {
+      throw new Error(
+        `buildRecoveryLinkageParticipant: gate ${linkage.gateId} is already linked to another Recovery Task; ` +
+          `the publication aggregate rolls back (CAS loser).`,
+      );
+    }
 
     // 3. Link the failure context (if one was just built) to the recovery
     //    task. The failure-context row is built by `handleFailureCapture`

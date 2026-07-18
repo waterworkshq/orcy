@@ -58,6 +58,7 @@ import {
 import { prepareTaskPublication } from "../services/taskPublicationPreparation.js";
 import { governTaskPublication } from "../services/taskPublicationGovernance.js";
 import { publishTaskWithClient as publishTaskWithClientCoord } from "../services/taskPublicationCoordinator.js";
+import { satisfyObservationCheckpointWithClient } from "../services/taskCreationDispatchEngine.js";
 import { TASK_CREATION_INTEGRITY_VERSION } from "../db/schema/taskPublication.js";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import { FailingDbClient } from "./helpers/failingDbClient.js";
@@ -627,6 +628,62 @@ describe("T8A-pre P1 C2 boundary injection — failure at each participant write
 });
 
 // ===========================================================================
+// 4b. SAME-GATE CONCURRENT-ATTEMPT RACE (cold-review #2 M1) — the gate-linkage
+//     CAS ensures exactly one attempt wins a shared gate. Two distinct
+//     Recovery attempts (different runIds → different attempt keys) targeting
+//     the SAME gate race: the winner claims the gate; the loser's entire
+//     publication rolls back (participant throw → no Task, no event, no
+//     next-depth gate).
+// ===========================================================================
+
+describe("T8A-pre P1 same-gate race — CAS guard on gate linkage (cold-review #2 M1)", () => {
+  it("two distinct attempts for the same gate: exactly one wins, the loser's aggregate fully rolls back", () => {
+    const scenario = seedRecoveryScenario();
+    const beforeTasks = getDb().select().from(tasks).all().length;
+    const beforeEvents = getDb().select().from(taskEvents).all().length;
+    const beforeGates = getDb().select().from(taskWorkflowGates).all().length;
+
+    // First attempt (runId-A) → succeeds, claims the gate.
+    const r1 = publishRecoveryTask(
+      recoveryInput(scenario, { runId: freshRunId("race-winner"), actionKey: "spawn-0" }),
+    );
+    expectCreatedRecovering(r1);
+    const winnerTaskId = r1.publication.task.id;
+
+    // The gate's recoveryTaskId is now claimed by the winner.
+    const gateAfterWinner = getDb()
+      .select()
+      .from(taskWorkflowGates)
+      .where(eq(taskWorkflowGates.id, scenario.gateId))
+      .all()[0];
+    expect(gateAfterWinner.recoveryTaskId).toBe(winnerTaskId);
+
+    // Second attempt (runId-B, same gate, different attempt key) → the CAS
+    // guard finds recoveryTaskId IS NOT NULL → matches zero rows → throws.
+    // The throw propagates out of publishRecoveryTask (participant throw →
+    // the publication tx rolls back the whole aggregate).
+    expect(() =>
+      publishRecoveryTask(
+        recoveryInput(scenario, { runId: freshRunId("race-loser"), actionKey: "spawn-0" }),
+      ),
+    ).toThrow(/gate .* is already linked to another Recovery Task/);
+
+    // ZERO side effects from the loser: no new Task, no new event, no new gate.
+    expect(getDb().select().from(tasks).all().length).toBe(beforeTasks + 1);
+    expect(getDb().select().from(taskEvents).all().length).toBe(beforeEvents + 1);
+    expect(getDb().select().from(taskWorkflowGates).all().length).toBe(beforeGates + 1);
+
+    // The gate's recoveryTaskId STILL points to the winner (not overwritten).
+    const gateAfterLoser = getDb()
+      .select()
+      .from(taskWorkflowGates)
+      .where(eq(taskWorkflowGates.id, scenario.gateId))
+      .all()[0];
+    expect(gateAfterLoser.recoveryTaskId).toBe(winnerTaskId);
+  });
+});
+
+// ===========================================================================
 // 5. VETOED RECOVERY → VISIBLE BLOCKED OUTCOME (not a swallowed null).
 // ===========================================================================
 
@@ -737,18 +794,57 @@ describe("T8A-pre P1 replay — same-run/action does not create twice", () => {
   });
 
   it("a different actionKey under the same run creates a distinct attempt (no collision)", () => {
-    const scenario = seedRecoveryScenario();
+    // Each Recovery attempt targets its OWN gate (the M1 CAS guard ensures
+    // only one attempt can claim a shared gate; distinct attempts need
+    // distinct gates to coexist).
+    const scenarioA = seedRecoveryScenario();
+    const scenarioB = seedRecoveryScenario();
     const baseline = missionTaskCount();
     const runId = freshRunId("shared-run");
 
-    const r1 = publishRecoveryTask(recoveryInput(scenario, { runId, actionKey: "spawn-A" }));
-    const r2 = publishRecoveryTask(recoveryInput(scenario, { runId, actionKey: "spawn-B" }));
+    const r1 = publishRecoveryTask(recoveryInput(scenarioA, { runId, actionKey: "spawn-A" }));
+    const r2 = publishRecoveryTask(recoveryInput(scenarioB, { runId, actionKey: "spawn-B" }));
 
     expectCreatedRecovering(r1);
     expectCreatedRecovering(r2);
     // Two distinct Recovery Tasks — the action key distinguishes them.
     expect(r1.publication.task.id).not.toBe(r2.publication.task.id);
     expect(missionTaskCount()).toBe(baseline + 2);
+  });
+});
+
+// ===========================================================================
+// 6b. REPLAY AFTER TERMINALIZATION carries taskId (cold-review #2 M3).
+//     The observation terminalizer stamps terminalResult.taskId on the success
+//     path so ALL replay paths recover the committed taskId from the terminal
+//     without envelope backfill.
+// ===========================================================================
+
+describe("T8A-pre P1 replay taskId — terminal carries the committed taskId (cold-review #2 M3)", () => {
+  it("publish → terminalize → same-key replay surfaces terminal.taskId", () => {
+    const scenario = seedRecoveryScenario();
+    const payload = recoveryInput(scenario);
+    const baseline = missionTaskCount();
+
+    // 1. Publish → recovering (published_pending_observation).
+    const first = publishRecoveryTask(payload);
+    expectCreatedRecovering(first);
+    const taskId = first.publication.task.id;
+    expect(missionTaskCount()).toBe(baseline + 1);
+
+    // 2. Terminalize via the observation checkpoint (zero dispatch targets,
+    //    no reservation → completeAttemptWithClient stamps the terminal
+    //    result with taskId).
+    const obs = satisfyObservationCheckpointWithClient(getDb(), first.attemptId);
+    expect(obs.outcome).toBe("advanced");
+
+    // 3. Same-key replay → the terminal carries taskId.
+    const retry = publishRecoveryTask(payload);
+    expect(retry.outcome).toBe("replayed");
+    if (retry.outcome !== "replayed") return;
+    expect(retry.terminal.taskId).toBe(taskId);
+    expect(retry.terminal.outcome).toBe("created");
+    expect(missionTaskCount()).toBe(baseline + 1);
   });
 });
 
@@ -788,9 +884,12 @@ describe("T8A-pre P1 provenance — server-constructed Recovery-run identity", (
   });
 
   it("two different runs produce distinct causal roots (fresh root per run)", () => {
-    const scenario = seedRecoveryScenario();
-    const r1 = publishRecoveryTask(recoveryInput(scenario, { runId: freshRunId("run-alpha") }));
-    const r2 = publishRecoveryTask(recoveryInput(scenario, { runId: freshRunId("run-beta") }));
+    // Each run targets its OWN gate (the M1 CAS guard ensures only one
+    // attempt can claim a shared gate; distinct runs need distinct gates).
+    const scenarioA = seedRecoveryScenario();
+    const scenarioB = seedRecoveryScenario();
+    const r1 = publishRecoveryTask(recoveryInput(scenarioA, { runId: freshRunId("run-alpha") }));
+    const r2 = publishRecoveryTask(recoveryInput(scenarioB, { runId: freshRunId("run-beta") }));
     expectCreatedRecovering(r1);
     expectCreatedRecovering(r2);
     expect(r1.publication.envelope!.causalContext!.root.id).not.toBe(
