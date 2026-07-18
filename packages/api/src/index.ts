@@ -67,6 +67,7 @@ import { pluginRoutes } from "./routes/plugins.js";
 import { triageRoutes } from "./routes/triage.js";
 import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import { taskPublicationRoutes } from "./routes/taskPublication.js";
+import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -228,6 +229,7 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(triageRoutes);
   await f.register(taskCreationAttemptRoutes);
   await f.register(taskPublicationRoutes);
+  await f.register(taskClonePublicationRoutes);
 }
 
 await fastify.register(
