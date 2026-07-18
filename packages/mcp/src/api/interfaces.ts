@@ -60,8 +60,73 @@ export interface TaskFilters {
 }
 
 /**
+ * T7 Phase 3a — clone preparation DTO mirror (dormant).
+ *
+ * Mirrors the allowlisted DTO the api's `prepareClonePublication` returns
+ * (`services/taskClonePreparation.ts`, T7 P1, committed `9077583`). The shape
+ * is constructed by EXPLICIT ALLOWLIST SELECTION — execution-history fields
+ * (status, assignee, results, artifacts, comments, watchers, reviewers,
+ * approvals, effort, retries, failures, Lifecycle Events, timestamps) are
+ * structurally absent.
+ *
+ * The MCP-side type mirrors the api-side one so the MCP tool can hand the
+ * DTO straight to the LLM after a thin HTTP transport fetch. The DTO carries
+ * no field the api did not select — the type itself is the allowlist.
+ */
+
+// T7 P3a — mirror for the clone-preparation DTO. The MCP client is a thin
+// HTTP wrapper; the canonical types live in `packages/api`.
+export type TaskPriority = "low" | "medium" | "high" | "critical";
+
+/** A Subtask in the clone-preparation DTO — RESET to incomplete + unassigned.
+ *
+ * Carries ONLY the editable work-structure fields (title + order). The
+ * source Subtask's id, completed, assigneeId, and timestamps are
+ * deliberately absent. */
+export interface ClonePreparationSubtask {
+  title: string;
+  order: number;
+}
+
+/** A directional dependency edge suggested (NOT selected) by clone preparation.
+ *
+ * The user must explicitly select these; the kernel revalidates the final
+ * dependency graph at publication time. */
+export interface CloneDependencySuggestion {
+  dependsOnId: string;
+}
+
+/** Provenance + scope reference to the clone source. */
+export interface CloneSourceReference {
+  taskId: string;
+  missionId: string;
+  habitatId: string;
+}
+
+/**
+ * The allowlisted clone-preparation DTO. Carry only reusable work-definition
+ * fields, RESET Subtasks, UNSELECTED dependency suggestions, the source
+ * Mission as the default target, and source references. NO execution history.
+ */
+export interface ClonePreparation {
+  source: CloneSourceReference;
+  defaultTargetMissionId: string;
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  labels: string[];
+  requiredDomain: string | null;
+  requiredCapabilities: string[];
+  estimatedMinutes: number | null;
+  subtasks: ClonePreparationSubtask[];
+  dependencySuggestions: CloneDependencySuggestion[];
+}
+
+/**
  * Discriminated outcome of the dormant publication route
  * `POST /missions/:missionId/task-publications` (T6 P2, committed `fce30b8`).
+ * Also reused by the T7 P3a clone publication route
+ * `POST /tasks/:sourceTaskId/clone-publications`.
  *
  * Mirrors the body shapes the REST route sends in
  * `outcomeToHttpResponse` (`routes/taskPublication.ts`): each branch of the
@@ -212,6 +277,63 @@ export interface TaskClient {
       estimatedMinutes?: number;
       labels?: string[];
       dependsOn?: string[];
+      assignment?: { kind: "auto" } | { kind: "targeted"; agentId: string };
+      targetedAssignmentDeadline?: string;
+    },
+  ): Promise<TaskPublicationOutcome>;
+  /**
+   * T7 Phase 3a — clone preparation client (dormant). Calls the dormant
+   * REST route `GET /tasks/:sourceTaskId/clone-preparation` (T7 P2, committed
+   * `3fd1c04`) which fronts `prepareClonePublication` (T7 P1, committed
+   * `9077583`). Returns the allowlisted {@link ClonePreparation} DTO —
+   * reusable work-definition fields + RESET Subtasks + UNSELECTED dep
+   * suggestions + source refs + default target Mission. PURE/READ-ONLY —
+   * no writes, no attempt, no reservation.
+   *
+   * DORMANT: the legacy {@link TaskClient.cloneTask} stays the active
+   * production path until T11.
+   */
+  getClonePreparation(sourceTaskId: string): Promise<ClonePreparation>;
+  /**
+   * T7 Phase 3a — clone publication client (dormant). Calls the dormant
+   * REST route `POST /tasks/:sourceTaskId/clone-publications` (T7 P2,
+   * committed `3fd1c04`) which fronts the extended `publishTaskCreation`
+   * adapter with `cloneSourceTaskId` (T7 P1, committed `9077583`).
+   *
+   * Provenance (`auditSource:"rest_api"` + `actorType:"agent"`) is derived
+   * server-side from the authenticated MCP caller — this method MUST NOT
+   * carry `auditSource` or `actorType` or `actorId` in the body (an
+   * untrusted LLM client could spoof them). The MCP-initiated clone
+   * publication therefore carries `auditSource:"rest_api"` +
+   * `actorType:"agent"`. A future `"mcp_tool"` distinction requires a
+   * trusted server-side header + a route read (post-cutover hardening).
+   *
+   * Body mirrors {@link clonePublicationSchema}: NO `order`, NO
+   * `auditSource`, NO `includeSubtasks`/`includeComments` (the legacy
+   * options are retired in T7 P2). Non-2xx domain outcomes
+   * (422 validation / 409 veto / 409 fingerprint / 503 guard) arrive as
+   * `ApiClientError` throws — the MCP tool handler interprets them rather
+   * than treating them as failures (validation/veto/recovering are normal
+   * publication results, not errors).
+   *
+   * DORMANT: the legacy {@link TaskClient.cloneTask} +
+   * `POST /tasks/:id/clone` stays the active production path until T11
+   * swaps them. Tests are the sole exerciser.
+   */
+  publishTaskClone(
+    sourceTaskId: string,
+    input: {
+      attemptKey: string;
+      title: string;
+      description?: string;
+      priority?: "low" | "medium" | "high" | "critical";
+      requiredDomain?: string | null;
+      requiredCapabilities?: string[];
+      estimatedMinutes?: number;
+      labels?: string[];
+      subtasks?: { title: string; order?: number; assigneeId?: string | null }[];
+      selectedDependencies?: string[];
+      targetMissionId: string;
       assignment?: { kind: "auto" } | { kind: "targeted"; agentId: string };
       targetedAssignmentDeadline?: string;
     },

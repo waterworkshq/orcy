@@ -1,5 +1,5 @@
 import type { MissionClient } from "../api/interfaces.js";
-import type { TaskPublicationOutcome } from "../api/interfaces.js";
+import type { TaskPublicationOutcome, ClonePreparation } from "../api/interfaces.js";
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { KanbanApiClient } from '../api.js';
 import { randomUUID } from 'crypto';
@@ -573,6 +573,295 @@ export async function missionPublishTask(
     // them as ApiClientError. Parse the body and interpret; do NOT re-throw
     // (these are normal publication results). Non-domain errors (500 from a
     // programming bug, network failure, etc.) propagate as real failures.
+    if (err instanceof ApiClientError) {
+      const parsed = parsePublicationErrorBody(err);
+      if (parsed !== null) {
+        outcome = parsed;
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  return interpretPublicationOutcome(outcome, attemptKey);
+}
+
+/**
+ * T7 Phase 3a — dormant clone-preparation tool (a sibling of
+ * {@link MISSION_PUBLISH_TASK_TOOL} that targets the dormant GET route
+ * `GET /tasks/:sourceTaskId/clone-preparation`).
+ *
+ * Why a sibling rather than a replacement:
+ *   The clone prepare/edit/publish journey (T7) is landed DORMANT — the
+ *   legacy `cloneTask` + `POST /tasks/:id/clone` stay the active
+ *   production path until T11 swaps them. This tool ships alongside them,
+ *   exercised only by tests (the sole dormancy exerciser). It is NOT
+ *   registered in `ALL_TOOLS` / `TASK_ACTIONS` (mirroring how
+ *   {@link MISSION_PUBLISH_TASK_TOOL} is also a standalone export not
+ *   wired into the dispatch).
+ *
+ * Provenance:
+ *   The MCP client is an HTTP wrapper — the REST route derives
+ *   `auditSource:"rest_api"` + `actorType:"agent"` from the authenticated
+ *   MCP caller. This tool carries no provenance fields; the GET is a
+ *   pure read-only fetch of the allowlisted DTO.
+ *
+ * See: T7 ticket § "Execution phases" (P3a) + § "Phase 2 carry-over".
+ */
+export const TASK_PREPARE_CLONE_TOOL: Tool = {
+  name: 'task_prepare_clone',
+  description:
+    'Read the source Task and return an allowlisted clone-preparation DTO ' +
+    '(reusable work-definition fields, RESET Subtasks, UNSELECTED dependency ' +
+    'suggestions, source references, default target Mission). Pure read — ' +
+    'opening the clone form creates nothing. Dormant (dormant until T11 — ' +
+    'prefer the existing `clone_task` MCP tool until the cutover). Edit the ' +
+    'returned fields and publish via `task_publish_clone`.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      sourceTaskId: {
+        type: 'string',
+        description: 'Source Task ID to clone from (read-only).',
+      },
+    },
+    required: ['sourceTaskId'],
+  },
+};
+
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
+export async function taskPrepareClone(
+  client: KanbanApiClient,
+  args: { sourceTaskId: string },
+): Promise<ClonePreparation & { message: string }> {
+  // The GET is read-only; the route returns 404 for a missing source and
+  // 403 for cross-habitat reads. Both surface as ApiClientError — let them
+  // propagate (they are real failures, not domain outcomes).
+  const preparation = await client.getClonePreparation(args.sourceTaskId);
+  return {
+    ...preparation,
+    message:
+      'Source task prefilled for clone — editable work-definition fields, RESET Subtasks, ' +
+      'and dependency suggestions returned. Edit the fields you want to change and publish ' +
+      'via task_publish_clone.',
+  };
+}
+
+/**
+ * T7 Phase 3a — dormant clone-publication tool (a sibling of
+ * {@link MISSION_PUBLISH_TASK_TOOL} that targets the dormant POST route
+ * `POST /tasks/:sourceTaskId/clone-publications`).
+ *
+ * Why a sibling rather than a replacement:
+ *   The kernel's shared publication contract (T5) is landed DORMANT — the
+ *   legacy `cloneTask` + `POST /tasks/:id/clone` stay the active
+ *   production path until T11 swaps them. This tool ships alongside them,
+ *   exercised only by tests (the sole dormancy exerciser). It is NOT
+ *   registered in `ALL_TOOLS` / `TASK_ACTIONS` (mirroring how
+ *   {@link MISSION_PUBLISH_TASK_TOOL} is also a standalone export not
+ *   wired into the dispatch).
+ *
+ * Provenance:
+ *   The MCP client is an HTTP wrapper — the REST route derives
+ *   `auditSource:"rest_api"` + `actorType:"agent"` from the authenticated
+ *   MCP caller. This tool MUST NOT assert `auditSource` in its input (the
+ *   body is untrusted; an LLM client could spoof `"mcp_tool"` to mask its
+ *   tracks). A future trusted `"mcp_tool"` distinction requires a
+ *   server-side header + a route read (post-cutover hardening).
+ *
+ * Idempotent retry contract:
+ *   Mirrors {@link missionPublishTask}: `attemptKey` is the client-supplied
+ *   attempt identity. The handler generates a UUID when the caller omits
+ *   one and ALWAYS returns the `attemptKey` used in the result so the LLM
+ *   can retry an unchanged publication with the same key (the adapter
+ *   reserves/replays off the key). Editing a known terminal rejection
+ *   uses a NEW key; unchanged retry keeps the old key.
+ *
+ * Outcome interpretation:
+ *   The handler does NOT throw for domain outcomes — validation/veto/
+ *   recovering/replay are normal publication results, not errors. The route
+ *   forwards 422/409/503 bodies verbatim; the handler parses them out of
+ *   the {@link ApiClientError} and returns a clear LLM-facing result
+ *   object with a `message` field explaining the next action (retry same
+ *   key / new key / poll the attempt). This reuses the same helpers
+ *   defined for {@link missionPublishTask} above — the interpretation
+ *   table is identical across all dormant publication tools.
+ *
+ * See: T7 ticket § "Execution phases" (P3a) + § "Phase 2 carry-over".
+ */
+export const TASK_PUBLISH_CLONE_TOOL: Tool = {
+  name: 'task_publish_clone',
+  description:
+    'Publish a clone of a source Task via the shared publication contract (dormant — ' +
+    'prefer the existing `clone_task` MCP tool until the T11 cutover). Idempotent: pass ' +
+    'the same attemptKey to retry an unchanged publish; use a new attemptKey only when ' +
+    'changing a rejected payload. Returns a clear result object ' +
+    '(created/recovering/replayed/rejected_validation/vetoed/rejected_fingerprint/guard_mismatch/governance_denied) ' +
+    'with the attemptKey used.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      sourceTaskId: {
+        type: 'string',
+        description: 'Source Task ID being cloned (the path param of the publication route).',
+      },
+      attemptKey: {
+        type: 'string',
+        description:
+          'Client-supplied attempt identity for idempotent retry. Retain across unchanged ' +
+          'publishes; use a new key only when changing a previously-rejected payload. Omit to ' +
+          'have the handler generate a UUID.',
+      },
+      title: {
+        type: 'string',
+        description: 'Edited task title',
+      },
+      description: {
+        type: 'string',
+        description: 'Edited task description',
+      },
+      priority: {
+        type: 'string',
+        enum: [...PRIORITY_LEVELS],
+        description: 'Edited task priority',
+      },
+      requiredDomain: {
+        type: 'string',
+        description: 'Edited required-domain filter (frontend, backend, devops, testing, fullstack)',
+      },
+      requiredCapabilities: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Edited required capabilities (e.g., ["typescript", "react"])',
+      },
+      estimatedMinutes: {
+        type: 'number',
+        description: 'Edited estimated time in minutes',
+      },
+      labels: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Edited labels',
+      },
+      subtasks: {
+        type: 'array',
+        description:
+          'Edited Subtasks (add/remove/reorder/edit-titles). The kernel re-allocates ' +
+          'fresh IDs + execution state at publication.',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            order: { type: 'number' },
+            assigneeId: { type: 'string' },
+          },
+          required: ['title'],
+        },
+      },
+      selectedDependencies: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Task UUIDs this clone should depend on — the EXPLICIT selections from the ' +
+          'UNSELECTED suggestions surfaced by `task_prepare_clone`. The kernel revalidates ' +
+          'the final dependency graph at publication.',
+      },
+      targetMissionId: {
+        type: 'string',
+        description:
+          'Target Mission ID (must be an active Mission in the source Habitat; the kernel ' +
+          'enforces same-Habitat via cross_habitat_mission).',
+      },
+      assignment: {
+        type: 'object',
+        description:
+          "Assignment intent (defaults to {kind:'auto'}). For targeted, supply {kind:'targeted', agentId} AND targetedAssignmentDeadline.",
+        properties: {
+          kind: { type: 'string', enum: ['auto', 'targeted'] },
+          agentId: {
+            type: 'string',
+            description: 'Target agent UUID (required when kind === "targeted")',
+          },
+        },
+        required: ['kind'],
+      },
+      targetedAssignmentDeadline: {
+        type: 'string',
+        description:
+          'ISO 8601 timestamp; REQUIRED when assignment.kind === "targeted" (the adapter reserves the seat until this deadline).',
+      },
+    },
+    required: ['sourceTaskId', 'title', 'targetMissionId'],
+  },
+};
+
+/**
+ * @requires MissionClient
+ * @requires CommentClient
+ */
+export async function taskPublishClone(
+  client: KanbanApiClient,
+  args: {
+    sourceTaskId: string;
+    attemptKey?: string;
+    title: string;
+    description?: string;
+    priority?: 'low' | 'medium' | 'high' | 'critical';
+    requiredDomain?: string | null;
+    requiredCapabilities?: string[];
+    estimatedMinutes?: number;
+    labels?: string[];
+    subtasks?: { title: string; order?: number; assigneeId?: string | null }[];
+    selectedDependencies?: string[];
+    targetMissionId: string;
+    assignment?: { kind: 'auto' } | { kind: 'targeted'; agentId: string };
+    targetedAssignmentDeadline?: string;
+  },
+) {
+  // Idempotent-retry contract: same shape as missionPublishTask — the
+  // caller retains the key across an unchanged publish; the handler
+  // backstops an omitted key with a fresh UUID so a first-time publish
+  // still gets a stable retry identity.
+  const attemptKey =
+    typeof args.attemptKey === 'string' && args.attemptKey.length > 0
+      ? args.attemptKey
+      : randomUUID();
+
+  let outcome: TaskPublicationOutcome;
+  try {
+    outcome = await client.publishTaskClone(args.sourceTaskId, {
+      attemptKey,
+      title: args.title,
+      ...(args.description !== undefined && { description: args.description }),
+      ...(args.priority !== undefined && { priority: args.priority }),
+      ...(args.requiredDomain !== undefined && { requiredDomain: args.requiredDomain }),
+      ...(args.requiredCapabilities !== undefined && {
+        requiredCapabilities: args.requiredCapabilities,
+      }),
+      ...(args.estimatedMinutes !== undefined && { estimatedMinutes: args.estimatedMinutes }),
+      ...(args.labels !== undefined && { labels: args.labels }),
+      ...(args.subtasks !== undefined && { subtasks: args.subtasks }),
+      ...(args.selectedDependencies !== undefined && {
+        selectedDependencies: args.selectedDependencies,
+      }),
+      targetMissionId: args.targetMissionId,
+      ...(args.assignment !== undefined && { assignment: args.assignment }),
+      ...(args.targetedAssignmentDeadline !== undefined && {
+        targetedAssignmentDeadline: args.targetedAssignmentDeadline,
+      }),
+    });
+  } catch (err) {
+    // Mirror the T6 P3a recovery path: the route sends domain outcomes
+    // (422 validation / 409 veto / 409 fingerprint / 503 guard) as typed
+    // JSON bodies — the transport surfaces them as ApiClientError. Parse
+    // the body and interpret; do NOT re-throw (these are normal
+    // publication results). Non-domain errors (500 from a programming
+    // bug, network failure, etc.) propagate as real failures.
     if (err instanceof ApiClientError) {
       const parsed = parsePublicationErrorBody(err);
       if (parsed !== null) {
