@@ -39,7 +39,7 @@
  * `taskClonePreparation.test.ts`); MCP/UI (P3, deferred to T11);
  * cutover wiring (T11).
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
@@ -194,7 +194,13 @@ function seedSourceTask(opts?: {
     getDb()
       .insert(tasks)
       .values([
-        { id: depA, missionId: useMissionId, title: "Dependency A", createdBy: "user-route", order: 1 },
+        {
+          id: depA,
+          missionId: useMissionId,
+          title: "Dependency A",
+          createdBy: "user-route",
+          order: 1,
+        },
         {
           id: depB,
           missionId: useMissionId,
@@ -251,6 +257,26 @@ function basePayload(overrides: Record<string, unknown> = {}): Record<string, un
     ...overrides,
   };
 }
+
+// Fix-P1 (C1): the clone POST mutation route is gated behind the cutover flag
+// INSIDE `taskClonePublicationRoutes` (the GET clone-preparation stays live).
+// These tests register the plugin directly, so the flag must be set for the
+// POST to register. The GET tests work either way (the GET is ungated).
+const CUTOVER_FLAG = "ORCY_CREATION_PUBLICATION_ENABLED";
+let savedCutoverFlag: string | undefined;
+
+beforeAll(() => {
+  savedCutoverFlag = process.env[CUTOVER_FLAG];
+  process.env[CUTOVER_FLAG] = "true";
+});
+
+afterAll(() => {
+  if (savedCutoverFlag !== undefined) {
+    process.env[CUTOVER_FLAG] = savedCutoverFlag;
+  } else {
+    delete process.env[CUTOVER_FLAG];
+  }
+});
 
 beforeEach(async () => {
   await initTestDb();
@@ -478,9 +504,7 @@ describe("T7P2 GET clone-preparation — allowlisted read-only DTO", () => {
     // the clone form must NOT reserve an attempt or commit anything).
     expect(getDb().select().from(taskCreationAttempts).all().length).toBe(beforeAttempts);
     // Source Task untouched.
-    expect(getDb().select().from(tasks).where(eq(tasks.id, sourceId)).all()).toEqual(
-      beforeTasks,
-    );
+    expect(getDb().select().from(tasks).where(eq(tasks.id, sourceId)).all()).toEqual(beforeTasks);
     // No new Lifecycle Events.
     expect(getDb().select().from(taskEvents).all().length).toBe(beforeEvents);
     // No envelope committed.
@@ -745,9 +769,7 @@ describe("T7P2 POST clone-publications — edited values committed (not a re-cop
       .all();
     expect(subtasks).toHaveLength(3);
     const titles = subtasks.map((s) => s.title).sort();
-    expect(titles).toEqual(
-      ["Brand-new subtask C", "Edited subtask A", "Edited subtask B"].sort(),
-    );
+    expect(titles).toEqual(["Brand-new subtask C", "Edited subtask A", "Edited subtask B"].sort());
     for (const s of subtasks) {
       // RESET semantics: incomplete + unassigned.
       expect(s.completed).toBe(false);
@@ -758,11 +780,7 @@ describe("T7P2 POST clone-publications — edited values committed (not a re-cop
 
     // The `cloned` Lifecycle Event is stamped atomically with the
     // source reference.
-    const events = getDb()
-      .select()
-      .from(taskEvents)
-      .where(eq(taskEvents.taskId, taskId))
-      .all();
+    const events = getDb().select().from(taskEvents).where(eq(taskEvents.taskId, taskId)).all();
     const clonedEvent = events.find((e) => e.action === "cloned");
     expect(clonedEvent).toBeDefined();
 
@@ -854,11 +872,7 @@ describe("T7P2 POST clone-publications — same-Habitat enforcement", () => {
     expect(codes).toContain("cross_habitat_mission");
 
     // No Task committed for the cross-habitat publication.
-    const committed = getDb()
-      .select()
-      .from(tasks)
-      .where(eq(tasks.missionId, otherMissionId))
-      .all();
+    const committed = getDb().select().from(tasks).where(eq(tasks.missionId, otherMissionId)).all();
     expect(committed).toHaveLength(0);
 
     // **Failure mode**: a 202 (the route blindly forwarding the adapter's

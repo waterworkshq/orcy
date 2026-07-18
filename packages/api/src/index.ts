@@ -68,6 +68,7 @@ import { triageRoutes } from "./routes/triage.js";
 import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
+import { isCreationPublicationEnabled } from "./config/creationPublicationCutover.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -228,8 +229,19 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(pluginRoutes);
   await f.register(triageRoutes);
   await f.register(taskCreationAttemptRoutes);
-  await f.register(taskPublicationRoutes);
+  // Fix-P1 (C1): the 2 mutation publication routes are gated behind a
+  // disabled-by-default cutover flag — unreachable in production until T11
+  // (Story 3 cutover) flips `ORCY_CREATION_PUBLICATION_ENABLED=true`.
+  //
+  // `taskClonePublicationRoutes` is ALWAYS registered because it also mounts
+  // the read-only `GET /tasks/:sourceTaskId/clone-preparation` — only its
+  // POST mutation route is gated (the split is inside the plugin file). The
+  // read-only `taskCreationAttemptRoutes` above stays ungated (safe recovery
+  // surface). The assignment-retry route is gated inside `taskRoutes` (above).
   await f.register(taskClonePublicationRoutes);
+  if (isCreationPublicationEnabled()) {
+    await f.register(taskPublicationRoutes);
+  }
 }
 
 await fastify.register(

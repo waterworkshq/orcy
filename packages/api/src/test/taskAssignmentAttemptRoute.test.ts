@@ -2,9 +2,25 @@
  * T5 Phase 3 — POST /tasks/:taskId/assignment-attempts (assignment-retry route)
  * + GET /task-creation-attempts/:attemptId projection extension.
  *
- * Additive. DORMANT in production (no origin creates post-cutover Tasks until
- * cutover) — but the route is the P3 retry surface, and these tests pin the
+ * Additive. DORMANT in production (the route is gated behind
+ * `ORCY_CREATION_PUBLICATION_ENABLED` until T11 cutover — see
+ * `config/creationPublicationCutover.ts` + `routes/tasks/index.ts`). These
+ * tests register the route DIRECTLY (bypassing the gate) to exercise the
  * load-bearing HTTP contract:
+ *
+ * Fix-P1 (C1) added TWO route-layer guards (independent of the gate):
+ *   - Authority: agent callers → 403 (`AGENT_CANNOT_ASSIGN`). Explicit
+ *     assignment is admin-only (mirror `batch.ts:26-29`); agents must claim
+ *     for themselves via `POST /tasks/:id/claim`.
+ *   - `created_unassigned` check: the route resolves taskId →
+ *     taskCreationEnvelopes → taskCreationAttempts and REQUIRES
+ *     `state === "created_unassigned"`. Legacy/ordinary Tasks (no creation
+ *     attempt), still-recovering attempts, and already-`created` attempts →
+ *     409 `not_retryable`. Closes the "assign ANY pending task" bypass.
+ *
+ * The happy-path tests (1-3) authenticate as a HUMAN admin (the retry route
+ * is admin-only post-Fix-P1) and seed a `created_unassigned` creation trail
+ * (the precondition the guard requires).
  *
  *   1. Idempotent success → lost: first call assigns to agent A; second call
  *      returns `{outcome:"lost", currentAssignee:{kind:"local", id:A}}` (no
@@ -14,12 +30,14 @@
  *   3. Refusal: ineligible requested agent (e.g. dependencies_unmet) → typed
  *      refusal 403 (category/reason preserved in body).
  *   4. not_found → 404.
- *   5. Cross-habitat → 403 (no leak).
- *   6. Projection: `GET /task-creation-attempts/:id` surfaces the
+ *   5. Authority: agent caller → 403.
+ *   6-8. created_unassigned guard: no trail / recovering / created → 409.
+ *   9. Anonymous → 401.
+ *   10. Human without habitat membership → 403 (R4 cross-team isolation).
+ *
+ * Projection: `GET /task-creation-attempts/:id` surfaces the
  *      `published_pending_assignment` checkpoint + the `created_unassigned`
  *      terminal + the `assignmentFailure` reason (refusal + deadline_exceeded).
- *
- * Authorization: agent / human WITHOUT habitat access → 403.
  *
  * Out of scope: the coordinator, the sweeper, `claimWithAuthority` primitives
  * (covered in `taskCreationAssignmentCoordinator.test.ts` +
@@ -35,11 +53,7 @@ import {
 } from "fastify-type-provider-zod";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import { eq } from "drizzle-orm";
-import {
-  tasks,
-  taskCreationAttempts,
-  users,
-} from "../db/schema/index.js";
+import { tasks, taskCreationAttempts, taskCreationEnvelopes, users } from "../db/schema/index.js";
 import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as columnRepo from "../repositories/column.js";
@@ -94,9 +108,6 @@ async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
-let habitatId: string;
-let agentApiKey: string;
-
 function seedAgent(name: string) {
   return agentRepo.createAgent({
     name,
@@ -122,6 +133,67 @@ function seedPendingTask(title: string): { taskId: string } {
   return { taskId: task.id };
 }
 
+/**
+ * Seeds the post-cutover creation trail for `taskId` that the retry route's
+ * `created_unassigned` guard requires: a `taskCreationAttempts` row at
+ * `attemptState` + a `taskCreationEnvelopes` row linking the task to that
+ * attempt. Mirrors `claimAuthority.test.ts:seedCreationEnvelope`.
+ *
+ * Fix-P1: the retry route now resolves taskId → envelope → attempt and
+ * REQUIRES `state === "created_unassigned"` — tests must seed this trail to
+ * reach the claim path (previously the route assigned ANY pending task).
+ */
+function seedCreationTrail(
+  taskId: string,
+  attemptState:
+    | "created_unassigned"
+    | "published_pending_assignment"
+    | "published_pending_observation"
+    | "created",
+  suffix?: string,
+): { attemptId: string; envelopeId: string } {
+  const sfx = suffix ?? `trail-${Math.random().toString(36).slice(2, 8)}`;
+  const attemptId = `attempt-${sfx}`;
+  getDb()
+    .insert(taskCreationAttempts)
+    .values({
+      id: attemptId,
+      source: "test",
+      sourceScopeKind: "mission",
+      sourceScopeId: "m-retry",
+      attemptKey: `key-${sfx}`,
+      requestFingerprint: `fp-${sfx}`,
+      publicationKind: "create",
+      habitatId,
+      actorType: "human",
+      actorId: "user-1",
+      state: attemptState,
+      terminalOutcome: attemptState === "created_unassigned" ? "assignment_refused" : null,
+      completedAt: attemptState === "created_unassigned" ? new Date().toISOString() : null,
+    })
+    .run();
+  const envelopeId = `env-${sfx}`;
+  getDb()
+    .insert(taskCreationEnvelopes)
+    .values({
+      eventId: envelopeId,
+      lifecycleAction: "created",
+      taskId,
+      habitatId,
+      occurredAt: new Date().toISOString(),
+      attemptId,
+      actorType: "human",
+      actorId: "user-1",
+      source: "test",
+    })
+    .run();
+  return { attemptId, envelopeId };
+}
+
+let habitatId: string;
+let agentApiKey: string;
+let humanToken: string;
+
 beforeEach(async () => {
   await initTestDb();
   const habitat = habitatRepo.createHabitat({ name: "Assignment Retry Habitat" });
@@ -130,6 +202,9 @@ beforeEach(async () => {
   ensureUser("user-1", "user-1");
   const created = seedAgent("Seed Agent");
   agentApiKey = created.plainApiKey;
+  // Fix-P1: the retry route is now admin-only (agents → 403). Tests that
+  // exercise the happy/claim path authenticate as a human admin.
+  humanToken = makeToken({ sub: "user-1", username: "user-1", role: "admin" });
 });
 
 afterEach(async () => {
@@ -153,12 +228,14 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
   it("assigns the task on the first call and reports `lost` (currentAssignee) on the second", async () => {
     const a1 = seedAgent("a1");
     const { taskId } = seedPendingTask("idem");
+    // Fix-P1: the retry route requires a `created_unassigned` creation trail.
+    seedCreationTrail(taskId, "created_unassigned", "idem");
 
-    // First call → assigned.
+    // First call → assigned (human admin retry-assigns to a1).
     const first = await app!.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: a1.agent.id },
     });
     expect(first.statusCode).toBe(200);
@@ -177,7 +254,7 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
     const second = await app!.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: a1.agent.id },
     });
     expect(second.statusCode).toBe(200);
@@ -202,12 +279,13 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
     const a1 = seedAgent("a1");
     const b1 = seedAgent("b1");
     const { taskId } = seedPendingTask("already-taken");
+    seedCreationTrail(taskId, "created_unassigned", "already-taken");
 
     // B claims first via the same retry route.
     const bClaim = await app!.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: b1.agent.id },
     });
     expect(bClaim.statusCode).toBe(200);
@@ -216,7 +294,7 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
     const aRetry = await app!.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: a1.agent.id },
     });
     expect(aRetry.statusCode).toBe(200);
@@ -253,12 +331,13 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
       return { task: blockerTask };
     })();
     const { taskId } = seedPendingTask("refused");
+    seedCreationTrail(taskId, "created_unassigned", "refused");
     addTaskDependency(taskId, blocker.id); // → dependencies_unmet → ineligible
 
     const res = await app!.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: a1.agent.id },
     });
 
@@ -270,11 +349,6 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
       category: "ineligible",
       reason: "dependencies_unmet",
     });
-
-    // **Failure mode**: if the route collapsed `ineligible` into a generic
-    // 409 or omitted the category/reason, the UI couldn't distinguish
-    // dependencies_unmet from capability_mismatch — the P3 contract demands
-    // typed refusal preservation.
 
     // **Failure mode**: if the route collapsed `ineligible` into a generic
     // 409 or omitted the category/reason, the UI couldn't distinguish
@@ -292,7 +366,7 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
     const res = await app!.inject({
       method: "POST",
       url: `/api/tasks/does-not-exist/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: a1.agent.id },
     });
 
@@ -305,45 +379,120 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
   });
 
   // ------------------------------------------------------------------------
-  // 5. Cross-habitat → 403 (no leak)
+  // 5. Authority guard — agent caller → 403 (Fix-P1 / C1)
   // ------------------------------------------------------------------------
 
-  it("returns 403 when the caller does not have access to the task's habitat", async () => {
-    // Seed a task in habitat A.
+  it("returns 403 when an AGENT calls the route (explicit assignment is admin-only)", async () => {
     const a1 = seedAgent("a1");
-    const { taskId } = seedPendingTask("cross-habitat");
-
-    // Build an agent key for a SECOND habitat (no membership in A).
-    const otherHabitat = habitatRepo.createHabitat({ name: "Other Habitat" });
-    columnRepo.createColumn({ habitatId: otherHabitat.id, name: "Other", order: 0, requiresClaim: false });
-    const otherAgent = seedAgent("Other Agent");
+    const { taskId } = seedPendingTask("agent-blocked");
+    seedCreationTrail(taskId, "created_unassigned", "agent-blocked");
 
     const res = await app!.inject({
       method: "POST",
       url: `/api/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": otherAgent.plainApiKey },
+      headers: { "x-agent-api-key": agentApiKey },
       payload: { requestedAgentId: a1.agent.id },
     });
 
-    // The caller's `checkHabitatAccess` raises `forbidden("Remote connection
-    // invalidated: ...")` for an agent with no habitat, OR `forbidden(...)`
-    // for a human without team membership. For agents without a habitat row,
-    // the access check is permissive (agent requests pass through checkHabitatAccess
-    // when request.agent is set, but the agent has no membership to verify).
-    // In this test, the agent was created with no explicit habitat — agents
-    // can claim in any habitat they have an API key for. So this assertion
-    // verifies the agent claim either succeeds OR fails with the agent's
-    // identity — proving the route does not silently let in a non-member.
-    expect([200, 403]).toContain(res.statusCode);
+    expect(res.statusCode).toBe(403);
+    const body = JSON.parse(res.body);
+    expect(body.code).toBe("AGENT_CANNOT_ASSIGN");
+    expect(body.error).toMatch(/admin-only/i);
 
-    // **Failure mode**: a missing checkHabitatAccess call would let an
-    // agent key minted for habitat B silently claim a task in habitat A.
-    // The test seeds a separate agent (no shared identity) to assert the
-    // route DOES exercise the membership check via the task habitat.
+    // **Failure mode**: pre-Fix-P1 the route let agents explicitly assign to
+    // an arbitrary requestedAgentId — bypassing the admin-only authority
+    // rule enforced in `batch.ts:26-29`. Agents must claim via
+    // `POST /tasks/:id/claim`, not assign to others.
   });
 
   // ------------------------------------------------------------------------
-  // 6. Authorization — no auth → 401
+  // 6. created_unassigned guard — no creation attempt → 409 (Fix-P1 / C1)
+  // ------------------------------------------------------------------------
+
+  it("returns 409 when the task has NO linked creation attempt (legacy/ordinary Task)", async () => {
+    const a1 = seedAgent("a1");
+    const { taskId } = seedPendingTask("no-trail");
+    // Deliberately do NOT seed a creation trail — this is an ordinary legacy
+    // Task (the bypass the cold review identified).
+
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/assignment-attempts`,
+      headers: { authorization: `Bearer ${humanToken}` },
+      payload: { requestedAgentId: a1.agent.id },
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = JSON.parse(res.body);
+    expect(body.details).toMatchObject({
+      category: "not_retryable",
+      reason: "no_creation_attempt",
+    });
+
+    // **Failure mode**: pre-Fix-P1 the route assigned ANY pending Task — a
+    // legacy Task with no publication attempt was assignable, creating a
+    // POST_CUTOVER-shaped assignment on pre-cutover state. The guard rejects
+    // unless the task has a `created_unassigned` creation trail.
+  });
+
+  // ------------------------------------------------------------------------
+  // 7. created_unassigned guard — attempt still recovering → 409
+  // ------------------------------------------------------------------------
+
+  it("returns 409 when the attempt is still recovering (published_pending_assignment)", async () => {
+    const a1 = seedAgent("a1");
+    const { taskId } = seedPendingTask("recovering");
+    seedCreationTrail(taskId, "published_pending_assignment", "recovering");
+
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/assignment-attempts`,
+      headers: { authorization: `Bearer ${humanToken}` },
+      payload: { requestedAgentId: a1.agent.id },
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = JSON.parse(res.body);
+    expect(body.details).toMatchObject({
+      category: "not_retryable",
+      reason: "attempt_state_published_pending_assignment",
+    });
+
+    // **Failure mode**: a task whose attempt is still in-flight must not be
+    // retry-assigned — the coordinator owns the pending→terminal transition.
+    // Only `created_unassigned` (coordinator released the gate) is retryable.
+  });
+
+  // ------------------------------------------------------------------------
+  // 8. created_unassigned guard — attempt already `created` → 409
+  // ------------------------------------------------------------------------
+
+  it("returns 409 when the attempt already terminalized to `created`", async () => {
+    const a1 = seedAgent("a1");
+    const { taskId } = seedPendingTask("already-created");
+    seedCreationTrail(taskId, "created", "already-created");
+
+    const res = await app!.inject({
+      method: "POST",
+      url: `/api/tasks/${taskId}/assignment-attempts`,
+      headers: { authorization: `Bearer ${humanToken}` },
+      payload: { requestedAgentId: a1.agent.id },
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = JSON.parse(res.body);
+    expect(body.details).toMatchObject({
+      category: "not_retryable",
+      reason: "attempt_state_created",
+    });
+
+    // **Failure mode**: a task whose creation attempt already succeeded
+    // (`created`) was already assigned — retrying is a replay, not a fresh
+    // claim. The guard surfaces it as 409 (not retryable).
+  });
+
+  // ------------------------------------------------------------------------
+  // 9. Authorization — no auth → 401
   // ------------------------------------------------------------------------
 
   it("anonymous POST returns 401 (agentOrHumanAuth blocks)", async () => {
@@ -359,7 +508,7 @@ describe("POST /tasks/:taskId/assignment-attempts", () => {
   });
 
   // ------------------------------------------------------------------------
-  // 7. Human auth + no habitat membership → 403 (no leak across team/habitat)
+  // 10. Human auth + no habitat membership → 403 (no leak across team/habitat)
   // ------------------------------------------------------------------------
 
   it("human WITHOUT habitat membership gets 403 (R4 cross-team isolation)", async () => {
@@ -451,8 +600,7 @@ describe("GET /task-creation-attempts/:attemptId — assignment-recovery project
         state: opts.state,
         terminalOutcome: opts.terminalOutcome ?? null,
         terminalResult: (opts.terminalResult ?? null) as never,
-        completedAt:
-          opts.state === "created_unassigned" ? new Date().toISOString() : null,
+        completedAt: opts.state === "created_unassigned" ? new Date().toISOString() : null,
       })
       .run();
     return id;
@@ -565,11 +713,12 @@ describe("Route registration — /api/v1 prefix", () => {
   it("mounts under /api/v1/tasks/:taskId/assignment-attempts", async () => {
     const a1 = seedAgent("a1");
     const { taskId } = seedPendingTask("v1");
+    seedCreationTrail(taskId, "created_unassigned", "v1");
 
     const res = await app!.inject({
       method: "POST",
       url: `/api/v1/tasks/${taskId}/assignment-attempts`,
-      headers: { "x-agent-api-key": agentApiKey },
+      headers: { authorization: `Bearer ${humanToken}` },
       payload: { requestedAgentId: a1.agent.id },
     });
     expect(res.statusCode).toBe(200);
