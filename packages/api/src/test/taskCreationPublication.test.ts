@@ -650,6 +650,9 @@ function computeFingerprintViaAdapter(input: PublishTaskCreationInput): string {
       input.assignment.kind === "auto"
         ? { kind: "auto" }
         : { kind: "targeted", agentId: input.assignment.agentId },
+    // Mirrors the adapter's computeRequestFingerprint (T7 added this so clone
+    // retries reference the same source identity; null for ordinary creation).
+    cloneSourceTaskId: input.cloneSourceTaskId ?? null,
   };
   return "interactive:" + stableHash(stableStringify(payload));
 }

@@ -100,6 +100,7 @@ import {
   type TaskPublicationDbClient,
   type AttemptTerminalResult,
 } from "../repositories/taskPublication.js";
+import { getHabitatIdForTask } from "../repositories/taskCrud.js";
 
 // ---------------------------------------------------------------------------
 // Shared contracts (Story-2 implementation-context § "Shared contracts")
@@ -249,6 +250,27 @@ export interface PublishTaskCreationInput {
    * ISO timestamp (e.g. `new Date(Date.now() + HOURS).toISOString()`).
    */
   targetedAssignmentDeadline?: string;
+
+  // --- clone origin (optional — present ⇒ clone publication) ---
+  /**
+   * Clone source Task reference. When present, the publication is a CLONE:
+   * the proposal's `initialEventAction` becomes `"cloned"` and the source
+   * reference flows to the kernel (the coordinator stamps the `cloned`
+   * Lifecycle Event + envelope `cloneSourceTaskId` atomically). The source's
+   * Habitat is AUTHORITATIVE for a clone — it overrides {@link habitatId} so
+   * the kernel's same-Habitat Mission check structurally enforces that the
+   * clone target remains in the source's Habitat (Core Flows § "Target
+   * Mission": "Ordinary cloning cannot target another Habitat").
+   *
+   * The work-definition fields above are the user's EDITED values from the
+   * clone composer — NOT a re-copy of the source. The source reference is
+   * for authorization, provenance, and same-Habitat enforcement only
+   * (Technical Plan § "Publication API": "The server does not recopy source
+   * fields at publication time.").
+   *
+   * DORMANT: no production caller until T11.
+   */
+  cloneSourceTaskId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +345,9 @@ function computeRequestFingerprint(input: PublishTaskCreationInput): string {
       input.assignment.kind === "auto"
         ? { kind: "auto" }
         : { kind: "targeted", agentId: input.assignment.agentId },
+    // Clone source reference — included so a clone retry carries the same
+    // source identity. Absent for ordinary creation (unchanged fingerprint).
+    cloneSourceTaskId: input.cloneSourceTaskId ?? null,
   };
   return "interactive:" + stableHash(stableStringify(payload));
 }
@@ -492,6 +517,35 @@ export function publishTaskCreation(
   const requestedAssigneeId =
     input.assignment.kind === "targeted" ? input.assignment.agentId : null;
 
+  // ----- 0a. Clone resolution (present ⇒ clone publication) ----------------
+  // When cloneSourceTaskId is supplied, resolve the source's Habitat and use
+  // it as the AUTHORITATIVE habitat for the entire chain. The kernel's
+  // target-Mission scope check then structurally enforces same-Habitat (a
+  // target Mission in another Habitat fails with cross_habitat_mission). The
+  // source reference also selects initialEventAction:"cloned" +
+  // publicationKind:"clone" so the coordinator stamps the cloned Lifecycle
+  // Event + envelope cloneSourceTaskId atomically.
+  const isClone =
+    typeof input.cloneSourceTaskId === "string" && input.cloneSourceTaskId.trim().length > 0;
+  let authoritativeHabitatId = input.habitatId;
+  let initialEventAction: "created" | "cloned" = "created";
+  let publicationKind: "create" | "clone" = "create";
+  let cloneSourceTaskId: string | null = null;
+  if (isClone) {
+    const sourceHabitatId = getHabitatIdForTask(input.cloneSourceTaskId!);
+    if (sourceHabitatId === null) {
+      throw new Error(
+        `publishTaskCreation: cloneSourceTaskId "${input.cloneSourceTaskId}" does not reference an existing Task (or its Mission is missing).`,
+      );
+    }
+    // The source's Habitat is authoritative for a clone — ordinary cloning
+    // cannot target another Habitat (Core Flows § "Target Mission").
+    authoritativeHabitatId = sourceHabitatId;
+    initialEventAction = "cloned";
+    publicationKind = "clone";
+    cloneSourceTaskId = input.cloneSourceTaskId!;
+  }
+
   const requestFingerprint = computeRequestFingerprint(input);
 
   // ----- 1. RESERVE the attempt --------------------------------------------
@@ -501,8 +555,8 @@ export function publishTaskCreation(
     sourceScopeId: input.targetMissionId,
     attemptKey: input.attemptKey,
     requestFingerprint,
-    publicationKind: "create",
-    habitatId: input.habitatId,
+    publicationKind,
+    habitatId: authoritativeHabitatId,
     actorType: toAttemptActorType(input.actorType),
     actorId: input.actorId,
     causalContext,
@@ -567,7 +621,7 @@ export function publishTaskCreation(
 
   // ----- 2. PREPARE (PURE validation + canonicalization) -------------------
   const prepareInput: PrepareTaskPublicationInput = {
-    habitatId: input.habitatId,
+    habitatId: authoritativeHabitatId,
     targetMissionId: input.targetMissionId,
     title: input.title,
     description: input.description,
@@ -582,7 +636,8 @@ export function publishTaskCreation(
     actor,
     auditSource,
     causalContext,
-    initialEventAction: "created",
+    initialEventAction,
+    ...(cloneSourceTaskId !== null ? { cloneSourceTaskId } : {}),
   };
 
   const prepared = prepareTaskPublication(prepareInput);
