@@ -222,10 +222,40 @@ describe("missionPublishTask — outcome interpretation", () => {
       errors: validationBody.errors,
     });
     expect(result.message).toMatch(/validation/i);
-    expect(result.message).toMatch(/same attemptkey/i);
+    // Fix-P3 / N2: corrected input needs a NEW key (same key would replay the
+    // terminal rejection); unchanged retry replays it.
+    expect(result.message).toMatch(/unchanged/i);
+    expect(result.message).toMatch(/new attemptkey/i);
   });
 
-  it("vetoed (409 ApiClientError) → parsed into a result, NOT re-thrown", async () => {
+  it("rejected_validation guidance distinguishes unchanged-replay from corrected-needs-new-key (Fix-P3 / N2)", async () => {
+    const client = createMockClient();
+    const validationBody: TaskPublicationOutcome = {
+      outcome: "rejected_validation",
+      attemptId: "att-n2",
+      errors: [{ path: "title", message: "title is required" }],
+    };
+    client.publishTaskInMission.mockRejectedValue(publicationApiError(422, validationBody));
+
+    const result = await missionPublishTask(client, {
+      missionId: MISSION_ID,
+      attemptKey: "k-n2",
+      title: "Bad payload",
+    });
+
+    const message = result.message as string;
+    // An UNCHANGED retry with the same key replays the terminal rejection.
+    expect(message).toMatch(/unchanged/i);
+    expect(message).toMatch(/replay/i);
+    // CORRECTED input requires a NEW attemptKey.
+    expect(message).toMatch(/corrected/i);
+    expect(message).toMatch(/new attemptkey/i);
+    // The old, dangerous guidance ("retry corrected input with the SAME key")
+    // must be gone — that path would hit rejected_fingerprint.
+    expect(message).not.toMatch(/same attemptkey/i);
+  });
+
+  it("vetoed guidance clarifies unchanged-replay vs new-key retry (Fix-P3 / N2)", async () => {
     const client = createMockClient();
     const vetoBody: TaskPublicationOutcome = {
       outcome: "vetoed",
@@ -245,7 +275,11 @@ describe("missionPublishTask — outcome interpretation", () => {
       attemptId: "att-veto",
       veto: vetoBody.veto,
     });
-    expect(result.message).toMatch(/veto/i);
+    const message = result.message as string;
+    expect(message).toMatch(/veto/i);
+    // Same key replays the terminal veto; retrying publication needs a new key.
+    expect(message).toMatch(/unchanged/i);
+    expect(message).toMatch(/new attemptkey/i);
   });
 
   it("rejected_fingerprint (409) → instructs a NEW attemptKey", async () => {

@@ -5,6 +5,7 @@ import type {
   AutomationActionResult,
   AutomationRunStatus,
   AutomationTargetType,
+  CausalContext,
   NotificationEventType,
 } from "@orcy/shared";
 import type { AutomationEvaluationContext } from "./automationContextBuilder.js";
@@ -672,6 +673,7 @@ export async function executeAndRecordRuleRun(
   targetId: string | null,
   payload?: Record<string, unknown>,
   eventDedupeKey?: string | null,
+  causalContext?: CausalContext,
 ): Promise<{ run: AutomationRuleRun; outcome: AutomationRunStatus }> {
   const { run, created } = runRepo.startRuleRun({
     ruleId: rule.id,
@@ -702,6 +704,7 @@ export async function executeAndRecordRuleRun(
         targetType,
         targetId,
         payload,
+        causalContext,
       }),
     );
     const result = await executeActions(rule, run, ctx);

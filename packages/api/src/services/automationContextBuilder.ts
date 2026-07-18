@@ -6,6 +6,7 @@ import * as sprintRepo from "../repositories/sprint.js";
 import type {
   AutomationTriggerContext,
   AutomationTargetType,
+  CausalContext,
   Task,
   Mission,
   Agent,
@@ -23,6 +24,13 @@ export interface AutomationEvaluationContext {
   warnings: string[];
   missingFields: string[];
   raw: Record<string, unknown>;
+  /**
+   * Inherited causal chain forwarded from a trusted `task.created` envelope
+   * (root + parent + hops). The seam action producers (T8B) read to append their
+   * own hop before republishing. `undefined` for non-task.created triggers and
+   * for any path with no inherited chain.
+   */
+  causalContext?: CausalContext;
 }
 
 /** Loads all entities referenced by an automation trigger into an evaluation context, recording missing references as warnings. */
@@ -95,6 +103,7 @@ export function buildEvaluationContext(
     warnings,
     missingFields,
     raw: trigger.payload,
+    causalContext: trigger.causalContext,
   };
 }
 

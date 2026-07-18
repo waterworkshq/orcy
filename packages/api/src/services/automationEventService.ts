@@ -7,6 +7,7 @@ import type {
   AutomationTriggerType,
   AutomationTriggerContext,
   AutomationTargetType,
+  CausalContext,
 } from "@orcy/shared";
 
 const EVENT_ALLOWLIST: Set<string> = new Set([
@@ -77,6 +78,15 @@ export async function ingestEvent(
   const eventDedupeKey =
     event.type === "task.created" ? ((event.data?.eventId as string | null) ?? null) : null;
 
+  // The trusted-envelope causalContext (task.created only). The same value the
+  // cycle/depth guard inspects, now forwarded to action execution so producers
+  // (T8B) can read + append hops. Non-task.created events have no inherited
+  // chain → undefined.
+  const causalContext =
+    event.type === "task.created"
+      ? (event.data?.causalContext as CausalContext | undefined)
+      : undefined;
+
   for (const rule of rules) {
     try {
       const fingerprintGuard = checkFingerprintGuard(rule.id, habitatId, triggerType, event);
@@ -134,6 +144,7 @@ export async function ingestEvent(
         targetId,
         undefined,
         eventDedupeKey,
+        causalContext,
       );
       matched++;
     } catch (err) {

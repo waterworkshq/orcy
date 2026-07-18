@@ -468,7 +468,7 @@ function interpretPublicationOutcome(
         attemptId: outcome.attemptId,
         ...(outcome.errors !== undefined && { errors: outcome.errors }),
         message:
-          'Validation failed — correct the flagged fields and retry with the SAME attemptKey (the adapter will re-prepare on the same key).',
+          'Validation failed — an UNCHANGED retry with this attemptKey replays this terminal rejection (no new side effect). To submit CORRECTED input, use a NEW attemptKey (the corrected payload has a different fingerprint and needs its own key).',
       };
     case 'vetoed':
       return {
@@ -476,7 +476,7 @@ function interpretPublicationOutcome(
         outcome: 'vetoed',
         attemptId: outcome.attemptId,
         ...(outcome.veto !== undefined && { veto: outcome.veto }),
-        message: 'Publication vetoed by governance — review the veto detail before retrying.',
+        message: 'Publication vetoed by governance — review the veto detail. An UNCHANGED retry with this attemptKey replays this terminal veto (no new side effect). To retry publication, use a NEW attemptKey.',
       };
     case 'rejected_fingerprint':
       return {

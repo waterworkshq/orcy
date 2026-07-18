@@ -98,9 +98,9 @@ describe("taskPrepareClone — DTO propagation", () => {
       new ApiClientError(404, JSON.stringify({ message: "Source task not found" })),
     );
 
-    await expect(
-      taskPrepareClone(client, { sourceTaskId: "missing" }),
-    ).rejects.toBeInstanceOf(ApiClientError);
+    await expect(taskPrepareClone(client, { sourceTaskId: "missing" })).rejects.toBeInstanceOf(
+      ApiClientError,
+    );
   });
 
   it("propagates a 403 ApiClientError from the GET (cross-habitat is a real failure)", async () => {
@@ -109,9 +109,9 @@ describe("taskPrepareClone — DTO propagation", () => {
       new ApiClientError(403, JSON.stringify({ message: "Habitat access denied" })),
     );
 
-    await expect(
-      taskPrepareClone(client, { sourceTaskId: SOURCE_TASK_ID }),
-    ).rejects.toBeInstanceOf(ApiClientError);
+    await expect(taskPrepareClone(client, { sourceTaskId: SOURCE_TASK_ID })).rejects.toBeInstanceOf(
+      ApiClientError,
+    );
   });
 });
 
@@ -341,7 +341,33 @@ describe("taskPublishClone — outcome interpretation (mirrors T6 P3a)", () => {
       errors: validationBody.errors,
     });
     expect(result.message).toMatch(/validation/i);
-    expect(result.message).toMatch(/same attemptkey/i);
+    // Fix-P3 / N2: corrected input needs a NEW key; unchanged retry replays.
+    expect(result.message).toMatch(/unchanged/i);
+    expect(result.message).toMatch(/new attemptkey/i);
+  });
+
+  it("rejected_validation guidance distinguishes unchanged-replay from corrected-needs-new-key (Fix-P3 / N2)", async () => {
+    const client = createMockClient();
+    const validationBody: TaskPublicationOutcome = {
+      outcome: "rejected_validation",
+      attemptId: "att-n2-clone",
+      errors: [{ path: "title", message: "title is required" }],
+    };
+    client.publishTaskClone.mockRejectedValue(publicationApiError(422, validationBody));
+
+    const result = await taskPublishClone(client, {
+      sourceTaskId: SOURCE_TASK_ID,
+      attemptKey: "k-n2-clone",
+      title: "Bad payload",
+      targetMissionId: TARGET_MISSION_ID,
+    });
+
+    const message = result.message as string;
+    expect(message).toMatch(/unchanged/i);
+    expect(message).toMatch(/replay/i);
+    expect(message).toMatch(/corrected/i);
+    expect(message).toMatch(/new attemptkey/i);
+    expect(message).not.toMatch(/same attemptkey/i);
   });
 
   it("vetoed (409 ApiClientError) → parsed into a result, NOT re-thrown", async () => {
@@ -366,6 +392,9 @@ describe("taskPublishClone — outcome interpretation (mirrors T6 P3a)", () => {
       veto: vetoBody.veto,
     });
     expect(result.message).toMatch(/veto/i);
+    // Fix-P3 / N2: same key replays the terminal veto; retrying needs a new key.
+    expect(result.message).toMatch(/unchanged/i);
+    expect(result.message).toMatch(/new attemptkey/i);
   });
 
   it("rejected_fingerprint (409) → instructs a NEW attemptKey", async () => {
