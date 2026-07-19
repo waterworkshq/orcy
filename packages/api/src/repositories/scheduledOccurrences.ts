@@ -53,13 +53,16 @@
  * a different worker's renew is refused without mutation. Release clears the
  * columns; only the current owner may release. The lease is RETIRED
  * automatically by the terminal transitions (`publishing → published|rejected`
- * clear `leaseOwner`/`leaseExpiresAt`) — a terminal occurrence has no
- * meaningful lease. T9B (out of scope here) adds the expired-lease RECLAIM
- * path: a `publishing` occurrence whose `leaseExpiresAt < now` can be
- * re-claimed by a recovery worker. The primitives here are designed so that
- * reclaim is ADDITIVE — `markOccurrencePublishingWithClient` already accepts
- * the free-lease predicate shape, and a future `reacquireExpiredOccurrenceLease`
- * primitive can layer on top.
+ * clear `leaseOwner`/`leaseExpiresAt`) — AND T9A-08 (T9B Phase 1 fencing)
+ * makes the terminal CAS LEASE-OWNER-CONDITIONED: the terminal directives
+ * carry the expected `leaseOwner`, the terminal CAS predicate adds
+ * `leaseOwner = expected`, and a mismatch (a stale worker whose lease was
+ * reclaimed by {@link reacquireExpiredOccurrenceLeaseWithClient}) returns a
+ * typed `not_owner` outcome so the caller can distinguish "lost the lease"
+ * from "the occurrence is already terminal". T9B's expired-lease RECLAIM
+ * primitive (below) is the EXPLICIT takeover path for the phase-2 recovery
+ * worker — a `publishing` occurrence whose `leaseExpiresAt < now` can be
+ * re-claimed, transferring the lease to the recovery owner.
  *
  * DORMANT: no production origin routes through this module yet. The
  * reservation transaction (Phase 2 — `reserveScheduledOccurrence`) and the
@@ -259,8 +262,26 @@ export interface OccurrencePublishingDirective extends OccurrenceLeaseDirective 
  * Mission id + optional compact result + optional coordination attempt id.
  * The lease is RETIRED atomically with the transition (terminal occurrences
  * have no meaningful lease).
+ *
+ * T9A-08 (T9B Phase 1 fencing): `leaseOwner` is the EXPECTED owner — the
+ * terminal CAS predicate checks `leaseOwner = expected` so a STALE worker
+ * (whose lease was reclaimed by T9B's recovery worker) CANNOT terminalize
+ * + clear the new owner's lease. The production path (the Phase-3
+ * participant) always carries the publisher's non-null `leaseOwner`. The
+ * type is `string | null`: `null` is the expected owner for the
+ * `reserved → rejected` edge (a `reserved` occurrence carries no lease —
+ * there is nothing to fence; `null` matches the row's NULL `leaseOwner`
+ * via the CAS's `isNull` predicate).
  */
 export interface OccurrencePublishedDirective {
+  /**
+   * The expected lease owner (T9A-08 fencing). The terminal CAS checks
+   * `leaseOwner = expected`; a mismatch (the caller is no longer the
+   * owner — a T9B takeover happened) returns `not_owner`. The production
+   * path (the publisher) always passes its non-null worker id; `null` is
+   * the expected owner for source states that carry no lease.
+   */
+  leaseOwner: string | null;
   /** The Mission this occurrence created (plain text, non-cascading). */
   createdMissionId: string;
   /** Optional coordination handle (design question #1 — Phase 3 resolves). */
@@ -272,8 +293,13 @@ export interface OccurrencePublishedDirective {
 /**
  * Directive for {@link markOccurrenceRejectedWithClient}. Stamps the failure
  * result + optional coordination attempt id. The lease is RETIRED atomically.
+ *
+ * T9A-08 (T9B Phase 1 fencing): `leaseOwner` is the EXPECTED owner — see
+ * {@link OccurrencePublishedDirective.leaseOwner} for the full rationale.
  */
 export interface OccurrenceRejectedDirective {
+  /** The expected lease owner (T9A-08 fencing) — see {@link OccurrencePublishedDirective}. */
+  leaseOwner: string | null;
   /** Optional coordination handle (design question #1 — Phase 3 resolves). */
   attemptId?: string;
   /** Compact failure result (Task errors, veto reasons, validation diagnostics). */
@@ -344,6 +370,19 @@ export type OccurrencePublishingResult =
  *                           replay reached this layer. The authoritative
  *                           terminal row is returned UNCHANGED — the loser
  *                           never overwrites the winner's result.
+ * - `not_owner`           — T9A-08 (T9B Phase 1 fencing): the row is still in
+ *                           the expected `fromState` BUT the `leaseOwner` no
+ *                           longer matches the directive's expected owner.
+ *                           A T9B lease-reclaim transferred the lease to a
+ *                           new worker; the caller is the STALE owner and
+ *                           MUST NOT proceed (the new owner's lease is
+ *                           preserved UNCHANGED). Distinct from `no_op` (the
+ *                           occurrence is NOT terminal — it is still in the
+ *                           source state) and from `illegal_source_state`
+ *                           (the source state IS legal — the caller just lost
+ *                           the lease) so the caller can distinguish "lost
+ *                           the lease" from "the occurrence is already
+ *                           terminal" / "illegal transition".
  * - `illegal_source_state`— the current state does not have a legal forward
  *                           edge to the requested terminal (e.g.
  *                           `published → rejected` cross-terminal, or a
@@ -356,6 +395,7 @@ export type OccurrencePublishingResult =
 export type OccurrenceTerminalResult =
   | { outcome: "transitioned"; occurrence: ScheduledOccurrenceRow }
   | { outcome: "no_op"; occurrence: ScheduledOccurrenceRow }
+  | { outcome: "not_owner"; occurrence: ScheduledOccurrenceRow }
   | {
       outcome: "illegal_source_state";
       occurrence: ScheduledOccurrenceRow;
@@ -690,11 +730,14 @@ export function markOccurrencePublishingWithClient(
 
 /**
  * Terminalizes a `publishing` occurrence to `published` AND stamps the
- * created Mission + optional compact result + optional coordination
+ * created Mission id + optional compact result + optional coordination
  * `attemptId`, AND RETIRES the lease (`leaseOwner`/`leaseExpiresAt` cleared)
  * in ONE compare-and-set UPDATE. The terminal-lock CAS predicate is
- * `state='publishing'` — a concurrent terminalization's UPDATE no-ops (the
- * first commit wins; the loser never overwrites the winner's result).
+ * `state='publishing' AND leaseOwner = directive.leaseOwner` (T9A-08 fencing
+ * — see {@link terminalizeWithClient}); a concurrent terminalization's UPDATE
+ * no-ops (the first commit wins; the loser never overwrites the winner's
+ * result), and a STALE worker whose lease was reclaimed by T9B's recovery
+ * worker surfaces as `not_owner` (the new owner's lease is preserved).
  *
  * Decision order (all on the passed client):
  *   1. Read the current row (in-tx decision support).
@@ -703,9 +746,10 @@ export function markOccurrencePublishingWithClient(
  *   3. Legal-pair check via {@link isLegalOccurrenceForward}: any non-`publishing`
  *      source (incl. `rejected` cross-terminal, `reserved` skip) →
  *      `illegal_source_state`.
- *   4. CAS UPDATE `WHERE id AND state='publishing'`; classify from
- *      `SELECT changes() AS n`. One row → `transitioned`; zero rows → `no_op`
- *      (a concurrent publish won).
+ *   4. CAS UPDATE `WHERE id AND state='publishing' AND leaseOwner=expected`;
+ *      classify from `SELECT changes() AS n`. One row → `transitioned`; zero
+ *      rows → `not_owner` (row still `publishing` but owner changed — a T9B
+ *      takeover) OR `no_op` (row moved — a concurrent terminalization won).
  *
  * Never calls `getDb()`, never opens a nested tx, never emits external
  * effects. Throws only on infrastructure failure.
@@ -724,13 +768,17 @@ export function markOccurrencePublishedWithClient(
  * the lease. The legal source states for `rejected` are BOTH `publishing`
  * (publication failure — Task invalid/vetoed) AND `reserved` (pre-publication
  * validation failure detected before publication began — see
- * {@link isLegalOccurrenceForward}). The CAS predicate is `state IN
- * (legal-source-states)`.
+ * {@link isLegalOccurrenceForward}). The CAS predicate is
+ * `state IN (legal-source-states) AND leaseOwner = directive.leaseOwner`
+ * (T9A-08 fencing — see {@link terminalizeWithClient}); for the `publishing`
+ * source the directive passes the publisher's worker id, and for the
+ * `reserved` source it passes `null` (a `reserved` occurrence carries no
+ * lease — the CAS's `isNull(leaseOwner)` predicate matches the row's NULL).
  *
  * Decision order mirrors {@link markOccurrencePublishedWithClient}: terminal
  * fast-path on already-`rejected` → `no_op`; legal-pair check →
  * `illegal_source_state` for `published` cross-terminal; CAS classify from
- * `SELECT changes()`.
+ * `SELECT changes()` → `transitioned` / `not_owner` (T9B takeover) / `no_op`.
  *
  * Never calls `getDb()`, never opens a nested tx, never emits external
  * effects. Throws only on infrastructure failure.
@@ -846,6 +894,143 @@ export function releaseOccurrenceLeaseWithClient(
 }
 
 // ---------------------------------------------------------------------------
+// Expired-lease RECLAIM (T9B Phase 1 — the recovery worker's takeover path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Closed result of {@link reacquireExpiredOccurrenceLeaseWithClient}.
+ *
+ * - `reclaimed`           — the CAS matched: the occurrence was
+ *                           `state='publishing'` AND `leaseExpiresAt < now`.
+ *                           The lease is now owned by the directive's
+ *                           `leaseOwner` with the supplied `leaseExpiresAt`.
+ *                           The new owner MAY proceed with publication (the
+ *                           fenced terminalization ensures the new owner is
+ *                           authoritative — a stale worker's terminalization
+ *                           returns `not_owner`).
+ * - `not_expired`         — the occurrence IS `publishing` BUT the lease has
+ *                           NOT observably expired (`leaseExpiresAt >= now`,
+ *                           or `leaseExpiresAt IS NULL` — a data anomaly
+ *                           treated defensively as "not reclaimable"). No
+ *                           mutation; the current owner's lease is preserved.
+ * - `illegal_source_state`— the occurrence is NOT `publishing` (`reserved`,
+ *                           `published`, or `rejected`). A terminal occurrence
+ *                           is never reclaimable (the lease was retired by the
+ *                           terminal transition); a `reserved` occurrence
+ *                           carries no lease to reclaim. No mutation;
+ *                           `fromState` carries the current state.
+ * - `not_found`           — no occurrence row exists for `id`.
+ */
+export type OccurrenceLeaseReclaimResult =
+  | { outcome: "reclaimed"; occurrence: ScheduledOccurrenceRow }
+  | { outcome: "not_expired"; occurrence: ScheduledOccurrenceRow }
+  | {
+      outcome: "illegal_source_state";
+      occurrence: ScheduledOccurrenceRow;
+      fromState: ScheduledOccurrenceState;
+    }
+  | { outcome: "not_found" };
+
+/**
+ * Reclaims an EXPIRED worker lease on a `publishing` occurrence for a new
+ * owner (T9B Phase 1 — the recovery worker's takeover path). A CAS UPDATE
+ * conditioned on `id AND state='publishing' AND leaseExpiresAt < now`
+ * atomically transfers the lease to the directive's `leaseOwner` +
+ * `leaseExpiresAt`. The fenced terminalization ({@link terminalizeWithClient}
+ * — T9A-08) ensures the new owner is AUTHORITATIVE: a stale worker's
+ * subsequent `markOccurrencePublishedWithClient` / `markOccurrenceRejectedWithClient`
+ * returns `not_owner` (the CAS predicate checks `leaseOwner = expected`).
+ *
+ * # The two-primitive contract (reclaim + fenced terminalize)
+ *
+ * The recovery flow is TWO primitives composed by the phase-2 worker:
+ *   1. `reacquireExpiredOccurrenceLeaseWithClient(db, id, {leaseOwner, leaseExpiresAt})`
+ *      → `{outcome:"reclaimed"}` (the recovery owner now holds the lease).
+ *   2. Re-drive `publishScheduledOccurrence` under the reclaimed lease. The
+ *      publisher's `markOccurrencePublishingWithClient` call refuses a
+ *      `publishing` occurrence with an ACTIVE lease — the worker must reclaim
+ *      FIRST (this primitive), then the re-drive's terminalization uses the
+ *      reclaimed owner. A stale worker who runs terminalization concurrently
+ *      with the recovery's re-drive surfaces as `not_owner` (the fenced CAS
+ *      catches the owner mismatch).
+ *
+ * # NULL `leaseExpiresAt` handling
+ *
+ * A `publishing` occurrence always carries a non-null `leaseExpiresAt` (set
+ * by `markOccurrencePublishingWithClient`). A NULL `leaseExpiresAt` on a
+ * `publishing` occurrence is a data anomaly; the CAS predicate
+ * `lt(leaseExpiresAt, now)` does NOT match NULL (SQL NULL comparison), so the
+ * reclaim returns `not_expired` (defensive — the lease is not observably
+ * expired, so it is not reclaimable). The recovery worker skips it.
+ *
+ * # Concurrency
+ *
+ * SQLite serializes writers; two concurrent recovery workers on the same
+ * expired lease: the first CAS matches + commits (transferring the lease +
+ * setting a future `leaseExpiresAt`); the second worker's CAS predicate
+ * `leaseExpiresAt < now` no longer matches (the first commit set a future
+ * expiry) → `not_expired`. The second worker sees the lease as "not expired"
+ * — accurate from its perspective (the first worker reclaimed it).
+ *
+ * Never calls `getDb()`, never opens a nested tx, never emits external
+ * effects. Throws only on infrastructure failure (retryable transport).
+ */
+export function reacquireExpiredOccurrenceLeaseWithClient(
+  db: TaskPublicationDbClient,
+  id: string,
+  directive: OccurrenceLeaseDirective,
+): OccurrenceLeaseReclaimResult {
+  const now = new Date().toISOString();
+  let affected: number;
+  try {
+    db.update(scheduledOccurrences)
+      .set({
+        leaseOwner: directive.leaseOwner,
+        leaseExpiresAt: directive.leaseExpiresAt,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scheduledOccurrences.id, id),
+          eq(scheduledOccurrences.state, "publishing"),
+          // Expired-lease predicate: `leaseExpiresAt < now`. NULL
+          // `leaseExpiresAt` (a data anomaly on a `publishing` row) does NOT
+          // match — `lt(NULL, now)` is SQL NULL, not TRUE → the reclaim
+          // returns `not_expired` (defensive — not observably expired).
+          lt(scheduledOccurrences.leaseExpiresAt, now),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("scheduledOccurrence", err as Error, id);
+  }
+
+  // Re-read the authoritative row (return value for all outcomes + the
+  // classification signal for the zero-row case).
+  const row = db
+    .select()
+    .from(scheduledOccurrences)
+    .where(eq(scheduledOccurrences.id, id))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  if (affected === 1) return { outcome: "reclaimed", occurrence: row };
+
+  // affected === 0: classify from the live row. The CAS predicate
+  // `state='publishing' AND leaseExpiresAt < now` failed — distinguish
+  // "wrong state" (terminal/reserved) from "lease not expired".
+  const fromState = row.state as ScheduledOccurrenceState;
+  if (fromState !== "publishing") {
+    return { outcome: "illegal_source_state", occurrence: row, fromState };
+  }
+  // `state='publishing'` but the lease is NOT reclaimable: either
+  // `leaseExpiresAt >= now` (still active) or `leaseExpiresAt IS NULL`
+  // (data anomaly). Both surface as `not_expired`.
+  return { outcome: "not_expired", occurrence: row };
+}
+
+// ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
 
@@ -950,11 +1135,21 @@ export function listOccurrencesForScheduleWithClient(
  * set from the matrix, runs the terminal fast-path, the legal-pair check, and
  * the CAS-classified UPDATE. Private to this module.
  *
- * The CAS predicate encodes BOTH the legal-source-set membership AND the
- * state-machine forward invariant: a UPDATE matches only when the row's
- * current state is one of the legal sources for the requested terminal. This
- * makes the affected-row count the entire signal for `transitioned` vs
- * `no_op` (concurrent terminalization won).
+ * The CAS predicate encodes THREE preconditions: (1) the row id, (2) the
+ * legal-source-set membership (`state = fromState` — the one-way door + the
+ * forward invariant), AND (3) T9A-08 fencing — the row's `leaseOwner` equals
+ * the directive's expected owner. The owner predicate is `eq(leaseOwner,
+ * expected)` when the expected owner is a string (the production path — a
+ * `publishing` occurrence with a live lease), or `isNull(leaseOwner)` when
+ * the expected owner is `null` (the `reserved → rejected` edge — a
+ * `reserved` occurrence carries no lease, so `null` matches the row's NULL
+ * `leaseOwner`). This makes the affected-row count the entire signal for
+ * `transitioned` vs `no_op` / `not_owner`:
+ *   - 1 row  → `transitioned` (this call installed the terminal).
+ *   - 0 rows → the re-read distinguishes `not_owner` (the row is still in
+ *              `fromState` but `leaseOwner` changed — a T9B takeover) from
+ *              `no_op` (the row moved to any other state — a concurrent
+ *              terminalization won).
  */
 function terminalizeWithClient(
   db: TaskPublicationDbClient,
@@ -975,6 +1170,8 @@ function terminalizeWithClient(
   // 2. Terminal fast-path: already in the requested terminal → idempotent
   //    `no_op` returning the authoritative terminal row UNCHANGED. A prior
   //    terminalization wins; a loser never overwrites the winner's result.
+  //    (The lease was retired by the prior terminalization, so the owner
+  //    check is irrelevant here — the fast-path returns BEFORE the CAS.)
   if (fromState === target) {
     return { outcome: "no_op", occurrence: current };
   }
@@ -985,10 +1182,21 @@ function terminalizeWithClient(
     return { outcome: "illegal_source_state", occurrence: current, fromState };
   }
 
-  // 4. Compare-and-set terminalization: the legal-source-set CAS predicate is
-  //    the one-way door. `state = fromState` guards against state drift
+  // 4. Compare-and-set terminalization: the legal-source-set CAS predicate
+  //    is the one-way door. `state = fromState` guards against state drift
   //    between the read and the UPDATE; the legal-source set is encoded by
-  //    the matrix check above (we already know `fromState` is legal).
+  //    the matrix check above (we already know `fromState` is legal). The
+  //    T9A-08 owner predicate fences the terminalization against a stale
+  //    worker whose lease was reclaimed by T9B's recovery worker.
+  //    NULL-safe: the directive's `leaseOwner` may be `null` (the
+  //    `reserved → rejected` edge — no lease to fence); drizzle's `eq`
+  //    cannot compare NULL (SQL `NULL = NULL` is NULL, not TRUE), so the
+  //    predicate switches to `isNull(leaseOwner)` when the expected owner
+  //    is null.
+  const ownerPredicate =
+    directive.leaseOwner === null
+      ? isNull(scheduledOccurrences.leaseOwner)
+      : eq(scheduledOccurrences.leaseOwner, directive.leaseOwner);
   const now = new Date().toISOString();
   let affected: number;
   try {
@@ -1010,17 +1218,23 @@ function terminalizeWithClient(
         ...(directive.attemptId !== undefined ? { attemptId: directive.attemptId } : {}),
         updatedAt: now,
       })
-      .where(and(eq(scheduledOccurrences.id, id), eq(scheduledOccurrences.state, fromState)))
+      .where(
+        and(
+          eq(scheduledOccurrences.id, id),
+          eq(scheduledOccurrences.state, fromState),
+          ownerPredicate,
+        ),
+      )
       .run();
     affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
   } catch (err) {
     throw repositoryUpdateError("scheduledOccurrence", err as Error, id);
   }
 
-  // 5. Re-read the authoritative row (return value for both outcomes). When
+  // 5. Re-read the authoritative row (return value for all outcomes). When
   //    affected === 1 it is the row we just terminalized; when affected === 0
-  //    a concurrent terminalization won, and this is the winner's row
-  //    returned UNCHANGED.
+  //    a concurrent terminalization OR a T9B takeover won, and this is the
+  //    winner's row returned UNCHANGED.
   const row = db
     .select()
     .from(scheduledOccurrences)
@@ -1028,9 +1242,23 @@ function terminalizeWithClient(
     .all()[0];
   if (!row) return { outcome: "not_found" }; // vanished mid-call (data anomaly)
 
-  return affected === 1
-    ? { outcome: "transitioned", occurrence: row }
-    : { outcome: "no_op", occurrence: row };
+  if (affected === 1) return { outcome: "transitioned", occurrence: row };
+
+  // affected === 0: classify WHY the CAS lost. The row's current state +
+  //    leaseOwner vs the directive's expected owner disambiguates the three
+  //    losing shapes. The classification order matters: `not_owner` MUST be
+  //    tested BEFORE `no_op` because a `not_owner` row is still in
+  //    `fromState` (it has NOT moved) — only its `leaseOwner` changed.
+  if (row.state === fromState && row.leaseOwner !== directive.leaseOwner) {
+    // T9A-08 fencing: the row is still in the expected source state BUT a
+    // T9B lease-reclaim transferred the lease to a new owner. The caller is
+    // the STALE owner and MUST NOT proceed — the new owner's lease is
+    // preserved UNCHANGED.
+    return { outcome: "not_owner", occurrence: row };
+  }
+  // The row moved (to `target` via a concurrent terminalization, or to any
+  // other state). The loser never overwrites the winner's result.
+  return { outcome: "no_op", occurrence: row };
 }
 
 /**

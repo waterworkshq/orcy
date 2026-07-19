@@ -43,6 +43,7 @@ import {
   markOccurrenceRejectedWithClient,
   renewOccurrenceLeaseWithClient,
   releaseOccurrenceLeaseWithClient,
+  reacquireExpiredOccurrenceLeaseWithClient,
   getOccurrenceWithClient,
   getOccurrenceByScheduleAndDueWithClient,
   listOccurrencesInStateWithClient,
@@ -515,6 +516,7 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
   it("transitioned: publishing → published + createdMissionId + result + lease RETIRED", () => {
     const occ = seedPublishing();
     const result = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
       createdMissionId: "mission-1",
       result: { durationMs: 1500, taskCount: 3 },
     });
@@ -537,6 +539,7 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
   it("stamps attemptId when supplied (the coordination handle)", () => {
     const occ = seedPublishing();
     const result = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
       createdMissionId: "mission-1",
       attemptId: "attempt-coord-final",
     });
@@ -547,6 +550,7 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
   it("result defaults to NULL when omitted (caller may stamp later)", () => {
     const occ = seedPublishing();
     const result = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
       createdMissionId: "mission-1",
     });
     if (result.outcome !== "transitioned") throw new Error("not transitioned");
@@ -556,12 +560,14 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
   it("no_op: already published → idempotent (concurrent publish won)", () => {
     const occ = seedPublishing();
     const first = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
       createdMissionId: "mission-winner",
       result: { winner: true },
     });
     expect(first.outcome).toBe("transitioned");
 
     const second = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A", // the terminal fast-path returns BEFORE the CAS
       createdMissionId: "mission-loser", // different! loser must NOT overwrite
       result: { winner: false },
     });
@@ -581,6 +587,7 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
   it("illegal_source_state: reserved → published is forbidden (must go through publishing)", () => {
     const occ = seedReserved(); // never transitioned to publishing
     const result = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: null, // a `reserved` occurrence carries no lease
       createdMissionId: "mission-1",
     });
 
@@ -599,6 +606,7 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
     stampState(occ.id, "rejected", { owner: null, expiresAt: null });
 
     const result = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: null,
       createdMissionId: "mission-1",
     });
 
@@ -609,6 +617,7 @@ describe("markOccurrencePublishedWithClient — terminal published", () => {
 
   it("not_found for a missing occurrence", () => {
     const result = markOccurrencePublishedWithClient(getDb(), "missing", {
+      leaseOwner: null,
       createdMissionId: "m",
     });
     expect(result.outcome).toBe("not_found");
@@ -623,6 +632,7 @@ describe("markOccurrenceRejectedWithClient — terminal rejected", () => {
   it("transitioned from publishing: lease RETIRED + result stamped", () => {
     const occ = seedPublishing();
     const result = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
       result: { errors: ["task-1 invalid"], vetoedBy: "interceptor-X" },
     });
 
@@ -645,9 +655,12 @@ describe("markOccurrenceRejectedWithClient — terminal rejected", () => {
     // The `reserved → rejected` edge is the key design decision: a
     // reservation tx that detects a validation failure (template missing,
     // schedule disabled mid-tx) can terminalize WITHOUT forcing a bogus
-    // publish attempt.
+    // publish attempt. A `reserved` occurrence carries no lease → the
+    // directive passes `leaseOwner: null` (the CAS's `isNull(leaseOwner)`
+    // predicate matches the row's NULL).
     const occ = seedReserved();
     const result = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: null,
       result: { reason: "template_missing" },
     });
 
@@ -665,11 +678,13 @@ describe("markOccurrenceRejectedWithClient — terminal rejected", () => {
   it("no_op: already rejected → idempotent (concurrent reject won)", () => {
     const occ = seedPublishing();
     const first = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
       result: { winner: true },
     });
     expect(first.outcome).toBe("transitioned");
 
     const second = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A", // terminal fast-path returns BEFORE the CAS
       result: { winner: false }, // different! loser must NOT overwrite
     });
 
@@ -686,6 +701,7 @@ describe("markOccurrenceRejectedWithClient — terminal rejected", () => {
     stampState(occ.id, "published", { owner: null, expiresAt: null });
 
     const result = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: null,
       result: { reason: "too-late" },
     });
 
@@ -699,6 +715,7 @@ describe("markOccurrenceRejectedWithClient — terminal rejected", () => {
 
   it("not_found for a missing occurrence", () => {
     const result = markOccurrenceRejectedWithClient(getDb(), "missing", {
+      leaseOwner: null,
       result: { reason: "x" },
     });
     expect(result.outcome).toBe("not_found");
@@ -756,7 +773,10 @@ describe("renewOccurrenceLeaseWithClient", () => {
 
   it("renew on a terminal occurrence → not_owner (lease was retired on terminalize)", () => {
     const occ = seedPublishing(undefined, "worker-A");
-    markOccurrencePublishedWithClient(getDb(), occ.id, { createdMissionId: "m-1" });
+    markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
+      createdMissionId: "m-1",
+    });
 
     // worker-A tries to renew — but the lease was retired on terminalize.
     const result = renewOccurrenceLeaseWithClient(getDb(), occ.id, {
@@ -838,6 +858,272 @@ describe("releaseOccurrenceLeaseWithClient", () => {
   it("not_found for a missing occurrence", () => {
     const result = releaseOccurrenceLeaseWithClient(getDb(), "missing", "worker-A");
     expect(result.outcome).toBe("not_found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7b. reacquireExpiredOccurrenceLeaseWithClient — T9B Phase 1 lease-reclaim
+//     (the recovery worker's takeover path).
+// ---------------------------------------------------------------------------
+
+describe("reacquireExpiredOccurrenceLeaseWithClient — T9B Phase 1 lease reclaim", () => {
+  it("reclaimed: an expired-lease publishing occurrence → lease transferred", () => {
+    // Seed a `publishing` occurrence whose lease has EXPIRED (the original
+    // worker crashed / stalled past `leaseExpiresAt`).
+    const occ = seedPublishing(undefined, "stale-worker");
+    stampState(occ.id, "publishing", { owner: "stale-worker", expiresAt: EXPIRED_ISO });
+
+    const result = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+
+    expect(result.outcome).toBe("reclaimed");
+    if (result.outcome !== "reclaimed") return;
+    expect(result.occurrence.state).toBe("publishing"); // state unchanged
+    expect(result.occurrence.leaseOwner).toBe("recovery-worker");
+    expect(result.occurrence.leaseExpiresAt).toBe(FUTURE_ISO);
+
+    // **Failure mode**: if the reclaim's CAS predicate missed the
+    // `leaseExpiresAt < now` guard, it would "reclaim" an ACTIVE lease —
+    // stealing it from a live worker. If it missed the `state='publishing'`
+    // guard, it would reclaim a terminal/reserved occurrence.
+  });
+
+  it("not_expired: an active-lease publishing occurrence → NOT reclaimable", () => {
+    const occ = seedPublishing(undefined, "active-worker"); // leaseExpiresAt = FUTURE_ISO
+
+    const result = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+
+    expect(result.outcome).toBe("not_expired");
+    if (result.outcome !== "not_expired") return;
+    // The active worker's lease is UNCHANGED.
+    expect(result.occurrence.leaseOwner).toBe("active-worker");
+    expect(result.occurrence.leaseExpiresAt).toBe(FUTURE_ISO);
+
+    // **Failure mode**: if the CAS predicate missed the `leaseExpiresAt < now`
+    // guard, the recovery worker would steal an ACTIVE lease → the active
+    // worker's terminalization would later surface as `not_owner` (a false
+    // takeover signal).
+  });
+
+  it("not_expired: a NULL leaseExpiresAt on a publishing occurrence → defensive refusal", () => {
+    // A data anomaly: a `publishing` occurrence should always carry a
+    // non-null `leaseExpiresAt`. If it doesn't, the reclaim treats it as
+    // "not observably expired" (defensive — skips reclaim).
+    const occ = seedPublishing(undefined, "some-worker");
+    stampState(occ.id, "publishing", { owner: "some-worker", expiresAt: null });
+
+    const result = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+
+    expect(result.outcome).toBe("not_expired");
+
+    // **Failure mode**: if the reclaim treated NULL `leaseExpiresAt` as
+    // expired (using `leaseExpiresAt IS NULL OR leaseExpiresAt < now`), it
+    // would reclaim a lease whose expiry is unknown — potentially stealing
+    // an active lease.
+  });
+
+  it("illegal_source_state: a reserved occurrence → NOT reclaimable (no lease)", () => {
+    const occ = seedReserved(); // state='reserved', no lease
+
+    const result = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+
+    expect(result.outcome).toBe("illegal_source_state");
+    if (result.outcome !== "illegal_source_state") return;
+    expect(result.fromState).toBe("reserved");
+    expect(result.occurrence.state).toBe("reserved");
+    expect(result.occurrence.leaseOwner).toBeNull(); // unchanged
+
+    // **Failure mode**: if the reclaim's CAS predicate missed the
+    // `state='publishing'` guard, it would "reclaim" a reserved occurrence
+    // (installing a lease on a row that never entered publication).
+  });
+
+  it("illegal_source_state: a terminal occurrence → NOT reclaimable (lease retired)", () => {
+    const occ = seedPublishing(undefined, "worker-A");
+    markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
+      createdMissionId: "m-1",
+    }); // lease retired by terminalization
+
+    const result = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+
+    expect(result.outcome).toBe("illegal_source_state");
+    if (result.outcome !== "illegal_source_state") return;
+    expect(result.fromState).toBe("published");
+
+    // **Failure mode**: if the reclaim allowed a terminal occurrence, the
+    // recovery worker would install a lease on a `published`/`rejected`
+    // row — a stale lease on terminal work.
+  });
+
+  it("not_found for a missing occurrence", () => {
+    const result = reacquireExpiredOccurrenceLeaseWithClient(getDb(), "missing", {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+    expect(result.outcome).toBe("not_found");
+  });
+
+  it("concurrent reclaim: two recovery workers → exactly one reclaimed", () => {
+    const occ = seedPublishing(undefined, "stale-worker");
+    stampState(occ.id, "publishing", { owner: "stale-worker", expiresAt: EXPIRED_ISO });
+
+    const db = getDb();
+    const outcomes = db.transaction((tx) => {
+      const a = reacquireExpiredOccurrenceLeaseWithClient(tx, occ.id, {
+        leaseOwner: "recovery-A",
+        leaseExpiresAt: FUTURE_ISO,
+      });
+      const b = reacquireExpiredOccurrenceLeaseWithClient(tx, occ.id, {
+        leaseOwner: "recovery-B",
+        leaseExpiresAt: FUTURE_ISO,
+      });
+      return { a: a.outcome, b: b.outcome };
+    });
+
+    expect(outcomes).toEqual({ a: "reclaimed", b: "not_expired" });
+    expect(readOccurrence(occ.id).leaseOwner).toBe("recovery-A");
+
+    // **Failure mode**: if the CAS predicate allowed a double-reclaim, B
+    // would overwrite A's lease → `leaseOwner` would be "recovery-B". The
+    // single `reclaimed` + A's surviving ownership proves the compare-and-set
+    // (A's commit set `leaseExpiresAt` to FUTURE_ISO → B's predicate
+    // `leaseExpiresAt < now` no longer matches).
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7c. T9A-08 fencing — a stale worker (whose lease was reclaimed) CANNOT
+//     terminalize. The new owner's lease is preserved; the new owner
+//     terminalizes successfully.
+// ---------------------------------------------------------------------------
+
+describe("T9A-08 fencing — stale worker terminalization refused after lease reclaim", () => {
+  it("stale worker's markOccurrencePublishedWithClient → not_owner (new owner's lease preserved)", () => {
+    // Worker-A acquired the lease, then stalled past leaseExpiresAt.
+    const occ = seedPublishing(undefined, "worker-A");
+    stampState(occ.id, "publishing", { owner: "worker-A", expiresAt: EXPIRED_ISO });
+
+    // T9B's recovery worker reclaims the expired lease.
+    const reclaim = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+    expect(reclaim.outcome).toBe("reclaimed");
+
+    // The STALE worker-A attempts to terminalize with its OLD owner.
+    const stalePublish = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A", // the OLD owner — no longer authoritative
+      createdMissionId: "stale-mission",
+    });
+
+    expect(stalePublish.outcome).toBe("not_owner");
+    if (stalePublish.outcome !== "not_owner") return;
+    // The occurrence is STILL `publishing` (the stale worker did NOT
+    // terminalize) + the NEW owner's lease is preserved.
+    expect(stalePublish.occurrence.state).toBe("publishing");
+    expect(stalePublish.occurrence.leaseOwner).toBe("recovery-worker");
+    expect(stalePublish.occurrence.leaseExpiresAt).toBe(FUTURE_ISO);
+    expect(stalePublish.occurrence.createdMissionId).toBeNull(); // NOT stamped
+
+    const after = readOccurrence(occ.id);
+    expect(after.leaseOwner).toBe("recovery-worker");
+
+    // **Failure mode**: if the terminal CAS predicate was missing the
+    // `leaseOwner = expected` guard, the stale worker would terminalize
+    // → `state` would be "published" + `leaseOwner` would be NULL (cleared
+    // by the terminal transition). The preserved `publishing` state +
+    // recovery-worker ownership PROVES the fencing.
+  });
+
+  it("the NEW owner terminalizes successfully after reclaim", () => {
+    const occ = seedPublishing(undefined, "worker-A");
+    stampState(occ.id, "publishing", { owner: "worker-A", expiresAt: EXPIRED_ISO });
+
+    // Recovery reclaims the expired lease.
+    const reclaim = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+    expect(reclaim.outcome).toBe("reclaimed");
+
+    // The NEW owner terminalizes — the CAS matches.
+    const publish = markOccurrencePublishedWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      createdMissionId: "recovery-mission",
+      result: { recovered: true },
+    });
+
+    expect(publish.outcome).toBe("transitioned");
+    if (publish.outcome !== "transitioned") return;
+    expect(publish.occurrence.state).toBe("published");
+    expect(publish.occurrence.createdMissionId).toBe("recovery-mission");
+    expect(publish.occurrence.leaseOwner).toBeNull(); // retired by terminalization
+
+    // **Failure mode**: if the terminal CAS predicate was checking the OLD
+    // owner (not the directive's expected owner), the new owner would also
+    // be refused → `outcome` would be "not_owner".
+  });
+
+  it("stale worker's markOccurrenceRejectedWithClient → not_owner (new owner's lease preserved)", () => {
+    const occ = seedPublishing(undefined, "worker-A");
+    stampState(occ.id, "publishing", { owner: "worker-A", expiresAt: EXPIRED_ISO });
+
+    const reclaim = reacquireExpiredOccurrenceLeaseWithClient(getDb(), occ.id, {
+      leaseOwner: "recovery-worker",
+      leaseExpiresAt: FUTURE_ISO,
+    });
+    expect(reclaim.outcome).toBe("reclaimed");
+
+    // The STALE worker-A attempts to reject.
+    const staleReject = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: "worker-A",
+      result: { reason: "stale-failure" },
+    });
+
+    expect(staleReject.outcome).toBe("not_owner");
+    if (staleReject.outcome !== "not_owner") return;
+    expect(staleReject.occurrence.state).toBe("publishing");
+    expect(staleReject.occurrence.leaseOwner).toBe("recovery-worker");
+    expect(staleReject.occurrence.result).toBeNull(); // NOT stamped
+
+    // **Failure mode**: symmetric to the published case — if the CAS was
+    // missing the owner guard, the stale worker would reject → `state`
+    // would be "rejected".
+  });
+
+  it("the reserved→rejected edge still works with leaseOwner: null (no lease to fence)", () => {
+    // The `reserved → rejected` edge carries `leaseOwner: null` (a reserved
+    // occurrence has no lease). The fencing MUST NOT break this edge: the
+    // CAS's `isNull(leaseOwner)` predicate matches the row's NULL.
+    const occ = seedReserved(); // leaseOwner = NULL
+    const result = markOccurrenceRejectedWithClient(getDb(), occ.id, {
+      leaseOwner: null,
+      result: { reason: "validation_failure" },
+    });
+
+    expect(result.outcome).toBe("transitioned");
+    if (result.outcome !== "transitioned") return;
+    expect(result.occurrence.state).toBe("rejected");
+
+    // **Failure mode**: if the CAS predicate was unconditionally
+    // `eq(leaseOwner, expected)` (no NULL handling), a `null` expected would
+    // fail to match the row's NULL `leaseOwner` → `not_owner` or `no_op`
+    // instead of `transitioned`.
   });
 });
 

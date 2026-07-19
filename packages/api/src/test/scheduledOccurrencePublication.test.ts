@@ -1014,11 +1014,13 @@ describe("publishScheduledOccurrence — atomic occurrence-state transition (loa
     // The wrapped participant: real occurrence-record write + throw.
     // The 3rd argument (`coordinationAttemptId`) is `null` — this test
     // isolates the occurrence-ROW atomicity; the T9A-03 coordination-attempt
-    // advance has its own dedicated test.
+    // advance has its own dedicated test. The 4th argument (`leaseOwner`)
+    // is the worker that acquired the lease above — T9A-08 fencing.
     const realParticipant = buildOccurrenceRecordParticipant(
       occurrenceId,
       occurrence.scheduleRevision,
       null,
+      "atomicity-worker",
     );
     const wrappedParticipant = (
       db: Parameters<typeof realParticipant>[0],
@@ -1559,6 +1561,7 @@ describe("publishScheduledOccurrence — T9A-07 in-tx schedule vanishing", () =>
       occurrenceId,
       occurrence.scheduleRevision,
       null, // isolate the schedule-vanish path; coordination attempt tested elsewhere.
+      "vanish-worker", // T9A-08 fencing — the worker that acquired the lease above.
     );
     const wrappedParticipant = (
       db: Parameters<typeof realParticipant>[0],

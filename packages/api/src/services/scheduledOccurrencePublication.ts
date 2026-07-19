@@ -1023,6 +1023,15 @@ class ScheduleVanishedMidTx extends Error {
  *   occurrence ROW's `publishing → published` transition. When null
  *   (defensive — pre-T9A-03 occurrence rows), the participant skips the
  *   attempt lifecycle (the occurrence ROW is the authoritative state).
+ * @param leaseOwner             The EXPECTED lease owner for the fenced
+ *   `publishing → published` terminalization (T9A-08 — T9B Phase 1 fencing).
+ *   The participant passes this to {@link markOccurrencePublishedWithClient};
+ *   the terminal CAS checks `leaseOwner = expected`, so a STALE worker whose
+ *   lease was reclaimed by T9B's recovery worker surfaces as `not_owner` and
+ *   the aggregate rolls back (the new owner's lease is preserved). Always
+ *   non-null in the production path — the publisher acquired the lease via
+ *   {@link markOccurrencePublishingWithClient} immediately before composing
+ *   this participant.
  * @returns the {@link TemplateAggregateParticipantWriter} the adapter passes
  *   to `publishTemplateAggregateWithClient`.
  */
@@ -1030,6 +1039,7 @@ export function buildOccurrenceRecordParticipant(
   occurrenceId: string,
   scheduleConfigSnapshot: ScheduleRevisionJson | null,
   coordinationAttemptId: string | null,
+  leaseOwner: string,
 ): TemplateAggregateParticipantWriter {
   return (db, ctx) => {
     // --- 1. IN-TX schedule-guard re-check (Q5 layer 2 — race-safe) -------
@@ -1088,13 +1098,20 @@ export function buildOccurrenceRecordParticipant(
       publishedAt: new Date().toISOString(),
     };
     const transition = markOccurrencePublishedWithClient(db, occurrenceId, {
+      // T9A-08 (T9B Phase 1 fencing): the terminal CAS checks
+      // `leaseOwner = expected`. A stale worker whose lease was reclaimed
+      // by T9B's recovery worker surfaces as `not_owner` → the participant
+      // throws (below) → the whole aggregate rolls back → the occurrence
+      // stays `publishing` under the new owner's lease.
+      leaseOwner,
       createdMissionId: ctx.mission.id,
       result,
     });
     // The occurrence was marked `publishing` by THIS adapter immediately
     // before opening the publication tx. The transition MUST succeed
     // (the only legal source state is `publishing`, which we just
-    // installed). A `no_op` (concurrent terminalization) or
+    // installed). A `no_op` (concurrent terminalization), `not_owner`
+    // (T9B lease-reclaim — a takeover happened mid-publication), or
     // `illegal_source_state` here is a data anomaly — throw to roll back
     // the aggregate (we will not commit a Mission whose occurrence
     // refused to link).
@@ -1438,9 +1455,26 @@ function terminalRejectOccurrenceWithCoordination(
     //    transition — terminal-lock, retires the lease). The rejection +
     //    coordination-attempt terminalization (when run) + per-Task
     //    attempt terminalization (when supplied) commit atomically.
+    //
+    //    T9A-08 (T9B Phase 1 fencing): the terminal CAS checks
+    //    `leaseOwner = expected`. The expected owner is `occurrence.leaseOwner`
+    //    — the row's owner at the time the OUTER adapter read it (post
+    //    `markOccurrencePublishingWithClient`). In the production path the
+    //    occurrence is always `publishing` with a non-null owner (the
+    //    publisher acquired it). A stale worker whose lease was reclaimed by
+    //    T9B mid-rejection surfaces as `not_owner` → THROW (the helper's tx
+    //    rolls back — the coordination-attempt + per-Task terminalization
+    //    all roll back; the occurrence STAYS `publishing` under the new
+    //    owner's lease, and the outer caller propagates the throw).
     const rejected = markOccurrenceRejectedWithClient(tx, occurrence.id, {
+      leaseOwner: occurrence.leaseOwner,
       result: args.occurrenceResult,
     });
+    if (rejected.outcome === "not_owner") {
+      throw new Error(
+        `publishScheduledOccurrence: occurrence "${occurrence.id}" refused the publishing → rejected transition (outcome: not_owner) — the lease was reclaimed by a recovery worker mid-rejection. The occurrence stays "publishing" under the new owner; this (stale) worker's rejection rolled back.`,
+      );
+    }
     return rejected.outcome === "not_found" ? occurrence : rejected.occurrence;
   });
 }
@@ -1773,6 +1807,13 @@ export function publishScheduledOccurrence(
     currentOccurrence.id,
     currentOccurrence.scheduleRevision,
     currentOccurrence.attemptId,
+    // T9A-08 (T9B Phase 1 fencing): thread the publisher's lease owner so
+    // the participant's `markOccurrencePublishedWithClient` CAS checks
+    // `leaseOwner = expected`. A stale worker whose lease was reclaimed by
+    // T9B surfaces as `not_owner` → the participant throws → the whole
+    // aggregate rolls back → the occurrence stays `publishing` under the
+    // new owner's lease.
+    input.leaseOwner,
   );
 
   let publishOutcome;
