@@ -100,30 +100,54 @@
  * basis (different templateId, different mission title, etc.). The plan
  * requires this to surface as a resumable guard mismatch.
  *
- * The snapshot is a FULL-row dump, which includes operational fields the
- * reservation itself mutates (`runCount`, `lastRunAt`, `nextRunAt`,
- * `lastCreatedMissionId`, `updatedAt`) + `enabled` (Phase 2 disables a
- * one-shot at reservation). A naive full-row diff would ALWAYS mismatch
- * (the reservation tx advanced the schedule). The guard therefore diffs
- * ONLY the user-authored CONFIGURATION subset (`SCHEDULE_CONFIG_FIELDS` —
- * templateId, scheduleType, cronExpression, intervalMinutes, scheduledAt,
- * timezone, name, description, missionTitle, missionDescription,
- * missionPriority, missionLabels, missionDomain, handlerKey, tasksTemplate).
- * A diff hit → `schedule_guard_mismatch`.
+ * The snapshot is a FULL-row dump PLUS a `_expectedPostReservation` payload
+ * (T9A-01 — see below) carrying the values the reservation's OWN tx set
+ * for the user-mutable operational columns. The guard composes TWO diffs:
+ *
+ *   1. **CONFIG diff** ({@link diffScheduleConfig}): the user-authored
+ *      configuration subset (`SCHEDULE_CONFIG_FIELDS` — templateId,
+ *      scheduleType, cronExpression, intervalMinutes, scheduledAt, timezone,
+ *      name, description, missionTitle, missionDescription, missionPriority,
+ *      missionLabels, missionDomain, handlerKey, tasksTemplate) compared
+ *      between the snapshot (pre-reservation) and the live row. A hit is a
+ *      real config edit.
+ *   2. **OPERATIONAL diff** ({@link diffScheduleOperational}, T9A-01 arc 3):
+ *      `enabled` + `nextRunAt` compared between the live row and the
+ *      `_expectedPostReservation` values (NOT the pre-reservation snapshot
+ *      — the reservation itself mutates these). The original Q5 design
+ *      excluded these wholesale; the exclusion created a CRITICAL bypass
+ *      (`updateScheduledTask({enabled:false})` /
+ *      `updateScheduledTask({nextRunAt:...})` between reservation +
+ *      publication was invisible). The fix compares against the EXPECTED
+ *      post-reservation values; a mismatch is a real user edit (the
+ *      reservation's own mutations match). The `nextRunAt` check is gated
+ *      by `runCount` to avoid false positives on a subsequent different-
+ *      occurrence reservation's normal advance.
+ *
+ * The composer {@link diffScheduleGuard} returns the combined drift list.
+ * Either diff firing → `schedule_guard_mismatch`.
  *
  * Two-layer guard (mirrors `verifyPublicationGuard`'s prep-snapshot +
  * in-tx re-verify discipline):
  *
- *   1. **PRE-CHECK** (before prepare): read live schedule, diff to the
- *      snapshot. Mismatch → return `{outcome:"schedule_guard_mismatch"}`
+ *   1. **PRE-CHECK** (before prepare): read live schedule, composed-diff to
+ *      the snapshot. Mismatch → return `{outcome:"schedule_guard_mismatch"}`
  *      early — no prepare, no attempts reserved, occurrence stays
- *      `publishing` for T9B recovery.
+ *      `publishing` for T9B recovery. A missing live schedule here →
+ *      terminal `schedule_missing` (the schedule was observably gone BEFORE
+ *      any work began).
  *   2. **IN-TX RE-CHECK** (inside the participant): re-read the schedule on
- *      the tx client, re-diff. Mismatch → throw {@link ScheduleGuardMismatch}
- *      (a sentinel) → the participant throws inside the milestone-1 tx → the
- *      whole aggregate rolls back → the outer catch maps the sentinel to
- *      `{outcome:"schedule_guard_mismatch"}`. Race-safe authority for the
- *      microsecond window between the pre-check and the tx.
+ *      the tx client, composed re-diff. Mismatch → throw {@link
+ *      ScheduleGuardMismatch} (a sentinel) → the participant throws inside
+ *      the milestone-1 tx → the whole aggregate rolls back → the outer
+ *      catch maps the sentinel to `{outcome:"schedule_guard_mismatch"}`.
+ *      Race-safe authority for the microsecond window between the pre-check
+ *      and the tx. A MISSING live schedule here (T9A-07 arc 3 — the
+ *      schedule was deleted between the pre-check + the in-tx re-read) →
+ *      throw {@link ScheduleVanishedMidTx} → the aggregate rolls back →
+ *      the outer catch maps to the RESUMABLE
+ *      `{outcome:"schedule_vanished_mid_tx"}` (distinct from the terminal
+ *      pre-check `schedule_missing` — the mid-tx vanishing is a race).
  *
  * # Design questions resolved
  *
@@ -328,25 +352,38 @@ const OCCURRENCE_SCOPE_KIND = "scheduled_occurrence";
 
 /**
  * The schedule-row fields whose change between reservation and publication
- * indicates a user EDIT (vs the operational mutations the reservation itself
- * performs). The {@link diffScheduleConfig} guard compares ONLY these fields
- * of the live schedule row to the occurrence's `scheduleRevision` snapshot.
+ * indicates a user EDIT to the user-authored CONFIGURATION (vs the
+ * reservation's own operational mutations, which are covered by the
+ * SEPARATE operational-against-expected check — see {@link diffScheduleGuard}).
+ * The {@link diffScheduleConfig} guard compares ONLY these fields of the
+ * live schedule row to the occurrence's `scheduleRevision` snapshot.
  *
- * EXCLUDES (intentionally — the reservation tx or normal operation mutates
- * these, so including them would always mismatch):
- *   - `enabled` — Phase 2 disables a one-shot at reservation. Including it
- *     would fire the guard on every one-shot publication.
- *   - `runCount`, `lastRunAt`, `nextRunAt` — the reservation advance CAS
- *     mutates these.
- *   - `lastCreatedMissionId` — a prior publication stamps this.
+ * EXCLUDES (intentionally — these are handled separately or never relevant):
+ *   - `enabled`, `nextRunAt`, `runCount` — user-mutable BUT also mutated by
+ *     the reservation tx itself. The wholesale exclusion (the original Q5
+ *     design) created the T9A-01 CRITICAL bypass: a user
+ *     `updateScheduledTask({enabled:false})` or `{nextRunAt:...}` between
+ *     reservation + publication was invisible. The fix (T9A-01 arc 3):
+ *     these are checked SEPARATELY by {@link diffScheduleOperational} against
+ *     the `_expectedPostReservation` values the reservation stamped on the
+ *     snapshot (the values the reservation's OWN tx set). A mismatch vs the
+ *     expected values is a real user edit (a mismatch vs the pre-reservation
+ *     values would always fire because the reservation itself mutates them).
+ *   - `lastRunAt` — the reservation advance stamps it; never user-mutable
+ *     via `updateScheduledTask` (no `lastRunAt` in `UpdateScheduledTaskInput`).
+ *   - `lastCreatedMissionId` — a prior publication stamps it; never user-
+ *     mutable (no input field). T9A-09 (arc 4) will stamp it inside the
+ *     participant tx.
  *   - `createdAt`, `updatedAt` — timestamps.
  *   - `habitatId` — immutable for a schedule row (cascade-delete habitat
  *     also removes the schedule); including it adds nothing.
  *   - `createdBy` — immutable post-create.
  *
  * The set is the "user-authored configuration" — the fields a `PUT
- * /scheduled-tasks/:id` would mutate. Any change here is a real edit the
- * publication should not silently absorb under the occurrence's stale basis.
+ * /scheduled-tasks/:id` would mutate EXCEPT `enabled` and `nextRunAt`
+ * (which are user-mutable but checked against expected). Any change here is
+ * a real edit the publication should not silently absorb under the
+ * occurrence's stale basis.
  */
 const SCHEDULE_CONFIG_FIELDS = [
   "templateId",
@@ -401,12 +438,18 @@ function extractScheduleConfig(
 /**
  * Computes the config fields that differ between the reservation-time
  * snapshot and the live schedule row. Returns `null` when no config field
- * differs (guard passes); otherwise the list of changed field names
- * (the `schedule_guard_mismatch` payload).
+ * differs (the config portion of the guard passes); otherwise the list of
+ * changed field names (the `schedule_guard_mismatch` payload).
  *
  * Comparison is by STABLE JSON serialization of each field's value — handles
  * nested objects (`tasksTemplate` entries, `missionLabels` arrays) without
  * key-order sensitivity.
+ *
+ * NOTE: this covers ONLY the user-authored configuration subset. The
+ * user-mutable OPERATIONAL columns (`enabled`, `nextRunAt`) are checked
+ * SEPARATELY by {@link diffScheduleOperational} against the
+ * `_expectedPostReservation` values. Use {@link diffScheduleGuard} (the
+ * composer) from call sites — it composes both checks.
  */
 function diffScheduleConfig(
   snapshot: ScheduleRevisionJson | null,
@@ -427,6 +470,135 @@ function diffScheduleConfig(
     }
   }
   return drifted.length > 0 ? drifted : null;
+}
+
+/**
+ * The shape of the operational-against-expected values the Phase-2
+ * reservation stamps on the `scheduleRevision` snapshot under the
+ * `_expectedPostReservation` key (T9A-01). The Phase-3 guard compares the
+ * LIVE row's `enabled` + `nextRunAt` to these EXPECTED values (NOT to the
+ * pre-reservation snapshot — that would always mismatch because the
+ * reservation itself mutates them).
+ *
+ * `runCount` is included as a FALSE-POSITIVE GATE: a subsequent different-
+ * occurrence reservation (the scheduler's normal advance for the next tick)
+ * also mutates `nextRunAt` + increments `runCount`. Without the gate, the
+ * `nextRunAt` check would fire on every such normal advance. The gate
+ * skips the `nextRunAt` check when `live.runCount > expected.runCount`
+ * (the schedule has advanced beyond what THIS occurrence's reservation set;
+ * the live `nextRunAt` is a subsequent reservation's target, not a user
+ * edit). The `enabled` check fires unconditionally — only a user disable
+ * (recurring) or a user re-enable (one-shot) flips `enabled` post-
+ * reservation; the reservation's own one-shot disable is the EXPECTED value.
+ */
+interface ExpectedPostReservation {
+  nextRunAt: string;
+  enabled: boolean;
+  runCount: number;
+}
+
+/**
+ * Parses `_expectedPostReservation` from a snapshot, validating the shape.
+ * Returns `null` when the snapshot lacks the field (a pre-T9A-01-fix
+ * occurrence — the operational check is skipped defensively; only the
+ * config diff runs) OR when the field is malformed (defensive — treat as
+ * unknown; the config diff still runs).
+ */
+function readExpectedPostReservation(
+  snapshot: ScheduleRevisionJson | null,
+): ExpectedPostReservation | null {
+  if (!snapshot) return null;
+  const raw = snapshot._expectedPostReservation;
+  if (raw === null || typeof raw !== "object") return null;
+  const rec = raw as Record<string, unknown>;
+  if (
+    typeof rec.nextRunAt !== "string" ||
+    typeof rec.enabled !== "boolean" ||
+    typeof rec.runCount !== "number"
+  ) {
+    return null;
+  }
+  return {
+    nextRunAt: rec.nextRunAt,
+    enabled: rec.enabled,
+    runCount: rec.runCount,
+  };
+}
+
+/**
+ * Computes the operational fields (`enabled`, `nextRunAt`) that differ
+ * between the reservation's EXPECTED post-reservation values (carried on
+ * the snapshot's `_expectedPostReservation`) and the LIVE schedule row.
+ * Returns `null` when no operational field differs; otherwise the list of
+ * changed field names. This is the T9A-01 CRITICAL-fix half of the guard.
+ *
+ * Semantic (recap from {@link ExpectedPostReservation}):
+ *   - `enabled` — compared UNCONDITIONALLY. Only a user edit flips it
+ *     post-reservation (a recurring schedule's reservation does not touch
+ *     `enabled`; a one-shot's reservation disables it ONCE + the expected
+ *     value captures that). A live `enabled` ≠ expected → user disable
+ *     (recurring) or user re-enable (one-shot).
+ *   - `nextRunAt` — compared ONLY when `live.runCount === expected.runCount`.
+ *     A subsequent different-occurrence reservation advanced the schedule
+ *     further (the scheduler's normal operation) → `live.runCount >
+ *     expected.runCount` → the check is SKIPPED (the live `nextRunAt` is
+ *     that subsequent reservation's target, not a user edit). When the
+ *     gate passes (no subsequent advance), a live `nextRunAt` ≠ expected
+ *     → user reschedule.
+ *
+ * Returns `null` (skip) when the snapshot predates the T9A-01 fix (no
+ * `_expectedPostReservation` field) — the config diff still runs.
+ */
+function diffScheduleOperational(
+  snapshot: ScheduleRevisionJson | null,
+  live: Record<string, unknown>,
+): readonly string[] | null {
+  const expected = readExpectedPostReservation(snapshot);
+  if (!expected) {
+    // Pre-T9A-01 snapshot (no `_expectedPostReservation`) or malformed.
+    // Skip the operational check; the config diff still runs. Defensive —
+    // production occurrences always carry the field post-fix.
+    return null;
+  }
+  const drifted: string[] = [];
+  // `enabled` — unconditional compare.
+  if (live.enabled !== expected.enabled) {
+    drifted.push("enabled");
+  }
+  // `nextRunAt` — gated by `runCount` to avoid the false positive on a
+  // subsequent reservation's normal advance.
+  const liveRunCount = typeof live.runCount === "number" ? live.runCount : undefined;
+  if (liveRunCount === expected.runCount) {
+    // No subsequent advance — any `nextRunAt` mismatch is a user reschedule.
+    if (live.nextRunAt !== expected.nextRunAt) {
+      drifted.push("nextRunAt");
+    }
+  }
+  return drifted.length > 0 ? drifted : null;
+}
+
+/**
+ * The COMPOSED schedule-guard diff (T9A-01 arc 3) — the single entry point
+ * for both the pre-check (Q5 layer 1) + the in-tx re-check (Q5 layer 2).
+ * Returns the combined list of drifted field names across the config +
+ * operational checks, or `null` when no drift is detected (the guard
+ * passes). The two checks compose:
+ *   - A user edit to a CONFIG field (`templateId`, `missionTitle`, etc.)
+ *     → fires the config half.
+ *   - A user edit to an OPERATIONAL field (`enabled`, `nextRunAt`) → fires
+ *     the operational half (compared against the expected post-reservation
+ *     values, not the pre-reservation snapshot).
+ * The reservation's OWN mutations are invisible: config fields it doesn't
+ * touch; operational fields match the expected values it stamped.
+ */
+function diffScheduleGuard(
+  snapshot: ScheduleRevisionJson | null,
+  live: Record<string, unknown>,
+): readonly string[] | null {
+  const configDrift = diffScheduleConfig(snapshot, live);
+  const operationalDrift = diffScheduleOperational(snapshot, live);
+  const combined = [...(configDrift ?? []), ...(operationalDrift ?? [])];
+  return combined.length > 0 ? combined : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -574,7 +746,18 @@ export interface PublishScheduledOccurrenceInput {
  *     and publication (`scheduledTasks.id` is a plain-text non-cascading
  *     reference on the occurrence, but the schedule row itself may be
  *     deleted). Terminal; occurrence `rejected`. The scheduler surfaces a
- *     data-anomaly error.
+ *     data-anomaly error. (PRE-check only — fires when the schedule was
+ *     observably gone BEFORE any publication work began.)
+ *   - `schedule_vanished_mid_tx` — RESUMABLE. T9A-07 (arc 3): the schedule
+ *     was present at the pre-check but vanished BETWEEN the pre-check and
+ *     the participant's in-tx re-check (deleted mid-tx). The participant
+ *     threw {@link ScheduleVanishedMidTx} → the whole aggregate rolled back
+ *     (no Mission, no Tasks, no occurrence-state transition). The
+ *     occurrence STAYS `publishing` + lease held. T9B's recovery worker
+ *     picks up the expired lease + retries — the retry's pre-check will
+ *     surface the terminal `schedule_missing` if the absence persists.
+ *     Distinct from the terminal `schedule_missing` (the mid-tx vanishing
+ *     is a race, so the occurrence stays recoverable).
  *   - `replayed` — a same-`(scope, attemptKey)` reservation hit a
  *     non-pending per-Task attempt (terminal or recovering). The stored
  *     state is returned verbatim (no re-run). The idempotent-retry
@@ -589,9 +772,11 @@ export interface PublishScheduledOccurrenceInput {
  *
  * Infrastructure failures (a repository throw, INCLUDING the participant's
  * own throws on the in-tx schedule guard) propagate as retryable runtime
- * errors EXCEPT the {@link ScheduleGuardMismatch} sentinel, which the outer
- * catch maps to `schedule_guard_mismatch`. The whole aggregate rolls back on
- * any infrastructure failure (the caller's tx aborts).
+ * errors EXCEPT the {@link ScheduleGuardMismatch} and
+ * {@link ScheduleVanishedMidTx} sentinels, which the outer catch maps to
+ * `schedule_guard_mismatch` / `schedule_vanished_mid_tx` respectively. The
+ * whole aggregate rolls back on any infrastructure failure (the caller's
+ * tx aborts).
  */
 export type PublishScheduledOccurrenceOutcome =
   | {
@@ -659,6 +844,23 @@ export type PublishScheduledOccurrenceOutcome =
       occurrence: ScheduledOccurrenceRow;
     }
   | {
+      /**
+       * RESUMABLE — T9A-07 (arc 3): the schedule vanished BETWEEN the
+       * pre-check and the in-tx re-check (deleted mid-tx). The participant
+       * threw {@link ScheduleVanishedMidTx} → the whole aggregate rolled
+       * back (no Mission, no Tasks, no occurrence-state transition). The
+       * occurrence STAYS `publishing` + lease held (NOT released). T9B's
+       * recovery worker picks up the expired lease + retries — the retry's
+       * pre-check will surface the terminal `schedule_missing` outcome if
+       * the absence persists. Distinct from the terminal `schedule_missing`
+       * (which fires when the schedule was observably gone at PRE-check
+       * time — no race, terminally rejects).
+       */
+      outcome: "schedule_vanished_mid_tx";
+      occurrence: ScheduledOccurrenceRow;
+      scheduleId: string;
+    }
+  | {
       outcome: "replayed";
       occurrence: ScheduledOccurrenceRow;
       attemptId: string;
@@ -676,7 +878,7 @@ export type PublishScheduledOccurrenceOutcome =
 export type { PublishTemplateAggregateOutcome } from "./templateAggregatePublication.js";
 
 // ---------------------------------------------------------------------------
-// In-tx abort sentinel (schedule-guard mismatch signal from the participant)
+// In-tx abort sentinels (schedule-guard signals from the participant)
 // ---------------------------------------------------------------------------
 
 /**
@@ -698,6 +900,42 @@ class ScheduleGuardMismatch extends Error {
       `ScheduleGuardMismatch: schedule config drifted between reservation and publication (fields: ${fields.join(", ")}).`,
     );
     this.name = "ScheduleGuardMismatch";
+  }
+}
+
+/**
+ * Thrown INSIDE the publication tx by the
+ * {@link buildOccurrenceRecordParticipant occurrence-record participant}
+ * when the in-tx schedule re-read returns no row — the schedule was deleted
+ * between the pre-check (Q5 layer 1) and the participant's in-tx re-check
+ * (Q5 layer 2). The throw rolls back the whole aggregate (Mission + Tasks +
+ * Workflow + usage + occurrence-state transition); the outer catch in
+ * {@link publishScheduledOccurrence} maps the sentinel to the RESUMABLE
+ * `{outcome:"schedule_vanished_mid_tx"}` branch (the occurrence STAYS
+ * `publishing`; T9B's recovery worker picks up the expired lease + retries —
+ * the retry's pre-check will then surface the terminal `schedule_missing`
+ * outcome when the schedule is observably gone).
+ *
+ * NOT an infrastructure error — it is the in-tx signal that the schedule
+ * vanished mid-tx (a rare race). Distinct from the PRE-check
+ * `schedule_missing` outcome (terminal — the schedule was observably gone
+ * BEFORE any publication work began; there is no race to recover from, so
+ * the occurrence terminally rejects). The mid-tx vanishing IS a race, so
+ * the occurrence stays resumable; the recovery retry escalates to the
+ * terminal `schedule_missing` pre-check when the absence persists.
+ *
+ * T9A-07 (arc 3) — the participant previously fell through on a missing
+ * `liveSchedule` (the `if (liveSchedule) { … }` left the participant free
+ * to mark the occurrence `published` with NO schedule context). The throw
+ * closes the gap: the participant CANNOT mark published without a live
+ * schedule.
+ */
+class ScheduleVanishedMidTx extends Error {
+  constructor(public readonly scheduleId: string) {
+    super(
+      `ScheduleVanishedMidTx: schedule "${scheduleId}" vanished between the pre-check and the in-tx re-check (deleted mid-tx). The publication tx will roll back — the occurrence stays "publishing" for T9B recovery.`,
+    );
+    this.name = "ScheduleVanishedMidTx";
   }
 }
 
@@ -779,31 +1017,38 @@ export function buildOccurrenceRecordParticipant(
     // (defensive — should not happen post-Phase-2).
     //
     // NOTE: the snapshot is a FULL schedule-row dump (Phase 2 stores
-    // `{ ...schedule }`), so its primary key is `id`, NOT `scheduledTaskId`
-    // (the latter is the occurrence-row column pointing AT the schedule).
+    // `{ ...schedule, _expectedPostReservation: {...} }`), so its primary
+    // key is `id`, NOT `scheduledTaskId` (the latter is the occurrence-row
+    // column pointing AT the schedule).
+    //
+    // T9A-01 (arc 3): the diff is the COMPOSED {@link diffScheduleGuard}
+    // (config + operational-against-expected). The reservation's OWN
+    // mutations are invisible: config fields it doesn't touch; operational
+    // fields match the `_expectedPostReservation` values it stamped.
+    //
+    // T9A-07 (arc 3): a missing live schedule here (the schedule was
+    // deleted between the pre-check + this in-tx re-read) → THROW the
+    // {@link ScheduleVanishedMidTx} sentinel. Previously the `if (liveSchedule)`
+    // block fell through on undefined, leaving the participant free to mark
+    // the occurrence `published` with NO schedule context. The throw rolls
+    // back the whole aggregate; the outer catch maps the sentinel to the
+    // RESUMABLE `{outcome:"schedule_vanished_mid_tx"}` branch.
     if (scheduleConfigSnapshot) {
       const liveSchedule = db
         .select()
         .from(scheduledTasks)
         .where(eq(scheduledTasks.id, scheduleConfigSnapshot.id as string))
         .get();
-      if (liveSchedule) {
-        const drifted = diffScheduleConfig(
-          scheduleConfigSnapshot,
-          liveSchedule as unknown as Record<string, unknown>,
-        );
-        if (drifted) {
-          throw new ScheduleGuardMismatch(drifted);
-        }
+      if (!liveSchedule) {
+        throw new ScheduleVanishedMidTx(scheduleConfigSnapshot.id as string);
       }
-      // If the schedule vanished mid-tx (deleted between pre-check + tx),
-      // the in-tx re-read is undefined. The participant CANNOT mark the
-      // occurrence published without a schedule context — throw to roll
-      // back. The outer catch propagates this as an infrastructure error
-      // (the scheduler's outer try/catch logs it; the occurrence stays
-      // `publishing` for T9B).
-      // NOTE: the schedule_missing terminal outcome is the PRE-check path;
-      // the in-tx vanishing is a rare race treated as retryable.
+      const drifted = diffScheduleGuard(
+        scheduleConfigSnapshot,
+        liveSchedule as unknown as Record<string, unknown>,
+      );
+      if (drifted) {
+        throw new ScheduleGuardMismatch(drifted);
+      }
     }
 
     // --- 2. OCCURRENCE-STATE TRANSITION (`publishing → published`) -------
@@ -952,12 +1197,13 @@ export function buildOccurrenceRecordParticipant(
  *
  * # Infrastructure failures
  *
- * A repository throw (including the participant's own
- * `ScheduleGuardMismatch` sentinel) propagates as a retryable runtime error
- * EXCEPT `ScheduleGuardMismatch`, which is mapped to the closed
- * `schedule_guard_mismatch` outcome. The whole aggregate rolls back. The
- * scheduler's outer try/catch logs the error; T9B's recovery worker handles
- * the retry.
+ * A repository throw propagates as a retryable runtime error EXCEPT the
+ * participant's two in-tx sentinels: `ScheduleGuardMismatch` (mapped to the
+ * closed `schedule_guard_mismatch` outcome) + `ScheduleVanishedMidTx`
+ * (T9A-07 arc 3 — mapped to the closed `schedule_vanished_mid_tx` outcome).
+ * The whole aggregate rolls back on either sentinel. The scheduler's outer
+ * try/catch logs any other infrastructure error; T9B's recovery worker
+ * handles the retry.
  *
  * DORMANT: no production scheduler call routes through this adapter yet.
  * Legacy `executeScheduledTask` + `processDueTasks` stay byte-identical +
@@ -1202,12 +1448,19 @@ export function publishScheduledOccurrence(
     return { outcome: "schedule_missing", occurrence: rejectedRow };
   }
 
-  // ----- 3. PRE-CHECK: SCHEDULE CONFIG GUARD (Q5 layer 1) -----------------
-  // Diff the live schedule config to the reservation snapshot. A mismatch is
-  // a schedule edit → resumable `schedule_guard_mismatch` (the occurrence
+  // ----- 3. PRE-CHECK: SCHEDULE GUARD (Q5 layer 1) ------------------------
+  // Diff the live schedule to the reservation snapshot via the COMPOSED
+  // guard (T9A-01 arc 3): user-authored CONFIG fields diffed against the
+  // pre-reservation snapshot, AND user-mutable OPERATIONAL fields
+  // (`enabled`, `nextRunAt`) diffed against the `_expectedPostReservation`
+  // values the reservation stamped (NOT against the pre-reservation
+  // snapshot — the reservation's OWN mutations would always mismatch
+  // there). The `runCount` gate avoids false positives on a subsequent
+  // different-occurrence reservation's normal advance. A mismatch is a
+  // schedule edit → resumable `schedule_guard_mismatch` (the occurrence
   // stays `publishing`; T9B recovers). The in-tx re-check (layer 2) inside
   // the participant catches the microsecond-window race.
-  const drifted = diffScheduleConfig(
+  const drifted = diffScheduleGuard(
     currentOccurrence.scheduleRevision,
     schedule as unknown as Record<string, unknown>,
   );
@@ -1468,7 +1721,7 @@ export function publishScheduledOccurrence(
       participants,
     });
   } catch (err) {
-    // Map the in-tx schedule-guard sentinel to the closed outcome. The tx
+    // Map the in-tx schedule-guard sentinels to closed outcomes. The tx
     // already rolled back (the participant's throw aborted it); the
     // occurrence stays `publishing` (resumable for T9B). Nothing else
     // committed.
@@ -1477,6 +1730,19 @@ export function publishScheduledOccurrence(
         outcome: "schedule_guard_mismatch",
         occurrence: currentOccurrence,
         fields: err.fields,
+      };
+    }
+    if (err instanceof ScheduleVanishedMidTx) {
+      // T9A-07 (arc 3): the schedule vanished between the pre-check + the
+      // in-tx re-check. The aggregate rolled back; the occurrence STAYS
+      // `publishing` (resumable). Distinct from the terminal
+      // `schedule_missing` (pre-check) — the mid-tx vanishing is a race,
+      // so the occurrence stays recoverable; the retry's pre-check will
+      // surface the terminal `schedule_missing` if the absence persists.
+      return {
+        outcome: "schedule_vanished_mid_tx",
+        occurrence: currentOccurrence,
+        scheduleId: err.scheduleId,
       };
     }
     // Infrastructure failure — propagate as a retryable runtime error. The

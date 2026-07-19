@@ -1017,6 +1017,7 @@ describe("publishScheduledOccurrence — dormancy", () => {
       "illegal_source_state",
       "not_found",
       "schedule_missing",
+      "schedule_vanished_mid_tx",
       "replayed",
       "rejected_fingerprint",
     ];
@@ -1024,7 +1025,7 @@ describe("publishScheduledOccurrence — dormancy", () => {
   });
 
   it("closed-union exhaustiveness — every result branch is a known outcome", () => {
-    // Type-level check: a default case surfaces an unhandled branch at compile time.
+    // Type-level Check: a default case surfaces an unhandled branch at compile time.
     const sample: PublishScheduledOccurrenceOutcome = { outcome: "not_found" };
     const exhaustive = (r: PublishScheduledOccurrenceOutcome): string => {
       switch (r.outcome) {
@@ -1038,6 +1039,7 @@ describe("publishScheduledOccurrence — dormancy", () => {
         case "illegal_source_state":
         case "not_found":
         case "schedule_missing":
+        case "schedule_vanished_mid_tx":
         case "replayed":
         case "rejected_fingerprint":
           return r.outcome;
@@ -1163,5 +1165,380 @@ describe("publishScheduledOccurrence — T9A-03 rejected_fingerprint terminaliza
     expect(coordination.state).toBe("batch_rejected");
     expect(coordination.terminalOutcome).toBe("rejected_fingerprint");
     expect(coordination.completedAt).not.toBeNull();
+  });
+});
+
+// ===========================================================================
+// 11. T9A-01 (arc 3) — schedule-guard BYPASS proofs (CRITICAL).
+//
+// The original Q5 guard excluded `enabled` + `nextRunAt` from the diff
+// (treated as "operational"). BOTH are user-mutable via `updateScheduledTask`
+// (`scheduledTask.ts:150/152`), so a user disable/reschedule between
+// reservation + publication was invisible → the stale occurrence published
+// against the user's edit. The fix (T9A-01) stamps `_expectedPostReservation`
+// on the snapshot at reservation time + the guard compares the live row to
+// those EXPECTED values (not the pre-reservation snapshot, which always
+// mismatches because the reservation itself mutates them).
+//
+// These tests prove: (a) the bypass is closed (disable + reschedule fire the
+// guard); (b) the reservation's OWN mutations stay invisible (recurring +
+// one-shot happy paths pass); (c) the `runCount` gate avoids false positives
+// on a subsequent different-occurrence reservation's normal advance; (d) the
+// defensive fallback (no `_expectedPostReservation`) skips the operational
+// check (backward compat).
+// ===========================================================================
+
+describe("publishScheduledOccurrence — T9A-01 schedule-guard bypass proofs", () => {
+  it("user DISABLES a recurring schedule after reservation → schedule_guard_mismatch (live enabled ≠ expected enabled)", () => {
+    // **Failure mode (pre-fix)**: the guard excluded `enabled`, so a user
+    // `updateScheduledTask({enabled:false})` between reservation + publication
+    // was invisible. The stale occurrence published against the user's
+    // disable. Post-fix: the operational check compares live `enabled` to
+    // `_expectedPostReservation.enabled` → mismatch → guard fires.
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+    const before = countRows();
+
+    // Simulate the user disable AFTER reservation.
+    scheduledTaskRepo.updateScheduledTask(scheduleId, { enabled: false });
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    expect(result.outcome).toBe("schedule_guard_mismatch");
+    if (result.outcome !== "schedule_guard_mismatch") throw new Error("unreachable");
+    expect(result.fields).toContain("enabled");
+
+    // Q4: occurrence STAYS `publishing` (resumable — T9B recovers).
+    const occurrence = readOccurrence(occurrenceId);
+    expect(occurrence.state).toBe("publishing");
+    expect(occurrence.leaseOwner).toBe("worker-test");
+
+    // Nothing committed (the pre-check fires before prepare / reserve).
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.attempts).toBe(before.attempts);
+  });
+
+  it("user RESCHEDULES a recurring schedule after reservation → schedule_guard_mismatch (live nextRunAt ≠ expected nextRunAt)", () => {
+    // **Failure mode (pre-fix)**: the guard excluded `nextRunAt`, so a user
+    // `updateScheduledTask({nextRunAt:...})` between reservation + publication
+    // was invisible. Post-fix: the operational check compares live `nextRunAt`
+    // to `_expectedPostReservation.nextRunAt` (gated by `runCount` — see the
+    // next test) → mismatch → guard fires.
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+    const before = countRows();
+
+    // Simulate the user reschedule AFTER reservation. The new value differs
+    // from the reservation's advance target (NEXT_RUN_INTERVAL).
+    const RESCHEDULED = "2027-12-31T23:59:59.000Z";
+    scheduledTaskRepo.updateScheduledTask(scheduleId, { nextRunAt: RESCHEDULED });
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    expect(result.outcome).toBe("schedule_guard_mismatch");
+    if (result.outcome !== "schedule_guard_mismatch") throw new Error("unreachable");
+    expect(result.fields).toContain("nextRunAt");
+
+    // Q4: occurrence STAYS `publishing`.
+    expect(readOccurrence(occurrenceId).state).toBe("publishing");
+
+    // Nothing committed.
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.attempts).toBe(before.attempts);
+  });
+
+  it("reservation's OWN advance mutation stays INVISIBLE (recurring schedule → publish immediately → published)", () => {
+    // **Failure mode (if the fix compared to the PRE-reservation snapshot)**:
+    // every publish would fire the guard because the reservation advanced
+    // `nextRunAt` from NOW_ISO to NEXT_RUN_INTERVAL. The fix compares to the
+    // EXPECTED post-reservation values → the reservation's own advance
+    // matches → guard passes.
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+
+    // Confirm the schedule was advanced at reservation.
+    const schedule = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
+    expect(schedule.nextRunAt).toBe(NEXT_RUN_INTERVAL); // advance target.
+    expect(schedule.enabled).toBe(true); // recurring stays enabled.
+    expect(schedule.runCount).toBe(1); // advanced once.
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    // The guard PASSES — the live `nextRunAt` (NEXT_RUN_INTERVAL) matches
+    // `_expectedPostReservation.nextRunAt`; the live `enabled` (true) matches
+    // `_expectedPostReservation.enabled`; the live `runCount` (1) matches
+    // `_expectedPostReservation.runCount` → the nextRunAt check runs + passes.
+    expect(result.outcome).toBe("published");
+  });
+
+  it("reservation's OWN one-shot disable + advance mutations stay INVISIBLE (one-shot → publish → published)", () => {
+    // The one-shot case is the trickiest: the reservation BOTH advances
+    // (`nextRunAt` = NEXT_RUN_FAR_FUTURE) AND disables (`enabled` = false).
+    // Both must be invisible to the guard. The fix's
+    // `_expectedPostReservation` captures `enabled:false` for a one-shot →
+    // the live `enabled:false` matches.
+    const { id: scheduleId } = createSchedule({ scheduleType: "once" });
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId, {
+      nextRunAt: NEXT_RUN_FAR_FUTURE,
+    });
+
+    // Confirm the one-shot was advanced + disabled at reservation.
+    const schedule = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
+    expect(schedule.enabled).toBe(false);
+    expect(schedule.nextRunAt).toBe(NEXT_RUN_FAR_FUTURE);
+    expect(schedule.runCount).toBe(1);
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    // The guard PASSES — both the operational (`enabled`, `nextRunAt`) +
+    // the config checks match the expected / snapshot values.
+    expect(result.outcome).toBe("published");
+  });
+
+  it("`runCount` gate: a subsequent different-occurrence reservation's normal advance does NOT fire the guard", () => {
+    // **False-positive scenario (without the gate)**: O1 reserves at T0
+    // (advances schedule to T1, runCount=1). O2 reserves at T1 (advances
+    // schedule to T2, runCount=2). O1 publishes — its `_expectedPostReservation
+    // .nextRunAt` is T1, but live `nextRunAt` is T2 (O2's advance) → guard
+    // would fire falsely. The `runCount` gate skips the `nextRunAt` check
+    // when `live.runCount > expected.runCount` (a subsequent reservation
+    // won; the live `nextRunAt` is THAT reservation's target, not a user
+    // edit). The `enabled` check still runs unconditionally.
+    const { id: scheduleId } = createSchedule();
+
+    // O1: reserve at T0 (NOW_ISO). Schedule advances to T1 (NEXT_RUN_INTERVAL).
+    const r1 = reserveOccurrenceForSchedule(scheduleId);
+
+    // O2: reserve at T1 (NEXT_RUN_INTERVAL). Schedule advances to T2.
+    const T2 = "2026-07-19T14:00:00.000Z";
+    const r2 = reserveOccurrenceForSchedule(scheduleId, {
+      scheduledFor: NEXT_RUN_INTERVAL,
+      nextRunAt: T2,
+      now: NEXT_RUN_INTERVAL,
+    });
+
+    // Confirm the schedule was advanced twice.
+    const schedule = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
+    expect(schedule.runCount).toBe(2);
+    expect(schedule.nextRunAt).toBe(T2); // O2's advance target.
+
+    // Publish O1. Its snapshot's _expectedPostReservation.nextRunAt is T1
+    // (NEXT_RUN_INTERVAL); live nextRunAt is T2. The runCount gate skips
+    // the nextRunAt check (live runCount=2 > expected runCount=1). The
+    // `enabled` check passes (recurring stays enabled). The guard passes
+    // → publish proceeds.
+    const result = publishScheduledOccurrence(baseInput(r1.id));
+
+    expect(result.outcome).toBe("published");
+
+    // Sanity: O2 still publishes cleanly too.
+    const result2 = publishScheduledOccurrence(baseInput(r2.id));
+    expect(result2.outcome).toBe("published");
+  });
+
+  it("backward compat: a snapshot WITHOUT `_expectedPostReservation` skips the operational check (config-only diff)", () => {
+    // Defensive fallback: a pre-T9A-01-fix occurrence (no
+    // `_expectedPostReservation` in its snapshot) → the operational check
+    // is skipped; only the config diff runs. A user disable that would
+    // otherwise fire the operational check is INVISIBLE for these legacy
+    // snapshots. The config diff still catches config edits. (The arc is
+    // dormant — no production occurrences exist — but the fallback is
+    // handled cleanly.)
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+
+    // Strip `_expectedPostReservation` to simulate a pre-fix snapshot.
+    const occurrence = readOccurrence(occurrenceId);
+    const strippedSnapshot = { ...occurrence.scheduleRevision } as Record<string, unknown>;
+    delete strippedSnapshot._expectedPostReservation;
+    getDb()
+      .update(scheduledOccurrences)
+      .set({ scheduleRevision: strippedSnapshot })
+      .where(eq(scheduledOccurrences.id, occurrenceId))
+      .run();
+
+    // User disables the schedule (operational change). With the snapshot
+    // stripped, the operational check is skipped → the disable is invisible
+    // (the legacy behavior). The publish proceeds.
+    scheduledTaskRepo.updateScheduledTask(scheduleId, { enabled: false });
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    // The guard does NOT fire (no `_expectedPostReservation` → operational
+    // check skipped; no config edit → config check passes). Publish proceeds.
+    // This proves the defensive fallback: legacy snapshots are not broken
+    // by the fix; they just don't benefit from the operational check.
+    expect(result.outcome).toBe("published");
+  });
+
+  it("snapshot carries `_expectedPostReservation` at reservation time (Phase 2 stamps it)", () => {
+    // Prove the Phase-2 reservation stamps `_expectedPostReservation` on the
+    // snapshot. This is the contract the Phase-3 guard depends on.
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+
+    const occurrence = readOccurrence(occurrenceId);
+    const snapshot = occurrence.scheduleRevision as Record<string, unknown>;
+    const expected = snapshot._expectedPostReservation as Record<string, unknown> | undefined;
+    expect(expected).toBeDefined();
+    expect(typeof expected).toBe("object");
+    expect(expected!.nextRunAt).toBe(NEXT_RUN_INTERVAL); // the advance target.
+    expect(expected!.enabled).toBe(true); // recurring stays enabled.
+    expect(expected!.runCount).toBe(1); // ordinal(0) + 1.
+  });
+
+  it("snapshot's `_expectedPostReservation.enabled` is `false` for a one-shot reservation", () => {
+    // The one-shot disable-at-reservation is captured as
+    // `_expectedPostReservation.enabled = false`. The Phase-3 guard compares
+    // the live `enabled` to this expected value.
+    const { id: scheduleId } = createSchedule({ scheduleType: "once" });
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId, {
+      nextRunAt: NEXT_RUN_FAR_FUTURE,
+    });
+
+    const occurrence = readOccurrence(occurrenceId);
+    const snapshot = occurrence.scheduleRevision as Record<string, unknown>;
+    const expected = snapshot._expectedPostReservation as Record<string, unknown>;
+    expect(expected.enabled).toBe(false); // one-shot disabled at reservation.
+    expect(expected.nextRunAt).toBe(NEXT_RUN_FAR_FUTURE);
+    expect(expected.runCount).toBe(1);
+  });
+});
+
+// ===========================================================================
+// 12. T9A-07 (arc 3) — in-tx missing-schedule throws (rolls back aggregate).
+//
+// The participant's in-tx schedule re-read (`buildOccurrenceRecordParticipant`)
+// — the comment USED TO say a missing `liveSchedule` should throw to roll
+// back, but the code's `if (liveSchedule) { ... }` fell through on undefined
+// → the participant marked the occurrence `published` with NO schedule
+// context. A schedule delete between the pre-check + the tx → orphan
+// published occurrence.
+//
+// The fix: `else { throw new ScheduleVanishedMidTx(...) }`. The throw rolls
+// back the whole aggregate. The outer catch maps the sentinel to the
+// resumable `schedule_vanished_mid_tx` outcome (the occurrence stays
+// `publishing`; T9B recovers).
+//
+// This test proves the load-bearing claim via a wrapped participant that
+// deletes the schedule on the tx client BEFORE the real participant re-reads
+// it (the test hook the ticket suggests). The pre-check ran on the root
+// client BEFORE the tx opened → the schedule was present at pre-check. The
+// in-tx re-read finds the schedule missing → throws → aggregate rolls back.
+// ===========================================================================
+
+describe("publishScheduledOccurrence — T9A-07 in-tx schedule vanishing", () => {
+  it("schedule deleted between pre-check and participant → participant throws → aggregate rolls back; occurrence stays publishing", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+
+    // Mark the occurrence publishing manually so the participant's
+    // `markOccurrencePublishedWithClient` would have the right source state
+    // IF it reached that line (it should not — the throw precedes it).
+    markOccurrencePublishingWithClient(getDb(), occurrenceId, {
+      leaseOwner: "vanish-worker",
+      leaseExpiresAt: LEASE_FUTURE,
+    });
+    const occurrence = readOccurrence(occurrenceId);
+    expect(occurrence.state).toBe("publishing");
+
+    // Prepare the aggregate + reserve attempts directly (bypassing
+    // `publishScheduledOccurrence` so we can inject the wrapped participant
+    // into the milestone-1 publisher — same shape as the atomicity test in
+    // section 7).
+    const schedule = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
+    const prepareCtx: PrepareTemplateAggregateContext = {
+      actor: SCHEDULE_ACTOR,
+      auditSource: SCHEDULE_SOURCE,
+      causalContext: { root: { type: "scheduled_occurrence", id: occurrenceId } },
+    };
+    const prepared = prepareTemplateAggregate(
+      schedule.templateId!,
+      schedule.habitatId,
+      { title: schedule.missionTitle, description: schedule.missionDescription },
+      prepareCtx,
+    );
+    if (prepared.outcome !== "prepared") throw new Error("prep failed");
+
+    const attemptIds = prepared.aggregate.tasks.map((task, i) => {
+      const reservation = reserveAttemptWithClient(getDb(), {
+        source: SCHEDULE_SOURCE,
+        sourceScopeKind: "scheduled_occurrence",
+        sourceScopeId: occurrenceId,
+        attemptKey: `${schedule.templateId}-${i}`,
+        requestFingerprint: `test:${occurrenceId}:${i}`,
+        publicationKind: "scheduled_occurrence",
+        habitatId: schedule.habitatId,
+        actorType: "system",
+        actorId: "scheduler",
+        causalContext: { root: { type: "scheduled_occurrence", id: occurrenceId } },
+      });
+      return reservation.attempt.id;
+    });
+
+    // The wrapped participant: deletes the schedule ON THE TX CLIENT (so
+    // the delete is part of the tx state) BEFORE the real participant runs
+    // its in-tx re-read. The real participant's `db.select(...).get()` then
+    // returns undefined → throws ScheduleVanishedMidTx.
+    //
+    // This simulates a schedule delete between the pre-check (which ran on
+    // the root client above — the schedule was present) + the participant's
+    // in-tx re-check. The wrap is the test hook the ticket suggests.
+    const realParticipant = buildOccurrenceRecordParticipant(
+      occurrenceId,
+      occurrence.scheduleRevision,
+      null, // isolate the schedule-vanish path; coordination attempt tested elsewhere.
+    );
+    const wrappedParticipant = (
+      db: Parameters<typeof realParticipant>[0],
+      ctx: TemplateAggregateParticipantContext,
+    ) => {
+      // Delete the schedule on the tx client — the in-tx re-read will miss.
+      db.delete(scheduledTasks).where(eq(scheduledTasks.id, scheduleId)).run();
+      // Now the real participant re-reads the schedule → undefined → throws.
+      realParticipant(db, ctx);
+    };
+
+    const before = countRows();
+
+    // **Failure mode (pre-fix)**: the participant's `if (liveSchedule) { ... }`
+    // fell through on undefined → the participant marked the occurrence
+    // `published` despite the schedule being gone → orphan published
+    // occurrence with no schedule context. Post-fix: the participant throws
+    // ScheduleVanishedMidTx → the milestone-1 tx rolls back.
+    expect(() =>
+      publishTemplateAggregateWithClient(getDb(), {
+        attemptIds,
+        prepared: prepared.aggregate,
+        participants: wrappedParticipant,
+      }),
+    ).toThrow(/vanish/i);
+
+    // The aggregate rolled back — occurrence STAYS `publishing` (the
+    // `publishing → published` transition the participant would have made
+    // did NOT commit). The lease is intact (rolled back to the
+    // post-`markOccurrencePublishing` state).
+    const afterOccurrence = readOccurrence(occurrenceId);
+    expect(afterOccurrence.state).toBe("publishing");
+    expect(afterOccurrence.createdMissionId).toBeNull();
+    expect(afterOccurrence.leaseOwner).toBe("vanish-worker");
+
+    // ZERO aggregate committed (Mission/Tasks/events/envelopes all unchanged).
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.events).toBe(before.events);
+    expect(after.envelopes).toBe(before.envelopes);
+
+    // The schedule delete inside the wrapped participant's tx ROLLED BACK
+    // too (the whole tx aborted) — the schedule row is still present.
+    // (Otherwise a participant that deletes + throws would leave the
+    // schedule missing for the retry.)
+    const scheduleAfter = scheduledTaskRepo.getScheduledTaskById(scheduleId);
+    expect(scheduleAfter).not.toBeNull();
   });
 });

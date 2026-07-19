@@ -406,9 +406,49 @@ export function reserveScheduledOccurrenceWithClient(
   // 3's publisher uses this as the optimistic publication guard (a schedule
   // edit between reservation and publication is detected by diffing the
   // snapshot to the live row — the technical plan's "schedule/template
-  // revision" field). The JSON column stores the full row; Phase 3 may
-  // subset if the guard only needs specific fields.
-  const scheduleRevision: ScheduleRevisionJson = { ...schedule };
+  // revision" field). The JSON column stores the full row; Phase 3 subsets
+  // the diff into a user-authored-config check + an operational-against-
+  // expected check (see Phase 3's `diffScheduleGuard`).
+  //
+  // T9A-01 (schedule-guard bypass — CRITICAL fix): the snapshot also carries
+  // `_expectedPostReservation` — the values the reservation's OWN tx will
+  // set for the user-mutable operational columns (`enabled`, `nextRunAt`,
+  // `runCount`). Phase 3's operational guard compares the LIVE row to these
+  // EXPECTED values (NOT to the pre-reservation snapshot, which would always
+  // mismatch because the reservation itself mutates them). This closes the
+  // bypass where a user `updateScheduledTask({enabled:false})` or
+  // `updateScheduledTask({nextRunAt:...})` between reservation + publication
+  // was invisible to the config-only guard. The values are deterministic
+  // from the input + the scheduleType + the pre-reservation state:
+  //   - `nextRunAt`  = `input.nextRunAt` (the advance target — set by the
+  //                    reservation's advance CAS for BOTH recurring + one-
+  //                    shot; the one-shot disable does NOT touch nextRunAt).
+  //   - `enabled`    = `false` for a one-shot (the reservation disables it
+  //                    at step 8); `true` for a recurring schedule (the
+  //                    reservation does NOT touch enabled for recurring —
+  //                    `schedule.enabled === true` past the step-3 disabled
+  //                    check). A subsequent user disable is the only path
+  //                    that flips enabled for a recurring schedule.
+  //   - `runCount`   = `ordinal + 1` (the advance increments it). Phase 3
+  //                    uses this as a gate to avoid false positives when a
+  //                    SUBSEQUENT different-occurrence reservation advanced
+  //                    the schedule again between this occurrence's
+  //                    reservation + its publication (the scheduler's normal
+  //                    operation, NOT a user edit).
+  // If the reservation's advance CAS loses (the T9A-02 lost-race sentinel
+  // throws below), the tx rolls back + the snapshot is discarded — so the
+  // pre-advance computation is safe (the expected values are deterministic;
+  // what actually happens = what we computed).
+  const expectedEnabled = schedule.scheduleType === "once" ? false : schedule.enabled;
+  const expectedRunCount = ordinal + 1;
+  const scheduleRevision: ScheduleRevisionJson = {
+    ...schedule,
+    _expectedPostReservation: {
+      nextRunAt: input.nextRunAt,
+      enabled: expectedEnabled,
+      runCount: expectedRunCount,
+    },
+  };
 
   const occurrenceId = input.id ?? uuid();
 
