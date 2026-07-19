@@ -37,6 +37,7 @@ import { eq } from "drizzle-orm";
 import {
   reserveOccurrence,
   reserveOccurrenceWithClient,
+  setOccurrenceAttemptIdWithClient,
   markOccurrencePublishingWithClient,
   markOccurrencePublishedWithClient,
   markOccurrenceRejectedWithClient,
@@ -318,6 +319,53 @@ describe("reserveOccurrenceWithClient — reservation + UNIQUE idempotency", () 
     const b = reserveOccurrence(baseInput({ scheduledTaskId: "sched-B" }));
     expect(a.outcome).toBe("created");
     expect(b.outcome).toBe("created");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2b. setOccurrenceAttemptIdWithClient — T9A-03 occurrence-level coordination
+//     attempt link (additive primitive).
+// ---------------------------------------------------------------------------
+
+describe("setOccurrenceAttemptIdWithClient — T9A-03 coordination-attempt link", () => {
+  it("stamps the attemptId on a fresh occurrence (attemptId NULL → linked)", () => {
+    const occ = seedReserved();
+    // Defensive: the fixture seeds with no attemptId (NULL).
+    expect(occ.attemptId).toBeNull();
+
+    const result = setOccurrenceAttemptIdWithClient(getDb(), occ.id, "attempt-123");
+    expect(result.outcome).toBe("stamped");
+    if (result.outcome !== "stamped") throw new Error("unreachable");
+    expect(result.occurrence.attemptId).toBe("attempt-123");
+
+    // The link is durable (re-read).
+    expect(getOccurrenceWithClient(getDb(), occ.id)!.attemptId).toBe("attempt-123");
+
+    // **Failure mode**: if the conditional UPDATE missed the `id` predicate,
+    // it would stamp the wrong row; if it missed the `attemptId IS NULL`
+    // predicate, the `already_stamped` test below would fail.
+  });
+
+  it("refuses a re-stamp (already_stamped) — the link is one-shot", () => {
+    const occ = seedReserved();
+
+    const first = setOccurrenceAttemptIdWithClient(getDb(), occ.id, "attempt-A");
+    expect(first.outcome).toBe("stamped");
+
+    const second = setOccurrenceAttemptIdWithClient(getDb(), occ.id, "attempt-B");
+    expect(second.outcome).toBe("already_stamped");
+    if (second.outcome !== "already_stamped") throw new Error("unreachable");
+    // The original link is intact (the loser never overwrites the winner).
+    expect(second.occurrence.attemptId).toBe("attempt-A");
+
+    // **Failure mode**: if the primitive did an unconditional UPDATE, the
+    // second stamp would overwrite the first → `second.occurrence.attemptId`
+    // would be "attempt-B" (data corruption).
+  });
+
+  it("returns not_found when the occurrence row does not exist", () => {
+    const result = setOccurrenceAttemptIdWithClient(getDb(), "nonexistent-occ", "attempt-X");
+    expect(result.outcome).toBe("not_found");
   });
 });
 

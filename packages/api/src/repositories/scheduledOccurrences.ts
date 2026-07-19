@@ -506,6 +506,105 @@ export function reserveOccurrence(input: ReserveOccurrenceInput): OccurrenceRese
 }
 
 // ---------------------------------------------------------------------------
+// Occurrence-level coordination attempt link (T9A-03 — additive primitive)
+// ---------------------------------------------------------------------------
+
+/**
+ * Closed result of {@link setOccurrenceAttemptIdWithClient}.
+ *
+ * - `stamped`          — this call's conditional UPDATE matched exactly one
+ *                        row: the occurrence's `attemptId` column was NULL +
+ *                        is now the passed coordination-attempt id.
+ * - `already_stamped`  — the occurrence already carries a NON-NULL
+ *                        `attemptId` (a prior stamp won); this call's
+ *                        `attemptId IS NULL` CAS predicate matched zero rows.
+ *                        The authoritative row is returned UNCHANGED — a
+ *                        loser never overwrites the winner's attempt link.
+ *                        Reported instead of a false `stamped` so the caller
+ *                        can detect a re-stamp attempt (a programming error
+ *                        — the link is one-shot, established at reservation).
+ * - `not_found`        — no occurrence row exists for `id` (typed not-found,
+ *                        no throw).
+ */
+export type OccurrenceAttemptLinkResult =
+  | { outcome: "stamped"; occurrence: ScheduledOccurrenceRow }
+  | { outcome: "already_stamped"; occurrence: ScheduledOccurrenceRow }
+  | { outcome: "not_found" };
+
+/**
+ * Stamps the occurrence-level coordination `attemptId` on an existing
+ * occurrence row. Used by Phase 2's reservation tx (T9A-03) AFTER reserving
+ * the occurrence-level attempt via `reserveAttemptWithClient` to link the
+ * attempt to the occurrence row. The link is one-shot: a conditional UPDATE
+ * whose WHERE encodes `id AND attemptId IS NULL` — once stamped, later
+ * stamps are refused without mutation (`already_stamped`).
+ *
+ * # Why a dedicated primitive (T9A-03 design choice)
+ *
+ * `reserveOccurrenceWithClient` is a Phase-1 primitive whose input shape is
+ * fixed (id / scheduledTaskId / scheduledFor / ordinal / scheduleRevision).
+ * Adding an `attemptId` field to its input would MODIFY the existing
+ * primitive — the ticket's constraint is ADDITIVE only. This dedicated
+ * sibling composes additively inside Phase 2's reservation tx:
+ *
+ *   1. `reserveOccurrenceWithClient(db, …)` — INSERT the occurrence row
+ *      (attemptId NULL).
+ *   2. `reserveAttemptWithClient(db, …)` — reserve the occurrence-level
+ *      coordination attempt (`attemptKey:"occurrence"`).
+ *   3. `setOccurrenceAttemptIdWithClient(db, occurrence.id, attempt.id)` —
+ *      stamp the link (this primitive).
+ *
+ * All three run inside the caller's transaction — the link commits atomically
+ * with the occurrence + attempt (or rolls back together).
+ *
+ * # Why a CAS (not an unconditional UPDATE)
+ *
+ * The conditional UPDATE catches a re-stamp programming error as a typed
+ * `already_stamped` outcome (defensive — the reservation tx is the only
+ * writer, so a re-stamp indicates a bug somewhere in the call chain). It is
+ * NOT a race defender: SQLite serializes writers, so a concurrent stamper's
+ * UPDATE commits before this call's; the loser sees the winner's row.
+ *
+ * Never calls `getDb()`, never opens its own tx, never emits external
+ * effects. Throws only on infrastructure failure (retryable transport).
+ */
+export function setOccurrenceAttemptIdWithClient(
+  db: TaskPublicationDbClient,
+  id: string,
+  attemptId: string,
+): OccurrenceAttemptLinkResult {
+  let affected: number;
+  try {
+    db.update(scheduledOccurrences)
+      .set({ attemptId, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(scheduledOccurrences.id, id),
+          // One-shot link: refuse re-stamp once a coordination attempt is
+          // already linked.
+          isNull(scheduledOccurrences.attemptId),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("scheduledOccurrence", err as Error, id);
+  }
+
+  // Re-read the authoritative row (return value for both outcomes).
+  const row = db
+    .select()
+    .from(scheduledOccurrences)
+    .where(eq(scheduledOccurrences.id, id))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  return affected === 1
+    ? { outcome: "stamped", occurrence: row }
+    : { outcome: "already_stamped", occurrence: row };
+}
+
+// ---------------------------------------------------------------------------
 // State-transition primitives (CAS-classified — compare-and-set + `SELECT
 // changes() AS n`)
 // ---------------------------------------------------------------------------

@@ -127,21 +127,47 @@
  *
  * # Design questions resolved
  *
- *   - **Q1 (singular `attempt_id` column vs N per-Task attempts):** LEFT
- *     NULL. The N per-Task attempts are reserved with
+ *   - **Q1 (singular `attempt_id` column vs N per-Task attempts):** T9A-03
+ *     RESOLVED — the singular column carries the OCCURRENCE-LEVEL
+ *     COORDINATION attempt (reserved at Phase-2 reservation time with
+ *     `attemptKey:"occurrence"`, linked via the occurrence row's `attemptId`
+ *     column via `setOccurrenceAttemptIdWithClient`). The N per-Task attempts
+ *     are SEPARATE — reserved by THIS publisher with
  *     `(source:"scheduler", sourceScopeKind:"scheduled_occurrence",
- *     sourceScopeId:occurrence.id, attemptKey:"${templateId}-${i}")` —
- *     mirroring the triage adapter's N-attempt reservation scoped by the
- *     clusterKey. The singular column has no meaningful single-attempt
- *     semantics for an aggregate publication (which of the N would it
- *     hold?); storing one would be misleading. The directive's optional
- *     `attemptId?` fields are simply not passed.
+ *     sourceScopeId:occurrence.id, attemptKey:"${templateId}-${i}")`. Both
+ *     attempt sets share the scope `(source, sourceScopeKind,
+ *     sourceScopeId)` but are distinguished by `attemptKey` ("occurrence" vs
+ *     "${templateId}-${i}"). The coordination attempt's lifecycle advances
+ *     in lockstep with the occurrence ROW:
+ *       - occurrence `reserved` → coordination attempt `pending` (reserved).
+ *       - occurrence `publishing` → coordination attempt STAYS `pending`
+ *         (NO `published_pending_observation` checkpoint at publication
+ *         start — the occurrence ROW is the real progress tracker; the N
+ *         per-Task attempts already track publication progress via their
+ *         own `published_pending_observation` checkpoints; the
+ *         coordination attempt reaches terminal directly from `pending` on
+ *         failure, and via `pending → published_pending_observation →
+ *         created` on success inside the participant).
+ *       - occurrence `published` → coordination attempt `created` (terminal
+ *         success — 2 ops in the participant: `checkpointAttemptWithClient`
+ *         then `completeAttemptWithClient`; matrix forbids
+ *         `pending → created` directly).
+ *       - occurrence `rejected` (non-veto: `rejected_validation`,
+ *         `schedule_missing`, `rejected_fingerprint`) → coordination
+ *         attempt `rejected_validation` (for `rejected_validation`) /
+ *         `batch_rejected` (for `schedule_missing` + `rejected_fingerprint`)
+ *         via the `terminalRejectOccurrenceWithCoordination` helper,
+ *         atomic with the occurrence ROW transition.
+ *       - occurrence `rejected` (VETOED) → coordination attempt STAYS
+ *         `pending` (T9A-05 arc 2 owns the vetoed terminalization —
+ *         will terminalize as `vetoed` when wired).
  *   - **Q2 (all-failures vs first-veto):** FIRST-VETO. The milestone-1
  *     publisher governs all N Tasks before the tx + returns first-veto. The
  *     occurrence publisher maps `vetoed` directly (no own batch-govern loop).
  *     Sufficient for the typical 1-3 Task schedule; matches the triage
  *     precedent. A multi-veto surface, if ever needed, belongs at the
- *     milestone-1 level (not just for schedules).
+ *     milestone-1 level (not just for schedules). NOTE: T9A-04 arc 2 will
+ *     revisit this — all-failures governance at the milestone-1 level.
  *   - **Q4 (resumable outcome handling):** STAY `publishing`. On
  *     `guard_mismatch` / `governance_denied` / `schedule_guard_mismatch`,
  *     the occurrence stays `publishing` + the lease is held (NOT released —
@@ -215,6 +241,8 @@ import {
 import { reserveAttemptWithClient } from "../repositories/taskCreationAttempts.js";
 import {
   TERMINAL_ATTEMPT_STATES,
+  checkpointAttemptWithClient,
+  completeAttemptWithClient,
   type TaskPublicationDbClient,
   type AttemptTerminalResult,
 } from "../repositories/taskPublication.js";
@@ -695,17 +723,46 @@ class ScheduleGuardMismatch extends Error {
  * with the aggregate. Mirrors how `triageMissionPublication` exports
  * `buildTriageClusterJunctionParticipant` for the same test shape.
  *
+ * # T9A-03 in-tx occurrence-level attempt lifecycle advance
+ *
+ * When `coordinationAttemptId` is supplied (the post-T9A-03 normal case —
+ * the reservation tx stamped it on the occurrence row), the participant
+ * ALSO advances the occurrence-level coordination attempt
+ * `pending → published_pending_observation → created` IN-TX, atomic with
+ * the occurrence ROW's `publishing → published` transition + the aggregate
+ * writes. Both attempt operations use the kernel's CAS matrix
+ * (`checkpointAttemptWithClient` + `completeAttemptWithClient`):
+ *   - `pending → published_pending_observation` (the checkpoint).
+ *   - `published_pending_observation → created` (the terminal success).
+ * The matrix forbids `pending → created` directly (success requires passing
+ * through the observation checkpoint — `isLegalTerminalForward`), so BOTH
+ * operations are required.
+ *
+ * Why the coordination attempt reaches `created` (not `created_unassigned`)
+ * — there is no targeted-assignment reservation on a schedule's
+ * aggregate-level coordination attempt. The per-Task attempts handle their
+ * own observation+assignment checkpoints; the coordination attempt's
+ * terminal `created` mirrors "the occurrence's lifecycle is committed
+ * successful" — the aggregate-coordination analog of the per-Task `created`.
+ *
  * @param occurrenceId           The occurrence whose state to terminalize.
  * @param scheduleConfigSnapshot The reservation-time schedule config (the
  *     in-tx re-check diff baseline). When `null`, the in-tx re-check is
  *   skipped (the PRE-check is the only guard — defensive for an older
- *   occurrence row that predates the snapshot).
+ *     occurrence row that predates the snapshot).
+ * @param coordinationAttemptId  The occurrence-level coordination attempt id
+ *   (T9A-03). When non-null, the participant advances it
+ *   `pending → published_pending_observation → created` in-tx alongside the
+ *   occurrence ROW's `publishing → published` transition. When null
+ *   (defensive — pre-T9A-03 occurrence rows), the participant skips the
+ *   attempt lifecycle (the occurrence ROW is the authoritative state).
  * @returns the {@link TemplateAggregateParticipantWriter} the adapter passes
  *   to `publishTemplateAggregateWithClient`.
  */
 export function buildOccurrenceRecordParticipant(
   occurrenceId: string,
   scheduleConfigSnapshot: ScheduleRevisionJson | null,
+  coordinationAttemptId: string | null,
 ): TemplateAggregateParticipantWriter {
   return (db, ctx) => {
     // --- 1. IN-TX schedule-guard re-check (Q5 layer 2 — race-safe) -------
@@ -753,6 +810,7 @@ export function buildOccurrenceRecordParticipant(
       missionId: ctx.mission.id,
       taskCount: ctx.tasks.length,
       attemptIds: ctx.attemptIds,
+      coordinationAttemptId: coordinationAttemptId,
       publishedAt: new Date().toISOString(),
     };
     const transition = markOccurrencePublishedWithClient(db, occurrenceId, {
@@ -770,6 +828,72 @@ export function buildOccurrenceRecordParticipant(
       throw new Error(
         `publishScheduledOccurrence: occurrence "${occurrenceId}" refused the publishing → published transition (outcome: ${transition.outcome}) inside the publication tx — the aggregate will roll back.`,
       );
+    }
+
+    // --- 3. T9A-03 OCCURRENCE-LEVEL COORDINATION ATTEMPT LIFECYCLE -------
+    // Advance the occurrence-level coordination attempt
+    // `pending → published_pending_observation → created` IN-TX, atomic with
+    // the occurrence ROW's `publishing → published` transition + the
+    // aggregate. The coordination attempt is the aggregate-level audit /
+    // coordination handle (reserved at reservation time); the per-Task
+    // attempts (advanced by the milestone-1 publisher to
+    // `published_pending_observation`) are SEPARATE — this advance is NOT a
+    // substitute for them. The matrix forbids `pending → created` directly,
+    // so the advance is two CAS operations back-to-back inside this tx.
+    //
+    // Skipped when `coordinationAttemptId` is null (defensive — pre-T9A-03
+    // occurrence rows that lack the link). The occurrence ROW is the
+    // authoritative state; the attempt lifecycle is the audit/coordination
+    // surface.
+    if (coordinationAttemptId !== null) {
+      const checkpoint = checkpointAttemptWithClient(db, coordinationAttemptId, {
+        stage: "published_pending_observation",
+      });
+      // The coordination attempt was reserved at `pending` in the
+      // reservation tx. The expected outcomes here:
+      //   - `transitioned` (typical) — `pending → published_pending_observation`.
+      //   - `no_op` — same-state request OR a concurrent writer already
+      //     checkpointed (idempotent; the subsequent complete is still
+      //     legal from `published_pending_observation`).
+      //   - `rejected_transition` — the attempt is terminal (a prior
+      //     failure terminalized it from `pending` directly) OR an illegal
+      //     pair. A data anomaly — throw to roll back.
+      if (checkpoint.outcome === "rejected_transition") {
+        throw new Error(
+          `publishScheduledOccurrence: coordination attempt "${coordinationAttemptId}" refused the pending → published_pending_observation checkpoint (fromState: ${checkpoint.fromState}) inside the publication tx — the aggregate will roll back.`,
+        );
+      }
+
+      const completion = completeAttemptWithClient(db, coordinationAttemptId, {
+        finalState: "created",
+        terminalOutcome: "created",
+        terminalResult: {
+          outcome: "created",
+          attemptId: coordinationAttemptId,
+          // `publication` is the AttemptTerminalResult's free-form detail
+          // slot — carries the coordination-relevant identifiers (mission +
+          // task count + the N per-Task attempt ids) for the audit /
+          // `GET /task-creation-attempts/:attemptId` surface.
+          publication: {
+            missionId: ctx.mission.id,
+            taskCount: ctx.tasks.length,
+            attemptIds: ctx.attemptIds,
+          },
+        },
+      });
+      // The completion's CAS predicate is `state = 'published_pending_observation'
+      // AND completedAt IS NULL`. The expected outcomes:
+      //   - `completed` (typical) — terminalized to `created`.
+      //   - `no_op` — idempotent replay (a prior completion won; the
+      //     coordination attempt is already terminal `created`).
+      //   - `rejected_transition` — illegal pair (the checkpoint didn't
+      //     fire for some reason, leaving the attempt at `pending` and
+      //     making `pending → created` illegal). A data anomaly — throw.
+      if (completion.outcome === "rejected_transition") {
+        throw new Error(
+          `publishScheduledOccurrence: coordination attempt "${coordinationAttemptId}" refused the published_pending_observation → created completion (fromState: ${completion.fromState}) inside the publication tx — the aggregate will roll back.`,
+        );
+      }
     }
   };
 }
@@ -832,6 +956,123 @@ export function buildOccurrenceRecordParticipant(
  * Legacy `executeScheduledTask` + `processDueTasks` stay byte-identical +
  * active until T11.
  */
+// ---------------------------------------------------------------------------
+// Internal: atomic coordination-attempt terminalization + occurrence rejection
+// (T9A-03 — the non-veto failure paths)
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal rejection helper for the four NON-VETO failure paths
+ * (rejected_validation × 2, schedule_missing, rejected_fingerprint).
+ * Terminalizes the occurrence-level coordination attempt (when linked) +
+ * marks the occurrence ROW `rejected` IN ONE CALLER-SUPPLIED TX, so the two
+ * state changes commit atomically (or roll back together). The occurrence
+ * ROW remains the authoritative state; the coordination attempt's
+ * terminalization is the audit / coordination surface.
+ *
+ * Lifecycle mapping (T9A-03, grounded against `isLegalTerminalForward` in
+ * `taskPublication.ts:350-364`):
+ *
+ *   | occurrence failure    | coordination attempt finalState | rationale |
+ *   |-----------------------|---------------------------------|-----------|
+ *   | rejected_validation   | `rejected_validation`           | The same  |
+ *   |                       |                                 | canonical |
+ *   |                       |                                 | / scope   |
+ *   |                       |                                 | failure   |
+ *   |                       |                                 | the       |
+ *   |                       |                                 | attempt   |
+ *   |                       |                                 | state     |
+ *   |                       |                                 | machine   |
+ *   |                       |                                 | models.   |
+ *   | schedule_missing      | `batch_rejected`                | Aggregate |
+ *   |                       |                                 | -level    |
+ *   |                       |                                 | data      |
+ *   |                       |                                 | anomaly   |
+ *   |                       |                                 | (the      |
+ *   |                       |                                 | schedule  |
+ *   |                       |                                 | row       |
+ *   |                       |                                 | vanished).|
+ *   | rejected_fingerprint  | `batch_rejected`                | Aggregate |
+ *   |                       |                                 | -level    |
+ *   |                       |                                 | config    |
+ *   |                       |                                 | drift     |
+ *   |                       |                                 | (the      |
+ *   |                       |                                 | rendered  |
+ *   |                       |                                 | payload   |
+ *   |                       |                                 | changed). |
+ *
+ * All three finalStates are legal from `pending` per `isLegalTerminalForward`
+ * — the coordination attempt stays `pending` from reservation until terminal
+ * (no intermediate `published_pending_observation` checkpoint on the failure
+ * paths — the occurrence ROW is the real progress tracker; the per-Task
+ * attempts track publication progress; the coordination attempt reaches a
+ * terminal state directly from `pending` on failure).
+ *
+ * # Arc 2 hand-off (T9A-05)
+ *
+ * The VETOED path is INTENTIONALLY NOT handled here — arc 2 owns terminalizing
+ * ALL attempts (N per-Task + the occurrence-level coordination) consistently
+ * on the vetoed path. Arc 1 leaves the vetoed coordination attempt at
+ * `pending` (the vetoed branch of `publishScheduledOccurrence` calls
+ * `markOccurrenceRejectedWithClient` directly, NOT this helper). Arc 2 will
+ * extend the vetoed path to terminalize the coordination attempt as `vetoed`
+ * (matrix allows `pending → vetoed`).
+ */
+function terminalRejectOccurrenceWithCoordination(
+  db: TaskPublicationDbClient,
+  occurrence: ScheduledOccurrenceRow,
+  args: {
+    /** Compact occurrence failure detail (stamped on the occurrence ROW). */
+    occurrenceResult: OccurrenceResultJson;
+    /** Coordination attempt's terminal state. */
+    coordinationFinalState: "rejected_validation" | "batch_rejected";
+    /** Coordination attempt's terminal outcome string. */
+    coordinationTerminalOutcome: string;
+    /** Coordination attempt's terminal detail (audit / status surface). */
+    coordinationTerminalResult: AttemptTerminalResult;
+  },
+): ScheduledOccurrenceRow {
+  return db.transaction((tx) => {
+    // 1. Terminalize the coordination attempt (when linked). Skipped when
+    //    `attemptId` is null (defensive — pre-T9A-03 occurrence rows that
+    //    predate the link). The matrix allows `pending → rejected_validation
+    //    | batch_rejected` directly (no checkpoint required for failure
+    //    terminals from `pending`).
+    if (occurrence.attemptId !== null) {
+      const completion = completeAttemptWithClient(tx, occurrence.attemptId, {
+        finalState: args.coordinationFinalState,
+        terminalOutcome: args.coordinationTerminalOutcome,
+        terminalResult: args.coordinationTerminalResult,
+      });
+      // Expected outcomes:
+      //   - `completed` (typical) — this call installed the terminal.
+      //   - `no_op` (idempotent replay) — a prior terminalization won; the
+      //     authoritative terminal row is returned UNCHANGED. Continue with
+      //     the occurrence rejection (the occurrence ROW must still advance
+      //     to `rejected` for consistency).
+      //   - `rejected_transition` — illegal pair. The coordination attempt
+      //     is at an unexpected state (e.g. `published_pending_observation`
+      //     from a prior participant run that crashed before completing).
+      //     This is a data anomaly — surface it as a thrown error so the
+      //     scheduler's outer try/catch logs the inconsistency. The
+      //     occurrence stays `publishing` (the rejection did NOT run); T9B
+      //     recovery reconciles.
+      if (completion.outcome === "rejected_transition") {
+        throw new Error(
+          `publishScheduledOccurrence: coordination attempt "${occurrence.attemptId}" refused the terminal ${args.coordinationFinalState} transition (fromState: ${completion.fromState}) on the ${args.coordinationTerminalOutcome} path — data anomaly. The occurrence stays "publishing" for T9B recovery.`,
+        );
+      }
+    }
+    // 2. Mark the occurrence ROW rejected (the authoritative state
+    //    transition — terminal-lock, retires the lease). The rejection +
+    //    coordination-attempt terminalization (when run) commit atomically.
+    const rejected = markOccurrenceRejectedWithClient(tx, occurrence.id, {
+      result: args.occurrenceResult,
+    });
+    return rejected.outcome === "not_found" ? occurrence : rejected.occurrence;
+  });
+}
+
 export function publishScheduledOccurrence(
   input: PublishScheduledOccurrenceInput,
 ): PublishScheduledOccurrenceOutcome {
@@ -876,14 +1117,20 @@ export function publishScheduledOccurrence(
     .where(eq(scheduledTasks.id, currentOccurrence.scheduledTaskId))
     .get();
   if (!schedule) {
-    // Terminal: the schedule row vanished. Mark rejected + return.
-    const rejected = markOccurrenceRejectedWithClient(db, currentOccurrence.id, {
-      result: {
-        reason: "schedule_missing",
-        message: `Schedule "${currentOccurrence.scheduledTaskId}" not found at publication time.`,
+    // Terminal: the schedule row vanished. T9A-03: terminalize the
+    // coordination attempt as `batch_rejected` (aggregate-level data
+    // anomaly) + mark the occurrence rejected, atomically.
+    const scheduleMissingMessage = `Schedule "${currentOccurrence.scheduledTaskId}" not found at publication time.`;
+    const rejectedRow = terminalRejectOccurrenceWithCoordination(db, currentOccurrence, {
+      occurrenceResult: { reason: "schedule_missing", message: scheduleMissingMessage },
+      coordinationFinalState: "batch_rejected",
+      coordinationTerminalOutcome: "schedule_missing",
+      coordinationTerminalResult: {
+        outcome: "schedule_missing",
+        attemptId: currentOccurrence.attemptId ?? undefined,
+        errors: [{ reason: "schedule_missing", message: scheduleMissingMessage }],
       },
     });
-    const rejectedRow = rejected.outcome === "not_found" ? currentOccurrence : rejected.occurrence;
     return { outcome: "schedule_missing", occurrence: rejectedRow };
   }
 
@@ -924,23 +1171,30 @@ export function publishScheduledOccurrence(
   // preparation's PURE validation surfaces `rejected_validation` for a
   // missing template / missing column / workflow-variable failure.
   if (!schedule.templateId) {
-    const rejected = markOccurrenceRejectedWithClient(db, currentOccurrence.id, {
-      result: {
-        reason: "template_not_set",
-        message: `Schedule "${schedule.id}" has no templateId; the scheduled-occurrence publisher requires a template (the inline createMissionFromSchedule path is a separate legacy concern).`,
+    // T9A-03: terminalize the coordination attempt as `rejected_validation`
+    // (canonical/scope failure) + mark the occurrence rejected, atomically.
+    const templateNotSetMessage = `Schedule "${schedule.id}" has no templateId; the scheduled-occurrence publisher requires a template (the inline createMissionFromSchedule path is a separate legacy concern).`;
+    const validationErrors: PublicationError[] = [
+      {
+        field: "templateId",
+        code: "template_not_set",
+        message: "Schedule has no templateId.",
+      },
+    ];
+    const rejectedRow = terminalRejectOccurrenceWithCoordination(db, currentOccurrence, {
+      occurrenceResult: { reason: "template_not_set", message: templateNotSetMessage },
+      coordinationFinalState: "rejected_validation",
+      coordinationTerminalOutcome: "rejected_validation",
+      coordinationTerminalResult: {
+        outcome: "rejected_validation",
+        attemptId: currentOccurrence.attemptId ?? undefined,
+        errors: validationErrors,
       },
     });
-    const rejectedRow = rejected.outcome === "not_found" ? currentOccurrence : rejected.occurrence;
     return {
       outcome: "rejected_validation",
       occurrence: rejectedRow,
-      errors: [
-        {
-          field: "templateId",
-          code: "template_not_set",
-          message: "Schedule has no templateId.",
-        },
-      ],
+      errors: validationErrors,
     };
   }
 
@@ -966,14 +1220,20 @@ export function publishScheduledOccurrence(
   );
   if (prepared.outcome === "rejected_validation") {
     // Terminal rejection — NO governance, NO publish, NO occurrence-state
-    // transition. Mark rejected + return.
-    const rejected = markOccurrenceRejectedWithClient(db, currentOccurrence.id, {
-      result: {
-        reason: "rejected_validation",
+    // transition via the milestone-1 publisher. T9A-03: terminalize the
+    // coordination attempt as `rejected_validation` (canonical/scope
+    // failure detected by preparation) + mark the occurrence rejected,
+    // atomically.
+    const rejectedRow = terminalRejectOccurrenceWithCoordination(db, currentOccurrence, {
+      occurrenceResult: { reason: "rejected_validation", errors: prepared.errors },
+      coordinationFinalState: "rejected_validation",
+      coordinationTerminalOutcome: "rejected_validation",
+      coordinationTerminalResult: {
+        outcome: "rejected_validation",
+        attemptId: currentOccurrence.attemptId ?? undefined,
         errors: prepared.errors,
       },
     });
-    const rejectedRow = rejected.outcome === "not_found" ? currentOccurrence : rejected.occurrence;
     return { outcome: "rejected_validation", occurrence: rejectedRow, errors: prepared.errors };
   }
 
@@ -1029,16 +1289,40 @@ export function publishScheduledOccurrence(
       // payload — the occurrence's basis is inconsistent. T9B recovery
       // under the same keys is impossible (the fingerprint would keep
       // mismatching). Mark rejected + return.
-      const rejected = markOccurrenceRejectedWithClient(db, currentOccurrence.id, {
-        result: {
+      //
+      // T9A-03: terminalize the coordination attempt as `batch_rejected`
+      // (aggregate-level config drift — the rendered payload changed under
+      // the same key set) + mark the occurrence rejected, atomically.
+      // NOTE: the per-Task attempt that returned `rejected_fingerprint` is
+      // NOT mutated by `reserveAttemptWithClient` (the reservation primitive
+      // returns the stored attempt read-only on fingerprint mismatch); its
+      // own state stays `pending`. Arc 2 (T9A-05) will terminalize ALL
+      // reserved attempts on terminal rejection; arc 1 owns only the
+      // occurrence-level coordination attempt.
+      const fingerprintErrors = [
+        {
+          code: "rejected_fingerprint",
+          message:
+            `The rendered payload changed under the same attempt key set ` +
+            `(reserved fingerprint "${reservation.reservedFingerprint}" ≠ request "${requestFingerprint}").`,
+          attemptId: reservation.attempt.id,
+        },
+      ];
+      const rejectedRow = terminalRejectOccurrenceWithCoordination(db, currentOccurrence, {
+        occurrenceResult: {
           reason: "rejected_fingerprint",
           attemptId: reservation.attempt.id,
           reservedFingerprint: reservation.reservedFingerprint,
           requestFingerprint,
         },
+        coordinationFinalState: "batch_rejected",
+        coordinationTerminalOutcome: "rejected_fingerprint",
+        coordinationTerminalResult: {
+          outcome: "rejected_fingerprint",
+          attemptId: currentOccurrence.attemptId ?? undefined,
+          errors: fingerprintErrors,
+        },
       });
-      const rejectedRow =
-        rejected.outcome === "not_found" ? currentOccurrence : rejected.occurrence;
       return {
         outcome: "rejected_fingerprint",
         occurrence: rejectedRow,
@@ -1100,9 +1384,12 @@ export function publishScheduledOccurrence(
   // + Tasks + Workflow + usage). A participant throw (incl. the in-tx
   // ScheduleGuardMismatch sentinel) rolls back the whole aggregate — zero
   // orphan Mission / partial Workflow / partial occurrence-state transition.
+  // T9A-03: the participant also advances the occurrence-level coordination
+  // attempt `pending → published_pending_observation → created` in-tx.
   const participants = buildOccurrenceRecordParticipant(
     currentOccurrence.id,
     currentOccurrence.scheduleRevision,
+    currentOccurrence.attemptId,
   );
 
   let publishOutcome;
@@ -1150,6 +1437,20 @@ export function publishScheduledOccurrence(
       // Terminal governance refusal. The tx never opened (governance runs
       // before the tx in the milestone-1 publisher); nothing committed.
       // Mark the occurrence rejected with the veto details + return.
+      //
+      // *** T9A-03 / T9A-05 ARC 2 HAND-OFF ***
+      // Arc 1 (this fix) LEAVES the occurrence-level coordination attempt at
+      // `pending` on the vetoed path. Arc 2 (T9A-05) owns terminalizing ALL
+      // reserved attempts consistently on the vetoed path:
+      //   - The N per-Task attempts (reserved at step 6 above) → terminal
+      //     `vetoed` (matrix allows `pending → vetoed`).
+      //   - The occurrence-level coordination attempt (`currentOccurrence.attemptId`)
+      //     → terminal `vetoed` (same matrix edge).
+      // When arc 2 wires the terminalization, replace this direct
+      // `markOccurrenceRejectedWithClient` call with the
+      // `terminalRejectOccurrenceWithCoordination` helper using
+      // `coordinationFinalState: "vetoed"` (the helper's type would need
+      // widening to include `vetoed`).
       const rejected = markOccurrenceRejectedWithClient(db, currentOccurrence.id, {
         result: {
           reason: "vetoed",

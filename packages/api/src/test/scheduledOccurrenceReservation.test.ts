@@ -40,10 +40,11 @@ import * as scheduledTaskRepo from "../repositories/scheduledTask.js";
 import {
   reserveScheduledOccurrence,
   reserveScheduledOccurrenceWithClient,
+  ScheduledOccurrenceAdvanceLostRace,
   type ReserveScheduledOccurrenceInput,
 } from "../repositories/scheduledOccurrenceReservation.js";
-import { scheduledOccurrences, scheduledTasks } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { scheduledOccurrences, scheduledTasks, taskCreationAttempts } from "../db/schema/index.js";
+import { eq, sql } from "drizzle-orm";
 import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
 import type { TaskPriority, TaskTemplateEntry } from "../models/index.js";
 import { FailingDbClient } from "./helpers/failingDbClient.js";
@@ -562,5 +563,297 @@ describe("reserveScheduledOccurrence — dormancy", () => {
     // claimExecution's predicate or set clause, the legacy claim would behave
     // differently (e.g. disabled = false would be wrong, or the CAS would
     // fail).
+  });
+});
+
+// ===========================================================================
+// 9. T9A-03 — occurrence-level coordination attempt reserved + linked.
+// ===========================================================================
+
+describe("reserveScheduledOccurrence — T9A-03 occurrence-level coordination attempt", () => {
+  it("reserves ONE coordination attempt scoped by the occurrence + stamps its id on the occurrence row", () => {
+    const scheduleId = seedIntervalSchedule();
+
+    const result = reserveScheduledOccurrence(baseInput(scheduleId));
+
+    expect(result.outcome).toBe("created");
+    if (result.outcome !== "created") throw new Error("unreachable");
+
+    // The occurrence row carries the coordination attempt's id.
+    expect(result.occurrence.attemptId).not.toBeNull();
+    const coordinationAttemptId = result.occurrence.attemptId as string;
+
+    // The coordination attempt row exists with the expected scope/key.
+    const attempt = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, coordinationAttemptId))
+      .all()[0];
+    expect(attempt).toBeTruthy();
+    expect(attempt.attemptKey).toBe("occurrence");
+    expect(attempt.sourceScopeKind).toBe("scheduled_occurrence");
+    expect(attempt.sourceScopeId).toBe(result.occurrence.id);
+    expect(attempt.source).toBe("scheduler");
+    expect(attempt.publicationKind).toBe("scheduled_occurrence");
+    expect(attempt.state).toBe("pending");
+    expect(attempt.actorType).toBe("system");
+    expect(attempt.actorId).toBe("scheduler");
+    expect(attempt.habitatId).toBe(habitatId);
+    expect(attempt.causalContext).toEqual({
+      root: { type: "scheduled_occurrence", id: result.occurrence.id },
+    });
+
+    // **Failure mode**: if the reservation didn't reserve the coordination
+    // attempt OR didn't stamp the link, `attemptId` would be null + no
+    // attempt row would exist.
+  });
+
+  it("the coordination attempt's fingerprint is deterministic in the occurrence's identity basis (same schedule+due+ordinal → same fingerprint)", () => {
+    const scheduleId = seedIntervalSchedule();
+
+    const r1 = reserveScheduledOccurrence(baseInput(scheduleId));
+    if (r1.outcome !== "created") throw new Error("unreachable");
+    const a1 = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, r1.occurrence.attemptId as string))
+      .all()[0];
+
+    // A second firing of the same schedule at a DIFFERENT due time produces
+    // a DIFFERENT occurrence (different scheduledFor) + a DIFFERENT
+    // coordination attempt, but the fingerprint is structurally consistent
+    // (same prefix; different payload hash because scheduledFor differs).
+    const r2 = reserveScheduledOccurrence(
+      baseInput(scheduleId, {
+        scheduledFor: NEXT_RUN_INTERVAL,
+        nextRunAt: "2026-07-19T14:00:00.000Z",
+        now: NEXT_RUN_INTERVAL,
+      }),
+    );
+    if (r2.outcome !== "created") throw new Error("unreachable");
+    const a2 = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, r2.occurrence.attemptId as string))
+      .all()[0];
+
+    expect(a1.id).not.toBe(a2.id);
+    expect(a1.requestFingerprint).toMatch(/^scheduled_occurrence_coord:/);
+    expect(a2.requestFingerprint).toMatch(/^scheduled_occurrence_coord:/);
+    expect(a1.requestFingerprint).not.toBe(a2.requestFingerprint);
+  });
+
+  it("the already_exists branch returns the winner's occurrence WITH its coordination attempt link intact", () => {
+    const scheduleId = seedIntervalSchedule();
+
+    const r1 = reserveScheduledOccurrence(baseInput(scheduleId, { scheduledFor: NOW_ISO }));
+    if (r1.outcome !== "created") throw new Error("unreachable");
+
+    const r2 = reserveScheduledOccurrence(baseInput(scheduleId, { scheduledFor: NOW_ISO }));
+    expect(r2.outcome).toBe("already_exists");
+    if (r2.outcome !== "already_exists") throw new Error("unreachable");
+
+    // The winner's occurrence row (with its coordination attempt link) is
+    // returned verbatim — the loser does NOT re-reserve a coordination
+    // attempt or re-stamp.
+    expect(r2.occurrence.id).toBe(r1.occurrence.id);
+    expect(r2.occurrence.attemptId).toBe(r1.occurrence.attemptId);
+  });
+});
+
+// ===========================================================================
+// 10. T9A-02 — lost-race atomicity (no dangling reserved occurrence).
+// ===========================================================================
+
+/**
+ * Test-only Proxy wrapper around a drizzle TX client that simulates a
+ * concurrent different-`scheduledFor` reservation winning the schedule-
+ * advance CAS. Hooks the FIRST `.update(scheduledTasks)` call (the loser's
+ * advance CAS) + runs a side-channel advance BEFORE delegating, so the
+ * loser's CAS predicate `nextRunAt <= now` matches zero rows.
+ *
+ * The side-channel runs on the SAME tx client (the inner) — when the loser's
+ * tx rolls back, the side-channel advance rolls back too. The test asserts
+ * POST-ROLLBACK state (no occurrence, no attempt, schedule unchanged) — NOT
+ * the winner's persistence (which is a different scenario, tested implicitly
+ * by the concurrent same-key test at section 3).
+ */
+class ConcurrentAdvanceWinnerTx {
+  private injected = false;
+
+  constructor(
+    public readonly inner: TaskPublicationDbClient,
+    private readonly scheduleId: string,
+    private readonly winnerNextRunAt: string,
+    private readonly advanceTime: string,
+  ) {}
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  update(table: unknown): any {
+    if (!this.injected && table === scheduledTasks) {
+      // Side-channel: pre-advance the schedule BEFORE the loser's CAS UPDATE
+      // runs. The mutation is on the SAME tx client → rolls back with the
+      // loser's tx. Inside the tx (between this mutation and the loser's
+      // CAS), the schedule's `nextRunAt` is `winnerNextRunAt` (in the
+      // future), so the loser's CAS predicate `nextRunAt <= now` matches
+      // zero rows → `advanced:false` → T9A-02 sentinel throw → rollback.
+      this.inner
+        .update(scheduledTasks)
+        .set({
+          nextRunAt: this.winnerNextRunAt,
+          runCount: sql`${scheduledTasks.runCount} + 1`,
+          lastRunAt: this.advanceTime,
+          updatedAt: this.advanceTime,
+        })
+        .where(eq(scheduledTasks.id, this.scheduleId))
+        .run();
+      this.injected = true;
+    }
+    return (this.inner as unknown as { update: (t: unknown) => unknown }).update(table);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  select(...args: unknown[]): any {
+    return (this.inner as unknown as { select: (...a: unknown[]) => unknown }).select(...args);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  insert(table: unknown): any {
+    return (this.inner as unknown as { insert: (t: unknown) => unknown }).insert(table);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delete(table: unknown): any {
+    return (this.inner as unknown as { delete: (t: unknown) => unknown }).delete(table);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  get(...args: unknown[]): any {
+    return (this.inner as unknown as { get: (...a: unknown[]) => unknown }).get(...args);
+  }
+}
+
+/**
+ * Top-level wrapper that intercepts `.transaction(fn)` to wrap the inner tx
+ * with {@link ConcurrentAdvanceWinnerTx}. Passed as the optional `db`
+ * parameter to `reserveScheduledOccurrence` for the T9A-02 lost-race test.
+ */
+class ConcurrentAdvanceWinnerDb {
+  constructor(
+    public readonly inner: TaskPublicationDbClient,
+    private readonly scheduleId: string,
+    private readonly winnerNextRunAt: string,
+    private readonly advanceTime: string,
+  ) {}
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  transaction<T>(fn: (tx: any) => T): T {
+    return (this.inner as unknown as { transaction: <R>(fn: (tx: any) => R) => R }).transaction<T>(
+      (tx: TaskPublicationDbClient) => {
+        const wrapped = new ConcurrentAdvanceWinnerTx(
+          tx,
+          this.scheduleId,
+          this.winnerNextRunAt,
+          this.advanceTime,
+        );
+        return fn(wrapped as unknown as TaskPublicationDbClient);
+      },
+    );
+  }
+}
+
+describe("reserveScheduledOccurrence — T9A-02 lost-race atomicity (no dangling reserved occurrence)", () => {
+  it("the wrapper returns {outcome:'lost_race'} when the advance CAS loses on a fresh insert", () => {
+    const scheduleId = seedIntervalSchedule();
+    const beforeOccurrences = getDb().select().from(scheduledOccurrences).all().length;
+    const beforeAttempts = getDb().select().from(taskCreationAttempts).all().length;
+
+    // Wrap the db so the FIRST scheduled_tasks UPDATE inside the tx is
+    // preceded by a side-channel advance (simulating a concurrent different-
+    // scheduledFor winner's committed advance). The loser's advance CAS
+    // predicate `nextRunAt <= now` then matches zero rows.
+    const wrappedDb = new ConcurrentAdvanceWinnerDb(
+      getDb(),
+      scheduleId,
+      NEXT_RUN_INTERVAL,
+      NOW_ISO,
+    );
+    const result = reserveScheduledOccurrence(
+      baseInput(scheduleId),
+      wrappedDb as unknown as TaskPublicationDbClient,
+    );
+
+    // **Failure mode**: pre-T9A-02 this branch returned
+    // `{outcome:"created", advanced:false}`, persisting a dangling reserved
+    // occurrence. Post-T9A-02 the tx rolls back + the wrapper returns the
+    // typed `lost_race` outcome.
+    expect(result.outcome).toBe("lost_race");
+
+    // Atomicity proof: no occurrence row persisted (the INSERT rolled back
+    // with the tx).
+    const afterOccurrences = getDb().select().from(scheduledOccurrences).all().length;
+    expect(afterOccurrences).toBe(beforeOccurrences);
+
+    // Atomicity proof: no coordination attempt persisted (rolled back with
+    // the tx).
+    const afterAttempts = getDb().select().from(taskCreationAttempts).all().length;
+    expect(afterAttempts).toBe(beforeAttempts);
+
+    // The schedule did NOT advance (the side-channel + the loser's CAS both
+    // rolled back with the tx). This is the LOSER's view — the winner's
+    // persistence is a separate scenario (the test simulates the winner's
+    // advance as a side-channel inside the same tx, so it rolls back with
+    // the loser).
+    const after = readSchedule(scheduleId);
+    expect(after.runCount).toBe(0);
+    expect(after.nextRunAt).toBe(NOW_ISO);
+  });
+
+  it("the WithClient primitive throws ScheduledOccurrenceAdvanceLostRace on the lost race (caller's tx rolls back)", () => {
+    const scheduleId = seedIntervalSchedule();
+    const beforeOccurrences = getDb().select().from(scheduledOccurrences).all().length;
+    const beforeAttempts = getDb().select().from(taskCreationAttempts).all().length;
+    const beforeRunCount = readSchedule(scheduleId).runCount;
+
+    // The primitive throws — the caller's manually-opened tx rolls back.
+    // Use a wrapped tx client to simulate the concurrent winner.
+    let caught: unknown;
+    try {
+      getDb().transaction((tx) => {
+        const wrapped = new ConcurrentAdvanceWinnerTx(
+          tx as unknown as TaskPublicationDbClient,
+          scheduleId,
+          NEXT_RUN_INTERVAL,
+          NOW_ISO,
+        );
+        reserveScheduledOccurrenceWithClient(
+          wrapped as unknown as TaskPublicationDbClient,
+          baseInput(scheduleId),
+        );
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    // **Failure mode**: pre-T9A-02 the primitive returned
+    // `{outcome:"created", advanced:false}`. Post-T9A-02 it throws the
+    // sentinel → the caller's tx rolls back atomically.
+    expect(caught).toBeInstanceOf(ScheduledOccurrenceAdvanceLostRace);
+
+    // Atomicity proof: no occurrence row + no coordination attempt persisted.
+    expect(getDb().select().from(scheduledOccurrences).all()).toHaveLength(beforeOccurrences);
+    expect(getDb().select().from(taskCreationAttempts).all()).toHaveLength(beforeAttempts);
+
+    // Schedule unchanged (side-channel + CAS both rolled back).
+    expect(readSchedule(scheduleId).runCount).toBe(beforeRunCount);
+  });
+
+  it("a normal reservation (no concurrent winner) does NOT throw the lost-race sentinel", () => {
+    // Negative control: without the ConcurrentAdvanceWinner wrapper, the
+    // reservation proceeds normally + returns `created, advanced:true`.
+    // Proves the wrapper is what triggers the lost-race path (not a bug in
+    // the reservation's normal flow).
+    const scheduleId = seedIntervalSchedule();
+    const result = reserveScheduledOccurrence(baseInput(scheduleId));
+    expect(result.outcome).toBe("created");
+    if (result.outcome !== "created") throw new Error("unreachable");
+    expect(result.advanced).toBe(true);
   });
 });

@@ -328,6 +328,7 @@ describe("publishScheduledOccurrence — happy path", () => {
       missionId: result.mission.id,
       taskCount: result.tasks.length,
       attemptIds: expect.arrayContaining([expect.any(String)]),
+      coordinationAttemptId: expect.any(String),
       publishedAt: expect.any(String),
     });
 
@@ -348,14 +349,17 @@ describe("publishScheduledOccurrence — happy path", () => {
       expect(pub.envelope.lifecycleAction).toBe("created");
     }
 
-    // Each per-Task attempt advanced to RECOVERING (`published_pending_observation`).
+    // Each per-Task attempt advanced to RECOVERING (`published_pending_observation).
+    // T9A-03: filter out the coordination attempt (`attemptKey:"occurrence"`)
+    // which is asserted separately below — it shares the occurrence scope.
     const attempts = getDb()
       .select()
       .from(taskCreationAttempts)
       .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
       .all();
-    expect(attempts).toHaveLength(result.tasks.length);
-    for (const a of attempts) {
+    const perTaskAttempts = attempts.filter((a) => a.attemptKey !== "occurrence");
+    expect(perTaskAttempts).toHaveLength(result.tasks.length);
+    for (const a of perTaskAttempts) {
       expect(a.state).toBe("published_pending_observation");
       expect(a.sourceScopeKind).toBe("scheduled_occurrence");
       expect(a.source).toBe("scheduler");
@@ -367,7 +371,25 @@ describe("publishScheduledOccurrence — happy path", () => {
       });
     }
 
+    // T9A-03: the occurrence-level coordination attempt (`attemptKey:"occurrence"`)
+    // terminalized to `created` in-tx with the aggregate. It shares the
+    // occurrence scope but is distinguishable by its key + state.
+    const coordination = attempts.filter((a) => a.attemptKey === "occurrence");
+    expect(coordination).toHaveLength(1);
+    expect(coordination[0].state).toBe("created");
+    expect(coordination[0].sourceScopeKind).toBe("scheduled_occurrence");
+    expect(coordination[0].sourceScopeId).toBe(occurrenceId);
+    expect(coordination[0].source).toBe("scheduler");
+    expect(coordination[0].publicationKind).toBe("scheduled_occurrence");
+    expect(coordination[0].terminalOutcome).toBe("created");
+    expect(coordination[0].completedAt).not.toBeNull();
+    // The occurrence ROW's `attemptId` carries the coordination attempt id.
+    expect(occurrence.attemptId).toBe(coordination[0].id);
+
     // All counts moved (aggregate + occurrence-state committed together).
+    // T9A-03: the coordination attempt was reserved at Phase 2 (counted in
+    // `before.attempts`); the publisher adds N per-Task attempts (no new
+    // coordination attempt at publication time — it advances the existing one).
     const after = countRows();
     expect(after.missions).toBe(before.missions + 1);
     expect(after.tasks).toBe(before.tasks + result.tasks.length);
@@ -455,6 +477,23 @@ describe("publishScheduledOccurrence — governance veto (net-new)", () => {
     expect(after.tasks).toBe(before.tasks);
     expect(after.events).toBe(before.events);
     expect(after.envelopes).toBe(before.envelopes);
+
+    // *** T9A-03 / T9A-05 ARC 2 HAND-OFF ***
+    // Arc 1 (this fix) LEAVES the occurrence-level coordination attempt at
+    // `pending` on the vetoed path. Arc 2 (T9A-05) owns terminalizing ALL
+    // reserved attempts (N per-Task + the coordination) consistently on
+    // veto. This assertion documents the hand-off: arc 1 does NOT
+    // terminalize the coordination attempt on veto.
+    const coordinationAttemptId = readOccurrence(occurrenceId).attemptId;
+    expect(coordinationAttemptId).not.toBeNull();
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, coordinationAttemptId as string))
+      .all()[0];
+    expect(coordination.state).toBe("pending");
+    expect(coordination.completedAt).toBeNull();
+    expect(coordination.terminalOutcome).toBeNull();
   });
 });
 
@@ -471,6 +510,11 @@ describe("publishScheduledOccurrence — rejected_validation", () => {
     const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
     const before = countRows();
 
+    // Capture the coordination attempt id (T9A-03) before publication.
+    const beforeOccurrence = readOccurrence(occurrenceId);
+    const coordinationAttemptId = beforeOccurrence.attemptId;
+    expect(coordinationAttemptId).not.toBeNull();
+
     const result = publishScheduledOccurrence(baseInput(occurrenceId));
 
     expect(result.outcome).toBe("rejected_validation");
@@ -485,6 +529,17 @@ describe("publishScheduledOccurrence — rejected_validation", () => {
     const after = countRows();
     expect(after.missions).toBe(before.missions);
     expect(after.tasks).toBe(before.tasks);
+
+    // T9A-03: the coordination attempt terminalized to `rejected_validation`
+    // (canonical/scope failure) atomic with the occurrence rejection.
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, coordinationAttemptId as string))
+      .all()[0];
+    expect(coordination.state).toBe("rejected_validation");
+    expect(coordination.terminalOutcome).toBe("rejected_validation");
+    expect(coordination.completedAt).not.toBeNull();
   });
 });
 
@@ -705,9 +760,13 @@ describe("publishScheduledOccurrence — atomic occurrence-state transition (loa
     });
 
     // The wrapped participant: real occurrence-record write + throw.
+    // The 3rd argument (`coordinationAttemptId`) is `null` — this test
+    // isolates the occurrence-ROW atomicity; the T9A-03 coordination-attempt
+    // advance has its own dedicated test.
     const realParticipant = buildOccurrenceRecordParticipant(
       occurrenceId,
       occurrence.scheduleRevision,
+      null,
     );
     const wrappedParticipant = (
       db: Parameters<typeof realParticipant>[0],
@@ -831,6 +890,11 @@ describe("publishScheduledOccurrence — edge cases", () => {
     const { id: scheduleId } = createSchedule();
     const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
 
+    // Capture the coordination attempt id (T9A-03) before publication.
+    const beforeOccurrence = readOccurrence(occurrenceId);
+    const coordinationAttemptId = beforeOccurrence.attemptId;
+    expect(coordinationAttemptId).not.toBeNull();
+
     // Delete the schedule row.
     getDb().delete(scheduledTasks).where(eq(scheduledTasks.id, scheduleId)).run();
 
@@ -847,5 +911,72 @@ describe("publishScheduledOccurrence — edge cases", () => {
       reason: "schedule_missing",
       message: expect.stringContaining(scheduleId),
     });
+
+    // T9A-03: the coordination attempt terminalized to `batch_rejected`
+    // (aggregate-level data anomaly) atomic with the occurrence rejection.
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, coordinationAttemptId as string))
+      .all()[0];
+    expect(coordination.state).toBe("batch_rejected");
+    expect(coordination.terminalOutcome).toBe("schedule_missing");
+    expect(coordination.completedAt).not.toBeNull();
+  });
+});
+
+// ===========================================================================
+// 10. T9A-03 — occurrence-level coordination attempt lifecycle (failure paths).
+// ===========================================================================
+
+describe("publishScheduledOccurrence — T9A-03 rejected_fingerprint terminalization", () => {
+  it("per-Task fingerprint mismatch → coordination attempt terminalizes to batch_rejected atomic with occurrence rejection", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+
+    // Pre-reserve a per-Task attempt with a DIFFERENT fingerprint under the
+    // same key the publisher will use (`${templateId}-0`). The publisher's
+    // per-Task reservation hits this existing attempt + returns
+    // `rejected_fingerprint` deterministically.
+    const schedule = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
+    const templateId = schedule.templateId!;
+    reserveAttemptWithClient(getDb(), {
+      source: SCHEDULE_SOURCE,
+      sourceScopeKind: "scheduled_occurrence",
+      sourceScopeId: occurrenceId,
+      attemptKey: `${templateId}-0`,
+      requestFingerprint: "stale-fingerprint-pre-emitted-by-test",
+      publicationKind: "scheduled_occurrence",
+      habitatId: schedule.habitatId,
+      actorType: "system",
+      actorId: "scheduler",
+      causalContext: { root: { type: "scheduled_occurrence", id: occurrenceId } },
+    });
+
+    // Capture the coordination attempt id (T9A-03).
+    const coordinationAttemptId = readOccurrence(occurrenceId).attemptId;
+    expect(coordinationAttemptId).not.toBeNull();
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    // **Failure mode**: pre-T9A-03 the occurrence rejected but the
+    // coordination attempt stayed `pending`. Post-T9A-03 the coordination
+    // attempt terminalizes atomic with the occurrence rejection.
+    expect(result.outcome).toBe("rejected_fingerprint");
+    if (result.outcome !== "rejected_fingerprint") throw new Error("unreachable");
+
+    expect(readOccurrence(occurrenceId).state).toBe("rejected");
+
+    // T9A-03: coordination attempt terminalized to `batch_rejected`
+    // (aggregate-level config drift — the rendered payload changed under
+    // the same key set).
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.id, coordinationAttemptId as string))
+      .all()[0];
+    expect(coordination.state).toBe("batch_rejected");
+    expect(coordination.terminalOutcome).toBe("rejected_fingerprint");
+    expect(coordination.completedAt).not.toBeNull();
   });
 });
