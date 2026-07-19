@@ -65,7 +65,7 @@
  */
 import { getDb } from "../db/index.js";
 import { scheduledTasks } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type { AuditSource, CausalContext } from "@orcy/shared";
@@ -582,21 +582,67 @@ export function reserveScheduledOccurrenceWithClient(
  * schedule advance + one-shot disable commit together or roll back together.
  * Use the `WithClient` variant to compose inside a larger caller-owned tx.
  *
+ * # Manual `BEGIN IMMEDIATE` (NOT drizzle's `db.transaction`)
+ *
+ * This wrapper opens its tx via `db.run(sql\`BEGIN IMMEDIATE\`)` instead of
+ * drizzle's `db.transaction((tx) => …)`. Drizzle's better-sqlite3 driver
+ * issues `BEGIN DEFERRED`, which acquires the SHARED lock on the first read
+ * and tries to upgrade to RESERVED on the first write. Under WAL-mode
+ * multi-process write contention (the T11 multi-instance scheduler domain —
+ * two workers reserving the same schedule concurrently), the loser's
+ * SHARED→RESERVED upgrade on its first write can throw `SQLITE_BUSY`
+ * IMMEDIATELY, BYPASSING the connection's `busy_timeout = 5000` pragma —
+ * a known SQLite WAL limitation (the busy handler is reliably invoked for
+ * `BEGIN IMMEDIATE` lock acquisition, NOT for the deferred upgrade path).
+ * The loser would propagate a `RepositoryError` instead of a typed outcome
+ * (`already_exists` / `lost_race`).
+ *
+ * `BEGIN IMMEDIATE` acquires the RESERVED lock UPFRONT, so under contention
+ * the loser's `BEGIN IMMEDIATE` BLOCKS (with `busy_timeout` in effect) until
+ * the winner's tx commits, then proceeds. The two reservations serialize
+ * behind the RESERVED lock; within each tx the occurrence UNIQUE index +
+ * the schedule-advance CAS resolve which one wins the actual reservation →
+ * the loser gets a typed `already_exists` / `lost_race` (NEVER `SQLITE_BUSY`).
+ *
+ * This mirrors `reviewAssignmentService.recordApprovalWithFinalityGate`
+ * (`reviewAssignmentService.ts:323-355`) — the established codebase pattern
+ * for the SAME WAL SHARED→RESERVED contention reasoning. The occurrence
+ * lease makes this reservation the ONLY contending tx in the publication
+ * pipeline (the Phase-3 publisher runs under an occurrence's exclusive
+ * lease — single-writer), so a blanket `BEGIN IMMEDIATE` helper is NOT
+ * warranted — other `db.transaction` call sites don't contend.
+ *
  * # T9A-02 lost-race mapping
  *
  * If the `WithClient` primitive throws {@link ScheduledOccurrenceAdvanceLostRace}
- * (a fresh insert that lost the schedule-advance CAS), this wrapper catches
- * it + returns the typed `{outcome:"lost_race"}` branch — the tx rolled
- * back, no durable state persists. The optional `db` parameter (defaults to
- * `getDb()`) supports test injection; production callers omit it.
+ * (a fresh insert that lost the schedule-advance CAS), this wrapper's catch
+ * ROLLBACKs the manual tx (the throw exited the try) + returns the typed
+ * `{outcome:"lost_race"}` branch — no durable state persists. The optional
+ * `db` parameter (defaults to `getDb()`) supports test injection; production
+ * callers omit it.
  */
 export function reserveScheduledOccurrence(
   input: ReserveScheduledOccurrenceInput,
   db: TaskPublicationDbClient = getDb(),
 ): ReserveScheduledOccurrenceResult {
+  // Manual `BEGIN IMMEDIATE` (see the wrapper docstring) — NOT drizzle's
+  // `db.transaction((tx) => …)`. The `WithClient` primitive runs on the
+  // ROOT `db` client (the same client better-sqlite3 documentation and
+  // `recordApprovalWithFinalityGate` use after `BEGIN IMMEDIATE`); its
+  // contract is "compose inside a caller-owned tx" — the manual
+  // `BEGIN IMMEDIATE` IS the caller-owned tx.
+  db.run(sql`BEGIN IMMEDIATE`);
   try {
-    return db.transaction((tx) => reserveScheduledOccurrenceWithClient(tx, input));
+    const result = reserveScheduledOccurrenceWithClient(db, input);
+    db.run(sql`COMMIT`);
+    return result;
   } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // Not in a transaction or already rolled back (defensive — mirrors
+      // `recordApprovalWithFinalityGate`'s ROLLBACK guard).
+    }
     if (err instanceof ScheduledOccurrenceAdvanceLostRace) {
       return { outcome: "lost_race" };
     }

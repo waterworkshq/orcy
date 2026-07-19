@@ -666,17 +666,32 @@ describe("reserveScheduledOccurrence — T9A-03 occurrence-level coordination at
 // ===========================================================================
 
 /**
- * Test-only Proxy wrapper around a drizzle TX client that simulates a
- * concurrent different-`scheduledFor` reservation winning the schedule-
- * advance CAS. Hooks the FIRST `.update(scheduledTasks)` call (the loser's
- * advance CAS) + runs a side-channel advance BEFORE delegating, so the
- * loser's CAS predicate `nextRunAt <= now` matches zero rows.
+ * Test-only Proxy wrapper around a drizzle client (ROOT or tx) that
+ * simulates a concurrent different-`scheduledFor` reservation winning the
+ * schedule-advance CAS. Hooks the FIRST `.update(scheduledTasks)` call (the
+ * loser's advance CAS) + runs a side-channel advance BEFORE delegating, so
+ * the loser's CAS predicate `nextRunAt <= now` matches zero rows.
  *
- * The side-channel runs on the SAME tx client (the inner) — when the loser's
- * tx rolls back, the side-channel advance rolls back too. The test asserts
+ * The side-channel runs on the SAME client (the inner) — when the loser's tx
+ * rolls back, the side-channel advance rolls back too. The test asserts
  * POST-ROLLBACK state (no occurrence, no attempt, schedule unchanged) — NOT
  * the winner's persistence (which is a different scenario, tested implicitly
  * by the concurrent same-key test at section 3).
+ *
+ * Used in TWO modes:
+ *   - WRAPPER test (`reserveScheduledOccurrence`): wraps the ROOT db passed
+ *     as the wrapper's optional `db` arg. Post-SQLITE-BUSY-fix the wrapper
+ *     calls `db.run(sql\`BEGIN IMMEDIATE\`)` + `reserveScheduledOccurrenceWithClient(db, …)`
+ *     directly on this proxy (NO `.transaction` interception) — the side-
+ *     channel fires inside the manually-opened tx + rolls back with it.
+ *   - PRIMITIVE test (`reserveScheduledOccurrenceWithClient`): wraps the
+ *     INNER tx client inside the caller's own `db.transaction((tx) => …)`.
+ *     The primitive's contract is "compose inside a caller-owned tx" — the
+ *     test owns the tx.
+ *
+ * Forwards `.run` (for the wrapper's `BEGIN IMMEDIATE` / `COMMIT` /
+ * `ROLLBACK`), `.select`, `.insert`, `.update` (post-injection), `.delete`,
+ * `.get` to the inner client.
  */
 class ConcurrentAdvanceWinnerTx {
   private injected = false;
@@ -692,10 +707,10 @@ class ConcurrentAdvanceWinnerTx {
   update(table: unknown): any {
     if (!this.injected && table === scheduledTasks) {
       // Side-channel: pre-advance the schedule BEFORE the loser's CAS UPDATE
-      // runs. The mutation is on the SAME tx client → rolls back with the
-      // loser's tx. Inside the tx (between this mutation and the loser's
-      // CAS), the schedule's `nextRunAt` is `winnerNextRunAt` (in the
-      // future), so the loser's CAS predicate `nextRunAt <= now` matches
+      // runs. The mutation is on the SAME client (root or tx) → rolls back
+      // with the loser's tx. Inside the tx (between this mutation and the
+      // loser's CAS), the schedule's `nextRunAt` is `winnerNextRunAt` (in
+      // the future), so the loser's CAS predicate `nextRunAt <= now` matches
       // zero rows → `advanced:false` → T9A-02 sentinel throw → rollback.
       this.inner
         .update(scheduledTasks)
@@ -710,6 +725,15 @@ class ConcurrentAdvanceWinnerTx {
       this.injected = true;
     }
     return (this.inner as unknown as { update: (t: unknown) => unknown }).update(table);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  run(...args: unknown[]): any {
+    // Forward `db.run(sql\`BEGIN IMMEDIATE | COMMIT | ROLLBACK\`)` to the
+    // inner client. Required by the WRAPPER-mode usage (post-SQLITE-BUSY-fix
+    // the wrapper opens its tx via `db.run(sql\`BEGIN IMMEDIATE\`)` instead
+    // of drizzle's `.transaction`).
+    return (this.inner as unknown as { run: (...a: unknown[]) => unknown }).run(...args);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -730,35 +754,6 @@ class ConcurrentAdvanceWinnerTx {
   }
 }
 
-/**
- * Top-level wrapper that intercepts `.transaction(fn)` to wrap the inner tx
- * with {@link ConcurrentAdvanceWinnerTx}. Passed as the optional `db`
- * parameter to `reserveScheduledOccurrence` for the T9A-02 lost-race test.
- */
-class ConcurrentAdvanceWinnerDb {
-  constructor(
-    public readonly inner: TaskPublicationDbClient,
-    private readonly scheduleId: string,
-    private readonly winnerNextRunAt: string,
-    private readonly advanceTime: string,
-  ) {}
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  transaction<T>(fn: (tx: any) => T): T {
-    return (this.inner as unknown as { transaction: <R>(fn: (tx: any) => R) => R }).transaction<T>(
-      (tx: TaskPublicationDbClient) => {
-        const wrapped = new ConcurrentAdvanceWinnerTx(
-          tx,
-          this.scheduleId,
-          this.winnerNextRunAt,
-          this.advanceTime,
-        );
-        return fn(wrapped as unknown as TaskPublicationDbClient);
-      },
-    );
-  }
-}
-
 describe("reserveScheduledOccurrence — T9A-02 lost-race atomicity (no dangling reserved occurrence)", () => {
   it("the wrapper returns {outcome:'lost_race'} when the advance CAS loses on a fresh insert", () => {
     const scheduleId = seedIntervalSchedule();
@@ -769,7 +764,14 @@ describe("reserveScheduledOccurrence — T9A-02 lost-race atomicity (no dangling
     // preceded by a side-channel advance (simulating a concurrent different-
     // scheduledFor winner's committed advance). The loser's advance CAS
     // predicate `nextRunAt <= now` then matches zero rows.
-    const wrappedDb = new ConcurrentAdvanceWinnerDb(
+    //
+    // Post-SQLITE-BUSY-fix: the wrapper calls `db.run(sql\`BEGIN IMMEDIATE\`)`
+    // + `reserveScheduledOccurrenceWithClient(db, …)` directly on this proxy
+    // (NO `.transaction` interception). The proxy forwards `.run` (BEGIN/
+    // COMMIT/ROLLBACK) to the inner + intercepts the first `.update(scheduledTasks)`
+    // for the side-channel injection. The side-channel fires INSIDE the
+    // manual tx → rolls back with it.
+    const wrappedDb = new ConcurrentAdvanceWinnerTx(
       getDb(),
       scheduleId,
       NEXT_RUN_INTERVAL,
