@@ -1171,6 +1171,179 @@ export function stampOccurrenceReclaimAttemptWithClient(
 }
 
 // ---------------------------------------------------------------------------
+// Fused reclaim + counter advancement (T9B-02 — crash-window atomicity)
+// ---------------------------------------------------------------------------
+
+/**
+ * Directive for {@link reclaimAndStampOccurrenceWithClient}. Combines the
+ * reclaim lease directive with the counter stamp fields. The stamp records
+ * the new reclaim count ATOMICALLY with the lease transfer — a crash between
+ * them CANNOT leave the lease reclaimed without the count advancing (the
+ * T9B-02 defect class).
+ */
+export interface OccurrenceReclaimAndStampDirective extends OccurrenceLeaseDirective {
+  /**
+   * The new reclaim count (prior count + 1). Stamped on the occurrence's
+   * `result` JSON inside the SAME tx as the lease transfer.
+   */
+  reclaimCount: number;
+  /** Optional diagnostics: the resumable outcome that triggered the reclaim. */
+  lastResumableOutcome?: string;
+}
+
+/**
+ * Closed result of {@link reclaimAndStampOccurrenceWithClient}.
+ *
+ * - `reclaimed`             — the fused op landed: the lease transferred to
+ *                             the directive's `leaseOwner` AND the new
+ *                             reclaim count was stamped on the `result` JSON,
+ *                             both in ONE transaction (crash-safe — a failure
+ *                             between them rolls back BOTH). `stampedResult`
+ *                             carries the durable counter JSON the circuit-
+ *                             breaker reads on the next scan.
+ * - `not_expired`           — the occurrence IS `publishing` BUT the lease
+ *                             has NOT observably expired. No mutation.
+ * - `illegal_source_state`  — the occurrence is NOT `publishing`. No mutation.
+ * - `not_found`             — no occurrence row exists for `id`.
+ *
+ * The stamp's failure modes (`not_owner` / `illegal_source_state`) are NOT
+ * surfaced distinctly because they are unreachable INSIDE the fused tx: the
+ * reclaim's CAS just set `state='publishing'` + `leaseOwner = expected` +
+ * `leaseExpiresAt = future`, so the stamp's CAS predicate
+ * (`state='publishing' AND leaseOwner = expected`) is GUARANTEED to match
+ * inside the same tx. A post-reclaim stamp failure is a logical impossibility
+ * (not a race the CAS defends against).
+ */
+export type OccurrenceReclaimAndStampResult =
+  | {
+      outcome: "reclaimed";
+      occurrence: ScheduledOccurrenceRow;
+      /** The stamped `result` JSON (the durable counter the circuit-breaker reads). */
+      stampedResult: OccurrenceResultJson;
+    }
+  | { outcome: "not_expired"; occurrence: ScheduledOccurrenceRow }
+  | {
+      outcome: "illegal_source_state";
+      occurrence: ScheduledOccurrenceRow;
+      fromState: ScheduledOccurrenceState;
+    }
+  | { outcome: "not_found" };
+
+/**
+ * FUSES the expired-lease reclaim + the reclaim-count stamp into ONE atomic
+ * transaction (T9B-02 — the crash-window atomicity fix). Wraps
+ * {@link reacquireExpiredOccurrenceLeaseWithClient} +
+ * {@link stampOccurrenceReclaimAttemptWithClient} in a single
+ * `db.transaction((tx) => …)` so a crash between them CANNOT leave the lease
+ * reclaimed (owner + expiry advanced) WITHOUT the count advancing — the
+ * defect class that defeated the circuit-breaker (repeated kills in the
+ * reclaim→stamp window kept reacquiring at the same `reclaimCount`, so the
+ * breaker never tripped → hot-loop).
+ *
+ * # Why a fused primitive (T9B-02 design choice — option a)
+ *
+ * Pre-fix, the recovery worker composed the two primitives as separate
+ * commits: `reacquireExpiredOccurrenceLeaseWithClient` (advances the owner +
+ * expiry) THEN `stampOccurrenceReclaimAttemptWithClient` (advances the
+ * counter). A crash between them committed the reclaim without the stamp.
+ * The fused primitive lifts the atomicity to the primitive layer (the
+ * caller cannot compose them unsafely). The existing two primitives stay
+ * exported for callers that legitimately need them in separate tx
+ * (currently none — but the additive contract preserves them).
+ *
+ * # Why the stamp can't fail inside the fused tx
+ *
+ * The reclaim's CAS predicate is `state='publishing' AND leaseExpiresAt <
+ * now`; on success it sets `state` (unchanged — still `publishing`),
+ * `leaseOwner = directive.leaseOwner`, `leaseExpiresAt = future`,
+ * `updatedAt = now`. The stamp's CAS predicate is
+ * `state='publishing' AND leaseOwner = expected` — all three conditions are
+ * satisfied by the reclaim's commit INSIDE THE SAME tx (no concurrent writer
+ * can interpose: SQLite serializes writers + the tx holds the write lock
+ * until commit). So the stamp's `affected === 1` is guaranteed inside the
+ * fused tx; only infrastructure failure (disk I/O) throws + rolls back BOTH
+ * operations.
+ *
+ * # Why drizzle's `db.transaction` (not raw `BEGIN IMMEDIATE`)
+ *
+ * The WAL-contention SQLITE_BUSY scenario (T9A-11 — two reservation workers
+ * racing) used `db.run(sql\`BEGIN IMMEDIATE\`)` to acquire a RESERVED lock
+ * upfront. The recovery worker has NO such contention: the reclaim CAS is
+ * the concurrency defender (losers don't proceed to the stamp), so at most
+ * ONE worker reaches the fused primitive per occurrence. Drizzle's default
+ * `db.transaction` (DEFERRED) is correct here — matches the
+ * `terminalRejectOccurrenceWithCoordination` precedent.
+ *
+ * Never calls `getDb()`, never opens a NESTED transaction (the caller may
+ * pass a `tx` from an outer transaction; drizzle reuses it), never emits
+ * external effects. Throws only on infrastructure failure (the whole fused
+ * op rolls back — neither the reclaim NOR the stamp lands).
+ */
+export function reclaimAndStampOccurrenceWithClient(
+  db: TaskPublicationDbClient,
+  id: string,
+  directive: OccurrenceReclaimAndStampDirective,
+): OccurrenceReclaimAndStampResult {
+  return db.transaction((tx) => {
+    // 1. RECLAIM the expired lease (delegates to the standalone primitive
+    //    so the CAS-classified UPDATE + its affected-row classification
+    //    live in ONE place — the standalone primitive remains the source
+    //    of truth for the reclaim SQL). On failure, the stamp is NOT
+    //    attempted (returning the reclaim's typed outcome). The tx commits
+    //    with NO mutation — the row is UNCHANGED.
+    const reclaim = reacquireExpiredOccurrenceLeaseWithClient(tx, id, {
+      leaseOwner: directive.leaseOwner,
+      leaseExpiresAt: directive.leaseExpiresAt,
+    });
+    if (reclaim.outcome !== "reclaimed") {
+      return reclaim;
+    }
+
+    // 2. STAMP the new reclaim count (delegates to the standalone primitive
+    //    for the same single-source-of-truth reason). Inside the same tx
+    //    the stamp's CAS is guaranteed to match (the reclaim just set the
+    //    owner + state). The standalone primitive returns `stamped` on
+    //    success; the discriminated union's other branches (`not_owner` /
+    //    `illegal_source_state` / `not_found`) are unreachable inside the
+    //    fused tx — surface them as an infrastructure anomaly so the caller
+    //    sees the inconsistency rather than silently misreporting a reclaim.
+    const stamp = stampOccurrenceReclaimAttemptWithClient(tx, id, {
+      leaseOwner: directive.leaseOwner,
+      reclaimCount: directive.reclaimCount,
+      ...(directive.lastResumableOutcome !== undefined
+        ? { lastResumableOutcome: directive.lastResumableOutcome }
+        : {}),
+    });
+    if (stamp.outcome !== "stamped") {
+      throw repositoryUpdateError(
+        "scheduledOccurrence",
+        new Error(
+          `reclaimAndStampOccurrenceWithClient: stamp returned ${stamp.outcome} after a successful reclaim on "${id}" — invariant violation (the reclaim just set state='publishing' + leaseOwner='${directive.leaseOwner}').`,
+        ),
+        id,
+      );
+    }
+
+    // 3. Return the reclaimed occurrence + the stamped result JSON (derived
+    //    from the directive, identically to the standalone stamp primitive's
+    //    construction). The standalone primitive's returned `occurrence`
+    //    already reflects both the reclaim + the stamp.
+    const stampedResult: OccurrenceResultJson = {
+      reclaimCount: directive.reclaimCount,
+      ...(directive.lastResumableOutcome !== undefined
+        ? { lastResumableOutcome: directive.lastResumableOutcome }
+        : {}),
+      reclaimedAt: stamp.occurrence.updatedAt,
+    };
+    return {
+      outcome: "reclaimed",
+      occurrence: stamp.occurrence,
+      stampedResult,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
 

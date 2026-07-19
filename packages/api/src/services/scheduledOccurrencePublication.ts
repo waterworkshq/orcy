@@ -1351,7 +1351,7 @@ export function buildOccurrenceRecordParticipant(
  * 6) or the failing attempt stays pending intentionally
  * (rejected_fingerprint — documented in its branch).
  */
-function terminalRejectOccurrenceWithCoordination(
+export function terminalRejectOccurrenceWithCoordination(
   db: TaskPublicationDbClient,
   occurrence: ScheduledOccurrenceRow,
   args: {
@@ -1365,15 +1365,24 @@ function terminalRejectOccurrenceWithCoordination(
     coordinationTerminalResult: AttemptTerminalResult;
     /**
      * Optional per-Task attempts to terminalize IN THE SAME TX as the
-     * occurrence rejection (T9A-05 vetoed-path use only). The non-veto
-     * failure paths do NOT supply this — their per-Task attempts were either
-     * not reserved yet (rejected_validation / schedule_missing fire BEFORE
-     * step 6) or the rejected_fingerprint path leaves the failing attempt
-     * pending intentionally (documented in its branch).
+     * occurrence rejection (T9A-05 vetoed-path + T9B-03 recovery-exhausted
+     * path). The non-veto / non-exhausted failure paths do NOT supply this
+     * — their per-Task attempts were either not reserved yet
+     * (rejected_validation / schedule_missing fire BEFORE step 6) or the
+     * rejected_fingerprint path leaves the failing attempt pending
+     * intentionally (documented in its branch).
      *
      * For the vetoed path: the vetoed taskIndexes → terminal `vetoed`; the
      * allowed-but-unpublished taskIndexes → terminal `batch_rejected`
      * (collateral — they were allowed but the aggregate didn't publish).
+     *
+     * For the recovery_exhausted path (T9B-03): the N resumable per-Task
+     * attempts stranded `pending` from prior resume attempts → terminal
+     * `batch_rejected` (the occurrence's publication budget is exhausted;
+     * the per-Task attempts cannot make forward progress). Found via
+     * `listPendingTaskCreationAttemptsForScopeWithClient(tx, occurrence.id)`
+     * before invoking the helper.
+     *
      * Both terminalize via `completeAttemptWithClient` inside the helper's
      * `db.transaction(...)` so they commit atomically WITH the coordination
      * attempt terminalization + the occurrence ROW transition. The matrix

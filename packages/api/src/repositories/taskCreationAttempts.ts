@@ -688,6 +688,66 @@ export function compactAttemptDetails(attemptId: string): AttemptCompactResult {
 }
 
 // ---------------------------------------------------------------------------
+// Scope-scan read (T9B-03 — the recovery circuit-breaker's attempt finder)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lists the RESUMABLE (state = `pending`) per-Task creation attempts under a
+ * given `sourceScopeId` (T9B-03 — the recovery circuit-breaker's terminalize
+ * list). Pure read.
+ *
+ * The scheduled-occurrence publication path reserves one per-Task attempt
+ * per Task in the template, scoped by `sourceScopeId = occurrence.id` +
+ * `sourceScopeKind = "scheduled_occurrence"` (see
+ * `scheduledOccurrenceReservation.ts`). On a RESUMABLE resume failure
+ * (`schedule_guard_mismatch` / `guard_mismatch` / `governance_denied` /
+ * `schedule_vanished_mid_tx`), the publish tx rolls back but the per-Task
+ * reservations stay `pending` (their reservation is committed BEFORE the
+ * publish tx opens). Each subsequent resume REPLAYES the same `pending`
+ * attempts (same fingerprint → `reserveAttemptWithClient` returns
+ * `replayed`). So at the moment the circuit-breaker terminalizes the
+ * occurrence as `recovery_exhausted`, the per-Task attempts under
+ * `sourceScopeId = occurrence.id` are stranded `pending` — this read finds
+ * them so the breaker can terminalize them atomically with the occurrence
+ * rejection (recreates the T9A-05 vetoed-path contract for the recovery
+ * exhaustion path).
+ *
+ * # Why filter to `pending` only
+ *
+ * The `completeAttemptWithClient` matrix allows `pending → vetoed |
+ * batch_rejected` directly (no checkpoint required for failure terminals
+ * from `pending`). Attempts at `published_pending_observation` /
+ * `published_pending_assignment` (checkpointed past `pending` — partial
+ * aggregate publication) REFUSE the `batch_rejected` terminal with
+ * `rejected_transition`, which the coordination helper THROWS on. Filtering
+ * to `pending` here means the helper's per-Task terminal loop only sees
+ * attempts it CAN legally terminalize. Already-terminal attempts
+ * (`created` / `rejected_validation` / `vetoed` / `batch_rejected`) are
+ * excluded — they need no further terminalization. Attempts checkpointed
+ * past `pending` represent partial aggregate progress + are left for the
+ * retry endpoint (T9B Phase 3) / operator intervention to resolve.
+ *
+ * Never calls `getDb()` (the caller owns the client — typically a `tx` from
+ * the coordination helper's `db.transaction`). Pure read; no mutation, no
+ * external effects, never throws for an expected decision.
+ */
+export function listPendingTaskCreationAttemptsForScopeWithClient(
+  db: TaskPublicationDbClient,
+  sourceScopeId: string,
+): TaskCreationAttemptRow[] {
+  return db
+    .select()
+    .from(taskCreationAttempts)
+    .where(
+      and(
+        eq(taskCreationAttempts.sourceScopeId, sourceScopeId),
+        eq(taskCreationAttempts.state, "pending"),
+      ),
+    )
+    .all();
+}
+
+// ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
 
