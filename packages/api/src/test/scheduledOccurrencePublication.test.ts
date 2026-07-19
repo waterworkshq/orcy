@@ -442,48 +442,68 @@ describe("publishScheduledOccurrence — governance veto (net-new)", () => {
     const result = publishScheduledOccurrence(baseInput(occurrenceId));
 
     // Typed vetoed outcome — NOT a throw, NOT a swallowed null. The T9A
-    // publisher runs governance BEFORE opening the tx; the first veto
-    // returns `{outcome:"vetoed"}` without opening it.
+    // publisher runs governance BEFORE opening the tx; T9A-04 all-failures
+    // governance returns the full `vetoes` list. The default schedule
+    // template has 2 task entries + `veto-all` refuses BOTH → the list
+    // carries both decisive Task-level vetoes (the all-failures semantic;
+    // the legacy first-veto path would have surfaced only index 0).
     expect(result.outcome).toBe("vetoed");
     if (result.outcome !== "vetoed") throw new Error("unreachable");
-    expect(result.taskIndex).toBe(0); // first task entry.
-    expect(result.veto.reason).toBe("vetoed by schedule test interceptor");
-    expect(result.veto.interceptorKey).toContain("veto-all");
-    expect(typeof result.veto.pluginRunId).toBe("string");
+    expect(result.vetoes).toHaveLength(2);
+    expect(result.vetoes[0].taskIndex).toBe(0);
+    expect(result.vetoes[1].taskIndex).toBe(1);
+    for (const v of result.vetoes) {
+      expect(v.veto.reason).toBe("vetoed by schedule test interceptor");
+      expect(v.veto.interceptorKey).toContain("veto-all");
+      expect(typeof v.veto.pluginRunId).toBe("string");
+    }
 
-    // Occurrence terminal-rejected with the veto details.
+    // Occurrence terminal-rejected with the veto details (T9A-04: the
+    // occurrence's result carries the FULL `vetoes` list).
     const occurrence = readOccurrence(occurrenceId);
     expect(occurrence.state).toBe("rejected");
     expect(occurrence.leaseOwner).toBeNull(); // retired by terminal transition.
     expect(occurrence.createdMissionId).toBeNull();
     expect(occurrence.result).toEqual({
       reason: "vetoed",
-      taskIndex: 0,
-      veto: expect.objectContaining({
-        interceptorKey: expect.any(String),
-        reason: "vetoed by schedule test interceptor",
-      }),
+      vetoes: expect.arrayContaining([
+        expect.objectContaining({
+          taskIndex: 0,
+          veto: expect.objectContaining({
+            interceptorKey: expect.any(String),
+            reason: "vetoed by schedule test interceptor",
+          }),
+        }),
+        expect.objectContaining({
+          taskIndex: 1,
+          veto: expect.objectContaining({
+            interceptorKey: expect.any(String),
+            reason: "vetoed by schedule test interceptor",
+          }),
+        }),
+      ]),
     });
 
     // ZERO partial aggregate: no Mission, no Tasks, no events, no envelopes
     // committed. The tx never opened (governance runs BEFORE the tx in the
-    // milestone-1 publisher). NOTE: per-Task attempts ARE reserved (the
-    // publisher reserves N attempts BEFORE calling the milestone-1 publisher,
-    // mirroring the triage adapter's ordering) — those `pending` attempts
-    // stay as audit artifacts. The occurrence is terminal-rejected so they
-    // are never republished under this key set.
+    // milestone-1 publisher).
     const after = countRows();
     expect(after.missions).toBe(before.missions);
     expect(after.tasks).toBe(before.tasks);
     expect(after.events).toBe(before.events);
     expect(after.envelopes).toBe(before.envelopes);
 
-    // *** T9A-03 / T9A-05 ARC 2 HAND-OFF ***
-    // Arc 1 (this fix) LEAVES the occurrence-level coordination attempt at
-    // `pending` on the vetoed path. Arc 2 (T9A-05) owns terminalizing ALL
-    // reserved attempts (N per-Task + the coordination) consistently on
-    // veto. This assertion documents the hand-off: arc 1 does NOT
-    // terminalize the coordination attempt on veto.
+    // *** T9A-05 ARC 2 — ALL reserved attempts terminalize on veto ***
+    // Arc 2 terminalizes every reserved attempt atomically with the
+    // occurrence rejection:
+    //   - The N per-Task attempts (reserved at step 6): the vetoed
+    //     taskIndexes → terminal `vetoed`; the allowed taskIndexes →
+    //     terminal `batch_rejected` (collateral).
+    //   - The occurrence-level coordination attempt → terminal `vetoed`.
+    // None stay `pending` (the plan's attempt state machine forbids dangling
+    // pending attempts on terminal aggregate outcomes).
+
+    // The coordination attempt → terminal `vetoed`.
     const coordinationAttemptId = readOccurrence(occurrenceId).attemptId;
     expect(coordinationAttemptId).not.toBeNull();
     const coordination = getDb()
@@ -491,9 +511,174 @@ describe("publishScheduledOccurrence — governance veto (net-new)", () => {
       .from(taskCreationAttempts)
       .where(eq(taskCreationAttempts.id, coordinationAttemptId as string))
       .all()[0];
-    expect(coordination.state).toBe("pending");
-    expect(coordination.completedAt).toBeNull();
-    expect(coordination.terminalOutcome).toBeNull();
+    expect(coordination.state).toBe("vetoed");
+    expect(coordination.terminalOutcome).toBe("vetoed");
+    expect(coordination.completedAt).not.toBeNull();
+
+    // The N per-Task attempts → ALL terminal `vetoed` (this template's 2
+    // Tasks both vetoed). The terminalResult carries each Task-level veto.
+    const perTaskAttempts = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
+      .all()
+      // Exclude the coordination attempt (its sourceScopeId is also the
+      // occurrence id but its attemptKey is "occurrence").
+      .filter((a) => a.attemptKey !== "occurrence");
+    expect(perTaskAttempts).toHaveLength(2);
+    for (const attempt of perTaskAttempts) {
+      expect(attempt.state).toBe("vetoed");
+      expect(attempt.terminalOutcome).toBe("vetoed");
+      expect(attempt.completedAt).not.toBeNull();
+      expect(attempt.terminalResult).toMatchObject({
+        outcome: "vetoed",
+        veto: expect.objectContaining({
+          reason: "vetoed by schedule test interceptor",
+        }),
+      });
+    }
+  });
+
+  /**
+   * T9A-05 multi-veto + collateral terminalization — a 3-Task schedule where
+   * Task #0 AND Task #2 veto; Task #1 is allowed (collateral). Proves:
+   *   - The `vetoes` list carries BOTH vetoes (T9A-04).
+   *   - Vetoed taskIndexes (#0, #2) → per-Task attempts terminal `vetoed`.
+   *   - Allowed taskIndex (#1) → per-Task attempt terminal `batch_rejected`.
+   *   - Coordination attempt → terminal `vetoed`.
+   *   - Occurrence → `rejected` with the full `vetoes` list in `result`.
+   */
+  it("multi-veto: Task #0 + #2 vetoed, Task #1 allowed (collateral batch_rejected); ALL attempts terminalize atomically", async () => {
+    await writePlugin(
+      "veto-sched-0",
+      `{
+        manifest: {
+          id: 'veto-sched-0', version: '1.0.0', description: 'veto schedule task 0',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'veto-0', phase: 'pre', event: 'taskCreated', priority: 1, requires: [] },
+          ],
+        },
+        interceptors: {
+          'veto-0': (pluginCtx, transition) => {
+            const title = transition && transition.context && transition.context.metadata && transition.context.metadata.title;
+            if (title === 'VETO-A') return { allow: false, reason: 'vetoed task 0' };
+            return { allow: true };
+          },
+        },
+      }`,
+    );
+    await writePlugin(
+      "veto-sched-2",
+      `{
+        manifest: {
+          id: 'veto-sched-2', version: '1.0.0', description: 'veto schedule task 2',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'veto-2', phase: 'pre', event: 'taskCreated', priority: 2, requires: [] },
+          ],
+        },
+        interceptors: {
+          'veto-2': (pluginCtx, transition) => {
+            const title = transition && transition.context && transition.context.metadata && transition.context.metadata.title;
+            if (title === 'VETO-C') return { allow: false, reason: 'vetoed task 2' };
+            return { allow: true };
+          },
+        },
+      }`,
+    );
+    enrollInterceptor(habitatId, "veto-sched-0", "veto-0");
+    enrollInterceptor(habitatId, "veto-sched-2", "veto-2");
+
+    // A 3-task template: Tasks #0 + #2 veto; Task #1 is allowed (collateral).
+    const template = createMissionTemplate({
+      tasksTemplate: [
+        { key: "a", title: "VETO-A", order: 0 },
+        { key: "b", title: "Allow-B", order: 1 },
+        { key: "c", title: "VETO-C", order: 2 },
+      ],
+    });
+    const { id: scheduleId } = createSchedule({ templateId: template.id });
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
+    const before = countRows();
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    expect(result.outcome).toBe("vetoed");
+    if (result.outcome !== "vetoed") throw new Error("unreachable");
+    expect(result.vetoes).toHaveLength(2);
+    expect(result.vetoes[0].taskIndex).toBe(0);
+    expect(result.vetoes[0].veto.reason).toBe("vetoed task 0");
+    expect(result.vetoes[1].taskIndex).toBe(2);
+    expect(result.vetoes[1].veto.reason).toBe("vetoed task 2");
+
+    // Occurrence terminal-rejected.
+    const occurrence = readOccurrence(occurrenceId);
+    expect(occurrence.state).toBe("rejected");
+    expect(occurrence.leaseOwner).toBeNull();
+    expect(occurrence.result).toMatchObject({
+      reason: "vetoed",
+      vetoes: expect.arrayContaining([
+        expect.objectContaining({ taskIndex: 0 }),
+        expect.objectContaining({ taskIndex: 2 }),
+      ]),
+    });
+
+    // ZERO partial aggregate.
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.events).toBe(before.events);
+    expect(after.envelopes).toBe(before.envelopes);
+
+    // --- T9A-05 attempt terminalization assertions ---
+    // Per-Task attempts: 3 total (one per prepared Task). The 2 vetoed
+    // taskIndexes → `vetoed`; the 1 allowed taskIndex (#1) → `batch_rejected`
+    // (collateral — it was allowed but the aggregate didn't publish).
+    const perTaskAttempts = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
+      .all()
+      .filter((a) => a.attemptKey !== "occurrence");
+    expect(perTaskAttempts).toHaveLength(3);
+    const byKey = new Map(perTaskAttempts.map((a) => [a.attemptKey, a]));
+    // The attemptKey pattern is `${templateId}-${i}` (the adapter's loop).
+    const prefix = `${template.id}-`;
+    const attempt0 = byKey.get(`${prefix}0`)!;
+    const attempt1 = byKey.get(`${prefix}1`)!;
+    const attempt2 = byKey.get(`${prefix}2`)!;
+    expect(attempt0.state).toBe("vetoed");
+    expect(attempt0.terminalOutcome).toBe("vetoed");
+    expect(attempt0.terminalResult).toMatchObject({
+      outcome: "vetoed",
+      veto: expect.objectContaining({ reason: "vetoed task 0" }),
+    });
+    // Collateral — allowed but unpublished.
+    expect(attempt1.state).toBe("batch_rejected");
+    expect(attempt1.terminalOutcome).toBe("batch_rejected");
+    expect(attempt1.terminalResult).toMatchObject({ outcome: "batch_rejected" });
+    expect(attempt2.state).toBe("vetoed");
+    expect(attempt2.terminalOutcome).toBe("vetoed");
+    expect(attempt2.terminalResult).toMatchObject({
+      outcome: "vetoed",
+      veto: expect.objectContaining({ reason: "vetoed task 2" }),
+    });
+    // None pending.
+    for (const a of perTaskAttempts) {
+      expect(a.state).not.toBe("pending");
+      expect(a.completedAt).not.toBeNull();
+    }
+
+    // Coordination attempt → `vetoed`.
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
+      .all()
+      .filter((a) => a.attemptKey === "occurrence")[0];
+    expect(coordination).toBeDefined();
+    expect(coordination.state).toBe("vetoed");
+    expect(coordination.terminalOutcome).toBe("vetoed");
+    expect(coordination.completedAt).not.toBeNull();
   });
 });
 

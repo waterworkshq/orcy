@@ -607,10 +607,17 @@ export type PublishScheduledOccurrenceOutcome =
   | {
       outcome: "vetoed";
       occurrence: ScheduledOccurrenceRow;
-      /** Index into the prepared Task list of the Task whose governance was vetoed. */
-      taskIndex: number;
-      /** The decisive veto (first-veto-per-Task from `governTaskPublication`). */
-      veto: { interceptorKey: string; reason: string; pluginRunId: string | null };
+      /**
+       * Every decisive Task-level veto collected by the milestone-1 publisher
+       * (T9A-04 — all-failures governance). One entry per vetoed Task;
+       * allowed Tasks are NOT in the list. Mirrors the milestone-1
+       * `PublishTemplateAggregateOutcome.vetoed.vetoes` shape 1:1 so the
+       * adapter is a faithful pass-through.
+       */
+      vetoes: ReadonlyArray<{
+        taskIndex: number;
+        veto: { interceptorKey: string; reason: string; pluginRunId: string | null };
+      }>;
     }
   | {
       outcome: "rejected_validation";
@@ -1008,15 +1015,20 @@ export function buildOccurrenceRecordParticipant(
  * attempts track publication progress; the coordination attempt reaches a
  * terminal state directly from `pending` on failure).
  *
- * # Arc 2 hand-off (T9A-05)
+ * # T9A-05 arc 2 resolution (vetoed path — ALL attempts terminalize)
  *
- * The VETOED path is INTENTIONALLY NOT handled here — arc 2 owns terminalizing
- * ALL attempts (N per-Task + the occurrence-level coordination) consistently
- * on the vetoed path. Arc 1 leaves the vetoed coordination attempt at
- * `pending` (the vetoed branch of `publishScheduledOccurrence` calls
- * `markOccurrenceRejectedWithClient` directly, NOT this helper). Arc 2 will
- * extend the vetoed path to terminalize the coordination attempt as `vetoed`
- * (matrix allows `pending → vetoed`).
+ * Arc 2 EXTENDS this helper to also terminalize the N per-Task attempts on
+ * the VETOED path. The vetoed coordination-attempt finalState is `vetoed`
+ * (matrix allows `pending → vetoed`). The N per-Task attempts split:
+ *   - Vetoed taskIndexes (from the milestone-1 `vetoes` list) → `vetoed`.
+ *   - Allowed-but-unpublished taskIndexes → `batch_rejected` (collateral —
+ *     they were allowed but the aggregate didn't publish).
+ * Both terminalize via the new `perTaskAttemptTerminals` arg IN THE SAME TX
+ * as the occurrence rejection (atomic). The non-veto paths do NOT supply
+ * `perTaskAttemptTerminals` — their per-Task attempts either weren't
+ * reserved yet (rejected_validation × 2 / schedule_missing fire BEFORE step
+ * 6) or the failing attempt stays pending intentionally
+ * (rejected_fingerprint — documented in its branch).
  */
 function terminalRejectOccurrenceWithCoordination(
   db: TaskPublicationDbClient,
@@ -1025,19 +1037,42 @@ function terminalRejectOccurrenceWithCoordination(
     /** Compact occurrence failure detail (stamped on the occurrence ROW). */
     occurrenceResult: OccurrenceResultJson;
     /** Coordination attempt's terminal state. */
-    coordinationFinalState: "rejected_validation" | "batch_rejected";
+    coordinationFinalState: "rejected_validation" | "batch_rejected" | "vetoed";
     /** Coordination attempt's terminal outcome string. */
     coordinationTerminalOutcome: string;
     /** Coordination attempt's terminal detail (audit / status surface). */
     coordinationTerminalResult: AttemptTerminalResult;
+    /**
+     * Optional per-Task attempts to terminalize IN THE SAME TX as the
+     * occurrence rejection (T9A-05 vetoed-path use only). The non-veto
+     * failure paths do NOT supply this — their per-Task attempts were either
+     * not reserved yet (rejected_validation / schedule_missing fire BEFORE
+     * step 6) or the rejected_fingerprint path leaves the failing attempt
+     * pending intentionally (documented in its branch).
+     *
+     * For the vetoed path: the vetoed taskIndexes → terminal `vetoed`; the
+     * allowed-but-unpublished taskIndexes → terminal `batch_rejected`
+     * (collateral — they were allowed but the aggregate didn't publish).
+     * Both terminalize via `completeAttemptWithClient` inside the helper's
+     * `db.transaction(...)` so they commit atomically WITH the coordination
+     * attempt terminalization + the occurrence ROW transition. The matrix
+     * allows `pending → vetoed | batch_rejected` directly (no checkpoint
+     * required for failure terminals from `pending`).
+     */
+    perTaskAttemptTerminals?: ReadonlyArray<{
+      attemptId: string;
+      finalState: "vetoed" | "batch_rejected";
+      terminalOutcome: string;
+      terminalResult: AttemptTerminalResult;
+    }>;
   },
 ): ScheduledOccurrenceRow {
   return db.transaction((tx) => {
     // 1. Terminalize the coordination attempt (when linked). Skipped when
     //    `attemptId` is null (defensive — pre-T9A-03 occurrence rows that
     //    predate the link). The matrix allows `pending → rejected_validation
-    //    | batch_rejected` directly (no checkpoint required for failure
-    //    terminals from `pending`).
+    //    | batch_rejected | vetoed` directly (no checkpoint required for
+    //    failure terminals from `pending`).
     if (occurrence.attemptId !== null) {
       const completion = completeAttemptWithClient(tx, occurrence.attemptId, {
         finalState: args.coordinationFinalState,
@@ -1063,9 +1098,42 @@ function terminalRejectOccurrenceWithCoordination(
         );
       }
     }
+
+    // 1b. T9A-05 — terminalize the N per-Task attempts IN THE SAME TX. Each
+    //     was reserved at step 6 (above in `publishScheduledOccurrence`) and
+    //     stays `pending` until terminalized here. The matrix allows
+    //     `pending → vetoed | batch_rejected` directly (the same edge the
+    //     coordination attempt uses). Skipped for the non-veto paths (their
+    //     per-Task attempts either weren't reserved yet, or the failing
+    //     attempt stays pending intentionally per the rejected_fingerprint
+    //     branch's documented contract).
+    //
+    //     Idempotency: `completeAttemptWithClient`'s terminal-replay fast
+    //     path returns `no_op` for an already-terminal attempt, so re-runs
+    //     (e.g. a retry after a tx rollback) are safe. A `rejected_transition`
+    //     here is a data anomaly (the attempt was checkpointed past `pending`
+    //     by a prior aggregate commit) — surface as a thrown error so the
+    //     scheduler's outer try/catch logs it + the occurrence stays
+    //     `publishing` for T9B.
+    if (args.perTaskAttemptTerminals !== undefined) {
+      for (const terminal of args.perTaskAttemptTerminals) {
+        const completion = completeAttemptWithClient(tx, terminal.attemptId, {
+          finalState: terminal.finalState,
+          terminalOutcome: terminal.terminalOutcome,
+          terminalResult: terminal.terminalResult,
+        });
+        if (completion.outcome === "rejected_transition") {
+          throw new Error(
+            `publishScheduledOccurrence: per-Task attempt "${terminal.attemptId}" refused the terminal ${terminal.finalState} transition (fromState: ${completion.fromState}) on the ${terminal.terminalOutcome} path — data anomaly. The occurrence stays "publishing" for T9B recovery.`,
+          );
+        }
+      }
+    }
+
     // 2. Mark the occurrence ROW rejected (the authoritative state
     //    transition — terminal-lock, retires the lease). The rejection +
-    //    coordination-attempt terminalization (when run) commit atomically.
+    //    coordination-attempt terminalization (when run) + per-Task
+    //    attempt terminalization (when supplied) commit atomically.
     const rejected = markOccurrenceRejectedWithClient(tx, occurrence.id, {
       result: args.occurrenceResult,
     });
@@ -1436,35 +1504,94 @@ export function publishScheduledOccurrence(
     case "vetoed": {
       // Terminal governance refusal. The tx never opened (governance runs
       // before the tx in the milestone-1 publisher); nothing committed.
-      // Mark the occurrence rejected with the veto details + return.
+      // T9A-04: the milestone-1 publisher collected EVERY decisive Task-level
+      // veto (not first-veto) — `publishOutcome.vetoes` carries one entry per
+      // vetoed Task. T9A-05: terminalize ALL reserved attempts atomically
+      // with the occurrence rejection.
       //
-      // *** T9A-03 / T9A-05 ARC 2 HAND-OFF ***
-      // Arc 1 (this fix) LEAVES the occurrence-level coordination attempt at
-      // `pending` on the vetoed path. Arc 2 (T9A-05) owns terminalizing ALL
-      // reserved attempts consistently on the vetoed path:
-      //   - The N per-Task attempts (reserved at step 6 above) → terminal
+      // Attempt terminal mapping:
+      //   - Vetoed taskIndexes (from `publishOutcome.vetoes`) → terminal
       //     `vetoed` (matrix allows `pending → vetoed`).
-      //   - The occurrence-level coordination attempt (`currentOccurrence.attemptId`)
-      //     → terminal `vetoed` (same matrix edge).
-      // When arc 2 wires the terminalization, replace this direct
-      // `markOccurrenceRejectedWithClient` call with the
-      // `terminalRejectOccurrenceWithCoordination` helper using
-      // `coordinationFinalState: "vetoed"` (the helper's type would need
-      // widening to include `vetoed`).
-      const rejected = markOccurrenceRejectedWithClient(db, currentOccurrence.id, {
-        result: {
+      //   - Allowed-but-unpublished taskIndexes → terminal `batch_rejected`
+      //     (collateral — they were allowed but the aggregate didn't
+      //     publish; matrix allows `pending → batch_rejected`).
+      //   - The occurrence-level coordination attempt → terminal `vetoed`
+      //     via the helper (matrix allows `pending → vetoed`).
+      // All three terminalize INSIDE THE SAME TX as the occurrence ROW
+      // transition `publishing → rejected` (atomic — the helper's tx).
+      const vetoedTaskIndexes = new Set(publishOutcome.vetoes.map((v) => v.taskIndex));
+      const perTaskAttemptTerminals: Array<{
+        attemptId: string;
+        finalState: "vetoed" | "batch_rejected";
+        terminalOutcome: string;
+        terminalResult: AttemptTerminalResult;
+      }> = [];
+      for (let i = 0; i < attemptIds.length; i++) {
+        const attemptId = attemptIds[i];
+        if (vetoedTaskIndexes.has(i)) {
+          const vetoEntry = publishOutcome.vetoes.find((v) => v.taskIndex === i);
+          // The veto is guaranteed to exist (vetoes was built from the same
+          // taskIndexes); the non-null assertion mirrors the kernel adapters'
+          // pattern when an index-set lookup is structural.
+          const veto = vetoEntry!.veto;
+          perTaskAttemptTerminals.push({
+            attemptId,
+            finalState: "vetoed",
+            terminalOutcome: "vetoed",
+            terminalResult: {
+              outcome: "vetoed",
+              attemptId,
+              veto,
+            },
+          });
+        } else {
+          // Allowed-but-unpublished → collateral `batch_rejected`. The
+          // aggregate vetoed before the tx opened; this Task's governance
+          // allowed publication but the aggregate never published (the
+          // veto of a sibling Task stopped the whole batch).
+          perTaskAttemptTerminals.push({
+            attemptId,
+            finalState: "batch_rejected",
+            terminalOutcome: "batch_rejected",
+            terminalResult: {
+              outcome: "batch_rejected",
+              attemptId,
+              errors: [
+                {
+                  reason: "aggregate_vetoed_collateral",
+                  message:
+                    "The aggregate was vetoed by another Task; this allowed Task was not published.",
+                },
+              ],
+            },
+          });
+        }
+      }
+
+      const rejectedRow = terminalRejectOccurrenceWithCoordination(db, currentOccurrence, {
+        occurrenceResult: {
           reason: "vetoed",
-          taskIndex: publishOutcome.taskIndex,
-          veto: publishOutcome.veto,
+          vetoes: publishOutcome.vetoes,
         },
+        coordinationFinalState: "vetoed",
+        coordinationTerminalOutcome: "vetoed",
+        coordinationTerminalResult: {
+          outcome: "vetoed",
+          attemptId: currentOccurrence.attemptId ?? undefined,
+          // `publication` is the AttemptTerminalResult's free-form detail
+          // slot (see `buildOccurrenceRecordParticipant`'s use) — carries
+          // the aggregate-level veto summary for the audit / status
+          // surface.
+          publication: {
+            vetoes: publishOutcome.vetoes,
+          },
+        },
+        perTaskAttemptTerminals,
       });
-      const rejectedRow =
-        rejected.outcome === "not_found" ? currentOccurrence : rejected.occurrence;
       return {
         outcome: "vetoed",
         occurrence: rejectedRow,
-        taskIndex: publishOutcome.taskIndex,
-        veto: publishOutcome.veto,
+        vetoes: publishOutcome.vetoes,
       };
     }
 

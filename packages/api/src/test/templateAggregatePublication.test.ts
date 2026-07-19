@@ -477,11 +477,14 @@ describe("publishTemplateAggregateWithClient — atomicity matrix (zero partial 
     });
 
     // The publisher returns the typed vetoed outcome (NOT a throw, NOT a
-    // swallowed null). Task #2 (index 1) is the decisive veto.
+    // swallowed null). T9A-04: the `vetoes` list carries each vetoed Task's
+    // decisive veto — here ONLY Task #2 (index 1) vetoed (Tasks #1 + #3 were
+    // allowed). Allowed Tasks are NOT in the list.
     expect(result.outcome).toBe("vetoed");
     if (result.outcome !== "vetoed") return;
-    expect(result.taskIndex).toBe(1);
-    expect(result.veto.reason).toBe("vetoed task 2");
+    expect(result.vetoes).toHaveLength(1);
+    expect(result.vetoes[0].taskIndex).toBe(1);
+    expect(result.vetoes[0].veto.reason).toBe("vetoed task 2");
 
     // ZERO partial aggregate: no Mission, no Tasks (including the allowed #1
     // and #3), no Workflow, no gates, no envelopes. The tx never opened.
@@ -497,6 +500,127 @@ describe("publishTemplateAggregateWithClient — atomicity matrix (zero partial 
     expect(templateUsageCount(template.id)).toBe(usageBefore);
 
     // All three attempts are STILL pending (the tx never opened; no checkpoint).
+    for (const attemptId of attemptIds) {
+      const attempt = getDb()
+        .select()
+        .from(taskCreationAttempts)
+        .where(eq(taskCreationAttempts.id, attemptId))
+        .all()[0];
+      expect(attempt.state).toBe("pending");
+    }
+  });
+
+  /**
+   * (a2) MULTI-VETO (T9A-04 — all-failures governance). Two `taskCreated`
+   *        interceptors veto DIFFERENT Tasks (Task #0 AND Task #2 of a 3-Task
+   *        template). The publisher evaluates ALL N Tasks + returns EVERY
+   *        decisive veto in `vetoes` — NOT just the first. The tx never opens;
+   *        nothing publishes. This is the load-bearing proof of the plan's
+   *        "every valid Task in a batch is evaluated so the batch response
+   *        contains each decisive governance failure" + "publishes nothing
+   *        when any item fails".
+   */
+  it("(a2) multi-veto: two interceptors veto Task #0 + Task #2 → BOTH vetoes in the list; zero publish", async () => {
+    // Two INDEPENDENT interceptors — one vetoes by task title "VETO-A"
+    // (Task #0), the other vetoes by title "VETO-C" (Task #2). Task #1 is
+    // allowed by both. This proves the loop evaluates ALL N Tasks rather
+    // than returning on the first veto (the legacy first-veto behavior).
+    await writePlugin(
+      "veto-task-0",
+      `{
+        manifest: {
+          id: 'veto-task-0', version: '1.0.0', description: 'veto task 0 only',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'veto-on-0', phase: 'pre', event: 'taskCreated', priority: 1, requires: [] },
+          ],
+        },
+        interceptors: {
+          'veto-on-0': (pluginCtx, transition) => {
+            const title = transition && transition.context && transition.context.metadata && transition.context.metadata.title;
+            if (title === 'VETO-A') {
+              return { allow: false, reason: 'vetoed task 0' };
+            }
+            return { allow: true };
+          },
+        },
+      }`,
+    );
+    await writePlugin(
+      "veto-task-2",
+      `{
+        manifest: {
+          id: 'veto-task-2', version: '1.0.0', description: 'veto task 2 only',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'veto-on-2', phase: 'pre', event: 'taskCreated', priority: 2, requires: [] },
+          ],
+        },
+        interceptors: {
+          'veto-on-2': (pluginCtx, transition) => {
+            const title = transition && transition.context && transition.context.metadata && transition.context.metadata.title;
+            if (title === 'VETO-C') {
+              return { allow: false, reason: 'vetoed task 2' };
+            }
+            return { allow: true };
+          },
+        },
+      }`,
+    );
+    enrollInterceptor(habitatId, "veto-task-0", "veto-on-0");
+    enrollInterceptor(habitatId, "veto-task-2", "veto-on-2");
+
+    const template = createTemplate({
+      tasksTemplate: [
+        { key: "a", title: "VETO-A", order: 0 },
+        { key: "b", title: "Allow-B", order: 1 },
+        { key: "c", title: "VETO-C", order: 2 },
+      ],
+      workflowTemplate: null,
+    });
+    const aggregate = prepareRepresentativeAggregate(template);
+    const attemptIds = seedAttemptsForAggregate(aggregate, "multi-veto");
+
+    const before = countRows();
+    const usageBefore = templateUsageCount(template.id);
+
+    const result = publishTemplateAggregateWithClient(getDb(), {
+      attemptIds,
+      prepared: aggregate,
+    });
+
+    // T9A-04 — the `vetoes` list contains BOTH decisive Task-level vetoes.
+    // Allowed Task #1 (index 1) is NOT in the list.
+    expect(result.outcome).toBe("vetoed");
+    if (result.outcome !== "vetoed") return;
+    expect(result.vetoes).toHaveLength(2);
+    // Vetoes appear in input-task-index order (the loop iterates 0, 1, 2 and
+    // pushes vetoes as it encounters them).
+    expect(result.vetoes[0].taskIndex).toBe(0);
+    expect(result.vetoes[0].veto.reason).toBe("vetoed task 0");
+    expect(result.vetoes[0].veto.interceptorKey).toContain("veto-on-0");
+    expect(result.vetoes[1].taskIndex).toBe(2);
+    expect(result.vetoes[1].veto.reason).toBe("vetoed task 2");
+    expect(result.vetoes[1].veto.interceptorKey).toContain("veto-on-2");
+    // Both pluginRunIds are real ledger records (sync pre-interceptors).
+    expect(typeof result.vetoes[0].veto.pluginRunId).toBe("string");
+    expect(typeof result.vetoes[1].veto.pluginRunId).toBe("string");
+
+    // ZERO partial aggregate: no Mission, no Tasks (including allowed #1),
+    // no Workflow, no gates, no envelopes. The tx never opened.
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    expect(after.events).toBe(before.events);
+    expect(after.workflows).toBe(before.workflows);
+    expect(after.gates).toBe(before.gates);
+    expect(after.envelopes).toBe(before.envelopes);
+
+    // Usage count unchanged.
+    expect(templateUsageCount(template.id)).toBe(usageBefore);
+
+    // All three attempts are STILL pending (the tx never opened; no
+    // checkpoint). The milestone-1 publisher does NOT terminalize per-Task
+    // attempts on veto (the consuming origin adapter owns that — T9A-05's
+    // occurrence-publisher path terminalizes them via the helper).
     for (const attemptId of attemptIds) {
       const attempt = getDb()
         .select()

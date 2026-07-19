@@ -273,12 +273,13 @@ export type TriageMissionPublicationInput =
  *     extra fields (`mission`, `tasks`, `workflow`) give T11 the full
  *     committed aggregate for surfacing without re-reading.
  *   - `vetoed` — **the visible blocked outcome (NET-NEW).** A governance
- *     interceptor refused one triage Task BEFORE the publication tx opened.
- *     NOTHING committed (no Mission, no Tasks, no Workflow, no usage, no
+ *     interceptor refused one or more triage Tasks BEFORE the publication tx
+ *     opened. NOTHING committed (no Mission, no Tasks, no Workflow, no usage, no
  *     junction). Today triage Tasks bypass governance entirely via
  *     `applyTemplate`; this adapter removes the exemption — the veto is the
- *     first governance decision a triage Task ever carries. The scan daemon
- *     (T11) surfaces this as a blocked triage log entry (NOT a swallowed
+ *     first governance decision a triage Task ever carries. The `vetoes` list
+ *     carries EVERY decisive Task-level veto (T9A-04 — all-failures). The scan
+ *     daemon (T11) surfaces this as a blocked triage log entry (NOT a swallowed
  *     error).
  *   - `rejected_validation` — the rendered triage template produced an
  *     invalid Task (e.g. empty title after substitution, missing required
@@ -318,14 +319,30 @@ export type TriageMissionPublicationResult =
     }
   | {
       outcome: "vetoed";
-      /** Index into the prepared Task list of the Task whose governance was vetoed. */
-      taskIndex: number;
-      /** The decisive veto (first-veto-per-Task from `governTaskPublication`). */
-      veto: {
-        interceptorKey: string;
-        reason: string;
-        pluginRunId: string | null;
-      };
+      /**
+       * Every decisive Task-level veto collected by the milestone-1 publisher
+       * (T9A-04 — all-failures governance). One entry per vetoed Task;
+       * allowed Tasks are NOT in the list. Mirrors the milestone-1
+       * `PublishTemplateAggregateOutcome.vetoed.vetoes` shape 1:1.
+       *
+       * Decision: carry the FULL list (not first-veto + count). Justification:
+       * (1) faithfulness to the plan's "report all failures" contract — the
+       * scan daemon's blocked-triage log surfaces every blocker, not just
+       * the first; (2) forward-compat — if the triage template grows beyond
+       * its standard 1 Task, the surface already carries everything; (3) the
+       * milestone-1 outcome already carries the full list, so this is the
+       * cleanest pass-through (no information loss at the adapter). The
+       * standard triage template has N=1 today, so the typical case is a
+       * single-element list.
+       */
+      vetoes: ReadonlyArray<{
+        taskIndex: number;
+        veto: {
+          interceptorKey: string;
+          reason: string;
+          pluginRunId: string | null;
+        };
+      }>;
     }
   | {
       outcome: "rejected_validation";
@@ -854,11 +871,11 @@ export function publishTriageMission(
     case "vetoed":
       // The visible blocked outcome (NET-NEW for triage — first governance
       // decision a triage Task ever carries). The tx never opened; zero
-      // partial aggregate.
+      // partial aggregate. T9A-04: pass through the milestone-1 publisher's
+      // full `vetoes` list (every decisive Task-level veto, not first-veto).
       return {
         outcome: "vetoed",
-        taskIndex: publishOutcome.taskIndex,
-        veto: publishOutcome.veto,
+        vetoes: publishOutcome.vetoes,
       };
 
     case "guard_mismatch":

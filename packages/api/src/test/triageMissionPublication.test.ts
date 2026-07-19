@@ -453,21 +453,24 @@ describe("publishTriageMission — governance veto (net-new)", () => {
     });
 
     // Typed vetoed outcome — NOT a throw, NOT a swallowed null. The T9A
-    // publisher runs governance BEFORE opening the tx; the first veto
-    // returns `{outcome:"vetoed"}` without opening it.
+    // publisher runs governance BEFORE opening the tx; T9A-04 all-failures
+    // governance returns the full `vetoes` list (one entry per vetoed Task;
+    // allowed Tasks are NOT in the list). The standard triage template has
+    // N=1, so the typical case is a single-element list.
     expect(result.outcome).toBe("vetoed");
     if (result.outcome !== "vetoed") return;
-    expect(result.taskIndex).toBe(0); // The first (only) task entry.
-    expect(result.veto.reason).toBe("vetoed by test interceptor");
+    expect(result.vetoes).toHaveLength(1);
+    expect(result.vetoes[0].taskIndex).toBe(0); // The first (only) task entry.
+    expect(result.vetoes[0].veto.reason).toBe("vetoed by test interceptor");
     // The interceptorKey is the runtime-composed tuple identifying the
     // contribution (kind, pluginId, contributionId, phase, event). The exact
     // serialization is the governance ledger's; assert it carries the
     // enrolled contribution id.
-    expect(result.veto.interceptorKey).toContain("veto-all");
+    expect(result.vetoes[0].veto.interceptorKey).toContain("veto-all");
     // pluginRunId is the governance ledger's record id (a real plugin run
     // for sync pre-interceptors). Assert it's a string — the exact value is
     // the ledger's runtime id, not a stable contract.
-    expect(typeof result.veto.pluginRunId).toBe("string");
+    expect(typeof result.vetoes[0].veto.pluginRunId).toBe("string");
 
     // ZERO partial aggregate: no Mission, no Tasks, no events, no envelopes,
     // no junction committed. This is the load-bearing proof the governance

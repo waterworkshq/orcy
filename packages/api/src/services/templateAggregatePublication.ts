@@ -50,9 +50,13 @@
  *   1. GOVERN all N prepared Tasks (BEFORE the tx, on the caller's root
  *      client — governance ledger writes persist across publication retries
  *      and are NOT part of the publication atomicity unit). Mirror how
- *      `taskCreationPublication` governs before opening its tx. A veto on ANY
- *      Task returns `{outcome:"vetoed"}` WITHOUT opening the tx — nothing
- *      publishes (zero orphan Mission / partial aggregate).
+ *      `taskCreationPublication` governs before opening its tx. ALL N Tasks
+ *      are evaluated (T9A-04 — all-failures governance); if ANY Task vetoed,
+ *      the publisher returns `{outcome:"vetoed", vetoes:[...]}` WITHOUT
+ *      opening the tx — nothing publishes (zero orphan Mission / partial
+ *      aggregate). The `vetoes` list carries each vetoed Task's decisive
+ *      veto (first-veto-per-Task from `governTaskPublication`); allowed
+ *      Tasks are not in the list.
  *   2. OPEN `db.transaction((tx) => …)`:
  *      a. INSERT the Mission (from `prepared.mission`) FIRST. This resolves
  *         carry-over #1 (the prospective-mission guard-verify): the per-Task
@@ -170,9 +174,10 @@ export type CommittedWorkflow = typeof workflows.$inferSelect;
  *     (T5) resolves any targeted reservation. This branch carries the
  *     committed Mission + per-Task publications + Workflow so a caller never
  *     needs to re-read.
- *   - `vetoed` — a governance interceptor refused one Task BEFORE the tx
- *     opened. NOTHING committed (no Mission, no Tasks, no Workflow, no usage
- *     mutation). The visible blocked outcome.
+ *   - `vetoed` — one or more governance interceptors refused Tasks BEFORE
+ *     the tx opened. NOTHING committed (no Mission, no Tasks, no Workflow,
+ *     no usage mutation). The visible blocked outcome carrying EVERY
+ *     decisive Task-level veto (T9A-04 — all-failures governance).
  *   - `guard_mismatch` — a per-Task guard drift at publish time. The tx
  *     rolled back (zero partial aggregate); each per-Task attempt stays
  *     `pending` / resumable under its own key. The caller re-prepares under
@@ -197,14 +202,25 @@ export type PublishTemplateAggregateOutcome =
     }
   | {
       outcome: "vetoed";
-      /** Index into `prepared.tasks` of the Task whose governance was vetoed. */
-      taskIndex: number;
-      /** The decisive veto (first-veto-per-Task from `governTaskPublication`). */
-      veto: {
-        interceptorKey: string;
-        reason: string;
-        pluginRunId: string | null;
-      };
+      /**
+       * Every decisive Task-level veto collected by governing ALL N prepared
+       * Tasks (T9A-04 — all-failures governance). One entry per vetoed Task;
+       * allowed Tasks are NOT in the list. `governTaskPublication` itself is
+       * first-veto-per-Task, so each entry carries THAT Task's decisive veto.
+       * Empty array is impossible on this branch (a non-empty list is the
+       * trigger). The tx NEVER opens when this branch is returned (the plan:
+       * "publishes nothing when any item fails").
+       */
+      vetoes: ReadonlyArray<{
+        /** Index into `prepared.tasks` of the vetoed Task. */
+        taskIndex: number;
+        /** The decisive veto for THIS Task (first-veto-per-Task). */
+        veto: {
+          interceptorKey: string;
+          reason: string;
+          pluginRunId: string | null;
+        };
+      }>;
     }
   | {
       outcome: "guard_mismatch";
@@ -377,9 +393,11 @@ export function publishTemplateAggregateWithClient(
   }
 
   // ----- 1. GOVERN all N prepared Tasks (BEFORE the tx) ---------------------
-  // Mirror `taskCreationPublication`'s pre-tx governance. A veto on ANY Task
-  // returns `{outcome:"vetoed"}` WITHOUT opening the tx — nothing publishes.
-  // Each Task is governed under its OWN attemptId so the ledger key
+  // Mirror `taskCreationPublication`'s pre-tx governance. ALL N Tasks are
+  // evaluated (T9A-04 — all-failures governance: the plan requires "every
+  // valid Task in a batch is evaluated so the batch response contains each
+  // decisive governance failure"). Each Task is governed under its OWN
+  // attemptId so the ledger key
   // `(attemptId, prospectiveTaskId, interceptorKey)` matches what
   // `authorizeCommitFromGovernance` will look up inside the per-Task publish.
   //
@@ -387,7 +405,17 @@ export function publishTemplateAggregateWithClient(
   // `interceptorEnrollmentFingerprint` sentinel is overwritten with the real
   // frozen-admission fingerprint). Decisions persist to the governance ledger
   // across retries under each attempt.
+  //
+  // `governTaskPublication` itself is first-veto-per-Task (the plan: "First-
+  // veto ordering remains per Task"); the loop COLLECTS each Task's decisive
+  // outcome. If ANY Task vetoed, the publisher returns `{outcome:"vetoed",
+  // vetoes:[...]}` WITHOUT opening the tx — nothing publishes (zero orphan
+  // Mission / partial aggregate). Allowed Tasks are NOT in the list.
   const governedResults: GovernedTaskResult[] = [];
+  const vetoes: Array<{
+    taskIndex: number;
+    veto: { interceptorKey: string; reason: string; pluginRunId: string | null };
+  }> = [];
   for (let i = 0; i < prepared.tasks.length; i++) {
     const preparedTask = prepared.tasks[i];
     const governance = governTaskPublication({
@@ -398,19 +426,27 @@ export function publishTemplateAggregateWithClient(
     const governed = governance.results[0];
     governedResults.push(governed);
     if (governed.outcome === "vetoed") {
-      // Terminal governance refusal — NO publish. The tx never opens. Nothing
-      // commits (zero orphan Mission / partial aggregate). Return the typed
-      // blocked outcome (NOT a swallowed null).
-      return {
-        outcome: "vetoed",
+      vetoes.push({
         taskIndex: i,
         veto: {
           interceptorKey: governed.veto.interceptorKey,
           reason: governed.veto.reason,
           pluginRunId: governed.veto.pluginRunId,
         },
-      };
+      });
     }
+  }
+
+  if (vetoes.length > 0) {
+    // Terminal governance refusal — NO publish. The tx never opens. Nothing
+    // commits (zero orphan Mission / partial aggregate). Return the typed
+    // blocked outcome (NOT a swallowed null) carrying EVERY decisive Task-
+    // level veto so the caller can surface all failures (the plan's all-
+    // failures contract).
+    return {
+      outcome: "vetoed",
+      vetoes,
+    };
   }
 
   // ----- 2. PUBLISH (atomic, inside one caller-owned tx) -------------------
