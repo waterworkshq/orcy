@@ -1031,6 +1031,146 @@ export function reacquireExpiredOccurrenceLeaseWithClient(
 }
 
 // ---------------------------------------------------------------------------
+// Reclaim-count stamp (T9B Phase 2 — the circuit-breaker's durable counter)
+// ---------------------------------------------------------------------------
+
+/**
+ * Directive for {@link stampOccurrenceReclaimAttemptWithClient}. The stamp
+ * records the recovery worker's reclaim-attempt counter on the occurrence
+ * row's `result` JSON — the durable signal the circuit-breaker reads to
+ * decide when an occurrence has exhausted its recovery budget (see
+ * `recoverExpiredOccurrenceLeases`'s `recovery_exhausted` terminal).
+ *
+ * The counter is stamped AFTER a successful reclaim (the worker holds the
+ * lease) + BEFORE the resume attempt. If the resume reaches terminal
+ * (`published` / `rejected`), the terminal result OVERWRITES the stamp (the
+ * occurrence is terminal — the counter is irrelevant). If the resume returns
+ * a RESUMABLE outcome, the stamp PERSISTS — the next scan tick reads the
+ * counter + advances it, eventually tripping the circuit-breaker.
+ *
+ * `leaseOwner` is the EXPECTED owner (T9A-08 fencing) — the recovery worker
+ * that reclaimed the lease. A stale worker's stamp is refused (`not_owner`).
+ */
+export interface OccurrenceReclaimStampDirective {
+  /** The expected lease owner (T9A-08 fencing — the recovery worker). */
+  leaseOwner: string;
+  /** The new reclaim count (prior count + 1). */
+  reclaimCount: number;
+  /** Optional diagnostics: the resumable outcome that triggered the reclaim. */
+  lastResumableOutcome?: string;
+}
+
+/**
+ * Closed result of {@link stampOccurrenceReclaimAttemptWithClient}.
+ *
+ * - `stamped`             — the CAS matched: the occurrence is `publishing`
+ *                          AND `leaseOwner = expected`. The reclaim counter
+ *                          is stamped on the `result` JSON.
+ * - `not_owner`           — the occurrence is still `publishing` BUT the
+ *                          `leaseOwner` no longer matches. A concurrent
+ *                          reclaim transferred the lease to a different
+ *                          worker; this (stale) worker's stamp is refused.
+ * - `illegal_source_state`— the occurrence is NOT `publishing` (terminal —
+ *                          the resume reached `published` / `rejected`
+ *                          between the reclaim + this stamp). No mutation;
+ *                          `fromState` carries the current state.
+ * - `not_found`           — no occurrence row exists for `id`.
+ */
+export type OccurrenceReclaimStampResult =
+  | { outcome: "stamped"; occurrence: ScheduledOccurrenceRow }
+  | { outcome: "not_owner"; occurrence: ScheduledOccurrenceRow }
+  | {
+      outcome: "illegal_source_state";
+      occurrence: ScheduledOccurrenceRow;
+      fromState: ScheduledOccurrenceState;
+    }
+  | { outcome: "not_found" };
+
+/**
+ * Stamps the recovery worker's reclaim-attempt counter on a `publishing`
+ * occurrence's `result` JSON (T9B Phase 2 — the circuit-breaker's durable
+ * counter). A fenced CAS UPDATE conditioned on
+ * `id AND state='publishing' AND leaseOwner = expected` — only the CURRENT
+ * lease owner (the worker that just reclaimed) may stamp. The terminal
+ * transitions ({@link markOccurrencePublishedWithClient} /
+ * {@link markOccurrenceRejectedWithClient}) OVERWRITE the `result` JSON, so
+ * a successful resume erases the counter (the occurrence is terminal); a
+ * resumable resume leaves the counter in place for the next scan tick.
+ *
+ * # Why a dedicated primitive (not inline SQL in the worker)
+ *
+ * The stamp is a STATE-CORRECTED write (the occurrence must be `publishing`
+ * + the caller must be the current owner). The repo layer owns the
+ * compare-and-set discipline (portable CAS classification via
+ * `SELECT changes() AS n`); the worker composes primitives, it does NOT
+ * hand-roll SQL. The fenced CAS also defends against a stale worker whose
+ * lease was re-reclaimed by a concurrent recovery pass (the second recovery
+ * worker's stamp would overwrite the first's — the fence prevents this by
+ * checking `leaseOwner = expected`).
+ *
+ * # Concurrency
+ *
+ * SQLite serializes writers; the stamp runs AFTER a successful reclaim (the
+ * worker holds the lease). No concurrent worker can reclaim (the lease is
+ * not expired — the reclaim just set a future `leaseExpiresAt`). So the
+ * stamp's CAS is uncontended in the normal case. The `not_owner` branch is
+ * defensive (a data anomaly — the lease changed without an observable
+ * expiry).
+ *
+ * Never calls `getDb()`, never opens a nested tx, never emits external
+ * effects. Throws only on infrastructure failure (retryable transport).
+ */
+export function stampOccurrenceReclaimAttemptWithClient(
+  db: TaskPublicationDbClient,
+  id: string,
+  directive: OccurrenceReclaimStampDirective,
+): OccurrenceReclaimStampResult {
+  const now = new Date().toISOString();
+  const stampedResult: OccurrenceResultJson = {
+    reclaimCount: directive.reclaimCount,
+    ...(directive.lastResumableOutcome !== undefined
+      ? { lastResumableOutcome: directive.lastResumableOutcome }
+      : {}),
+    reclaimedAt: now,
+  };
+
+  let affected: number;
+  try {
+    db.update(scheduledOccurrences)
+      .set({ result: stampedResult, updatedAt: now })
+      .where(
+        and(
+          eq(scheduledOccurrences.id, id),
+          eq(scheduledOccurrences.state, "publishing"),
+          eq(scheduledOccurrences.leaseOwner, directive.leaseOwner),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("scheduledOccurrence", err as Error, id);
+  }
+
+  const row = db
+    .select()
+    .from(scheduledOccurrences)
+    .where(eq(scheduledOccurrences.id, id))
+    .all()[0];
+  if (!row) return { outcome: "not_found" };
+
+  if (affected === 1) return { outcome: "stamped", occurrence: row };
+
+  const fromState = row.state as ScheduledOccurrenceState;
+  if (fromState !== "publishing") {
+    return { outcome: "illegal_source_state", occurrence: row, fromState };
+  }
+  // Still `publishing` but the owner changed — a concurrent reclaim (data
+  // anomaly — the lease should not have been re-expired between the reclaim
+  // + this stamp).
+  return { outcome: "not_owner", occurrence: row };
+}
+
+// ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
 
@@ -1096,6 +1236,49 @@ export function listOccurrencesInStateWithClient(
     .select()
     .from(scheduledOccurrences)
     .where(eq(scheduledOccurrences.state, state))
+    .orderBy(scheduledOccurrences.createdAt)
+    .limit(limit)
+    .offset(offset)
+    .all();
+}
+
+/**
+ * Lists `publishing` occurrences whose lease has observably expired
+ * (`leaseExpiresAt < now`) — T9B Phase 2's recovery-worker scan. Ordered by
+ * `createdAt` ascending (oldest first — the natural recovery order: the
+ * longest-stuck occurrence reclaims first). Pure read.
+ *
+ * The scan is the recovery worker's bounded-pass entry point: it loads ONLY
+ * reclaimable occurrences (vs. {@link listOccurrencesInStateWithClient} which
+ * loads ALL `publishing` occurrences including active-lease ones the worker
+ * cannot reclaim). The worker calls {@link reacquireExpiredOccurrenceLeaseWithClient}
+ * per row — the reclaim's CAS is the concurrency defender (two workers
+ * scanning the same row: the first CAS wins, the second gets `not_expired`).
+ *
+ * NULL `leaseExpiresAt` (a data anomaly on a `publishing` row) does NOT
+ * match `lt(leaseExpiresAt, now)` (SQL NULL comparison) — the row is excluded
+ * (not observably expired, not reclaimable). This mirrors the reclaim
+ * primitive's own NULL handling.
+ *
+ * Default `limit = 100` (MEMORY.md: bounded scan pass — the worker polls
+ * at an interval, so a bounded pass drains the backlog over multiple ticks).
+ */
+export function listOccurrencesWithExpiredLeasesWithClient(
+  db: TaskPublicationDbClient,
+  now: string,
+  opts: OccurrenceListOptions = {},
+): ScheduledOccurrenceRow[] {
+  const limit = opts.limit ?? 100;
+  const offset = opts.offset ?? 0;
+  return db
+    .select()
+    .from(scheduledOccurrences)
+    .where(
+      and(
+        eq(scheduledOccurrences.state, "publishing"),
+        lt(scheduledOccurrences.leaseExpiresAt, now),
+      ),
+    )
     .orderBy(scheduledOccurrences.createdAt)
     .limit(limit)
     .offset(offset)

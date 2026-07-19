@@ -1479,38 +1479,50 @@ function terminalRejectOccurrenceWithCoordination(
   });
 }
 
-export function publishScheduledOccurrence(
-  input: PublishScheduledOccurrenceInput,
-): PublishScheduledOccurrenceOutcome {
-  const db = getDb();
+// ---------------------------------------------------------------------------
+// Shared publication body (T9B Phase 2 — extracted for initial + resume reuse)
+// ---------------------------------------------------------------------------
 
-  // ----- 1. RESERVED → PUBLISHING + ACQUIRE LEASE -------------------------
-  // The fused CAS: the FIRST worker to transition wins the lease. Losers
-  // get `already_publishing` (a concurrent worker owns it) and MUST NOT
-  // proceed. Terminal occurrences refuse (`illegal_source_state`).
-  const publishing = markOccurrencePublishingWithClient(db, input.occurrenceId, {
-    leaseOwner: input.leaseOwner,
-    leaseExpiresAt: input.leaseExpiresAt,
-  });
-  if (publishing.outcome === "not_found") return { outcome: "not_found" };
-  if (publishing.outcome === "already_publishing") {
-    return { outcome: "already_publishing", occurrence: publishing.occurrence };
-  }
-  if (publishing.outcome === "illegal_source_state") {
-    return {
-      outcome: "illegal_source_state",
-      occurrence: publishing.occurrence,
-      fromState: publishing.fromState,
-    };
-  }
-  // `transitioned` — this worker owns the lease; proceed.
-  const occurrence: ScheduledOccurrenceRow = publishing.occurrence;
-
-  // Re-read through the root client so the snapshot reflects the lease
-  // transition (Phase-1 carries the post-transition row; this is a
-  // belt-and-suspenders re-read for clarity).
-  const currentOccurrence = getOccurrenceWithClient(db, occurrence.id) ?? occurrence;
-
+/**
+ * The shared publication body (STEPS 2-8 of the occurrence publication flow).
+ * Called by both {@link publishScheduledOccurrence} (the initial path — after
+ * STEP 1's `reserved → publishing` CAS) and
+ * {@link resumeScheduledOccurrencePublication} (the resume path — after
+ * STEP 0's post-reclaim re-read). The body assumes the occurrence is ALREADY
+ * `publishing` + the caller holds the lease.
+ *
+ * # Why a shared helper (T9B Phase 2 design)
+ *
+ * The initial-publication path and the resume path are distinct flows that
+ * share the SAME composition (read schedule → pre-check guard → resolve
+ * tokens → prepare aggregate → reserve N attempts → publish atomically → map
+ * outcome). The ONLY difference is how they reach `publishing`: the initial
+ * path CAS-transitiones from `reserved` (STEP 1); the resume path reclaims an
+ * expired lease (phase-1 primitive) + re-reads. Extracting STEPS 2-8 into
+ * this helper is DRY at the composition level — both paths call it, and the
+ * `leaseOwner` parameter threads the fenced-terminalization owner into the
+ * participant (T9A-08: the reclaimed owner is authoritative on the resume).
+ *
+ * # Return type
+ *
+ * Returns `Exclude<PublishScheduledOccurrenceOutcome, { outcome:
+ * "already_publishing" }>` — the body NEVER returns `already_publishing`
+ * (that outcome is STEP-1-only — the `reserved → publishing` CAS the body
+ * SKIPS). Both callers accept this narrowed type: `publishScheduledOccurrence`
+ * widens it to the full `PublishScheduledOccurrenceOutcome`;
+ * `resumeScheduledOccurrencePublication` unions it with `not_owner`.
+ *
+ * Never calls `getDb()` (the caller owns the client), never opens its own tx
+ * (the milestone-1 publisher owns the publication tx), never emits external
+ * effects. Throws only on infrastructure failure (retryable transport) +
+ * the in-tx schedule-guard sentinels ({@link ScheduleGuardMismatch} /
+ * {@link ScheduleVanishedMidTx} — mapped to closed outcomes by the body).
+ */
+function runOccurrencePublicationBody(
+  db: TaskPublicationDbClient,
+  currentOccurrence: ScheduledOccurrenceRow,
+  leaseOwner: string,
+): Exclude<PublishScheduledOccurrenceOutcome, { outcome: "already_publishing" }> {
   // ----- 2. READ THE LIVE SCHEDULE ----------------------------------------
   // The schedule row provides templateId, missionTitle/Description/Priority/
   // Labels, timezone, habitatId. The occurrence carries only the schedule
@@ -1813,7 +1825,7 @@ export function publishScheduledOccurrence(
     // T9B surfaces as `not_owner` → the participant throws → the whole
     // aggregate rolls back → the occurrence stays `publishing` under the
     // new owner's lease.
-    input.leaseOwner,
+    leaseOwner,
   );
 
   let publishOutcome;
@@ -1992,4 +2004,143 @@ export function publishScheduledOccurrence(
       };
     }
   }
+}
+
+export function publishScheduledOccurrence(
+  input: PublishScheduledOccurrenceInput,
+): PublishScheduledOccurrenceOutcome {
+  const db = getDb();
+
+  // ----- 1. RESERVED → PUBLISHING + ACQUIRE LEASE -------------------------
+  // The fused CAS: the FIRST worker to transition wins the lease. Losers
+  // get `already_publishing` (a concurrent worker owns it) and MUST NOT
+  // proceed. Terminal occurrences refuse (`illegal_source_state`).
+  const publishing = markOccurrencePublishingWithClient(db, input.occurrenceId, {
+    leaseOwner: input.leaseOwner,
+    leaseExpiresAt: input.leaseExpiresAt,
+  });
+  if (publishing.outcome === "not_found") return { outcome: "not_found" };
+  if (publishing.outcome === "already_publishing") {
+    return { outcome: "already_publishing", occurrence: publishing.occurrence };
+  }
+  if (publishing.outcome === "illegal_source_state") {
+    return {
+      outcome: "illegal_source_state",
+      occurrence: publishing.occurrence,
+      fromState: publishing.fromState,
+    };
+  }
+  // `transitioned` — this worker owns the lease; proceed. Re-read through
+  // the root client so the snapshot reflects the lease transition.
+  const occurrence: ScheduledOccurrenceRow = publishing.occurrence;
+  const currentOccurrence = getOccurrenceWithClient(db, occurrence.id) ?? occurrence;
+
+  // ----- STEPS 2-8: shared publication body (initial + resume) ------------
+  // T9B Phase 2: STEPS 2-8 (read schedule → pre-check guard → resolve tokens
+  // → prepare → reserve N attempts → publish → map) are extracted into
+  // {@link runOccurrencePublicationBody}, shared with the resume path. The
+  // `input.leaseOwner` threads into the participant's fenced terminalization.
+  return runOccurrencePublicationBody(db, currentOccurrence, input.leaseOwner);
+}
+
+// ---------------------------------------------------------------------------
+// Resume entry point (T9B Phase 2 — the recovery worker's re-drive path)
+// ---------------------------------------------------------------------------
+
+/**
+ * The resume publication command (T9B Phase 2). The recovery worker
+ * (`recoverExpiredOccurrenceLeases`) calls this AFTER reclaiming an expired
+ * lease via `reacquireExpiredOccurrenceLeaseWithClient`. The occurrence is
+ * already `publishing` under the reclaimed lease — the resume SKIPS the
+ * `reserved → publishing` CAS (STEP 1 of {@link publishScheduledOccurrence})
+ * + re-drives STEPS 2-8 (the shared {@link runOccurrencePublicationBody})
+ * under the reclaimed owner.
+ *
+ * # Why a dedicated function (the load-bearing design question)
+ *
+ * `publishScheduledOccurrence`'s STEP 1 is `markOccurrencePublishingWithClient`
+ * (the `reserved → publishing` transition), which will return
+ * `already_publishing` on the reclaimed row (the state is already
+ * `publishing`). So the worker CANNOT call `publishScheduledOccurrence`
+ * directly. Options considered:
+ *   (a) A dedicated `resumeScheduledOccurrencePublication` (THIS function)
+ *       that skips STEP 1 + re-drives the shared body. RECOMMENDED — the
+ *       cleanest separation (distinct entry point, distinct type).
+ *   (b) Refactor `publishScheduledOccurrence` so STEP 1 is a separate,
+ *       skippable step. Conflates two entry contracts in one signature.
+ *   (c) The worker inlines the resume. Duplicates STEPS 2-8 logic.
+ *
+ * (a) is the cleanest: the initial + resume paths are distinct flows that
+ * share the body via {@link runOccurrencePublicationBody} (DRY at the
+ * composition level — both compose the same T9A-milestone-1 kernel, like
+ * the 6 single-Task adapters share the kernel).
+ *
+ * # The reclaimed owner is authoritative
+ *
+ * The resume threads `input.leaseOwner` into the participant's fenced
+ * terminalization (T9A-08). A stale worker whose lease was reclaimed by the
+ * recovery worker CANNOT terminalize — its `markOccurrencePublishedWithClient`
+ * / `markOccurrenceRejectedWithClient` returns `not_owner` (the fenced CAS
+ * checks `leaseOwner = expected`).
+ *
+ * DORMANT: no production caller until T11. The recovery worker
+ * (`recoverExpiredOccurrenceLeases`) is the sole caller.
+ */
+export interface ResumeScheduledOccurrenceInput {
+  /** The `publishing` occurrence whose expired lease was reclaimed. */
+  occurrenceId: string;
+  /**
+   * The reclaimed lease owner (the recovery worker's identity). MUST match
+   * the occurrence row's `leaseOwner` (the reclaim transferred it). The
+   * participant's fenced terminalization checks this owner.
+   */
+  leaseOwner: string;
+}
+
+/**
+ * The resume result envelope. Narrows {@link PublishScheduledOccurrenceOutcome}
+ * by EXCLUDING `already_publishing` (impossible on the resume — the
+ * `reserved → publishing` CAS is skipped) + adding `not_owner` (the caller
+ * doesn't hold the lease — a data anomaly if the recovery worker just
+ * reclaimed). The resume NEVER returns `already_publishing`.
+ */
+export type ResumeScheduledOccurrenceOutcome =
+  | Exclude<PublishScheduledOccurrenceOutcome, { outcome: "already_publishing" }>
+  | { outcome: "not_owner"; occurrence: ScheduledOccurrenceRow };
+
+/**
+ * T9B Phase 2 — resumes a `publishing` occurrence's publication under a
+ * reclaimed lease. See {@link ResumeScheduledOccurrenceInput} + the
+ * load-bearing design question on {@link resumeScheduledOccurrencePublication}
+ * above. DORMANT.
+ */
+export function resumeScheduledOccurrencePublication(
+  input: ResumeScheduledOccurrenceInput,
+): ResumeScheduledOccurrenceOutcome {
+  const db = getDb();
+
+  // ----- 0. RE-READ THE OCCURRENCE (post-reclaim) -------------------------
+  // The caller (the recovery worker) just reclaimed the expired lease via
+  // `reacquireExpiredOccurrenceLeaseWithClient`. The occurrence must be
+  // `publishing` with `leaseOwner === input.leaseOwner`. A mismatch here is
+  // a data anomaly (the lease was stolen between the reclaim + this re-read —
+  // extremely rare; SQLite serializes writers).
+  const occurrence = getOccurrenceWithClient(db, input.occurrenceId);
+  if (!occurrence) return { outcome: "not_found" };
+  if (occurrence.state !== "publishing") {
+    return {
+      outcome: "illegal_source_state",
+      occurrence,
+      fromState: occurrence.state as ScheduledOccurrenceState,
+    };
+  }
+  if (occurrence.leaseOwner !== input.leaseOwner) {
+    // The caller doesn't hold the lease — a concurrent worker stole it
+    // between the reclaim + this re-read. Return a typed `not_owner` so the
+    // caller can distinguish "lost the lease" from "wrong state".
+    return { outcome: "not_owner", occurrence };
+  }
+
+  // ----- STEPS 2-8: shared publication body (initial + resume) ------------
+  return runOccurrencePublicationBody(db, occurrence, input.leaseOwner);
 }
