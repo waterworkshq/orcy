@@ -398,18 +398,33 @@ describe("publishScheduledOccurrence — happy path", () => {
     expect(after.attempts).toBe(before.attempts + result.tasks.length);
   });
 
-  it("schedule's lastCreatedMissionId is NOT mutated (Phase 3 leaves it untouched; the occurrence row is the source of truth)", () => {
-    // **Failure mode**: if the publisher stamped the schedule's
-    // lastCreatedMissionId, it would differ from the legacy flow's
-    // `finalizeExecution(id, missionId)` step. Phase 3 deliberately leaves
-    // the schedule alone — the durable occurrence record carries the link.
+  it("T9A-09: stamps scheduledTasks.lastCreatedMissionId on complete success (atomic with the aggregate)", () => {
+    // The plan (`technical-plan:342`) requires `lastCreatedMissionId` to
+    // change ONLY after complete success. The occurrence-record participant
+    // stamps it INSIDE the milestone-1 publication tx (the same in-tx hook
+    // that transitions the occurrence to `published` + links the Mission +
+    // advances the coordination attempt). A crash anywhere before commit
+    // rolls back BOTH the aggregate AND this stamp → the schedule's
+    // lastCreatedMissionId stays null on a failed publication (the negative
+    // cases are covered in the vetoed / rejected_validation / guard_mismatch
+    // tests below).
+    //
+    // **Failure mode**: pre-T9A-09 (arc 1 carry-over) the participant left
+    // lastCreatedMissionId null — a plan deviation that treated the
+    // occurrence row as the sole source of truth. The plan REQUIRES both:
+    // the occurrence row (the per-firing record) AND the schedule's
+    // lastCreatedMissionId (the schedule's "last successful fire" pointer
+    // that legacy `finalizeExecution` stamped). Post-T9A-09 the schedule
+    // row carries the Mission id; the assertion would fail pre-fix.
     const { id: scheduleId } = createSchedule();
     const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId);
 
-    publishScheduledOccurrence(baseInput(occurrenceId));
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+    expect(result.outcome).toBe("published");
+    if (result.outcome !== "published") throw new Error("unreachable");
 
     const schedule = scheduledTaskRepo.getScheduledTaskById(scheduleId)!;
-    expect(schedule.lastCreatedMissionId).toBeNull();
+    expect(schedule.lastCreatedMissionId).toBe(result.mission.id);
   });
 });
 
@@ -492,6 +507,12 @@ describe("publishScheduledOccurrence — governance veto (net-new)", () => {
     expect(after.tasks).toBe(before.tasks);
     expect(after.events).toBe(before.events);
     expect(after.envelopes).toBe(before.envelopes);
+
+    // T9A-09 (arc 4): the schedule's lastCreatedMissionId is NOT stamped on
+    // a vetoed publication — the participant (which owns the stamp) never
+    // runs because the milestone-1 publisher governs BEFORE opening the tx.
+    // The stamp is gated on complete success; a veto is not success.
+    expect(scheduledTaskRepo.getScheduledTaskById(scheduleId)!.lastCreatedMissionId).toBeNull();
 
     // *** T9A-05 ARC 2 — ALL reserved attempts terminalize on veto ***
     // Arc 2 terminalizes every reserved attempt atomically with the
@@ -715,6 +736,12 @@ describe("publishScheduledOccurrence — rejected_validation", () => {
     expect(after.missions).toBe(before.missions);
     expect(after.tasks).toBe(before.tasks);
 
+    // T9A-09 (arc 4): the schedule's lastCreatedMissionId is NOT stamped on
+    // a rejected_validation publication — the participant never runs
+    // (preparation rejected before the publication tx opened). The stamp is
+    // gated on complete success; a validation rejection is not success.
+    expect(scheduledTaskRepo.getScheduledTaskById(scheduleId)!.lastCreatedMissionId).toBeNull();
+
     // T9A-03: the coordination attempt terminalized to `rejected_validation`
     // (canonical/scope failure) atomic with the occurrence rejection.
     const coordination = getDb()
@@ -767,6 +794,13 @@ describe("publishScheduledOccurrence — resumable schedule_guard_mismatch", () 
     expect(after.missions).toBe(before.missions);
     expect(after.tasks).toBe(before.tasks);
     expect(after.attempts).toBe(before.attempts);
+
+    // T9A-09 (arc 4): the schedule's lastCreatedMissionId is NOT stamped on
+    // a schedule_guard_mismatch — the participant's in-tx re-check threw
+    // ScheduleGuardMismatch → the whole tx rolled back (including the
+    // stamp). The stamp is gated on complete success; a guard mismatch is a
+    // resumable failure, not success.
+    expect(scheduledTaskRepo.getScheduledTaskById(scheduleId)!.lastCreatedMissionId).toBeNull();
   });
 
   it("one-shot's `enabled` column flipping to false at reservation is NOT a config-field drift (the guard excludes operational fields)", () => {
@@ -877,6 +911,39 @@ describe("publishScheduledOccurrence — token resolution", () => {
     expect(result.outcome).toBe("published");
     if (result.outcome !== "published") throw new Error("unreachable");
     expect(result.mission.title).toBe("Recurring #2");
+  });
+
+  it("T9A-06: {{date}} uses the durable scheduledFor (NOT wall-clock) — a cross-midnight retry renders the SAME date", () => {
+    // Discriminating test for the T9A-06 fix. Pre-fix `substituteTokens`
+    // formatted `new Date()` (wall-clock now); a retry/recovery crossing
+    // midnight would render a DIFFERENT date under the same attempt keys →
+    // a different fingerprint → `rejected_fingerprint` on a same-key retry
+    // (the plan's token-consistency requirement at `technical-plan:344`).
+    // Post-fix it formats the durable `occurrence.scheduledFor`, so the
+    // rendered date is stable across retries regardless of when publication
+    // actually runs.
+    //
+    // **Failure mode**: pre-fix, the title would contain TODAY's wall-clock
+    // date (whatever date the test runs on), NOT the fixed `scheduledFor`
+    // date below. The assertion `2026-07-18` would fail unless the test
+    // happened to run on that exact date — which is the whole point.
+    const fixedScheduledFor = "2026-07-18T23:30:00.000Z"; // yesterday in the test frame
+    const { id: scheduleId } = createSchedule({
+      missionTitle: "Daily Standup — {{date}}",
+      timezone: "UTC",
+    });
+    const { id: occurrenceId } = reserveOccurrenceForSchedule(scheduleId, {
+      scheduledFor: fixedScheduledFor,
+    });
+
+    const result = publishScheduledOccurrence(baseInput(occurrenceId));
+
+    expect(result.outcome).toBe("published");
+    if (result.outcome !== "published") throw new Error("unreachable");
+
+    // The rendered {{date}} is the scheduledFor date (2026-07-18), NOT
+    // today's wall-clock date.
+    expect(result.mission.title).toBe("Daily Standup — 2026-07-18");
   });
 });
 

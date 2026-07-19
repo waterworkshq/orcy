@@ -607,19 +607,41 @@ function diffScheduleGuard(
 
 /**
  * Replaces `{{date}}` (YYYY-MM-DD in the schedule's timezone) and
- * `{{counter}}` (the display counter) tokens. Byte-identical to
- * `scheduledTaskService.substituteTokens` — inlined here to avoid pulling
- * that module's handler-registry + SSE/logger dependencies into the load
- * graph (Phase 2's `scheduledOccurrenceReservation` adopted the same
- * layering discipline for `calculateNextRun`).
+ * `{{counter}}` (the display counter) tokens. Inlined here (NOT imported
+ * from `scheduledTaskService`) to avoid pulling that module's handler-
+ * registry + SSE/logger dependencies into the load graph — the same
+ * layering discipline Phase 2 adopted for `calculateNextRun`.
+ *
+ * # T9A-06 — `{{date}}` token consistency (cross-midnight retry safety)
+ *
+ * `{{date}}` is formatted from the DURABLE `context.scheduledFor` instant
+ * (the occurrence's due timestamp), NOT from wall-clock `new Date()`. A
+ * retry/recovery that crosses midnight (a publication deferred to the next
+ * day by a crash + T9B lease-recovery) would otherwise render a DIFFERENT
+ * date under the same attempt keys → a different fingerprint →
+ * `rejected_fingerprint` on a same-key retry (the very mismatch the plan
+ * warns about). The plan (`technical-plan:344`) requires the original
+ * `scheduledFor`/ordinal be preserved "for audit and token consistency."
+ *
+ * The legacy `scheduledTaskService.substituteTokens` used `new Date()`
+ * (wall-clock) — acceptable there because the legacy path advances the
+ * schedule + renders + publishes synchronously in one tick. THIS adapter
+ * separates reservation from publication by an unbounded interval (the
+ * occurrence is reserved now, published when the scheduler picks it up —
+ * possibly across a midnight boundary). The durable timestamp is the only
+ * stable basis.
+ *
+ * `{{counter}}` (= `ordinal + 1`) was already durable (Phase 2 stores the
+ * ordinal on the occurrence row); T9A-06 brings `{{date}}` to the same
+ * standard.
  */
 function substituteTokens(
   template: string,
-  context: { runCount: number; timezone: string },
+  context: { runCount: number; timezone: string; scheduledFor: string },
 ): string {
   const date = new Intl.DateTimeFormat("en-CA", {
     timeZone: context.timezone,
-  }).format(new Date());
+  }).format(new Date(context.scheduledFor));
   return template.replaceAll("{{date}}", date).replaceAll("{{counter}}", String(context.runCount));
 }
 
@@ -1147,6 +1169,42 @@ export function buildOccurrenceRecordParticipant(
         );
       }
     }
+
+    // --- 4. T9A-09 STAMP `scheduledTasks.lastCreatedMissionId` -------------
+    // The plan (`technical-plan:342`) requires `lastCreatedMissionId` to
+    // change ONLY after complete success. Placed HERE — at the END of the
+    // participant, AFTER the occurrence `publishing → published` transition
+    // (step 2) AND the coordination-attempt `pending → created` advance
+    // (step 3) — because everything that makes THIS publication "successful"
+    // has already stamped in-tx by this point. Any earlier-participant throw
+    // (the in-tx guard re-check, the occurrence transition's `no_op`, or
+    // the coordination-attempt CAS loss) rolls back the stamp too (the
+    // whole tx aborts) → the schedule's `lastCreatedMissionId` is NOT
+    // mutated on a failed publication. A separate post-publish stamp call
+    // would risk a crash window (Mission committed, stamp not yet applied);
+    // the in-tx stamp eliminates it.
+    //
+    // Gated on `scheduleConfigSnapshot` (matches the in-tx re-check guard):
+    // the snapshot's PK is the scheduleId; when null (defensive — pre-
+    // Phase-2 occurrence rows that lack a snapshot) the stamp is skipped
+    // because the scheduleId is unknown. Production occurrences always
+    // carry a snapshot post-Phase-2.
+    //
+    // Idempotent on retry: a re-run after a rollback reapplies the SAME
+    // value (`ctx.mission.id` is deterministic per the prepared aggregate).
+    // A successful prior commit would have terminally advanced the
+    // occurrence ROW, so this participant would not re-run on a successful
+    // prior publication (the occurrence refuses the reserved→publishing
+    // transition at the top of the adapter).
+    if (scheduleConfigSnapshot) {
+      db.update(scheduledTasks)
+        .set({
+          lastCreatedMissionId: ctx.mission.id,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(scheduledTasks.id, scheduleConfigSnapshot.id as string))
+        .run();
+    }
   };
 }
 
@@ -1477,10 +1535,14 @@ export function publishScheduledOccurrence(
   // counter = ordinal + 1 (1-based display matching the legacy
   // buildTokenContext's `runCount + 1`, where the legacy runCount was the
   // PRE-advance value = the occurrence's stored ordinal). The schedule's
-  // timezone drives {{date}}.
+  // timezone drives {{date}}. T9A-06: {{date}} is formatted from the
+  // DURABLE `currentOccurrence.scheduledFor` instant (NOT wall-clock
+  // `new Date()`) so a cross-midnight retry/recovery renders the SAME date
+  // → the same fingerprint → no `rejected_fingerprint` on a same-key retry.
   const tokenContext = {
     runCount: currentOccurrence.ordinal + 1,
     timezone: schedule.timezone ?? "UTC",
+    scheduledFor: currentOccurrence.scheduledFor,
   };
   const resolvedTitle = substituteTokens(schedule.missionTitle, tokenContext);
   const resolvedDescription = substituteTokens(schedule.missionDescription, tokenContext);
