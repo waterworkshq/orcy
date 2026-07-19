@@ -231,3 +231,123 @@ export function deleteScheduledTask(id: string): boolean {
   }
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// T9A Phase 2 — additive tx-aware schedule primitives (siblings of
+// claimExecution / finalizeExecution).
+//
+// These mirror the *WithClient pattern (Phase 1 / T1 / T3A —
+// `scheduledOccurrences.ts`, `taskCreationAttempts.ts`, `taskPublication.ts`):
+//   - ACCEPT a caller-supplied drizzle client (default `getDb()` OR a `tx`
+//     from `db.transaction(cb)`). Phase 2's reservation tx
+//     (`scheduledOccurrenceReservation.ts`) composes these inside one
+//     `db.transaction((tx) => …)` so the occurrence insert + schedule advance
+//     + one-shot disable commit atomically together.
+//   - NEVER call `getDb()` themselves (they would escape the caller's tx).
+//   - NEVER open their own transaction (no nested transactions).
+//   - NEVER emit external effects (SSE / hooks / webhooks).
+//   - THROW only on infrastructure failure (retryable transport).
+//
+// The legacy `claimExecution` / `finalizeExecution` stay BYTE-IDENTICAL —
+// `executeScheduledTask` (services/scheduledTaskService.ts:136-264) continues
+// to call them. These primitives are DORMANT siblings composed only by Phase
+// 2's reservation (also dormant). The scheduler wiring that drives this path
+// is T11 (the cutover ticket).
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of {@link advanceScheduleOnceWithClient}. Closed union — never
+ * throws for an expected advance decision; only infrastructure failures
+ * (retryable transport) throw.
+ *
+ * - `advanced: true`  — this call's CAS UPDATE matched exactly one row: the
+ *                       schedule moved forward (`runCount + 1`, `lastRunAt`
+ *                       stamped, `nextRunAt` set to the advance target).
+ * - `advanced: false` — the CAS predicate (`enabled = true AND
+ *                       nextRunAt <= now`) matched zero rows: a concurrent
+ *                       reservation already advanced the schedule, OR the
+ *                       schedule was disabled / no longer due between the
+ *                       caller's pre-read and this UPDATE. No mutation.
+ */
+export type ScheduleAdvanceResult = { advanced: true } | { advanced: false };
+
+/**
+ * Atomically advances a due schedule exactly once: a compare-and-set UPDATE
+ * that increments `runCount`, stamps `lastRunAt`, and moves `nextRunAt`
+ * forward, conditioned on `(id, enabled = true, nextRunAt <= now)`. Mirrors
+ * the legacy `claimExecution` CAS predicate (`scheduledTask.ts:166-203`) —
+ * the predicate IS the entire defense.
+ *
+ * Classification is via `SELECT changes() AS n` (portable across sql.js +
+ * better-sqlite3 — MEMORY.md § Database Portability), NOT by re-reading
+ * `runCount` before/after (the legacy classification). The before/after
+ * re-read would race with a concurrent writer that happened to reach the
+ * same count; the affected-row count IS the entire signal: 1 row →
+ * `{ advanced: true }`; 0 rows → `{ advanced: false }`. (Phase 1 adopted the
+ * same `SELECT changes()` discipline — `scheduledOccurrences.ts:565,916`.)
+ *
+ * NEVER calls `getDb()`, never opens a nested tx, never emits external
+ * effects. Throws only on infrastructure failure (retryable transport).
+ *
+ * DORMANT: composed only by Phase 2's `reserveScheduledOccurrence`
+ * (`scheduledOccurrenceReservation.ts`), also dormant.
+ */
+export function advanceScheduleOnceWithClient(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  nextRunAt: string,
+  now: string = new Date().toISOString(),
+): ScheduleAdvanceResult {
+  let affected: number;
+  try {
+    db.update(scheduledTasks)
+      .set({
+        lastRunAt: now,
+        nextRunAt,
+        runCount: sql`${scheduledTasks.runCount} + 1`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scheduledTasks.id, id),
+          eq(scheduledTasks.enabled, true),
+          lte(scheduledTasks.nextRunAt, now),
+        ),
+      )
+      .run();
+    affected = db.get<{ n: number }>(sql`SELECT changes() AS n`)?.n ?? 0;
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
+  return affected === 1 ? { advanced: true } : { advanced: false };
+}
+
+/**
+ * Sets `enabled = false` on a schedule, conditioned on `enabled = true`
+ * (idempotent: a no-op if already disabled — `updatedAt` is NOT bumped on
+ * the no-op because the WHERE matches zero rows).
+ *
+ * Used by Phase 2's reservation tx to disable a one-shot schedule AT
+ * RESERVATION TIME (not on publication success) — the fix for the current
+ * `scheduledTaskService.ts:244-246` bug where a failed one-shot refires
+ * because the disable happens only on success. Even if Phase 3's
+ * publication later fails (governance veto, infrastructure error), the
+ * one-shot cannot refire — `enabled = false` is durable from the reservation
+ * tx. A recurring schedule stays enabled (future occurrences are
+ * independent).
+ *
+ * NEVER calls `getDb()`. Composes on the caller-supplied client.
+ *
+ * DORMANT: composed only by Phase 2's `reserveScheduledOccurrence`.
+ */
+export function disableScheduleWithClient(db: ReturnType<typeof getDb>, id: string): void {
+  const now = new Date().toISOString();
+  try {
+    db.update(scheduledTasks)
+      .set({ enabled: false, updatedAt: now })
+      .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.enabled, true)))
+      .run();
+  } catch (err) {
+    throw repositoryUpdateError("scheduledTask", err as Error, id);
+  }
+}
