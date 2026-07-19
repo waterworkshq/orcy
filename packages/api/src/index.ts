@@ -68,6 +68,7 @@ import { triageRoutes } from "./routes/triage.js";
 import { taskCreationAttemptRoutes } from "./routes/taskCreationAttempts.js";
 import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
+import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
 import { isCreationPublicationEnabled } from "./config/creationPublicationCutover.js";
 import {
   taskCodeEvidenceRoutes,
@@ -241,6 +242,12 @@ async function registerApiRoutes(f: FastifyInstance) {
   await f.register(taskClonePublicationRoutes);
   if (isCreationPublicationEnabled()) {
     await f.register(taskPublicationRoutes);
+    // T9B Phase 3 — the scheduled-occurrence retry route. Dormant behind
+    // the same cutover flag (the retry creates POST_CUTOVER state via the
+    // milestone-1 publisher). The gate is also enforced INSIDE the route
+    // plugin (so a direct import without the gate also 404s); the outer
+    // gate avoids even calling the registration function.
+    await f.register(scheduledOccurrenceRepairRoutes);
   }
 }
 
