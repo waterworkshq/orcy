@@ -591,7 +591,7 @@ function diffScheduleOperational(
  * The reservation's OWN mutations are invisible: config fields it doesn't
  * touch; operational fields match the expected values it stamped.
  */
-function diffScheduleGuard(
+export function diffScheduleGuard(
   snapshot: ScheduleRevisionJson | null,
   live: Record<string, unknown>,
 ): readonly string[] | null {
@@ -916,7 +916,7 @@ export type { PublishTemplateAggregateOutcome } from "./templateAggregatePublica
  * milestone-1 publisher's own per-Task guard_mismatch surfaces via its own
  * `AggregatePublicationAbort` sentinel; this is the schedule-level analog.
  */
-class ScheduleGuardMismatch extends Error {
+export class ScheduleGuardMismatch extends Error {
   constructor(public readonly fields: readonly string[]) {
     super(
       `ScheduleGuardMismatch: schedule config drifted between reservation and publication (fields: ${fields.join(", ")}).`,
@@ -952,7 +952,7 @@ class ScheduleGuardMismatch extends Error {
  * closes the gap: the participant CANNOT mark published without a live
  * schedule.
  */
-class ScheduleVanishedMidTx extends Error {
+export class ScheduleVanishedMidTx extends Error {
   constructor(public readonly scheduleId: string) {
     super(
       `ScheduleVanishedMidTx: schedule "${scheduleId}" vanished between the pre-check and the in-tx re-check (deleted mid-tx). The publication tx will roll back — the occurrence stays "publishing" for T9B recovery.`,

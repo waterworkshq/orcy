@@ -48,10 +48,18 @@
  *   | `retry_failed_vetoed`           | 409  | Governance conflict (policy refusal).  |
  *   | `retry_failed_validation`       | 422  | The rendered payload is invalid.       |
  *   | `retry_failed_schedule_missing` | 409  | The schedule is gone (data anomaly).   |
- *   | `retry_guard_mismatch`          | 409  | Resumable — re-try after the guard     |
- *   |                                 |      | drift clears.                          |
- *   | `retry_governance_denied`       | 409  | Resumable — re-try after governance    |
- *   |                                 |      | stabilizes.                            |
+ *   | `retry_schedule_guard_mismatch` | 409  | Resumable — schedule edited mid-tx;    |
+ *   |                                 |      | re-try (re-reads the corrected state). |
+ *   | `retry_schedule_vanished_mid_tx`| 409  | Resumable — schedule deleted mid-tx.   |
+ *   | `retry_guard_mismatch`          | 409  | Resumable — per-Task guard drift; the  |
+ *   |                                 |      | retryNumber advanced (re-call).        |
+ *   | `retry_governance_denied`       | 409  | Resumable — stale governance at commit.|
+ *   | `retry_in_progress`             | 409  | A concurrent retry is mid-flight;      |
+ *   |                                 |      | re-call later.                         |
+ *   | `retry_already_completed`       | 409  | A prior retry under this retryNumber   |
+ *   |                                 |      | already concluded.                     |
+ *   | `retry_concurrent_conflict`     | 409  | A concurrent retry fingerprint         |
+ *   |                                 |      | mismatch; re-call.                     |
  *   | `illegal_source_state`          | 409  | The occurrence is not `rejected`; no   |
  *   |                                 |      | retry applies.                         |
  *   | `not_found`                     | 404  | No occurrence row for the id.          |
@@ -143,6 +151,53 @@ function repairOutcomeToHttpResponse(
           kind: result.kind,
           reason: result.reason,
           ...(result.interceptorKey !== undefined ? { interceptorKey: result.interceptorKey } : {}),
+        },
+      };
+    case "retry_schedule_guard_mismatch":
+      return {
+        statusCode: 409,
+        body: {
+          outcome: "retry_schedule_guard_mismatch",
+          retryNumber: result.retryNumber,
+          occurrence: result.occurrence,
+          fields: result.fields,
+        },
+      };
+    case "retry_schedule_vanished_mid_tx":
+      return {
+        statusCode: 409,
+        body: {
+          outcome: "retry_schedule_vanished_mid_tx",
+          retryNumber: result.retryNumber,
+          occurrence: result.occurrence,
+        },
+      };
+    case "retry_in_progress":
+      return {
+        statusCode: 409,
+        body: {
+          outcome: "retry_in_progress",
+          retryNumber: result.retryNumber,
+          occurrence: result.occurrence,
+        },
+      };
+    case "retry_already_completed":
+      return {
+        statusCode: 409,
+        body: {
+          outcome: "retry_already_completed",
+          retryNumber: result.retryNumber,
+          occurrence: result.occurrence,
+          priorEntry: result.priorEntry,
+        },
+      };
+    case "retry_concurrent_conflict":
+      return {
+        statusCode: 409,
+        body: {
+          outcome: "retry_concurrent_conflict",
+          retryNumber: result.retryNumber,
+          occurrence: result.occurrence,
         },
       };
     case "illegal_source_state":

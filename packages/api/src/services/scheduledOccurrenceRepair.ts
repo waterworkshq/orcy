@@ -73,12 +73,20 @@
  *     tx commits independently — the audit trail records the retry
  *     attempt's outcome even when no Mission was created.
  *
- * Resumable outcomes (`retry_guard_mismatch` / `retry_governance_denied`)
- * do NOT stamp — the retry did not reach a conclusion + the operator can
- * call again. The next retry call re-derives the same retryNumber (the
- * stamp was not appended) and proceeds. This mirrors the original
- * publisher's resumable discipline (the occurrence stays unchanged for
- * the next attempt).
+ * Resumable outcomes (`retry_guard_mismatch` / `retry_governance_denied` /
+ * `retry_schedule_guard_mismatch` / `retry_schedule_vanished_mid_tx`) NOW
+ * STAMP (T9B-05) — the retry terminalizes its coordination + per-Task
+ * attempts as `batch_rejected` + advances the retryNumber, so the next
+ * retry uses a fresh slot (the operator re-calls under N+2). Pre-T9B-05
+ * the resumable outcomes did not stamp + the pending coordination blocked
+ * re-calls; the stamp-on-resumable discipline keeps the retryHistory + the
+ * coordination attempt lifecycle in sync.
+ *
+ * The concurrency-defense outcomes (`retry_in_progress` /
+ * `retry_already_completed` / `retry_concurrent_conflict`) do NOT stamp —
+ * the retry did not reach a conclusion (another caller is mid-flight OR
+ * already concluded). The operator re-calls (the next retry re-derives a
+ * fresh retryNumber if the in-flight call concluded).
  *
  * # Composition (T9A-milestone-1 consumer contract — adapted for retry)
  *
@@ -159,7 +167,12 @@ import {
   type OccurrenceResultJson,
 } from "../repositories/scheduledOccurrences.js";
 import { reserveAttemptWithClient } from "../repositories/taskCreationAttempts.js";
-import type { TaskPublicationDbClient } from "../repositories/taskPublication.js";
+import {
+  checkpointAttemptWithClient,
+  completeAttemptWithClient,
+  type AttemptTerminalResult,
+  type TaskPublicationDbClient,
+} from "../repositories/taskPublication.js";
 import {
   prepareTemplateAggregate,
   type PrepareTemplateAggregateContext,
@@ -171,6 +184,11 @@ import {
   type CommittedMission,
   type CommittedWorkflow,
 } from "./templateAggregatePublication.js";
+import {
+  diffScheduleGuard,
+  ScheduleGuardMismatch,
+  ScheduleVanishedMidTx,
+} from "./scheduledOccurrencePublication.js";
 
 /**
  * The veto summary shape (mirrors the milestone-1 publisher's
@@ -320,14 +338,81 @@ function computeRetryFingerprint(input: {
 }
 
 // ---------------------------------------------------------------------------
+// Coordination fingerprint (T9B-05 — the retry-claim identity)
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the coordination attempt's request fingerprint (T9B-05). This is
+ * DISTINCT from the per-Task {@link computeRetryFingerprint} — the coordination
+ * is the retry-CLAIM identity (one per occurrence per retryNumber), NOT the
+ * publication fingerprint. It is SCHEDULE-INDEPENDENT (the claim defends the
+ * retry slot, not the rendered payload): two concurrent callers racing the
+ * same occurrence at the same retryNumber produce the SAME coordination
+ * fingerprint regardless of schedule state → the loser gets `replayed` (a
+ * typed outcome, NOT the `PublicationCheckpointConsistencyError` 500 that the
+ * unguarded race produced). A `rejected_fingerprint` here means the retryNumber
+ * collided with a PRIOR retry under a different claim (a data anomaly — the
+ * retryNumber derivation should guarantee uniqueness).
+ */
+function computeRetryCoordinationFingerprint(input: {
+  occurrenceId: string;
+  retryNumber: number;
+}): string {
+  return `scheduled_occurrence_retry_coordination:${input.occurrenceId}:${input.retryNumber}`;
+}
+
+// ---------------------------------------------------------------------------
+// Schedule snapshot for the in-tx guard (T9B-04)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps a live schedule row as a {@link ScheduleRevisionJson}-shaped snapshot
+ * suitable for the composed {@link diffScheduleGuard} (T9B-04). The retry does
+ * NOT have a reservation-time snapshot (it re-reads the LATEST schedule), so
+ * there is no `_expectedPostReservation` from a prior reservation tx. Instead
+ * the retry synthesizes one from the SAME live row it just read: the expected
+ * post-reservation operational state IS the pre-read state (the retry does not
+ * advance the schedule or mutate `enabled`). This makes
+ * {@link diffScheduleOperational} compare the in-tx re-read against the pre-
+ * read operational state:
+ *
+ *   - `enabled` — unconditional compare (a user disable between the retry's
+ *     pre-read + the tx fires the guard).
+ *   - `nextRunAt` — gated by `runCount`: a concurrent reservation's advance
+ *     (`runCount` delta) is ALLOWED (the retry doesn't own the schedule's
+ *     advance); a user reschedule (`runCount` unchanged, `nextRunAt` changed)
+ *     fires the guard.
+ *
+ * This mirrors the Phase-3 publisher's two-layer guard (pre-check + in-tx
+ * re-check) without the reservation-time `_expectedPostReservation` (the retry
+ * has no reservation). The {@link diffScheduleConfig} half is unchanged: the
+ * user-authored config fields are compared directly.
+ */
+function buildRetryScheduleSnapshot(
+  schedule: typeof scheduledTasks.$inferSelect,
+): Record<string, unknown> {
+  return {
+    ...schedule,
+    _expectedPostReservation: {
+      enabled: schedule.enabled,
+      nextRunAt: schedule.nextRunAt,
+      runCount: schedule.runCount,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // retryHistory stamp shape (additive on the occurrence's `result` JSON)
 // ---------------------------------------------------------------------------
 
 /**
  * One entry in the occurrence's `result.retryHistory` array. Each entry
  * records one retry attempt's terminal outcome (success or failure).
- * Resumable outcomes do NOT stamp (the operator can retry again; the
- * next retry re-derives the same retryNumber).
+ * Resumable outcomes (`retry_guard_mismatch` / `retry_governance_denied`) now
+ * stamp too (T9B-05): a resumable retry terminalizes its coordination + per-
+ * Task attempts as `batch_rejected` + advances the retryNumber, so the next
+ * retry uses a fresh slot (the operator re-calls under N+2, not the same N+1
+ * — the retryHistory records the resumable attempt as a concluded entry).
  *
  * The shape is additive — the original `result.reason` / `result.vetoes`
  * / `result.errors` (from the initial publication's failure) is retained;
@@ -346,7 +431,11 @@ export interface RetryHistoryEntry {
     | "repaired"
     | "retry_failed_vetoed"
     | "retry_failed_validation"
-    | "retry_failed_schedule_missing";
+    | "retry_failed_schedule_missing"
+    | "retry_guard_mismatch"
+    | "retry_governance_denied"
+    | "retry_schedule_guard_mismatch"
+    | "retry_schedule_vanished_mid_tx";
   /** ISO timestamp the retry was attempted. */
   attemptedAt: string;
   /** The operator who triggered the retry (the route's authenticated admin). */
@@ -359,6 +448,13 @@ export interface RetryHistoryEntry {
   errors?: PublicationError[];
   /** Present on `retry_failed_schedule_missing` — a diagnostic message. */
   message?: string;
+  /** Present on `retry_guard_mismatch` / `retry_schedule_guard_mismatch` — the drifted fields. */
+  guardFields?: readonly string[];
+  /** Present on `retry_guard_mismatch` — the taskIndex whose guard drifted. */
+  taskIndex?: number;
+  /** Present on `retry_governance_denied` — the denial kind + reason. */
+  denialKind?: string;
+  denialReason?: string;
 }
 
 /**
@@ -389,11 +485,35 @@ function readRetryHistory(result: OccurrenceResultJson | null): RetryHistoryEntr
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the retry-history stamp participant — the in-tx hook that stamps
- * a `repaired` entry on the occurrence's `result.retryHistory` array
- * INSIDE the milestone-1 publication tx. Atomic with the Mission + Tasks
- * + Workflow + usage writes: either ALL commit (the Mission + the
- * retryHistory stamp), or NONE do (a participant throw rolls back both).
+ * Builds the retry-history stamp participant — the in-tx hook that:
+ *   1. (T9B-04) RE-CHECKS the schedule guard in-tx (race-safe against a
+ *      schedule edit/delete/switch between the retry's pre-read + the tx).
+ *   2. (T9B-05) TERMINALIZES the retry-coordination attempt
+ *      (`pending → published_pending_observation → created`) IN-TX, atomic
+ *      with the aggregate + the retryHistory stamp.
+ *   3. Stamps the `repaired` entry on the occurrence's `result.retryHistory`
+ *      array INSIDE the milestone-1 publication tx.
+ *
+ * Atomic with the Mission + Tasks + Workflow + usage writes: either ALL
+ * commit (the Mission + the coordination terminal + the retryHistory stamp),
+ * or NONE do (a participant throw rolls back everything).
+ *
+ * # T9B-04 — the in-tx schedule guard
+ *
+ * The retry re-reads the LATEST schedule at the start (a pre-read, step 2 of
+ * the adapter) + uses it to prepare the aggregate. WITHOUT the in-tx re-check,
+ * a schedule edit/delete/switch between the pre-read + the tx → the stale
+ * prepared aggregate commits + is stamped `repaired` (the T9A-01 analog for
+ * the retry). The participant re-reads the schedule on the tx client + diffs
+ * via the composed {@link diffScheduleGuard} (reused from the Phase-3 publisher).
+ * On drift → throw {@link ScheduleGuardMismatch}; on missing live row → throw
+ * {@link ScheduleVanishedMidTx}. Both sentinels roll back the whole aggregate;
+ * the outer catch in {@link repairScheduledOccurrence} maps them to the typed
+ * `retry_schedule_guard_mismatch` / `retry_schedule_vanished_mid_tx` outcomes.
+ *
+ * The snapshot is a LIVE-row dump synthesized via {@link buildRetryScheduleSnapshot}
+ * (with a synthetic `_expectedPostReservation` matching the live row's own
+ * operational fields — see the helper's doc for the gating semantics).
  *
  * # Why the participant does NOT transition the occurrence ROW state
  *
@@ -402,64 +522,110 @@ function readRetryHistory(result: OccurrenceResultJson | null): RetryHistoryEntr
  * holds. The retry's publication therefore lives in NEW attempt rows + a
  * retryHistory stamp on the EXISTING `result` JSON column — NO state
  * transition. The stamp is a conditional UPDATE on `id AND state='rejected'`
- * that appends to the `result` JSON's `retryHistory` array. The CAS
- * condition is `state='rejected'` (a terminal state carries no lease to
- * fence; the conditional catches a state-drift data anomaly — e.g. a
- * concurrent repair transitioned the occurrence out of `rejected`, which
- * is structurally impossible but defensive).
+ * that appends to the `result` JSON's `retryHistory` array.
  *
- * # Why the CAS classification is throw-on-miss
- *
- * The participant runs INSIDE the milestone-1 tx. A CAS miss here means
- * the occurrence is NO LONGER `rejected` (it transitioned out — a data
- * anomaly since `rejected` is terminal). Throwing rolls back the whole
- * aggregate (Mission + Tasks + Workflow + usage + this stamp) so the
- * retry does NOT commit a Mission linked to an occurrence that's no
- * longer in the expected state. The outer catch in
- * {@link repairScheduledOccurrence} propagates the throw as an
- * infrastructure error (the operator can retry again).
- *
- * @param occurrenceId   The rejected occurrence to stamp.
- * @param retryNumber    The retry number (prior retryHistory length + 1).
- * @param missionId      The Mission id the retry just committed (carried
- *   via the participant context — same as the publisher's participant).
- * @param taskCount      The number of Tasks committed (audit detail).
- * @param attemptIds     The per-Task attempt ids (audit detail).
- * @param actorId        The operator who triggered the retry.
+ * @param occurrenceId          The rejected occurrence to stamp.
+ * @param retryNumber           The retry number (prior retryHistory length + 1).
+ * @param scheduleSnapshot      The schedule snapshot (live row + synthetic
+ *   `_expectedPostReservation`) for the in-tx guard.
+ * @param coordinationAttemptId The retry-coordination attempt id (terminalized
+ *   to `created` in-tx on success).
+ * @param actorId               The operator who triggered the retry.
  * @returns the {@link TemplateAggregateParticipantWriter} the retry passes
  *   to `publishTemplateAggregateWithClient`.
  */
 function buildRetryHistoryParticipant(
   occurrenceId: string,
   retryNumber: number,
+  scheduleSnapshot: Record<string, unknown>,
+  coordinationAttemptId: string,
   actorId: string,
 ): TemplateAggregateParticipantWriter {
   return (db, ctx) => {
-    // 1. Read the current occurrence row (in-tx) to get the existing
-    //    `result` JSON. The occurrence MUST still be `rejected` (terminal —
-    //    no transitioned-out path exists, but defensive).
+    // --- 1. IN-TX SCHEDULE GUARD (T9B-04) ------------------------------
+    // Re-read the live schedule on the tx client + diff against the snapshot
+    // captured at the retry's pre-read. A drift (edit/delete/switch) between
+    // the pre-read + the tx throws a sentinel → the whole aggregate rolls
+    // back → the outer catch maps to `retry_schedule_guard_mismatch` /
+    // `retry_schedule_vanished_mid_tx`.
+    const scheduleId = scheduleSnapshot.id as string;
+    const liveSchedule = db
+      .select()
+      .from(scheduledTasks)
+      .where(eq(scheduledTasks.id, scheduleId))
+      .get();
+    if (!liveSchedule) {
+      // T9A-07 analog: the schedule vanished between the retry's pre-read +
+      // the in-tx re-read. Throw the sentinel → rollback → resumable outcome.
+      throw new ScheduleVanishedMidTx(scheduleId);
+    }
+    const drifted = diffScheduleGuard(
+      scheduleSnapshot,
+      liveSchedule as unknown as Record<string, unknown>,
+    );
+    if (drifted) {
+      throw new ScheduleGuardMismatch(drifted);
+    }
+
+    // --- 2. OCCURRENCE-STATE INVARIANT (defensive) ---------------------
+    // Read the current occurrence row (in-tx) to get the existing `result`
+    // JSON. The occurrence MUST still be `rejected` (terminal — no
+    // transitioned-out path exists, but defensive).
     const current = db
       .select()
       .from(scheduledOccurrences)
       .where(eq(scheduledOccurrences.id, occurrenceId))
       .get();
     if (!current) {
-      // Vanished mid-tx (data anomaly — the occurrence existed at the
-      // retry's pre-check). Throw to roll back the aggregate.
       throw new Error(
         `repairScheduledOccurrence: occurrence "${occurrenceId}" vanished inside the publication tx — the aggregate will roll back.`,
       );
     }
     if (current.state !== "rejected") {
-      // State drifted mid-tx (data anomaly — `rejected` is terminal). Throw
-      // to roll back — the retry MUST NOT commit a Mission linked to an
-      // occurrence that's no longer `rejected`.
       throw new Error(
         `repairScheduledOccurrence: occurrence "${occurrenceId}" transitioned out of "rejected" (now "${current.state}") inside the publication tx — the aggregate will roll back.`,
       );
     }
 
-    // 2. Append the `repaired` entry to the retryHistory array.
+    // --- 3. COORDINATION ATTEMPT TERMINAL (T9B-05) ---------------------
+    // Advance the retry-coordination attempt
+    // `pending → published_pending_observation → created` IN-TX, atomic with
+    // the aggregate + the retryHistory stamp. The matrix forbids
+    // `pending → created` directly, so the advance is two CAS operations
+    // back-to-back (mirrors the Phase-3 publisher's participant). A
+    // `rejected_transition` is a data anomaly — throw to roll back.
+    const checkpoint = checkpointAttemptWithClient(db, coordinationAttemptId, {
+      stage: "published_pending_observation",
+    });
+    if (checkpoint.outcome === "rejected_transition") {
+      throw new Error(
+        `repairScheduledOccurrence: coordination attempt "${coordinationAttemptId}" refused the pending → published_pending_observation checkpoint (fromState: ${checkpoint.fromState}) inside the publication tx — the aggregate will roll back.`,
+      );
+    }
+    const completion = completeAttemptWithClient(db, coordinationAttemptId, {
+      finalState: "created",
+      terminalOutcome: "created",
+      terminalResult: {
+        outcome: "created",
+        attemptId: coordinationAttemptId,
+        publication: {
+          retryNumber,
+          missionId: ctx.mission.id,
+          taskCount: ctx.tasks.length,
+          attemptIds: ctx.attemptIds,
+        },
+      },
+    });
+    if (completion.outcome === "rejected_transition") {
+      throw new Error(
+        `repairScheduledOccurrence: coordination attempt "${coordinationAttemptId}" refused the published_pending_observation → created completion (fromState: ${completion.fromState}) inside the publication tx — the aggregate will roll back.`,
+      );
+    }
+
+    // --- 4. retryHistory STAMP (`repaired`) ----------------------------
+    // Append the `repaired` entry to the retryHistory array. Conditional
+    // UPDATE `WHERE id AND state='rejected'`. The CAS catches a concurrent
+    // state drift (impossible since `rejected` is terminal, but race-safe).
     const priorResult = (current.result ?? {}) as OccurrenceResultJson;
     const priorHistory = readRetryHistory(priorResult);
     const newEntry: RetryHistoryEntry = {
@@ -473,13 +639,6 @@ function buildRetryHistoryParticipant(
       ...priorResult,
       retryHistory: [...priorHistory, newEntry],
     };
-
-    // 3. Conditional UPDATE `WHERE id AND state='rejected'`. The CAS
-    //    catches a concurrent state drift between the read + the UPDATE
-    //    (the row changed state in the microsecond window — impossible
-    //    since `rejected` is terminal, but the CAS is the race-safe
-    //    authority). `SELECT changes() AS n` is the portable signal (1 →
-    //    stamped; 0 → state drift, throw).
     let affected: number;
     try {
       db.update(scheduledOccurrences)
@@ -498,8 +657,6 @@ function buildRetryHistoryParticipant(
       );
     }
     if (affected !== 1) {
-      // The CAS lost — the occurrence is no longer `rejected` (a data
-      // anomaly). Throw to roll back the aggregate.
       throw new Error(
         `repairScheduledOccurrence: occurrence "${occurrenceId}" CAS-missed the retryHistory stamp (state drifted mid-tx) — the aggregate will roll back.`,
       );
@@ -512,10 +669,35 @@ function buildRetryHistoryParticipant(
 // ---------------------------------------------------------------------------
 
 /**
- * Stamps a failure entry on the occurrence's `result.retryHistory` array
- * in a SEPARATE small tx. Used by the retry's failure paths (vetoed,
- * rejected_validation, schedule_missing) where the milestone-1 publish
- * call did NOT open its tx (so the in-tx participant did not run).
+ * Stamps a failure/resumable entry on the occurrence's `result.retryHistory`
+ * array in a SEPARATE small tx, OPTIONALLY terminalizing the retry's
+ * coordination attempt + per-Task attempts IN THE SAME TX (T9B-05 + T9B-06).
+ *
+ * Used by the retry's failure paths (vetoed, rejected_validation,
+ * schedule_missing) + the resumable paths (guard_mismatch, governance_denied)
+ * where the milestone-1 publish call did NOT open its tx (so the in-tx
+ * participant did not run). The coordination + per-Task attempts were reserved
+ * BEFORE the publish call; without terminalization here they would stay
+ * `pending` forever (the T9A-05 / T9B-06 orphan-attempts defect).
+ *
+ * # T9B-06 — vetoed-path attempt terminalization
+ *
+ * On the `retry_failed_vetoed` path, `terminals.perTaskAttemptTerminals`
+ * carries one entry per reserved per-Task attempt:
+ *   - Vetoed taskIndexes → terminal `vetoed` (the decisive veto).
+ *   - Allowed-but-unpublished taskIndexes → terminal `batch_rejected`
+ *     (collateral — the aggregate didn't publish).
+ * The coordination → terminal `vetoed`. All terminalize IN THE SAME tx as the
+ * failure-stamp (atomic — mirrors the Phase-3 publisher's
+ * `terminalRejectOccurrenceWithCoordination` helper).
+ *
+ * # Resumable-path attempt terminalization
+ *
+ * On the `retry_guard_mismatch` / `retry_governance_denied` paths, the
+ * per-Task + coordination attempts stay `pending` after the tx rollback.
+ * T9B-05: these are terminalized as `batch_rejected` + the retryHistory
+ * stamps the resumable outcome → the retryNumber advances → the next retry
+ * uses a fresh slot (the operator re-calls under N+2).
  *
  * The stamp tx commits independently — the audit trail records the retry
  * attempt's outcome even when no Mission was created. A CAS miss (state
@@ -524,10 +706,28 @@ function buildRetryHistoryParticipant(
  *
  * Returns the re-read occurrence row (reflects the stamp if it committed,
  * or the prior row if the CAS missed).
+ *
+ * @param occurrence  The rejected occurrence to stamp.
+ * @param entry       The retryHistory entry (failure or resumable outcome).
+ * @param terminals   Optional attempt terminalization (coordination + per-Task),
+ *   atomic with the stamp. Omitted for the paths where the coordination was
+ *   not reserved (schedule_missing fires before the coordination reservation).
  */
 function stampFailureRetryHistory(
   occurrence: ScheduledOccurrenceRow,
   entry: RetryHistoryEntry,
+  terminals?: {
+    coordinationAttemptId: string;
+    coordinationFinalState: "vetoed" | "batch_rejected" | "rejected_validation";
+    coordinationTerminalOutcome: string;
+    coordinationTerminalResult: AttemptTerminalResult;
+    perTaskAttemptTerminals?: ReadonlyArray<{
+      attemptId: string;
+      finalState: "vetoed" | "batch_rejected";
+      terminalOutcome: string;
+      terminalResult: AttemptTerminalResult;
+    }>;
+  },
 ): ScheduledOccurrenceRow {
   const db = getDb();
   return db.transaction((tx) => {
@@ -538,6 +738,42 @@ function stampFailureRetryHistory(
       .get();
     if (!current) return occurrence; // vanished (data anomaly) — return the prior row.
     if (current.state !== "rejected") return current; // state drift — return the current row.
+
+    // 1. Terminalize the coordination attempt (when supplied). The matrix
+    //    allows `pending → vetoed | batch_rejected | rejected_validation`
+    //    directly. Idempotent: `completeAttemptWithClient`'s terminal-replay
+    //    fast path returns `no_op` for an already-terminal attempt.
+    if (terminals !== undefined) {
+      const coordinationCompletion = completeAttemptWithClient(
+        tx,
+        terminals.coordinationAttemptId,
+        {
+          finalState: terminals.coordinationFinalState,
+          terminalOutcome: terminals.coordinationTerminalOutcome,
+          terminalResult: terminals.coordinationTerminalResult,
+        },
+      );
+      // A `rejected_transition` is a data anomaly (the coordination was
+      // checkpointed past `pending` by a prior aggregate commit). Best-effort
+      // on the failure path — log via the thrown error's propagation (the
+      // stamp still proceeds; the occurrence row is the authoritative state).
+      void coordinationCompletion;
+    }
+
+    // 2. Terminalize the per-Task attempts (when supplied — T9B-06 vetoed +
+    //    resumable paths). Same matrix + idempotency as the coordination.
+    if (terminals?.perTaskAttemptTerminals !== undefined) {
+      for (const terminal of terminals.perTaskAttemptTerminals) {
+        const completion = completeAttemptWithClient(tx, terminal.attemptId, {
+          finalState: terminal.finalState,
+          terminalOutcome: terminal.terminalOutcome,
+          terminalResult: terminal.terminalResult,
+        });
+        void completion;
+      }
+    }
+
+    // 3. Stamp the retryHistory entry (atomic with the terminalization).
     const priorResult = (current.result ?? {}) as OccurrenceResultJson;
     const priorHistory = readRetryHistory(priorResult);
     const stampedResult: OccurrenceResultJson = {
@@ -596,47 +832,65 @@ export interface RepairScheduledOccurrenceInput {
  *
  * Every branch is an origin-neutral publication outcome translated from
  * the milestone-1 {@link PublishTemplateAggregateOutcome} (plus the
- * retry-domain branches the adapter owns: `not_found`,
- * `illegal_source_state`, `retry_failed_schedule_missing`). The retry-
- * domain mapping:
+ * retry-domain branches the adapter owns). The retry-domain mapping:
  *
  *   - `repaired` — the full aggregate (Mission + N Tasks + optional
  *     Workflow + usage mutation) committed atomically WITH a `repaired`
- *     entry stamped on the occurrence's `result.retryHistory`. The
- *     occurrence STAYS `rejected` (the terminal one-way door holds —
- *     option (b)). The retry's Mission is a real Mission linked via the
- *     retryHistory stamp + the per-Task attempts.
+ *     entry stamped on the occurrence's `result.retryHistory` + the retry-
+ *     coordination attempt terminalized to `created` in-tx. The occurrence
+ *     STAYS `rejected` (the terminal one-way door holds — option (b)).
  *   - `retry_failed_vetoed` — the latest governance interceptor refused
- *     one Task BEFORE the publication tx opened. NOTHING committed (no
- *     Mission, no Tasks). A `retry_failed_vetoed` entry is stamped on
- *     the occurrence's `result.retryHistory`. The operator can retry
- *     again (after correcting the governance policy / the Task definition).
+ *     one+ Tasks BEFORE the publication tx opened. NOTHING committed (no
+ *     Mission, no Tasks). A `retry_failed_vetoed` entry is stamped + the
+ *     coordination + per-Task attempts are terminalized (`vetoed` /
+ *     `batch_rejected`) atomically with the stamp (T9B-06). The operator
+ *     can retry again (the retryNumber advances).
  *   - `retry_failed_validation` — the LATEST schedule's rendered template
- *     produced an invalid Task (empty title after substitution, missing
- *     template, missing templateId on the schedule). A
- *     `retry_failed_validation` entry is stamped. No Mission.
+ *     produced an invalid Task. A `retry_failed_validation` entry is stamped.
+ *     No Mission.
  *   - `retry_failed_schedule_missing` — the schedule row vanished between
- *     the original failure + the retry (the schedule was deleted). A
- *     `retry_failed_schedule_missing` entry is stamped. The operator must
- *     recreate the schedule before retrying.
+ *     the original failure + the retry. A `retry_failed_schedule_missing`
+ *     entry is stamped. The operator must recreate the schedule.
+ *   - `retry_schedule_guard_mismatch` — RESUMABLE (T9B-04). The schedule
+ *     was EDITED between the retry's pre-read + the publication tx. The
+ *     in-tx guard fired → the whole aggregate rolled back. No Mission, no
+ *     stamp. The operator re-calls (the next retry re-reads the corrected
+ *     schedule).
+ *   - `retry_schedule_vanished_mid_tx` — RESUMABLE (T9B-04). The schedule
+ *     was DELETED between the retry's pre-read + the publication tx. The
+ *     in-tx guard fired → rollback. No stamp. The operator re-calls (the
+ *     next retry surfaces the terminal `retry_failed_schedule_missing` if
+ *     the absence persists).
+ *   - `retry_guard_mismatch` — the per-Task guard drifted at publish time
+ *     (inside the tx). The tx rolled back; the coordination + per-Task
+ *     attempts are terminalized `batch_rejected` + a `retry_guard_mismatch`
+ *     entry is stamped (T9B-05 — the retryNumber advances; the operator
+ *     re-calls under a fresh slot).
+ *   - `retry_governance_denied` — a stale governance decision at commit
+ *     (inside the tx). Same handling as `retry_guard_mismatch` (terminalize
+ *     + stamp + advance retryNumber).
+ *   - `retry_in_progress` — RESUMABLE (T9B-05). A concurrent retry under
+ *     the same retryNumber is mid-flight (the retry-coordination attempt is
+ *     `pending` under another caller). No stamp, no terminalization (the
+ *     occurrence is unchanged). The operator waits + re-calls (the next
+ *     retry re-derives a fresh retryNumber if the in-flight retry concluded).
+ *   - `retry_already_completed` — (T9B-05). A prior retry under the same
+ *     retryNumber already concluded (the coordination attempt is terminal).
+ *     The retryHistory carries the prior entry; the operator re-fetches to
+ *     see the prior outcome. No stamp (the prior retry already stamped).
+ *   - `retry_concurrent_conflict` — RESUMABLE (T9B-05). A concurrent retry
+ *     under the same retryNumber has a DIFFERENT fingerprint (the schedule
+ *     changed between the two callers' reads). No stamp. The operator
+ *     re-calls.
  *   - `not_found` — no occurrence row exists for `occurrenceId`.
- *   - `illegal_source_state` — the occurrence is NOT `rejected` (it's
- *     `reserved` / `publishing` / `published`). Only `rejected`
- *     occurrences can be retried (a `publishing` occurrence is still in
- *     flight; a `published` occurrence already succeeded; a `reserved`
- *     occurrence hasn't been published yet).
- *   - `retry_guard_mismatch` — RESUMABLE. A per-Task guard drift at
- *     publish time. The tx rolled back; NO retryHistory entry stamped
- *     (the retry did not reach a conclusion). The operator can retry
- *     again (the next retry re-derives the same retryNumber).
- *   - `retry_governance_denied` — RESUMABLE. A stale governance decision
- *     at commit. The tx rolled back; NO retryHistory entry stamped. The
- *     operator can retry again.
+ *   - `illegal_source_state` — the occurrence is NOT `rejected`.
  *
  * Infrastructure failures (a repository throw) propagate as retryable
- * runtime errors EXCEPT the in-tx participant's own throws (the CAS-miss
- * sentinels for state drift / vanished occurrence). The whole aggregate
- * rolls back on any infrastructure failure (the caller's tx aborts). The
+ * runtime errors EXCEPT the in-tx participant's schedule-guard sentinels
+ * ({@link ScheduleGuardMismatch} / {@link ScheduleVanishedMidTx}), which
+ * the outer catch maps to `retry_schedule_guard_mismatch` /
+ * `retry_schedule_vanished_mid_tx` respectively. The whole aggregate rolls
+ * back on any infrastructure failure (the caller's tx aborts). The
  * retryHistory stamp did NOT commit on a throw (the in-tx stamp rolled
  * back with the aggregate; the failure-stamp helper did not run).
  */
@@ -672,6 +926,18 @@ export type RepairScheduledOccurrenceOutcome =
       retryNumber: number;
     }
   | {
+      outcome: "retry_schedule_guard_mismatch";
+      occurrence: ScheduledOccurrenceRow;
+      retryNumber: number;
+      /** The schedule-config fields that drifted between the pre-read + the tx. */
+      fields: readonly string[];
+    }
+  | {
+      outcome: "retry_schedule_vanished_mid_tx";
+      occurrence: ScheduledOccurrenceRow;
+      retryNumber: number;
+    }
+  | {
       outcome: "retry_guard_mismatch";
       occurrence: ScheduledOccurrenceRow;
       retryNumber: number;
@@ -686,6 +952,23 @@ export type RepairScheduledOccurrenceOutcome =
       kind: CommitAuthorizationDenialKind;
       reason: string;
       interceptorKey?: string;
+    }
+  | {
+      outcome: "retry_in_progress";
+      occurrence: ScheduledOccurrenceRow;
+      retryNumber: number;
+    }
+  | {
+      outcome: "retry_already_completed";
+      occurrence: ScheduledOccurrenceRow;
+      retryNumber: number;
+      /** The prior retryHistory entry for this retryNumber (re-read from the row). */
+      priorEntry: RetryHistoryEntry | null;
+    }
+  | {
+      outcome: "retry_concurrent_conflict";
+      occurrence: ScheduledOccurrenceRow;
+      retryNumber: number;
     }
   | {
       outcome: "illegal_source_state";
@@ -724,10 +1007,6 @@ export function repairScheduledOccurrence(
   const db = getDb();
 
   // ----- 1. RE-READ THE REJECTED OCCURRENCE --------------------------------
-  // Only `rejected` occurrences can be retried. A `reserved`/`publishing`
-  // occurrence is still in flight (use the publisher / recovery worker,
-  // not the retry). A `published` occurrence already succeeded (no retry
-  // needed).
   const occurrence = getOccurrenceWithClient(db, input.occurrenceId);
   if (!occurrence) return { outcome: "not_found" };
   if (occurrence.state !== "rejected") {
@@ -739,17 +1018,17 @@ export function repairScheduledOccurrence(
   }
 
   // ----- 2. RE-READ THE LATEST SCHEDULE ------------------------------------
-  // The retry uses the CURRENT schedule (NOT the reservation-time snapshot
-  // — the whole point of repair is to pick up the corrected schedule +
-  // template + governance). A missing schedule is a terminal retry
-  // failure (the operator must recreate the schedule before retrying).
   const schedule = db
     .select()
     .from(scheduledTasks)
     .where(eq(scheduledTasks.id, occurrence.scheduledTaskId))
     .get();
   if (!schedule) {
-    // Stamp a `retry_failed_schedule_missing` entry on the retryHistory.
+    // The schedule was deleted between the original failure + the retry.
+    // Stamp `retry_failed_schedule_missing` (no coordination reserved — the
+    // schedule's habitatId is unknown, so the coordination can't be reserved).
+    // The duplicate-stamp risk for two concurrent schedule_missing retries is
+    // accepted (rare path — the schedule is GONE; the operator must recreate).
     const retryNumber = readRetryHistory(occurrence.result).length + 1;
     const entry: RetryHistoryEntry = {
       retryNumber,
@@ -766,12 +1045,88 @@ export function repairScheduledOccurrence(
     };
   }
 
-  // ----- 3. RESOLVE TOKENS (durable timestamp discipline — T9A-06) ---------
-  // counter = ordinal + 1 (matches the publisher). {{date}} is formatted
-  // from the occurrence's preserved `scheduledFor` instant (NOT wall-clock
-  // `new Date()`) so a retry days after the original firing renders the
-  // SAME date → the same fingerprint → token consistency (the plan's
-  // "preserve the original scheduledFor/ordinal for token consistency").
+  // ----- 3. DERIVE retryNumber ---------------------------------------------
+  const retryNumber = readRetryHistory(occurrence.result).length + 1;
+
+  // ----- 4. BUILD THE SCHEDULE SNAPSHOT (T9B-04 in-tx guard) ---------------
+  // Captured BEFORE the coordination reservation (the snapshot reflects the
+  // schedule state the retry's decisions are based on). The participant
+  // re-reads the schedule IN-TX + diffs against this snapshot.
+  const scheduleSnapshot = buildRetryScheduleSnapshot(schedule);
+
+  // ----- 5. RESERVE THE RETRY-COORDINATION ATTEMPT (T9B-05) ---------------
+  // The coordination is the concurrency-defense token (option (a) of the
+  // T9B-05 design). Reserved BEFORE per-Task attempts + BEFORE the publish tx.
+  // The UNIQUE index on (source, sourceScopeKind, sourceScopeId, attemptKey)
+  // guarantees ONE winner per (occurrence, retryNumber); the loser gets a
+  // typed outcome (NOT the PublicationCheckpointConsistencyError 500 that the
+  // unguarded race produced when both callers' per-Task attempts collided).
+  const actor: AuditActorRef = { type: "system", id: REPAIR_ACTOR_ID };
+  const causalContext: CausalContext = {
+    root: { type: OCCURRENCE_CAUSAL_ROOT_TYPE, id: occurrence.id },
+  };
+  const coordinationFingerprint = computeRetryCoordinationFingerprint({
+    occurrenceId: occurrence.id,
+    retryNumber,
+  });
+  const coordinationAttemptKey = `occurrence-retry-${retryNumber}-coordination`;
+  const coordinationReservation = reserveAttemptWithClient(db, {
+    source: REPAIR_AUDIT_SOURCE,
+    sourceScopeKind: OCCURRENCE_SCOPE_KIND,
+    sourceScopeId: occurrence.id,
+    attemptKey: coordinationAttemptKey,
+    requestFingerprint: coordinationFingerprint,
+    publicationKind: "scheduled_occurrence",
+    habitatId: schedule.habitatId,
+    actorType: "system",
+    actorId: REPAIR_ACTOR_ID,
+    causalContext,
+  });
+
+  if (coordinationReservation.outcome === "replayed") {
+    // Another caller reserved the same coordination (same occurrence + same
+    // retryNumber). The coordination's state tells us what happened.
+    const coordinationAttempt = coordinationReservation.attempt;
+    if (coordinationAttempt.completedAt !== null) {
+      // The coordination is TERMINAL — a prior retry under this retryNumber
+      // already concluded. The retryHistory should carry the prior entry.
+      // Re-read the retryHistory to surface the prior outcome.
+      const reRead = getOccurrenceWithClient(db, occurrence.id) ?? occurrence;
+      const priorHistory = readRetryHistory(reRead.result);
+      const priorEntry = priorHistory.find((e) => e.retryNumber === retryNumber) ?? null;
+      return {
+        outcome: "retry_already_completed",
+        occurrence: reRead,
+        retryNumber,
+        priorEntry,
+      };
+    }
+    // The coordination is `pending` — another caller is mid-flight. Return
+    // a typed `retry_in_progress` (resumable — the operator re-calls later;
+    // the next retry re-derives a fresh retryNumber if the in-flight call
+    // concluded, or the same retryNumber if it's still pending).
+    return {
+      outcome: "retry_in_progress",
+      occurrence,
+      retryNumber,
+    };
+  }
+
+  if (coordinationReservation.outcome === "rejected_fingerprint") {
+    // A concurrent retry under the same key has a DIFFERENT fingerprint
+    // (the retryNumber collided with a prior retry under a different claim —
+    // a data anomaly). Return a typed `retry_concurrent_conflict`.
+    return {
+      outcome: "retry_concurrent_conflict",
+      occurrence,
+      retryNumber,
+    };
+  }
+
+  // `created` — this caller is the winner. Proceed.
+  const coordinationAttemptId = coordinationReservation.attempt.id;
+
+  // ----- 6. RESOLVE TOKENS (durable timestamp discipline — T9A-06) ---------
   const tokenContext = {
     runCount: occurrence.ordinal + 1,
     timezone: schedule.timezone ?? "UTC",
@@ -780,44 +1135,41 @@ export function repairScheduledOccurrence(
   const resolvedTitle = substituteTokens(schedule.missionTitle, tokenContext);
   const resolvedDescription = substituteTokens(schedule.missionDescription, tokenContext);
 
-  // ----- 4. DERIVE retryNumber ---------------------------------------------
-  // 1-based; derived from the prior retryHistory length so a failed stamp
-  // tx (rare) does not orphan a retryNumber gap (the next retry re-
-  // derives the same number).
-  const retryNumber = readRetryHistory(occurrence.result).length + 1;
-
-  // ----- 5. PREPARE via the milestone-1 kernel -----------------------------
-  // A null templateId is a config error (the inline createMissionFromSchedule
-  // path is a separate legacy concern; T9A's scope is the templateId path).
-  // A `rejected_validation` here stamps a failure entry + returns.
-  if (!schedule.templateId) {
-    const validationErrors: PublicationError[] = [
-      {
-        field: "templateId",
-        code: "template_not_set",
-        message: "Schedule has no templateId.",
-      },
-    ];
+  // ----- 7. PREPARE via the milestone-1 kernel -----------------------------
+  // A null templateId is a config error. A `rejected_validation` here (or from
+  // the prepare) stamps a failure entry + terminalizes the coordination.
+  const failValidation = (errors: PublicationError[]): RepairScheduledOccurrenceOutcome => {
     const entry: RetryHistoryEntry = {
       retryNumber,
       outcome: "retry_failed_validation",
       attemptedAt: new Date().toISOString(),
       actorId: input.actorId,
-      errors: validationErrors,
+      errors,
     };
-    const stamped = stampFailureRetryHistory(occurrence, entry);
+    const stamped = stampFailureRetryHistory(occurrence, entry, {
+      coordinationAttemptId,
+      coordinationFinalState: "rejected_validation",
+      coordinationTerminalOutcome: "retry_failed_validation",
+      coordinationTerminalResult: {
+        outcome: "retry_failed_validation",
+        attemptId: coordinationAttemptId,
+        errors,
+      },
+    });
     return {
       outcome: "retry_failed_validation",
       occurrence: stamped,
       retryNumber,
-      errors: validationErrors,
+      errors,
     };
+  };
+
+  if (!schedule.templateId) {
+    return failValidation([
+      { field: "templateId", code: "template_not_set", message: "Schedule has no templateId." },
+    ]);
   }
 
-  const actor: AuditActorRef = { type: "system", id: REPAIR_ACTOR_ID };
-  const causalContext: CausalContext = {
-    root: { type: OCCURRENCE_CAUSAL_ROOT_TYPE, id: occurrence.id },
-  };
   const prepareCtx: PrepareTemplateAggregateContext = {
     actor,
     auditSource: REPAIR_AUDIT_SOURCE,
@@ -835,31 +1187,15 @@ export function repairScheduledOccurrence(
     prepareCtx,
   );
   if (prepared.outcome === "rejected_validation") {
-    const entry: RetryHistoryEntry = {
-      retryNumber,
-      outcome: "retry_failed_validation",
-      attemptedAt: new Date().toISOString(),
-      actorId: input.actorId,
-      errors: prepared.errors,
-    };
-    const stamped = stampFailureRetryHistory(occurrence, entry);
-    return {
-      outcome: "retry_failed_validation",
-      occurrence: stamped,
-      retryNumber,
-      errors: prepared.errors,
-    };
+    return failValidation(prepared.errors);
   }
 
   const aggregate = prepared.aggregate;
   const taskCount = aggregate.tasks.length;
 
-  // ----- 6. RESERVE N PER-TASK ATTEMPTS (retry-scoped keys) ----------------
-  // The retry's per-Task attempts share the occurrence scope (same
-  // `sourceScopeId = occurrence.id`) but use RETRY-SCOPED keys so they're
-  // DISTINCT from the original publication's attempts (which are terminal
-  // — vetoed / batch_rejected / etc.) AND from prior retry attempts. The
-  // retryNumber discriminator guarantees retry-to-retry uniqueness.
+  // ----- 8. RESERVE N PER-TASK ATTEMPTS (retry-scoped keys) ----------------
+  // The coordination already defended the concurrent-retry race; the per-Task
+  // keys are retryNumber-scoped under the winner's slot.
   const requestFingerprint = computeRetryFingerprint({
     occurrenceId: occurrence.id,
     templateId: schedule.templateId,
@@ -872,9 +1208,6 @@ export function repairScheduledOccurrence(
 
   const attemptIds: string[] = [];
   for (let i = 0; i < taskCount; i++) {
-    // Per-Task retry attempt key: stable across (template, retry, task
-    // index). Same occurrence + same retryNumber + same template + same
-    // slot → same key → replay on a retry's own re-run.
     const attemptKey = `occurrence-retry-${retryNumber}-${schedule.templateId}-${i}`;
     const reservation = reserveAttemptWithClient(db, {
       source: REPAIR_AUDIT_SOURCE,
@@ -889,76 +1222,156 @@ export function repairScheduledOccurrence(
       causalContext,
     });
 
-    // A `rejected_fingerprint` on a retry's attempt is a data anomaly —
-    // the retryNumber discriminator should guarantee uniqueness. Surface
-    // as a thrown error (the operator should not see this in production;
-    // it indicates a bug in retryNumber derivation or a same-key
-    // collision). The attempts reserved so far stay `pending` (they're
-    // harmless orphans — the next retry uses a different retryNumber).
     if (reservation.outcome === "rejected_fingerprint") {
+      // A data anomaly — the retryNumber discriminator + the coordination
+      // defense should guarantee this is unreachable for the winner. Surface
+      // as a thrown error (the coordination stays `pending` — the next retry
+      // re-derives a fresh retryNumber after this throw propagates + the
+      // operator re-calls).
       throw new Error(
         `repairScheduledOccurrence: retry attempt key "${attemptKey}" produced rejected_fingerprint (reserved "${reservation.reservedFingerprint}" ≠ request "${requestFingerprint}") — a retryNumber collision or a fingerprint drift. The retry aborts.`,
       );
     }
 
-    // REPLAY of a prior terminal / recovering attempt under the retry's
-    // own keys. The retry's keys are retryNumber-scoped, so a prior
-    // terminal under these EXACT keys means a prior retry call already
-    // reached this point. Treat as a replay: return the stored state.
-    // (This is the rare case where the operator called retry twice in
-    // quick succession before the first retry's stamp committed — the
-    // second call sees the first's pending attempts.)
-    if (
-      reservation.attempt.state === "published_pending_observation" ||
-      reservation.attempt.state === "published_pending_assignment" ||
-      reservation.attempt.state === "created" ||
-      reservation.attempt.state === "created_unassigned" ||
-      reservation.attempt.state === "rejected_validation" ||
-      reservation.attempt.state === "vetoed" ||
-      reservation.attempt.state === "batch_rejected"
-    ) {
-      // The retry's own keys already reached a terminal / recovering
-      // state. This indicates a concurrent retry call under the same
-      // retryNumber (a race). For idempotency, return the prior terminal
-      // — surface as a typed `illegal_source_state` (the occurrence is
-      // `rejected`, but the retry's own attempts are not pending — the
-      // operator should re-fetch the retryHistory to see the prior
-      // retry's outcome).
-      return {
-        outcome: "illegal_source_state",
-        occurrence,
-        fromState: occurrence.state as ScheduledOccurrenceState,
-      };
-    }
-
     attemptIds.push(reservation.attempt.id);
   }
 
-  // ----- 7. PUBLISH (atomic, inside one caller-owned tx) -------------------
-  // The retry-history stamp participant runs INSIDE the milestone-1 tx —
-  // AFTER the Mission + Tasks + Workflow + usage mutation commit + BEFORE
-  // the tx returns. A throw (the CAS-miss sentinel for state drift, or
-  // any infrastructure error) rolls back the whole aggregate.
-  const participants = buildRetryHistoryParticipant(occurrence.id, retryNumber, input.actorId);
+  // ----- 9. PUBLISH (atomic, with the schedule-guard + coordination) -------
+  // The participant: (a) re-checks the schedule guard IN-TX (T9B-04),
+  // (b) terminalizes the coordination to `created` IN-TX (T9B-05),
+  // (c) stamps the `repaired` retryHistory entry IN-TX. A throw (the
+  // schedule-guard sentinel, the CAS-miss, or any infrastructure error)
+  // rolls back the whole aggregate.
+  const participants = buildRetryHistoryParticipant(
+    occurrence.id,
+    retryNumber,
+    scheduleSnapshot,
+    coordinationAttemptId,
+    input.actorId,
+  );
 
   let publishOutcome: PublishTemplateAggregateOutcome;
-  publishOutcome = publishTemplateAggregateWithClient(db, {
-    attemptIds,
-    prepared: aggregate,
-    participants,
-  });
-  // The in-tx participant may throw (the CAS-miss sentinel for state drift,
-  // or any infrastructure error). The whole aggregate rolls back (Mission
-  // + Tasks + Workflow + usage + the retryHistory stamp). The occurrence
-  // STAYS `rejected`; no retryHistory entry was stamped. The throw
-  // propagates as a retryable runtime error — the operator can call the
-  // retry endpoint again.
+  try {
+    publishOutcome = publishTemplateAggregateWithClient(db, {
+      attemptIds,
+      prepared: aggregate,
+      participants,
+    });
+  } catch (err) {
+    // T9B-04 — the in-tx schedule-guard sentinels. The whole aggregate
+    // rolled back (no Mission, no Tasks, no stamp). The coordination + per-
+    // Task attempts are still `pending`. Terminalize them as `batch_rejected`
+    // + stamp the resumable outcome (advances retryNumber so the next retry
+    // uses a fresh slot — avoids the "pending coordination blocks re-call"
+    // trap). The operator re-calls; the next retry re-reads the corrected
+    // schedule.
+    if (err instanceof ScheduleGuardMismatch) {
+      const entry: RetryHistoryEntry = {
+        retryNumber,
+        outcome: "retry_schedule_guard_mismatch",
+        attemptedAt: new Date().toISOString(),
+        actorId: input.actorId,
+        guardFields: err.fields,
+      };
+      const stamped = stampFailureRetryHistory(occurrence, entry, {
+        coordinationAttemptId,
+        coordinationFinalState: "batch_rejected",
+        coordinationTerminalOutcome: "retry_schedule_guard_mismatch",
+        coordinationTerminalResult: {
+          outcome: "retry_schedule_guard_mismatch",
+          attemptId: coordinationAttemptId,
+          errors: [
+            {
+              reason: "schedule_guard_mismatch",
+              message: `Schedule drifted (fields: ${err.fields.join(", ")}) between the retry's pre-read + the publication tx.`,
+            },
+          ],
+        },
+        perTaskAttemptTerminals: attemptIds.map((attemptId) => ({
+          attemptId,
+          finalState: "batch_rejected" as const,
+          terminalOutcome: "retry_schedule_guard_mismatch",
+          terminalResult: {
+            outcome: "retry_schedule_guard_mismatch",
+            attemptId,
+            errors: [
+              {
+                reason: "schedule_guard_mismatch_collateral",
+                message:
+                  "The aggregate rolled back on a schedule-guard mismatch; this Task was not published.",
+              },
+            ],
+          },
+        })),
+      });
+      return {
+        outcome: "retry_schedule_guard_mismatch",
+        occurrence: stamped,
+        retryNumber,
+        fields: err.fields,
+      };
+    }
+    if (err instanceof ScheduleVanishedMidTx) {
+      const entry: RetryHistoryEntry = {
+        retryNumber,
+        outcome: "retry_schedule_vanished_mid_tx",
+        attemptedAt: new Date().toISOString(),
+        actorId: input.actorId,
+        message: `Schedule "${err.scheduleId}" vanished between the retry's pre-read + the publication tx.`,
+      };
+      const stamped = stampFailureRetryHistory(occurrence, entry, {
+        coordinationAttemptId,
+        coordinationFinalState: "batch_rejected",
+        coordinationTerminalOutcome: "retry_schedule_vanished_mid_tx",
+        coordinationTerminalResult: {
+          outcome: "retry_schedule_vanished_mid_tx",
+          attemptId: coordinationAttemptId,
+          errors: [
+            {
+              reason: "schedule_vanished_mid_tx",
+              message: `Schedule "${err.scheduleId}" vanished mid-tx.`,
+            },
+          ],
+        },
+        perTaskAttemptTerminals: attemptIds.map((attemptId) => ({
+          attemptId,
+          finalState: "batch_rejected" as const,
+          terminalOutcome: "retry_schedule_vanished_mid_tx",
+          terminalResult: {
+            outcome: "retry_schedule_vanished_mid_tx",
+            attemptId,
+            errors: [
+              {
+                reason: "schedule_vanished_mid_tx_collateral",
+                message:
+                  "The aggregate rolled back on a mid-tx schedule vanishing; this Task was not published.",
+              },
+            ],
+          },
+        })),
+      });
+      return {
+        outcome: "retry_schedule_vanished_mid_tx",
+        occurrence: stamped,
+        retryNumber,
+      };
+    }
+    // Infrastructure error — propagate. The coordination + per-Task attempts
+    // stay `pending` (the next retry re-derives a fresh retryNumber only if
+    // this throw's propagation path stamps; here it does NOT stamp, so the
+    // retryNumber does NOT advance — the operator re-calling hits the pending
+    // coordination → `retry_in_progress`). This is the documented trade-off
+    // for true infrastructure failures (rare; the operator waits for the
+    // in-flight call to clear OR the coordination is manually cleared).
+    throw err;
+  }
 
-  // ----- 8. MAP THE OUTCOME -----------------------------------------------
+  // ----- 10. MAP THE OUTCOME ----------------------------------------------
   switch (publishOutcome.outcome) {
     case "published": {
-      // The participant already stamped the `repaired` retryHistory entry
-      // in-tx (atomic with the aggregate). Re-read the authoritative row.
+      // The participant already stamped the `repaired` retryHistory entry +
+      // terminalized the coordination to `created` in-tx (atomic with the
+      // aggregate). Re-read the authoritative row.
       const stampedRow = getOccurrenceWithClient(db, occurrence.id) ?? occurrence;
       return {
         outcome: "repaired",
@@ -971,9 +1384,45 @@ export function repairScheduledOccurrence(
     }
 
     case "vetoed": {
-      // The latest governance refused one or more Tasks BEFORE the tx
-      // opened. The participant did NOT run (the tx never opened). Stamp
-      // a `retry_failed_vetoed` entry in a separate small tx.
+      // T9B-06 — terminalize ALL reserved attempts atomically with the
+      // failure stamp. The vetoed TaskIndexes → `vetoed`; the allowed-but-
+      // unpublished TaskIndexes → `batch_rejected` (collateral). The
+      // coordination → `vetoed`. All terminalize IN THE SAME tx as the
+      // `retry_failed_vetoed` stamp.
+      const vetoedTaskIndexes = new Set(publishOutcome.vetoes.map((v) => v.taskIndex));
+      const perTaskAttemptTerminals = attemptIds.map((attemptId, i) => {
+        if (vetoedTaskIndexes.has(i)) {
+          const vetoEntry = publishOutcome.vetoes.find((v) => v.taskIndex === i);
+          const veto = vetoEntry!.veto;
+          return {
+            attemptId,
+            finalState: "vetoed" as const,
+            terminalOutcome: "vetoed",
+            terminalResult: {
+              outcome: "vetoed",
+              attemptId,
+              veto,
+            },
+          };
+        }
+        return {
+          attemptId,
+          finalState: "batch_rejected" as const,
+          terminalOutcome: "batch_rejected",
+          terminalResult: {
+            outcome: "batch_rejected",
+            attemptId,
+            errors: [
+              {
+                reason: "aggregate_vetoed_collateral",
+                message:
+                  "The aggregate was vetoed by another Task; this allowed Task was not published.",
+              },
+            ],
+          },
+        };
+      });
+
       const entry: RetryHistoryEntry = {
         retryNumber,
         outcome: "retry_failed_vetoed",
@@ -981,7 +1430,17 @@ export function repairScheduledOccurrence(
         actorId: input.actorId,
         vetoes: publishOutcome.vetoes,
       };
-      const stamped = stampFailureRetryHistory(occurrence, entry);
+      const stamped = stampFailureRetryHistory(occurrence, entry, {
+        coordinationAttemptId,
+        coordinationFinalState: "vetoed",
+        coordinationTerminalOutcome: "vetoed",
+        coordinationTerminalResult: {
+          outcome: "vetoed",
+          attemptId: coordinationAttemptId,
+          publication: { retryNumber, vetoes: publishOutcome.vetoes },
+        },
+        perTaskAttemptTerminals,
+      });
       return {
         outcome: "retry_failed_vetoed",
         occurrence: stamped,
@@ -991,33 +1450,131 @@ export function repairScheduledOccurrence(
     }
 
     case "guard_mismatch": {
-      // RESUMABLE — per-Task guard drift at publish time. The tx rolled
-      // back; NO retryHistory entry stamped (the retry did not reach a
-      // conclusion). The operator can retry again; the next retry re-
-      // derives the same retryNumber.
-      return {
-        outcome: "retry_guard_mismatch",
+      // Per-Task guard drift at publish time. The tx rolled back; the per-
+      // Task + coordination attempts are terminalized `batch_rejected` + a
+      // stamp advances the retryNumber (T9B-05 — the operator re-calls under
+      // a fresh slot).
+      return stampResumableOutcome(
         occurrence,
         retryNumber,
-        taskIndex: publishOutcome.taskIndex,
-        reasons: publishOutcome.reasons,
-      };
+        input.actorId,
+        coordinationAttemptId,
+        attemptIds,
+        {
+          kind: "retry_guard_mismatch",
+          taskIndex: publishOutcome.taskIndex,
+          reasons: publishOutcome.reasons,
+        },
+      );
     }
 
     case "governance_denied": {
-      // RESUMABLE — stale governance decision at commit. Same handling
-      // as guard_mismatch.
-      return {
-        outcome: "retry_governance_denied",
+      return stampResumableOutcome(
         occurrence,
         retryNumber,
-        taskIndex: publishOutcome.taskIndex,
-        kind: publishOutcome.kind,
-        reason: publishOutcome.reason,
-        ...(publishOutcome.interceptorKey !== undefined
-          ? { interceptorKey: publishOutcome.interceptorKey }
-          : {}),
-      };
+        input.actorId,
+        coordinationAttemptId,
+        attemptIds,
+        {
+          kind: "retry_governance_denied",
+          taskIndex: publishOutcome.taskIndex,
+          denialKind: publishOutcome.kind,
+          denialReason: publishOutcome.reason,
+          ...(publishOutcome.interceptorKey !== undefined
+            ? { interceptorKey: publishOutcome.interceptorKey }
+            : {}),
+        },
+      );
     }
   }
+}
+
+/**
+ * Stamps a resumable retry outcome (`retry_guard_mismatch` /
+ * `retry_governance_denied`) + terminalizes the coordination + per-Task
+ * attempts as `batch_rejected` atomically with the stamp (T9B-05). Advances
+ * the retryNumber so the operator's next retry uses a fresh slot.
+ */
+function stampResumableOutcome(
+  occurrence: ScheduledOccurrenceRow,
+  retryNumber: number,
+  actorId: string,
+  coordinationAttemptId: string,
+  attemptIds: readonly string[],
+  detail:
+    | {
+        kind: "retry_guard_mismatch";
+        taskIndex: number;
+        reasons: GuardMismatchReason[];
+      }
+    | {
+        kind: "retry_governance_denied";
+        taskIndex: number;
+        denialKind: CommitAuthorizationDenialKind;
+        denialReason: string;
+        interceptorKey?: string;
+      },
+): RepairScheduledOccurrenceOutcome {
+  const entry: RetryHistoryEntry = {
+    retryNumber,
+    outcome: detail.kind,
+    attemptedAt: new Date().toISOString(),
+    actorId,
+    ...(detail.kind === "retry_guard_mismatch"
+      ? { taskIndex: detail.taskIndex, guardFields: detail.reasons.map((r) => r.field) }
+      : {
+          taskIndex: detail.taskIndex,
+          denialKind: detail.denialKind,
+          denialReason: detail.denialReason,
+        }),
+  };
+  const perTaskAttemptTerminals = attemptIds.map((attemptId) => ({
+    attemptId,
+    finalState: "batch_rejected" as const,
+    terminalOutcome: detail.kind,
+    terminalResult: {
+      outcome: detail.kind,
+      attemptId,
+      errors: [
+        {
+          reason: `${detail.kind}_resumable_collateral`,
+          message: "The aggregate rolled back on a resumable outcome; this Task was not published.",
+        },
+      ],
+    },
+  }));
+  const stamped = stampFailureRetryHistory(occurrence, entry, {
+    coordinationAttemptId,
+    coordinationFinalState: "batch_rejected",
+    coordinationTerminalOutcome: detail.kind,
+    coordinationTerminalResult: {
+      outcome: detail.kind,
+      attemptId: coordinationAttemptId,
+      errors: [
+        {
+          reason: detail.kind,
+          message: `The retry concluded with a resumable ${detail.kind}; the coordination was terminalized as batch_rejected.`,
+        },
+      ],
+    },
+    perTaskAttemptTerminals,
+  });
+  if (detail.kind === "retry_guard_mismatch") {
+    return {
+      outcome: "retry_guard_mismatch",
+      occurrence: stamped,
+      retryNumber,
+      taskIndex: detail.taskIndex,
+      reasons: detail.reasons,
+    };
+  }
+  return {
+    outcome: "retry_governance_denied",
+    occurrence: stamped,
+    retryNumber,
+    taskIndex: detail.taskIndex,
+    kind: detail.denialKind,
+    reason: detail.denialReason,
+    ...(detail.interceptorKey !== undefined ? { interceptorKey: detail.interceptorKey } : {}),
+  };
 }

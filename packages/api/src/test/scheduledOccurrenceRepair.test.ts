@@ -89,6 +89,33 @@ vi.mock("../services/pulseService.js", async (importOriginal) => {
 vi.mock("../services/tasks/task-lifecycle.js", () => ({ onTaskEvent: vi.fn() }));
 vi.mock("../services/commentService.js", () => ({ onCommentCreated: vi.fn() }));
 
+// --- T9B-04 injection hook: edit/delete the schedule BETWEEN the retry's ---
+// pre-read (step 2) + the participant's in-tx re-check (step 9). The hook ---
+// fires AFTER the coordination reservation (the first call with an attemptKey ---
+// ending in `-coordination`). The retry proceeds with the STALE schedule ---
+// variable → the participant's in-tx guard catches the drift. ---
+let scheduleMutationHook: ((db: unknown) => void) | null = null;
+vi.mock("../repositories/taskCreationAttempts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../repositories/taskCreationAttempts.js")>();
+  return {
+    ...actual,
+    reserveAttemptWithClient: vi.fn(
+      (
+        db: Parameters<typeof actual.reserveAttemptWithClient>[0],
+        input: Parameters<typeof actual.reserveAttemptWithClient>[1],
+      ) => {
+        const result = actual.reserveAttemptWithClient(db, input);
+        // Fire the one-shot hook AFTER the coordination reservation.
+        if (scheduleMutationHook && input.attemptKey.endsWith("-coordination")) {
+          scheduleMutationHook(db);
+          scheduleMutationHook = null;
+        }
+        return result;
+      },
+    ),
+  };
+});
+
 // --- Shared fixtures ---
 let habitatId: string;
 let columnId: string;
@@ -126,6 +153,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   pluginManager.resetPlugins();
+  scheduleMutationHook = null; // clear the T9B-04 injection hook.
   closeDb();
   delete process.env.ORCY_PLUGIN_QUARANTINE_THRESHOLD;
 });
@@ -391,13 +419,18 @@ describe("repairScheduledOccurrence — happy path (repaired)", () => {
 
     // The retry's per-Task attempts use retry-scoped keys (distinct from
     // any prior publication's attempts; the retryNumber discriminator
-    // guarantees retry-to-retry uniqueness too).
+    // guarantees retry-to-retry uniqueness too). The retry-coordination
+    // attempt (`occurrence-retry-N-coordination`) is EXCLUDED — it's the
+    // T9B-05 concurrency-defense token, not a per-Task publication attempt.
     const retryAttempts = getDb()
       .select()
       .from(taskCreationAttempts)
       .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
       .all()
-      .filter((a) => a.attemptKey.startsWith("occurrence-retry-1-"));
+      .filter(
+        (a) =>
+          a.attemptKey.startsWith("occurrence-retry-1-") && !a.attemptKey.endsWith("-coordination"),
+      );
     expect(retryAttempts).toHaveLength(result.tasks.length);
     for (const a of retryAttempts) {
       expect(a.state).toBe("published_pending_observation");
@@ -405,6 +438,17 @@ describe("repairScheduledOccurrence — happy path (repaired)", () => {
       expect(a.source).toBe("scheduler");
       expect(a.publicationKind).toBe("scheduled_occurrence");
     }
+
+    // The retry-coordination attempt is terminalized to `created` in-tx
+    // (atomic with the aggregate + the retryHistory stamp). T9B-05.
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.attemptKey, "occurrence-retry-1-coordination"))
+      .get();
+    expect(coordination).toBeTruthy();
+    expect(coordination!.state).toBe("created");
+    expect(coordination!.completedAt).not.toBeNull();
   });
 
   it("retryNumber increments across successive retries (prior retryHistory length + 1)", () => {
@@ -830,5 +874,227 @@ describe("repairScheduledOccurrence — prior failure history retained", () => {
     expect(retryHistory).toHaveLength(1);
     expect(retryHistory[0].outcome).toBe("repaired");
     expect(retryHistory[0].missionId).toBe(result.mission.id);
+  });
+});
+
+// ===========================================================================
+// 10. T9B-04 — IN-TX SCHEDULE GUARD (the retry mirrors the Phase-3 publisher's
+//     two-layer guard: pre-check + in-tx re-check). A schedule edit/delete
+//     between the retry's pre-read + the publication tx → the in-tx guard
+//     fires → the aggregate rolls back → a typed `retry_schedule_guard_*`
+//     outcome (NOT a stale `repaired`).
+// ===========================================================================
+
+describe("repairScheduledOccurrence — T9B-04 in-tx schedule guard", () => {
+  it("schedule EDIT between the retry's pre-read + the tx → retry_schedule_guard_mismatch (NOT a stale repaired)", () => {
+    const { id: scheduleId } = createSchedule({ missionTitle: "ORIGINAL Title {{counter}}" });
+    const { id: occurrenceId } = makeRejectedOccurrence(scheduleId);
+    const before = countRows();
+
+    // Inject: EDIT the schedule's missionTitle AFTER the retry's pre-read
+    // (the hook fires after the coordination reservation). The retry's
+    // `schedule` variable is STALE (carries the ORIGINAL title); the
+    // participant's in-tx re-read sees the EDITED title → diff fires.
+    scheduleMutationHook = (db) => {
+      (db as ReturnType<typeof getDb>)
+        .update(scheduledTasks)
+        .set({ missionTitle: "EDITED MID-TX Title {{counter}}" })
+        .where(eq(scheduledTasks.id, scheduleId))
+        .run();
+    };
+
+    const result = repairScheduledOccurrence(retryInput(occurrenceId));
+
+    // **Failure mode (pre-T9B-04)**: without the in-tx guard, the retry
+    // would publish with the STALE schedule's title ("ORIGINAL Title 1")
+    // + stamp `repaired` — silently absorbing the mid-tx edit. The in-tx
+    // guard catches the drift + rolls back the whole aggregate.
+    expect(result.outcome).toBe("retry_schedule_guard_mismatch");
+    if (result.outcome !== "retry_schedule_guard_mismatch") throw new Error("unreachable");
+    expect(result.retryNumber).toBe(1);
+    expect(result.fields).toContain("missionTitle");
+
+    // Occurrence STAYS `rejected`; the retryHistory carries the resumable
+    // entry (T9B-05 — the retryNumber advances so the operator re-calls
+    // under a fresh slot, re-reading the corrected schedule).
+    const occurrence = readOccurrence(occurrenceId);
+    expect(occurrence.state).toBe("rejected");
+    const retryHistory = (occurrence.result as { retryHistory?: Array<Record<string, unknown>> })
+      .retryHistory;
+    expect(retryHistory).toHaveLength(1);
+    expect(retryHistory![0].outcome).toBe("retry_schedule_guard_mismatch");
+    expect(retryHistory![0].guardFields).toContain("missionTitle");
+
+    // ZERO partial aggregate: no Mission, no Tasks committed (the tx
+    // rolled back). The coordination + per-Task attempts are terminalized
+    // `batch_rejected` (atomic with the stamp).
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+    const coordination = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.attemptKey, "occurrence-retry-1-coordination"))
+      .get();
+    expect(coordination!.state).toBe("batch_rejected");
+    expect(coordination!.completedAt).not.toBeNull();
+    const perTask = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
+      .all()
+      .filter(
+        (a) =>
+          a.attemptKey.startsWith("occurrence-retry-1-") && !a.attemptKey.endsWith("-coordination"),
+      );
+    for (const a of perTask) {
+      expect(a.state).toBe("batch_rejected");
+      expect(a.completedAt).not.toBeNull();
+    }
+  });
+
+  it("schedule DELETE between the retry's pre-read + the tx → retry_schedule_vanished_mid_tx", () => {
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = makeRejectedOccurrence(scheduleId);
+    const before = countRows();
+
+    // Inject: DELETE the schedule AFTER the retry's pre-read.
+    scheduleMutationHook = (db) => {
+      (db as ReturnType<typeof getDb>)
+        .delete(scheduledTasks)
+        .where(eq(scheduledTasks.id, scheduleId))
+        .run();
+    };
+
+    const result = repairScheduledOccurrence(retryInput(occurrenceId));
+
+    expect(result.outcome).toBe("retry_schedule_vanished_mid_tx");
+    if (result.outcome !== "retry_schedule_vanished_mid_tx") throw new Error("unreachable");
+    expect(result.retryNumber).toBe(1);
+
+    // Occurrence STAYS `rejected`; the retryHistory carries the resumable
+    // entry. The coordination + per-Task attempts are terminalized.
+    const occurrence = readOccurrence(occurrenceId);
+    expect(occurrence.state).toBe("rejected");
+    const retryHistory = (occurrence.result as { retryHistory?: Array<Record<string, unknown>> })
+      .retryHistory;
+    expect(retryHistory).toHaveLength(1);
+    expect(retryHistory![0].outcome).toBe("retry_schedule_vanished_mid_tx");
+
+    // No Mission committed.
+    const after = countRows();
+    expect(after.missions).toBe(before.missions);
+    expect(after.tasks).toBe(before.tasks);
+  });
+
+  it("NO in-tx guard fire when only runCount/nextRunAt advanced (a concurrent reservation's normal advance is ALLOWED)", () => {
+    // The retry's snapshot synthesizes `_expectedPostReservation` from the
+    // live row at pre-read. A concurrent reservation advances runCount +
+    // nextRunAt — the operational diff's runCount-gating ALLOWS this (it's
+    // not a user reschedule; it's the schedule's normal advance). The
+    // retry proceeds to `repaired` (the guard does NOT fire).
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = makeRejectedOccurrence(scheduleId);
+
+    // Inject: advance runCount + nextRunAt (simulate a concurrent
+    // reservation of the NEXT occurrence).
+    scheduleMutationHook = (db) => {
+      (db as ReturnType<typeof getDb>)
+        .update(scheduledTasks)
+        .set({ runCount: 99, nextRunAt: "2099-12-31T00:00:00.000Z" })
+        .where(eq(scheduledTasks.id, scheduleId))
+        .run();
+    };
+
+    const result = repairScheduledOccurrence(retryInput(occurrenceId));
+
+    // The guard does NOT fire — a concurrent reservation's advance is
+    // allowed. The retry publishes successfully.
+    expect(result.outcome).toBe("repaired");
+    if (result.outcome !== "repaired") throw new Error("unreachable");
+  });
+});
+
+// ===========================================================================
+// 11. T9B-06 — VETOED RETRY TERMINALIZES ALL ATTEMPTS (no orphan `pending`
+//     attempts). The vetoed path terminalizes the coordination → `vetoed`,
+//     the vetoed per-Task → `vetoed`, + the allowed-but-unpublished per-Task
+//     → `batch_rejected`, atomically with the `retry_failed_vetoed` stamp.
+// ===========================================================================
+
+describe("repairScheduledOccurrence — T9B-06 vetoed attempt terminalization", () => {
+  it("a vetoed retry terminalizes ALL per-Task attempts + the coordination (none stay pending)", async () => {
+    // Enroll a vetoing interceptor on the FIRST task only (so the second
+    // task is allowed-but-unpublished → collateral `batch_rejected`).
+    await writePlugin(
+      "veto-t9b06",
+      `{
+        manifest: {
+          id: 'veto-t9b06', version: '1.0.0', description: 'veto first task only',
+          contributions: [
+            { kind: 'lifecycleInterceptor', scope: 'habitat', interceptorId: 'veto-first', phase: 'pre', event: 'taskCreated', priority: 1, requires: [] },
+          ],
+        },
+        interceptors: {
+          'veto-first': (pluginCtx, transition) => {
+            const title = transition && transition.context && transition.context.metadata && transition.context.metadata.title;
+            if (title === 'First task') return { allow: false, reason: 'vetoed by T9B-06 test' };
+            return { allow: true };
+          },
+        },
+      }`,
+    );
+    enrollInterceptor(habitatId, "veto-t9b06", "veto-first");
+
+    const { id: scheduleId } = createSchedule();
+    const { id: occurrenceId } = makeRejectedOccurrence(scheduleId);
+
+    const result = repairScheduledOccurrence(retryInput(occurrenceId));
+
+    expect(result.outcome).toBe("retry_failed_vetoed");
+    if (result.outcome !== "retry_failed_vetoed") throw new Error("unreachable");
+    expect(result.retryNumber).toBe(1);
+
+    // **The load-bearing T9B-06 assertion**: ALL reserved attempts are
+    // TERMINAL — none stay `pending` (the pre-T9B-06 defect left every
+    // vetoed-retry attempt `pending` forever, recreating T9A-05 for the
+    // retry). The coordination → `vetoed`; the vetoed per-Task → `vetoed`;
+    // the allowed-but-unpublished per-Task → `batch_rejected`.
+    const allRetryAttempts = getDb()
+      .select()
+      .from(taskCreationAttempts)
+      .where(eq(taskCreationAttempts.sourceScopeId, occurrenceId))
+      .all()
+      .filter((a) => a.attemptKey.startsWith("occurrence-retry-1-"));
+    expect(allRetryAttempts.length).toBeGreaterThanOrEqual(2); // coordination + N per-Task.
+
+    // The coordination attempt → `vetoed`.
+    const coordination = allRetryAttempts.find((a) => a.attemptKey.endsWith("-coordination"));
+    expect(coordination).toBeDefined();
+    expect(coordination!.state).toBe("vetoed");
+    expect(coordination!.completedAt).not.toBeNull();
+
+    // The per-Task attempts: vetoed task → `vetoed`; allowed task → `batch_rejected`.
+    const perTask = allRetryAttempts.filter((a) => !a.attemptKey.endsWith("-coordination"));
+    const vetoedTasks = perTask.filter((a) => a.state === "vetoed");
+    const collateralTasks = perTask.filter((a) => a.state === "batch_rejected");
+    expect(vetoedTasks.length).toBeGreaterThanOrEqual(1);
+    expect(collateralTasks.length).toBeGreaterThanOrEqual(1);
+    // NONE stay `pending` (the T9B-06 fix).
+    const pendingAttempts = perTask.filter((a) => a.state === "pending");
+    expect(pendingAttempts).toHaveLength(0);
+
+    // ALL per-Task attempts have completedAt set (terminalized).
+    for (const a of perTask) {
+      expect(a.completedAt).not.toBeNull();
+    }
+
+    // The retryHistory carries the `retry_failed_vetoed` entry.
+    const occurrence = readOccurrence(occurrenceId);
+    const retryHistory = (occurrence.result as { retryHistory?: Array<Record<string, unknown>> })
+      .retryHistory;
+    expect(retryHistory).toHaveLength(1);
+    expect(retryHistory![0].outcome).toBe("retry_failed_vetoed");
+    expect(retryHistory![0].vetoes).toBeDefined();
   });
 });
