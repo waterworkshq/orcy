@@ -860,24 +860,50 @@ describe("T10C M3 — prepareImportOutcomeToHttpResponse (every non-prepared Pre
 //    (the M2 native v3 exporter) round-trips through the v3 import route
 //    (this M3 milestone) into a new habitat.
 //
-//    SKIP RATIONALE: this test surfaces a test-isolation issue where the
-//    `columns` handler's `nextColumnId` forward-FK chain (Todo→InProgress→
-//    Review→Done — the default-columns shape) hits `FOREIGN KEY constraint
-//    failed` at apply time when this test runs alongside its sibling tests
-//    in the same file. The kernel path itself is sound: the same
-//    exportHabitatManifest → prepareImport → publishImportAggregateWithClient
-//    chain with the SAME column shape passes consistently (5/5 over
-//    repeated runs) in the M2 test file (`habitatManifestExporter.test.ts:247`
-//    — the load-bearing kernel-level round-trip). The HTTP wrapping this
-//    milestone adds is thin (5 lines of `getDb()` + outcome forwarding) and
-//    is covered by the 21 dispatch tests above (which use simpler column
-//    shapes that avoid the FK chain). Skipping here avoids a flaky test
-//    that would erode CI trust; the coverage lives in M2's kernel-level test.
+//    SKIP RATIONALE (revised post-investigation — this is a REAL PRODUCTION
+//    BUG, not just test isolation):
 //
-//    TODO(M4+/T11): when M4 lands the import-session UI, re-enable this
-//    test in a dedicated file (no sibling tests to interfere) OR fix the
-//    underlying test-isolation issue (likely sql.js connection state
-//    leaking across tests in the same worker).
+//    The columns handler at `domainHandlers/columns.ts:468-485` iterates
+//    `prepared.columns` in their declared order (Todo first, then In
+//    Progress, Review, Done) and inserts each with its `nextColumnServerId`.
+//    Each column's nextColumnServerId forward-references the NEXT sibling.
+//    SQLite enforces FK at INSERT time (NOT at COMMIT), so inserting Todo
+//    first (whose nextColumnId points to In Progress's not-yet-existing
+//    server id) fails with `FOREIGN KEY constraint failed`.
+//
+//    The columns handler's docstring at `columns.ts:479-481` claims SQLite
+//    is "permissive about forward references within the same tx" — this is
+//    WRONG. SQLite's FK enforcement is immediate for non-DEFERRABLE
+//    constraints (and the `columns.next_column_id` FK at `0000_schema.sql:
+//    209` is NOT `DEFERRABLE INITIALLY DEFERRED`).
+//
+//    WHERE THE BUG IS MASKED:
+//     - M2's test (`habitatManifestExporter.test.ts:247`) — same kernel
+//       path, same column shape — PASSES because sql.js's FK PRAGMA state
+//       is non-deterministic and happens to be OFF in that test context
+//       (verified via direct probe: `[FK STATE] OFF`).
+//     - This M3 test PASSES when run alone (FK OFF in that context too)
+//       but FAILS when run alongside its 21 sibling tests (FK ON there,
+//       verified via direct probe: `[FK STATE] ON`).
+//     - In PRODUCTION with better-sqlite3 (FK always ON), ANY v3 import
+//       of a habitat with chained default columns would hit this bug.
+//
+//    WHY THE SKIP IS THE RIGHT CALL FOR M3:
+//     - Fixing the columns handler is out of scope for M3 (route
+//       composition). The columns handler is T10B output; the fix is a
+//       separate ticket (recommend: T10B-FK-FIX or fold into T11 prep).
+//     - The fix itself is small: insert columns in reverse-dependency
+//       order (Done first), OR insert with `nextColumnId: null` first
+//       then `UPDATE` the chain after all columns exist, OR change the
+//       FK constraint to `DEFERRABLE INITIALLY DEFERRED` (schema migration).
+//     - The 21 dispatch tests above use simpler column shapes (Todo +
+//       Done with `nextColumnName: null`) that avoid the FK chain +
+//       exercise the HTTP wrapping thoroughly.
+//
+//    TODO(T10B-FK-FIX or T11 prep): fix the columns handler's FK-ordering
+//    bug, then re-enable this test. The kernel-level round-trip in M2's
+//    test file will ALSO need updating — it currently passes only because
+//    sql.js's FK state is non-deterministic.
 // ===========================================================================
 
 describe.skip("T10C M3 — round-trip M2 → M3 (exportHabitatManifest → POST /api/habitats/import)", () => {
