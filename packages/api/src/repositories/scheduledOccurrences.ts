@@ -129,8 +129,8 @@ export type OccurrenceResultJson = Record<string, unknown>;
 /**
  * The typed success-branch sub-shape of {@link OccurrenceResultJson}.
  * Additive (T9A-10 M1) — the publisher's success-result JSON satisfies
- * this; future M2 adds `kind: "handler_dispatched"`; T11 read consumers
- * narrow on `kind`. The storage envelope stays loose (see
+ * this; M2 adds `kind: "handler_dispatched"`; T11 read consumers narrow on
+ * `kind`. The storage envelope stays loose (see
  * {@link OccurrenceResultJson}); this sub-union is for read consumers
  * that want type narrowing without forcing a refactor of the additive
  * writers.
@@ -161,9 +161,30 @@ export type OccurrenceResultSuccess =
        * carries no retryHistory).
        */
       retryHistory?: unknown[];
+    }
+  /**
+   * T9A-10 M2 (Path B — handler dispatch) produces this shape: a registered
+   * handler ran successfully for a `handlerKey` schedule, producing no
+   * Mission + no Tasks at the parent level (handlers that spawn child
+   * schedules — wiki-cadence — are separate firings with their own
+   * occurrences). The discriminator field is `kind: "handler_dispatched"`.
+   * The occurrence's `createdMissionId` column is `null` on this branch.
+   */
+  | {
+      kind: "handler_dispatched";
+      /** The handlerKey that dispatched (=== `scheduledTasks.handlerKey`). */
+      handlerKey: string;
+      /** The verbatim handler-returned result (success/error/missionId?). */
+      handlerResult: { success: boolean; error?: string; missionId?: string };
+      /** ISO timestamp the handler returned (the dispatch moment). */
+      dispatchedAt: string;
+      /**
+       * Optional retry-audit trail stamped by Repair-and-Retry (parallel to
+       * `aggregate_published.retryHistory`). Additive: present IFF the
+       * occurrence was rejected, retried, then dispatched by a later retry.
+       */
+      retryHistory?: unknown[];
     };
-// NOTE: M2 will extend this union with `| { kind: "handler_dispatched"; ... }`
-// for Path B handler-dispatched occurrences.
 
 // ---------------------------------------------------------------------------
 // Terminal-state set (shared domain invariant — mirrors
@@ -343,8 +364,19 @@ export interface OccurrencePublishedDirective {
    * the expected owner for source states that carry no lease.
    */
   leaseOwner: string | null;
-  /** The Mission this occurrence created (plain text, non-cascading). */
-  createdMissionId: string;
+  /**
+   * The Mission this occurrence created (plain text, non-cascading), OR
+   * `null` when the publication path produced no Mission. The Mission-
+   * creating paths (the T9A templateId path + the M1 inline path) always
+   * pass a non-null id. The M2 handler-dispatch path passes `null`
+   * (handlers that spawn child schedules — wiki-cadence — don't link a
+   * Mission at the parent level; the spawned children are separate firings
+   * with their own occurrences). The underlying `created_mission_id` column
+   * is nullable; widening the directive type from `string` to `string |
+   * null` is an additive type-space change — every existing caller still
+   * type-checks (a `string` is assignable to `string | null`).
+   */
+  createdMissionId: string | null;
   /** Optional coordination handle (design question #1 — Phase 3 resolves). */
   attemptId?: string;
   /** Optional compact success result (Mission id, timing, etc.). */
@@ -1625,7 +1657,9 @@ function terminalizeWithClient(
         leaseOwner: null,
         leaseExpiresAt: null,
         // Result + Mission id stamped per directive (rejected has no
-        // createdMissionId; published always does).
+        // createdMissionId; published always passes one — non-null for the
+        // Mission-creating paths (templateId + inline), null for the M2
+        // handler-dispatch path which produces no parent-level Mission).
         ...(target === "published"
           ? {
               createdMissionId: (directive as OccurrencePublishedDirective).createdMissionId,

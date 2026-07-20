@@ -15,49 +15,32 @@ import { writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { sanitizeFilename } from "./fileStorage.js";
 
-/**
- * Result returned by a registered {@link ScheduledTaskHandler}. `missionId` is optional — handlers
- * that spawn work without creating a mission (e.g. the wiki cadence handler, which spawns further
- * scheduled-task rows via `runCadence`) leave it unset.
- */
-export interface ScheduledTaskHandlerResult {
-  success: boolean;
-  error?: string;
-  missionId?: string;
-}
+// ---------------------------------------------------------------------------
+// Handler registry — MOVED to `repositories/scheduledHandlerRegistry.ts`.
+//
+// The registry Map + `registerScheduledTaskHandler` + the lookup accessor +
+// the handler-contract types (`ScheduledTaskHandlerResult` /
+// `ScheduledTaskHandler`) + the `WIKI_CADENCE_HANDLER_KEY` const now live in
+// a load-graph-light module with NO SSE / NO logger / NO `getDb()` deps, so
+// the new dispatch adapter (`services/scheduledHandlerDispatch.ts`) can look
+// up handlers without coupling to this module's load graph. The re-exports
+// below preserve the public API: `wikiSchedulerService.initWikiScheduler`
+// (the one production registrar) keeps working unchanged via
+// `import * as scheduledTaskService`.
+//
+// The handlerKey branch of `executeScheduledTask` (below) looks up handlers
+// via the new `getScheduledTaskHandler` getter — behavior is byte-identical
+// (the dispatch decision tree is unchanged; only the lookup source moved).
+// ---------------------------------------------------------------------------
+export {
+  registerScheduledTaskHandler,
+  getScheduledTaskHandler,
+  WIKI_CADENCE_HANDLER_KEY,
+  type ScheduledTaskHandlerResult,
+  type ScheduledTaskHandler,
+} from "../repositories/scheduledHandlerRegistry.js";
 
-/**
- * A custom handler invoked when a due scheduled task carries a `handlerKey` that matches a
- * registered handler, instead of the default mission-from-template creation path. This lets
- * domain services (wiki cadence) hook into the scheduler without `scheduledTaskService`
- * depending on them.
- */
-export type ScheduledTaskHandler = (schedule: ScheduledTask) => ScheduledTaskHandlerResult;
-
-/** Dispatch key for the wiki cadence handler (registered by `wikiSchedulerService.initWikiScheduler`). */
-export const WIKI_CADENCE_HANDLER_KEY = "wiki-cadence";
-
-/** handlerKey → handler registry, populated by domain services at boot via {@link registerScheduledTaskHandler}. */
-const scheduledTaskHandlers = new Map<string, ScheduledTaskHandler>();
-
-/**
- * Registers a handler invoked when a due scheduled task's `handlerKey` equals `handlerKey`. The
- * handler replaces the default mission-from-template execution for matching schedules. Domain
- * services register their handlers at boot (see `wikiSchedulerService.initWikiScheduler`). This
- * is explicit dispatch keyed on the schedule's declared `handler_key` column — no name-prefix
- * matching, so renaming a schedule's name can never silently break dispatch.
- */
-export function registerScheduledTaskHandler(
-  handlerKey: string,
-  handler: ScheduledTaskHandler,
-): void {
-  scheduledTaskHandlers.set(handlerKey, handler);
-}
-
-/** Returns the registered handler for `handlerKey`, or `null` when none is registered. */
-function getHandler(handlerKey: string): ScheduledTaskHandler | null {
-  return scheduledTaskHandlers.get(handlerKey) ?? null;
-}
+import { getScheduledTaskHandler } from "../repositories/scheduledHandlerRegistry.js";
 
 /** Replaces `{{date}}` and `{{counter}}` tokens in a template string using the schedule's timezone and run count. */
 export function substituteTokens(
@@ -168,7 +151,7 @@ export function executeScheduledTask(id: string): {
     // and a logged error rather than silently falling through to mission creation (which would hide
     // the bug and produce the wrong artifact).
     if (schedule.handlerKey) {
-      const handler = getHandler(schedule.handlerKey);
+      const handler = getScheduledTaskHandler(schedule.handlerKey);
       if (!handler) {
         const error = `No handler registered for handlerKey "${schedule.handlerKey}" on scheduled task ${schedule.name} (id=${id}). Register it at boot via registerScheduledTaskHandler.`;
         logger.error(
