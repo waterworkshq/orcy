@@ -279,6 +279,57 @@ export const importHabitatSchema = z.preprocess((data) => {
   return data;
 }, importHabitatSchemaBody);
 
+// ---------------------------------------------------------------------------
+// T10A M4 — Strict manifest v3 schema (DORMANT alongside the legacy preprocess).
+//
+// The preflight pipeline (`services/importManifest/preflightImport.ts`)
+// consumes this schema as a defensive layer AFTER the legacy adapter
+// (`legacyAdapter.ts`) emits the v3 shape + BEFORE the M3 domain handlers
+// run their deep per-domain validation. The schema's primary job is to
+// reject gross malformations early (unknown versions, missing required
+// fields, malformed envelope shape). The M3 handlers own the deep
+// per-domain validation (column-name uniqueness, mission columnName
+// resolvability, dependency graph acyclicity, etc.) — that validation is
+// NOT duplicated here.
+//
+// The legacy `z.preprocess` above STAYS byte-identical + active until T11's
+// cutover (the legacy `importHabitat` route consumes it). The strict v3
+// schema sits ALONGSIDE it, used only by the new manifest path that is
+// itself dormant behind `ORCY_CREATION_PUBLICATION_ENABLED`.
+// ---------------------------------------------------------------------------
+
+const importManifestDomainEnvelopeSchema = z.object({
+  disposition: z.enum(["replace", "preserve", "reset"]),
+  data: z.unknown(),
+});
+
+export const importManifestSchema = z
+  .object({
+    version: z.literal(3),
+    manifestId: z.string().min(1),
+    generatedAt: z.string().min(1),
+    mode: z.enum(["new", "replacement"]),
+    identityPolicy: z.enum(["remap", "restore"]),
+    lineage: z.object({
+      sourceHabitatId: z.string().nullable(),
+      sourceExportedAt: z.string().nullable(),
+      sourceManifestId: z.string().nullable(),
+    }),
+    domains: z.object({
+      habitatSettings: importManifestDomainEnvelopeSchema.optional(),
+      columns: importManifestDomainEnvelopeSchema.optional(),
+      missions: importManifestDomainEnvelopeSchema.optional(),
+      tasks: importManifestDomainEnvelopeSchema.optional(),
+      subtasks: importManifestDomainEnvelopeSchema.optional(),
+      dependencies: importManifestDomainEnvelopeSchema.optional(),
+      comments: importManifestDomainEnvelopeSchema.optional(),
+      templates: importManifestDomainEnvelopeSchema.optional(),
+    }),
+  })
+  .strict();
+
+export type ImportManifestInput = z.infer<typeof importManifestSchema>;
+
 export const createHabitatSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
