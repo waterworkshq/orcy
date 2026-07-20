@@ -860,53 +860,34 @@ describe("T10C M3 — prepareImportOutcomeToHttpResponse (every non-prepared Pre
 //    (the M2 native v3 exporter) round-trips through the v3 import route
 //    (this M3 milestone) into a new habitat.
 //
-//    SKIP RATIONALE (revised post-investigation — this is a REAL PRODUCTION
-//    BUG, not just test isolation):
+// RE-ENABLED after T10B-FK-FIX (the columns handler's FK-ordering fix):
 //
-//    The columns handler at `domainHandlers/columns.ts:468-485` iterates
-//    `prepared.columns` in their declared order (Todo first, then In
-//    Progress, Review, Done) and inserts each with its `nextColumnServerId`.
-//    Each column's nextColumnServerId forward-references the NEXT sibling.
-//    SQLite enforces FK at INSERT time (NOT at COMMIT), so inserting Todo
-//    first (whose nextColumnId points to In Progress's not-yet-existing
-//    server id) fails with `FOREIGN KEY constraint failed`.
+//    The columns handler originally iterated `prepared.columns` in their
+//    declared order (Todo first, then In Progress, Review, Done) and
+//    inserted each with its `nextColumnServerId` — which forward-referenced
+//    the NEXT sibling. SQLite enforces FK at INSERT time for non-DEFERRABLE
+//    constraints (the `columns.next_column_id` FK at `0000_schema.sql:209`
+//    is NOT `DEFERRABLE INITIALLY DEFERRED`), so the INSERT failed with
+//    `FOREIGN KEY constraint failed` under better-sqlite3 (FK always ON).
 //
-//    The columns handler's docstring at `columns.ts:479-481` claims SQLite
-//    is "permissive about forward references within the same tx" — this is
-//    WRONG. SQLite's FK enforcement is immediate for non-DEFERRABLE
-//    constraints (and the `columns.next_column_id` FK at `0000_schema.sql:
-//    209` is NOT `DEFERRABLE INITIALLY DEFERRED`).
+//    The fix in `applyColumns` (see columns.ts docstring): insert columns
+//    in topological order over the `nextColumnServerId` dependency graph.
+//    With the fix, this test passes deterministically regardless of
+//    sql.js's FK PRAGMA state in the surrounding test context.
 //
-//    WHERE THE BUG IS MASKED:
-//     - M2's test (`habitatManifestExporter.test.ts:247`) — same kernel
-//       path, same column shape — PASSES because sql.js's FK PRAGMA state
-//       is non-deterministic and happens to be OFF in that test context
-//       (verified via direct probe: `[FK STATE] OFF`).
-//     - This M3 test PASSES when run alone (FK OFF in that context too)
-//       but FAILS when run alongside its 21 sibling tests (FK ON there,
-//       verified via direct probe: `[FK STATE] ON`).
-//     - In PRODUCTION with better-sqlite3 (FK always ON), ANY v3 import
-//       of a habitat with chained default columns would hit this bug.
-//
-//    WHY THE SKIP IS THE RIGHT CALL FOR M3:
-//     - Fixing the columns handler is out of scope for M3 (route
-//       composition). The columns handler is T10B output; the fix is a
-//       separate ticket (recommend: T10B-FK-FIX or fold into T11 prep).
-//     - The fix itself is small: insert columns in reverse-dependency
-//       order (Done first), OR insert with `nextColumnId: null` first
-//       then `UPDATE` the chain after all columns exist, OR change the
-//       FK constraint to `DEFERRABLE INITIALLY DEFERRED` (schema migration).
-//     - The 21 dispatch tests above use simpler column shapes (Todo +
-//       Done with `nextColumnName: null`) that avoid the FK chain +
-//       exercise the HTTP wrapping thoroughly.
-//
-//    TODO(T10B-FK-FIX or T11 prep): fix the columns handler's FK-ordering
-//    bug, then re-enable this test. The kernel-level round-trip in M2's
-//    test file will ALSO need updating — it currently passes only because
-//    sql.js's FK state is non-deterministic.
+// NOTE: this test seeds a simpler shape (missions + tasks only, no
+//    subtasks/dependencies/comments/templates). The comprehensive M2
+//    round-trip (`habitatManifestExporter.test.ts:247`) still exercises
+//    the full domain set + remains at the mercy of sql.js's FK PRAGMA
+//    state. Adding `PRAGMA foreign_keys = ON` to M2's beforeEach was
+//    attempted but surfaces a SECOND forward-FK bug in the orchestrator
+//    (subtasks/dependencies apply BEFORE tasks via `publishTaskWithClient`
+//    in `importPublication.ts` step 3b, after the domain loop at step 3a).
+//    That second bug is out of scope for T10B-FK-FIX (PRESERVE-byte-identity
+//    on `importPublication.ts`); file as a follow-up ticket before T11.
 // ===========================================================================
 
-describe.skip("T10C M3 — round-trip M2 → M3 (exportHabitatManifest → POST /api/habitats/import)", () => {
+describe("T10C M3 — round-trip M2 → M3 (exportHabitatManifest → POST /api/habitats/import)", () => {
   beforeEach(() => {
     process.env[CUTOVER_FLAG] = "true";
   });

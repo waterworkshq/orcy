@@ -431,13 +431,33 @@ export function resolveColumnsReferences(
 
 /**
  * Writes the column rows for `mode:"new"` imports. Inserts every prepared
- * column into the `columns` table on the caller-owned tx client, in the
- * order they were prepared. The `nextColumnServerId` was resolved by
- * {@link resolveColumnsReferences} (a no-op successor — self-referencing
- * `nextColumnId` is resolved against this same idMap, so every INSERT's
- * `nextColumnId` may reference a sibling still being inserted; the FK
- * `nextColumnId → columns.id` is `ON DELETE SET NULL` and is permissive
- * about forward references).
+ * column into the `columns` table on the caller-owned tx client, in
+ * **dependency order** (each column's `nextColumnServerId` references an
+ * already-inserted sibling before the INSERT fires).
+ *
+ * # Why dependency order (the FK-ordering fix — T10C execution-run M3.4)
+ *
+ * SQLite enforces FK at INSERT time (not at COMMIT) for non-DEFERRABLE
+ * constraints. The `columns.next_column_id` FK at `0000_schema.sql:209` is
+ * `ON UPDATE no action ON DELETE no action` — NOT `DEFERRABLE INITIALLY
+ * DEFERRED`. So an INSERT whose `nextColumnId` forward-references a
+ * not-yet-inserted sibling fails with `FOREIGN KEY constraint failed`.
+ * This is the production bug surfaced during T10C M3: the default column
+ * chain (Todo→InProgress→Review→Done, each pointing to the next sibling)
+ * could not be imported via the v3 path under better-sqlite3 (FK always
+ * ON). The pre-fix docstring's claim that SQLite was "permissive about
+ * forward references within the same tx" was wrong.
+ *
+ * The fix: insert in topological order over the `nextColumnServerId`
+ * dependency graph (terminals first, then columns whose next is already
+ * inserted, repeat). Cycle detection runs in {@link validateColumns} via
+ * {@link detectColumnChainCycles}, so by the time `apply` runs the chain
+ * is acyclic and a valid insertion order always exists. The defensive
+ * throw below fires only if that invariant is violated.
+ *
+ * The `AppliedDomain.committedServerIds` is returned in the original
+ * declared order (NOT the topological insertion order) so downstream
+ * consumers see no behavioral change.
  *
  * # M1 scope (the `new` path)
  *
@@ -464,27 +484,59 @@ export function applyColumns(
     );
   }
 
-  const committedServerIds: string[] = [];
-  for (const col of prepared.columns) {
-    tx.insert(columns)
-      .values({
-        id: col.columnServerId,
-        habitatId: ctx.targetHabitatId,
-        name: col.name,
-        order: col.order,
-        wipLimit: col.wipLimit,
-        // autoAdvance + requiresClaim are NOT in v3 portable (drift #2 —
-        // legacy v2 column policy fields have no v3 slot). Apply schema
-        // defaults: `auto_advance = 0` (false), `requires_claim = 1` (true).
-        // nextColumnId may forward-reference a sibling inserted in this same
-        // tx (the FK is permissive about it; mode:'replacement' replace handles
-        // cross-row FK safety in M2).
-        nextColumnId: col.nextColumnServerId,
-        isTerminal: col.isTerminal,
-      })
-      .run();
-    committedServerIds.push(col.columnServerId);
+  // Topological-order insertion: each column's `nextColumnServerId` must
+  // reference an already-inserted sibling (SQLite enforces the FK at INSERT
+  // time for non-DEFERRABLE constraints). Cycle detection in validate means
+  // a valid order always exists; the defensive throw below fires only if
+  // that invariant is violated.
+  const insertedIds = new Set<string>();
+  const remaining = [...prepared.columns];
+
+  while (remaining.length > 0) {
+    let progress = false;
+    // Walk remaining front-to-back, inserting any column whose next is
+    // already satisfied (null OR present in `insertedIds`). Mutating
+    // `remaining` via splice during the walk is safe because we bump `i`
+    // only on skip.
+    for (let i = 0; i < remaining.length; ) {
+      const col = remaining[i];
+      if (col.nextColumnServerId !== null && !insertedIds.has(col.nextColumnServerId)) {
+        i++;
+        continue;
+      }
+      tx.insert(columns)
+        .values({
+          id: col.columnServerId,
+          habitatId: ctx.targetHabitatId,
+          name: col.name,
+          order: col.order,
+          wipLimit: col.wipLimit,
+          // autoAdvance + requiresClaim are NOT in v3 portable (drift #2 —
+          // legacy v2 column-policy fields have no v3 slot). Apply schema
+          // defaults: `auto_advance = 0` (false), `requires_claim = 1` (true).
+          nextColumnId: col.nextColumnServerId,
+          isTerminal: col.isTerminal,
+        })
+        .run();
+      insertedIds.add(col.columnServerId);
+      remaining.splice(i, 1);
+      progress = true;
+    }
+    if (!progress) {
+      // Defensive: cycles are rejected by `detectColumnChainCycles` in
+      // validate, so reaching here implies a validate gap (or a regression
+      // in cycle detection). Throw loudly rather than infinite-looping.
+      throw new Error(
+        "columns.apply: no valid insertion order — cyclic nextColumnName chain " +
+          "(should have been rejected by validate's detectColumnChainCycles); " +
+          `stuck on: ${remaining.map((c) => c.name).join(", ")}`,
+      );
+    }
   }
+
+  // Return committedServerIds in the original declared order (NOT the
+  // topological insertion order) — preserves the AppliedDomain contract.
+  const committedServerIds = prepared.columns.map((c) => c.columnServerId);
 
   return {
     domain: "columns",
