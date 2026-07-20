@@ -73,11 +73,21 @@
  *      IMMEDIATE reservation precedent (`reserveScheduledOccurrence`).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 
 import { getDb } from "../../db/index.js";
-import { habitats } from "../../db/schema/index.js";
+import {
+  columns,
+  habitats,
+  missionDependencies,
+  missionTemplates,
+  missions,
+  taskComments,
+  taskDependencies,
+  taskSubtasks,
+  tasks,
+} from "../../db/schema/index.js";
 import type {
   AttemptTerminalResult,
   TaskPublicationDbClient,
@@ -125,6 +135,8 @@ import {
   createIdentityMap,
   type CrossDomainState,
   type DomainHandler,
+  type ExistingEntity,
+  type ExistingHabitatSnapshot,
   type IdentityMap,
   type ManifestContext,
 } from "./domainHandler.js";
@@ -251,6 +263,14 @@ export interface PreparedImport {
   };
   /** The reserved coordination attempt id (parallel to T9A-03). */
   prefilledAttemptId: string;
+  /**
+   * The existing-habitat snapshot (drift #13 — T10B M3 populates this for
+   * `mode:"replacement"`; null for `mode:"new"`). Carries the existing
+   * portable entities keyed by server id, for the M2 orchestrator's
+   * `ApplyContext.existingHabitatSnapshot` (downstream consumers — preserve-
+   * domain skip logic, restore-id preservation).
+   */
+  existingHabitatSnapshot: ExistingHabitatSnapshot | null;
 }
 
 /**
@@ -521,23 +541,33 @@ export function detectAndAdaptInput(rawManifest: unknown): AdaptedInput {
  *   - Legacy v1/v2 inputs are `remap`-only: `identityPolicy:"restore"` on a
  *     legacy-adapted manifest fails (legacy exports carry no lineage —
  *     restore requires same-lineage proof they cannot provide).
- *   - `identityPolicy:"restore"` is NOT SUPPORTED until T10B ships existing-
- *     habitat snapshotting (drift #13). restore requires collision detection
- *     against the existing habitat's entities (via `ManifestContext.
- *     existingHabitatSnapshot`); M4 leaves the snapshot null for both modes.
- *     Until T10B populates the snapshot, restore SILENTLY produces an
- *     incomplete `PreparedImport`. Explicit refusal (option a per the cold-
- *     review finding) avoids the silent-normalization defect.
  *   - `identityPolicy:"restore"` requires `lineage.sourceHabitatId` non-null
  *     (the caller asserts same-lineage proof).
+ *   - `identityPolicy:"restore"` identity semantics (drift #13 absorption):
+ *     now that the preflight reads the existing-habitat snapshot, restore is
+ *     a viable path for same-lineage manifests with collision-safe sourceIds.
+ *     See {@link checkRestoreIdentitySemantics} for the cross-lineage +
+ *     collision-refusal rules. The prior `restore_not_supported_until_snapshotting`
+ *     refusal is RETIRED (T10B M3).
  *   - Every declared domain carries one of `replace | preserve | reset` (the
  *     schema enforces the enum; this is a redundant defense-in-depth check
  *     that surfaces a clear domain error rather than a zod error).
  *
  * Returns the accumulated {@link ManifestDomainError} list (empty when the
  * authority check passes).
+ *
+ * @param mode The resolved import mode (restored semantic checks are gated
+ *        on `mode:"replacement"` — without an existing habitat, lineage
+ *        cannot be verified).
+ * @param existingHabitatSnapshot The snapshot captured by step 1.5 of the
+ *        pipeline (null for `mode:"new"`). Carries the existing entities for
+ *        collision detection.
  */
-export function checkAuthority(input: AdaptedInput): ManifestDomainError[] {
+export function checkAuthority(
+  input: AdaptedInput,
+  mode: "new" | "replacement" = "new",
+  existingHabitatSnapshot: ExistingHabitatSnapshot | null = null,
+): ManifestDomainError[] {
   const errors: ManifestDomainError[] = [];
   const { manifest, wasLegacyInput } = input;
 
@@ -565,23 +595,14 @@ export function checkAuthority(input: AdaptedInput): ManifestDomainError[] {
     );
   }
 
-  // (b3) restore is NOT SUPPORTED until T10B ships existing-habitat
-  //      snapshotting (drift #13). Explicit refusal avoids the silent-
-  //      normalization defect (a `PreparedImport` that looks complete but
-  //      isn't — no collision detection ran). The `remap` path (the only
-  //      policy legacy inputs can use) operates correctly without a snapshot;
-  //      `restore` does not. Refuse here; T10B lifts the refusal when it
-  //      populates `ManifestContext.existingHabitatSnapshot`.
-  if (manifest.identityPolicy === "restore") {
-    errors.push(
-      authorityError(
-        "identityPolicy",
-        "restore_not_supported_until_snapshotting",
-        "restore identity policy requires existing-habitat snapshotting, which lands in T10B. Until then, use remap (the default for legacy v1/v2 inputs) or wait for T10B.",
-        { actual: manifest.identityPolicy },
-      ),
-    );
-  }
+  // (b3) restore identity semantics — replaces the prior
+  //      `restore_not_supported_until_snapshotting` refusal (drift #13).
+  //      Now that the preflight captures the existing-habitat snapshot for
+  //      mode:"replacement", restore is a viable path. The semantic checks
+  //      verify same-lineage + collision-safe sourceId preservation.
+  errors.push(
+    ...checkRestoreIdentitySemantics(manifest, wasLegacyInput, mode, existingHabitatSnapshot),
+  );
 
   // (b4) Disposition validity per declared domain (defense-in-depth — the
   //      schema + the M3 handlers also enforce this). An unsupported disposition
@@ -599,6 +620,277 @@ export function checkAuthority(input: AdaptedInput): ManifestDomainError[] {
           { actual: d, fieldPath: ["domains", domainName, "disposition"] },
         ),
       );
+    }
+  }
+
+  return errors;
+}
+
+// ===========================================================================
+// Step 1.5: Existing-habitat snapshot (PURE read; mode:"replacement" only)
+// ===========================================================================
+
+/**
+ * Reads the existing habitat's portable state into a snapshot for
+ * `mode:"replacement"` imports. PURE — no writes, no side effects.
+ *
+ * The snapshot is the basis for:
+ *   - `restore` identity semantics (collision detection — every declared
+ *     sourceId must match an existing entity's serverId; drift #13).
+ *   - `preserveDomainTargets` materialization (drift #12 — the entity IDs
+ *     the orchestrator must skip during the apply tx).
+ *   - `ManifestContext.existingHabitatSnapshot` for the handlers' validate /
+ *     prepare / resolveReferences phases.
+ *
+ * # Source-key convention
+ *
+ * Each existing entity is keyed by its server-side id. For restore-mode
+ * manifests (the only path that consumes the collision check), the manifest's
+ * sourceIds ARE the existing entities' serverIds (restore preserves IDs).
+ * For composite-keyed tables (`mission_dependencies`, `task_dependencies` —
+ * no `id` column), the source-key is synthesized as `"${parentId}->${dependsOnId}"`
+ * so a restore-mode manifest can reference individual edges deterministically.
+ *
+ * # The `version` field (drift #11)
+ *
+ * The `habitats` table has NO integer `version` column (unlike `missions` +
+ * `tasks`, which do). The snapshot's `version` is therefore vestigial — set
+ * to `0`. The OCC token lives on {@link ImportPublicationGuard.targetHabitatUpdatedAt}
+ * (a string timestamp), captured separately by {@link capturePublicationGuard}.
+ *
+ * # Gating
+ *
+ * Called only when `mode:"replacement"` + the dormancy flag is on + habitatId
+ * is non-null. For `mode:"new"` the snapshot stays null (no existing habitat
+ * to read).
+ *
+ * # Mission comments
+ *
+ * The portable `comments` domain carries task-scoped comments only (per the
+ * {@link CommentPortable} shape). Mission comments are NOT in the portable
+ * set + are excluded from the snapshot.
+ *
+ * # Global templates
+ *
+ * The portable `templates` domain carries habitat-scoped templates only.
+ * Global templates (`missionTemplates.habitatId IS NULL`) are NOT habitat-
+ * portable + are excluded from the snapshot.
+ */
+function readExistingHabitatSnapshot(habitatId: string): ExistingHabitatSnapshot {
+  const db = getDb();
+  const entitiesBySourceKey = new Map<string, ExistingEntity>();
+
+  // Columns.
+  const existingColumns = db.select().from(columns).where(eq(columns.habitatId, habitatId)).all();
+  for (const col of existingColumns) {
+    entitiesBySourceKey.set(col.id, {
+      serverId: col.id,
+      domain: "columns",
+      displayName: col.name,
+    });
+  }
+
+  // Missions.
+  const existingMissions = db
+    .select()
+    .from(missions)
+    .where(eq(missions.habitatId, habitatId))
+    .all();
+  for (const m of existingMissions) {
+    entitiesBySourceKey.set(m.id, {
+      serverId: m.id,
+      domain: "missions",
+      displayName: m.title,
+    });
+  }
+  const missionIds = existingMissions.map((m) => m.id);
+
+  // Tasks (via the habitat's missions).
+  const existingTasks =
+    missionIds.length > 0
+      ? db.select().from(tasks).where(inArray(tasks.missionId, missionIds)).all()
+      : [];
+  for (const t of existingTasks) {
+    entitiesBySourceKey.set(t.id, {
+      serverId: t.id,
+      domain: "tasks",
+      displayName: t.title,
+    });
+  }
+  const taskIds = existingTasks.map((t) => t.id);
+
+  // Subtasks (via the habitat's tasks).
+  const existingSubtasks =
+    taskIds.length > 0
+      ? db.select().from(taskSubtasks).where(inArray(taskSubtasks.taskId, taskIds)).all()
+      : [];
+  for (const s of existingSubtasks) {
+    entitiesBySourceKey.set(s.id, {
+      serverId: s.id,
+      domain: "subtasks",
+    });
+  }
+
+  // Comments (task-scoped only — see docstring).
+  const existingComments =
+    taskIds.length > 0
+      ? db.select().from(taskComments).where(inArray(taskComments.taskId, taskIds)).all()
+      : [];
+  for (const c of existingComments) {
+    entitiesBySourceKey.set(c.id, {
+      serverId: c.id,
+      domain: "comments",
+    });
+  }
+
+  // Task-level dependency edges (composite-keyed — synthesize
+  // `${taskId}->${dependsOnId}` as the source-key).
+  const existingTaskDeps =
+    taskIds.length > 0
+      ? db.select().from(taskDependencies).where(inArray(taskDependencies.taskId, taskIds)).all()
+      : [];
+  for (const d of existingTaskDeps) {
+    const synKey = `${d.taskId}->${d.dependsOnId}`;
+    entitiesBySourceKey.set(synKey, {
+      serverId: synKey,
+      domain: "dependencies",
+    });
+  }
+
+  // Mission-level dependency edges (composite-keyed — synthesize
+  // `${missionId}->${dependsOnId}` as the source-key).
+  const existingMissionDeps =
+    missionIds.length > 0
+      ? db
+          .select()
+          .from(missionDependencies)
+          .where(inArray(missionDependencies.missionId, missionIds))
+          .all()
+      : [];
+  for (const d of existingMissionDeps) {
+    const synKey = `${d.missionId}->${d.dependsOnId}`;
+    entitiesBySourceKey.set(synKey, {
+      serverId: synKey,
+      domain: "dependencies",
+    });
+  }
+
+  // Templates (habitat-scoped only — see docstring).
+  const existingTemplates = db
+    .select()
+    .from(missionTemplates)
+    .where(eq(missionTemplates.habitatId, habitatId))
+    .all();
+  for (const t of existingTemplates) {
+    entitiesBySourceKey.set(t.id, {
+      serverId: t.id,
+      domain: "templates",
+      displayName: t.name,
+    });
+  }
+
+  return {
+    habitatId,
+    // Vestigial — `habitats` has no integer `version` column (drift #11).
+    // The OCC token lives on `ImportPublicationGuard.targetHabitatUpdatedAt`.
+    version: 0,
+    entitiesBySourceKey,
+  };
+}
+
+// ===========================================================================
+// Step 2b: restore identity semantics (drift #13 absorption)
+// ===========================================================================
+
+/**
+ * (b3-restored) — replaces the prior `restore_not_supported_until_snapshotting`
+ * refusal. Now that the preflight captures the existing-habitat snapshot
+ * ({@link readExistingHabitatSnapshot}), restore is a viable (if rare) path
+ * with same-lineage verification + collision-safe ID preservation.
+ *
+ * # Rules (ALL accumulated — never first-error)
+ *
+ *   - Skipped entirely when `identityPolicy !== "restore"` (no-op for `remap`).
+ *   - Skipped when `wasLegacyInput === true` — legacy inputs are already
+ *     blocked by (b1); running these checks would produce redundant secondary
+ *     errors for the same root cause.
+ *   - **(b3a) Same-lineage proof:** if no snapshot was captured (mode:"new"
+ *     OR no existing habitat) OR `manifest.lineage.sourceHabitatId !==
+ *     snapshot.habitatId` → reject with `restore_cross_lineage`. Restore
+ *     mode requires the caller to prove the manifest came from the same
+ *     habitat lineage; cross-lineage restore would silently re-stamp
+ *     foreign IDs onto local entities.
+ *   - **(b3b) Collision-safe ID preservation:** for every declared entity
+ *     in each portable domain, the sourceId MUST be present in the snapshot
+ *     (filtered by domain). Non-matching sourceIds → reject with
+ *     `restore_collision`. Restore mode NEVER silently remaps — that would
+ *     be the silent-normalization defect class. The caller must either
+ *     remove the unmatched entity OR re-submit with `identityPolicy:"remap"`.
+ *
+ * Returns the accumulated {@link ManifestDomainError} list (empty when
+ * restore semantics pass OR when restore is not in play).
+ */
+function checkRestoreIdentitySemantics(
+  manifest: HabitatImportManifest,
+  wasLegacyInput: boolean,
+  mode: "new" | "replacement",
+  existingHabitatSnapshot: ExistingHabitatSnapshot | null,
+): ManifestDomainError[] {
+  if (manifest.identityPolicy !== "restore") return [];
+  // Legacy inputs are already blocked by (b1) — skip to avoid redundant errors.
+  if (wasLegacyInput) return [];
+
+  const errors: ManifestDomainError[] = [];
+
+  // (b3a) Same-lineage proof — requires a snapshot whose habitatId matches
+  //       the manifest's lineage.sourceHabitatId.
+  if (
+    existingHabitatSnapshot === null ||
+    manifest.lineage.sourceHabitatId !== existingHabitatSnapshot.habitatId
+  ) {
+    const reason =
+      existingHabitatSnapshot === null
+        ? "identityPolicy:'restore' requires an existing target habitat (mode:'replacement' with a live habitatId); no existing-habitat snapshot was captured."
+        : `identityPolicy:'restore' requires lineage.sourceHabitatId ('${manifest.lineage.sourceHabitatId ?? "null"}') to match the existing habitat's id ('${existingHabitatSnapshot.habitatId}'). Cross-lineage restore is forbidden; use identityPolicy:'remap' for cross-habitat imports.`;
+    errors.push(
+      authorityError("lineage.sourceHabitatId", "restore_cross_lineage", reason, {
+        actual: manifest.lineage.sourceHabitatId,
+      }),
+    );
+    // Without a matching snapshot, the collision check cannot run.
+    return errors;
+  }
+
+  // (b3b) Collision-safe ID preservation — every declared sourceId MUST
+  //       match an existing entity in the snapshot (filtered by domain).
+  //       Index the snapshot by domain for the lookup.
+  const snapshotByDomain = new Map<string, Set<string>>();
+  for (const entity of existingHabitatSnapshot.entitiesBySourceKey.values()) {
+    const set = snapshotByDomain.get(entity.domain) ?? new Set<string>();
+    set.add(entity.serverId);
+    snapshotByDomain.set(entity.domain, set);
+  }
+
+  for (const domainName of MANIFEST_DOMAIN_NAMES) {
+    const envelope = manifest.domains[domainName];
+    if (envelope === undefined) continue;
+    // Skip singleton domains (habitatSettings) — no sourceId collision concept.
+    if (!Array.isArray(envelope.data)) continue;
+    const snapshotSet = snapshotByDomain.get(domainName) ?? new Set<string>();
+    for (const entity of envelope.data as Array<{ sourceId?: unknown }>) {
+      if (entity === null || typeof entity !== "object") continue;
+      const sourceId = (entity as { sourceId?: unknown }).sourceId;
+      if (typeof sourceId !== "string") continue;
+      if (!snapshotSet.has(sourceId)) {
+        errors.push(
+          authorityError(
+            `domains.${domainName}.data[].sourceId`,
+            "restore_collision",
+            `identityPolicy:'restore' requires every declared sourceId to match an existing entity in the target habitat. '${sourceId}' (domain: ${domainName}) has no matching entity; restore mode does not silently remap. Re-submit with identityPolicy:'remap' to allow fresh ID allocation, or remove the unmatched entity from the manifest.`,
+            { actual: sourceId, fieldPath: ["domains", domainName, "data", "sourceId"] },
+          ),
+        );
+      }
     }
   }
 
@@ -847,14 +1139,24 @@ function collectGovernanceVetoes(governance: GovernanceBatchResult | null): Publ
  * Captures the {@link ImportPublicationGuard} snapshot for the prepared
  * import. Reads the target habitat's optimistic-concurrency version when
  * `mode:"replacement"` (single read; T10B re-reads in-tx for the optimistic-
- * guard re-verify). Enumerates the declared preserve-domain set (T10B
- * materializes the entity IDs in-tx).
+ * guard re-verify). Enumerates the declared preserve-domain set + materializes
+ * the existing entity IDs per preserve domain (drift #12 absorption).
+ *
+ * # Preserve-domain materialization (drift #12)
+ *
+ * For each declared `preserve` domain, the guard's `preserveDomainTargets`
+ * carries the existing entity serverIds from {@link existingHabitatSnapshot}.
+ * T10B's orchestrator reads these to know which entities to skip during the
+ * apply tx (preserve domains NEVER deleted). When the snapshot is null
+ * (`mode:"new"`), the preserve arrays stay empty (no existing entities to
+ * skip — the preserve disposition on a fresh habitat is a no-op).
  */
 function capturePublicationGuard(
   manifest: HabitatImportManifest,
   manifestDigest: string,
   habitatId: string | null,
   mode: "new" | "replacement",
+  existingHabitatSnapshot: ExistingHabitatSnapshot | null,
 ): ImportPublicationGuard {
   let targetHabitatUpdatedAt: string | null = null;
   const preserveDomainTargets = new Map<ManifestDomainName, readonly string[]>();
@@ -864,14 +1166,22 @@ function capturePublicationGuard(
     targetHabitatUpdatedAt = row?.updatedAt ?? null;
   }
 
-  // Enumerate the DECLARED preserve-domain set. M4 captures the keys with
-  // empty arrays; T10B materializes the entity IDs in-tx (where it has the
-  // tx client for consistent reads + can verify they're untouched).
+  // Enumerate the DECLARED preserve-domain set + materialize the entity IDs
+  // from the snapshot (drift #12). For `mode:"new"` (snapshot null), the
+  // arrays stay empty — preserve on a fresh habitat is a no-op.
   for (const domainName of MANIFEST_DOMAIN_NAMES) {
     const envelope = manifest.domains[domainName];
     if (envelope === undefined) continue;
     if (envelope.disposition === "preserve") {
-      preserveDomainTargets.set(domainName, []);
+      const ids: string[] = [];
+      if (existingHabitatSnapshot !== null) {
+        for (const entity of existingHabitatSnapshot.entitiesBySourceKey.values()) {
+          if (entity.domain === domainName) {
+            ids.push(entity.serverId);
+          }
+        }
+      }
+      preserveDomainTargets.set(domainName, ids);
     }
   }
 
@@ -1270,8 +1580,9 @@ export function terminalRejectImportAttemptWithCoordination(
 
 /**
  * The pipeline outcome — either the prepared body (manifest + idMap +
- * preparedDomains + guard + governanceDecisions, WITHOUT prefilledAttemptId)
- * or the accumulated {@link ManifestDomainError} list.
+ * preparedDomains + guard + governanceDecisions + existingHabitatSnapshot,
+ * WITHOUT prefilledAttemptId) or the accumulated {@link ManifestDomainError}
+ * list.
  */
 export type PreflightPipelineOutcome =
   | {
@@ -1282,6 +1593,13 @@ export type PreflightPipelineOutcome =
       guard: ImportPublicationGuard;
       governanceDecisions: GovernanceBatchResult["results"];
       legacyWarnings: string[];
+      /**
+       * The existing-habitat snapshot (drift #13). Populated for
+       * `mode:"replacement"`; null for `mode:"new"`. Consumed by the
+       * entry point's PreparedImport envelope + by the handlers' validate
+       * / prepare / resolveReferences phases via {@link ManifestContext}.
+       */
+      existingHabitatSnapshot: ExistingHabitatSnapshot | null;
     }
   | { outcome: "rejected"; errors: ManifestDomainError[]; legacyWarnings: string[] };
 
@@ -1348,8 +1666,24 @@ export function runPreflightPipeline(
 ): PreflightPipelineOutcome {
   const errors: ManifestDomainError[] = [];
 
-  // ----- STEP 2: authority check (completeness + declared intent) -----
-  errors.push(...checkAuthority({ manifest, warnings: legacyWarnings, wasLegacyInput }));
+  // ----- STEP 1.5 (NEW): existing-habitat snapshot (drift #13 absorption) -----
+  // PURE read; gated behind mode + habitatId. For mode:"new" the snapshot
+  // stays null (no existing habitat to read). The snapshot drives:
+  //   - restore identity semantics (collision detection in step 2's
+  //     checkRestoreIdentitySemantics);
+  //   - preserveDomainTargets materialization (in capturePublicationGuard);
+  //   - ManifestContext.existingHabitatSnapshot for the handlers.
+  const existingHabitatSnapshot =
+    mode === "replacement" && habitatId !== null ? readExistingHabitatSnapshot(habitatId) : null;
+
+  // ----- STEP 2: authority check (completeness + declared intent + restore semantics) -----
+  errors.push(
+    ...checkAuthority(
+      { manifest, warnings: legacyWarnings, wasLegacyInput },
+      mode,
+      existingHabitatSnapshot,
+    ),
+  );
 
   // ----- STEP 3-5: per-domain validate + prepare + resolveReferences -----
   const crossDomainState: CrossDomainState = {};
@@ -1357,13 +1691,12 @@ export function runPreflightPipeline(
     habitatId,
     mode,
     identityPolicy: manifest.identityPolicy,
-    // M4 simplification: existingHabitatSnapshot stays null for both modes.
-    // Full snapshotting (reading the existing habitat's entities for
-    // collision detection) lands in T10B when the route is wired. The
-    // handlers' `remap` path (the only policy legacy inputs can use)
-    // operates without a snapshot; `restore` imports (the rare case
-    // requiring collision detection) will get snapshotting in T10B.
-    existingHabitatSnapshot: null,
+    // M3 (drift #13 absorption): the snapshot is now populated for
+    // mode:"replacement". For mode:"new" it stays null (no existing habitat).
+    // The handlers' validate / prepare / resolveReferences phases read it
+    // for disposition-aware behavior (restore collision detection,
+    // preserve targeting).
+    existingHabitatSnapshot,
     actor,
     auditSource,
     crossDomainState,
@@ -1427,9 +1760,15 @@ export function runPreflightPipeline(
     return { outcome: "rejected", errors, legacyWarnings };
   }
 
-  // ----- STEP 6b: guard capture -----
+  // ----- STEP 6b: guard capture (with preserve-domain materialization) -----
   const manifestDigest = computeManifestDigest(manifest);
-  const guard = capturePublicationGuard(manifest, manifestDigest, habitatId, mode);
+  const guard = capturePublicationGuard(
+    manifest,
+    manifestDigest,
+    habitatId,
+    mode,
+    existingHabitatSnapshot,
+  );
 
   return {
     outcome: "prepared",
@@ -1439,6 +1778,7 @@ export function runPreflightPipeline(
     guard,
     governanceDecisions: governance?.results ?? [],
     legacyWarnings,
+    existingHabitatSnapshot,
   };
 }
 
@@ -1582,6 +1922,7 @@ export function prepareImport(input: PrepareImportInput): PrepareImportOutcome {
         governingPolicy: mode === "new" ? "installation" : "persisted_habitat",
       },
       prefilledAttemptId,
+      existingHabitatSnapshot: pipelineResult.existingHabitatSnapshot,
     },
   };
 }

@@ -32,10 +32,17 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { closeDb, getDb, initTestDb } from "../db/index.js";
-import { importAttempts } from "../db/schema/index.js";
-import { taskCreationAttempts } from "../db/schema/index.js";
+import {
+  columns,
+  importAttempts,
+  missions,
+  tasks,
+  taskCreationAttempts,
+} from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import * as habitatRepo from "../repositories/habitat.js";
+import * as columnRepo from "../repositories/column.js";
+import * as missionRepo from "../repositories/mission.js";
 
 import {
   prepareImport,
@@ -564,23 +571,82 @@ describe("prepareImport — authority check (b)", () => {
     expect(result.errors.some((e) => e.code === "restore_requires_source_habitat")).toBe(true);
   });
 
-  it("(b3) restore is refused until T10B ships existing-habitat snapshotting (drift #13)", () => {
-    // The plan's drift #13 defers `restore` alongside snapshotting. M4 leaves
-    // `ManifestContext.existingHabitatSnapshot` null for both modes → `restore`
-    // would silently produce an incomplete `PreparedImport` (no collision
-    // detection). Explicit refusal (option a per the cold-review finding)
-    // avoids the silent-normalization defect.
-    const manifest = v3Manifest({
-      manifestId: "restore-refused-until-t10b",
-      identityPolicy: "restore",
-      sourceHabitatId: "source-habitat-123", // (b2) satisfied
+  it("(b3-FLIPPED) restore SUCCEEDS for same-lineage manifests now that T10B M3 ships snapshotting", () => {
+    // The prior `restore_not_supported_until_snapshotting` refusal is retired
+    // (drift #13 absorption). Now that the preflight reads the existing-
+    // habitat snapshot, restore is a viable path for same-lineage manifests
+    // with collision-safe sourceIds. Seed an existing habitat whose entity
+    // ids the manifest's sourceIds match (the restore contract).
+    const habitat = habitatRepo.createHabitat({ name: "Restore Target" });
+    const col = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
+    const mission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: col.id,
+      title: "Existing Mission",
+      createdBy: "user-1",
     });
-    const result = prepareImport(v3Input(manifest));
-    expect(result.outcome).toBe("rejected_preflight");
-    if (result.outcome !== "rejected_preflight") return;
-    expect(result.errors.some((e) => e.code === "restore_not_supported_until_snapshotting")).toBe(
-      true,
-    );
+    const task = getDb()
+      .insert(tasks)
+      .values({
+        id: randomUUID(),
+        missionId: mission.id,
+        title: "Existing Task",
+        description: "",
+        priority: "medium",
+        status: "pending",
+        createdBy: "user-1",
+      })
+      .returning()
+      .get();
+
+    const manifest = v3Manifest({
+      manifestId: "restore-same-lineage-success",
+      mode: "replacement",
+      identityPolicy: "restore",
+      sourceHabitatId: habitat.id, // (b2) satisfied + same-lineage proof.
+      columns: [v3Column({ sourceId: col.id, name: "Todo", order: 0 })],
+      missions: [
+        {
+          sourceId: mission.id,
+          title: "Existing Mission",
+          description: "",
+          acceptanceCriteria: "",
+          priority: "medium" as const,
+          labels: [],
+          columnName: "Todo",
+          dependsOnSourceIds: [],
+          blocksSourceIds: [],
+          dueAt: null,
+        },
+      ],
+      tasks: [
+        {
+          sourceId: task.id,
+          missionSourceId: mission.id,
+          title: "Existing Task",
+          description: "",
+          priority: "medium" as const,
+          requiredDomain: null,
+          requiredCapabilities: [],
+        },
+      ],
+    });
+    const result = prepareImport({
+      rawManifest: manifest,
+      habitatId: habitat.id,
+      manifestId: "restore-same-lineage-success",
+      mode: "replacement",
+      actor: { type: "human", id: "user-1" },
+      auditSource: "rest_api",
+    });
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+    // No restore_not_supported_until_snapshotting error fires — the refusal
+    // is retired. Restore semantics verified the snapshot + succeeded.
+    expect(result.prepared.guard.identityPolicySnapshot).toBe("restore");
+    // The snapshot is populated for mode:"replacement".
+    expect(result.prepared.existingHabitatSnapshot).not.toBeNull();
+    expect(result.prepared.existingHabitatSnapshot?.habitatId).toBe(habitat.id);
   });
 
   it("(b4) rejects unsupported disposition via zod schema parse", () => {
@@ -865,6 +931,273 @@ describe("prepareImport — mode:'replacement' happy path", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 11b. T10B M3 — Existing-Habitat Snapshotting + Restore Identity + Preserve Materialization
+//      (drift #12 + #13 absorption — the prior `restore_not_supported_until_snapshotting`
+//      refusal is retired; restore is now a viable same-lineage path)
+// ---------------------------------------------------------------------------
+
+describe("prepareImport — T10B M3 restore identity refusals", () => {
+  /**
+   * Helper — seeds an existing habitat with one column + one mission + one
+   * task. Returns the entity ids so tests can construct manifests that match
+   * (restore happy path) or mismatch (collision refusal) the snapshot.
+   */
+  function seedExistingHabitat(): {
+    habitatId: string;
+    columnId: string;
+    missionId: string;
+    taskId: string;
+  } {
+    const habitat = habitatRepo.createHabitat({ name: "Restore Target" });
+    const col = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
+    const mission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: col.id,
+      title: "Existing Mission",
+      createdBy: "user-1",
+    });
+    const taskRow = getDb()
+      .insert(tasks)
+      .values({
+        id: randomUUID(),
+        missionId: mission.id,
+        title: "Existing Task",
+        description: "",
+        priority: "medium",
+        status: "pending",
+        createdBy: "user-1",
+      })
+      .returning()
+      .get();
+    return { habitatId: habitat.id, columnId: col.id, missionId: mission.id, taskId: taskRow.id };
+  }
+
+  it("restore cross-lineage refusal — sourceHabitatId different from existing habitat id", () => {
+    const seed = seedExistingHabitat();
+    const manifest = v3Manifest({
+      manifestId: "restore-cross-lineage-test",
+      mode: "replacement",
+      identityPolicy: "restore",
+      // Different from seed.habitatId — cross-lineage.
+      sourceHabitatId: "some-other-habitat-id",
+    });
+    const result = prepareImport({
+      rawManifest: manifest,
+      habitatId: seed.habitatId,
+      manifestId: "restore-cross-lineage-test",
+      mode: "replacement",
+      actor: { type: "human", id: "user-1" },
+      auditSource: "rest_api",
+    });
+    expect(result.outcome).toBe("rejected_preflight");
+    if (result.outcome !== "rejected_preflight") return;
+    expect(result.errors.some((e) => e.code === "restore_cross_lineage")).toBe(true);
+  });
+
+  it("restore with no existing target (mode:'new') refused as cross-lineage", () => {
+    // mode:"new" produces no snapshot — restore cannot verify lineage.
+    const manifest = v3Manifest({
+      manifestId: "restore-mode-new-test",
+      mode: "new",
+      identityPolicy: "restore",
+      sourceHabitatId: "any-source-habitat",
+    });
+    const result = prepareImport({
+      rawManifest: manifest,
+      habitatId: null,
+      manifestId: "restore-mode-new-test",
+      mode: "new",
+      actor: { type: "human", id: "user-1" },
+      auditSource: "rest_api",
+    });
+    expect(result.outcome).toBe("rejected_preflight");
+    if (result.outcome !== "rejected_preflight") return;
+    expect(result.errors.some((e) => e.code === "restore_cross_lineage")).toBe(true);
+  });
+
+  it("restore collision refusal — a sourceId that doesn't match any existing entity", () => {
+    const seed = seedExistingHabitat();
+    const manifest = v3Manifest({
+      manifestId: "restore-collision-test",
+      mode: "replacement",
+      identityPolicy: "restore",
+      sourceHabitatId: seed.habitatId, // Same-lineage passes (b3a).
+      columns: [
+        // Match existing column.
+        v3Column({ sourceId: seed.columnId, name: "Todo", order: 0 }),
+      ],
+      missions: [
+        // MISMATCH — sourceId "nonexistent-mission" has no matching entity.
+        {
+          sourceId: "nonexistent-mission",
+          title: "Ghost Mission",
+          description: "",
+          acceptanceCriteria: "",
+          priority: "medium" as const,
+          labels: [],
+          columnName: "Todo",
+          dependsOnSourceIds: [],
+          blocksSourceIds: [],
+          dueAt: null,
+        },
+      ],
+    });
+    const result = prepareImport({
+      rawManifest: manifest,
+      habitatId: seed.habitatId,
+      manifestId: "restore-collision-test",
+      mode: "replacement",
+      actor: { type: "human", id: "user-1" },
+      auditSource: "rest_api",
+    });
+    expect(result.outcome).toBe("rejected_preflight");
+    if (result.outcome !== "rejected_preflight") return;
+    expect(result.errors.some((e) => e.code === "restore_collision")).toBe(true);
+    if (result.errors.length === 0) return;
+    // The collision error cites the unmatched sourceId.
+    const collisionErr = result.errors.find((e) => e.code === "restore_collision");
+    expect(collisionErr?.message).toContain("nonexistent-mission");
+  });
+});
+
+describe("prepareImport — T10B M3 existing-habitat snapshot population", () => {
+  it("mode:'replacement' populates the snapshot with existing columns + missions + tasks", () => {
+    const habitat = habitatRepo.createHabitat({ name: "Snapshot Target" });
+    const col = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
+    const mission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: col.id,
+      title: "Existing Mission",
+      createdBy: "user-1",
+    });
+    const taskRow = getDb()
+      .insert(tasks)
+      .values({
+        id: randomUUID(),
+        missionId: mission.id,
+        title: "Existing Task",
+        description: "",
+        priority: "medium",
+        status: "pending",
+        createdBy: "user-1",
+      })
+      .returning()
+      .get();
+
+    const manifest = v3Manifest({
+      manifestId: "snapshot-population-test",
+      mode: "replacement",
+    });
+    const result = prepareImport({
+      rawManifest: manifest,
+      habitatId: habitat.id,
+      manifestId: "snapshot-population-test",
+      mode: "replacement",
+      actor: { type: "human", id: "user-1" },
+      auditSource: "rest_api",
+    });
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+    const snapshot = result.prepared.existingHabitatSnapshot;
+    expect(snapshot).not.toBeNull();
+    if (!snapshot) return;
+    expect(snapshot.habitatId).toBe(habitat.id);
+    // Every existing entity is keyed by its serverId (drift #13 absorption).
+    expect(snapshot.entitiesBySourceKey.has(col.id)).toBe(true);
+    expect(snapshot.entitiesBySourceKey.has(mission.id)).toBe(true);
+    expect(snapshot.entitiesBySourceKey.has(taskRow.id)).toBe(true);
+    // Domain tagging.
+    expect(snapshot.entitiesBySourceKey.get(col.id)?.domain).toBe("columns");
+    expect(snapshot.entitiesBySourceKey.get(mission.id)?.domain).toBe("missions");
+    expect(snapshot.entitiesBySourceKey.get(taskRow.id)?.domain).toBe("tasks");
+  });
+
+  it("mode:'new' leaves the snapshot null (no existing habitat to read)", () => {
+    const manifest = v3Manifest({ manifestId: "snapshot-null-for-new-mode" });
+    const result = prepareImport(v3Input(manifest));
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+    expect(result.prepared.existingHabitatSnapshot).toBeNull();
+  });
+});
+
+describe("prepareImport — T10B M3 preserveDomainTargets materialization (drift #12)", () => {
+  it("preserve-domain entity IDs materialize from the snapshot (not empty arrays)", () => {
+    // Drift #12 absorption: M4 left preserveDomainTargets with declared keys
+    // + empty arrays; T10B M3 reads the snapshot + populates the IDs.
+    const habitat = habitatRepo.createHabitat({ name: "Preserve Target" });
+    const col1 = columnRepo.createColumn({ habitatId: habitat.id, name: "Todo", order: 0 });
+    const col2 = columnRepo.createColumn({ habitatId: habitat.id, name: "Done", order: 1 });
+    const seedMission = missionRepo.createMission({
+      habitatId: habitat.id,
+      columnId: col1.id,
+      title: "Preserved Mission",
+      createdBy: "user-1",
+    });
+
+    // Manifest declares columns + missions + tasks as `preserve` (existing
+    // entities must NOT be touched; the orchestrator skips them by id). All
+    // three portable domains that participate in mission→task resolution are
+    // preserved together — declaring tasks:replace against an empty missions
+    // envelope would produce unresolved-mission errors (no mission serverIds
+    // allocated). The preserve disposition on a fresh habitat carries the
+    // existing entity IDs through unchanged.
+    const manifest = v3Manifest({
+      manifestId: "preserve-materialization-test",
+      mode: "replacement",
+      domains: {
+        columns: { disposition: "preserve", data: [] },
+        missions: { disposition: "preserve", data: [] },
+        tasks: { disposition: "preserve", data: [] },
+      },
+    });
+    const result = prepareImport({
+      rawManifest: manifest,
+      habitatId: habitat.id,
+      manifestId: "preserve-materialization-test",
+      mode: "replacement",
+      actor: { type: "human", id: "user-1" },
+      auditSource: "rest_api",
+    });
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+    const preserveMap = result.prepared.guard.preserveDomainTargets;
+    // Both preserve-declared domains carry their existing entity IDs.
+    expect(preserveMap.has("columns")).toBe(true);
+    expect(preserveMap.has("missions")).toBe(true);
+    const preservedColumnIds = preserveMap.get("columns") ?? [];
+    expect(preservedColumnIds.length).toBe(2);
+    expect(preservedColumnIds).toContain(col1.id);
+    expect(preservedColumnIds).toContain(col2.id);
+    const preservedMissionIds = preserveMap.get("missions") ?? [];
+    expect(preservedMissionIds.length).toBe(1);
+    expect(preservedMissionIds).toContain(seedMission.id);
+  });
+
+  it("mode:'new' preserve-declared domains carry empty arrays (no existing entities)", () => {
+    // For mode:"new" the snapshot is null — preserve is a no-op on a fresh
+    // habitat. The declared keys are present (intent captured); the arrays
+    // stay empty (no existing entities to skip). All three portable domains
+    // that participate in mission→task resolution are preserved together.
+    const manifest = v3Manifest({
+      manifestId: "preserve-empty-for-new-mode",
+      mode: "new",
+      domains: {
+        columns: { disposition: "preserve", data: [] },
+        missions: { disposition: "preserve", data: [] },
+        tasks: { disposition: "preserve", data: [] },
+      },
+    });
+    const result = prepareImport(v3Input(manifest));
+    expect(result.outcome).toBe("prepared");
+    if (result.outcome !== "prepared") return;
+    const preserveMap = result.prepared.guard.preserveDomainTargets;
+    expect(preserveMap.has("columns")).toBe(true);
+    expect(preserveMap.get("columns")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 12. Terminal-reject path (the import attempt + coordination attempt atomically)
 // ---------------------------------------------------------------------------
 
@@ -977,10 +1310,15 @@ describe("runPreflightPipeline — direct pipeline entry", () => {
     if (result.outcome !== "rejected") return;
     // (b1) legacy_restore_forbidden fires for legacy inputs requesting restore.
     expect(result.errors.some((e) => e.kind === "legacy_restore_forbidden")).toBe(true);
-    // (b3) restore_not_supported_until_snapshotting ALSO fires (accumulate-all).
+    // (b3-RETIRED) restore_not_supported_until_snapshotting is GONE — the
+    // refusal was retired in T10B M3 (drift #13 absorption). Restore
+    // semantics now run only for non-legacy manifests (skipped here because
+    // wasLegacyInput=true is already blocked by (b1)).
     expect(result.errors.some((e) => e.kind === "restore_not_supported_until_snapshotting")).toBe(
-      true,
+      false,
     );
+    expect(result.errors.some((e) => e.kind === "restore_cross_lineage")).toBe(false);
+    expect(result.errors.some((e) => e.kind === "restore_collision")).toBe(false);
   });
 
   it("wasLegacyInput=false + remap + non-empty warnings does NOT trigger legacy_restore_forbidden", () => {
