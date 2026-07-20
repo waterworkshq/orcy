@@ -115,6 +115,27 @@ export function getScheduledTasksByHabitatId(habitatId: string): ScheduledTask[]
     .all() as ScheduledTask[];
 }
 
+/**
+ * Lookup by composite `(habitatId, name)` — a generic read primitive. Used
+ * by the wiki-cadence spawn to dedupe by deterministic schedule name
+ * (`wiki-authoring:${chunkFrom}:${chunkTo}:${habitatId}`); the dedupe
+ * itself is a domain concern, NOT a repo concern, so this accessor is
+ * `get*` (a read), not a `create*` modification. Other callers may use
+ * this for any lookup where the schedule name is the identifier.
+ */
+export function getScheduledTaskByHabitatIdAndName(
+  habitatId: string,
+  name: string,
+): ScheduledTask | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(scheduledTasks)
+    .where(and(eq(scheduledTasks.habitatId, habitatId), eq(scheduledTasks.name, name)))
+    .get();
+  return (row as ScheduledTask) ?? null;
+}
+
 export function getDueScheduledTasks(): ScheduledTask[] {
   const db = getDb();
   const now = new Date().toISOString();
