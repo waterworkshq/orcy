@@ -101,8 +101,69 @@ export type ScheduleRevisionJson = Record<string, unknown>;
  * here (the schema's `OccurrenceResultJson` is not exported). The Phase 3
  * publisher stamps the canonical shape (created Mission id, failure errors,
  * etc.); Phase 1 treats it as an opaque payload.
+ *
+ * The storage envelope is intentionally loose (`Record<string, unknown>`)
+ * because the column carries MULTIPLE shapes that layer additively:
+ *   - terminal-success/terminal-failure JSON stamped by the publisher
+ *     (now carrying a `kind: "aggregate_published"` discriminator on the
+ *     success branch — T9A-10 M1 — and `reason: <code>` on the failure
+ *     branches);
+ *   - intermediate reclaim-counter JSON stamped by the recovery worker
+ *     (`{reclaimCount, lastResumableOutcome?, reclaimedAt}` — no
+ *     discriminator; the occurrence is still `publishing`);
+ *   - repair's additive `retryHistory` array spread onto ANY prior shape
+ *     (`{...priorResult, retryHistory: [...]}`);
+ *   - the recovery-exhausted terminal JSON (`{reason: "recovery_exhausted",
+ *     reclaimCount, ...}`).
+ *
+ * Tightening this to a strict discriminated union would force refactor of
+ * the additive writers (repair's spread + the recovery worker's
+ * intermediate + exhausted stamps) — all of which live in the shipped
+ * occurrence subsystem the additive-seams constraint protects. The loose
+ * envelope keeps them working; readers that want type narrowing use the
+ * {@link OccurrenceResultSuccess} sub-union (which the publisher's
+ * success-shape write satisfies trivially).
  */
 export type OccurrenceResultJson = Record<string, unknown>;
+
+/**
+ * The typed success-branch sub-shape of {@link OccurrenceResultJson}.
+ * Additive (T9A-10 M1) — the publisher's success-result JSON satisfies
+ * this; future M2 adds `kind: "handler_dispatched"`; T11 read consumers
+ * narrow on `kind`. The storage envelope stays loose (see
+ * {@link OccurrenceResultJson}); this sub-union is for read consumers
+ * that want type narrowing without forcing a refactor of the additive
+ * writers.
+ */
+export type OccurrenceResultSuccess =
+  /**
+   * T9A-10 M1 (Path A — inline) AND the T9A templateId path produce this
+   * shape: a Mission + N Tasks aggregate published atomically with the
+   * occurrence-state transition. The discriminator field is
+   * `kind: "aggregate_published"`.
+   */
+  | {
+      kind: "aggregate_published";
+      /** The committed Mission id (=== `scheduledOccurrences.createdMissionId`). */
+      missionId: string;
+      /** Number of Tasks committed in the aggregate. */
+      taskCount: number;
+      /** One per-Task attempt id per committed Task, in prepare-order. */
+      attemptIds: readonly string[];
+      /** The occurrence-level coordination attempt id (T9A-03), or null. */
+      coordinationAttemptId: string | null;
+      /** ISO timestamp of the `publishing → published` transition. */
+      publishedAt: string;
+      /**
+       * Optional retry-audit trail stamped by Repair-and-Retry (T9B-05/06).
+       * Additive: present IFF the occurrence was rejected, retried, then
+       * published by a later retry (rare; the typical published occurrence
+       * carries no retryHistory).
+       */
+      retryHistory?: unknown[];
+    };
+// NOTE: M2 will extend this union with `| { kind: "handler_dispatched"; ... }`
+// for Path B handler-dispatched occurrences.
 
 // ---------------------------------------------------------------------------
 // Terminal-state set (shared domain invariant — mirrors

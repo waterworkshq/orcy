@@ -324,7 +324,10 @@ describe("publishScheduledOccurrence — happy path", () => {
     expect(occurrence.leaseOwner).toBeNull();
     expect(occurrence.leaseExpiresAt).toBeNull();
     // Result JSON carries the compact descriptor.
+    // T9A-10 M1: the success shape now carries `kind: "aggregate_published"`
+    // (the discriminator field added inside `buildOccurrenceRecordParticipant`).
     expect(occurrence.result).toEqual({
+      kind: "aggregate_published",
       missionId: result.mission.id,
       taskCount: result.tasks.length,
       attemptIds: expect.arrayContaining([expect.any(String)]),

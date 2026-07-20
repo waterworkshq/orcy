@@ -294,6 +294,7 @@ export type {
   ScheduledOccurrenceState,
   ScheduleRevisionJson,
   OccurrenceResultJson,
+  OccurrenceResultSuccess,
 } from "../repositories/scheduledOccurrences.js";
 export type { CommittedPublication } from "./taskPublicationCoordinator.js";
 export type { CommittedMission, CommittedWorkflow } from "./templateAggregatePublication.js";
@@ -1091,6 +1092,13 @@ export function buildOccurrenceRecordParticipant(
     // aggregate AND this transition → the occurrence stays `publishing`
     // (the load-bearing atomicity claim).
     const result: OccurrenceResultJson = {
+      // T9A-10 M1: the discriminator field that distinguishes the
+      // aggregate-published success shape from future M2 handler-dispatch
+      // success + the existing failure shapes (which carry a `reason` field
+      // instead). Read consumers discriminate by `kind` vs `reason`; no
+      // current reader branches on either (the result JSON is treated as
+      // opaque by the shipped subsystem). Additive JSON-column change only.
+      kind: "aggregate_published",
       missionId: ctx.mission.id,
       taskCount: ctx.tasks.length,
       attemptIds: ctx.attemptIds,
