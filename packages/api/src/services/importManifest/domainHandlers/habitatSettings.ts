@@ -26,6 +26,8 @@
  */
 import type { DomainEnvelope, HabitatSettingsPortable } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -41,6 +43,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { habitats } from "../../../db/schema/habitat.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -230,6 +234,61 @@ export function resolveHabitatSettingsReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; `mode:"new"` INSERT path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the habitat settings row for `mode:"new"` imports. Inserts the
+ * prospective habitat id (allocated in {@link prepareHabitatSettings}) into
+ * the `habitats` table on the caller-owned tx client.
+ *
+ * # M1 scope (the `new` path)
+ *
+ * For `mode:"new"`, the habitat is freshly created — one INSERT into
+ * `habitats` carrying the prepared id, name, description, and the caller's
+ * `actor.id` as `createdBy`. The M2 orchestrator owns the in-place logic for
+ * `mode:"replacement"` (UPDATE habitats SET name=…, description=… for
+ * `replace` dispose; no-op for `preserve`); M1's apply throws if it sees
+ * `mode:"replacement"` so the missing path is loud in tests.
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * Receives a {@link TaskPublicationDbClient} from the orchestrator. NEVER
+ * calls `getDb()` — the apply must run on the orchestrator's transactional
+ * client so the whole aggregate commits (or rolls back) atomically. NEVER
+ * emits external effects (SSE / hooks / webhooks).
+ */
+export function applyHabitatSettings(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedHabitatSettings,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "habitatSettings.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const now = new Date().toISOString();
+  tx.insert(habitats)
+    .values({
+      id: prepared.habitatServerId,
+      name: prepared.name,
+      description: prepared.description,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  return {
+    domain: "habitatSettings",
+    mode: "new",
+    committedServerIds: [prepared.habitatServerId],
+    inserted: 1,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The handler object (consumed by the M4 orchestrator's registry)
 // ---------------------------------------------------------------------------
 
@@ -241,4 +300,5 @@ export const habitatSettingsHandler: DomainHandler<
   validate: validateHabitatSettings,
   prepare: prepareHabitatSettings,
   resolveReferences: resolveHabitatSettingsReferences,
+  apply: applyHabitatSettings,
 };

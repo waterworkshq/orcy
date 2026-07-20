@@ -35,6 +35,8 @@
  */
 import type { ColumnPortable, DomainEnvelope } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -50,6 +52,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { columns } from "../../../db/schema/habitat.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -419,6 +423,75 @@ export function resolveColumnsReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; `mode:"new"` INSERT path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the column rows for `mode:"new"` imports. Inserts every prepared
+ * column into the `columns` table on the caller-owned tx client, in the
+ * order they were prepared. The `nextColumnServerId` was resolved by
+ * {@link resolveColumnsReferences} (a no-op successor — self-referencing
+ * `nextColumnId` is resolved against this same idMap, so every INSERT's
+ * `nextColumnId` may reference a sibling still being inserted; the FK
+ * `nextColumnId → columns.id` is `ON DELETE SET NULL` and is permissive
+ * about forward references).
+ *
+ * # M1 scope (the `new` path)
+ *
+ * For `mode:"new"`, every prepared column gets one INSERT. M2's
+ * `mode:"replacement"` in-place logic is layered here: `replace` does
+ * scoped-delete-before-INSERT (with FK safety), `preserve` is a no-op,
+ * `reset` clears WIP limits. M1 throws if it sees `mode:"replacement"` so
+ * the missing path is loud in tests.
+ *
+ * # Caller-owned tx (load-bearing invariant)
+ *
+ * Receives a {@link TaskPublicationDbClient} from the orchestrator. NEVER
+ * calls `getDb()`, NEVER opens a nested transaction. A throw at any
+ * handler aborts the orchestrator's tx (the whole aggregate rolls back).
+ */
+export function applyColumns(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedColumns,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "columns.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const committedServerIds: string[] = [];
+  for (const col of prepared.columns) {
+    tx.insert(columns)
+      .values({
+        id: col.columnServerId,
+        habitatId: ctx.targetHabitatId,
+        name: col.name,
+        order: col.order,
+        wipLimit: col.wipLimit,
+        // autoAdvance + requiresClaim are NOT in v3 portable (drift #2 —
+        // legacy v2 column policy fields have no v3 slot). Apply schema
+        // defaults: `auto_advance = 0` (false), `requires_claim = 1` (true).
+        // nextColumnId may forward-reference a sibling inserted in this same
+        // tx (the FK is permissive about it; mode:'replacement' replace handles
+        // cross-row FK safety in M2).
+        nextColumnId: col.nextColumnServerId,
+        isTerminal: col.isTerminal,
+      })
+      .run();
+    committedServerIds.push(col.columnServerId);
+  }
+
+  return {
+    domain: "columns",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The handler object
 // ---------------------------------------------------------------------------
 
@@ -427,4 +500,5 @@ export const columnsHandler: DomainHandler<ValidatedColumns, PreparedColumns> = 
   validate: validateColumns,
   prepare: prepareColumns,
   resolveReferences: resolveColumnsReferences,
+  apply: applyColumns,
 };

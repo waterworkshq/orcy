@@ -30,6 +30,8 @@
 import type { TaskPriority } from "@orcy/shared";
 import type { DomainEnvelope } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -45,6 +47,7 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -327,6 +330,49 @@ export function resolveTasksReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — STUB; the kernel composition is M2's orchestrator scope)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tasks go through `publishTaskWithClient` (the kernel — Story 1's
+ * composition primitive), NOT a direct `tx.insert(tasks)`. The kernel
+ * handles the per-Task atomic publication: synthetic initial `created`
+ * event, dispatch plan, governance decision, envelope, observation +
+ * assignment gates, the `creationIntegrity: POST_CUTOVER` stamp, the
+ * `creationObservationStateForTaskWithClient` claim gate — none of which
+ * is reachable from a raw `tx.insert(tasks).values(...)`.
+ *
+ * # Why this is a STUB
+ *
+ * M1 ships the {@link DomainHandler.apply} slot uniform across all 8
+ * handlers so the M2 orchestrator's per-domain iteration is uniform — it
+ * does NOT special-case `tasks`. The M2 orchestrator OVERRIDES the tasks
+ * path: instead of calling `tasksHandler.apply(tx, prepared, ctx)`, it
+ * composes `publishTaskWithClient(tx, {attemptId, proposal, guard,
+ * ...})` per Task inside its own tx, after the import-attempt record
+ * reservation. The stub's job is to make the wrong caller loud:
+ * invoking this in production / tests is an integration bug —
+ * tasks compose via the kernel, not via the handler interface.
+ *
+ * # Throws always (M1 contract)
+ *
+ * The stub throws unconditionally when called. A passing test would mean
+ * the orchestrator is correctly skipping the handler for tasks (the
+ * intended path); a thrown error here is the safety net for the case
+ * where a future M2 refactor accidentally delegates to
+ * `tasksHandler.apply`.
+ */
+export function applyTasks(
+  _tx: TaskPublicationDbClient,
+  _prepared: PreparedTasks,
+  _ctx: ApplyContext,
+): AppliedDomain {
+  throw new Error(
+    "tasks.apply is a STUB in M1 — tasks compose through publishTaskWithClient (the kernel) inside the M2 orchestrator, not through DomainHandler.apply. If you reached this stub, a caller is incorrectly delegating to tasksHandler.apply.",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The handler object
 // ---------------------------------------------------------------------------
 
@@ -335,4 +381,5 @@ export const tasksHandler: DomainHandler<ValidatedTasks, PreparedTasks> = {
   validate: validateTasks,
   prepare: prepareTasks,
   resolveReferences: resolveTasksReferences,
+  apply: applyTasks,
 };

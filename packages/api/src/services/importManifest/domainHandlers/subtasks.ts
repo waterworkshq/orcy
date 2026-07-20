@@ -22,6 +22,8 @@
  */
 import type { DomainEnvelope } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -37,6 +39,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { createSubtaskWithClient } from "../../../repositories/taskPublication.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -253,6 +257,74 @@ export function resolveSubtasksReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; uses the tx-aware `createSubtaskWithClient`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the subtask rows for `mode:"new"` imports via the tx-aware
+ * {@link createSubtaskWithClient} primitive (lives in `taskPublication.ts`).
+ *
+ * # Why a `*WithClient` primitive (vs raw `tx.insert`)
+ *
+ * `createSubtaskWithClient` is the existing publication-domain primitive
+ * that mirrors `taskPublication.ts`'s additive seam convention: it accepts
+ * a caller-supplied `TaskPublicationDbClient` so the subtask commit shares
+ * the orchestrator's tx. Reusing it here means the subtask path inherits
+ * the same error wrapping (`repositoryCreateError` → `AppError`) and the
+ * same cross-backend portable pattern (sql.js + better-sqlite3) that the
+ * kernel-subtask path uses — no handler-specific fork of the insert logic.
+ *
+ * # M1 scope (the `new` path)
+ *
+ * For `mode:"new"`, every prepared subtask gets one INSERT. M2's
+ * `mode:"replacement"` in-place logic is layered here: `replace` does
+ * scoped-delete-before-INSERT, `preserve` is a no-op. M1 throws if it sees
+ * `mode:"replacement"`.
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * The underlying `createSubtaskWithClient` NEVER calls `getDb()` — it
+ * operates on the passed client only. Subtasks compose inside the
+ * orchestrator's transaction; an exception rolls the whole aggregate back.
+ */
+export function applySubtasks(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedSubtasks,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "subtasks.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const committedServerIds: string[] = [];
+  for (const s of prepared.subtasks) {
+    const taskServerId = s.taskServerId;
+    if (taskServerId === null) {
+      throw new Error(
+        `subtasks.apply: subtask '${s.sourceId}' has unresolved taskServerId — resolveReferences did not run or failed`,
+      );
+    }
+    const row = createSubtaskWithClient(tx, {
+      taskId: taskServerId,
+      title: s.title,
+      order: s.order,
+      completed: s.completed,
+      assigneeId: s.assigneeId ?? undefined,
+    });
+    committedServerIds.push(row.id);
+  }
+
+  return {
+    domain: "subtasks",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The handler object
 // ---------------------------------------------------------------------------
 
@@ -261,4 +333,5 @@ export const subtasksHandler: DomainHandler<ValidatedSubtasks, PreparedSubtasks>
   validate: validateSubtasks,
   prepare: prepareSubtasks,
   resolveReferences: resolveSubtasksReferences,
+  apply: applySubtasks,
 };

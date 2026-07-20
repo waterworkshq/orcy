@@ -1,12 +1,12 @@
 /**
  * Manifest Domain Handler — shared interface + supporting types.
  *
- * The contract every M3 domain handler implements. Each of the 8 declared
+ * The contract every domain handler implements. Each of the 8 declared
  * domains (`habitatSettings`, `columns`, `missions`, `tasks`, `subtasks`,
  * `dependencies`, `comments`, `templates`) ships its own handler module in
  * `./domainHandlers/<name>.ts`; this module defines the interface they share.
  *
- * # The three phases (NO `apply` — that's T10B's tx-side concern)
+ * # The four phases
  *
  *   - {@link DomainHandler.validate} — PURE. Reports ALL independently
  *     discoverable shape + reference-shape failures (accumulate, never
@@ -20,14 +20,20 @@
  *   - {@link DomainHandler.resolveReferences} — PURE. Re-walks the prepared
  *     graph against the now-complete {@link IdentityMap}; rewrites sourceIds
  *     → server IDs; accumulates unresolved-reference errors. IDEMPOTENT.
+ *   - {@link DomainHandler.apply} — T10B's tx-side write. Receives the
+ *     caller-owned {@link TaskPublicationDbClient} (the tx client) + an
+ *     {@link ApplyContext}; writes the per-domain rows. NEVER calls
+ *     `getDb()`; never opens its own transaction; never emits effects.
  *
- * # Purity contract (load-bearing)
+ * # Purity contract (load-bearing for validate / prepare / resolveReferences)
  *
  * Handlers are PURE functions of `(envelope, ctx, idMap)`. They perform NO
- * `getDb()` calls, NO `db.transaction`, NO inserts/updates/deletes. The M4
- * orchestrator drives them in sequence (parents before dependents); T10B's
- * `publishImportAggregateWithClient` consumes the resolved prepared domains
- * inside its own transaction.
+ * `getDb()` calls, NO `db.transaction`, NO inserts/updates/deletes during
+ * the three pure phases. The M4 orchestrator drives them in sequence
+ * (parents before dependents); T10B's `publishImportAggregateWithClient`
+ * consumes the resolved prepared domains inside its own transaction. The
+ * fourth phase (`apply`) is the one DB-writing phase — it lives inside the
+ * caller's transaction.
  *
  * # Handler isolation
  *
@@ -43,6 +49,7 @@
  * @see packages/api/src/services/importManifest/domainHandlers/ for the 8
  *      handler implementations.
  * @see T10A M3 ticket § "Scope" for the per-handler responsibility matrix.
+ * @see T10B M1 ticket § "Scope" for the `apply` extension.
  */
 import { randomUUID } from "node:crypto";
 import type { AuditActorRef, AuditSource } from "@orcy/shared";
@@ -51,10 +58,12 @@ import type {
   CommentPortable,
   DependencyPortable,
   DomainEnvelope,
+  ManifestDomainName,
   MissionPortable,
   SubtaskPortable,
   TaskPortable,
 } from "./types.js";
+import type { TaskPublicationDbClient } from "../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Identity map + existing-habitat snapshot
@@ -262,25 +271,33 @@ export type ReferenceResolution<TPrepared> =
   | { readonly ok: false; readonly errors: readonly DomainError[] };
 
 // ---------------------------------------------------------------------------
-// The handler interface (NO `apply` — T10B owns the tx-side write)
+// The handler interface (extends M3's three-phase contract with `apply`)
 // ---------------------------------------------------------------------------
 
 /**
- * The contract every M3 domain handler implements. Generic over:
+ * The contract every domain handler implements. Generic over:
  *   - `TValidated` — the validate phase's success payload (a normalized,
  *     type-narrowed representation of the domain's portable data; carries
  *     only the fields downstream phases need).
  *   - `TPrepared` — the prepare phase's output (the prepared-domain object
  *     with prospective server IDs allocated; consumed by resolveReferences
- *     then by T10B's apply).
+ *     then by the apply phase).
  *
- * # NO `apply` method
+ * # The four phases (T10B adds `apply`)
  *
- * The implementation-context contract lists four phases (`validate`,
- * `prepare`, `resolveReferences`, `apply`), but `apply` is T10B's concern —
- * it takes the resolved prepared domain + a tx client. T10A produces prepared
- * + resolved; T10B consumes them inside `publishImportAggregateWithClient`.
- * M3 ships the three PURE phases only.
+ *   - {@link DomainHandler.validate}, {@link DomainHandler.prepare},
+ *     {@link DomainHandler.resolveReferences} — M3's three PURE phases.
+ *   - {@link DomainHandler.apply} — T10B's tx-side write. Receives the
+ *     caller-owned {@link TaskPublicationDbClient}; performs the per-domain
+ *     INSERTs (and, in M2's scope, the `mode:"replacement"` in-place logic).
+ *
+ * # Tasks apply is a STUB in M1
+ *
+ * The `tasks` handler's `apply` throws if called — tasks compose through
+ * `publishTaskWithClient` (the kernel), not a direct `tx.insert`. The stub
+ * exists so the {@link DomainHandler} interface is uniform; M2's orchestrator
+ * overrides the tasks path with the kernel-composition loop (it does not
+ * invoke `tasksHandler.apply`).
  */
 export interface DomainHandler<TValidated, TPrepared> {
   /** The handler's domain name (matches a {@link ManifestDomainName}). */
@@ -317,6 +334,35 @@ export interface DomainHandler<TValidated, TPrepared> {
     ctx: ManifestContext,
     idMap: IdentityMap,
   ): ReferenceResolution<TPrepared>;
+
+  /**
+   * Writes the per-domain rows inside the caller's transaction. T10B M1 ships
+   * the `mode:"new"` INSERT path; M2 adds the `mode:"replacement"` in-place
+   * logic (replace / preserve / reset) on top of this same hook.
+   *
+   * # Caller-owned tx (load-bearing invariant)
+   *
+   * `tx` is the orchestrator's transaction client (NOT a fresh `getDb()`).
+   * The handler:
+   *   - never calls `getDb()` (would escape the caller's transaction);
+   *   - never opens a nested `db.transaction(...)`;
+   *   - never emits external effects (SSE / hooks / webhooks).
+   *
+   * A throw at any handler aborts the orchestrator's tx; the whole aggregate
+   * rolls back. The atomicity is a property of the orchestrator's
+   * transaction, not of the handler.
+   *
+   * # Stub semantics for `tasks`
+   *
+   * The tasks handler's `apply` throws if called (`publishTaskWithClient`
+   * owns that path; M2's orchestrator dispatches per-Task via the kernel).
+   * The stub exists so every {@link DomainHandler} carries an `apply` slot
+   * and the M2 orchestrator's per-domain iteration is uniform.
+   *
+   * @returns the per-domain {@link AppliedDomain} (count + committed server
+   *          ids for fan-out).
+   */
+  apply(tx: TaskPublicationDbClient, prepared: TPrepared, ctx: ApplyContext): AppliedDomain;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,4 +449,86 @@ export function domainError(
   } = {},
 ): DomainError {
   return { domain, kind, message, ...extra };
+}
+
+// ---------------------------------------------------------------------------
+// Apply phase — T10B adds this to every handler. Caller-owned tx + context.
+// ---------------------------------------------------------------------------
+
+/**
+ * The apply-time context every M1 handler receives. Carries the per-import
+ * knobs the apply phase needs: the target habitat's server id, the resolved
+ * {@link IdentityMap}, the existing-habitat snapshot (for `mode:"replacement"`),
+ * and the per-domain preserve targets (M3 materializes from the snapshot).
+ *
+ * # M1 simplification (drift #12 + #13)
+ *
+ * For T10B M1 (foundation work), `existingHabitatSnapshot` is `null` for both
+ * modes and `preserveDomainTargets` is empty. M3 (snapshotting + restore
+ * identity semantics) populates them; the apply handlers must still tolerate
+ * the M1-empty shape (no handler reads either field today). The fields are
+ * present now so the M2 orchestrator's wiring doesn't need to revisit M1's
+ * `ApplyContext` shape when M3 lands.
+ *
+ * # Caller-owned transaction (load-bearing)
+ *
+ * The handlers receive a {@link TaskPublicationDbClient} (the tx client). They
+ * NEVER call `getDb()`, never open their own transaction, never emit external
+ * effects (SSE / hooks / webhooks). Apply runs inside the orchestrator's
+ * `db.transaction(...)` callback; an exception at any handler rolls the whole
+ * aggregate back atomically.
+ *
+ * @see packages/api/src/repositories/taskPublication.ts for the
+ *      `TaskPublicationDbClient` type definition (mirrors `PulseDbClient`).
+ */
+export interface ApplyContext {
+  /** Import mode. `new` inserts fresh rows; `replacement` may UPDATE
+   *  existing rows (the `mode:"replacement"` in-place logic — replace /
+   *  preserve / reset — is M2's scope; M1 ships the `new` path only). */
+  mode: "new" | "replacement";
+  /** The target habitat's server-side id (the prospective habitat for `new`;
+   *  the existing habitat for `replacement`). */
+  targetHabitatId: string;
+  /** The resolved identity map from the preflight pipeline. Handlers read
+   *  `sourceToServer` to translate source-local references into server ids. */
+  identityMap: IdentityMap;
+  /** Snapshot of the existing habitat's portable state. Null for M1 (M3
+   *  populates it for `mode:"replacement"`). */
+  existingHabitatSnapshot: ExistingHabitatSnapshot | null;
+  /** Materialized entity IDs to skip for `preserve` dispositions (per drift
+   *  #12). Empty for M1; M3 reads from the existing-habitat snapshot. The map
+   *  keys are the domain name; the values are server-side entity ids that
+   *  the apply handler must skip writes for. */
+  preserveDomainTargets: ReadonlyMap<ManifestDomainName, readonly string[]>;
+}
+
+/**
+ * The apply phase's return shape — the per-domain counts + committed server
+ * ids the orchestrator's fan-out consumes.
+ *
+ * For `mode:"new"`, every committed row gets a server id from the idMap
+ * (allocated in the prepare phase); the returned `committedServerIds` order
+ * matches the prepared input order. For `mode:"replacement"` (M2's scope), the
+ * `committedServerIds` may be empty when the dispose is `preserve` (nothing
+ * was inserted) or carry the UPDATE'd rows when the dispose is `replace`.
+ *
+ * # Tasks are special
+ *
+ * The `tasks` apply is a STUB in M1 — the stub throws if called. M2's
+ * orchestrator overrides the tasks path with a `publishTaskWithClient` loop;
+ * the `applied.tasks.committedServerIds` then carries the per-Task committed
+ * publications (not bare ids — M2 composes the full per-Task envelope).
+ */
+export interface AppliedDomain {
+  /** The handler's domain name (matches the handler's `domainName`). */
+  readonly domain: string;
+  /** The mode this apply executed under. M1 always reports `mode:"new"` (the
+   *  `mode:"replacement"` in-place logic is M2's scope). */
+  readonly mode: "new" | "replacement";
+  /** The server-side ids of committed rows, in the same order as the prepared
+   *  input. Empty when `inserted === 0` (preserve dispose in M2; the stub
+   *  tasks path). */
+  readonly committedServerIds: readonly string[];
+  /** The number of rows the apply committed (== `committedServerIds.length`). */
+  readonly inserted: number;
 }

@@ -22,12 +22,18 @@
  * Rewrites each comment's `taskSourceId` → the task's server ID (from the
  * idMap, populated by the tasks handler's prepare) and `parentCommentSourceId`
  * → the parent comment's server ID (from the idMap, populated by THIS
- * handler's prepare). Accumulates unresolved-reference errors.
+ * handler's prepare). ALSO rewrites each comment's parent-mission via a
+ * cross-domain lookup against `crossDomainState.tasksEnvelope` (the
+ * portable v2 comment is task-scoped; the v3 schema's `missionComments`
+ * table is mission-scoped — the resolution bridges the two). Accumulates
+ * unresolved-reference errors.
  *
  * @see packages/api/src/services/importManifest/types.ts for CommentPortable.
  */
 import type { CommentPortable, DomainEnvelope } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -43,6 +49,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { missionComments } from "../../../db/schema/habitat.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -77,6 +85,11 @@ export interface PreparedComment {
   /** The resolved parent-comment server id (null when parentCommentSourceId is null
    *  OR before resolveReferences runs). */
   parentCommentServerId: string | null;
+  /** The resolved Mission server id (cross-domain lookup via
+   *  `crossDomainState.tasksEnvelope` — the v3 `missionComments` table is
+   *  mission-scoped, but `CommentPortable.taskSourceId` is task-scoped; the
+   *  resolution bridges the two). Null until resolveReferences runs. */
+  missionServerId: string | null;
   content: string;
   author: { resolvedActorId: string | null; importedAttribution: string };
   authorType: CommentPortable["authorType"];
@@ -290,6 +303,7 @@ export function prepareComments(
       taskServerId: null,
       parentCommentSourceId: c.parentCommentSourceId,
       parentCommentServerId: null,
+      missionServerId: null,
       content: c.content,
       author: c.author,
       authorType: c.authorType,
@@ -300,15 +314,34 @@ export function prepareComments(
 }
 
 // ---------------------------------------------------------------------------
-// Resolve references (PURE — rewrite taskSourceId + parentCommentSourceId)
+// Resolve references (PURE — rewrite taskSourceId + parentCommentSourceId + missionServerId)
 // ---------------------------------------------------------------------------
 
 export function resolveCommentsReferences(
   prepared: PreparedComments,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): ReferenceResolution<PreparedComments> {
   const errors: DomainError[] = [];
+
+  // Cross-domain lookup: for each comment, find the task (by sourceId),
+  // then look up the task's missionServerId from idMap. The portable
+  // CommentPortable carries taskSourceId (v2-era task-scoped attribution);
+  // the v3 missionComments table is mission-scoped, so we bridge the two.
+  //
+  // The build a taskSourceId -> missionSourceId map from the raw tasks
+  // envelope. We use ctx.crossDomainState.tasksEnvelope which the
+  // orchestrator populates before iterating the comments domain.
+  const taskToMissionSourceId = new Map<string, string>();
+  const tasksEnv = ctx.crossDomainState?.tasksEnvelope;
+  if (tasksEnv && Array.isArray(tasksEnv.data)) {
+    for (const task of tasksEnv.data as Array<{ sourceId?: unknown; missionSourceId?: unknown }>) {
+      if (typeof task.sourceId === "string" && typeof task.missionSourceId === "string") {
+        taskToMissionSourceId.set(task.sourceId, task.missionSourceId);
+      }
+    }
+  }
+
   const resolvedComments: PreparedComment[] = prepared.comments.map((c) => {
     const taskServerId = idMap.sourceToServer.get(c.taskSourceId);
     if (taskServerId === undefined) {
@@ -339,15 +372,134 @@ export function resolveCommentsReferences(
       }
     }
 
+    // Resolve the comment's mission server id. The mission lookup is
+    // conditional on the cross-domain state being populated — if it isn't
+    // (e.g. a malformed manifest with no tasks envelope), the comment
+    // resolves to missionServerId: null and apply surfaces the gap.
+    let missionServerId: string | null = null;
+    const missionSourceId = taskToMissionSourceId.get(c.taskSourceId);
+    if (missionSourceId !== undefined) {
+      const resolved = idMap.sourceToServer.get(missionSourceId);
+      if (resolved !== undefined) {
+        missionServerId = resolved;
+      } else {
+        errors.push(
+          domainError(
+            "comments",
+            "unresolved_mission_for_task",
+            `comment '${c.sourceId}' parent task '${c.taskSourceId}' has unresolved missionSourceId '${missionSourceId}'`,
+            { sourceId: c.sourceId, actual: missionSourceId },
+          ),
+        );
+      }
+    } else if (tasksEnv !== undefined) {
+      // tasks envelope WAS populated but the lookup failed — surface as an
+      // error so the apply phase can either skip or fail loudly.
+      errors.push(
+        domainError(
+          "comments",
+          "unresolved_task_for_mission_lookup",
+          `comment '${c.sourceId}' references task '${c.taskSourceId}' which is not present in the tasks envelope`,
+          { sourceId: c.sourceId, actual: c.taskSourceId },
+        ),
+      );
+    }
+
     return {
       ...c,
       taskServerId: taskServerId ?? null,
       parentCommentServerId,
+      missionServerId,
     };
   });
 
   if (errors.length > 0) return resolutionErr(errors);
   return resolutionOk({ comments: resolvedComments });
+}
+
+// ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; comments are mission-scoped via the
+// missionComments table; resolveReferences already bridged the v3 portable
+// task-scoping into a mission server id)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the comment rows for `mode:"new"` imports. Each prepared
+ * {@link PreparedComment} becomes one INSERT into `mission_comments` on the
+ * caller-owned tx client. Comments in v3 are MISSION-scoped — the
+ * `resolveCommentsReferences` phase bridges the v2 portable's task-scoped
+ * `taskSourceId` into a mission server id (cross-domain lookup against
+ * `crossDomainState.tasksEnvelope` + the idMap).
+ *
+ * # Author resolution
+ *
+ * `author.resolvedActorId` maps to `authorId` when non-null. When null
+ * (legacy v2 inputs that carried no local actor), we stamp the
+ * `authorId` with a synthetic shape `"imported:<importedAttribution>"` —
+ * the legacy import pipeline at v0.31 honored nothing structural here, so
+ * preserving the attribution string is byte-faithful. (A future ticket
+ * could resolve these against the local actor table at preflight time;
+ * M1 preserves the v0.31 semantics.)
+ *
+ * # `authoredAt` → `createdAt`
+ *
+ * The portable's `authoredAt` (the comment's authored timestamp) maps to
+ * the table's `createdAt`. The `updatedAt` defaults to `createdAt` on
+ * insert (no follow-up edits during apply).
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * Receives a {@link TaskPublicationDbClient} from the orchestrator. NEVER
+ * calls `getDb()`, NEVER opens a nested transaction. Comment rows share
+ * the orchestrator's tx; an exception rolls the whole aggregate back.
+ */
+export function applyComments(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedComments,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "comments.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const committedServerIds: string[] = [];
+  for (const c of prepared.comments) {
+    if (c.missionServerId === null) {
+      throw new Error(
+        `comments.apply: comment '${c.sourceId}' has unresolved missionServerId — resolveReferences did not run or failed`,
+      );
+    }
+    const authorId =
+      c.author.resolvedActorId !== null
+        ? c.author.resolvedActorId
+        : `imported:${c.author.importedAttribution}`;
+
+    tx.insert(missionComments)
+      .values({
+        id: c.commentServerId,
+        missionId: c.missionServerId,
+        parentId: c.parentCommentServerId,
+        authorType: c.authorType,
+        authorId,
+        content: c.content,
+        // `createdAt` carries the portable's `authoredAt` so the row's
+        // timestamp matches the source intent. `updatedAt` matches
+        // `createdAt` (no follow-up edits during apply).
+        createdAt: c.authoredAt,
+        updatedAt: c.authoredAt,
+      })
+      .run();
+    committedServerIds.push(c.commentServerId);
+  }
+
+  return {
+    domain: "comments",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -359,4 +511,5 @@ export const commentsHandler: DomainHandler<ValidatedComments, PreparedComments>
   validate: validateComments,
   prepare: prepareComments,
   resolveReferences: resolveCommentsReferences,
+  apply: applyComments,
 };

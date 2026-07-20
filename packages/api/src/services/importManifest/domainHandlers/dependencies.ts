@@ -45,6 +45,8 @@
  */
 import type { DependencyPortable, DomainEnvelope, MissionPortable } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -60,6 +62,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { addTaskDependencyWithClient } from "../../../repositories/taskPublication.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -519,6 +523,89 @@ export function resolveDependenciesReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; task-level edges via *WithClient primitive)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the task-level dependency edges for `mode:"new"` imports. Each
+ * prepared {@link PreparedDependencyEdge} becomes one INSERT into
+ * `task_dependencies` via the tx-aware {@link addTaskDependencyWithClient}
+ * primitive (lives in `taskPublication.ts` — same additive seam convention
+ * as `createSubtaskWithClient`).
+ *
+ * # Why a `*WithClient` primitive (vs raw `tx.insert`)
+ *
+ * `addTaskDependencyWithClient` is the existing publication-domain
+ * primitive that mirrors `taskPublication.ts`'s additive seam convention:
+ * it accepts a caller-supplied `TaskPublicationDbClient` so the edge commit
+ * shares the orchestrator's tx. Reusing it here means the dependency path
+ * inherits the same error wrapping (`repositoryCreateError` → `AppError`)
+ * and the same cross-backend portable pattern (sql.js + better-sqlite3)
+ * that the kernel uses — no handler-specific fork.
+ *
+ * # Mission-level edges live on `missions.apply`
+ *
+ * Mission-level edges (`dependsOn`/`blocks` on `MissionPortable`) are NOT
+ * inserted here — they live on {@link applyMissions} (the resolved
+ * `PreparedMission.dependsOnServerIds` / `blocksServerIds`). The
+ * architectural split is: `dependencies` owns the task-level graph
+ * (DependencyPortable) AND validates cycle-freeness across both graphs;
+ * `missions` owns the per-mission edge materialization. Cycle detection
+ * across both graphs happens at validate time so a pathologically cyclic
+ * manifest can never reach apply.
+ *
+ * # `kind` is dropped (no native slot)
+ *
+ * The portable's `kind` (`"blocks" | "relates_to" | "duplicates"`) has no
+ * native column on `task_dependencies`. M1 drops it on apply (the M3
+ * validate phase enforces it as a closed union; the value is preserved
+ * in the manifest JSON for audit, but the in-DB edge is shape-less). A
+ * future hardening could extend the schema; not blocking M1.
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * The underlying primitive NEVER calls `getDb()` — it operates on the
+ * passed client only. Task-dependency edges compose inside the
+ * orchestrator's transaction; an exception rolls the whole aggregate back.
+ */
+export function applyDependencies(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedDependencies,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "dependencies.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const committedServerIds: string[] = [];
+  for (const edge of prepared.edges) {
+    const taskServerId = edge.taskServerId;
+    const dependsOnTaskServerId = edge.dependsOnTaskServerId;
+    if (taskServerId === null || dependsOnTaskServerId === null) {
+      throw new Error(
+        `dependencies.apply: edge '${edge.sourceId}' has unresolved taskServerId / dependsOnTaskServerId — resolveReferences did not run or failed (task='${edge.taskSourceId}', dependsOn='${edge.dependsOnTaskSourceId}')`,
+      );
+    }
+    const row = addTaskDependencyWithClient(tx, {
+      taskId: taskServerId,
+      dependsOnId: dependsOnTaskServerId,
+    });
+    // task_dependencies has no synthetic-id column — use the composite
+    // (taskId, dependsOnId) as the committed-row key for the AppliedDomain.
+    committedServerIds.push(`${row.taskId}->${row.dependsOnId}`);
+  }
+
+  return {
+    domain: "dependencies",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The handler object
 // ---------------------------------------------------------------------------
 
@@ -527,4 +614,5 @@ export const dependenciesHandler: DomainHandler<ValidatedDependencies, PreparedD
   validate: validateDependencies,
   prepare: prepareDependencies,
   resolveReferences: resolveDependenciesReferences,
+  apply: applyDependencies,
 };

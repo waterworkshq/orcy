@@ -31,6 +31,8 @@
 import type { TaskPriority } from "@orcy/shared";
 import type { DomainEnvelope, MissionPortable } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -46,6 +48,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { missionDependencies, missions } from "../../../db/schema/habitat.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -456,6 +460,110 @@ export function resolveMissionsReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; `mode:"new"` INSERT path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the mission rows for `mode:"new"` imports. Inserts every prepared
+ * mission into the `missions` table on the caller-owned tx client. The
+ * `columnServerId` was resolved by {@link resolveMissionsReferences} via the
+ * idMap (a cross-domain lookup — drift #8 — but safe because the orchestrator
+ * runs `columns.apply` BEFORE `missions.apply`; the FK `column_id →
+ * columns.id` resolves against the just-inserted sibling row).
+ *
+ * # M1 scope (the `new` path)
+ *
+ * For `mode:"new"`, every prepared mission gets one INSERT. M2's
+ * `mode:"replacement"` in-place logic is layered here: `replace` does
+ * scoped-delete-before-INSERT, `preserve` is a no-op, `reset` clears
+ * execution state. M1 throws if it sees `mode:"replacement"`.
+ *
+ * # Mission-execution-state per C4 absorption
+ *
+ * v3 `MissionPortable` carries NO execution-state field (drift absorbed by
+ * the M1 type); the `missions` table's `status` column defaults to
+ * `not_started` so we omit it. `version` defaults to `1`. Other execution-
+ * state columns (`slaMinutes`, `completedAt`, `isArchived`, ...) inherit
+ * their table defaults.
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * Receives a {@link TaskPublicationDbClient} from the orchestrator. NEVER
+ * calls `getDb()`, NEVER opens a nested transaction, NEVER emits effects.
+ */
+export function applyMissions(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedMissions,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "missions.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const now = new Date().toISOString();
+  const committedServerIds: string[] = [];
+  let edgeCount = 0;
+  for (const m of prepared.missions) {
+    if (m.columnServerId === null) {
+      throw new Error(
+        `missions.apply: mission '${m.title}' (sourceId '${m.sourceId}') has unresolved columnServerId — resolveReferences did not run or failed`,
+      );
+    }
+    tx.insert(missions)
+      .values({
+        id: m.missionServerId,
+        habitatId: ctx.targetHabitatId,
+        columnId: m.columnServerId,
+        title: m.title,
+        description: m.description,
+        acceptanceCriteria: m.acceptanceCriteria,
+        priority: m.priority,
+        labels: m.labels,
+        // status defaults to 'not_started' (C4 absorption: v3 drops v2 status)
+        // dependsOn + blocks are Mission-level edges — written HERE for
+        // architectural locality: `dependsOnServerIds` / `blocksServerIds`
+        // live on PreparedMission (resolved during resolveReferences). The
+        // `dependencies` handler validates the graph for cycles but does NOT
+        // own the per-mission edge materialization (it would need a side
+        // channel to PreparedMission data).
+        dueAt: m.dueAt,
+        createdBy: "import",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    committedServerIds.push(m.missionServerId);
+
+    // Mission-level dependency edges. The `mission_dependencies` table is
+    // keyed `(missionId, dependsOnId)`; one INSERT per edge. `blocks` are
+    // modeled as `dependsOn` rows in the OPPOSITE direction in v0.31 — for
+    // M1 fidelity, we write `dependsOn` rows directly. M2 may layer a
+    // separate `blocks` representation on top.
+    for (const depId of m.dependsOnServerIds) {
+      tx.insert(missionDependencies)
+        .values({ missionId: m.missionServerId, dependsOnId: depId })
+        .run();
+      edgeCount++;
+    }
+  }
+
+  return {
+    domain: "missions",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+    // The orchestrator reads `inserted` for the per-domain COUNT (mission
+    // rows), not edge rows. Edges are implementation detail of the mission
+    // graph; their count is not part of the AppliedDomain envelope. (A
+    // future ticket could expose `perMissionEdgeCounts: number[]` for richer
+    // fan-out; M1 ships the count shape only.)
+    ...(edgeCount > 0 ? {} : {}),
+  } satisfies AppliedDomain;
+}
+
+// ---------------------------------------------------------------------------
 // The handler object
 // ---------------------------------------------------------------------------
 
@@ -464,6 +572,7 @@ export const missionsHandler: DomainHandler<ValidatedMissions, PreparedMissions>
   validate: validateMissions,
   prepare: prepareMissions,
   resolveReferences: resolveMissionsReferences,
+  apply: applyMissions,
 };
 
 /** Re-exported for downstream consumers that import the canonical shape. */

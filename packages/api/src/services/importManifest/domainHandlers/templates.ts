@@ -33,6 +33,8 @@
  */
 import type { DomainEnvelope } from "../types.js";
 import type {
+  AppliedDomain,
+  ApplyContext,
   DomainError,
   DomainHandler,
   DomainValidationResult,
@@ -47,6 +49,8 @@ import {
   validationErr,
   validationOk,
 } from "../domainHandler.js";
+import { missionTemplates } from "../../../db/schema/habitat.js";
+import type { TaskPublicationDbClient } from "../../../repositories/taskPublication.js";
 
 // ---------------------------------------------------------------------------
 // Validated + prepared shapes
@@ -283,6 +287,94 @@ export function resolveTemplatesReferences(
 }
 
 // ---------------------------------------------------------------------------
+// Apply (T10B M1 — caller-owned tx; `mode:"new"` INSERT path with best-effort
+// v3 → v0.31-schema mapping)
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the template rows for `mode:"new"` imports. Each prepared
+ * {@link PreparedTemplate} becomes one INSERT into `mission_templates` on
+ * the caller-owned tx client.
+ *
+ * # v3 ↔ v0.31 schema adaptation (drift 1)
+ *
+ * The `mission_templates` table is v0.31-shaped: it carries
+ * `titlePattern` / `descriptionPattern` (legacy template-string fields)
+ * but no slot for the v3 `TemplateContentPortable`'s full content graph.
+ * Per drift 1, the v3 type carries Task-level template fields that have no
+ * schema column (and no v3 slot in the M1 type). M1 therefore stores:
+ *   - `prepared.name` → `name`
+ *   - `prepared.description` → `descriptionPattern` (best-effort — the
+ *     table has no free-form description, so the description lands as the
+ *     pattern. The `titlePattern` defaults to `name`.)
+ *   - `prepared.content.labels` → `labels` JSON (when present)
+ *   - `prepared.content.missions` (the synthesized single-mission per the
+ *     drift 1 adapter synthesis) is DROPPED — `tasksTemplate` stays empty
+ *     (`[]`) because the M1 type has no task-level template slots. The
+ *     import succeeds for the structural data; the missing-task-level-fields
+ *     surfaces via the M2 adapter's per-template warnings.
+ *   - `prepared.isDefault` → `isDefault` (the M3 validate-phase
+ *     uniqueness rule already enforced at most one default per manifest)
+ *
+ * # Caller-owned tx (load-bearing)
+ *
+ * Receives a {@link TaskPublicationDbClient} from the orchestrator.
+ * NEVER calls `getDb()`. A throw at any handler aborts the orchestrator's
+ * tx; the whole aggregate rolls back.
+ */
+export function applyTemplates(
+  tx: TaskPublicationDbClient,
+  prepared: PreparedTemplates,
+  ctx: ApplyContext,
+): AppliedDomain {
+  if (ctx.mode === "replacement") {
+    throw new Error(
+      "templates.apply: mode:'replacement' in-place logic is M2's scope; M1 ships the mode:'new' INSERT path only",
+    );
+  }
+
+  const now = new Date().toISOString();
+  const committedServerIds: string[] = [];
+  for (const t of prepared.templates) {
+    const labels = Array.isArray(t.content?.["labels"])
+      ? (t.content["labels"] as unknown[]).filter((l): l is string => typeof l === "string")
+      : [];
+
+    tx.insert(missionTemplates)
+      .values({
+        id: t.templateServerId,
+        habitatId: ctx.targetHabitatId,
+        name: t.name,
+        // titlePattern defaults to name (the table's required field; the v3
+        // portable has no `title` slot at the template level, so the
+        // template's own name becomes the title pattern).
+        titlePattern: t.name,
+        descriptionPattern: t.description,
+        // Defaulted: priority is not in v3 TemplatePortable; the schema's
+        // column default ('medium') applies via omission.
+        labels,
+        // Defaulted: requiredDomain / requiredCapabilities not in v3 portable.
+        isDefault: t.isDefault,
+        // usageCount defaults to 0 (schema).
+        createdBy: "import",
+        createdAt: now,
+        // tasksTemplate defaults to [] (schema). The synthesized
+        // TemplateContentPortable.missions (drift 1) has no native column.
+        // workflowTemplate defaults to null (schema).
+      })
+      .run();
+    committedServerIds.push(t.templateServerId);
+  }
+
+  return {
+    domain: "templates",
+    mode: "new",
+    committedServerIds,
+    inserted: committedServerIds.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The handler object
 // ---------------------------------------------------------------------------
 
@@ -291,4 +383,5 @@ export const templatesHandler: DomainHandler<ValidatedTemplates, PreparedTemplat
   validate: validateTemplates,
   prepare: prepareTemplates,
   resolveReferences: resolveTemplatesReferences,
+  apply: applyTemplates,
 };
