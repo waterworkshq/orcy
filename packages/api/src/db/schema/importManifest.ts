@@ -93,10 +93,10 @@ type ImportManifestSummaryJson = {
  * T10B `publishImportAggregateWithClient` atomically terminalizes once the
  * per-Task aggregate publisher reaches its observation checkpoint.
  *
- * Non-cascade: `habitat_id` and `created_habitat_id` are plain TEXT (NO FK) —
- * the import attempt is operational / audit history that outlives habitat
- * replacement. Within-family: `attempt_id` cascades with the coordination
- * attempt it links to.
+ * Non-cascade: `habitat_id`, `created_habitat_id`, AND `attempt_id` are all
+ * plain TEXT (NO FK) — the import attempt is operational / audit history
+ * that outlives habitat replacement AND coordination-attempt cleanup.
+ * Mirrors the `scheduled_occurrences.attempt_id` precedent (T9A Phase 1).
  */
 export const importAttempts = sqliteTable(
   "import_attempts",

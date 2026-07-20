@@ -46,6 +46,7 @@ import {
   type PrepareImportInput,
   type ReserveImportAttemptV2Input,
 } from "../services/importManifest/preflightImport.js";
+import { importManifestSchema } from "../models/schemas.js";
 import { UnknownManifestVersion } from "../services/importManifest/legacyAdapter.js";
 import type {
   HabitatImportManifest,
@@ -563,20 +564,26 @@ describe("prepareImport — authority check (b)", () => {
     expect(result.errors.some((e) => e.code === "restore_requires_source_habitat")).toBe(true);
   });
 
-  it("(b2 positive) v3 identityPolicy:'restore' + non-null sourceHabitatId passes authority", () => {
+  it("(b3) restore is refused until T10B ships existing-habitat snapshotting (drift #13)", () => {
+    // The plan's drift #13 defers `restore` alongside snapshotting. M4 leaves
+    // `ManifestContext.existingHabitatSnapshot` null for both modes → `restore`
+    // would silently produce an incomplete `PreparedImport` (no collision
+    // detection). Explicit refusal (option a per the cold-review finding)
+    // avoids the silent-normalization defect.
     const manifest = v3Manifest({
-      manifestId: "restore-with-lineage-test",
+      manifestId: "restore-refused-until-t10b",
       identityPolicy: "restore",
-      sourceHabitatId: "source-habitat-123",
+      sourceHabitatId: "source-habitat-123", // (b2) satisfied
     });
     const result = prepareImport(v3Input(manifest));
-    // Should pass the authority check (b2 satisfied). Either prepared or
-    // rejected for a different reason (e.g. governance veto — but mode:"new"
-    // has no enrollments, so all tasks allowed).
-    expect(result.outcome).toBe("prepared");
+    expect(result.outcome).toBe("rejected_preflight");
+    if (result.outcome !== "rejected_preflight") return;
+    expect(result.errors.some((e) => e.code === "restore_not_supported_until_snapshotting")).toBe(
+      true,
+    );
   });
 
-  it("(b3) rejects unsupported disposition via zod schema parse", () => {
+  it("(b4) rejects unsupported disposition via zod schema parse", () => {
     // The strict v3 schema rejects unknown dispositions. Hand-craft a v3
     // manifest with an unsupported disposition + verify the schema parse
     // throws (mapped to a thrown Error in prepareImport).
@@ -899,10 +906,10 @@ describe("prepareImport — terminal-reject path", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 13. runPreflightPipeline — PURE pipeline entry (no DB reservation)
+// 13. runPreflightPipeline — direct pipeline entry (no DB reservation)
 // ---------------------------------------------------------------------------
 
-describe("runPreflightPipeline — direct PURE pipeline entry", () => {
+describe("runPreflightPipeline — direct pipeline entry", () => {
   it("produces a prepared body without reserving an import attempt", () => {
     const manifest = v3Manifest();
     const result = runPreflightPipeline(
@@ -913,6 +920,7 @@ describe("runPreflightPipeline — direct PURE pipeline entry", () => {
       "rest_api",
       "fake-attempt-id",
       [], // legacyWarnings (empty for v3 input)
+      false, // wasLegacyInput (v3 native passthrough)
     );
     expect(result.outcome).toBe("prepared");
     if (result.outcome !== "prepared") return;
@@ -936,10 +944,127 @@ describe("runPreflightPipeline — direct PURE pipeline entry", () => {
       "rest_api",
       "fake-attempt-id",
       [],
+      false, // wasLegacyInput
     );
     expect(result.outcome).toBe("rejected");
     if (result.outcome !== "rejected") return;
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors.some((e) => e.kind === "duplicate_column_name")).toBe(true);
+  });
+
+  it("wasLegacyInput=true + restore triggers legacy_restore_forbidden (parameter honored)", () => {
+    // Defensive test (cold-review Fix 2): the entry point computes
+    // `wasLegacyInput` authoritatively in `detectAndAdaptInput` + passes it
+    // through. The `remap`-only authority rule fires when `wasLegacyInput=true`
+    // AND `identityPolicy:"restore"` — direct callers MUST supply the correct
+    // flag. A v3 native `remap` manifest with non-empty legacyWarnings is NOT
+    // a legacy input (the flag is authoritative; the warnings length is not).
+    const manifest = v3Manifest({
+      identityPolicy: "restore",
+      sourceHabitatId: "source-habitat-1",
+    });
+    const result = runPreflightPipeline(
+      manifest,
+      null,
+      "new",
+      { type: "human", id: "user-1" },
+      "rest_api",
+      "fake-attempt-id",
+      ["some-warning-from-the-adapter"], // non-empty legacyWarnings
+      true, // wasLegacyInput=true → legacy_restore_forbidden fires
+    );
+    expect(result.outcome).toBe("rejected");
+    if (result.outcome !== "rejected") return;
+    // (b1) legacy_restore_forbidden fires for legacy inputs requesting restore.
+    expect(result.errors.some((e) => e.kind === "legacy_restore_forbidden")).toBe(true);
+    // (b3) restore_not_supported_until_snapshotting ALSO fires (accumulate-all).
+    expect(result.errors.some((e) => e.kind === "restore_not_supported_until_snapshotting")).toBe(
+      true,
+    );
+  });
+
+  it("wasLegacyInput=false + remap + non-empty warnings does NOT trigger legacy_restore_forbidden", () => {
+    // Defensive test (cold-review Fix 2): a v3 native `remap` manifest with
+    // non-empty warnings reaches the pipeline with `wasLegacyInput=false`. The
+    // heuristic the cold review deleted would have misclassified this as
+    // `wasLegacyInput=true` (because identityPolicy !== "restore"). The
+    // explicit parameter prevents the misclassification.
+    const manifest = v3Manifest({
+      identityPolicy: "remap",
+    });
+    const result = runPreflightPipeline(
+      manifest,
+      null,
+      "new",
+      { type: "human", id: "user-1" },
+      "rest_api",
+      "fake-attempt-id",
+      ["a-warning"], // non-empty legacyWarnings
+      false, // wasLegacyInput=false (v3 native, NOT legacy)
+    );
+    // No authority errors — the manifest is valid + the flag is honored.
+    expect(result.outcome).toBe("prepared");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. importManifestSchema — strict shape (silent-strip defense)
+// ---------------------------------------------------------------------------
+
+describe("importManifestSchema — strict shape (Fix 1 cold-review)", () => {
+  it("REJECTS an unknown domain (e.g. webhooks) instead of silently stripping it", () => {
+    // The strict v3 schema's `domains` object is `.strict()` — Zod rejects
+    // unknown keys instead of silently dropping them. Without `.strict()`,
+    // a v3 manifest declaring `webhooks: {disposition:"replace", data:...}`
+    // would have the domain silently dropped → preflight treats it as
+    // omitted (preserve-by-default). The cold-review finding classifies this
+    // as the silent-normalization defect the gap-audit R3 directive warns
+    // against.
+    const manifest = v3Manifest();
+    const withUnknownDomain = {
+      ...manifest,
+      domains: {
+        ...manifest.domains,
+        // An unknown domain that must NOT be silently dropped.
+        webhooks: { disposition: "replace", data: [{ name: "hook", url: "https://example.com" }] },
+      },
+    };
+    const result = importManifestSchema.safeParse(withUnknownDomain);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message).join("|");
+      expect(messages.toLowerCase()).toContain("unrecognized");
+    }
+  });
+
+  it("REJECTS an unknown lineage field (silent-strip defense)", () => {
+    const manifest = v3Manifest();
+    const withUnknownLineage = {
+      ...manifest,
+      lineage: {
+        ...manifest.lineage,
+        unknownLineageField: "should-be-rejected",
+      },
+    };
+    const result = importManifestSchema.safeParse(withUnknownLineage);
+    expect(result.success).toBe(false);
+  });
+
+  it("REJECTS an unknown envelope field (silent-strip defense)", () => {
+    const manifest = v3Manifest();
+    const withUnknownEnvelopeField = {
+      ...manifest,
+      domains: {
+        ...manifest.domains,
+        columns: {
+          disposition: "replace",
+          data: manifest.domains.columns!.data,
+          // An unknown envelope field that must NOT be silently dropped.
+          unknownEnvelopeField: "should-be-rejected",
+        },
+      },
+    };
+    const result = importManifestSchema.safeParse(withUnknownEnvelopeField);
+    expect(result.success).toBe(false);
   });
 });

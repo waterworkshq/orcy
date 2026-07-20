@@ -298,10 +298,12 @@ export const importHabitatSchema = z.preprocess((data) => {
 // itself dormant behind `ORCY_CREATION_PUBLICATION_ENABLED`.
 // ---------------------------------------------------------------------------
 
-const importManifestDomainEnvelopeSchema = z.object({
-  disposition: z.enum(["replace", "preserve", "reset"]),
-  data: z.unknown(),
-});
+const importManifestDomainEnvelopeSchema = z
+  .object({
+    disposition: z.enum(["replace", "preserve", "reset"]),
+    data: z.unknown(),
+  })
+  .strict();
 
 export const importManifestSchema = z
   .object({
@@ -310,21 +312,25 @@ export const importManifestSchema = z
     generatedAt: z.string().min(1),
     mode: z.enum(["new", "replacement"]),
     identityPolicy: z.enum(["remap", "restore"]),
-    lineage: z.object({
-      sourceHabitatId: z.string().nullable(),
-      sourceExportedAt: z.string().nullable(),
-      sourceManifestId: z.string().nullable(),
-    }),
-    domains: z.object({
-      habitatSettings: importManifestDomainEnvelopeSchema.optional(),
-      columns: importManifestDomainEnvelopeSchema.optional(),
-      missions: importManifestDomainEnvelopeSchema.optional(),
-      tasks: importManifestDomainEnvelopeSchema.optional(),
-      subtasks: importManifestDomainEnvelopeSchema.optional(),
-      dependencies: importManifestDomainEnvelopeSchema.optional(),
-      comments: importManifestDomainEnvelopeSchema.optional(),
-      templates: importManifestDomainEnvelopeSchema.optional(),
-    }),
+    lineage: z
+      .object({
+        sourceHabitatId: z.string().nullable(),
+        sourceExportedAt: z.string().nullable(),
+        sourceManifestId: z.string().nullable(),
+      })
+      .strict(),
+    domains: z
+      .object({
+        habitatSettings: importManifestDomainEnvelopeSchema.optional(),
+        columns: importManifestDomainEnvelopeSchema.optional(),
+        missions: importManifestDomainEnvelopeSchema.optional(),
+        tasks: importManifestDomainEnvelopeSchema.optional(),
+        subtasks: importManifestDomainEnvelopeSchema.optional(),
+        dependencies: importManifestDomainEnvelopeSchema.optional(),
+        comments: importManifestDomainEnvelopeSchema.optional(),
+        templates: importManifestDomainEnvelopeSchema.optional(),
+      })
+      .strict(),
   })
   .strict();
 

@@ -20,19 +20,27 @@
  *     5. {@link reserveImportAttempt} — the BEGIN IMMEDIATE reservation tx
  *        (parallel to `reserveScheduledOccurrence`). Reserves the import
  *        attempt row + the coordination attempt + stamps the link, atomically.
- *     6. {@link runPreflightPipeline} — PURE (no DB writes): authority check,
- *        per-domain validate, IdentityMap build, reference resolution,
- *        prospective governance, guard capture.
+ *     6. {@link runPreflightPipeline} — PURE except for the accepted
+ *        governance-ledger exception: authority check, per-domain validate,
+ *        IdentityMap build, reference resolution, prospective governance,
+ *        guard capture. Step 6 (prospective governance) writes governance
+ *        decision-ledger rows via `recordGovernanceDecisionWithClient` (the
+ *        T3B-2 reusable-decision pattern, same as T9A). These ledger rows are
+ *        the durable cache that makes identical re-preparation reuse
+ *        decisions; they are part of the kernel's governance contract, not
+ *        a violation of "preflight is read-only." Every other step is read-
+ *        only.
  *     7. Outcome — success → {@link PreparedImport}; failure →
  *        {@link terminalRejectImportAttemptWithCoordination} +
  *        `{outcome:"rejected_preflight"}`.
  *
- *   {@link runPreflightPipeline} — PURE. The 6-step orchestrator that runs
- *     the M3 handlers in {@link MANIFEST_DOMAIN_NAMES} order (load-bearing —
- *     drift #8: the mission handler's `resolveReferences` does cross-domain
- *     column lookup against the idMap populated by `columns.prepare`). Returns
- *     either the prepared import body (without prefilledAttemptId) or the
- *     accumulated {@link ManifestDomainError} list.
+ *   {@link runPreflightPipeline} — PURE except for the accepted governance-
+ *     ledger exception. The 6-step orchestrator that runs the M3 handlers in
+ *     {@link MANIFEST_DOMAIN_NAMES} order (load-bearing — drift #8: the
+ *     mission handler's `resolveReferences` does cross-domain column lookup
+ *     against the idMap populated by `columns.prepare`). Returns either the
+ *     prepared import body (without prefilledAttemptId) or the accumulated
+ *     {@link ManifestDomainError} list.
  *
  * # Authority-separation contract (three checks)
  *
@@ -513,6 +521,13 @@ export function detectAndAdaptInput(rawManifest: unknown): AdaptedInput {
  *   - Legacy v1/v2 inputs are `remap`-only: `identityPolicy:"restore"` on a
  *     legacy-adapted manifest fails (legacy exports carry no lineage —
  *     restore requires same-lineage proof they cannot provide).
+ *   - `identityPolicy:"restore"` is NOT SUPPORTED until T10B ships existing-
+ *     habitat snapshotting (drift #13). restore requires collision detection
+ *     against the existing habitat's entities (via `ManifestContext.
+ *     existingHabitatSnapshot`); M4 leaves the snapshot null for both modes.
+ *     Until T10B populates the snapshot, restore SILENTLY produces an
+ *     incomplete `PreparedImport`. Explicit refusal (option a per the cold-
+ *     review finding) avoids the silent-normalization defect.
  *   - `identityPolicy:"restore"` requires `lineage.sourceHabitatId` non-null
  *     (the caller asserts same-lineage proof).
  *   - Every declared domain carries one of `replace | preserve | reset` (the
@@ -550,9 +565,27 @@ export function checkAuthority(input: AdaptedInput): ManifestDomainError[] {
     );
   }
 
-  // (b3) Disposition validity per declared domain (defense-in-depth — the
-  // schema + the M3 handlers also enforce this). An unsupported disposition
-  // surfaces here as a clear authority error before any handler runs.
+  // (b3) restore is NOT SUPPORTED until T10B ships existing-habitat
+  //      snapshotting (drift #13). Explicit refusal avoids the silent-
+  //      normalization defect (a `PreparedImport` that looks complete but
+  //      isn't — no collision detection ran). The `remap` path (the only
+  //      policy legacy inputs can use) operates correctly without a snapshot;
+  //      `restore` does not. Refuse here; T10B lifts the refusal when it
+  //      populates `ManifestContext.existingHabitatSnapshot`.
+  if (manifest.identityPolicy === "restore") {
+    errors.push(
+      authorityError(
+        "identityPolicy",
+        "restore_not_supported_until_snapshotting",
+        "restore identity policy requires existing-habitat snapshotting, which lands in T10B. Until then, use remap (the default for legacy v1/v2 inputs) or wait for T10B.",
+        { actual: manifest.identityPolicy },
+      ),
+    );
+  }
+
+  // (b4) Disposition validity per declared domain (defense-in-depth — the
+  //      schema + the M3 handlers also enforce this). An unsupported disposition
+  //      surfaces here as a clear authority error before any handler runs.
   for (const domainName of MANIFEST_DOMAIN_NAMES) {
     const envelope = manifest.domains[domainName];
     if (envelope === undefined) continue;
@@ -1231,11 +1264,12 @@ export function terminalRejectImportAttemptWithCoordination(
 }
 
 // ===========================================================================
-// The PURE 6-step pipeline (no DB writes; runs handlers in dependency order)
+// The 6-step pipeline (PURE except for the accepted governance-ledger
+// exception; runs handlers in dependency order)
 // ===========================================================================
 
 /**
- * The PURE pipeline outcome — either the prepared body (manifest + idMap +
+ * The pipeline outcome — either the prepared body (manifest + idMap +
  * preparedDomains + guard + governanceDecisions, WITHOUT prefilledAttemptId)
  * or the accumulated {@link ManifestDomainError} list.
  */
@@ -1252,11 +1286,16 @@ export type PreflightPipelineOutcome =
   | { outcome: "rejected"; errors: ManifestDomainError[]; legacyWarnings: string[] };
 
 /**
- * The PURE 6-step orchestrator. NO DB writes EXCEPT the in-step-6 governance
- * decision-ledger inserts (which are ATOMIC per-decision + persist across
+ * The 6-step orchestrator. PURE except for the accepted governance-ledger
+ * exception: step 6 (prospective governance) writes decision-ledger rows via
+ * `recordGovernanceDecisionWithClient` (the T3B-2 reusable-decision pattern,
+ * same as T9A). These ledger rows are ATOMIC per-decision + persist across
  * publication retries under the same pending attempt — they are NOT part of
- * the reservation tx; the ledger is the T3B-2 reuse invariant). The target-
- * habitat version read in guard-capture is a single SELECT (read-only).
+ * the reservation tx; the ledger is the T3B-2 reuse invariant (the durable
+ * cache that makes identical re-preparation reuse decisions). They are part
+ * of the kernel's governance contract, not a violation of "preflight is
+ * read-only." Every other step is read-only; the target-habitat `updatedAt`
+ * read in guard-capture is a single SELECT (read-only).
  *
  * Steps:
  *   2. Authority check (completeness + declared destructive intent).
@@ -1289,6 +1328,13 @@ export type PreflightPipelineOutcome =
  * @param auditSource The caller's audit source.
  * @param attemptId The reserved coordination attempt id (passed to governance).
  * @param legacyWarnings The warnings from M2's adapter (carried through to the outcome).
+ * @param wasLegacyInput `true` when the input was legacy v1/v2 (routed through
+ *        M2's adapter); `false` when the input was already v3 (identity
+ *        passthrough). The entry point computes this authoritatively in
+ *        {@link detectAndAdaptInput} + passes it through. Direct callers MUST
+ *        supply the correct flag — do NOT reconstruct via heuristic (a v3
+ *        native `remap` input is NOT a legacy input even though its
+ *        identityPolicy differs from `restore`).
  */
 export function runPreflightPipeline(
   manifest: HabitatImportManifest,
@@ -1298,24 +1344,12 @@ export function runPreflightPipeline(
   auditSource: AuditSource,
   attemptId: string,
   legacyWarnings: string[],
+  wasLegacyInput: boolean,
 ): PreflightPipelineOutcome {
-  const adaptedInput: AdaptedInput = { manifest, warnings: legacyWarnings, wasLegacyInput: false };
-  // Note: `wasLegacyInput` is set by the caller (the entry point tracks whether
-  // M2's adapter ran). The pipeline receives the resolved flag via the input
-  // shape's `legacyWarnings` (non-empty → adapted). For the authority check,
-  // the entry point passes the correct `wasLegacyInput` flag separately.
-  // (This function signature accepts the already-adapted manifest; the flag
-  // is reconstructed from the legacyWarnings presence below.)
-  const wasLegacyInput = legacyWarnings.length > 0 || manifest.identityPolicy !== "restore";
-  // The above heuristic is a fallback for direct callers. The entry point
-  // passes the authoritative flag via the legacyWarnings length: non-empty →
-  // legacy. For v3 inputs with `identityPolicy:"restore"` + empty warnings,
-  // `wasLegacyInput` is false (correct — a v3 native input CAN request restore).
-
   const errors: ManifestDomainError[] = [];
 
   // ----- STEP 2: authority check (completeness + declared intent) -----
-  errors.push(...checkAuthority({ ...adaptedInput, wasLegacyInput }));
+  errors.push(...checkAuthority({ manifest, warnings: legacyWarnings, wasLegacyInput }));
 
   // ----- STEP 3-5: per-domain validate + prepare + resolveReferences -----
   const crossDomainState: CrossDomainState = {};
@@ -1511,6 +1545,7 @@ export function prepareImport(input: PrepareImportInput): PrepareImportOutcome {
     input.auditSource,
     prefilledAttemptId,
     adapted.warnings,
+    adapted.wasLegacyInput,
   );
 
   // 8. Outcome.
