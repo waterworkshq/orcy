@@ -374,8 +374,8 @@ export interface DomainHandler<TValidated, TPrepared> {
  *
  * If `idMap.sourceToServer` already has an entry for `sourceId`, returns the
  * existing server ID (the re-run case — M4's preflight may invoke prepare
- * twice under contention). Otherwise allocates a fresh UUID, stores it, and
- * returns it.
+ * twice under contention). Otherwise allocates a fresh UUID (or honors the
+ * `restoreServerId` override), stores it, and returns it.
  *
  * # Why idempotent (load-bearing)
  *
@@ -386,13 +386,64 @@ export interface DomainHandler<TValidated, TPrepared> {
  * each re-run — breaking the T10B apply phase (which consumes the resolved
  * prepared domain). Idempotent allocation keeps the idMap stable across
  * re-runs.
+ *
+ * # `restoreServerId` (F5 — restore identity preservation)
+ *
+ * For `identityPolicy:"restore"`, the sourceId IS the existing entity's
+ * serverId (same-lineage proof verified at preflight). The handler's
+ * `prepare` looks up the existing entity's serverId from
+ * {@link ManifestContext.existingHabitatSnapshot} + passes it here as
+ * `restoreServerId`. The idMap then maps `sourceId → existingServerId` (NOT
+ * `sourceId → freshUUID`). The in-tx apply writes the existing serverId
+ * back to the row (idempotent re-publish over the existing entity). Silent
+ * remapping (the defect class F5 closes) is impossible — the override is
+ * explicit + the idMap entry matches the existing row's PK.
+ *
+ * When `restoreServerId` is omitted (the default — `identityPolicy:"remap"`
+ * OR the handler doesn't have an existing-entity match), behavior is
+ * unchanged: a fresh UUID is allocated.
+ *
+ * # Idempotency interaction with `restoreServerId`
+ *
+ * If `idMap.sourceToServer` already has `sourceId` mapped (a re-run), the
+ * existing entry is returned EVEN IF `restoreServerId` differs. This is
+ * correct because: (a) the first call's mapping is authoritative; (b) for
+ * restore, the first call would have used the correct `restoreServerId`
+ * (the same snapshot is threaded through both calls). A divergent
+ * `restoreServerId` on re-run indicates a snapshot inconsistency
+ * (defensive — surfaces as a noisy mismatch downstream, not a silent
+ * remapping).
  */
-export function allocateServerId(idMap: IdentityMap, sourceId: string): string {
+export function allocateServerId(
+  idMap: IdentityMap,
+  sourceId: string,
+  restoreServerId?: string,
+): string {
   const existing = idMap.sourceToServer.get(sourceId);
   if (existing !== undefined) return existing;
-  const serverId = randomUUID();
+  const serverId = restoreServerId ?? randomUUID();
   idMap.sourceToServer.set(sourceId, serverId);
   return serverId;
+}
+
+/**
+ * Resolves the `restoreServerId` for a given sourceId from the
+ * {@link ManifestContext.existingHabitatSnapshot} when the import's
+ * `identityPolicy === "restore"`. Returns `undefined` when:
+ *   - the policy is `remap` (the default — fresh UUIDs);
+ *   - the snapshot is null (mode:"new" OR pre-snapshotting);
+ *   - the sourceId doesn't match any existing entity (a `restore_collision`
+ *     error caught earlier by `checkRestoreIdentitySemantics`; defensive
+ *     here).
+ *
+ * Used by each handler's `prepare` to thread the existing serverId into
+ * {@link allocateServerId}'s `restoreServerId` parameter.
+ */
+export function lookupRestoreServerId(ctx: ManifestContext, sourceId: string): string | undefined {
+  if (ctx.identityPolicy !== "restore") return undefined;
+  if (ctx.existingHabitatSnapshot === null) return undefined;
+  const existing = ctx.existingHabitatSnapshot.entitiesBySourceKey.get(sourceId);
+  return existing?.serverId;
 }
 
 /**

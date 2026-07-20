@@ -1704,6 +1704,27 @@ export function runPreflightPipeline(
   const idMap: IdentityMap = createIdentityMap();
   const preparedDomains: PreparedDomains = {};
 
+  // F3: pre-populate the habitat's sourceId → targetHabitatId mapping so
+  // `prepareHabitatSettings`'s `allocateServerId` reuses it. Without this,
+  // the handler allocates a SEPARATE habitatServerId from the manifest's
+  // sourceId, diverging from the preflight's `targetHabitatId` (which is
+  // stamped on `import_attempts.habitat_id` + the publication guard). The
+  // divergence causes the import-attempt row to point at a non-existent
+  // habitat (UUID-A on the row, UUID-B in the habitats table). The
+  // pre-population makes the two values identical by construction.
+  //
+  // Only runs when habitatSettings is declared AND habitatId is non-null
+  // (mode:"new" with a prospective id; mode:"replacement" with the live id).
+  // For mode:"new" without a declared habitatSettings envelope, the
+  // orchestrator falls back to allocating a fresh UUID.
+  const habitatEnvelope = manifest.domains.habitatSettings;
+  if (habitatEnvelope && habitatId !== null) {
+    const habitatSourceId = (habitatEnvelope.data as { sourceId?: unknown }).sourceId;
+    if (typeof habitatSourceId === "string" && habitatSourceId.length > 0) {
+      idMap.sourceToServer.set(habitatSourceId, habitatId);
+    }
+  }
+
   for (const domainName of MANIFEST_DOMAIN_NAMES) {
     const envelope = manifest.domains[domainName];
     if (envelope === undefined) continue;

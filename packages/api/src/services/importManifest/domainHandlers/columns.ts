@@ -47,6 +47,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -349,11 +350,13 @@ function detectColumnChainCycles(columns: ValidatedColumn[]): DomainError[] {
  */
 export function prepareColumns(
   validated: ValidatedColumns,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedColumns {
   const columns: PreparedColumn[] = validated.columns.map((col) => {
-    const columnServerId = allocateServerId(idMap, col.sourceId);
+    // F5: restore preserves the existing column's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, col.sourceId);
+    const columnServerId = allocateServerId(idMap, col.sourceId, restoreServerId);
     return {
       sourceId: col.sourceId,
       columnServerId,

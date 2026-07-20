@@ -57,6 +57,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -458,11 +459,16 @@ function normalizeCycleSignature(cycleNodes: string[]): string {
 
 export function prepareDependencies(
   validated: ValidatedDependencies,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedDependencies {
   const edges: PreparedDependencyEdge[] = validated.edges.map((edge) => {
-    const edgeServerId = allocateServerId(idMap, edge.sourceId);
+    // F5: restore preserves the existing edge's serverId (synthesized for
+    // task_dependencies' composite PK — the lookup falls back to undefined
+    // for edges not in the snapshot, which is the typical case since edges
+    // have no stable cross-export identity).
+    const restoreServerId = lookupRestoreServerId(ctx, edge.sourceId);
+    const edgeServerId = allocateServerId(idMap, edge.sourceId, restoreServerId);
     return {
       sourceId: edge.sourceId,
       edgeServerId,

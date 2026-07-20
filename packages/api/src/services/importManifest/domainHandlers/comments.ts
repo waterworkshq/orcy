@@ -44,6 +44,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -291,11 +292,13 @@ export function validateComments(
 
 export function prepareComments(
   validated: ValidatedComments,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedComments {
   const comments: PreparedComment[] = validated.comments.map((c) => {
-    const commentServerId = allocateServerId(idMap, c.sourceId);
+    // F5: restore preserves the existing comment's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, c.sourceId);
+    const commentServerId = allocateServerId(idMap, c.sourceId, restoreServerId);
     return {
       sourceId: c.sourceId,
       commentServerId,

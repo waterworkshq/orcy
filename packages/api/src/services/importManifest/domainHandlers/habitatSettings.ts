@@ -38,6 +38,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -195,10 +196,14 @@ export function validateHabitatSettings(
  */
 export function prepareHabitatSettings(
   validated: ValidatedHabitatSettings,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedHabitatSettings {
-  const habitatServerId = allocateServerId(idMap, validated.sourceId);
+  // F5: for identityPolicy:"restore", preserve the existing habitat's id
+  // (the sourceId IS the existing serverId — same-lineage proof verified at
+  // preflight). For remap, allocate a fresh UUID as before.
+  const restoreServerId = lookupRestoreServerId(ctx, validated.sourceId);
+  const habitatServerId = allocateServerId(idMap, validated.sourceId, restoreServerId);
   return {
     sourceId: validated.sourceId,
     habitatServerId,

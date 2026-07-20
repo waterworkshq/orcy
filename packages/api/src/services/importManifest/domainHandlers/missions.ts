@@ -43,6 +43,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -343,11 +344,13 @@ export function validateMissions(
 
 export function prepareMissions(
   validated: ValidatedMissions,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedMissions {
   const missions: PreparedMission[] = validated.missions.map((m) => {
-    const missionServerId = allocateServerId(idMap, m.sourceId);
+    // F5: restore preserves the existing mission's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, m.sourceId);
+    const missionServerId = allocateServerId(idMap, m.sourceId, restoreServerId);
     return {
       sourceId: m.sourceId,
       missionServerId,

@@ -45,6 +45,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionOk,
   validationErr,
   validationOk,
@@ -252,11 +253,13 @@ export function validateTemplates(
 
 export function prepareTemplates(
   validated: ValidatedTemplates,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedTemplates {
   const templates: PreparedTemplate[] = validated.templates.map((t) => {
-    const templateServerId = allocateServerId(idMap, t.sourceId);
+    // F5: restore preserves the existing template's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, t.sourceId);
+    const templateServerId = allocateServerId(idMap, t.sourceId, restoreServerId);
     return {
       sourceId: t.sourceId,
       templateServerId,

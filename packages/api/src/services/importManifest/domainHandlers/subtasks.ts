@@ -34,6 +34,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -207,11 +208,13 @@ export function validateSubtasks(
 
 export function prepareSubtasks(
   validated: ValidatedSubtasks,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedSubtasks {
   const subtasks: PreparedSubtask[] = validated.subtasks.map((s) => {
-    const subtaskServerId = allocateServerId(idMap, s.sourceId);
+    // F5: restore preserves the existing subtask's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, s.sourceId);
+    const subtaskServerId = allocateServerId(idMap, s.sourceId, restoreServerId);
     return {
       sourceId: s.sourceId,
       subtaskServerId,

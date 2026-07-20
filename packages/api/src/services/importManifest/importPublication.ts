@@ -80,7 +80,7 @@
  *      the kernel primitive.
  */
 import { randomUUID } from "node:crypto";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { CausalContext } from "@orcy/shared";
 
 import {
@@ -89,6 +89,7 @@ import {
   missionComments,
   missions,
   missionTemplates,
+  tasks as tasksTable,
 } from "../../db/schema/index.js";
 import type { TaskPublicationDbClient } from "../../repositories/taskPublication.js";
 import {
@@ -895,12 +896,81 @@ function applyHabitatSettingsDisposition(
 }
 
 /**
+ * F12 — `tasks:reset` execution-state clearer. For `mode:"replacement"` +
+ * `tasks:reset` disposition, clears the execution state on existing tasks
+ * IN-PLACE (no DELETE, no INSERT). The structural shape (task id, title,
+ * missionId) is preserved; the dynamic state (status, assignment, result,
+ * artifacts) is reset to pending + default. This is the documented `reset`
+ * semantic for tasks — operators use it to "re-queue" a habitat's tasks
+ * without rebuilding the mission graph.
+ *
+ * Runs inside the orchestrator's publication tx (caller-owned client). A
+ * throw propagates as a retryable infrastructure error (rolls back the
+ * whole aggregate).
+ */
+function resetTaskExecutionState(tx: TaskPublicationDbClient, targetHabitatId: string): void {
+  // Resolve the habitat's mission IDs, then UPDATE tasks where missionId IN
+  // (those ids). The `tasks` table has no habitatId column — chain via
+  // missions.
+  const missionIds = tx
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.habitatId, targetHabitatId))
+    .all()
+    .map((r) => r.id);
+  if (missionIds.length === 0) return;
+
+  const now = new Date().toISOString();
+  tx.update(tasksTable)
+    .set({
+      // Reset execution state — the structural shape (title, description,
+      // priority, labels) is preserved.
+      status: "pending",
+      assignedAgentId: null,
+      remoteAssignedParticipantId: null,
+      claimedAt: null,
+      startedAt: null,
+      submittedAt: null,
+      completedAt: null,
+      rejectedCount: 0,
+      rejectionReason: null,
+      result: null,
+      artifacts: [],
+      // Delegation + retry state — clear.
+      delegatedToAgentId: null,
+      retryCount: 0,
+      nextRetryAt: null,
+      // Cycle-time metrics — clear (they re-derive from the new lifecycle).
+      actualMinutes: null,
+      cycleTimeMinutes: null,
+      leadTimeMinutes: null,
+      estimationAccuracy: null,
+      // Bump version to flag the mutation; refresh updatedAt.
+      version: sql`${tasksTable.version} + 1`,
+      updatedAt: now,
+    })
+    .where(inArray(tasksTable.missionId, missionIds))
+    .run();
+}
+
+/**
  * Scoped-deletes existing rows for a domain in the target habitat. Top-level
  * domains (columns, missions, missionTemplates) delete by `habitatId`;
- * `missions` cascades to tasks + task_deps + task_subtasks + mission_deps.
+ * `missions` cascades to mission_deps. `tasks` deletes via parent mission
+ * IDs (the tasks table has no habitatId column).
  *
  * For `comments` (mission-scoped via missionComments.missionId), delete via
  * parent mission IDs.
+ *
+ * # F1 (tasks scoped-delete)
+ *
+ * The `tasks` domain is now handled here (was a no-op — F1 closed). Deleting
+ * tasks explicitly (not relying on cascade from missions) is load-bearing:
+ * (a) ON DELETE CASCADE may not fire reliably in the sql.js test DB (F7);
+ * (b) `tasks:replace` WITHOUT `missions:replace` is a valid disposition
+ * (replace tasks while preserving missions) — the cascade from preserved
+ * missions doesn't help. The explicit delete via `tasks.missionId IN
+ * (habitat's mission IDs)` handles both cases.
  *
  * # FK safety
  *
@@ -918,7 +988,7 @@ function applyHabitatSettingsDisposition(
  */
 function scopedDeleteDomain(
   tx: TaskPublicationDbClient,
-  domainName: Exclude<ManifestDomainName, "tasks" | "habitatSettings">,
+  domainName: Exclude<ManifestDomainName, "habitatSettings">,
   targetHabitatId: string,
 ): void {
   switch (domainName) {
@@ -941,6 +1011,22 @@ function scopedDeleteDomain(
           tx.delete(missionComments).where(inArray(missionComments.missionId, missionIds)).run();
         }
         tx.delete(missions).where(eq(missions.habitatId, targetHabitatId)).run();
+      }
+      return;
+    case "tasks":
+      // F1: delete existing tasks via parent mission IDs. Don't rely on
+      // cascade from missions (F7 — cascade may not fire reliably in the
+      // test DB; also handles `tasks:replace` without `missions:replace`).
+      {
+        const missionIds = tx
+          .select({ id: missions.id })
+          .from(missions)
+          .where(eq(missions.habitatId, targetHabitatId))
+          .all()
+          .map((r) => r.id);
+        if (missionIds.length > 0) {
+          tx.delete(tasksTable).where(inArray(tasksTable.missionId, missionIds)).run();
+        }
       }
       return;
     case "subtasks":
@@ -1022,6 +1108,54 @@ function lookupPreparedDomain(
 // ---------------------------------------------------------------------------
 // Terminal-reject helper (the `vetoed` path's import-attempt terminalization)
 // ---------------------------------------------------------------------------
+
+/**
+ * F6 — Manual `BEGIN IMMEDIATE` transaction wrapper. Mirrors
+ * `reserveScheduledOccurrence` (`scheduledOccurrenceReservation.ts:624-651`)
+ * + `reviewAssignmentService.recordApprovalWithFinalityGate` — the
+ * established codebase pattern for WAL SHARED→RESERVED contention safety.
+ *
+ * Drizzle's `db.transaction(cb)` issues `BEGIN DEFERRED`, which acquires the
+ * SHARED lock on the first read and tries to upgrade to RESERVED on the
+ * first write. Under WAL-mode multi-process write contention (the T11
+ * multi-instance scheduler domain), the loser's SHARED→RESERVED upgrade on
+ * its first write can throw `SQLITE_BUSY` IMMEDIATELY, BYPASSING the
+ * connection's `busy_timeout = 5000` pragma — a known SQLite WAL limitation
+ * (the busy handler is reliably invoked for `BEGIN IMMEDIATE` lock
+ * acquisition, NOT for the deferred upgrade path).
+ *
+ * `BEGIN IMMEDIATE` acquires the RESERVED lock UPFRONT, so under contention
+ * the loser's `BEGIN IMMEDIATE` BLOCKS (with `busy_timeout` in effect) until
+ * the winner's tx commits. The in-tx guard re-verify + all domain writes +
+ * per-Task kernel composition + participant transition run under the
+ * RESERVED lock — no concurrent habitat mutation can interfere.
+ *
+ * The wrapper runs the work on the SAME root `db` client (the better-sqlite3
+ * + sql.js convention for caller-owned tx — same as
+ * `reserveScheduledOccurrence`). On a thrown error (any kind — participant
+ * throw, FK violation, guard mismatch sentinel), the wrapper ROLLBACKs +
+ * re-throws. The caller's outer try/catch maps the error to a closed
+ * {@link PublishImportOutcome} branch.
+ */
+function runTxWithBeginImmediate<T>(
+  db: TaskPublicationDbClient,
+  work: (tx: TaskPublicationDbClient) => T,
+): T {
+  db.run(sql`BEGIN IMMEDIATE`);
+  try {
+    const result = work(db);
+    db.run(sql`COMMIT`);
+    return result;
+  } catch (err) {
+    try {
+      db.run(sql`ROLLBACK`);
+    } catch {
+      // Not in a transaction or already rolled back (defensive — mirrors
+      // `reserveScheduledOccurrence`'s ROLLBACK guard).
+    }
+    throw err;
+  }
+}
 
 /**
  * Terminalizes the import attempt as `rejected` with the supplied reason +
@@ -1206,8 +1340,22 @@ export function publishImportAggregateWithClient(
       createdHabitatId: targetHabitatId,
       result: replayResult,
     });
+    // F10: handle every possible transition outcome. Previously only
+    // `not_found` was checked — `not_owner` (a T10B-recovery lease-reclaim
+    // happened mid-replay-stamp) + `illegal_source_state` (the import
+    // attempt was terminalized by a concurrent worker mid-replay) +
+    // `no_op` (the import was already `published` — a prior replay won)
+    // surfaced as the wrong row in the returned outcome. Now each non-
+    // `transitioned` outcome surfaces the authoritative current row.
     const finalRow =
-      replayTransition.outcome === "not_found" ? importAttempt : replayTransition.attempt;
+      replayTransition.outcome === "not_found"
+        ? importAttempt
+        : replayTransition.outcome === "transitioned"
+          ? replayTransition.attempt
+          : // no_op / not_owner / illegal_source_state — surface the
+            // authoritative current row (the loser never overwrites the
+            // winner's result).
+            replayTransition.attempt;
     return {
       outcome: "replayed",
       importAttempt: finalRow,
@@ -1306,7 +1454,10 @@ export function publishImportAggregateWithClient(
     mode: prepared.manifest.mode,
     targetHabitatId,
     identityMap: prepared.identityMap,
-    existingHabitatSnapshot: null, // M3's scope (drift #13).
+    // F4: thread the prepared snapshot through to the handlers (was null —
+    // M3 populates `prepared.existingHabitatSnapshot` for mode:"replacement"
+    // via drift #13 absorption; the orchestrator must honor it).
+    existingHabitatSnapshot: prepared.existingHabitatSnapshot ?? null,
     preserveDomainTargets: prepared.guard.preserveDomainTargets,
   };
 
@@ -1316,7 +1467,27 @@ export function publishImportAggregateWithClient(
     buildImportAttemptParticipant(importAttemptId, prepared.prefilledAttemptId, leaseOwner);
 
   try {
-    db.transaction((tx) => {
+    // F6: publication tx uses manual `BEGIN IMMEDIATE` (NOT drizzle's
+    //     `db.transaction`). Drizzle issues `BEGIN DEFERRED` which acquires
+    //     the SHARED lock on the first read + tries to upgrade to RESERVED
+    //     on the first write. Under WAL-mode multi-process write contention
+    //     (the T11 multi-instance scheduler domain — two workers publishing
+    //     the same import concurrently, OR a concurrent habitat mutation
+    //     mid-publication), the loser's SHARED→RESERVED upgrade on its first
+    //     write can throw `SQLITE_BUSY` IMMEDIATELY, BYPASSING the
+    //     connection's `busy_timeout = 5000` pragma — the same WAL contention
+    //     defect class T9A-11 + MEMORY.md document. `BEGIN IMMEDIATE`
+    //     acquires the RESERVED lock UPFRONT, so under contention the loser's
+    //     `BEGIN IMMEDIATE` BLOCKS (with `busy_timeout` in effect) until the
+    //     winner's tx commits. Mirrors `reserveScheduledOccurrence`
+    //     (`scheduledOccurrenceReservation.ts:624-651`) +
+    //     `recordApprovalWithFinalityGate` — the established codebase pattern.
+    //
+    //     The in-tx guard re-verify (3-PRE below) is NOW race-fenced: the
+    //     RESERVED lock blocks concurrent habitat mutations between
+    //     `BEGIN IMMEDIATE` + `COMMIT`, so the guard re-verify's read is
+    //     authoritative for the whole tx.
+    runTxWithBeginImmediate(db, (tx) => {
       // 3-PRE. IN-TX GUARD RE-VERIFY (BEFORE any writes). For `mode:"replacement"`,
       //        re-read `habitats.updatedAt` + compare to the prepared snapshot's
       //        `targetHabitatUpdatedAt`. A drift indicates a concurrent mutation
@@ -1355,12 +1526,29 @@ export function publishImportAggregateWithClient(
       //
       //     For `mode:"new"`, no deletes run (no existing entities). The
       //     pass is a no-op for omitted / preserve domains.
+      //
+      //     F1: the `tasks` domain is now handled here (was a no-op before —
+      //     F1 closed the silent-normalization defect). Tasks delete via
+      //     parent mission IDs (explicit, doesn't rely on cascade — F7).
+      //
+      //     F12: the `tasks:reset` disposition clears execution state on
+      //     existing tasks IN-PLACE (a separate code path below, NOT here).
+      //     Here we only handle the `replace` / `reset` scoped-deletes for
+      //     the non-tasks domains; the tasks-specific replace path runs in
+      //     pass 2 (via the kernel composition loop) and the reset path
+      //     runs in the dedicated tasks-reset handler.
       if (prepared.manifest.mode === "replacement") {
         const reverseOrder = [...MANIFEST_DOMAIN_NAMES].reverse();
         for (const domainName of reverseOrder) {
-          if (domainName === "tasks" || domainName === "habitatSettings") continue;
+          if (domainName === "habitatSettings") continue;
           const envelope = prepared.manifest.domains[domainName];
           if (envelope === undefined) continue;
+          // F12: `tasks:reset` is a SPECIAL case — it clears execution
+          // state in-place (via `resetTaskExecutionState` in pass 2), NOT
+          // a scoped-delete. For all OTHER domains + for `tasks:replace`,
+          // the scoped-delete runs here.
+          const isTasksReset = domainName === "tasks" && envelope.disposition === "reset";
+          if (isTasksReset) continue;
           if (envelope.disposition === "replace" || envelope.disposition === "reset") {
             scopedDeleteDomain(tx, domainName, targetHabitatId);
           }
@@ -1382,6 +1570,14 @@ export function publishImportAggregateWithClient(
       }
 
       // 3b. PER-TASK KERNEL COMPOSITION (override the tasks handler stub).
+      // F2: the kernel loop runs ONLY when the tasks domain's disposition
+      // allows publishing. For `preserve` (and omitted), the loop is SKIPPED
+      // entirely (existing tasks untouched). For `reset`, F12's dedicated
+      // handler clears execution state on existing tasks IN-PLACE (the loop
+      // doesn't run — no new tasks published). For `replace` (and for
+      // `mode:"new"` — always publishes since there are no existing tasks),
+      // the loop runs as before.
+      //
       // For each prepared Task, compose the proposal + guard, then call
       // `publishTaskWithClient`. On `guard_mismatch` / `governance_denied`,
       // throw `ImportPublicationAbort` to roll back the whole aggregate.
@@ -1389,40 +1585,72 @@ export function publishImportAggregateWithClient(
       // (the Phase-1 sentinel was overwritten with the real frozen-admission
       // fingerprint by `governTaskPublication` in step 2).
       const taskPublications: CommittedPublication[] = [];
-      for (let i = 0; i < tasks.length; i++) {
-        const { proposal, guard } = governedProposals[i];
-        const result = publishTaskWithClient(tx, {
-          attemptId: attemptIds[i],
-          proposal,
-          guard,
-        });
-        if (result.outcome === "guard_mismatch") {
-          throw new ImportPublicationAbort({
-            outcome: "guard_mismatch",
-            importAttempt,
-            fields: result.reasons.map((r) => r.field),
+      const tasksDisposition = prepared.manifest.domains.tasks?.disposition;
+      const shouldRunKernelLoop =
+        prepared.manifest.mode === "new" ||
+        tasksDisposition === "replace" ||
+        tasksDisposition === undefined; // omitted → preserve → publish (mode:"new" path).
+      // Note: for `mode:"replacement"` + omitted tasks domain, the prepared
+      // graph has no tasks (preflight skips omitted domains); the loop runs
+      // zero iterations. The `shouldRunKernelLoop` flag stays true so the
+      // importedCounts.tasks entry is set to 0 (consistent with the
+      // "declared but empty" case).
+
+      if (prepared.manifest.mode === "replacement" && tasksDisposition === "preserve") {
+        // F2: tasks:preserve — skip the loop entirely. Existing tasks
+        // untouched. importedCounts.tasks stays undefined (consistent with
+        // the per-domain "omitted/preserve → undefined" contract).
+      } else if (prepared.manifest.mode === "replacement" && tasksDisposition === "reset") {
+        // F12: tasks:reset — clear execution state on existing tasks
+        // IN-PLACE. Don't publish manifest's tasks. The existing tasks
+        // remain (same ids) but their execution state resets to pending +
+        // default. This is the documented `reset` semantic for tasks
+        // (clear execution state, don't replace the structural shape).
+        resetTaskExecutionState(tx, targetHabitatId);
+      } else if (shouldRunKernelLoop) {
+        for (let i = 0; i < tasks.length; i++) {
+          const { proposal, guard } = governedProposals[i];
+          const result = publishTaskWithClient(tx, {
+            attemptId: attemptIds[i],
+            proposal,
+            guard,
           });
+          if (result.outcome === "guard_mismatch") {
+            throw new ImportPublicationAbort({
+              outcome: "guard_mismatch",
+              importAttempt,
+              fields: result.reasons.map((r) => r.field),
+            });
+          }
+          if (result.outcome === "governance_denied") {
+            // Fold the in-tx governance refusal into `vetoed` (the
+            // all-decisive-vetoes discipline: a Task-level refusal IS a veto).
+            throw new ImportPublicationAbort({
+              outcome: "vetoed",
+              importAttempt,
+              vetoes: [
+                {
+                  taskIndex: i,
+                  prospectiveTaskId: proposal.prospectiveTaskId,
+                  interceptorKey: result.interceptorKey ?? "<unknown>",
+                  reason: result.reason,
+                  pluginRunId: null,
+                },
+              ],
+            });
+          }
+          taskPublications.push(result.publication);
         }
-        if (result.outcome === "governance_denied") {
-          // Fold the in-tx governance refusal into `vetoed` (the
-          // all-decisive-vetoes discipline: a Task-level refusal IS a veto).
-          throw new ImportPublicationAbort({
-            outcome: "vetoed",
-            importAttempt,
-            vetoes: [
-              {
-                taskIndex: i,
-                prospectiveTaskId: proposal.prospectiveTaskId,
-                interceptorKey: result.interceptorKey ?? "<unknown>",
-                reason: result.reason,
-                pluginRunId: null,
-              },
-            ],
-          });
+        importedCounts.tasks = taskPublications.length;
+        // Match the per-domain loop's "omitted → undefined" contract: only
+        // surface the tasks count when the manifest declared a tasks domain.
+        // An omitted tasks domain (preserve-by-default) leaves the count
+        // undefined so downstream readers can distinguish "0 tasks published
+        // from a declared empty domain" vs "tasks domain not declared".
+        if (prepared.preparedDomains.tasks === undefined) {
+          delete importedCounts.tasks;
         }
-        taskPublications.push(result.publication);
       }
-      importedCounts.tasks = taskPublications.length;
 
       // 3c. PARTICIPANT SEAM — runs INSIDE this tx AFTER the domain writes
       //     + per-Task kernel composition + the in-tx guard re-verify. A

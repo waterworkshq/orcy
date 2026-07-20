@@ -42,6 +42,7 @@ import type {
 import {
   allocateServerId,
   domainError,
+  lookupRestoreServerId,
   resolutionErr,
   resolutionOk,
   validationErr,
@@ -279,11 +280,13 @@ export function validateTasks(
 
 export function prepareTasks(
   validated: ValidatedTasks,
-  _ctx: ManifestContext,
+  ctx: ManifestContext,
   idMap: IdentityMap,
 ): PreparedTasks {
   const tasks: PreparedTask[] = validated.tasks.map((t) => {
-    const taskServerId = allocateServerId(idMap, t.sourceId);
+    // F5: restore preserves the existing task's serverId.
+    const restoreServerId = lookupRestoreServerId(ctx, t.sourceId);
+    const taskServerId = allocateServerId(idMap, t.sourceId, restoreServerId);
     return {
       sourceId: t.sourceId,
       taskServerId,
