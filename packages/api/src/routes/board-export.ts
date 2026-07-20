@@ -71,10 +71,10 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
     }
   );
 
-  /** POST /habitats/:habitatId/import - Import into existing board. Auth: humanAuth. Returns { board, columns, imported, warnings } */
+  /** POST /habitats/:habitatId/import - Import into existing board. Auth: humanAuth + requireHabitatAccess. Returns { board, columns, imported, warnings } */
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/habitats/:habitatId/import',
-    { schema: { params: habitatIdParamsSchema, body: importHabitatSchema }, preHandler: humanAuth },
+    { schema: { params: habitatIdParamsSchema, body: importHabitatSchema }, preHandler: [humanAuth, requireHabitatAccess] },
     async (request, reply) => {
       const habitatResult = habitatService.getHabitat(request.params.habitatId);
       if (!habitatResult) {

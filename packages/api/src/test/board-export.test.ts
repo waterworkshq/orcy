@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { habitatExportRoutes } from "../routes/board-export.js";
 import { habitatRoutes } from "../routes/habitats.js";
+import { humanAuth } from "../middleware/auth.js";
+import { requireHabitatAccess } from "../middleware/team.js";
 
 interface CapturedRoute {
   method: string;
@@ -101,18 +103,23 @@ describe("habitatExportRoutes", () => {
     expect(handlerName).toBe("humanAuth");
   });
 
-  it("import endpoints have humanAuth preHandler", () => {
+  it("POST /habitats/import has humanAuth preHandler only (new-habitat, no target to authorize yet)", () => {
     const routes = captureExportRoutes();
-    for (const path of ["/habitats/import", "/habitats/:habitatId/import"]) {
-      const route = routes.find((r) => r.path === path);
-      expect(route).toBeDefined();
-      expect(route!.preHandler).toHaveLength(1);
-      const handlerName =
-        typeof route!.preHandler[0] === "function"
-          ? route!.preHandler[0].name || String(route!.preHandler[0])
-          : String(route!.preHandler[0]);
-      expect(handlerName).toBe("humanAuth");
-    }
+    const route = routes.find((r) => r.path === "/habitats/import");
+    expect(route).toBeDefined();
+    expect(route!.preHandler).toEqual([humanAuth]);
+  });
+
+  it("POST /habitats/:habitatId/import has humanAuth + requireHabitatAccess preHandlers", () => {
+    const routes = captureExportRoutes();
+    const route = routes.find((r) => r.path === "/habitats/:habitatId/import");
+    expect(route).toBeDefined();
+    // Reference equality — `requireHabitatAccess` is a re-export alias of
+    // `authorizeHabitatAccess`, so the aliased binding's .name is
+    // "authorizeHabitatAccess"; check by identity, not .name.
+    expect(route!.preHandler).toHaveLength(2);
+    expect(route!.preHandler[0]).toBe(humanAuth);
+    expect(route!.preHandler[1]).toBe(requireHabitatAccess);
   });
 
   it("anomalies endpoint has agentOrHumanAuth + requireHabitatAccess preHandlers", () => {
