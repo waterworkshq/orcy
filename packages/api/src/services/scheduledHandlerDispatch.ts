@@ -234,7 +234,7 @@ export type PublishHandlerDispatchOutcome =
       handlerKey: string;
       /** The verbatim handler-returned result. */
       handlerResult: { success: boolean; error?: string; missionId?: string };
-      /** ISO timestamp the handler returned. */
+      /** ISO timestamp the dispatch started the handler (captured pre-call). */
       dispatchedAt: string;
     }
   | {
@@ -304,7 +304,7 @@ export interface TerminalPublishDispatchedOccurrenceArgs {
   handlerKey: string;
   /** The verbatim handler-returned result. */
   handlerResult: { success: boolean; error?: string; missionId?: string };
-  /** ISO timestamp the handler returned (the dispatch moment). */
+  /** ISO timestamp the dispatch started the handler (captured pre-call; the moment of dispatch). */
   dispatchedAt: string;
 }
 

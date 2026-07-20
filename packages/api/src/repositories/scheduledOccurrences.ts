@@ -176,7 +176,7 @@ export type OccurrenceResultSuccess =
       handlerKey: string;
       /** The verbatim handler-returned result (success/error/missionId?). */
       handlerResult: { success: boolean; error?: string; missionId?: string };
-      /** ISO timestamp the handler returned (the dispatch moment). */
+      /** ISO timestamp the dispatch started the handler (captured pre-call; the moment of dispatch). */
       dispatchedAt: string;
       /**
        * Optional retry-audit trail stamped by Repair-and-Retry (parallel to
