@@ -40,6 +40,7 @@ export {
   type TaskCreationIntegrityVersion,
   isLegacyPartialHistory,
 } from "./taskPublication.js";
+export { importAttempts } from "./importManifest.js";
 export { agents, agentMessages } from "./agent.js";
 export { users, organizations, teams, teamMembers, notificationPreferences } from "./user.js";
 export { webhookSubscriptions, webhookDeliveries } from "./webhook.js";
