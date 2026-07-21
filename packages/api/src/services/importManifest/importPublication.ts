@@ -28,8 +28,29 @@
  *      governance re-verify inside `publishTaskWithClient` catches stale
  *      decisions; the orchestrator folds these into the `vetoed` outcome.
  *   4. PUBLICATION TX (caller-owned). Inside `db.transaction((tx) => …)`:
- *        a. DOMAIN APPLY LOOP (MANIFEST_DOMAIN_NAMES order). For each
- *           declared domain (except `tasks`):
+ *        a. DOMAIN APPLY — SPLIT INTO TWO PASSES around the kernel block
+ *           (T10B-FK-FIX-2 — see execution-run drift M3.5). The split is
+ *           LOAD-BEARING for FK safety: `taskSubtasks.taskId` +
+ *           `taskDependencies.taskId` FK-reference `tasks.id`, and SQLite
+ *           enforces FK at INSERT time (NOT at COMMIT) for non-DEFERRABLE
+ *           constraints. So tasks MUST exist before any handler that
+ *           forward-references task ids INSERTs its rows.
+ *           The two passes:
+ *             - PASS 2a (pre-task): `habitatSettings, columns, missions`.
+ *               These handlers' INSERTs have NO FK on tasks (missions FK
+ *               on `columnId → columns.id`, which PASS 2a's own columns
+ *               step just satisfied). Tasks FK on `missionId → missions.id`
+ *               → tasks CANNOT run in PASS 2a (would violate the FK).
+ *             - PASS 2b (per-task kernel composition — step b below).
+ *             - PASS 2c (post-task): `subtasks, dependencies, comments,
+ *               templates`. Subtasks + dependencies FK on
+ *               `taskId → tasks.id` (forward reference). Comments +
+ *               templates do NOT FK on tasks (comments bridge to
+ *               `missionComments.missionId`, templates write
+ *               `missionTemplates` only) but ride in PASS 2c anyway to
+ *               preserve the canonical MANIFEST_DOMAIN_NAMES order with
+ *               minimal disturbance.
+ *           For each declared non-tasks domain (PASS 2a + PASS 2c):
  *             - `mode:"new"`: call `handler.apply(tx, prepared, ctx)`.
  *             - `mode:"replacement"` + `replace`: scoped-delete existing
  *               rows + INSERT via `handler.apply` (the delete is M2's
@@ -41,7 +62,8 @@
  *           with the composed proposal + guard. On `guard_mismatch` /
  *           `governance_denied`, throw `ImportPublicationAbort` → the
  *           whole aggregate rolls back → outer maps to `guard_mismatch` /
- *           `vetoed`.
+ *           `vetoed`. Runs BETWEEN PASS 2a + PASS 2c (after missions exist,
+ *           before subtasks/dependencies INSERT).
  *        c. PARTICIPANT SEAM. Run the caller-supplied participant (or the
  *           default import-attempt-record participant built by
  *           {@link buildImportAttemptParticipant}). The participant does
@@ -1438,10 +1460,17 @@ export function publishImportAggregateWithClient(
   }
 
   // ----- 3. PUBLICATION TX (atomic, inside one caller-owned tx) --------
-  // The tx owns the atomicity unit. Apply domains in MANIFEST_DOMAIN_NAMES
-  // order (parents before dependents — drift #8 load-bearing). The tasks
-  // domain is OVERRIDDEN with the kernel-composition loop (the handler's
-  // apply is a stub). On per-Task guard_mismatch / governance_denied, throw
+  // The tx owns the atomicity unit. Domain apply runs in MANIFEST_DOMAIN_NAMES
+  // order (parents before dependents — drift #8 load-bearing) but is SPLIT
+  // into two passes (2a + 2c) AROUND the per-task kernel composition (2b).
+  // The split is load-bearing for FK safety: `taskSubtasks.taskId` +
+  // `taskDependencies.taskId` FK-reference `tasks.id`, and SQLite enforces
+  // FK at INSERT time (NOT at COMMIT). Without the split, subtasks +
+  // dependencies INSERT their task_id FK BEFORE the referenced task rows
+  // exist (the kernel composition runs LATER) → `FOREIGN KEY constraint
+  // failed` in production (better-sqlite3, FK always ON). See execution-run
+  // drift M3.5 for the end-to-end evidence base + T10B-FK-FIX-2 for the
+  // fix arc. On per-Task guard_mismatch / governance_denied, throw
   // ImportPublicationAbort → aggregate rolls back → outer maps to the closed
   // outcome.
   let successResult: {
@@ -1555,14 +1584,24 @@ export function publishImportAggregateWithClient(
         }
       }
 
-      // 3a-PASS-2. DOMAIN APPLY LOOP (FORWARD MANIFEST_DOMAIN_NAMES order).
-      //     For each declared domain (except `tasks`), INSERT via the M1
-      //     handler. `mode:"new"` always INSERTs (no existing entities);
+      // 3a-PASS-2a. PRE-TASK DOMAIN APPLY (FORWARD MANIFEST_DOMAIN_NAMES
+      //     order, restricted to domains with NO FK dependency on tasks).
+      //     Runs `habitatSettings, columns, missions` — the parents-of-tasks
+      //     set. Tasks FK on `missionId → missions.id`, so missions MUST
+      //     exist before the kernel composition at 3b. `subtasks`,
+      //     `dependencies`, `comments`, `templates` are DEFERRED to PASS 2c
+      //     (after the kernel) because `subtasks` + `dependencies` FK on
+      //     `taskId → tasks.id` (forward reference) — see execution-run M3.5.
+      //     `mode:"new"` always INSERTs (no existing entities);
       //     `mode:"replacement"` INSERTs only for `replace` (the scoped-delete
       //     already ran in pass 1; `preserve` skips; `reset` is delete-only).
+      const PRE_TASK_DOMAINS: readonly Exclude<ManifestDomainName, "tasks">[] = [
+        "habitatSettings",
+        "columns",
+        "missions",
+      ];
       const importedCounts: Record<string, number> = {};
-      for (const domainName of MANIFEST_DOMAIN_NAMES) {
-        if (domainName === "tasks") continue;
+      for (const domainName of PRE_TASK_DOMAINS) {
         const applied = applyDomainDisposition(tx, domainName, prepared, applyCtx);
         if (applied !== null) {
           importedCounts[domainName] = applied.inserted;
@@ -1649,6 +1688,32 @@ export function publishImportAggregateWithClient(
         // from a declared empty domain" vs "tasks domain not declared".
         if (prepared.preparedDomains.tasks === undefined) {
           delete importedCounts.tasks;
+        }
+      }
+
+      // 3a-PASS-2c. POST-TASK DOMAIN APPLY (FORWARD MANIFEST_DOMAIN_NAMES
+      //     order, restricted to domains that may FK-reference tasks). Runs
+      //     `subtasks, dependencies, comments, templates` AFTER the kernel
+      //     composition at 3b. `subtasks` + `dependencies` FK on
+      //     `taskId → tasks.id` (the load-bearing forward reference —
+      //     without this pass split, they would INSERT before tasks exist +
+      //     fail with `FOREIGN KEY constraint failed` under better-sqlite3's
+      //     always-ON FK enforcement; see execution-run drift M3.5).
+      //     `comments` + `templates` do NOT FK on tasks (comments bridge to
+      //     `missionComments.missionId`; templates write `missionTemplates`
+      //     only) but ride here to preserve the canonical
+      //     MANIFEST_DOMAIN_NAMES order with minimal disturbance. Same
+      //     disposition semantics as PASS 2a (replace/preserve/reset).
+      const POST_TASK_DOMAINS: readonly Exclude<ManifestDomainName, "tasks">[] = [
+        "subtasks",
+        "dependencies",
+        "comments",
+        "templates",
+      ];
+      for (const domainName of POST_TASK_DOMAINS) {
+        const applied = applyDomainDisposition(tx, domainName, prepared, applyCtx);
+        if (applied !== null) {
+          importedCounts[domainName] = applied.inserted;
         }
       }
 

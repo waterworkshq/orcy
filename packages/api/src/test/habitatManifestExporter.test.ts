@@ -20,7 +20,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
@@ -245,8 +245,16 @@ function prepareInput(
 // ---------------------------------------------------------------------------
 
 describe("exportHabitatManifest — round-trip through prepareImport + publishImportAggregateWithClient", () => {
+  // T10B-FK-FIX-2 (execution-run drift M3.5): force FK ON for this round-trip.
+  // The orchestrator's domain apply was split into pre-task + post-task passes
+  // so subtasks/dependencies INSERT after their task_id FK targets exist. With
+  // that fix in place, the round-trip MUST pass deterministically with FK ON
+  // (mirroring production's better-sqlite3 always-ON enforcement). If this
+  // flakes, the orchestrator fix is incomplete — investigate which handler
+  // still forward-references tasks. Precedent: productionMigrationChain.test.ts:83.
   beforeEach(() => {
     wipeTables();
+    getDb().run(sql`PRAGMA foreign_keys = ON`);
   });
 
   it("reproduces the source habitat's portable domains in a new habitat (mode:'new', remap)", () => {
