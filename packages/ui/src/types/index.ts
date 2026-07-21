@@ -1278,3 +1278,166 @@ export interface ClusterSummaryView {
   findingKinds: string[];
   status: "under_investigation" | "awaiting_triage";
 }
+
+// ---------------------------------------------------------------------------
+// Habitat-import session view-model interfaces (T10C M4)
+//
+// Projections of the v3 habitat-import HTTP outcome envelope declared at
+// `packages/api/src/routes/helpers/importPublicationHttp.ts`. The M4 dialog
+// renders these projections; the routes themselves are the closed-union
+// authority (see `services/importManifest/*`). UI-local types per
+// MEMORY.md "view-model types live in `packages/ui/src/types/index.ts`".
+// ---------------------------------------------------------------------------
+
+/** The 8 portable per-domain names — mirrors `ManifestDomainName` in
+ *  `services/importManifest/types.ts`. Used as keys in the per-domain
+ *  disposition matrix and in the rejected-preflight error grouping. */
+export type ImportManifestDomainName =
+  | "habitatSettings"
+  | "columns"
+  | "missions"
+  | "tasks"
+  | "subtasks"
+  | "dependencies"
+  | "comments"
+  | "templates";
+
+export const IMPORT_MANIFEST_DOMAIN_NAMES: readonly ImportManifestDomainName[] = [
+  "habitatSettings",
+  "columns",
+  "missions",
+  "tasks",
+  "subtasks",
+  "dependencies",
+  "comments",
+  "templates",
+] as const;
+
+/** The per-domain destructive-intent signal — mirrors `DomainDisposition`. */
+export type ImportDisposition = "replace" | "preserve" | "reset";
+
+/** The import-attempt row projection (subset of `import_attempts` columns).
+ *  Stripped of internal lease internals the UI doesn't need (lease token,
+ *  lease expires, reclaim counter). The view-model is the durable
+ *  observation surface — the same projection the audit/event surfaces use. */
+export interface ImportAttemptView {
+  id: string;
+  habitatId: string | null;
+  state: "reserved" | "publishing" | "published" | "rejected";
+  sourceManifestId: string | null;
+  sourceHabitatId: string | null;
+  sourceExportedAt: string | null;
+  actorType: "human" | "agent" | "system";
+  actorId: string;
+  reservedAt: string;
+  publishedAt: string | null;
+  rejectedAt: string | null;
+  result: Record<string, unknown> | null;
+}
+
+/** A single publication-error from `rejected_preflight`. The kernel's
+ *  actual `PublicationError` shape at
+ *  `services/taskPublicationPreparation.ts:320` is `{field, code, message}`
+ *  with NO separate `domain` field — the M3.1 grounding correction. The UI
+ *  derives `domain` from the leading segment of `field` for rendering.
+ *  Future kernel field conventions: a leading `domainName.` segment is
+ *  the domain; bare fields without a dot fall back to the manifest-level
+ *  preflight bucket. */
+export interface ImportRejectionDetail {
+  field: string;
+  code: string;
+  message: string;
+  /** Derived: leading `field` segment when it matches a domain name; null otherwise. */
+  domain: ImportManifestDomainName | null;
+}
+
+/** A decisive per-Task veto (carried on the `vetoed` publish outcome). */
+export interface ImportVetoView {
+  taskSourceId: string;
+  taskTitle: string;
+  veto: {
+    interceptorKey: string;
+    reason: string;
+    pluginRunId: string | null;
+  };
+}
+
+/** Per-domain committed counts (carried on the `published` publish outcome). */
+export type ImportedCountsView = Readonly<Record<string, number>>;
+
+/** The closed discriminated union for POST /habitats{new-habitat,:habitatId}/import
+ *  2xx + 422 + 409 outcomes. Mirrors routes/helpers/importPublicationHttp.ts's
+ *  body shapes + the published-attempt projection (no internal lease fields). */
+export type PublishImportOutcomeView =
+  | {
+      outcome: "published";
+      importAttempt: ImportAttemptView;
+      habitatId: string;
+      importedCounts: ImportedCountsView;
+    }
+  | {
+      outcome: "already_publishing";
+      importAttempt: ImportAttemptView;
+      status: "publishing";
+    }
+  | {
+      outcome: "guard_mismatch";
+      importAttempt: ImportAttemptView;
+      fields: readonly string[];
+    }
+  | {
+      outcome: "vetoed";
+      importAttempt: ImportAttemptView;
+      vetoes: readonly ImportVetoView[];
+    }
+  | {
+      outcome: "illegal_source_state";
+      importAttempt: ImportAttemptView;
+      fromState: string;
+    }
+  | { outcome: "not_found" }
+  | {
+      outcome: "replayed";
+      importAttempt: ImportAttemptView;
+      terminal: "published" | "rejected";
+    };
+
+/** The `prepareImport` outcome envelope (the preflight stage). The dialog
+ *  renders `rejected_preflight` with the "existing habitat state is
+ *  unchanged" banner — the preflight is PURE; nothing commits on rejection. */
+export type PrepareImportOutcomeView =
+  | { outcome: "rejected_preflight"; importAttemptId: string; errors: readonly ImportRejectionDetail[] }
+  | {
+      outcome: "already_exists";
+      attempt: ImportAttemptView;
+    }
+  | { outcome: "feature_disabled" };
+
+/** Discriminated union combining publish + prepare outcomes for the dialog's
+ *  post-submit render surface. The actual POST goes to a single endpoint;
+ *  the prepare branch surfaces via the `rejected_preflight` 422 body. */
+export type ImportOutcomeView = PublishImportOutcomeView | PrepareImportOutcomeView;
+
+/** The v3 manifest's per-domain declaration envelope. Mirrors
+ *  `DomainEnvelope<T>` in `services/importManifest/types.ts`. The dialog
+ *  renders one row per domain with a disposition selector. */
+export interface ImportDomainEnvelopeView<T = unknown> {
+  disposition: ImportDisposition;
+  data: T;
+}
+
+/** A parsed v3 manifest in the UI's view-model form (untyped data — the
+ *  preflight validates). */
+export interface ImportManifestView {
+  version: 3;
+  manifestId: string;
+  generatedAt: string;
+  mode: "new" | "replacement";
+  identityPolicy: "remap" | "restore";
+  lineage: {
+    sourceHabitatId: string | null;
+    sourceExportedAt: string | null;
+    sourceManifestId: string | null;
+  };
+  domains: Partial<Record<ImportManifestDomainName, ImportDomainEnvelopeView>>;
+}

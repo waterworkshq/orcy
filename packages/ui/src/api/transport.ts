@@ -11,13 +11,26 @@ const BASE = "/api";
  * Error thrown when the server returns a non-2xx response. Carries the HTTP
  * status so callers (e.g. react-query retry predicates) can branch on it
  * without resorting to `error: any`.
+ *
+ * Also carries the parsed response body (when available) so callers handling
+ * structured error envelopes — e.g. the v3 habitat-import routes' closed
+ * union (`rejected_preflight` / `vetoed` / `guard_mismatch` / etc. on 422
+ * + 409 + 404) — can recover the typed outcome from the throw site instead
+ * of losing it to a generic `error: any` escape hatch.
+ *
+ * The `body` field is OPTIONAL and ADDITIVE — every existing caller that
+ * only reads `message` + `status` is unaffected. New callers branch on
+ * `error instanceof ApiError && error.body && "outcome" in error.body` to
+ * route to structured-error handling.
  */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly body?: unknown;
+  constructor(message: string, status: number, body?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -47,6 +60,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(
       (body as { error?: string }).error ?? `HTTP ${res.status}`,
       res.status,
+      body,
     );
   }
 
@@ -76,6 +90,7 @@ async function requestBlob(
     throw new ApiError(
       (body as { error?: string }).error ?? `HTTP ${res.status}`,
       res.status,
+      body,
     );
   }
 
@@ -112,7 +127,7 @@ async function uploadFile<T>(
       } else {
         try {
           const body = JSON.parse(xhr.responseText);
-          reject(new ApiError(body.error ?? `HTTP ${xhr.status}`, xhr.status));
+          reject(new ApiError(body.error ?? `HTTP ${xhr.status}`, xhr.status, body));
         } catch {
           reject(new ApiError(`HTTP ${xhr.status}`, xhr.status));
         }
