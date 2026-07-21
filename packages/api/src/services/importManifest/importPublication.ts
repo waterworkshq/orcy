@@ -174,6 +174,66 @@ function mintImportPublisherId(): string {
 const IMPORT_CAUSAL_ROOT_TYPE = "habitat_import";
 
 // ---------------------------------------------------------------------------
+// Domain apply ordering — the pre-task / post-task split (T10B-FK-FIX-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Domains applied BEFORE the per-Task kernel composition. These domains have
+ * NO FK dependency on `tasks` but `tasks` FK-depend on `missions` (and
+ * transitively on `columns`), so they MUST exist before the kernel loop at
+ * step 3b. Hoisted to module scope so the dev-mode coverage assertion below
+ * can verify the pre/post partition covers every domain exactly once.
+ */
+const PRE_TASK_DOMAINS: readonly Exclude<ManifestDomainName, "tasks">[] = [
+  "habitatSettings",
+  "columns",
+  "missions",
+];
+
+/**
+ * Domains applied AFTER the per-Task kernel composition. `subtasks` +
+ * `dependencies` FK on `taskId → tasks.id` (the load-bearing forward
+ * reference that motivated the pass split). `comments` + `templates` do NOT
+ * FK on tasks but ride here to preserve the canonical MANIFEST_DOMAIN_NAMES
+ * order with minimal disturbance.
+ */
+const POST_TASK_DOMAINS: readonly Exclude<ManifestDomainName, "tasks">[] = [
+  "subtasks",
+  "dependencies",
+  "comments",
+  "templates",
+];
+
+// T10C cold-review Finding 6: dev-mode assertion that the pre/post partition
+// covers every non-tasks domain exactly once. A future 9th domain added to
+// MANIFEST_DOMAIN_NAMES without updating PRE/POST would be SILENTLY SKIPPED
+// (its handler never runs → data loss with no error). Runs once at module
+// load; zero production cost (the check is dev-mode gated).
+if (process.env.NODE_ENV !== "production") {
+  const covered = new Set<string>([...PRE_TASK_DOMAINS, ...POST_TASK_DOMAINS]);
+  const expected = new Set<string>(MANIFEST_DOMAIN_NAMES.filter((d) => d !== "tasks"));
+  for (const d of expected) {
+    if (!covered.has(d)) {
+      throw new Error(
+        `importPublication: domain coverage assertion failed — '${d}' is in MANIFEST_DOMAIN_NAMES but missing from PRE_TASK_DOMAINS ∪ POST_TASK_DOMAINS`,
+      );
+    }
+  }
+  for (const d of covered) {
+    if (!expected.has(d)) {
+      throw new Error(
+        `importPublication: domain coverage assertion failed — '${d}' is in PRE/POST_TASK_DOMAINS but not in MANIFEST_DOMAIN_NAMES`,
+      );
+    }
+  }
+  if (covered.size !== expected.size) {
+    throw new Error(
+      `importPublication: domain coverage assertion failed — duplicate domain in PRE/POST_TASK_DOMAINS (covered size ${covered.size} ≠ expected ${expected.size})`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Per-domain prepared shape (union for the per-domain dispatch)
 // ---------------------------------------------------------------------------
 
@@ -1595,11 +1655,6 @@ export function publishImportAggregateWithClient(
       //     `mode:"new"` always INSERTs (no existing entities);
       //     `mode:"replacement"` INSERTs only for `replace` (the scoped-delete
       //     already ran in pass 1; `preserve` skips; `reset` is delete-only).
-      const PRE_TASK_DOMAINS: readonly Exclude<ManifestDomainName, "tasks">[] = [
-        "habitatSettings",
-        "columns",
-        "missions",
-      ];
       const importedCounts: Record<string, number> = {};
       for (const domainName of PRE_TASK_DOMAINS) {
         const applied = applyDomainDisposition(tx, domainName, prepared, applyCtx);
@@ -1704,12 +1759,6 @@ export function publishImportAggregateWithClient(
       //     only) but ride here to preserve the canonical
       //     MANIFEST_DOMAIN_NAMES order with minimal disturbance. Same
       //     disposition semantics as PASS 2a (replace/preserve/reset).
-      const POST_TASK_DOMAINS: readonly Exclude<ManifestDomainName, "tasks">[] = [
-        "subtasks",
-        "dependencies",
-        "comments",
-        "templates",
-      ];
       for (const domainName of POST_TASK_DOMAINS) {
         const applied = applyDomainDisposition(tx, domainName, prepared, applyCtx);
         if (applied !== null) {

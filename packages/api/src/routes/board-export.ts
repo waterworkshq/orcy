@@ -30,7 +30,32 @@ const habitatIdParamsSchema = z.object({ habitatId: z.string() });
 //     union INLINE (not in `models/schemas.ts`) keeps the legacy schema
 //     byte-identical. The union tries `importHabitatSchema` FIRST so v1/v2
 //     inputs still benefit from the legacy preprocess + body validation.
+//
+// NOTE (T10C cold-review Finding 5): this schema widening means the flag-OFF
+//   path is NOT byte-identical to the pre-M3 legacy route. A v3 manifest
+//   POSTed to a flag-OFF server now passes `z.any()` (previously it would
+//   fail the legacy `importHabitatSchema`), reaches the handler, and would
+//   hit `importHabitat` — which expects a `{habitat: {...}}` shape and would
+//   throw a confusing error on the v3 manifest's `{domains: {...}}` shape.
+//   The defensive `rejectV3ManifestOnLegacyPath` guard below preserves the
+//   legacy route's rejection semantics for v3 inputs (explicit 400 with a
+//   clear message) while keeping v1/v2 handling byte-identical.
 const importRouteBodySchema = z.union([importHabitatSchema, z.any()]);
+
+/**
+ * Defensive guard for the flag-OFF (legacy) path: rejects v3 manifests with
+ * a clear 400 rather than letting them reach `importHabitat` (which expects
+ * a `{habitat: {...}}` shape and would throw an opaque error on the v3
+ * `{domains: {...}}` shape). Closes the silent semantic drift from the
+ * schema widening above (T10C cold-review Finding 5).
+ */
+function rejectV3ManifestOnLegacyPath(body: unknown): void {
+  if (body !== null && typeof body === "object" && (body as { version?: unknown }).version === 3) {
+    throw badRequest(
+      "v3 manifest requires the creation-publication feature flag (ORCY_CREATION_PUBLICATION_ENABLED) to be enabled",
+    );
+  }
+}
 
 export async function habitatExportRoutes(fastify: FastifyInstance): Promise<void> {
   /** GET /habitats/:habitatId/export - Export board data. Auth: humanAuth. Returns filtered board export */
@@ -91,14 +116,17 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
       { schema: { body: importRouteBodySchema }, preHandler: humanAuth },
       async (request, reply) => {
         // T10C M3 — flag-gated version dispatch. When the cutover flag is
-        // OFF (the production default until T11), the route is byte-
-        // identical to the legacy path. When ON, v3 manifests + v1/v2
-        // inputs route through the manifest-v3 pipeline (prepareImport →
-        // publishImportAggregate). The legacy `importHabitat` + the
-        // `z.preprocess` in `importHabitatSchema` stay byte-identical +
-        // active for flag-off traffic. Same URL for callers (Option B in
-        // the T10C grounding) — the UI picks based on the feature-flag
-        // probe (M4's concern).
+        // OFF (the production default until T11), the route serves v1/v2
+        // inputs via the legacy `importHabitat` byte-identically. v3
+        // manifests are rejected with a clear 400 (see
+        // `rejectV3ManifestOnLegacyPath` — the schema widening above means
+        // the flag-off path is no longer a pure byte-identical legacy pass
+        // for v3 inputs). When ON, v3 manifests + v1/v2 inputs route through
+        // the manifest-v3 pipeline (prepareImport → publishImportAggregate).
+        // The legacy `importHabitat` + the `z.preprocess` in
+        // `importHabitatSchema` stay byte-identical + active for flag-off
+        // traffic. Same URL for callers (Option B in the T10C grounding) —
+        // the UI picks based on the feature-flag probe (M4's concern).
         if (isCreationPublicationEnabled()) {
           await handleManifestImportRequest(request, reply, {
             targetHabitatId: null,
@@ -106,6 +134,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
           });
           return;
         }
+        rejectV3ManifestOnLegacyPath(request.body);
         try {
           const result = habitatService.importHabitat(
             request.body as unknown as habitatService.HabitatExportData,
@@ -141,7 +170,8 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
       // T10C M3 — flag-gated version dispatch. See `/habitats/import`
       // above for the dormancy rationale. The replacement route
       // additionally carries the `:habitatId` param into the pipeline's
-      // target id.
+      // target id. The `rejectV3ManifestOnLegacyPath` guard applies
+      // identically on the flag-off path here.
       if (isCreationPublicationEnabled()) {
         await handleManifestImportRequest(request, reply, {
           targetHabitatId: request.params.habitatId,
@@ -149,6 +179,7 @@ export async function habitatExportRoutes(fastify: FastifyInstance): Promise<voi
         });
         return;
       }
+      rejectV3ManifestOnLegacyPath(request.body);
       try {
         const result = habitatService.importHabitat(
           request.body as unknown as habitatService.HabitatExportData,

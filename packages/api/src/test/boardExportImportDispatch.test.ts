@@ -87,6 +87,10 @@ import { perAgentRateLimit } from "../middleware/rateLimit.js";
 import * as habitatRepo from "../repositories/habitat.js";
 import * as missionRepo from "../repositories/mission.js";
 import * as taskRepo from "../repositories/task.js";
+import * as subtaskRepo from "../repositories/subtask.js";
+import * as commentRepo from "../repositories/comment.js";
+import * as templateRepo from "../repositories/template.js";
+import * as dependencyRepo from "../repositories/dependency.js";
 
 import { createHabitat } from "../services/habitatService.js";
 import { exportHabitatManifest } from "../services/habitatManifestExporter.js";
@@ -320,8 +324,13 @@ function v1Export(opts?: { habitatName?: string }): Record<string, unknown> {
   };
 }
 
-/** Seeds a full habitat (mirrors `habitatManifestExporter.test.ts`'s
- *  seedFullHabitat — the load-bearing round-trip fixture). */
+/** Seeds a full habitat with ALL 8 portable domains populated (columns,
+ *  missions, tasks, subtasks, dependencies, comments, templates) — including
+ *  a reverse-dependency mission pair (high-priority alpha depends on medium-
+ *  priority beta, so alpha sorts FIRST in export but its edge points to beta
+ *  which sorts LATER) + a parent-child comment pair. This is the load-bearing
+ *  fixture for the full-shape HTTP round-trip (cold-review Finding 3) and
+ *  exercises every forward-FK chain the cold review identified. */
 function seedFullHabitat(name = "Source Habitat"): string {
   const { habitat } = createHabitat({ name, defaultColumns: true });
   const habitatId = habitat.id;
@@ -331,28 +340,9 @@ function seedFullHabitat(name = "Source Habitat"): string {
   const todo = byName.get("Todo") ?? byName.values().next().value!;
   const inProgress = byName.get("In Progress") ?? todo;
 
-  const alpha = missionRepo.createMission({
-    habitatId,
-    columnId: todo.id,
-    title: "Mission Alpha",
-    description: "Alpha description",
-    acceptanceCriteria: "Alpha AC",
-    priority: "high",
-    labels: ["alpha"],
-    createdBy: "tester",
-  });
-  taskRepo.createTask({
-    missionId: alpha.id,
-    title: "Alpha Task 1",
-    description: "First alpha task",
-    priority: "high",
-    requiredDomain: "code_review",
-    requiredCapabilities: ["review"],
-    createdBy: "tester",
-  });
-
-  // Second mission to exercise preservation semantics on replacement.
-  missionRepo.createMission({
+  // Beta first (medium priority — priorityOrder 2). This is the dependency
+  // TARGET for the reverse-dependency pair.
+  const beta = missionRepo.createMission({
     habitatId,
     columnId: inProgress.id,
     title: "Mission Beta",
@@ -362,6 +352,83 @@ function seedFullHabitat(name = "Source Habitat"): string {
     labels: ["beta"],
     createdBy: "tester",
   });
+
+  // Alpha (high priority — priorityOrder 1) depends on beta. Alpha sorts
+  // BEFORE beta in `getMissionsByHabitatId` (high < medium), so in the
+  // exported manifest alpha's `dependsOn` edge points to beta which appears
+  // LATER. This is the reverse-dependency case (cold-review Finding 1).
+  const alpha = missionRepo.createMission({
+    habitatId,
+    columnId: todo.id,
+    title: "Mission Alpha",
+    description: "Alpha description",
+    acceptanceCriteria: "Alpha AC",
+    priority: "high",
+    labels: ["alpha"],
+    dependsOn: [beta.id],
+    createdBy: "tester",
+  });
+
+  // Two tasks on alpha (alphaTask1 + alphaTask2) for a task-dependency edge.
+  const alphaTask1 = taskRepo.createTask({
+    missionId: alpha.id,
+    title: "Alpha Task 1",
+    description: "First alpha task",
+    priority: "high",
+    requiredDomain: "code_review",
+    requiredCapabilities: ["review"],
+    createdBy: "tester",
+  });
+  const alphaTask2 = taskRepo.createTask({
+    missionId: alpha.id,
+    title: "Alpha Task 2",
+    description: "Second alpha task",
+    priority: "low",
+    requiredDomain: null,
+    requiredCapabilities: [],
+    createdBy: "tester",
+  });
+
+  // Subtask on alphaTask1.
+  subtaskRepo.createSubtask({
+    taskId: alphaTask1.id,
+    title: "Subtask A",
+    order: 0,
+  });
+
+  // Task dependency: alphaTask2 depends on alphaTask1.
+  dependencyRepo.addTaskDependency(alphaTask2.id, alphaTask1.id);
+
+  // Parent comment + child comment on alphaTask1 (exercises the self-
+  // referential parentId FK — cold-review Finding 2).
+  const parentComment = commentRepo.createComment({
+    taskId: alphaTask1.id,
+    authorType: "human",
+    authorId: "user-1",
+    content: "Parent comment",
+  });
+  commentRepo.createComment({
+    taskId: alphaTask1.id,
+    authorType: "human",
+    authorId: "user-2",
+    content: "Child reply",
+    parentId: parentComment.id,
+  });
+
+  // Default template.
+  templateRepo.createTemplate({
+    habitatId,
+    name: "Default Template",
+    titlePattern: "Templated Mission",
+    descriptionPattern: "Template description",
+    priority: "medium",
+    labels: ["template"],
+    requiredDomain: null,
+    requiredCapabilities: [],
+    isDefault: true,
+    createdBy: "tester",
+  });
+
   return habitatId;
 }
 
@@ -875,16 +942,13 @@ describe("T10C M3 — prepareImportOutcomeToHttpResponse (every non-prepared Pre
 //    With the fix, this test passes deterministically regardless of
 //    sql.js's FK PRAGMA state in the surrounding test context.
 //
-// NOTE: this test seeds a simpler shape (missions + tasks only, no
-//    subtasks/dependencies/comments/templates). The comprehensive M2
-//    round-trip (`habitatManifestExporter.test.ts:247`) still exercises
-//    the full domain set + remains at the mercy of sql.js's FK PRAGMA
-//    state. Adding `PRAGMA foreign_keys = ON` to M2's beforeEach was
-//    attempted but surfaces a SECOND forward-FK bug in the orchestrator
-//    (subtasks/dependencies apply BEFORE tasks via `publishTaskWithClient`
-//    in `importPublication.ts` step 3b, after the domain loop at step 3a).
-//    That second bug is out of scope for T10B-FK-FIX (PRESERVE-byte-identity
-//    on `importPublication.ts`); file as a follow-up ticket before T11.
+// NOTE: `seedFullHabitat` now seeds ALL 8 domains (cold-review Finding 3),
+//    including a reverse-dependency mission pair + a parent-child comment
+//    pair. This existing test asserts only the happy-path 201 + Mission
+//    Alpha's survival — it does NOT set `PRAGMA foreign_keys = ON`. The
+//    comprehensive full-shape round-trip WITH FK ON + per-domain survival
+//    assertions is the dedicated test in section 10 below (cold-review
+//    Finding 3). Both tests now exercise the full 8-domain seed.
 // ===========================================================================
 
 describe("T10C M3 — round-trip M2 → M3 (exportHabitatManifest → POST /api/habitats/import)", () => {
@@ -908,9 +972,8 @@ describe("T10C M3 — round-trip M2 → M3 (exportHabitatManifest → POST /api/
       payload: manifest,
     });
 
-    // Load-bearing: assert the success path. See the SKIP RATIONALE above
-    // for why this is currently skipped + where the kernel-level coverage
-    // lives (M2's `habitatManifestExporter.test.ts:247`).
+    // Load-bearing: assert the success path. The comprehensive per-domain
+    // survival assertions + FK ON live in section 10 below.
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
     expect(body.outcome).toBe("published");
@@ -920,5 +983,126 @@ describe("T10C M3 — round-trip M2 → M3 (exportHabitatManifest → POST /api/
     expect(newHabitat!.name).toBe("Round-trip Source");
     const newMissions = missionRepo.getMissionsByHabitatId(body.habitatId).missions;
     expect(newMissions.some((m) => m.title === "Mission Alpha")).toBe(true);
+  });
+});
+
+// ===========================================================================
+// 10. Full-shape HTTP round-trip with FK ON — cold-review Finding 3.
+//     The ONLY test that exercises BOTH the HTTP layer AND the full 8-domain
+//     set under `PRAGMA foreign_keys = ON` (mirrors production's better-
+//     sqlite3 always-ON enforcement). Proves the three cold-review FK fixes
+//     (applyMissions two-pass, applyComments topological sort, the
+//     orchestrator's pre/post-task split) all hold under the real HTTP path.
+//     Matches the M2 kernel-level round-trip's per-domain assertion depth
+//     (`habitatManifestExporter.test.ts:247`).
+// ===========================================================================
+
+describe("T10C cold-review Finding 3 — full-shape HTTP round-trip with FK ON", () => {
+  beforeEach(() => {
+    process.env[CUTOVER_FLAG] = "true";
+    getDb().run(`PRAGMA foreign_keys = ON`);
+  });
+
+  it("seeds all 8 domains → export → POST /api/habitats/import → 201 + per-domain survival (FK ON)", async () => {
+    // --- arrange (seed source with ALL 8 domains) ---
+    const sourceHabitatId = seedFullHabitat("Full-Shape Source");
+
+    // --- act (export source) ---
+    const manifest = exportHabitatManifest(sourceHabitatId);
+    expect(manifest).not.toBeNull();
+    if (!manifest) return;
+
+    // Sanity: the manifest carries all 8 domains.
+    expect(Object.keys(manifest.domains).sort()).toEqual(
+      [
+        "habitatSettings",
+        "columns",
+        "missions",
+        "tasks",
+        "subtasks",
+        "dependencies",
+        "comments",
+        "templates",
+      ].sort(),
+    );
+
+    // --- act (POST to the HTTP route with FK ON) ---
+    app = await buildApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/habitats/import",
+      headers: { authorization: `Bearer ${adminToken()}` },
+      payload: manifest,
+    });
+
+    // --- assert publication committed ---
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.outcome).toBe("published");
+    expect(body.habitatId).toBeDefined();
+    expect(body.habitatId).not.toBe(sourceHabitatId);
+    const newHabitatId = body.habitatId;
+
+    // --- assert per-domain survival (matches M2 kernel test depth) ---
+
+    // Columns: 4 default columns survive.
+    const newColumns = habitatRepo.getHabitatWithColumnsAndTasks(newHabitatId)!.columns;
+    expect(newColumns.map((c) => c.name).sort()).toEqual(
+      ["Done", "In Progress", "Review", "Todo"].sort(),
+    );
+
+    // Missions: 2 survive (alpha + beta). The reverse-dependency edge
+    // (alpha depends on beta — alpha sorts FIRST in export) survived the
+    // two-pass applyMissions fix (Finding 1).
+    const { missions: newMissions } = missionRepo.getMissionsByHabitatId(newHabitatId);
+    expect(newMissions).toHaveLength(2);
+    const newAlpha = newMissions.find((m) => m.title === "Mission Alpha")!;
+    const newBeta = newMissions.find((m) => m.title === "Mission Beta")!;
+    expect(newAlpha).toBeDefined();
+    expect(newBeta).toBeDefined();
+    const alphaDeps = dependencyRepo.getMissionDependencies(newAlpha.id);
+    expect(alphaDeps.dependsOn.map((d) => d.missionId)).toContain(newBeta.id);
+
+    // Tasks: 2 survive under alpha (alphaTask1 + alphaTask2).
+    const newAlphaTasks = taskRepo.getTasksByMissionId(newAlpha.id);
+    expect(newAlphaTasks).toHaveLength(2);
+    const newAlphaTask1 = newAlphaTasks.find((t) => t.title === "Alpha Task 1")!;
+    const newAlphaTask2 = newAlphaTasks.find((t) => t.title === "Alpha Task 2")!;
+    expect(newAlphaTask1).toBeDefined();
+    expect(newAlphaTask2).toBeDefined();
+
+    // Subtasks: 1 survives under alphaTask1.
+    const newSubtasks = subtaskRepo.getSubtasksByTaskId(newAlphaTask1.id);
+    expect(newSubtasks).toHaveLength(1);
+    expect(newSubtasks[0].title).toBe("Subtask A");
+
+    // Task dependencies: alphaTask2 → alphaTask1 survives.
+    const newDep = dependencyRepo.getTaskDependencies(newAlphaTask2.id);
+    expect(newDep.dependsOn).toHaveLength(1);
+    expect(newDep.dependsOn[0].taskId).toBe(newAlphaTask1.id);
+
+    // Comments: 2 survive (parent + child). The parent-child pair survived
+    // the topological-sort applyComments fix (Finding 2). Query directly
+    // from missionComments (the v3 table).
+    const db = getDb();
+    const newComments = db
+      .select()
+      .from(missionComments)
+      .where(eq(missionComments.missionId, newAlpha.id))
+      .all();
+    expect(newComments).toHaveLength(2);
+    const childComment = newComments.find((c) => c.parentId !== null);
+    const parentComment = newComments.find((c) => c.parentId === null);
+    expect(parentComment).toBeDefined();
+    expect(childComment).toBeDefined();
+    expect(childComment!.parentId).toBe(parentComment!.id);
+
+    // Templates: 1 default template survives.
+    const newTemplates = templateRepo
+      .getTemplatesByHabitatId(newHabitatId)
+      .filter((t) => t.habitatId === newHabitatId);
+    expect(newTemplates).toHaveLength(1);
+    expect(newTemplates[0].name).toBe("Default Template");
+    expect(newTemplates[0].isDefault).toBe(true);
   });
 });

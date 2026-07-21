@@ -474,6 +474,33 @@ export function resolveMissionsReferences(
  * runs `columns.apply` BEFORE `missions.apply`; the FK `column_id →
  * columns.id` resolves against the just-inserted sibling row).
  *
+ * # Two-pass INSERT (the FK-ordering fix — T10C cold-review Finding 1)
+ *
+ * The apply runs in TWO passes, not one:
+ *
+ *   - Pass 1: insert ALL mission ROWS (no edges).
+ *   - Pass 2: insert ALL `missionDependencies` EDGES.
+ *
+ * SQLite enforces FK at INSERT time (not at COMMIT) for non-DEFERRABLE
+ * constraints. The `mission_dependencies.depends_on_id → missions.id` FK at
+ * `0000_schema.sql:507` is `ON DELETE cascade` — NOT `DEFERRABLE INITIALLY
+ * DEFERRED`. The single-loop predecessor inserted each mission's
+ * `missionDependencies` edges IN THE SAME ITERATION as the mission row. The
+ * manifest's mission array follows the exporter's emission order
+ * (`getMissionsByHabitatId`: `displayOrder, priorityOrder, createdAt`), NOT
+ * dependency order. A high-priority mission (sorts early) that depends on a
+ * low-priority mission (sorts late) would emit its `dependsOnId` edge before
+ * the target row exists → `FOREIGN KEY constraint failed` under better-sqlite3
+ * (FK always ON). The M2 fixture only passed because beta (medium) depended
+ * on alpha (high), and `priorityOrderExpr` sorts high before medium —
+ * favorable fixture data, not correctness.
+ *
+ * The two-pass split mirrors the columns-handler precedent at
+ * `domainHandlers/columns.ts` (T10B-FK-FIX): rows first, then edges. The
+ * `AppliedDomain.committedServerIds` stays in the original declared order;
+ * only the INSERT order changes. Same FK-ordering bug class as the columns
+ * handler + the orchestrator's pre/post-task split (T10B-FK-FIX-2).
+ *
  * # M1 scope (the `new` path)
  *
  * For `mode:"new"`, every prepared mission gets one INSERT. M2's
@@ -507,7 +534,10 @@ export function applyMissions(
 
   const now = new Date().toISOString();
   const committedServerIds: string[] = [];
-  let edgeCount = 0;
+
+  // PASS 1 — mission ROWS only (no edges). Inserting every row first
+  // guarantees that every `dependsOnId` FK target exists by the time pass 2
+  // emits edges, regardless of the manifest's declared mission order.
   for (const m of prepared.missions) {
     if (m.columnServerId === null) {
       throw new Error(
@@ -525,12 +555,8 @@ export function applyMissions(
         priority: m.priority,
         labels: m.labels,
         // status defaults to 'not_started' (C4 absorption: v3 drops v2 status)
-        // dependsOn + blocks are Mission-level edges — written HERE for
-        // architectural locality: `dependsOnServerIds` / `blocksServerIds`
-        // live on PreparedMission (resolved during resolveReferences). The
-        // `dependencies` handler validates the graph for cycles but does NOT
-        // own the per-mission edge materialization (it would need a side
-        // channel to PreparedMission data).
+        // dependsOn + blocks are Mission-level edges — written in PASS 2
+        // for architectural locality + FK-ordering safety.
         dueAt: m.dueAt,
         createdBy: "import",
         createdAt: now,
@@ -538,17 +564,20 @@ export function applyMissions(
       })
       .run();
     committedServerIds.push(m.missionServerId);
+  }
 
-    // Mission-level dependency edges. The `mission_dependencies` table is
-    // keyed `(missionId, dependsOnId)`; one INSERT per edge. `blocks` are
-    // modeled as `dependsOn` rows in the OPPOSITE direction in v0.31 — for
-    // M1 fidelity, we write `dependsOn` rows directly. M2 may layer a
-    // separate `blocks` representation on top.
+  // PASS 2 — mission-level dependency EDGES. The `mission_dependencies`
+  // table is keyed `(missionId, dependsOnId)`; one INSERT per edge. `blocks`
+  // are modeled as `dependsOn` rows in the OPPOSITE direction in v0.31 — for
+  // M1 fidelity, we write `dependsOn` rows directly. M2 may layer a separate
+  // `blocks` representation on top. All mission rows now exist, so every
+  // `dependsOnId` FK target resolves regardless of the manifest's mission
+  // ordering (the forward-FK bug class from the cold review).
+  for (const m of prepared.missions) {
     for (const depId of m.dependsOnServerIds) {
       tx.insert(missionDependencies)
         .values({ missionId: m.missionServerId, dependsOnId: depId })
         .run();
-      edgeCount++;
     }
   }
 
@@ -557,12 +586,6 @@ export function applyMissions(
     mode: "new",
     committedServerIds,
     inserted: committedServerIds.length,
-    // The orchestrator reads `inserted` for the per-domain COUNT (mission
-    // rows), not edge rows. Edges are implementation detail of the mission
-    // graph; their count is not part of the AppliedDomain envelope. (A
-    // future ticket could expose `perMissionEdgeCounts: number[]` for richer
-    // fan-out; M1 ships the count shape only.)
-    ...(edgeCount > 0 ? {} : {}),
   } satisfies AppliedDomain;
 }
 

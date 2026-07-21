@@ -372,6 +372,111 @@ describe("exportHabitatManifest — round-trip through prepareImport + publishIm
 });
 
 // ---------------------------------------------------------------------------
+// 1b. Reverse-dependency round-trip — the T10C cold-review Finding 1/4 guard.
+//
+// The existing round-trip fixture (alpha high-priority + beta medium-priority
+// depending on alpha) only passes pre-fix because `priorityOrderExpr` sorts
+// high (1) before medium (2) — the dependent (beta) appears AFTER its target
+// (alpha) in the manifest. This test seeds the UNFAVORABLE case: a critical-
+// priority mission (sorts FIRST) that depends on a low-priority mission
+// (sorts LAST). Before the two-pass fix in `applyMissions`, the edge INSERT
+// for the critical mission would fire before the low-priority target row
+// exists → `FOREIGN KEY constraint failed`. After the fix (pass 1: all rows,
+// pass 2: all edges), it succeeds regardless of emission order.
+// ---------------------------------------------------------------------------
+
+describe("exportHabitatManifest — reverse-dependency round-trip (cold-review Finding 1/4)", () => {
+  // Force FK ON — mirrors the main round-trip's pragma discipline. The test
+  // MUST pass deterministically under better-sqlite3's always-ON enforcement.
+  beforeEach(() => {
+    wipeTables();
+    getDb().run(sql`PRAGMA foreign_keys = ON`);
+  });
+
+  it("a forward-FK mission dependency (dependent sorts before target) round-trips with FK ON", () => {
+    // --- arrange (seed source with a reverse-dependency pair) ---
+    const { habitat, columns } = createHabitat({
+      name: "Reverse-Dep Source",
+      defaultColumns: true,
+    });
+    const habitatId = habitat.id;
+    const todo = columns.find((c) => c.name === "Todo")!;
+
+    // delta: low priority — the dependency TARGET. Created FIRST (so the
+    // `dependsOn` FK target row exists for gamma) but assigned
+    // displayOrder: 1 so it sorts LATER in the export.
+    const delta = missionRepo.createMission({
+      habitatId,
+      columnId: todo.id,
+      title: "Mission Delta",
+      description: "Low-priority target",
+      acceptanceCriteria: "Delta AC",
+      priority: "low",
+      labels: ["delta"],
+      displayOrder: 1,
+      createdBy: "tester",
+    });
+    // gamma: critical priority — the DEPENDENT. Created SECOND but assigned
+    // displayOrder: 0 so it sorts FIRST in `getMissionsByHabitatId`
+    // (displayOrder is the primary sort key, before priorityOrder). gamma's
+    // `dependsOn` edge points to delta which appears LATER in the export —
+    // the forward-FK case the two-pass `applyMissions` fix addresses.
+    const gamma = missionRepo.createMission({
+      habitatId,
+      columnId: todo.id,
+      title: "Mission Gamma",
+      description: "Critical-priority dependent",
+      acceptanceCriteria: "Gamma AC",
+      priority: "critical",
+      labels: ["gamma"],
+      displayOrder: 0,
+      dependsOn: [delta.id],
+      createdBy: "tester",
+    });
+
+    // --- act (export source) ---
+    const manifest = exportHabitatManifest(habitatId);
+    expect(manifest).not.toBeNull();
+    if (!manifest) return;
+
+    // --- assert the manifest emission order is the UNFAVORABLE case ---
+    // gamma (critical) MUST appear before delta (low) in the missions array.
+    // This proves the fixture exercises the forward-FK bug class.
+    const ms = manifest.domains.missions!.data;
+    const gammaIdx = ms.findIndex((m) => m.sourceId === gamma.id);
+    const deltaIdx = ms.findIndex((m) => m.sourceId === delta.id);
+    expect(gammaIdx).toBeGreaterThanOrEqual(0);
+    expect(deltaIdx).toBeGreaterThanOrEqual(0);
+    expect(gammaIdx).toBeLessThan(deltaIdx);
+    // gamma's dependsOnSourceIds point to delta (which appears LATER).
+    expect(ms[gammaIdx].dependsOnSourceIds).toEqual([delta.id]);
+
+    // --- act (prepare + publish into a new habitat with FK ON) ---
+    const preparedResult = prepareImport(prepareInput(manifest));
+    expect(preparedResult.outcome).toBe("prepared");
+    if (preparedResult.outcome !== "prepared") return;
+    const outcome = publishImportAggregateWithClient(getDb(), {
+      prepared: preparedResult.prepared,
+    });
+
+    // --- assert publication committed (the forward-FK did NOT fire) ---
+    expect(outcome.outcome).toBe("published");
+    if (outcome.outcome !== "published") return;
+    const newHabitatId = outcome.habitatId;
+
+    // Both missions survive + the gamma → delta edge survives (re-keyed).
+    const { missions: newMissions } = missionRepo.getMissionsByHabitatId(newHabitatId);
+    expect(newMissions).toHaveLength(2);
+    const newGamma = newMissions.find((m) => m.title === "Mission Gamma")!;
+    const newDelta = newMissions.find((m) => m.title === "Mission Delta")!;
+    expect(newGamma).toBeDefined();
+    expect(newDelta).toBeDefined();
+    const gammaDeps = dependencyRepo.getMissionDependencies(newGamma.id);
+    expect(gammaDeps.dependsOn.map((d) => d.missionId)).toContain(newDelta.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2. Per-domain emission — the manifest's portable shape matches each
 //    *Portable type's fields exactly.
 // ---------------------------------------------------------------------------

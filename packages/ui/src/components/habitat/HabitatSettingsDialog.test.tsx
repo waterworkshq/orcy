@@ -67,8 +67,9 @@ vi.mock("./ExportHabitatDialog.js", () => ({
   ExportHabitatDialog: ({ open }: any) => (open ? <div data-testid="export-dialog" /> : null),
 }));
 
-vi.mock("./ImportHabitatDialog.js", () => ({
-  ImportHabitatDialog: ({ open }: any) => (open ? <div data-testid="import-dialog" /> : null),
+vi.mock("./ImportHabitatManifestDialog.js", () => ({
+  ImportHabitatManifestDialog: ({ open }: any) =>
+    open ? <div data-testid="import-dialog" /> : null,
 }));
 
 vi.mock("./settings/GeneralTab.js", () => ({

@@ -434,6 +434,27 @@ export function resolveCommentsReferences(
  * `taskSourceId` into a mission server id (cross-domain lookup against
  * `crossDomainState.tasksEnvelope` + the idMap).
  *
+ * # Topological-order INSERT (the self-referential FK fix — T10C cold-review Finding 2)
+ *
+ * Comments are inserted in **dependency order** over the `parentId` self-
+ * reference graph: roots (`parentId === null`) first, then any comment whose
+ * parent is already inserted, repeat. SQLite enforces FK at INSERT time for
+ * non-DEFERRABLE constraints. The `mission_comments.parent_id →
+ * mission_comments.id` FK at `db/schema/habitat.ts:217-219` is
+ * `ON DELETE cascade` — NOT `DEFERRABLE INITIALLY DEFERRED`. A child comment
+ * appearing before its parent in `prepared.comments` would fail with
+ * `FOREIGN KEY constraint failed`. The manifest's comment array follows the
+ * exporter's emission order (NOT guaranteed parent-before-child), so a
+ * topological sort is required. Mirrors the columns-handler precedent at
+ * `domainHandlers/columns.ts` (T10B-FK-FIX).
+ *
+ * The parent-child graph is a tree by construction (acyclic); the defensive
+ * throw below fires only if validate missed a cycle (a data-integrity bug).
+ * `AppliedDomain.committedServerIds` is returned in the topological
+ * insertion order (parents precede children — the natural reading order for
+ * threaded replies, and a behavioral no-op since downstream consumers only
+ * count + key by id, never assert array order).
+ *
  * # Author resolution
  *
  * `author.resolvedActorId` maps to `authorId` when non-null. When null
@@ -467,34 +488,67 @@ export function applyComments(
     );
   }
 
+  // Topological-order insertion over the parentId self-reference graph
+  // (parents first, then children whose parent is already inserted). SQLite
+  // enforces the self-referential `parent_id` FK at INSERT time for non-
+  // DEFERRABLE constraints — a child appearing before its parent in
+  // `prepared.comments` would fail. Mirrors the columns-handler precedent.
+  const insertedIds = new Set<string>();
+  const remaining = [...prepared.comments];
   const committedServerIds: string[] = [];
-  for (const c of prepared.comments) {
-    if (c.missionServerId === null) {
+
+  while (remaining.length > 0) {
+    let progress = false;
+    // Walk remaining front-to-back, inserting any comment whose parent is
+    // already satisfied (null OR present in `insertedIds`). Mutating
+    // `remaining` via splice during the walk is safe because we bump `i`
+    // only on skip.
+    for (let i = 0; i < remaining.length;) {
+      const c = remaining[i];
+      if (c.missionServerId === null) {
+        throw new Error(
+          `comments.apply: comment '${c.sourceId}' has unresolved missionServerId — resolveReferences did not run or failed`,
+        );
+      }
+      if (c.parentCommentServerId !== null && !insertedIds.has(c.parentCommentServerId)) {
+        i++;
+        continue;
+      }
+      const authorId =
+        c.author.resolvedActorId !== null
+          ? c.author.resolvedActorId
+          : `imported:${c.author.importedAttribution}`;
+
+      tx.insert(missionComments)
+        .values({
+          id: c.commentServerId,
+          missionId: c.missionServerId,
+          parentId: c.parentCommentServerId,
+          authorType: c.authorType,
+          authorId,
+          content: c.content,
+          // `createdAt` carries the portable's `authoredAt` so the row's
+          // timestamp matches the source intent. `updatedAt` matches
+          // `createdAt` (no follow-up edits during apply).
+          createdAt: c.authoredAt,
+          updatedAt: c.authoredAt,
+        })
+        .run();
+      insertedIds.add(c.commentServerId);
+      committedServerIds.push(c.commentServerId);
+      remaining.splice(i, 1);
+      progress = true;
+    }
+    if (!progress) {
+      // Defensive: the parent-child graph is a tree by construction
+      // (acyclic). Reaching here implies a validate gap (a cycle validate
+      // should have caught). Throw loudly rather than infinite-looping.
       throw new Error(
-        `comments.apply: comment '${c.sourceId}' has unresolved missionServerId — resolveReferences did not run or failed`,
+        "comments.apply: no valid insertion order — cyclic parentId chain " +
+          "(parent-child graph must be acyclic); stuck on: " +
+          remaining.map((c) => c.sourceId).join(", "),
       );
     }
-    const authorId =
-      c.author.resolvedActorId !== null
-        ? c.author.resolvedActorId
-        : `imported:${c.author.importedAttribution}`;
-
-    tx.insert(missionComments)
-      .values({
-        id: c.commentServerId,
-        missionId: c.missionServerId,
-        parentId: c.parentCommentServerId,
-        authorType: c.authorType,
-        authorId,
-        content: c.content,
-        // `createdAt` carries the portable's `authoredAt` so the row's
-        // timestamp matches the source intent. `updatedAt` matches
-        // `createdAt` (no follow-up edits during apply).
-        createdAt: c.authoredAt,
-        updatedAt: c.authoredAt,
-      })
-      .run();
-    committedServerIds.push(c.commentServerId);
   }
 
   return {
