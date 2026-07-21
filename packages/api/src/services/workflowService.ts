@@ -13,6 +13,8 @@ import * as agentRepo from "../repositories/agent.js";
 import * as failureContextService from "./failureContextService.js";
 import { enqueueNotification } from "./notificationCommandService.js";
 import { emitTaskAuditEvent, emitMissionAuditEvent } from "./auditEventEmitter.js";
+import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
+import { publishRecoveryTask } from "./taskRecoveryPublication.js";
 import type { Pulse } from "../repositories/pulse.js";
 import type {
   WorkflowTemplateDefinition,
@@ -308,8 +310,48 @@ function spawnRecoveryForGate(
     return;
   }
 
-  const recoveryTask = createRecoveryTask(failedTask, effectiveHandler, opts);
+  // Pre-fetch the failure-context id (built by `handleFailureCapture` BEFORE
+  // this runs, line 156). The new publication path (`publishRecoveryTask`)
+  // performs the failure-context linkage atomically inside the publication
+  // transaction via the C2 participant — it needs the id UPFRONT, not after
+  // the recovery task is created (the legacy path fetched it AFTER).
+  const ctx = failureContextService.getFailureContext(failedTask.id);
+
+  const recoveryTask = createRecoveryTask(failedTask, effectiveHandler, {
+    ...opts,
+    linkage: {
+      gateId: gate.id,
+      workflowId: gate.workflowId,
+      habitatId: gate.habitatId,
+      missionId: gate.missionId,
+      downstreamTaskId: gate.downstreamTaskId,
+      recoveryDepth: gate.recoveryDepth,
+      ...(ctx ? { failureContextId: ctx.id } : {}),
+    },
+  });
   if (!recoveryTask) return;
+
+  // T11 Phase 1F — when the cutover flag is ON, the new publication path
+  // performed the 3 C2 linkage writes (next-depth gate insert + original-gate
+  // link + failure-context link) atomically inside the publication tx via
+  // the C2 participant (`buildRecoveryLinkageParticipant`). The legacy
+  // non-atomic writes below would double-stamp the linkages and roll back
+  // aborts. Skip them — keep ONLY the recovery-started notification (which
+  // the adapter does not emit).
+  if (isCreationPublicationEnabled()) {
+    emitRecoveryNotification(
+      gate.habitatId,
+      "workflow.recovery_started",
+      `Recovery task spawned for: ${failedTask.title}`,
+      {
+        gateId: gate.id,
+        failedTaskId: failedTask.id,
+        recoveryTaskId: recoveryTask.id,
+        recoveryDepth: gate.recoveryDepth + 1,
+      },
+    );
+    return;
+  }
 
   const db = getDb();
   try {
@@ -341,7 +383,6 @@ function spawnRecoveryForGate(
       .run();
 
     // Link the failure context (if one was just built) to the recovery task.
-    const ctx = failureContextService.getFailureContext(failedTask.id);
     if (ctx) {
       failureContextService.linkRecoveryTask(ctx.id, recoveryTask.id);
     }
@@ -477,8 +518,78 @@ function createRecoveryTask(
     assignedAgentId: string | null;
   },
   handler: WorkflowFailureHandlerConfig,
-  opts: { action: string; metadata?: Record<string, unknown> },
+  opts: {
+    action: string;
+    metadata?: Record<string, unknown>;
+    /**
+     * The C2 atomic-linkage descriptor for the new publication path. Required
+     * when the cutover flag is ON — `publishRecoveryTask` uses it to insert
+     * the next-depth gate + link the original gate + link the failure-context
+     * INSIDE the publication transaction (the crash-window fix). When the
+     * flag is OFF (legacy path) this is IGNORED — the caller
+     * (`spawnRecoveryForGate`) performs the 3 linkage writes as separate
+     * non-atomic steps after the raw insert.
+     */
+    linkage: import("./taskRecoveryPublication.js").RecoveryLinkage;
+  },
 ): { id: string } | null {
+  // T11 Phase 1F — flag-gated recovery routing. When the cutover flag is ON
+  // (tests / T11), route through `publishRecoveryTask` (kernel chain:
+  // reserve → prepare → govern → publish + the C2 atomic participant for
+  // gate insert + original-gate link + failure-context link — the gap-audit
+  // O3 / cold-critique C2 fix). When OFF (production default), the legacy
+  // `taskCrudRepo.createTask` + explicit-assignment path runs byte-identical.
+  // Mirrors the precedent at `automationExecutor.ts:273-275` +
+  // `scheduledTaskService.ts:152-154` + `triageService.ts:38-40/112-114` +
+  // `pulseService.ts:233-271` (Phase 1E).
+  if (isCreationPublicationEnabled()) {
+    try {
+      const variables = collectSubstitutionVariables(failedTask, opts);
+      const assignedAgentId = handler.agentSelector?.assignedAgentId ?? null;
+      const result = publishRecoveryTask({
+        runId: opts.linkage.gateId,
+        actionKey: "spawn_recovery",
+        habitatId: opts.linkage.habitatId,
+        targetMissionId: failedTask.missionId,
+        title: substituteTemplate(handler.recoveryTaskTemplate.title, variables),
+        description: handler.recoveryTaskTemplate.description
+          ? substituteTemplate(handler.recoveryTaskTemplate.description, variables)
+          : "",
+        requiredDomain: handler.agentSelector?.requiredDomain ?? null,
+        requiredCapabilities: handler.agentSelector?.requiredCapabilities,
+        assignment: assignedAgentId
+          ? { kind: "targeted", agentId: assignedAgentId }
+          : { kind: "auto" },
+        linkage: opts.linkage,
+      });
+
+      // Map the typed result envelope to the legacy `{ id: string } | null`
+      // contract. `created` (committed, possibly still recovering) → the
+      // published Task id.
+      if (result.outcome === "created") {
+        return { id: result.publication.task.id };
+      }
+      // `replayed` — a prior publication under the same `(runId, actionKey)`
+      // already succeeded. The stored terminal carries `taskId`; return it so
+      // the caller can proceed (mirrors the triage MINOR #3 fix).
+      if (result.outcome === "replayed" && result.terminal.taskId) {
+        return { id: result.terminal.taskId };
+      }
+      // Any other outcome (vetoed, rejected_validation, guard_mismatch,
+      // governance_denied, rejected_fingerprint) is a non-terminal or
+      // terminal failure. Match the legacy catch→null swallow + a logged
+      // warning so the spawn caller skips the post-create writes.
+      logger.warn(
+        { failedTaskId: failedTask.id, gateId: opts.linkage.gateId, outcome: result.outcome },
+        "Recovery publication non-terminal outcome",
+      );
+      return null;
+    } catch (err) {
+      logger.error({ err, failedTaskId: failedTask.id }, "Failed to create recovery task row");
+      return null;
+    }
+  }
+
   const variables = collectSubstitutionVariables(failedTask, opts);
 
   const template = handler.recoveryTaskTemplate;
