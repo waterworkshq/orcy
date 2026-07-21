@@ -1441,3 +1441,186 @@ export interface ImportManifestView {
   };
   domains: Partial<Record<ImportManifestDomainName, ImportDomainEnvelopeView>>;
 }
+
+// ---------------------------------------------------------------------------
+// T11 Phase 2 — Task-Creation Publication view models (UI side).
+//
+// Mirrors the closed union from
+// `packages/api/src/routes/helpers/taskPublicationHttp.ts:publicationResultToHttpResponse`
+// (the shared HTTP mapper that fronts both `POST /missions/:missionId/task-publications`
+// and `POST /tasks/:sourceTaskId/clone-publications`). The two publication
+// routes return the same shape; only the URL differs.
+//
+// The status-code → outcome mapping is preserved verbatim from the mapper:
+//   `created` + `recovering:true`  → 202 (committed but recovering)
+//   terminal `created`              → 201 (fresh terminal)
+//   `replayed`                      → 200 (idempotent retry — carries the
+//                                              stored terminal verbatim)
+//   `rejected_validation`           → 422
+//   `vetoed`                        → 409
+//   `rejected_fingerprint`          → 409
+//   `guard_mismatch` / `governance_denied` → 503 (retryable — same key)
+//
+// These types are the UI's durable observation surface for the publication
+// outcome (per MEMORY.md "view-model types live in packages/ui/src/types/index.ts").
+// ---------------------------------------------------------------------------
+
+/** A single validation error from the kernel's `rejected_validation` branch.
+ *  Mirrors `PublicationError` at
+ *  `packages/api/src/services/taskPublicationPreparation.ts` — the shape is
+ *  `{field, code, message}` (no separate `domain` field; the UI does NOT
+ *  derive a domain for create/clone, unlike the import dialog which groups
+ *  by manifest domain). */
+export interface TaskPublicationErrorView {
+  field: string;
+  code: string;
+  message: string;
+}
+
+/** The shared closed-discriminated union for both publication routes.
+ *  Use `TaskPublicationOutcomeView` and `ClonePublicationOutcomeView` as the
+ *  intent-named aliases — the structural shape is identical. */
+export type TaskPublicationOutcomeView =
+  | {
+      outcome: "created";
+      attemptId: string;
+      taskId: string;
+    }
+  | {
+      /** 202 Accepted: the Task aggregate committed but the attempt is still
+       *  recovering at `published_pending_observation` or
+       *  `published_pending_assignment`. The client should poll
+       *  `GET /task-creation-attempts/:attemptId` until the attempt settles. */
+      outcome: "created";
+      attemptId: string;
+      taskId: string;
+      recovering: true;
+      recoveringState?: "published_pending_observation" | "published_pending_assignment";
+    }
+  | {
+      /** 200 OK: an idempotent retry under the same key + same fingerprint.
+       *  Carries the stored terminal fields verbatim (`taskId`, `errors`,
+       *  `veto`, etc.) so the caller can render the stored outcome without
+       *  a follow-up GET. The remaining fields are the union of every
+       *  possible terminal — callers narrow on `outcome`. */
+      outcome: "replayed";
+      attemptId: string;
+      taskId?: string;
+    }
+  | {
+      outcome: "rejected_validation";
+      attemptId: string;
+      errors: readonly TaskPublicationErrorView[];
+    }
+  | {
+      outcome: "vetoed";
+      attemptId: string;
+      veto: { interceptorKey: string; reason: string; pluginRunId: string | null };
+    }
+  | {
+      outcome: "rejected_fingerprint";
+      attemptId: string;
+      message: string;
+    }
+  | {
+      outcome: "guard_mismatch";
+      attemptId: string;
+      reasons: readonly unknown[];
+    }
+  | {
+      outcome: "governance_denied";
+      attemptId: string;
+      kind: string;
+      reason: string;
+      interceptorKey?: string;
+    };
+
+/** Closed-discriminated union for `POST /tasks/:sourceTaskId/clone-publications`.
+ *  Structurally identical to {@link TaskPublicationOutcomeView} — aliased so
+ *  call-site intent is clear (the create flow vs the clone flow). */
+export type ClonePublicationOutcomeView = TaskPublicationOutcomeView;
+
+/** The closed set of task-creation attempt states. Mirrors the Drizzle enum
+ *  at `packages/api/src/db/schema/taskPublication.ts:164-173`. The UI
+ *  renders:
+ *    - `pending`, `published_pending_observation`, `published_pending_assignment`
+ *      → "checking publication status" with poll
+ *    - `created`, `created_unassigned` → terminal success
+ *    - `rejected_validation`, `vetoed`, `batch_rejected` → terminal failure */
+export type TaskCreationAttemptState =
+  | "pending"
+  | "rejected_validation"
+  | "vetoed"
+  | "batch_rejected"
+  | "published_pending_observation"
+  | "published_pending_assignment"
+  | "created"
+  | "created_unassigned";
+
+/** Projection of `task_creation_attempts` returned by
+ *  `GET /task-creation-attempts/:attemptId`. The route is the
+ *  `getAttemptStatus` repository surface (see
+ *  `packages/api/src/repositories/taskCreationAttempts.ts:184-200`); the UI
+ *  uses this for poll resolution after a 202 + `recovering:true` response. */
+export interface TaskCreationAttemptView {
+  attemptId: string;
+  state: TaskCreationAttemptState;
+  habitatId: string | null;
+  reservedAt: string;
+  publishedAt: string | null;
+  completedAt: string | null;
+  committedTaskId: string | null;
+  committedMissionId: string | null;
+  envelopeEventId: string | null;
+  reservationId: string | null;
+  terminalOutcome: string | null;
+  /** Structured terminal result (the same shape the adapter returns on the
+   *  `replayed` branch). `null` while the attempt is non-terminal. */
+  terminalResult: Record<string, unknown> | null;
+  leaseOwner: string | null;
+  leaseExpiresAt: string | null;
+}
+
+/** A Subtask in the clone-preparation DTO — RESET to incomplete + unassigned.
+ *  Mirrors `ClonePreparationSubtask` at
+ *  `packages/api/src/services/taskClonePreparation.ts:51-54`. The `id`,
+ *  `completed`, `assigneeId`, and timestamps are deliberately absent — the
+ *  publication transaction allocates fresh identity. */
+export interface ClonePreparationSubtaskView {
+  title: string;
+  order: number;
+}
+
+/** A directional dependency edge SUGGESTED (NOT selected) by clone
+ *  preparation. Mirrors `CloneDependencySuggestion` at
+ *  `packages/api/src/services/taskClonePreparation.ts:66-68`. */
+export interface CloneDependencySuggestionView {
+  dependsOnId: string;
+}
+
+/** Provenance + scope reference to the clone source. Mirrors
+ *  `CloneSourceReference` at
+ *  `packages/api/src/services/taskClonePreparation.ts:79-83`. */
+export interface CloneSourceReferenceView {
+  taskId: string;
+  missionId: string;
+  habitatId: string;
+}
+
+/** The allowlisted read-only clone-preparation DTO returned by
+ *  `GET /tasks/:sourceTaskId/clone-preparation`. Mirrors `ClonePreparation`
+ *  at `packages/api/src/services/taskClonePreparation.ts:94-118`. The DTO
+ *  contains NO execution-history field — the type itself is the allowlist. */
+export interface ClonePreparationView {
+  source: CloneSourceReferenceView;
+  defaultTargetMissionId: string;
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  labels: readonly string[];
+  requiredDomain: string | null;
+  requiredCapabilities: readonly string[];
+  estimatedMinutes: number | null;
+  subtasks: readonly ClonePreparationSubtaskView[];
+  dependencySuggestions: readonly CloneDependencySuggestionView[];
+}

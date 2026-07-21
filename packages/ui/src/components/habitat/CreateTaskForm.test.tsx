@@ -3,10 +3,12 @@ import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { CreateTaskForm } from "./CreateTaskForm.js";
+import { ApiError } from "../../api/transport.js";
 
 const mockCreateTask = vi.fn();
 const mockListTemplates = vi.fn();
 const mockRecordUsage = vi.fn();
+const mockPublishTask = vi.fn();
 const mockNotifySuccess = vi.fn();
 const mockNotifyError = vi.fn();
 
@@ -20,6 +22,32 @@ vi.mock("../../api/index.js", () => ({
       recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
     },
   },
+}));
+
+/**
+ * The publication-route mock: T11 Phase 2 — `CreateTaskForm` calls the new
+ * publication route FIRST and falls back to the legacy `api.missions.createTask`
+ * on HTTP 404 (the cutover flag is off). The default behavior in these tests
+ * is to simulate a 404 so the legacy fallback is exercised; the
+ * "publication-route success" branch is covered by `setPublicationPathSuccess`.
+ */
+vi.mock("../../api/domains/taskPublications.js", () => ({
+  taskPublicationsApi: {
+    publishTask: (...args: unknown[]) => mockPublishTask(...args),
+    publishClone: vi.fn(),
+    getClonePreparation: vi.fn(),
+    getTaskCreationAttempt: vi.fn(),
+  },
+  parsePublishTaskResponse: (status: number, body: unknown) => {
+    // Mirror the real parser's behavior for tests that exercise the new path
+    // directly — a body with an `outcome` field is treated as a typed
+    // outcome, anything else is a generic error envelope.
+    if (typeof body === "object" && body !== null && "outcome" in body) {
+      return { kind: "outcome", outcome: body };
+    }
+    return { kind: "error", status, body: (body as Record<string, unknown>) ?? {} };
+  },
+  parseTaskPublicationsApiError: () => null,
 }));
 
 vi.mock("../../lib/toast.js", () => ({
@@ -57,6 +85,11 @@ describe("CreateTaskForm", () => {
     mockCreateTask.mockResolvedValue({ task: { id: "task-1", title: "Test" } });
     mockListTemplates.mockResolvedValue({ templates: [] });
     mockRecordUsage.mockResolvedValue(undefined);
+    // Default: the new publication route returns 404 (the cutover flag is
+    // off, the route is not registered) → the form falls back to the
+    // legacy `api.missions.createTask` path. Tests that exercise the new
+    // path explicitly override this mock.
+    mockPublishTask.mockRejectedValue(new ApiError("Not found", 404, { error: "Not found" }));
   });
 
   afterEach(() => {

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +11,22 @@ import {
 import { Button } from "../ui/Button.js";
 import { RichTextEditor } from "../ui/RichTextEditor.js";
 import { api } from "../../api/index.js";
-import { notify } from "../../lib/toast.js";
+import {
+  taskPublicationsApi,
+  parsePublishTaskResponse,
+} from "../../api/domains/taskPublications.js";
+import { ApiError } from "../../api/transport.js";
 import { useTemplates, useCreateTaskInMission } from "../../lib/useHabitatData.js";
+import {
+  invalidateHabitatRepresentations,
+  invalidateMissionRepresentations,
+} from "../../lib/habitatMutations.js";
+import { queryKeys } from "../../lib/queryKeys.js";
+import { notify } from "../../lib/toast.js";
+import type {
+  TaskPublicationErrorView,
+  TaskPublicationOutcomeView,
+} from "../../types/index.js";
 import type { TaskPriority } from "../../types/index.js";
 
 /** Props for the CreateTaskForm dialog. */
@@ -23,13 +38,59 @@ interface CreateTaskFormProps {
 }
 
 /**
- * Dialog form for creating a new task. Supports templates, priority,
- * labels, required domain, due date, and SLA. Resets on open/close.
+ * Polling interval (ms) for the 202 + `recovering:true` recovery surface.
+ * The dispatcher (T4A) + assignment coordinator (T5) advance the attempt
+ * past `published_pending_observation` / `published_pending_assignment`
+ * within the configured deadline (default assignment deadline lives in
+ * `ORCY_ASSIGNMENT_DEADLINE_MS`); a 1500ms cadence keeps the UX responsive
+ * without hammering the GET endpoint.
+ */
+const POLL_INTERVAL_MS = 1500;
+
+/** Attempt-key polling cap (ms) — bail out if the attempt is still non-
+ *  terminal after this window. The cap matches the default assignment deadline
+ *  upper bound so a stuck attempt surfaces as an error rather than spinning
+ *  forever. */
+const POLL_TIMEOUT_MS = 60_000;
+
+/** Generate a client-side UUID. Uses `crypto.randomUUID()` when available
+ *  (modern browsers + Node 19+); falls back to a Math.random-based v4 UUID
+ *  for older environments (test jsdom). The attempt key only needs to be
+ *  unique per (auditSource, targetMissionId) scope; uniqueness + entropy
+ *  are the only constraints. */
+function generateAttemptKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // jsdom fallback — sufficient for client identity; the kernel's reservation
+  // is the source of truth for collision rejection.
+  return "00000000-0000-4000-8000-000000000000".replace(/[018]/g, (c) => {
+    const r = Math.random() * 16;
+    const v = c === "0" ? r : (r & 0x3) | 0x8;
+    return Math.floor(v).toString(16);
+  });
+}
+
+/**
+ * Dialog form for creating a new task (T11 Phase 2 — publication attempt-
+ * key lifecycle). Supports templates, priority, labels, required domain,
+ * due date, and SLA. Resets on open/close.
+ *
+ * The form attempts `POST /missions/:missionId/task-publications` first and
+ * falls back to the legacy `POST /missions/:missionId/tasks` on HTTP 404
+ * (the cutover flag is off, the route is not registered). See
+ * `packages/ui/src/api/domains/taskPublications.ts` for the flag-detection
+ * rationale.
  */
 export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTaskFormProps) {
+  const qc = useQueryClient();
   const { data: templatesData } = useTemplates(habitatId);
   const templates = templatesData?.templates ?? [];
+  // The legacy fallback reuses `useCreateTaskInMission` so its invalidation
+  // hooks (mission task lists + habitat/mission representations) fire on
+  // success — same surface the new path invalidates manually below.
   const createTaskMutation = useCreateTaskInMission(missionId ?? "");
+
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -38,6 +99,32 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   const [requiredCapabilities, setRequiredCapabilities] = useState<string[]>([]);
   const [capabilityInput, setCapabilityInput] = useState("");
   const [estimatedMinutes, setEstimatedMinutes] = useState("");
+
+  // --- Publication attempt-key lifecycle -----------------------------------
+  // `attemptKey` is generated on the FIRST Publish press and RETAINED across
+  // repeated clicks / timeouts / status polls. Same-key + same-fingerprint
+  // is an idempotent replay (server returns `replayed`); same-key +
+  // different-fingerprint is a deterministic rejection
+  // (`rejected_fingerprint`, the user must pick a new key).
+  const [attemptKey, setAttemptKey] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [outcome, setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
+  const [validationErrors, setValidationErrors] = useState<readonly TaskPublicationErrorView[] | null>(null);
+  const [polling, setPolling] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Polling bookkeeping — held in refs so the interval closure stays fresh
+  // without re-running the effect on every state tick.
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollDeadlineRef = useRef<number | null>(null);
+
+  function stopPolling() {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    pollDeadlineRef.current = null;
+  }
 
   useEffect(() => {
     if (open) {
@@ -49,8 +136,19 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       setRequiredCapabilities([]);
       setCapabilityInput("");
       setEstimatedMinutes("");
+      setAttemptKey(null);
+      setOutcome(null);
+      setValidationErrors(null);
+      setPolling(false);
+      setSubmitError(null);
+      stopPolling();
     }
   }, [open]);
+
+  // Tear down any active poll when the dialog closes or unmounts.
+  useEffect(() => {
+    return () => stopPolling();
+  }, []);
 
   function handleTemplateChange(templateId: string) {
     setSelectedTemplateId(templateId);
@@ -92,35 +190,279 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     }
   }
 
+  function recordTemplateUsage(templateId: string | undefined) {
+    if (templateId) {
+      api.templates.recordUsage(templateId).catch(() => {});
+    }
+  }
+
+  function resetForm() {
+    setTitle("");
+    setDescription("");
+    setPriority("medium");
+    setRequiredDomain("");
+    setRequiredCapabilities([]);
+    setCapabilityInput("");
+    setEstimatedMinutes("");
+    setSelectedTemplateId("");
+    setAttemptKey(null);
+    setOutcome(null);
+    setValidationErrors(null);
+    setPolling(false);
+    setSubmitError(null);
+    stopPolling();
+  }
+
+  function invalidateAfterSuccess() {
+    if (!missionId) return;
+    qc.invalidateQueries({ queryKey: queryKeys.missions.tasks(missionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.details(missionId) });
+    qc.invalidateQueries({ queryKey: queryKeys.missions.progress(missionId) });
+    invalidateMissionRepresentations(qc, missionId);
+    if (habitatId) {
+      invalidateHabitatRepresentations(qc, habitatId);
+    }
+  }
+
+  function closeOnSuccess(label: string) {
+    recordTemplateUsage(selectedTemplateId);
+    notify.success(`Task "${label}" created`);
+    resetForm();
+    onClose();
+  }
+
+  /**
+   * Walk the typed outcome after a 2xx publish response.
+   *
+   * The view-model's `outcome` discriminator covers:
+   *   - `"created"` + `recovering:true` → 202; commit a poll cycle.
+   *   - `"created"` terminal             → 201; close on success.
+   *   - `"replayed"`                     → 200; surface the stored terminal
+   *     verbatim — narrow on the wrapped `taskId` field.
+   *   - `"rejected_validation"`          → 422; render per-field errors.
+   *   - `"vetoed"` / `"rejected_fingerprint"` → 409; render governance refusal.
+   *   - `"guard_mismatch"` / `"governance_denied"` → 503; the attempt is
+   *     resumable under the same key, but for an interactive dialog we
+   *     surface the refusal and let the user retry manually.
+   */
+  function handlePublicationOutcome(parsed: TaskPublicationOutcomeView) {
+    switch (parsed.outcome) {
+      case "created": {
+        if ("recovering" in parsed && parsed.recovering) {
+          // 202 path — start polling. The committed task id is captured in
+          // `parsed.taskId`; the poll resolves the terminal state.
+          setOutcome(parsed);
+          setPolling(true);
+          pollDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS;
+          schedulePoll(parsed.attemptId, parsed.taskId);
+          return;
+        }
+        // 201 terminal — close on success.
+        const label = title.trim();
+        invalidateAfterSuccess();
+        closeOnSuccess(label);
+        return;
+      }
+      case "replayed": {
+        // An idempotent retry hit a terminal attempt. The stored terminal
+        // task id is in `parsed.taskId` (when present); close on success
+        // unless the stored terminal was a failure outcome (no `taskId`
+        // and `outcome` is one of the failure markers — defensive: the
+        // HTTP mapper forwards all terminal fields verbatim, so a terminal
+        // `rejected_validation` would surface its `errors` here, but the
+        // `replayed` arm currently only carries `taskId` on the view side;
+        // unknown-shape terminals surface as a success close because the
+        // server already terminalized the attempt).
+        if (parsed.taskId) {
+          const label = title.trim();
+          invalidateAfterSuccess();
+          closeOnSuccess(label);
+          return;
+        }
+        // No `taskId` — the stored terminal carried no committed Task (a
+        // replayed failure). Surface as a generic error.
+        setSubmitError("Replayed attempt has no committed Task. Please retry with a new key.");
+        setOutcome(parsed);
+        return;
+      }
+      case "rejected_validation": {
+        setValidationErrors(parsed.errors);
+        setOutcome(parsed);
+        return;
+      }
+      case "vetoed": {
+        setSubmitError(
+          `Governance refused the task: ${parsed.veto.interceptorKey} — ${parsed.veto.reason}`,
+        );
+        setOutcome(parsed);
+        return;
+      }
+      case "rejected_fingerprint": {
+        // The user must pick a new attempt key — the stored payload under
+        // the same key is different from the submitted one.
+        setAttemptKey(null);
+        setSubmitError(parsed.message);
+        setOutcome(parsed);
+        return;
+      }
+      case "guard_mismatch":
+      case "governance_denied": {
+        setSubmitError(
+          parsed.outcome === "guard_mismatch"
+            ? "Guard drift detected — please retry."
+            : `Governance denied: ${parsed.reason}`,
+        );
+        setOutcome(parsed);
+        return;
+      }
+    }
+  }
+
+  function schedulePoll(attemptId: string, _committedTaskId: string) {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = setTimeout(() => void runPoll(attemptId), POLL_INTERVAL_MS);
+  }
+
+  async function runPoll(attemptId: string) {
+    if (
+      pollDeadlineRef.current !== null &&
+      Date.now() > pollDeadlineRef.current
+    ) {
+      stopPolling();
+      setPolling(false);
+      setSubmitError(
+        "Publication is taking longer than expected. The attempt is still tracked; refresh the board to see the new task.",
+      );
+      return;
+    }
+    try {
+      const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
+      if (
+        status.state === "created" ||
+        status.state === "created_unassigned"
+      ) {
+        stopPolling();
+        setPolling(false);
+        const label = title.trim();
+        invalidateAfterSuccess();
+        closeOnSuccess(label);
+        return;
+      }
+      if (
+        status.state === "rejected_validation" ||
+        status.state === "vetoed" ||
+        status.state === "batch_rejected"
+      ) {
+        stopPolling();
+        setPolling(false);
+        setSubmitError(
+          status.state === "vetoed"
+            ? "Governance refused the task during recovery."
+            : `Publication failed: ${status.state}`,
+        );
+        return;
+      }
+      // Still non-terminal — keep polling.
+      schedulePoll(attemptId, status.committedTaskId ?? "");
+    } catch (err) {
+      stopPolling();
+      setPolling(false);
+      const message = err instanceof Error ? err.message : "Failed to check publication status";
+      setSubmitError(message);
+      notify.error(message);
+    }
+  }
+
+  async function publishViaNewRoute(key: string) {
+    const result = await taskPublicationsApi.publishTask(missionId ?? "", {
+      attemptKey: key,
+      title: title.trim(),
+      description: description.trim() || undefined,
+      priority,
+      requiredDomain: requiredDomain.trim() || undefined,
+      requiredCapabilities:
+        requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
+      estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
+    });
+    // 2xx — narrow the body through the typed dispatch parser. The HTTP
+    // mapper always emits a closed-union body on success, but we route
+    // through the type guard so a structural drift surfaces as a generic
+    // error rather than a typed wrong-render.
+    const parsed = parsePublishTaskResponse(200, result);
+    if (parsed.kind === "outcome") {
+      handlePublicationOutcome(parsed.outcome);
+      return;
+    }
+    setSubmitError(parsed.body.error ?? "Unexpected response from publication route");
+  }
+
+  async function publishViaLegacyFallback() {
+    const result = await createTaskMutation.mutateAsync({
+      title: title.trim(),
+      description: description.trim() || undefined,
+      priority,
+      requiredDomain: requiredDomain.trim() || undefined,
+      requiredCapabilities:
+        requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
+      estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
+    });
+    recordTemplateUsage(selectedTemplateId);
+    notify.success(`Task "${title.trim()}" created`);
+    resetForm();
+    onClose();
+    return result;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !missionId) return;
 
-    try {
-      const result = await createTaskMutation.mutateAsync({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        priority,
-        requiredDomain: requiredDomain.trim() || undefined,
-        requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
-        estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
-      });
-      if (selectedTemplateId) {
-        api.templates.recordUsage(selectedTemplateId).catch(() => {});
-      }
+    // Reset transient state so a retry after a previous rejection doesn't
+    // show stale errors.
+    setSubmitError(null);
+    setOutcome(null);
+    setValidationErrors(null);
+    setPolling(false);
+    stopPolling();
 
-      notify.success(`Task "${title.trim()}" created`);
-      setTitle("");
-      setDescription("");
-      setPriority("medium");
-      setRequiredDomain("");
-      setRequiredCapabilities([]);
-      setCapabilityInput("");
-      setEstimatedMinutes("");
-      setSelectedTemplateId("");
-      onClose();
-    } catch (err) {
-      notify.error((err as Error).message);
+    const key = attemptKey ?? generateAttemptKey();
+    setAttemptKey(key);
+    setSubmitting(true);
+    try {
+      try {
+        await publishViaNewRoute(key);
+        return;
+      } catch (err) {
+        // The cutover flag is HTTP-404 detected — the route is not
+        // registered while the flag is off. Fall back to the legacy
+        // `POST /missions/:missionId/tasks` so the form keeps working.
+        if (err instanceof ApiError && err.status === 404) {
+          await publishViaLegacyFallback();
+          return;
+        }
+        // Non-2xx with a structured body: recover the typed outcome so the
+        // dialog renders the per-field errors / governance refusal rather
+        // than a generic error message.
+        if (err instanceof ApiError) {
+          const recovered = (() => {
+            const body = err.body;
+            if (typeof body !== "object" || body === null) return null;
+            const outcome = (body as { outcome?: unknown }).outcome;
+            if (typeof outcome !== "string") return null;
+            return body as TaskPublicationOutcomeView;
+          })();
+          if (recovered) {
+            handlePublicationOutcome(recovered);
+            return;
+          }
+        }
+        // Generic failure — surface the message.
+        const message = err instanceof Error ? err.message : "Failed to create task";
+        setSubmitError(message);
+        notify.error(message);
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -250,6 +592,58 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
                 className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
+
+            {/* Per-field validation errors from the kernel's
+                `rejected_validation` branch (422). The banner is amber —
+                nothing was committed (the preflight is pure), the user can
+                fix and retry. */}
+            {validationErrors && validationErrors.length > 0 && (
+              <div
+                className="p-3 bg-amber-100 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded text-sm"
+                data-testid="validation-errors"
+              >
+                <div className="font-medium text-amber-900 dark:text-amber-100 mb-1">
+                  Publication rejected — fix and retry
+                </div>
+                <ul className="text-xs space-y-1">
+                  {validationErrors.map((e, i) => (
+                    <li key={i}>
+                      <code className="font-mono">{e.field}</code> ·{" "}
+                      <code className="font-mono">{e.code}</code> · {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* 202 + `recovering:true` poll banner. The committed task id is
+                already known; we are waiting for the dispatcher / assignment
+                coordinator to settle the attempt. */}
+            {polling && (
+              <div
+                className="p-3 bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded text-sm"
+                data-testid="polling-status"
+              >
+                <div className="font-medium text-blue-900 dark:text-blue-100">
+                  Checking publication status…
+                </div>
+                <div className="text-sm text-blue-800 dark:text-blue-200 mt-1">
+                  The task committed but is still settling. This dialog will close when the
+                  publication is fully observed.
+                </div>
+              </div>
+            )}
+
+            {/* Generic submit error — used for vetoes, fingerprint rejections,
+                guard mismatches, and transport failures. */}
+            {submitError && !validationErrors && (
+              <div
+                className="p-3 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive"
+                data-testid="submit-error"
+              >
+                {submitError}
+              </div>
+            )}
           </div>
         </DialogContent>
 
@@ -259,8 +653,17 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
           </Button>
           <Button
             type="submit"
-            loading={createTaskMutation.isPending}
-            disabled={createTaskMutation.isPending || !title.trim()}
+            loading={submitting || polling}
+            disabled={
+              submitting ||
+              polling ||
+              !title.trim() ||
+              // Lock the form while a typed rejection is on screen — the user
+              // must read the errors and either fix the fields or pick a
+              // different title. The Cancel button remains active so the
+              // user can abandon the attempt.
+              (outcome !== null && validationErrors === null)
+            }
           >
             Create Task
           </Button>
