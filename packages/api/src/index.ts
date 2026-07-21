@@ -70,6 +70,9 @@ import { taskPublicationRoutes } from "./routes/taskPublication.js";
 import { taskClonePublicationRoutes } from "./routes/taskClonePublication.js";
 import { scheduledOccurrenceRepairRoutes } from "./routes/scheduledOccurrenceRepair.js";
 import { isCreationPublicationEnabled } from "./config/creationPublicationCutover.js";
+import { registerCreationDispatchAdapters } from "./services/taskCreationDispatchAdapters.js";
+import { startOccurrenceLeaseRecoveryWorker } from "./services/scheduledOccurrenceRecovery.js";
+import { startCreationDispatchWorker } from "./services/creationDispatchWorker.js";
 import {
   taskCodeEvidenceRoutes,
   missionCodeEvidenceRoutes,
@@ -248,6 +251,28 @@ async function registerApiRoutes(f: FastifyInstance) {
     // plugin (so a direct import without the gate also 404s); the outer
     // gate avoids even calling the registration function.
     await f.register(scheduledOccurrenceRepairRoutes);
+
+    // T11 Phase 1A — boot-registration of the creation dispatch
+    // infrastructure. Wires the six dormant dispatch adapters (the
+    // SSE/webhook/chat/automation/post-interceptor/transition subscribers
+    // that T4B registers with the engine registry) + the two polling
+    // workers that drive the post-commit observation + assignment gates.
+    //
+    // - `registerCreationDispatchAdapters` is idempotent (last-writer-wins
+    //   per kind); safe to call once at boot.
+    // - `startOccurrenceLeaseRecoveryWorker(60_000)` reclaims expired
+    //   `publishing` occurrence leases (T9B Phase 2). 60s mirrors the T9B
+    //   precedent default (a 30s lease + 30s slack → one scan per
+    //   lease-expiry window).
+    // - `startCreationDispatchWorker(5_000)` drives the observation +
+    //   assignment gates (T11 Phase 1A). 5s is short because the
+    //   observation gate is user-facing (Tasks can't be claimed until it
+    //   opens); a 5s max wait is acceptable UX. The dispatch engine's
+    //   in-process adapters complete well under the 30s lease budget, so
+    //   a 5s tick is safe.
+    registerCreationDispatchAdapters();
+    startOccurrenceLeaseRecoveryWorker(60_000);
+    startCreationDispatchWorker(5_000);
   }
 }
 
