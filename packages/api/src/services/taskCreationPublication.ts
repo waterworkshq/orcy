@@ -101,6 +101,7 @@ import {
   type AttemptTerminalResult,
 } from "../repositories/taskPublication.js";
 import { getHabitatIdForTask } from "../repositories/taskCrud.js";
+import { getDefaultAssignmentDeadlineMs } from "../config/creationPublicationCutover.js";
 
 // ---------------------------------------------------------------------------
 // Shared contracts (Story-2 implementation-context § "Shared contracts")
@@ -288,7 +289,7 @@ export interface PublishTaskCreationInput {
  * dispatcher + assignment coordinator (T4A/T5) advance the attempt past this
  * point well inside the window under normal operation.
  */
-const DEFAULT_TARGETED_ASSIGNMENT_DEADLINE_MS = 24 * 60 * 60 * 1000; // 24h
+// Config-backed via ORCY_ASSIGNMENT_DEADLINE_MS (see creationPublicationCutover.ts).
 
 /**
  * Derives the causal-root type for an interactive publication from the
@@ -698,7 +699,7 @@ export function publishTaskCreation(
       ? {
           deadline:
             input.targetedAssignmentDeadline ??
-            new Date(Date.now() + DEFAULT_TARGETED_ASSIGNMENT_DEADLINE_MS).toISOString(),
+            new Date(Date.now() + getDefaultAssignmentDeadlineMs()).toISOString(),
         }
       : undefined;
 

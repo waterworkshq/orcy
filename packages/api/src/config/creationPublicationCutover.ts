@@ -30,3 +30,26 @@
 export function isCreationPublicationEnabled(): boolean {
   return process.env.ORCY_CREATION_PUBLICATION_ENABLED === "true";
 }
+
+/**
+ * The default deadline for targeted assignment recovery, in milliseconds.
+ *
+ * When a Task is published with `assignment.kind === "targeted"` but no
+ * explicit `targetedAssignmentDeadline`, the publication adapters fall
+ * back to this value. The deadline bounds how long the assignment
+ * reservation stays active before releasing to `created_unassigned`.
+ *
+ * Config-backed via `ORCY_ASSIGNMENT_DEADLINE_MS` (parsed as an integer;
+ * invalid/missing values fall back to 24h). Read per-call so operators
+ * can tune without a process restart (unlike the cutover flag which is
+ * route-registration-scoped).
+ *
+ * @default 86_400_000 (24 hours)
+ */
+export function getDefaultAssignmentDeadlineMs(): number {
+  const raw = process.env.ORCY_ASSIGNMENT_DEADLINE_MS;
+  if (raw === undefined || raw === "") return 86_400_000; // 24h
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 86_400_000; // 24h
+  return parsed;
+}

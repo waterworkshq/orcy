@@ -137,6 +137,7 @@ import {
   type AttemptTerminalResult,
 } from "../repositories/taskPublication.js";
 import type { TaskCreationPublicationResult, AssignmentIntent } from "./taskCreationPublication.js";
+import { getDefaultAssignmentDeadlineMs } from "../config/creationPublicationCutover.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports (the result envelope + assignment intent are origin-neutral)
@@ -348,7 +349,7 @@ const RECOVERY_CAUSAL_ROOT_TYPE = "workflow_recovery";
  * caller-supplied (the coordinator owns no deadline configuration); the
  * failure handler (T11) resolves it from app/config.
  */
-const DEFAULT_TARGETED_ASSIGNMENT_DEADLINE_MS = 24 * 60 * 60 * 1000; // 24h
+// Config-backed via ORCY_ASSIGNMENT_DEADLINE_MS (see creationPublicationCutover.ts).
 
 // ---------------------------------------------------------------------------
 // C2 atomic participant (the ONLY domain-extension point usage)
@@ -762,7 +763,7 @@ export function publishRecoveryTask(
       ? {
           deadline:
             input.targetedAssignmentDeadline ??
-            new Date(Date.now() + DEFAULT_TARGETED_ASSIGNMENT_DEADLINE_MS).toISOString(),
+            new Date(Date.now() + getDefaultAssignmentDeadlineMs()).toISOString(),
         }
       : undefined;
 

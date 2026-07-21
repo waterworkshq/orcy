@@ -143,6 +143,7 @@ import {
   type AttemptTerminalResult,
 } from "../repositories/taskPublication.js";
 import type { TaskCreationPublicationResult, AssignmentIntent } from "./taskCreationPublication.js";
+import { getDefaultAssignmentDeadlineMs } from "../config/creationPublicationCutover.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports (the result envelope + assignment intent are origin-neutral)
@@ -387,7 +388,7 @@ const REJECTED_NO_TARGET_MISSION_REASON =
  * caller-supplied (the coordinator owns no deadline configuration); the pulse
  * service (T11) resolves it from app/config.
  */
-const DEFAULT_TARGETED_ASSIGNMENT_DEADLINE_MS = 24 * 60 * 60 * 1000; // 24h
+// Config-backed via ORCY_ASSIGNMENT_DEADLINE_MS (see creationPublicationCutover.ts).
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -811,7 +812,7 @@ export function publishBlockerClearanceTask(
       ? {
           deadline:
             input.targetedAssignmentDeadline ??
-            new Date(Date.now() + DEFAULT_TARGETED_ASSIGNMENT_DEADLINE_MS).toISOString(),
+            new Date(Date.now() + getDefaultAssignmentDeadlineMs()).toISOString(),
         }
       : undefined;
 
