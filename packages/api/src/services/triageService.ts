@@ -4,10 +4,13 @@ import { getDb } from "../db/index.js";
 import { triageClusterMissions } from "../db/schema/index.js";
 import { eq } from "drizzle-orm";
 import { repositoryNotFoundError } from "../errors/repository.js";
+import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { TRIAGE_MISSION_TEMPLATE_ID, applyTemplate } from "../repositories/template.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as pulseRepo from "../repositories/pulse.js";
+import { publishTriageMission } from "./triageMissionPublication.js";
+import { logger } from "../lib/logger.js";
 
 /** Attribution actor shared across triage write paths. */
 export type TriageActor = {
@@ -25,6 +28,35 @@ export function createTriageMission(
   habitatId: string,
   payload: ClusterPayload,
 ): { missionId: string } {
+  // T11 Phase 1C — flag-gated triage routing. When the cutover flag is ON
+  // (tests / T11), route through `publishTriageMission` (kernel chain:
+  // reserve → prepare → govern → publish + atomic junction write — the
+  // crash-window fix). When OFF (production default), the legacy `applyTemplate`
+  // path runs byte-identical. Mirrors the precedent at
+  // `automationExecutor.ts:273-275` + `scheduledTaskService.ts:152-154`.
+  if (isCreationPublicationEnabled()) {
+    const result = publishTriageMission({ kind: "cluster", habitatId, payload });
+    if (result.outcome === "published") {
+      return { missionId: result.missionId };
+    }
+    // Any non-published outcome (vetoed, rejected_validation, guard_mismatch,
+    // governance_denied, replayed, rejected_fingerprint) is a terminal or
+    // rolled-back publication. The legacy path throws `repositoryNotFoundError`
+    // on template-missing; the new path surfaces veto/rejection via the
+    // result union. Logging + throwing preserves the scan-catch contract:
+    // `triageScanService.ts:87-91` already catches any thrown error from this
+    // call and pushes it to the scan's error list. T11 scan-caller adaptation
+    // (mapping `vetoed` to a blocked-triage log entry, `replayed` to a
+    // mission-id re-read, etc.) is intentionally deferred.
+    logger.warn(
+      { habitatId, clusterKey: payload.clusterKey, outcome: result.outcome },
+      "triageService.createTriageMission: triage publication non-terminal",
+    );
+    throw new Error(
+      `Triage publication failed (clusterKey="${payload.clusterKey}", outcome=${result.outcome})`,
+    );
+  }
+
   const variables: Record<string, string> = {
     clusterSubject: payload.clusterKey,
     signalCount: String(payload.signalCount),
@@ -68,6 +100,23 @@ export function createOrphanTriageMission(
   habitatId: string,
   orphan: Mission,
 ): { missionId: string } {
+  // T11 Phase 1C — flag-gated triage routing (orphan origin). Mirrors the
+  // cluster-origin gate above + the precedent at
+  // `automationExecutor.ts:273-275` + `scheduledTaskService.ts:152-154`.
+  if (isCreationPublicationEnabled()) {
+    const result = publishTriageMission({ kind: "orphan", habitatId, orphan });
+    if (result.outcome === "published") {
+      return { missionId: result.missionId };
+    }
+    logger.warn(
+      { habitatId, orphanId: orphan.id, outcome: result.outcome },
+      "triageService.createOrphanTriageMission: triage publication non-terminal",
+    );
+    throw new Error(
+      `Triage publication failed (orphan missionId="${orphan.id}", outcome=${result.outcome})`,
+    );
+  }
+
   const clusterKey = `orphan-mission:${orphan.id}`;
   const description = [
     "## Orphan mission (unmapped in the roadmap DAG)",
