@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { repositoryNotFoundError } from "../errors/repository.js";
 import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { TRIAGE_MISSION_TEMPLATE_ID, applyTemplate } from "../repositories/template.js";
+import { getTaskById } from "../repositories/taskCrud.js";
 import * as triageClusterMissionsRepo from "../repositories/triageClusterMissions.js";
 import * as triageResolutionsRepo from "../repositories/triageResolutions.js";
 import * as pulseRepo from "../repositories/pulse.js";
@@ -39,15 +40,20 @@ export function createTriageMission(
     if (result.outcome === "published") {
       return { missionId: result.missionId };
     }
-    // Any non-published outcome (vetoed, rejected_validation, guard_mismatch,
-    // governance_denied, replayed, rejected_fingerprint) is a terminal or
-    // rolled-back publication. The legacy path throws `repositoryNotFoundError`
-    // on template-missing; the new path surfaces veto/rejection via the
-    // result union. Logging + throwing preserves the scan-catch contract:
-    // `triageScanService.ts:87-91` already catches any thrown error from this
-    // call and pushes it to the scan's error list. T11 scan-caller adaptation
-    // (mapping `vetoed` to a blocked-triage log entry, `replayed` to a
-    // mission-id re-read, etc.) is intentionally deferred.
+    // `replayed` — a prior publication under the same key already succeeded.
+    // The terminal carries the taskId (not missionId). Re-read the Mission
+    // via the Task row so the scan caller sees the existing Mission rather
+    // than a spurious error (the cold-review MINOR #3 fix).
+    if (result.outcome === "replayed" && result.terminal?.taskId) {
+      const task = getTaskById(result.terminal.taskId);
+      if (task) {
+        return { missionId: task.missionId };
+      }
+    }
+    // Any other non-published outcome (vetoed, rejected_validation,
+    // guard_mismatch, governance_denied, rejected_fingerprint) is a terminal
+    // or rolled-back publication. Logging + throwing preserves the
+    // scan-catch contract.
     logger.warn(
       { habitatId, clusterKey: payload.clusterKey, outcome: result.outcome },
       "triageService.createTriageMission: triage publication non-terminal",
@@ -107,6 +113,14 @@ export function createOrphanTriageMission(
     const result = publishTriageMission({ kind: "orphan", habitatId, orphan });
     if (result.outcome === "published") {
       return { missionId: result.missionId };
+    }
+    // `replayed` — prior publication under the same key already succeeded.
+    // Re-read the Mission via the Task row (cold-review MINOR #3 fix).
+    if (result.outcome === "replayed" && result.terminal?.taskId) {
+      const task = getTaskById(result.terminal.taskId);
+      if (task) {
+        return { missionId: task.missionId };
+      }
     }
     logger.warn(
       { habitatId, orphanId: orphan.id, outcome: result.outcome },
