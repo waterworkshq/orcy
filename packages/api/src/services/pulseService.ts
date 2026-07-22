@@ -264,15 +264,31 @@ function createBlockerClearanceTask(opts: {
       // path stamped so UI observers see the same linkage.
       if (result.outcome === "created") {
         const task = result.publication.task;
-        pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
+        // Stamp the pulse link idempotently. The adapter has no pulse-link
+        // participant seam (P2 design — the pulse↔Task link is durable in
+        // provenance via the causal root), so this runs AFTER the publication
+        // commit. Guard against a redundant write when the link is already
+        // correct (a recovering `created` from a prior call whose
+        // post-commit `updateLinkedTask` already succeeded).
+        if (opts.pulse.linkedTaskId !== task.id) {
+          pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
+        }
         return task as Task;
       }
       // `replayed` — a prior publication under the same key already succeeded.
       // The stored terminal carries `taskId` (the originally-created Task).
       // Re-read via the repo so the caller sees the durable Task row rather
-      // than a swallowed null (mirrors the triage MINOR #3 fix).
+      // than a swallowed null (mirrors the triage MINOR #3 fix). REPAIR the
+      // pulse link idempotently: a crash after the publication commit but
+      // before the post-commit `updateLinkedTask` (the M2 crash window)
+      // leaves `linkedTaskId` unset; the replay path historically did NOT
+      // repair it, breaking provenance. Re-stamp it so a retry self-heals.
       if (result.outcome === "replayed" && result.terminal.taskId) {
-        return taskRepo.getTaskById(result.terminal.taskId) ?? null;
+        const task = taskRepo.getTaskById(result.terminal.taskId) ?? null;
+        if (task && opts.pulse.linkedTaskId !== task.id) {
+          pulseRepo.updateLinkedTask(opts.pulse.id, task.id);
+        }
+        return task;
       }
       // `rejected_no_target_mission` — the C1 habitat-scope boundary. The
       // adapter refuses to create a Task under an invalid `missionId`; the

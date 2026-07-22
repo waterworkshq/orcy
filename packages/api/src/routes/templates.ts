@@ -1,20 +1,18 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import type { AuditActorRef, AuditSource, CausalContext } from "@orcy/shared";
 import * as templateRepo from "../repositories/template.js";
 import * as missionRepo from "../repositories/mission.js";
+import { tasks, workflows, taskCreationEnvelopes } from "../db/schema/index.js";
 import { humanAuth, agentOrHumanAuth } from "../middleware/auth.js";
 import { adminOnly } from "../middleware/rbac.js";
 import { z } from "zod";
 import { badRequest, notFound, forbidden, unprocessableEntity, conflict } from "../errors.js";
 import { isCreationPublicationEnabled } from "../config/creationPublicationCutover.js";
 import { getDb } from "../db/index.js";
-import {
-  prepareTemplateAggregate,
-} from "../services/templateAggregatePreparation.js";
-import {
-  publishTemplateAggregateWithClient,
-} from "../services/templateAggregatePublication.js";
+import { prepareTemplateAggregate } from "../services/templateAggregatePreparation.js";
+import { publishTemplateAggregateWithClient } from "../services/templateAggregatePublication.js";
 import { reserveAttemptWithClient } from "../repositories/taskCreationAttempts.js";
 
 const createTemplateSchema = z.object({
@@ -321,14 +319,16 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
 
         const aggregate = prepared.aggregate;
 
-        // 2. RESERVE N attempts (one per prepared Task). Each attemptKey
-        //    includes a per-click UUID nonce so distinct clicks produce
-        //    distinct reservations (interactive route — no replay surface).
-        //    The fingerprint covers the rendered payload so same-click
-        //    retries (the reservation-scoped retry case) would dedup; a
-        //    payload edit under the same attemptKey would surface as
-        //    `rejected_fingerprint` (deterministic — the caller would then
-        //    use a new attemptKey).
+        // 2. RESERVE N attempts (one per prepared Task). The attemptKey is
+        //    DERIVED from `(templateId, taskIndex, requestFingerprint)` so it
+        //    is STABLE across retries of the SAME request — a response-loss
+        //    retry hits the same reservation key and replays (no duplicate
+        //    Mission/Task). A DIFFERENT overrides set produces a different
+        //    fingerprint → a different key → a fresh publication (a legitimate
+        //    distinct application). Mirrors the deterministic key derivation
+        //    in the triage adapter (`triageMissionPublication.ts:780`) and
+        //    the scheduled-occurrence path (which derives its attempt identity
+        //    from the occurrence + schedule).
         const db = getDb();
         const requestFingerprint = computeTemplateApplicationFingerprint({
           templateId: request.params.templateId,
@@ -337,8 +337,9 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
         });
 
         const attemptIds: string[] = [];
+        const replayAttemptIds: string[] = [];
         for (let i = 0; i < aggregate.tasks.length; i++) {
-          const attemptKey = `${request.params.templateId}-${i}-${randomUUID()}`;
+          const attemptKey = `${request.params.templateId}-${i}-${requestFingerprint}`;
           const reservation = reserveAttemptWithClient(db, {
             source: auditSource,
             sourceScopeKind: "mission",
@@ -352,16 +353,65 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
             causalContext,
           });
 
-          // For interactive route-initiated publications, every reservation
-          // is fresh (per-click UUID nonce). A `rejected_fingerprint` here
-          // would indicate a deterministic collision — surface as an internal
-          // error so the operator notices the anomaly rather than masking it.
+          // With deterministic keys embedding the fingerprint, a
+          // `rejected_fingerprint` is a hash-collision anomaly
+          // (astronomically unlikely with SHA-256). Surface as an internal
+          // error so the operator notices rather than masking it.
           if (reservation.outcome === "rejected_fingerprint") {
             throw new Error(
-              `templates route: per-click attempt reservation rejected on fingerprint (templateId="${request.params.templateId}", missionId="${request.params.missionId}", taskIndex=${i})`,
+              `templates route: deterministic attempt reservation rejected on fingerprint (templateId="${request.params.templateId}", missionId="${request.params.missionId}", taskIndex=${i})`,
             );
           }
-          attemptIds.push(reservation.attempt.id);
+
+          const attempt = reservation.attempt;
+
+          if (attempt.state === "pending") {
+            // Fresh or pending-resume → collect for publication.
+            attemptIds.push(attempt.id);
+          } else {
+            // Non-pending: the aggregate already committed under this key
+            // set (response-loss retry). The kernel's per-Task checkpoint
+            // protocol forbids re-publishing a non-pending attempt, so
+            // collect the attemptId for envelope-based reconstruction
+            // instead of re-publishing.
+            replayAttemptIds.push(attempt.id);
+          }
+        }
+
+        // 2a. REPLAY — the aggregate already committed (response-loss retry).
+        //     Reconstruct the published result from the durable
+        //     `task_creation_envelopes` rows (keyed by `attemptId`) — the
+        //     same pattern as the blocker adapter's
+        //     `readCommittedBlockerPublication`. Return 200 (the resource
+        //     already existed). The kernel's replay/fingerprint mechanism
+        //     ensures a same-key retry returns `replayed` (no duplicate
+        //     Mission/Task).
+        if (replayAttemptIds.length > 0) {
+          const replayedTasks = replayAttemptIds
+            .map((id) => {
+              const envelope = db
+                .select()
+                .from(taskCreationEnvelopes)
+                .where(eq(taskCreationEnvelopes.attemptId, id))
+                .get();
+              if (!envelope) return undefined;
+              return db.select().from(tasks).where(eq(tasks.id, envelope.taskId)).get();
+            })
+            .filter((t): t is typeof tasks.$inferSelect => t !== undefined);
+          const replayMissionId = replayedTasks[0]?.missionId ?? null;
+          const replayedMission = replayMissionId
+            ? missionRepo.getMissionById(replayMissionId)
+            : null;
+          const replayedWorkflow = replayMissionId
+            ? (db.select().from(workflows).where(eq(workflows.missionId, replayMissionId)).get() ??
+              null)
+            : null;
+          reply.code(200).send({
+            mission: replayedMission,
+            tasks: replayedTasks,
+            workflow: replayedWorkflow,
+          });
+          return;
         }
 
         // 3. PUBLISH (atomic, inside the publisher's caller-owned tx)
@@ -396,18 +446,14 @@ export async function templateRoutes(fastify: FastifyInstance): Promise<void> {
               reasons: outcome.reasons,
             });
           case "governance_denied":
-            throw forbidden(
-              "Template application denied by governance",
-              "GOVERNANCE_DENIED",
-              {
-                taskIndex: outcome.taskIndex,
-                kind: outcome.kind,
-                reason: outcome.reason,
-                ...(outcome.interceptorKey !== undefined
-                  ? { interceptorKey: outcome.interceptorKey }
-                  : {}),
-              },
-            );
+            throw forbidden("Template application denied by governance", "GOVERNANCE_DENIED", {
+              taskIndex: outcome.taskIndex,
+              kind: outcome.kind,
+              reason: outcome.reason,
+              ...(outcome.interceptorKey !== undefined
+                ? { interceptorKey: outcome.interceptorKey }
+                : {}),
+            });
         }
       }
 

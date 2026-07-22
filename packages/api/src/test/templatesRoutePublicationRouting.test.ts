@@ -33,11 +33,7 @@ import { sql } from "drizzle-orm";
 import Fastify, { type FastifyInstance } from "fastify";
 import { validatorCompiler, serializerCompiler } from "fastify-type-provider-zod";
 import jwt from "jsonwebtoken";
-import {
-  closeDb,
-  getDb,
-  initTestDb,
-} from "../db/index.js";
+import { closeDb, getDb, initTestDb } from "../db/index.js";
 import {
   habitats,
   columns as columnsTable,
@@ -127,11 +123,7 @@ afterEach(() => {
 });
 
 // --- Helpers --------------------------------------------------------------
-function makeToken(payload: {
-  sub: string;
-  username: string;
-  role: string;
-}): string {
+function makeToken(payload: { sub: string; username: string; role: string }): string {
   return jwt.sign(payload, JWT_SECRET, { issuer: "orcy" });
 }
 
@@ -350,7 +342,7 @@ describe("T11 Phase 1G — flag-gated template-application routing", () => {
     expect(counts.tasks).toBe(3);
   });
 
-  it("flag ON: per-click reservations are distinct (no replay surface)", async () => {
+  it("flag ON: distinct overrides produce distinct publications (different fingerprints)", async () => {
     const template = templateRepo.createTemplate({
       habitatId,
       name: "Per-Click Template",
@@ -378,13 +370,62 @@ describe("T11 Phase 1G — flag-gated template-application routing", () => {
     });
     expect(res2.statusCode).toBe(201);
 
-    // Two distinct clicks → two distinct attempts (per-click UUID nonce in
-    // the attemptKey). No replay dedup; each click commits a fresh Mission +
-    // Task.
+    // Two distinct overrides (different titles) → different fingerprints →
+    // different deterministic attemptKeys → two distinct publications.
     const counts = countRows();
     expect(counts.missions).toBe(3); // seed + 2 publications
     expect(counts.tasks).toBe(2);
     expect(counts.attempts).toBe(2);
+  });
+
+  it("flag ON: same-request retry is idempotent (deterministic keys, no duplicate)", async () => {
+    const template = templateRepo.createTemplate({
+      habitatId,
+      name: "Replay Template",
+      titlePattern: "Replay Task",
+      descriptionPattern: "## Goal\nReplay",
+      priority: "medium",
+      tasksTemplate: [{ key: "task_1", title: "Do work", priority: "medium" }],
+      createdBy: "human",
+    });
+
+    const token = makeToken({ sub: "user-1", username: "admin", role: "admin" });
+    const payload = { title: "Same Title", priority: "high" };
+
+    // First request — fresh publication.
+    const res1 = await app!.inject({
+      method: "POST",
+      url: `/missions/${missionId}/apply-template/${template.id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(res1.statusCode).toBe(201);
+    const body1 = JSON.parse(res1.body);
+
+    // Same request (same template + same overrides) → same deterministic
+    // attemptKey → the reservation replays → no duplicate Mission/Task. The
+    // kernel's checkpoint protocol forbids re-publishing a non-pending
+    // attempt, so the route reconstructs the committed result and returns
+    // 200 (the resource already existed).
+    const res2 = await app!.inject({
+      method: "POST",
+      url: `/missions/${missionId}/apply-template/${template.id}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(res2.statusCode).toBe(200);
+    const body2 = JSON.parse(res2.body);
+
+    // The replay returns the SAME committed Mission + Task (no duplicate).
+    expect(body2.mission.id).toBe(body1.mission.id);
+    expect(body2.tasks).toHaveLength(1);
+    expect(body2.tasks[0].id).toBe(body1.tasks[0].id);
+
+    // No duplicate rows committed — one Mission + one Task + one attempt.
+    const counts = countRows();
+    expect(counts.missions).toBe(2); // seed + 1 publication (NOT 3)
+    expect(counts.tasks).toBe(1);
+    expect(counts.attempts).toBe(1); // one attempt, replayed
   });
 });
 

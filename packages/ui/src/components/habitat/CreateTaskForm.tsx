@@ -23,10 +23,7 @@ import {
 } from "../../lib/habitatMutations.js";
 import { queryKeys } from "../../lib/queryKeys.js";
 import { notify } from "../../lib/toast.js";
-import type {
-  TaskPublicationErrorView,
-  TaskPublicationOutcomeView,
-} from "../../types/index.js";
+import type { TaskPublicationErrorView, TaskPublicationOutcomeView } from "../../types/index.js";
 import type { TaskPriority } from "../../types/index.js";
 
 /** Props for the CreateTaskForm dialog. */
@@ -109,7 +106,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   const [attemptKey, setAttemptKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
-  const [validationErrors, setValidationErrors] = useState<readonly TaskPublicationErrorView[] | null>(null);
+  const [validationErrors, setValidationErrors] = useState<
+    readonly TaskPublicationErrorView[] | null
+  >(null);
   const [polling, setPolling] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -265,23 +264,30 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       }
       case "replayed": {
         // An idempotent retry hit a terminal attempt. The stored terminal
-        // task id is in `parsed.taskId` (when present); close on success
-        // unless the stored terminal was a failure outcome (no `taskId`
-        // and `outcome` is one of the failure markers — defensive: the
-        // HTTP mapper forwards all terminal fields verbatim, so a terminal
-        // `rejected_validation` would surface its `errors` here, but the
-        // `replayed` arm currently only carries `taskId` on the view side;
-        // unknown-shape terminals surface as a success close because the
-        // server already terminalized the attempt).
+        // fields arrive verbatim (taskId, errors, veto — forwarded by the
+        // HTTP mapper's `...terminalRest` spread). Close on success when a
+        // Task committed; otherwise surface the stored terminal so the user
+        // can see WHY the stored attempt failed.
         if (parsed.taskId) {
           const label = title.trim();
           invalidateAfterSuccess();
           closeOnSuccess(label);
           return;
         }
-        // No `taskId` — the stored terminal carried no committed Task (a
-        // replayed failure). Surface as a generic error.
-        setSubmitError("Replayed attempt has no committed Task. Please retry with a new key.");
+        // The stored terminal was a failure — surface its fields verbatim.
+        // The attempt key is terminal; null it so the next submit generates
+        // a fresh key (a corrected payload under the old key would collide
+        // with the stored terminal fingerprint).
+        if (parsed.errors) {
+          setValidationErrors(parsed.errors);
+        } else if (parsed.veto) {
+          setSubmitError(
+            `Governance refused the task: ${parsed.veto.interceptorKey} — ${parsed.veto.reason}`,
+          );
+        } else {
+          setSubmitError("Replayed attempt has no committed Task. Please retry with a new key.");
+        }
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -294,6 +300,9 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
         setSubmitError(
           `Governance refused the task: ${parsed.veto.interceptorKey} — ${parsed.veto.reason}`,
         );
+        // The attempt is terminal — a retry needs a fresh key so a corrected
+        // payload doesn't collide with the stored terminal fingerprint.
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -312,6 +321,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
             ? "Guard drift detected — please retry."
             : `Governance denied: ${parsed.reason}`,
         );
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -324,10 +334,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
   }
 
   async function runPoll(attemptId: string) {
-    if (
-      pollDeadlineRef.current !== null &&
-      Date.now() > pollDeadlineRef.current
-    ) {
+    if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
       setSubmitError(
@@ -337,10 +344,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
     }
     try {
       const status = await taskPublicationsApi.getTaskCreationAttempt(attemptId);
-      if (
-        status.state === "created" ||
-        status.state === "created_unassigned"
-      ) {
+      if (status.state === "created" || status.state === "created_unassigned") {
         stopPolling();
         setPolling(false);
         const label = title.trim();
@@ -380,8 +384,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       description: description.trim() || undefined,
       priority,
       requiredDomain: requiredDomain.trim() || undefined,
-      requiredCapabilities:
-        requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
+      requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
       estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
     });
     // 2xx — narrow the body through the typed dispatch parser. The HTTP
@@ -402,8 +405,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
       description: description.trim() || undefined,
       priority,
       requiredDomain: requiredDomain.trim() || undefined,
-      requiredCapabilities:
-        requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
+      requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
       estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
     });
     recordTemplateUsage(selectedTemplateId);
@@ -654,16 +656,7 @@ export function CreateTaskForm({ open, onClose, habitatId, missionId }: CreateTa
           <Button
             type="submit"
             loading={submitting || polling}
-            disabled={
-              submitting ||
-              polling ||
-              !title.trim() ||
-              // Lock the form while a typed rejection is on screen — the user
-              // must read the errors and either fix the fields or pick a
-              // different title. The Cancel button remains active so the
-              // user can abandon the attempt.
-              (outcome !== null && validationErrors === null)
-            }
+            disabled={submitting || polling || !title.trim()}
           >
             Create Task
           </Button>

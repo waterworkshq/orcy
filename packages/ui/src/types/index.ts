@@ -1406,7 +1406,11 @@ export type PublishImportOutcomeView =
  *  renders `rejected_preflight` with the "existing habitat state is
  *  unchanged" banner — the preflight is PURE; nothing commits on rejection. */
 export type PrepareImportOutcomeView =
-  | { outcome: "rejected_preflight"; importAttemptId: string; errors: readonly ImportRejectionDetail[] }
+  | {
+      outcome: "rejected_preflight";
+      importAttemptId: string;
+      errors: readonly ImportRejectionDetail[];
+    }
   | {
       outcome: "already_exists";
       attempt: ImportAttemptView;
@@ -1506,6 +1510,10 @@ export type TaskPublicationOutcomeView =
       outcome: "replayed";
       attemptId: string;
       taskId?: string;
+      /** Present when the stored terminal was `rejected_validation`. */
+      errors?: readonly TaskPublicationErrorView[];
+      /** Present when the stored terminal was `vetoed`. */
+      veto?: { interceptorKey: string; reason: string; pluginRunId: string | null };
     }
   | {
       outcome: "rejected_validation";

@@ -98,12 +98,15 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   const [requiredCapabilities, setRequiredCapabilities] = useState<string[]>([]);
   const [estimatedMinutes, setEstimatedMinutes] = useState<string>("");
   const [subtasks, setSubtasks] = useState<ClonePreparationSubtaskView[]>([]);
+  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([]);
 
   // --- Publication attempt-key lifecycle ---------------------------------
   const [attemptKey, setAttemptKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<TaskPublicationOutcomeView | null>(null);
-  const [validationErrors, setValidationErrors] = useState<readonly TaskPublicationErrorView[] | null>(null);
+  const [validationErrors, setValidationErrors] = useState<
+    readonly TaskPublicationErrorView[] | null
+  >(null);
   const [polling, setPolling] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -132,6 +135,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     setRequiredCapabilities([]);
     setEstimatedMinutes("");
     setSubtasks([]);
+    setSelectedDependencies([]);
     setAttemptKey(null);
     setOutcome(null);
     setValidationErrors(null);
@@ -162,7 +166,10 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
 
     void (async () => {
       try {
-        const result = await taskPublicationsApi.getClonePreparation(sourceTask.id, controller.signal);
+        const result = await taskPublicationsApi.getClonePreparation(
+          sourceTask.id,
+          controller.signal,
+        );
         if (controller.signal.aborted) return;
         setPrep(result);
         // Seed editable fields from the prep DTO.
@@ -172,9 +179,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         setPriority(result.priority);
         setRequiredDomain(result.requiredDomain ?? "");
         setRequiredCapabilities([...result.requiredCapabilities]);
-        setEstimatedMinutes(
-          result.estimatedMinutes != null ? String(result.estimatedMinutes) : "",
-        );
+        setEstimatedMinutes(result.estimatedMinutes != null ? String(result.estimatedMinutes) : "");
         setSubtasks([...result.subtasks]);
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -204,10 +209,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   }, [open, sourceTask.id]);
 
   function addSubtaskRow() {
-    setSubtasks([
-      ...subtasks,
-      { title: "", order: subtasks.length },
-    ]);
+    setSubtasks([...subtasks, { title: "", order: subtasks.length }]);
   }
 
   function updateSubtask(index: number, value: string) {
@@ -220,6 +222,12 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
     const next = subtasks.slice();
     next.splice(index, 1);
     setSubtasks(next.map((s, i) => ({ ...s, order: i })));
+  }
+
+  function toggleDependency(depId: string) {
+    setSelectedDependencies((prev) =>
+      prev.includes(depId) ? prev.filter((d) => d !== depId) : [...prev, depId],
+    );
   }
 
   function invalidateAfterSuccess(missionId: string) {
@@ -245,10 +253,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
   }
 
   async function runPoll(attemptId: string) {
-    if (
-      pollDeadlineRef.current !== null &&
-      Date.now() > pollDeadlineRef.current
-    ) {
+    if (pollDeadlineRef.current !== null && Date.now() > pollDeadlineRef.current) {
       stopPolling();
       setPolling(false);
       setSubmitError(
@@ -307,7 +312,19 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
           closeOnSuccess(title.trim() || "cloned task", finalMissionId);
           return;
         }
-        setSubmitError("Replayed attempt has no committed Task. Please retry with a new key.");
+        // The stored terminal was a failure — surface its fields verbatim
+        // (the HTTP mapper forwards them via `...terminalRest`). The attempt
+        // key is terminal; null it so the next submit generates a fresh key.
+        if (parsed.errors) {
+          setValidationErrors(parsed.errors);
+        } else if (parsed.veto) {
+          setSubmitError(
+            `Governance refused the clone: ${parsed.veto.interceptorKey} — ${parsed.veto.reason}`,
+          );
+        } else {
+          setSubmitError("Replayed attempt has no committed Task. Please retry with a new key.");
+        }
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -320,6 +337,9 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         setSubmitError(
           `Governance refused the clone: ${parsed.veto.interceptorKey} — ${parsed.veto.reason}`,
         );
+        // The attempt is terminal — a retry needs a fresh key so a corrected
+        // payload doesn't collide with the stored terminal fingerprint.
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -336,6 +356,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
             ? "Guard drift detected — please retry."
             : `Governance denied: ${parsed.reason}`,
         );
+        setAttemptKey(null);
         setOutcome(parsed);
         return;
       }
@@ -354,12 +375,12 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
       description: description.trim() || undefined,
       priority,
       requiredDomain: requiredDomain.trim() || undefined,
-      requiredCapabilities:
-        requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
+      requiredCapabilities: requiredCapabilities.length > 0 ? requiredCapabilities : undefined,
       estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes, 10) : undefined,
       subtasks: subtasks
         .filter((s) => s.title.trim().length > 0)
         .map((s, i) => ({ title: s.title.trim(), order: i })),
+      selectedDependencies: selectedDependencies.length > 0 ? selectedDependencies : undefined,
     });
     const parsed = parsePublishTaskResponse(200, result);
     if (parsed.kind === "outcome") {
@@ -412,10 +433,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         if (err instanceof ApiError) {
           const body = err.body;
           if (typeof body === "object" && body !== null && "outcome" in body) {
-            handlePublicationOutcome(
-              body as TaskPublicationOutcomeView,
-              targetMissionId,
-            );
+            handlePublicationOutcome(body as TaskPublicationOutcomeView, targetMissionId);
             return;
           }
         }
@@ -447,8 +465,8 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
         <DialogHeader>
           <DialogTitle>Clone task</DialogTitle>
           <DialogDescription>
-            Create a new task from <strong>{sourceTask.title}</strong>. Edit any field
-            before publishing — copied Subtasks reset to incomplete and unassigned.
+            Create a new task from <strong>{sourceTask.title}</strong>. Edit any field before
+            publishing — copied Subtasks reset to incomplete and unassigned.
           </DialogDescription>
         </DialogHeader>
 
@@ -469,8 +487,8 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
                   Clone preparation is unavailable
                 </div>
                 <div className="text-sm text-amber-800 dark:text-amber-200 mt-1">
-                  The clone publication feature is dormant on this server. The dialog
-                  below falls back to the legacy immediate-copy path.
+                  The clone publication feature is dormant on this server. The dialog below falls
+                  back to the legacy immediate-copy path.
                 </div>
               </div>
             )}
@@ -492,9 +510,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
                     <div className="text-muted-foreground">
                       task <code className="font-mono">{sourceRef.taskId}</code> · mission{" "}
                       <code className="font-mono">{sourceRef.missionId}</code>
-                      {sourceRef.habitatId
-                        ? ` · habitat ${sourceRef.habitatId}`
-                        : ""}
+                      {sourceRef.habitatId ? ` · habitat ${sourceRef.habitatId}` : ""}
                     </div>
                   </div>
                 )}
@@ -594,12 +610,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
                         </Button>
                       </div>
                     ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={addSubtaskRow}
-                    >
+                    <Button type="button" variant="outline" size="sm" onClick={addSubtaskRow}>
                       + Add subtask
                     </Button>
                   </div>
@@ -616,6 +627,30 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
                     className="w-full rounded border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+
+                {(prep?.dependencySuggestions?.length ?? 0) > 0 && (
+                  <div data-testid="dependency-suggestions">
+                    <label className="mb-1 block text-sm font-medium">
+                      Suggested dependencies ({prep!.dependencySuggestions.length})
+                    </label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Optional tasks the clone should depend on. Select the ones to include.
+                    </p>
+                    <div className="space-y-1">
+                      {prep!.dependencySuggestions.map((dep) => (
+                        <label key={dep.dependsOnId} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={selectedDependencies.includes(dep.dependsOnId)}
+                            onChange={() => toggleDependency(dep.dependsOnId)}
+                            className="rounded"
+                          />
+                          <code className="font-mono">{dep.dependsOnId}</code>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Per-field validation errors from the kernel's
                     `rejected_validation` branch (422). */}
@@ -648,8 +683,8 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
                       Checking publication status…
                     </div>
                     <div className="text-sm text-blue-800 dark:text-blue-200 mt-1">
-                      The cloned task committed but is still settling. This dialog will close
-                      when the publication is fully observed.
+                      The cloned task committed but is still settling. This dialog will close when
+                      the publication is fully observed.
                     </div>
                   </div>
                 )}
@@ -686,14 +721,7 @@ export function CloneTaskForm({ open, onClose, sourceTask, habitatId }: CloneTas
             <Button
               type="submit"
               loading={submitting || polling}
-              disabled={
-                submitting ||
-                polling ||
-                !title.trim() ||
-                !targetMissionId ||
-                !hasFetched ||
-                (outcome !== null && validationErrors === null)
-              }
+              disabled={submitting || polling || !title.trim() || !targetMissionId || !hasFetched}
             >
               Publish clone
             </Button>
